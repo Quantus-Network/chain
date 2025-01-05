@@ -31,6 +31,7 @@ pallet-grandpa.workspace = true
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
+pallet-qpow = { version = "0.1.0", default-features = false, path = "../pallets/qpow" }
 sp-api.workspace = true
 sp-block-builder.workspace = true
 sp-consensus-aura = { features = ["serde"], workspace = true }
@@ -77,6 +78,7 @@ std = [
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
+	"pallet-qpow/std",
 
 	"sp-api/std",
 	"sp-block-builder/std",

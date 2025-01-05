@@ -1,15 +1,14 @@
 [workspace.package]
 license = "MIT-0"
-authors = ["Parity Technologies <admin@parity.io>"]
-homepage = "https://paritytech.github.io/polkadot-sdk/"
-repository = "https://github.com/paritytech/polkadot-sdk-solochain-template.git"
+authors = ["Resonance Network Developers <hello@resonancenetwork.io>"]
+homepage = "https://resonancenetwork.io"
+repository = "https://gitlab.com/resonance-network/backbone#"
 edition = "2021"
 
 [workspace]
 members = [
     "node",
-    "pallets/template",
-    "pallets/pow",
+    "pallets/qpow",
     "runtime",
 ]
 resolver = "2"
@@ -17,7 +16,7 @@ resolver = "2"
 [workspace.dependencies]
 solochain-template-runtime = { path = "./runtime", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
-pallet-pow = { path = "./pallets/pow", default-features = false }
+pallet-qpow = { path = "./pallets/qpow", default-features = false }
 clap = { version = "4.5.10" }
 frame-benchmarking-cli = { version = "43.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.6.0", default-features = false }
