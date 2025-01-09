@@ -17,7 +17,8 @@
 // EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 // MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 // IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-// OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// OTHER LIABILITY, WHETH
+// ER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 // ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 // OTHER DEALINGS IN THE SOFTWARE.
 //
@@ -29,20 +30,20 @@ use frame_support::{
 	genesis_builder_helper::{build_state, get_preset},
 	weights::Weight,
 };
-use pallet_grandpa::AuthorityId as GrandpaId;
 use sp_api::impl_runtime_apis;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_core::{OpaqueMetadata};
 use sp_runtime::{
-	traits::{Block as BlockT, NumberFor},
+	traits::{Block as BlockT},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult,
+	print,
+	format,
 };
 use sp_version::RuntimeVersion;
-
+use primitive_types::{U256, U512};
 // Local module imports
 use super::{
-	AccountId, Aura, Balance, Block, Executive, Grandpa, InherentDataExt, Nonce, Runtime,
+	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, SessionKeys, System, TransactionPayment, VERSION,
 };
 
@@ -57,6 +58,12 @@ impl_runtime_apis! {
 		}
 
 		fn initialize_block(header: &<Block as BlockT>::Header) -> sp_runtime::ExtrinsicInclusionMode {
+
+			//print(format!("INIT BLOCK: {:?}", header));
+			let message = format!("ABC {:?}",header);
+			print(message.as_str());
+			//frame_support::debug::info!("INIT_BLOCK");
+
 			Executive::initialize_block(header)
 		}
 	}
@@ -112,55 +119,88 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
-		fn slot_duration() -> sp_consensus_aura::SlotDuration {
-			sp_consensus_aura::SlotDuration::from_millis(Aura::slot_duration())
-		}
-
-		fn authorities() -> Vec<AuraId> {
-			pallet_aura::Authorities::<Runtime>::get().into_inner()
-		}
-	}
-
 	impl sp_session::SessionKeys<Block> for Runtime {
 		fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
 			SessionKeys::generate(seed)
 		}
 
-		fn decode_session_keys(
-			encoded: Vec<u8>,
-		) -> Option<Vec<(Vec<u8>, KeyTypeId)>> {
+		fn decode_session_keys(encoded: Vec<u8>) -> Option<Vec<(Vec<u8>, sp_core::crypto::KeyTypeId)>> {
 			SessionKeys::decode_into_raw_public_keys(&encoded)
 		}
 	}
 
-	impl sp_consensus_grandpa::GrandpaApi<Block> for Runtime {
-		fn grandpa_authorities() -> sp_consensus_grandpa::AuthorityList {
-			Grandpa::grandpa_authorities()
+	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
+		fn submit_proof(
+			header: [u8; 32],
+			solution: [u8; 64],
+			difficulty: u32
+		) -> Result<bool, sp_consensus_qpow::Error> {
+			use sp_consensus_qpow::Error;
+
+
+			print("API: SUBMIT_PROOF");
+
+			if solution == [0u8; 64] {
+				return Err(Error::InvalidProof);
+			}
+
+			let (m, n) = QPoW::get_random_rsa(&header);
+			let header_int = U256::from_big_endian(&header);
+			let solution_int = U512::from_big_endian(&solution);
+
+			let (_, original_trunc) = QPoW::compute_pow(
+				&header_int,
+				&m,
+				&n,
+				&U512::zero(),
+				difficulty
+			);
+
+			let (_, solution_trunc) = QPoW::compute_pow(
+				&header_int,
+				&m,
+				&n,
+				&solution_int,
+				difficulty
+			);
+
+			if original_trunc == solution_trunc {
+				<pallet_qpow::LatestProof<Runtime>>::put(solution);
+				Ok(true)
+			} else {
+				Err(Error::InvalidProof)
+			}
 		}
 
-		fn current_set_id() -> sp_consensus_grandpa::SetId {
-			Grandpa::current_set_id()
+		fn compute_pow(
+			header: [u8; 32],
+			difficulty: u32,
+			solution: [u8; 64]
+		) -> (Vec<u8>, Vec<u8>) {
+
+			let (m,n) = pallet_qpow::Pallet::<Self>::get_random_rsa(&header);
+
+			let (result,truncated) = pallet_qpow::Pallet::<Self>::compute_pow(
+				&U256::from_big_endian(&header),
+				&m,
+				&n,
+				&U512::from_big_endian(&solution),
+				difficulty,
+			);
+
+
+			let result_bytes = result.to_big_endian().to_vec();
+			let truncated_bytes = truncated.to_big_endian().to_vec();
+
+			(result_bytes, truncated_bytes)
 		}
 
-		fn submit_report_equivocation_unsigned_extrinsic(
-			_equivocation_proof: sp_consensus_grandpa::EquivocationProof<
-				<Block as BlockT>::Hash,
-				NumberFor<Block>,
-			>,
-			_key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
-		) -> Option<()> {
-			None
+		fn get_difficulty() -> u32 {
+			16
 		}
 
-		fn generate_key_ownership_proof(
-			_set_id: sp_consensus_grandpa::SetId,
-			_authority_id: GrandpaId,
-		) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
-			// NOTE: this is the only implementation possible since we've
-			// defined our key owner proof type as a bottom type (i.e. a type
-			// with no values).
-			None
+		fn get_latest_proof() -> Option<[u8; 64]> {
+			<pallet_qpow::LatestProof<Runtime>>::get()
 		}
 	}
 

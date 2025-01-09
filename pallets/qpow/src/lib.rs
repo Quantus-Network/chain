@@ -13,7 +13,7 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{pallet_prelude::*, dispatch::DispatchResult};
+	use frame_support::{pallet_prelude::*, dispatch::DispatchResult, traits::BuildGenesisConfig};
 	use frame_system::pallet_prelude::*;
 	use primitive_types::{U256, U512};
 	use sha2::{Digest, Sha256};
@@ -28,6 +28,31 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 		type WeightInfo: WeightInfo;
+	}
+
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		pub initial_difficulty: u32,
+		#[serde(skip)]
+		pub _phantom: PhantomData<T>,
+	}
+
+	//#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			Self {
+				initial_difficulty: 16,
+				_phantom: PhantomData,
+			}
+		}
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+		fn build(&self) {
+			let initial_proof = [0u8; 64];
+			<LatestProof<T>>::put(initial_proof);
+		}
 	}
 
 	//TODO all this should be generated with benchmarks
@@ -158,7 +183,7 @@ pub mod pallet {
 		}
 
 		/// Compute the proof of work function
-		fn compute_pow(
+		pub fn compute_pow(
 			h: &U256,
 			m: &U256,
 			n: &U512,
@@ -170,22 +195,27 @@ pub mod pallet {
 
 			// Compute sum = h + solution
 			let sum = h.saturating_add(*solution);
+			//log::info!("ComputePoW: h={:?}, m={:?}, n={:?}, solution={:?}, sum={:?}", h, m, n, solution, sum);
 
 			// Compute m^sum mod n using modular exponentiation
 			let result = Self::mod_pow(&m, &sum, n);
+			//log::info!("ComputePoW: result={:?}", result);
 
 			// Create difficulty mask
 			let mask = (U512::one() << difficulty) - U512::one();
+			//log::info!("ComputePoW: mask={:?}", mask);
 
 			// Get truncated result
 			let truncated = result & mask;
+			//log::info!("ComputePoW: truncated={:?}", truncated);
+
 
 			(result, truncated)
 		}
 
 
 		/// Modular exponentiation using Substrate's BigUint
-		fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
+		pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
 			if modulus == &U512::zero() {
 				panic!("Modulus cannot be zero");
 			}
@@ -278,6 +308,10 @@ pub mod pallet {
 			}
 
 			true
+		}
+
+		pub fn log_info(message: &str){
+			log::info!("FROM PALL: {}",message);
 		}
 	}
 }

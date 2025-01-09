@@ -37,6 +37,7 @@ sc-transaction-pool-api.workspace = true
 sc-transaction-pool-api.default-features = true
 sc-offchain.workspace = true
 sc-offchain.default-features = true
+sc-consensus-qpow = { default-features = false, path ="../client/consensus/qpow"}
 sc-consensus-aura.workspace = true
 sc-consensus-aura.default-features = true
 sp-consensus-aura.workspace = true
@@ -67,6 +68,7 @@ sp-blockchain.workspace = true
 sp-blockchain.default-features = true
 sp-block-builder.workspace = true
 sp-block-builder.default-features = true
+sp-consensus-qpow = { path = "../primitives/consensus/qpow" } # Update the path
 frame-system.workspace = true
 frame-system.default-features = true
 frame-metadata-hash-extension.workspace = true

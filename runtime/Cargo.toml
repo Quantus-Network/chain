@@ -34,6 +34,7 @@ pallet-transaction-payment.workspace = true
 pallet-qpow = { version = "0.1.0", default-features = false, path = "../pallets/qpow" }
 sp-api.workspace = true
 sp-block-builder.workspace = true
+sp-consensus-qpow = { version="0.1.0", default-features = false, path = "../primitives/consensus/qpow"}
 sp-consensus-aura = { features = ["serde"], workspace = true }
 sp-consensus-grandpa = { features = ["serde"], workspace = true }
 sp-core = { features = ["serde"], workspace = true }
@@ -47,6 +48,7 @@ sp-version = { features = ["serde"], workspace = true }
 sp-genesis-builder.workspace = true
 frame-system-rpc-runtime-api.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
+primitive-types.workspace = true
 frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
@@ -82,6 +84,7 @@ std = [
 
 	"sp-api/std",
 	"sp-block-builder/std",
+	"sp-consensus-qpow/std",
 	"sp-consensus-aura/std",
 	"sp-consensus-grandpa/std",
 	"sp-core/std",
@@ -115,6 +118,7 @@ try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"frame-try-runtime/try-runtime",
+	"pallet-qpow/try-runtime",
 	"pallet-aura/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-grandpa/try-runtime",

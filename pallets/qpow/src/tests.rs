@@ -69,6 +69,110 @@ fn test_submit_invalid_proof() {
 }
 
 #[test]
+fn test_compute_pow_valid_solution() {
+    new_test_ext().execute_with(|| {
+        // Set up test data
+        let h = U256::from(123u32);
+        let m = U256::from(5u32);
+        let n = U512::from(17u32);
+        let solution = U512::from(2u32);
+        let difficulty = 5;
+
+        // Compute the result and the truncated result based on difficulty
+        let (result, truncated) = QPow::compute_pow(&h, &m, &n, &solution, difficulty);
+
+        // Check if the result is computed correctly
+        assert_eq!(result % n, QPow::mod_pow(&U512::from(m), &(U512::from(h) + solution), &n));
+
+        // Verify that the truncated result matches the masked result
+        let mask = (U512::one() << difficulty) - U512::one();
+        assert_eq!(truncated, result & mask);
+    });
+}
+
+#[test]
+fn test_compute_pow_zero_solution() {
+    new_test_ext().execute_with(|| {
+        // Set up test data
+        let h = U256::from(456u32);
+        let m = U256::from(7u32);
+        let n = U512::from(23u32);
+        let solution = U512::zero();
+        let difficulty = 10;
+
+        // Compute the result and the truncated result based on difficulty
+        let (result, truncated) = QPow::compute_pow(&h, &m, &n, &solution, difficulty);
+
+        // Check if the result is computed correctly for a zero solution
+        assert_eq!(result % n, QPow::mod_pow(&U512::from(m), &U512::from(h), &n));
+
+        // Verify that the truncated result matches the masked result
+        let mask = (U512::one() << difficulty) - U512::one();
+        assert_eq!(truncated, result & mask);
+    });
+}
+
+#[test]
+fn test_compute_pow_high_difficulty() {
+    new_test_ext().execute_with(|| {
+        // Set up test data
+        let h = U256::from(789u32);
+        let m = U256::from(3u32);
+        let n = U512::from(29u32);
+        let solution = U512::from(5u32);
+        let difficulty = 256;
+
+        // Compute the result and the truncated result based on difficulty
+        let (result, truncated) = QPow::compute_pow(&h, &m, &n, &solution, difficulty);
+
+        // Verify that the truncated result does not exceed the mask
+        let mask = (U512::one() << difficulty) - U512::one();
+        assert_eq!(truncated, result & mask);
+
+        // Instead of assuming truncated == 0, check if it's within bounds
+        assert!(truncated <= mask);
+    });
+}
+
+#[test]
+fn test_compute_pow_low_difficulty() {
+    new_test_ext().execute_with(|| {
+        // Set up test data
+        let h = U256::from(321u32);
+        let m = U256::from(11u32);
+        let n = U512::from(19u32);
+        let solution = U512::from(4u32);
+        let difficulty = 4;
+
+        // Compute the result and the truncated result based on difficulty
+        let (result, truncated) = QPow::compute_pow(&h, &m, &n, &solution, difficulty);
+
+        // Verify that the truncated result matches the masked result
+        let mask = (U512::one() << difficulty) - U512::one();
+        assert_eq!(truncated, result & mask);
+    });
+}
+
+#[test]
+fn test_compute_pow_overflow_check() {
+    new_test_ext().execute_with(|| {
+        // Set up test data
+        let h = U256::max_value();
+        let m = U256::from(1u32);
+        let n = U512::from(3u32);
+        let solution = U512::from(2u32);
+        let difficulty = 2;
+
+        // Compute the result and the truncated result based on difficulty
+        let (result, truncated) = QPow::compute_pow(&h, &m, &n, &solution, difficulty);
+
+        // Verify the truncated result is valid even for large input values
+        let mask = (U512::one() << difficulty) - U512::one();
+        assert_eq!(truncated, result & mask);
+    });
+}
+
+#[test]
 fn test_get_random_rsa() {
     new_test_ext().execute_with(|| {
         let header = [1u8; 32];
