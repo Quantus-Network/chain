@@ -19,6 +19,9 @@ use sp_runtime::{
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
+pub use pallet_qpow;
+pub use sp_consensus_qpow;
+
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
@@ -50,8 +53,9 @@ pub mod opaque {
 
 impl_opaque_keys! {
 	pub struct SessionKeys {
-		pub aura: Aura,
-		pub grandpa: Grandpa,
+		//pub qpow: QPoW,
+		//QPoW doesn't have session keys ? - TODO - check it
+		//We could have something like this: pub qpow: sp_consensus_qpow::AuthorityId,
 	}
 }
 
@@ -203,12 +207,6 @@ mod runtime {
 	#[runtime::pallet_index(1)]
 	pub type Timestamp = pallet_timestamp;
 
-	#[runtime::pallet_index(2)]
-	pub type Aura = pallet_aura;
-
-	#[runtime::pallet_index(3)]
-	pub type Grandpa = pallet_grandpa;
-
 	#[runtime::pallet_index(4)]
 	pub type Balances = pallet_balances;
 
@@ -221,4 +219,7 @@ mod runtime {
 	// Include the custom logic from the pallet-template in the runtime.
 	#[runtime::pallet_index(7)]
 	pub type TemplateModule = pallet_template;
+
+	#[runtime::pallet_index(8)]
+	pub type QPoW = pallet_qpow;
 }

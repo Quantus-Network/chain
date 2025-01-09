@@ -9,6 +9,8 @@ edition = "2021"
 members = [
     "node",
     "pallets/qpow",
+    "primitives/consensus/qpow",
+    "client/consensus/qpow",
     "runtime",
 ]
 resolver = "2"
@@ -31,6 +33,7 @@ sc-client-api = { version = "37.0.0", default-features = false }
 sc-consensus = { version = "0.44.0", default-features = false }
 sc-consensus-aura = { version = "0.45.0", default-features = false }
 sc-consensus-grandpa = { version = "0.30.0", default-features = false }
+sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 sc-executor = { version = "0.40.1", default-features = false }
 sc-network = { version = "0.45.0", default-features = false }
 sc-offchain = { version = "40.0.0", default-features = false }
@@ -42,6 +45,7 @@ serde_json = { version = "1.0.127", default-features = false }
 sp-api = { version = "34.0.0", default-features = false }
 sp-block-builder = { version = "34.0.0", default-features = false }
 sp-blockchain = { version = "37.0.1", default-features = false }
+sp-consensus = { version="0.40.0", default-features=false }
 sp-consensus-aura = { version = "0.40.0", default-features = false }
 sp-consensus-grandpa = { version = "21.0.0", default-features = false }
 sp-core = { version = "34.0.0", default-features = false }
@@ -65,6 +69,7 @@ pallet-grandpa = { version = "38.0.0", default-features = false }
 pallet-sudo = { version = "38.0.0", default-features = false }
 pallet-timestamp = { version = "37.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "38.0.0", default-features = false }
+primitive-types = { version="0.13.1", default-features=false }
 scale-info = { version = "2.11.1", default-features = false }
 sp-genesis-builder = { version = "0.15.1", default-features = false }
 sp-offchain = { version = "34.0.0", default-features = false }
