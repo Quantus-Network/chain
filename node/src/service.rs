@@ -41,14 +41,8 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		})
 		.transpose()?;
 
-	//let db_config = config.database.clone();
-	//let database_settings = sc_service::config::PruningMode::
-
 	config.state_pruning = Option::from(sc_service::config::PruningMode::ArchiveAll);
-
-	//let mut config = config.clone();
-	//config.prblocks_pruning = sc_service::config::BlocksPruning::::DatabasePruning::Archive;
-
+	
 	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
 		sc_service::new_full_parts::<Block, RuntimeApi, _>(
