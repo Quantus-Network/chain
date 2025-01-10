@@ -29,7 +29,7 @@ pub type Service = sc_service::PartialComponents<
 	),
 >;
 
-pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
+pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> {
 	let telemetry = config
 		.telemetry_endpoints
 		.clone()
@@ -40,6 +40,14 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 			Ok((worker, telemetry))
 		})
 		.transpose()?;
+
+	//let db_config = config.database.clone();
+	//let database_settings = sc_service::config::PruningMode::
+
+	config.state_pruning = Option::from(sc_service::config::PruningMode::ArchiveAll);
+
+	//let mut config = config.clone();
+	//config.prblocks_pruning = sc_service::config::BlocksPruning::::DatabasePruning::Archive;
 
 	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
@@ -93,7 +101,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
-	config: Configuration,
+	mut config: Configuration,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -104,7 +112,7 @@ pub fn new_full<
 		select_chain,
 		transaction_pool,
 		other: (qpow_worker, mut telemetry),
-	} = new_partial(&config)?;
+	} = new_partial(&mut config)?;
 
 	//let mut net_config = sc_network::config::FullNetworkConfiguration::new(&config.network, config.prometheus_registry().cloned());
 

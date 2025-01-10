@@ -231,9 +231,6 @@ where
         .compute_pow(block_hash, header, difficulty, solution)
         .map_err(|e| ConsensusError::ClientImport(format!("Runtime API error: {:?}", e)))?;
 
-    //log::info!("Sealing: R{:?} ",result);
-    //log::info!("Sealing: T{:?} ",truncated);
-
     Ok(truncated)
 }
 
