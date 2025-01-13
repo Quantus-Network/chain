@@ -196,7 +196,7 @@ impl_runtime_apis! {
 		}
 
 		fn get_difficulty() -> u32 {
-			16
+			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
 		fn get_latest_proof() -> Option<[u8; 64]> {

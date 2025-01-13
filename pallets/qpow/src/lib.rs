@@ -310,6 +310,10 @@ pub mod pallet {
 			true
 		}
 
+		pub fn get_difficulty() -> u32 {
+			GenesisConfig::<T>::default().initial_difficulty
+		}
+
 		pub fn log_info(message: &str){
 			log::info!("FROM PALL: {}",message);
 		}
