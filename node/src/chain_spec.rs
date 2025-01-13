@@ -35,8 +35,6 @@ pub fn development_config() -> Result<ChainSpec, String> {
 	.with_id("dev")
 	.with_chain_type(ChainType::Development)
 	.with_genesis_config_patch(testnet_genesis(
-		// No PoA authorities needed for QPoW
-		vec![],
 		// Sudo account
 		get_account_id_from_seed::<sr25519::Public>("Alice"),
 		// Pre-funded accounts
@@ -46,6 +44,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
 			get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
 			get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
 		],
+		16,
 		true,
 	))
 	.build())
@@ -56,39 +55,31 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Local Testnet")
+	.with_name("Resonance - Local Testnet")
 	.with_id("local_testnet")
 	.with_chain_type(ChainType::Local)
-	.with_genesis_config_patch(testnet_genesis(
-		// No PoA authorities needed for QPoW
-		vec![],
-		// Sudo account
-		get_account_id_from_seed::<sr25519::Public>("Alice"),
-		// Pre-funded accounts
-		vec![
+		.with_genesis_config_patch(testnet_genesis(
+			// Sudo account
 			get_account_id_from_seed::<sr25519::Public>("Alice"),
-			get_account_id_from_seed::<sr25519::Public>("Bob"),
-			get_account_id_from_seed::<sr25519::Public>("Charlie"),
-			get_account_id_from_seed::<sr25519::Public>("Dave"),
-			get_account_id_from_seed::<sr25519::Public>("Eve"),
-			get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-			get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
-			get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
-			get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
-			get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
-			get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
-			get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
-		],
-		true,
+			// Pre-funded accounts
+			vec![
+				get_account_id_from_seed::<sr25519::Public>("Alice"),
+				get_account_id_from_seed::<sr25519::Public>("Bob"),
+				get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
+				get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
+			],
+			2,
+			true,
 	))
 	.build())
 }
 
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
-	initial_authorities: Vec<()>,
+	//initial_authorities: Vec<()>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
+	initial_difficulty: u32,
 	_enable_println: bool,
 ) -> serde_json::Value {
 	serde_json::json!({
@@ -101,7 +92,7 @@ fn testnet_genesis(
 			"key": Some(root_key),
 		},
 		"qPoW": {
-            "initialDifficulty": 16u32,
+            "initialDifficulty": initial_difficulty,
         },
 	})
 }

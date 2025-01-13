@@ -1,27 +1,54 @@
-# Substrate Node Template
+# Resonance Network Node
 
-A fresh [Substrate](https://substrate.io/) node, ready for hacking :rocket:
+## Multinode local run
 
-A standalone version of this template is available for each release of Polkadot
-in the [Substrate Developer Hub Parachain
-Template](https://github.com/substrate-developer-hub/substrate-node-template/)
-repository. The parachain template is generated directly at each Polkadot
-release branch from the [Solochain Template in
-Substrate](https://github.com/paritytech/polkadot-sdk/tree/master/templates/solochain)
-upstream
+1. Build the release binary
 
-It is usually best to use the stand-alone version to start a new project. All
-bugs, suggestions, and feature requests should be made upstream in the
-[Substrate](https://github.com/paritytech/polkadot-sdk/tree/master/substrate)
-repository.
+Make sure your Substrate-based node is compiled in release mode:
 
-## Getting Started
+```sh
+cargo build --release
+```
 
-Depending on your operating system and Rust version, there might be additional
-packages required to compile this template. Check the
-[Install](https://docs.substrate.io/install/) instructions for your platform for
-the most common dependencies. Alternatively, you can use one of the [alternative
-installation](#alternatives-installations) options.
+2. Run the main node
+
+Run the first node as a validator. This node will act as the bootstrap node in the network.
+```shell
+./target/release/solochain-template-node --chain local --validator
+```
+
+3. Look in the logs for the message similar to: ("Local node identity is")
+
+```shell
+Local node identity is: <LOCAL_NODE_ID>
+```
+Copy the <LOCAL_NODE_ID> value for use in the next step
+
+4. Run the second node
+
+Start a second node and connect it to the first one using its identity and port.
+```shell
+./target/release/solochain-template-node --chain local --name "PoW Node 2" --port 30334 --rpc-port 9934 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/<LOCAL_NODE_ID> --base-path /tmp/node2 --validator
+```
+Explanation of flags:
+
+- --chain local: Specifies the local testnet chain.
+- --name "PoW Node 2": Assigns a unique name to the second node.
+- --port 30334: The P2P port for this node (must be different from the first node).
+- --rpc-port 9934: The RPC port for this node.
+- --ws-port 9945: The WebSocket port for this node.
+- --bootnodes: Connects this node to the first node using its identity (<LOCAL_NODE_ID>).
+- --base-path /tmp/node2: Sets a separate data directory for this node.
+
+
+## Local dev run
+
+1. Build the release binary
+
+2. Run the node with --dev flag
+```sh
+./target/release/solochain-template-node --dev
+```
 
 ### Build
 

@@ -3,7 +3,7 @@
 use futures::FutureExt;
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
-use sc_telemetry::{Telemetry, TelemetryWorker};
+use sc_telemetry::{log, Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_consensus_qpow::{QPoWWorker, import_queue as qpow_import_queue};
@@ -41,7 +41,9 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		})
 		.transpose()?;
 
+	log::info!("Pruning NewPartial mode before: {:?}", config.state_pruning);
 	config.state_pruning = Option::from(sc_service::config::PruningMode::ArchiveAll);
+	log::info!("Pruning NewPartial mode after: {:?}", config.state_pruning);
 	
 	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
@@ -107,6 +109,10 @@ pub fn new_full<
 		transaction_pool,
 		other: (qpow_worker, mut telemetry),
 	} = new_partial(&mut config)?;
+
+	log::info!("Pruning NewFull mode before: {:?}", config.state_pruning);
+	config.state_pruning = Option::from(sc_service::config::PruningMode::ArchiveAll);
+	log::info!("Pruning NewFull mode after: {:?}", config.state_pruning);
 
 	//let mut net_config = sc_network::config::FullNetworkConfiguration::new(&config.network, config.prometheus_registry().cloned());
 
