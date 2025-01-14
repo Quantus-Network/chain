@@ -15,6 +15,7 @@ variables:
     - cargo --version
 
 clippy:
+  tags: [rust, ubuntu]
   variables:
     SKIP_WASM_BUILD: 1
   stage: .pre
@@ -25,6 +26,7 @@ clippy:
     - cargo clippy --all-targets --locked --workspace
 
 test:
+  tags: [rust, ubuntu]
   variables:
     SKIP_WASM_BUILD: 1
   stage: test
@@ -34,6 +36,7 @@ test:
     - cargo test
 
 build:
+  tags: [rust, ubuntu]
   stage: build
   variables:
     RUSTFLAGS: -Cdebug-assertions=y
