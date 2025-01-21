@@ -1280,9 +1280,9 @@ mod tests {
             ))
         }
 
-/*        fn sign(&self, _message: &[u8]) -> Self::Signature {
-            TestSignature::default()
-        }*/
+        fn sign(&self, _message: &[u8]) -> Self::Signature {
+             TestSignature::default()
+        }
 
         fn verify<M: AsRef<[u8]>>(_: &Self::Signature, _: M, _: &Self::Public) -> bool {
             true
