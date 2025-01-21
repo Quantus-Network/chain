@@ -36,7 +36,6 @@ use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
-
 // Local module imports
 use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION};
 
@@ -68,6 +67,8 @@ impl frame_system::Config for Runtime {
 	type BlockLength = RuntimeBlockLength;
 	/// The identifier used to distinguish between accounts.
 	type AccountId = AccountId;
+
+	type Lookup = sp_runtime::traits::AccountIdLookup<Self::AccountId, ()>;
 	/// The type for storing how many extrinsics an account has signed.
 	type Nonce = Nonce;
 	/// The type for hashing blocks and tries.

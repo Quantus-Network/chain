@@ -2,13 +2,8 @@
 
 use codec::{Decode, Encode};
 use scale_info::TypeInfo;
-use sp_runtime::generic::BlockId;
 extern crate alloc;
 use alloc::vec::Vec;
-use scale_info::build::Fields;
-use sp_api::__private::BlockT;
-use sp_runtime::RuntimeDebug;
-use sp_runtime::traits::NumberFor;
 
 /// Engine ID for QPoW consensus.
 pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";

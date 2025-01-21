@@ -2578,10 +2578,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -3285,6 +3283,15 @@ name = "impl-serde"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc88fc67028ae3db0c853baa36269d398d5f45b6982f95549ff5def78c935cd"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "impl-serde"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a143eada6a1ec4aefa5049037a26a6d597bfd64f8c026d07b77133e02b7dd0b"
 dependencies = [
  "serde",
 ]
@@ -5120,37 +5127,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
-name = "pallet-aura"
-version = "37.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b31da6e794d655d1f9c4da6557a57399538d75905a7862a2ed3f7e5fb711d7e4"
-dependencies = [
- "frame-support",
- "frame-system",
- "log",
- "pallet-timestamp",
- "parity-scale-codec",
- "scale-info",
- "sp-application-crypto",
- "sp-consensus-aura",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-authorship"
-version = "38.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "625d47577cabbe1318ccec5d612e2379002d1b6af1ab6edcef3243c66ec246df"
-dependencies = [
- "frame-support",
- "frame-system",
- "impl-trait-for-tuples",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-balances"
 version = "39.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5167,36 +5143,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-grandpa"
-version = "38.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d3a570a4aac3173ea46b600408183ca2bcfdaadc077f802f11e6055963e2449"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-authorship",
- "pallet-session",
- "parity-scale-codec",
- "scale-info",
- "sp-application-crypto",
- "sp-consensus-grandpa",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-session",
- "sp-staking",
-]
-
-[[package]]
 name = "pallet-qpow"
 version = "0.1.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "getrandom",
  "log",
  "num-bigint",
  "num-traits",
@@ -5208,28 +5160,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
-]
-
-[[package]]
-name = "pallet-session"
-version = "38.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8474b62b6b7622f891e83d922a589e2ad5be5471f5ca47d45831a797dba0b3f4"
-dependencies = [
- "frame-support",
- "frame-system",
- "impl-trait-for-tuples",
- "log",
- "pallet-timestamp",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-session",
- "sp-staking",
- "sp-state-machine",
- "sp-trie",
 ]
 
 [[package]]
@@ -5816,7 +5746,7 @@ checksum = "0b34d9fd68ae0b74a41b21c03c2f62847aa0ffea044eee893b4c140b37e244e2"
 dependencies = [
  "fixed-hash",
  "impl-codec 0.6.0",
- "impl-serde",
+ "impl-serde 0.4.0",
  "scale-info",
  "uint 0.9.5",
 ]
@@ -5829,6 +5759,7 @@ checksum = "d15600a7d856470b7d278b3fe0e311fe28c2526348549f8ef2ff7db3299c87f5"
 dependencies = [
  "fixed-hash",
  "impl-codec 0.7.0",
+ "impl-serde 0.5.0",
  "uint 0.10.0",
 ]
 
@@ -8278,6 +8209,10 @@ dependencies = [
 name = "solochain-template-runtime"
 version = "0.1.0"
 dependencies = [
+ "array-bytes",
+ "blake2 0.10.6",
+ "bounded-collections",
+ "bs58 0.5.1",
  "frame-benchmarking",
  "frame-executive",
  "frame-metadata-hash-extension",
@@ -8286,33 +8221,46 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
- "pallet-aura",
+ "impl-serde 0.4.0",
+ "itertools 0.11.0",
+ "k256",
+ "lazy_static",
  "pallet-balances",
- "pallet-grandpa",
  "pallet-qpow",
  "pallet-sudo",
  "pallet-template",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "parity-bip39",
  "parity-scale-codec",
  "primitive-types 0.13.1",
+ "rand",
+ "regex",
  "scale-info",
+ "secrecy",
+ "serde",
  "sp-api",
  "sp-block-builder",
- "sp-consensus-aura",
- "sp-consensus-grandpa",
  "sp-consensus-qpow",
  "sp-core",
+ "sp-crypto-hashing",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-offchain",
  "sp-runtime",
+ "sp-runtime-interface",
  "sp-session",
+ "sp-std",
  "sp-storage",
  "sp-transaction-pool",
  "sp-version",
+ "ss58-registry",
+ "strum 0.26.3",
+ "substrate-bip39",
  "substrate-wasm-builder",
+ "thiserror 1.0.68",
+ "zeroize",
 ]
 
 [[package]]
@@ -8503,7 +8451,7 @@ dependencies = [
  "futures",
  "hash-db",
  "hash256-std-hasher",
- "impl-serde",
+ "impl-serde 0.4.0",
  "itertools 0.11.0",
  "k256",
  "libsecp256k1",
@@ -8882,7 +8830,7 @@ version = "21.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99c82989b3a4979a7e1ad848aad9f5d0b4388f1f454cc131766526601ab9e8f8"
 dependencies = [
- "impl-serde",
+ "impl-serde 0.4.0",
  "parity-scale-codec",
  "ref-cast",
  "serde",
@@ -8969,7 +8917,7 @@ version = "37.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d521a405707b5be561367cd3d442ff67588993de24062ce3adefcf8437ee9fe1"
 dependencies = [
- "impl-serde",
+ "impl-serde 0.4.0",
  "parity-scale-codec",
  "parity-wasm",
  "scale-info",

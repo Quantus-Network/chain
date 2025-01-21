@@ -13,7 +13,7 @@ use sp_runtime::{
     traits::{Block as BlockT},
 };
 use sp_runtime::codec::Encode;
-use sp_runtime::traits::{Hash, NumberFor, One};
+use sp_runtime::traits::{NumberFor, One};
 
 /// QPoW block verifier
 pub struct QPoWVerifier<C, B> {
@@ -94,7 +94,7 @@ where
             .map_err(|e| ConsensusError::ChainLookup(format!("Failed to get header: {}", e)))?
             .ok_or_else(|| ConsensusError::ChainLookup("Parent block not found".into()))?;
 
-        let mut best_number = self.client.info().best_number;
+        let best_number = self.client.info().best_number;
 
         log::info!("TryMainBlock - start: h:{}, n:{}",best_hash,best_number);
 
@@ -165,7 +165,7 @@ where
 
                 //log::info!("Importing block with header: {:?}", block.header);
                 //log::info!("Block body: {:?}", block.body);
-                let result = self.block_import.lock().await.import_block(block).await;
+                let _result = self.block_import.lock().await.import_block(block).await;
                 //log::info!("Import result: {:?}", result);
 
                 self.last_nonce = Some(nonce);
@@ -185,8 +185,8 @@ where
     pub fn start(&self) -> impl Future<Output = ()> + Send {
         let client = self.client.clone();
         let block_import = self.block_import.clone();
-        let mut last_nonce = self.last_nonce;
-        let mut last_solution = self.last_solution;
+        let last_nonce = self.last_nonce;
+        let last_solution = self.last_solution;
         let target_difficulty = self.target_difficulty;
         let is_running = self.is_running;
 
@@ -197,7 +197,7 @@ where
                 last_nonce,
                 last_solution,
                 target_difficulty,
-                is_running: true,
+                is_running,
                 _phantom: PhantomData,
             };
 
@@ -226,7 +226,7 @@ where
         .map_err(|e| ConsensusError::ClientImport(format!("Failed to get block hash: {:?}", e)))?
         .ok_or_else(|| ConsensusError::ClientImport("Block hash not found".into()))?;
 
-    let (result, truncated) = client
+    let (_result, truncated) = client
         .runtime_api()
         .compute_pow(block_hash, header, difficulty, solution)
         .map_err(|e| ConsensusError::ClientImport(format!("Runtime API error: {:?}", e)))?;

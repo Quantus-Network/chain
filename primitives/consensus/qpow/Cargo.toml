@@ -11,7 +11,7 @@ publish = false
 sp-api = { default-features = false, workspace = true}
 sp-runtime = { default-features = false, workspace = true }
 codec = { default-features = false, workspace = true }
-scale-info = { workspace = true }
+scale-info = { default-features=false, workspace = true }
 primitive-types = { default-features = false, workspace=true }
 
 [features]

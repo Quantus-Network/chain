@@ -14,6 +14,7 @@ use sp_keyring::Sr25519Keyring;
 use sp_runtime::{OpaqueExtrinsic, SaturatedConversion};
 
 use std::{sync::Arc, time::Duration};
+use solochain_template_runtime::ResonanceAccountId;
 
 /// Generates extrinsics for the `benchmark overhead` command.
 ///
@@ -143,7 +144,8 @@ pub fn create_benchmark_extrinsic(
 
 	runtime::UncheckedExtrinsic::new_signed(
 		call,
-		sp_runtime::AccountId32::from(sender.public()).into(),
+		ResonanceAccountId::from(sender.public()).into(),
+		//sp_runtime::AccountId32::from(sender.public()).into(),
 		runtime::Signature::Sr25519(signature),
 		extra,
 	)
