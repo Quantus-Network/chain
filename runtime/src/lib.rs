@@ -7,14 +7,16 @@ pub mod apis;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarks;
 pub mod configs;
+mod resonance;
+
+pub use resonance::sr25519::Keyring;
+pub use resonance::account::ResonanceAccountId;
 
 extern crate alloc;
+extern crate core;
+
 use alloc::vec::Vec;
-use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
-	traits::{BlakeTwo256, IdentifyAccount, Verify},
-	MultiAddress, MultiSignature,
-};
+use sp_runtime::{create_runtime_str, generic, impl_opaque_keys, traits::{BlakeTwo256}, MultiAddress};
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
@@ -92,6 +94,7 @@ mod block_times {
 	pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
 }
 pub use block_times::*;
+use crate::resonance::signature::ResonanceSignature;
 
 // Time is measured by number of blocks.
 pub const MINUTES: BlockNumber = 60_000 / (MILLI_SECS_PER_BLOCK as BlockNumber);
@@ -115,11 +118,13 @@ pub fn native_version() -> NativeVersion {
 }
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = MultiSignature;
+//pub type Signature = MultiSignature; - original cfg
+pub type Signature = ResonanceSignature;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
-pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+//pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId; - original cfg
+pub type AccountId = ResonanceAccountId;
 
 /// Balance of an account.
 pub type Balance = u128;
@@ -164,6 +169,9 @@ pub type SignedExtra = (
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
 	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
+
+/// Extrinsic type that has already been checked.
+pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, SignedExtra>;
 
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
