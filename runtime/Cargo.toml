@@ -121,6 +121,7 @@ std = [
 	"sp-std/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
+	"full_crypto",
 
 	"ss58-registry/std",
 	"substrate-bip39/std",
@@ -167,6 +168,14 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"sp-runtime/try-runtime",
+]
+
+# This feature enables all crypto primitives for `no_std` builds like microcontrollers
+# or Intel SGX.
+# For the regular wasm runtime builds this should not be used.
+full_crypto = [
+	"blake2",
+	"sp-runtime-interface/disable_target_static_assertions",
 ]
 
 # Enable the metadata hash generation.
