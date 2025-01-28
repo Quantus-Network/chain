@@ -94,8 +94,8 @@ pub fn run() -> sc_cli::Result<()> {
 			runner.async_run(|mut config| {
 				let PartialComponents { client, task_manager, backend, .. } =
 					service::new_partial(&mut config)?;
-				let aux_revert = Box::new(|client, _, blocks| {
-					sc_consensus_grandpa::revert(client, blocks)?;
+				let aux_revert = Box::new(|_client, _, _blocks| {
+					//sc_consensus_grandpa::revert(client, blocks)?;
 					Ok(())
 				});
 				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
