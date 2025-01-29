@@ -3,18 +3,137 @@ use std::future::Future;
 use futures::channel::mpsc;
 use num_traits::Zero;
 use tokio::sync::Mutex;
-use sc_client_api::{BlockBackend, HeaderBackend};
-use sc_consensus::{BlockImport, import_queue::{BasicQueue, BoxBlockImport, Verifier}, BlockImportParams, StateAction, ForkChoiceStrategy, ImportQueue, DefaultImportQueue, BlockCheckParams};
+use sc_client_api::{BlockBackend, BlockOf, HeaderBackend};
+use sc_consensus::{BlockImport, import_queue::{BasicQueue, BoxBlockImport, Verifier}, BlockImportParams, StateAction, ForkChoiceStrategy, ImportQueue, DefaultImportQueue, BlockCheckParams, ImportResult};
 use sp_api::__private::HeaderT;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
-use sp_consensus::{BlockOrigin, Error as ConsensusError};
+use sp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::{
     traits::{Block as BlockT},
 };
 use sp_runtime::codec::Encode;
 use sp_runtime::traits::{NumberFor, One};
+
+mod worker;
+pub use worker::QPoWWorker;
+
+
+pub struct QPoWBlockImport<B: BlockT, I, C, SC> {
+    inner: I,
+    client: Arc<C>,
+    select_chain: SC,
+    _phantom: PhantomData<B>,
+}
+
+impl<B: BlockT, I: Clone, C, SC: Clone> Clone for QPoWBlockImport<B, I, C, SC> {
+    fn clone(&self) -> Self {
+        log::info!("Cloning QPoW block import...");
+        Self {
+            inner: self.inner.clone(),
+            client: self.client.clone(),
+            select_chain: self.select_chain.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<B, I, C, SC> QPoWBlockImport<B, I, C, SC>
+where
+    B: BlockT,
+    I: BlockImport<B> + Send + Sync,
+    I::Error: Into<ConsensusError>,
+    C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + BlockOf,
+    C::Api: BlockBuilderApi<B> + QPoWApi<B>,
+    SC: SelectChain<B>,
+{
+    pub fn new(
+        inner: I,
+        client: Arc<C>,
+        select_chain: SC,
+    ) -> Self {
+        log::info!("Creating QPoW block import...");
+        Self {
+            inner,
+            client,
+            select_chain,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<B, I, C, SC> BlockImport<B> for QPoWBlockImport<B, I, C, SC>
+where
+    B: BlockT,
+    I: BlockImport<B> + Send + Sync,
+    I::Error: Into<ConsensusError>,
+    C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + BlockOf,
+    C::Api: BlockBuilderApi<B> + QPoWApi<B>,
+    SC: SelectChain<B>,
+{
+    type Error = ConsensusError;
+
+    async fn check_block(
+        &self,
+        block: BlockCheckParams<B>,
+    ) -> Result<ImportResult, Self::Error> {
+        log::info!("Checking block with QPow...");
+        self.inner.check_block(block).await.map_err(Into::into)
+    }
+
+    async fn import_block(
+        &self,
+        mut block: BlockImportParams<B>,
+    ) -> Result<ImportResult, Self::Error> {
+        log::info!(
+            target: "qpow",
+            "Importing block #{:?}, hash: {:?}",
+            block.header.number(),
+            block.header.hash()
+        );
+
+        // Pobierz najlepszy blok za pomocą select_chain
+        let best_header = self.select_chain
+            .best_chain()
+            .await
+            .map_err(|e| ConsensusError::ChainLookup(format!("Failed to get best chain: {}", e)))?;
+
+        // Ustaw strategię wyboru forka jeśli nie jest ustawiona
+        if block.fork_choice.is_none() {
+            let current_number = block.header.number();
+            let best_number = best_header.number();
+
+            log::info!(
+                target: "qpow",
+                "Current block: #{:?}, Best block: #{:?}",
+                current_number,
+                best_number
+            );
+
+            let is_best = current_number > best_number;
+            block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
+
+            log::info!(
+                target: "qpow",
+                "Setting fork choice strategy: is_best = {}",
+                is_best
+            );
+        }
+
+        // Wykonaj import bloku
+        let result = self.inner.import_block(block).await.map_err(Into::into);
+
+        log::info!(
+            target: "qpow",
+            "Import result: {:?}",
+            result
+        );
+
+        result
+    }
+}
 
 /// QPoW block verifier
 pub struct QPoWVerifier<C, B> {
@@ -30,6 +149,7 @@ where
 {
     /// Create new QPoW verifier.
     pub fn new(client: Arc<C>) -> Self {
+        log::info!("Creating QPoW verifier...");
         Self {
             client,
             _phantom: PhantomData,
@@ -54,223 +174,29 @@ where
     }
 }
 
-/// QPoW worker for block production.
-pub struct QPoWWorker<B: BlockT, C> {
-    client: Arc<C>,
-    block_import: Arc<Mutex<dyn BlockImport<B, Error = ConsensusError> + Send + Sync>>,
-    last_nonce: Option<u64>,                // Przechowuje ostatni użyty nonce
-    last_solution: Option<[u8; 64]>,        // Przechowuje ostatnie rozwiązanie
-    target_difficulty: Option<u32>,         // Docelowy poziom trudności (opcjonalne)
-    is_running: bool,                       // Flaga wskazująca, czy worker działa
-    _phantom: PhantomData<B>,
-}
-
-impl<B, C> QPoWWorker<B, C>
-where
-    B: BlockT,
-    C: ProvideRuntimeApi<B> + BlockBackend<B> + HeaderBackend<B> + Send + Sync + 'static,
-    C::Api: BlockBuilderApi<B> + QPoWApi<B>,
-{
-    /// Create new QPoW worker.
-    pub fn new(
-        client: Arc<C>,
-        block_import: BoxBlockImport<B>,
-    ) -> Self {
-        Self {
-            client,
-            block_import: Arc::new(Mutex::new(block_import)),
-            last_nonce: None,                // Brak początkowego nonce
-            last_solution: None,             // Brak początkowego rozwiązania
-            target_difficulty: None,         // Opcjonalna trudność
-            is_running: false,               // Worker początkowo nie działa
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Try to mine a block
-    async fn try_mine_block(&mut self) -> Result<(), ConsensusError> {
-
-        let best_hash = self.client.info().best_hash;
-        let parent_hash = self.client.info().best_hash;
-        let parent_header = self.client
-            .header(parent_hash)
-            .map_err(|e| ConsensusError::ChainLookup(format!("Failed to get header: {}", e)))?
-            .ok_or_else(|| ConsensusError::ChainLookup("Parent block not found".into()))?;
-
-        let best_number = self.client.info().best_number;
-
-        log::info!("TryMainBlock - start: h:{}, n:{}",best_hash,best_number);
-
-        let difficulty = self.client.runtime_api()
-            .get_difficulty(best_hash).unwrap_or(16);
-
-        log::info!("TryMainBlock - difficulty: {}",difficulty);
-        let next_number = best_number + <<B as BlockT>::Header as HeaderT>::Number::one();
-
-        let mut header = B::Header::new(
-            next_number,
-            Default::default(),
-            Default::default(),
-            best_hash,
-            Default::default(),
-        );
-
-        let mut nonce = self.last_nonce.unwrap_or(0u64);
-        let mut solution = self.last_solution.unwrap_or([0u8; 64]);
-
-        nonce+=1;
-        solution[0..8].copy_from_slice(&nonce.to_le_bytes());
-
-        //log::info!("N {}, S {:?}",nonce,solution);
-
-        loop{
-            let seal = seal_block::<B, C>(
-                self.client.clone(),
-                header.encode().try_into().unwrap_or([0u8; 32]),
-                difficulty,
-                solution,
-            )?;
-
-            if is_valid_seal(&seal, difficulty) {
-                log::info!("Mined block: nonce={}, seal={:?}", nonce, seal);
-
-                header.set_state_root(*parent_header.state_root());
-
-                header.set_extrinsics_root(*parent_header.extrinsics_root());
-
-                header.digest_mut().push(sp_runtime::generic::DigestItem::PreRuntime(
-                    sp_consensus_qpow::QPOW_ENGINE_ID,
-                    seal.clone(),
-                ));
-                header.digest_mut().push(sp_runtime::generic::DigestItem::Seal(
-                    sp_consensus_qpow::QPOW_ENGINE_ID,
-                    seal,
-                ));
-
-                let mut block = BlockImportParams::new(
-                    BlockOrigin::Own,
-                    header.clone(),
-                );
-
-                block.body = None;
-                block.indexed_body = None;
-                block.state_action = StateAction::ExecuteIfPossible;
-                block.finalized = false;
-                block.intermediates = Default::default();
-                block.post_digests = vec![];
-                block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-                block.import_existing = false;
-                block.justifications = None;
-                block.auxiliary = vec![];
-                block.post_hash = None;
-
-                //self.block_import.lock().await.import_block(block).await?;
-
-                //log::info!("Importing block with header: {:?}", block.header);
-                //log::info!("Block body: {:?}", block.body);
-/*                let block_check_params = BlockCheckParams {
-                    hash: header.hash(),
-                    number: (*header.number()).into(),
-                    allow_missing_state: false, // Opcja allow_missing_state
-                    allow_missing_parent: false,
-                    parent_hash: header.parent_hash().into(),
-                    import_existing: false,
-                };*/
-
-                //let _check = self.block_import.lock().await.check_block(block_check_params).await;
-                let _result = self.block_import.lock().await.import_block(block).await;
-                //log::info!("Import result: {:?}", result);
-
-                self.last_nonce = Some(nonce);
-                self.last_solution = Some(solution);
-
-                return Ok(());
-
-            }
-            //nonce += 1;
-            //solution[0..8].copy_from_slice(&nonce.to_le_bytes());
-            //log::info!("SOLUTION FOR THE NEXT NONCE: {:?}",solution);
-
-
-        }
-    }
-
-    pub fn start(&self) -> impl Future<Output = ()> + Send {
-        let client = self.client.clone();
-        let block_import = self.block_import.clone();
-        let last_nonce = self.last_nonce;
-        let last_solution = self.last_solution;
-        let target_difficulty = self.target_difficulty;
-        let is_running = self.is_running;
-
-        async move {
-            let mut worker = QPoWWorker {
-                client,
-                block_import,
-                last_nonce,
-                last_solution,
-                target_difficulty,
-                is_running,
-                _phantom: PhantomData,
-            };
-
-            loop {
-                if let Err(e) = worker.try_mine_block().await {
-                    log::error!("Error while mining block: {:?}", e);
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
-        }
-    }
-}
-
-pub fn seal_block<B, C>(
-    client: Arc<C>,
-    header: [u8; 32],
-    difficulty: u32,
-    solution: [u8; 64],
-) -> Result<Vec<u8>, ConsensusError>
-where
-    B: BlockT,
-    C: sp_api::ProvideRuntimeApi<B> + sc_client_api::BlockBackend<B> + Send + Sync + 'static,
-    C::Api: QPoWApi<B>,
-{
-    let block_hash = client.block_hash(NumberFor::<B>::zero())
-        .map_err(|e| ConsensusError::ClientImport(format!("Failed to get block hash: {:?}", e)))?
-        .ok_or_else(|| ConsensusError::ClientImport("Block hash not found".into()))?;
-
-    let (_result, truncated) = client
-        .runtime_api()
-        .compute_pow(block_hash, header, difficulty, solution)
-        .map_err(|e| ConsensusError::ClientImport(format!("Runtime API error: {:?}", e)))?;
-
-    Ok(truncated)
-}
-
-pub fn is_valid_seal(_seal: &[u8], _difficulty: u32) -> bool {
-    //let hash_value = u256_from_seal(seal);
-
-    //let target = (U256::one() << 256) / U256::from(difficulty);
-
-    //hash_value < target
-    true
-}
-
 /// Create QPoW import queue.
 pub fn import_queue<B, C>(
     client: Arc<C>,
     block_import: BoxBlockImport<B>,
+    select_chain: impl SelectChain<B> + 'static,
     spawner: &impl sp_core::traits::SpawnEssentialNamed,
 ) -> Result<DefaultImportQueue<B>,String>
 where
     B: BlockT,
-    C: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    C::Api: QPoWApi<B>,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockOf + Send + Sync + 'static,
+    C::Api: QPoWApi<B> +BlockBuilderApi<B>,
 {
     log::info!("Creating QPoW import queue ....");
+
+    let qpow_block_import = QPoWBlockImport::new(
+        block_import,
+        client.clone(),
+        select_chain
+    );
+
     Ok(DefaultImportQueue::new(
         QPoWVerifier::new(client.clone()),
-        block_import,
+        Box::new(qpow_block_import),
         None,
         spawner,
         None,

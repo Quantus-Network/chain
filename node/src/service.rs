@@ -8,6 +8,7 @@ use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_consensus_qpow::{QPoWWorker, import_queue as qpow_import_queue};
 use std::sync::Arc;
+use sc_consensus::BoxBlockImport;
 
 pub(crate) type FullClient = sc_service::TFullClient<
 	Block,
@@ -74,12 +75,23 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		Box::new(client.clone()),
 	);
 
-	let import_queue = qpow_import_queue(
+	let import_queue = {
+		log::info!(target: "qpow", "🔄 Setting up import queue with block import type: {:?}",
+        std::any::type_name::<BoxBlockImport<Block>>());
+		qpow_import_queue(
+			client.clone(),
+			Box::new(client.clone()),
+			select_chain.clone(),
+			&task_manager.spawn_essential_handle(),
+		).expect("Failed to create QPoW import queue")
+	};
+
+/*	let import_queue = qpow_import_queue(
 		client.clone(),
 		Box::new(client.clone()),
 		&task_manager.spawn_essential_handle(),
 	).expect("Failed to create QPoW import queue");
-
+*/
 	Ok(sc_service::PartialComponents {
 		client,
 		backend,
