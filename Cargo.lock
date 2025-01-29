@@ -6839,81 +6839,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-consensus-aura"
-version = "0.45.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "067552bcf461c0089272b2575b2ac512fd8ca7a7bd7098aee49ccc4d67041787"
-dependencies = [
- "async-trait",
- "futures",
- "log",
- "parity-scale-codec",
- "sc-block-builder",
- "sc-client-api",
- "sc-consensus",
- "sc-consensus-slots",
- "sc-telemetry",
- "sp-api",
- "sp-application-crypto",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-aura",
- "sp-consensus-slots",
- "sp-core",
- "sp-inherents",
- "sp-keystore",
- "sp-runtime",
- "substrate-prometheus-endpoint",
- "thiserror 1.0.68",
-]
-
-[[package]]
-name = "sc-consensus-grandpa"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3aaab70cf6f93ceea829ef0a4980ce95d84d5c7f4b5419b29bbed17fa04e1a6"
-dependencies = [
- "ahash",
- "array-bytes",
- "async-trait",
- "dyn-clone",
- "finality-grandpa",
- "fork-tree",
- "futures",
- "futures-timer",
- "log",
- "parity-scale-codec",
- "parking_lot 0.12.3",
- "rand",
- "sc-block-builder",
- "sc-chain-spec",
- "sc-client-api",
- "sc-consensus",
- "sc-network",
- "sc-network-common",
- "sc-network-gossip",
- "sc-network-sync",
- "sc-network-types",
- "sc-telemetry",
- "sc-transaction-pool-api",
- "sc-utils",
- "serde_json",
- "sp-api",
- "sp-application-crypto",
- "sp-arithmetic",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-grandpa",
- "sp-core",
- "sp-crypto-hashing",
- "sp-keystore",
- "sp-runtime",
- "substrate-prometheus-endpoint",
- "thiserror 1.0.68",
-]
-
-[[package]]
 name = "sc-consensus-qpow"
 version = "0.1.0"
 dependencies = [
@@ -6934,30 +6859,6 @@ dependencies = [
  "thiserror 2.0.9",
  "time",
  "tokio",
-]
-
-[[package]]
-name = "sc-consensus-slots"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30fcce6ff513c2479c57eac880ba8d4254c146b678a0072d90f81796d47091df"
-dependencies = [
- "async-trait",
- "futures",
- "futures-timer",
- "log",
- "parity-scale-codec",
- "sc-client-api",
- "sc-consensus",
- "sc-telemetry",
- "sp-arithmetic",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-slots",
- "sp-core",
- "sp-inherents",
- "sp-runtime",
- "sp-state-machine",
 ]
 
 [[package]]
@@ -7161,26 +7062,6 @@ dependencies = [
  "sp-consensus",
  "sp-consensus-grandpa",
  "sp-runtime",
-]
-
-[[package]]
-name = "sc-network-gossip"
-version = "0.45.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4086f4ac6b94ff2efd24f1776280c580454c5990b8665aa9f293fcd33c80630"
-dependencies = [
- "ahash",
- "futures",
- "futures-timer",
- "log",
- "sc-network",
- "sc-network-common",
- "sc-network-sync",
- "sc-network-types",
- "schnellru",
- "sp-runtime",
- "substrate-prometheus-endpoint",
- "tracing",
 ]
 
 [[package]]
@@ -8177,8 +8058,6 @@ dependencies = [
  "sc-cli",
  "sc-client-api",
  "sc-consensus",
- "sc-consensus-aura",
- "sc-consensus-grandpa",
  "sc-consensus-qpow",
  "sc-executor",
  "sc-network",
@@ -8192,8 +8071,6 @@ dependencies = [
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
- "sp-consensus-aura",
- "sp-consensus-grandpa",
  "sp-consensus-qpow",
  "sp-core",
  "sp-inherents",
@@ -8378,23 +8255,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp-consensus-aura"
-version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a8faaa05bbcb9c41f0cc535c4c1315abf6df472b53eae018678d1b4d811ac47"
-dependencies = [
- "async-trait",
- "parity-scale-codec",
- "scale-info",
- "sp-api",
- "sp-application-crypto",
- "sp-consensus-slots",
- "sp-inherents",
- "sp-runtime",
- "sp-timestamp",
-]
-
-[[package]]
 name = "sp-consensus-grandpa"
 version = "21.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8421,18 +8281,6 @@ dependencies = [
  "scale-info",
  "sp-api",
  "sp-runtime",
-]
-
-[[package]]
-name = "sp-consensus-slots"
-version = "0.40.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbafb7ed44f51c22fa277fb39b33dc601fa426133a8e2b53f3f46b10f07fba43"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-timestamp",
 ]
 
 [[package]]

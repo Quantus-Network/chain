@@ -21,7 +21,7 @@ pub type Service = sc_service::PartialComponents<
 	FullClient,
 	FullBackend,
 	FullSelectChain,
-	sc_consensus::DefaultImportQueue<Block>,
+	sc_consensus_qpow::QPoWImportQueue<Block>,
 	sc_transaction_pool::FullPool<Block, FullClient>,
 	(
 		QPoWWorker<Block, FullClient>,
@@ -78,7 +78,7 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		client.clone(),
 		Box::new(client.clone()),
 		&task_manager.spawn_essential_handle(),
-	);
+	).expect("Failed to create QPoW import queue");
 
 	Ok(sc_service::PartialComponents {
 		client,
@@ -193,6 +193,8 @@ pub fn new_full<
 			prometheus_registry.as_ref(),
 			telemetry.as_ref().map(|x| x.handle()),
 		);*/
+
+		//log::info!("Starting QPoW worker {:?}",import_queue);
 
 		// Start the QPoW worker
 		task_manager.spawn_essential_handle().spawn_blocking(

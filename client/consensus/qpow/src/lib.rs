@@ -1,9 +1,10 @@
 use std::{marker::PhantomData, sync::Arc};
 use std::future::Future;
+use futures::channel::mpsc;
 use num_traits::Zero;
 use tokio::sync::Mutex;
 use sc_client_api::{BlockBackend, HeaderBackend};
-use sc_consensus::{BlockImport, import_queue::{BasicQueue, BoxBlockImport, Verifier}, BlockImportParams, StateAction, ForkChoiceStrategy};
+use sc_consensus::{BlockImport, import_queue::{BasicQueue, BoxBlockImport, Verifier}, BlockImportParams, StateAction, ForkChoiceStrategy, ImportQueue, DefaultImportQueue, BlockCheckParams};
 use sp_api::__private::HeaderT;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
@@ -47,6 +48,8 @@ where
         &self,
         block: BlockImportParams<B>,
     ) -> Result<BlockImportParams<B>, String> {
+
+        log::info!("Verifying block: ---------------------------------------");
         Ok(block)
     }
 }
@@ -146,7 +149,7 @@ where
 
                 let mut block = BlockImportParams::new(
                     BlockOrigin::Own,
-                    header,
+                    header.clone(),
                 );
 
                 block.body = None;
@@ -165,6 +168,16 @@ where
 
                 //log::info!("Importing block with header: {:?}", block.header);
                 //log::info!("Block body: {:?}", block.body);
+/*                let block_check_params = BlockCheckParams {
+                    hash: header.hash(),
+                    number: (*header.number()).into(),
+                    allow_missing_state: false, // Opcja allow_missing_state
+                    allow_missing_parent: false,
+                    parent_hash: header.parent_hash().into(),
+                    import_existing: false,
+                };*/
+
+                //let _check = self.block_import.lock().await.check_block(block_check_params).await;
                 let _result = self.block_import.lock().await.import_block(block).await;
                 //log::info!("Import result: {:?}", result);
 
@@ -248,17 +261,27 @@ pub fn import_queue<B, C>(
     client: Arc<C>,
     block_import: BoxBlockImport<B>,
     spawner: &impl sp_core::traits::SpawnEssentialNamed,
-) -> BasicQueue<B>
+) -> Result<DefaultImportQueue<B>,String>
 where
     B: BlockT,
     C: ProvideRuntimeApi<B> + Send + Sync + 'static,
     C::Api: QPoWApi<B>,
 {
-    BasicQueue::new(
+    log::info!("Creating QPoW import queue ....");
+    Ok(DefaultImportQueue::new(
         QPoWVerifier::new(client.clone()),
         block_import,
         None,
         spawner,
         None,
-    )
+    ))
+/*    Ok(BasicQueue::new(
+        QPoWVerifier::new(client.clone()),
+        block_import,
+        None,
+        spawner,
+        None,
+    ))*/
 }
+
+pub type QPoWImportQueue<B> = sc_consensus::DefaultImportQueue<B>;
