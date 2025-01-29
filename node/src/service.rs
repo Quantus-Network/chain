@@ -6,7 +6,7 @@ use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{log, Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
-use sc_consensus_qpow::{QPoWWorker, import_queue as qpow_import_queue};
+use sc_consensus_qpow::{QPoWWorker, import_queue as qpow_import_queue, QPoWBlockImport};
 use std::sync::Arc;
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -41,9 +41,9 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		})
 		.transpose()?;
 
-	log::info!("Pruning NewPartial mode before: {:?}", config.state_pruning);
+	log::info!("QPOW: Pruning NewPartial mode before: {:?}", config.state_pruning);
 	config.state_pruning = Option::from(sc_service::config::PruningMode::ArchiveAll);
-	log::info!("Pruning NewPartial mode after: {:?}", config.state_pruning);
+	log::info!("QPOW: Pruning NewPartial mode after: {:?}", config.state_pruning);
 	
 	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
@@ -69,16 +69,26 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		client.clone(),
 	);
 
-	let qpow_worker = QPoWWorker::new(
+	let base_block_import = QPoWBlockImport::new(
 		client.clone(),
-		Box::new(client.clone()),
+		client.clone(),
+		select_chain.clone(),
 	);
 
-	let import_queue = qpow_import_queue(
+	let qpow_worker = QPoWWorker::new(
 		client.clone(),
-		Box::new(client.clone()),
-		&task_manager.spawn_essential_handle(),
-	).expect("Failed to create QPoW import queue");
+		Box::new(base_block_import.clone()),
+	);
+
+	let import_queue = {
+		//log::info!(target: "qpow", "🔄 Setting up import queue ....");
+		qpow_import_queue(
+			client.clone(),
+			Box::new(base_block_import.clone()),
+			select_chain.clone(),
+			&task_manager.spawn_essential_handle(),
+		).expect("Failed to create QPoW import queue")
+	};
 
 	Ok(sc_service::PartialComponents {
 		client,
@@ -110,9 +120,9 @@ pub fn new_full<
 		other: (qpow_worker, mut telemetry),
 	} = new_partial(&mut config)?;
 
-	log::info!("Pruning NewFull mode before: {:?}", config.state_pruning);
+	log::info!("QPOW: Pruning NewFull mode before: {:?}", config.state_pruning);
 	config.state_pruning = Option::from(sc_service::config::PruningMode::ArchiveAll);
-	log::info!("Pruning NewFull mode after: {:?}", config.state_pruning);
+	log::info!("QPOW: Pruning NewFull mode after: {:?}", config.state_pruning);
 
 	//let mut net_config = sc_network::config::FullNetworkConfiguration::new(&config.network, config.prometheus_registry().cloned());
 
@@ -185,16 +195,6 @@ pub fn new_full<
 	})?;
 
 	if role.is_authority() {
-		/*
-		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
-			task_manager.spawn_handle(),
-			client.clone(),
-			transaction_pool.clone(),
-			prometheus_registry.as_ref(),
-			telemetry.as_ref().map(|x| x.handle()),
-		);*/
-
-		//log::info!("Starting QPoW worker {:?}",import_queue);
 
 		// Start the QPoW worker
 		task_manager.spawn_essential_handle().spawn_blocking(

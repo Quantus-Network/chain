@@ -34,6 +34,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
 	.with_name("Development")
 	.with_id("dev")
 	.with_chain_type(ChainType::Development)
+	.with_protocol_id("resonance-protocol")
 	.with_genesis_config_patch(testnet_genesis(
 		// Sudo account
 		get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -58,6 +59,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 	.with_name("Resonance - Local Testnet")
 	.with_id("local_testnet")
 	.with_chain_type(ChainType::Local)
+	.with_protocol_id("resonance-protocol")
 		.with_genesis_config_patch(testnet_genesis(
 			// Sudo account
 			get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -68,7 +70,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 				get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
 				get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
 			],
-			2,
+			16,
 			true,
 	))
 	.build())
