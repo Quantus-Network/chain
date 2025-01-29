@@ -3,7 +3,7 @@ use std::future::Future;
 use num_traits::Zero;
 use tokio::sync::Mutex;
 use sc_client_api::{BlockBackend, HeaderBackend};
-use sc_consensus::{BlockImport, BlockImportParams, StateAction, ForkChoiceStrategy, BasicQueue, ImportQueue, IncomingBlock, DefaultImportQueue};
+use sc_consensus::{BlockImport, BlockImportParams, StateAction, ForkChoiceStrategy};
 use sp_api::__private::HeaderT;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
@@ -13,7 +13,6 @@ use sp_runtime::traits::{Block as BlockT, NumberFor};
 use sp_runtime::codec::Encode;
 use sp_runtime::traits::One;
 use sc_consensus::BoxBlockImport;
-use sc_consensus::import_queue::ImportQueueService;
 
 pub struct QPoWWorker<B: BlockT, C> {
     client: Arc<C>,
@@ -51,17 +50,17 @@ where
         let parent_hash = self.client.info().best_hash;
         let parent_header = self.client
             .header(parent_hash)
-            .map_err(|e| ConsensusError::ChainLookup(format!("Failed to get header: {}", e)))?
-            .ok_or_else(|| ConsensusError::ChainLookup("Parent block not found".into()))?;
+            .map_err(|e| ConsensusError::ChainLookup(format!("QPOW: Failed to get header: {}", e)))?
+            .ok_or_else(|| ConsensusError::ChainLookup("QPOW: Parent block not found".into()))?;
 
         let best_number = self.client.info().best_number;
 
-        log::info!("TryMainBlock - start: h:{}, n:{}", best_hash, best_number);
+        log::info!("QPOW: TryMainBlock - start: h:{}, n:{}", best_hash, best_number);
 
         let difficulty = self.client.runtime_api()
             .get_difficulty(best_hash).unwrap_or(16);
 
-        log::info!("TryMainBlock - difficulty: {}", difficulty);
+        log::info!("QPOW: TryMainBlock - difficulty: {}", difficulty);
         let next_number = best_number + <<B as BlockT>::Header as HeaderT>::Number::one();
 
         let mut header = B::Header::new(
@@ -87,7 +86,7 @@ where
             )?;
 
             if is_valid_seal(&seal, difficulty) {
-                log::info!("Mined block: nonce={}, seal={:?}", nonce, seal);
+                log::info!("QPOW: Mined block: nonce={}, seal={:?}", nonce, seal);
 
                 header.set_state_root(*parent_header.state_root());
                 header.set_extrinsics_root(*parent_header.extrinsics_root());
@@ -118,8 +117,7 @@ where
                 block.auxiliary = vec![];
                 block.post_hash = None;
 
-                let result = self.block_import.lock().await.import_block(block).await;
-                //log::info!("Import block result: {:?}", result);
+                let _result = self.block_import.lock().await.import_block(block).await;
 
                 self.last_nonce = Some(nonce);
                 self.last_solution = Some(solution);
@@ -131,7 +129,6 @@ where
 
     pub fn start(&self) -> impl Future<Output = ()> + Send {
         let client = self.client.clone();
-        //let import_queue = self.import_queue.clone();
         let block_import = self.block_import.clone();
         let last_nonce = self.last_nonce;
         let last_solution = self.last_solution;
@@ -151,7 +148,7 @@ where
 
             loop {
                 if let Err(e) = worker.try_mine_block().await {
-                    log::error!("Error while mining block: {:?}", e);
+                    log::error!("QPOW: Error while mining block: {:?}", e);
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
@@ -170,13 +167,13 @@ where
     C::Api: QPoWApi<B>,
 {
     let block_hash = client.block_hash(NumberFor::<B>::zero())
-        .map_err(|e| ConsensusError::ClientImport(format!("Failed to get block hash: {:?}", e)))?
-        .ok_or_else(|| ConsensusError::ClientImport("Block hash not found".into()))?;
+        .map_err(|e| ConsensusError::ClientImport(format!("QPOW: Failed to get block hash: {:?}", e)))?
+        .ok_or_else(|| ConsensusError::ClientImport("QPOW: Block hash not found".into()))?;
 
     let (_result, truncated) = client
         .runtime_api()
         .compute_pow(block_hash, header, difficulty, solution)
-        .map_err(|e| ConsensusError::ClientImport(format!("Runtime API error: {:?}", e)))?;
+        .map_err(|e| ConsensusError::ClientImport(format!("QPOW: Runtime API error: {:?}", e)))?;
 
     Ok(truncated)
 }

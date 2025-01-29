@@ -1,20 +1,14 @@
 use std::{marker::PhantomData, sync::Arc};
-use std::future::Future;
-use futures::channel::mpsc;
-use num_traits::Zero;
-use tokio::sync::Mutex;
-use sc_client_api::{BlockBackend, BlockOf, HeaderBackend};
-use sc_consensus::{BlockImport, import_queue::{BasicQueue, BoxBlockImport, Verifier}, BlockImportParams, StateAction, ForkChoiceStrategy, ImportQueue, DefaultImportQueue, BlockCheckParams, ImportResult};
+use sc_client_api::{BlockOf, HeaderBackend};
+use sc_consensus::{BlockImport, import_queue::{BasicQueue, BoxBlockImport, Verifier}, BlockImportParams, ForkChoiceStrategy, DefaultImportQueue, BlockCheckParams, ImportResult};
 use sp_api::__private::HeaderT;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
-use sp_consensus::{BlockOrigin, Error as ConsensusError, SelectChain};
+use sp_consensus::{Error as ConsensusError, SelectChain};
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::{
     traits::{Block as BlockT},
 };
-use sp_runtime::codec::Encode;
-use sp_runtime::traits::{NumberFor, One};
 
 mod worker;
 pub use worker::QPoWWorker;
@@ -29,7 +23,7 @@ pub struct QPoWBlockImport<B: BlockT, I, C, SC> {
 
 impl<B: BlockT, I: Clone, C, SC: Clone> Clone for QPoWBlockImport<B, I, C, SC> {
     fn clone(&self) -> Self {
-        log::info!("Cloning QPoW block import...");
+        log::info!("QPOW: Cloning QPoW block import...");
         Self {
             inner: self.inner.clone(),
             client: self.client.clone(),
@@ -53,7 +47,7 @@ where
         client: Arc<C>,
         select_chain: SC,
     ) -> Self {
-        log::info!("Creating QPoW block import...");
+        log::info!("QPOW: Creating QPoW block import...");
         Self {
             inner,
             client,
@@ -69,7 +63,7 @@ where
     B: BlockT,
     I: BlockImport<B> + Send + Sync,
     I::Error: Into<ConsensusError>,
-    C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + BlockOf,
+    C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + BlockOf + 'static,
     C::Api: BlockBuilderApi<B> + QPoWApi<B>,
     SC: SelectChain<B>,
 {
@@ -79,7 +73,7 @@ where
         &self,
         block: BlockCheckParams<B>,
     ) -> Result<ImportResult, Self::Error> {
-        log::info!("Checking block with QPow...");
+        log::info!("QPOW: Checking block with QPow...");
         self.inner.check_block(block).await.map_err(Into::into)
     }
 
@@ -89,10 +83,15 @@ where
     ) -> Result<ImportResult, Self::Error> {
         log::info!(
             target: "qpow",
-            "Importing block #{:?}, hash: {:?}",
+            "QPOW: Importing block #{:?}, hash: {:?}",
             block.header.number(),
             block.header.hash()
         );
+
+        let verifier = QPoWVerifier::new(self.client.clone());
+        block = verifier.verify(block)
+            .await
+            .map_err(|e| ConsensusError::ClientImport(e))?;
 
         // Pobierz najlepszy blok za pomocą select_chain
         let best_header = self.select_chain
@@ -107,7 +106,7 @@ where
 
             log::info!(
                 target: "qpow",
-                "Current block: #{:?}, Best block: #{:?}",
+                "QPOW: Current block: #{:?}, Best block: #{:?}",
                 current_number,
                 best_number
             );
@@ -117,7 +116,7 @@ where
 
             log::info!(
                 target: "qpow",
-                "Setting fork choice strategy: is_best = {}",
+                "QPOW: Setting fork choice strategy: is_best = {}",
                 is_best
             );
         }
@@ -127,7 +126,7 @@ where
 
         log::info!(
             target: "qpow",
-            "Import result: {:?}",
+            "QPOW: Import result: {:?}",
             result
         );
 
@@ -149,7 +148,7 @@ where
 {
     /// Create new QPoW verifier.
     pub fn new(client: Arc<C>) -> Self {
-        log::info!("Creating QPoW verifier...");
+        log::info!("QPOW: Creating QPoW verifier...");
         Self {
             client,
             _phantom: PhantomData,
@@ -169,7 +168,7 @@ where
         block: BlockImportParams<B>,
     ) -> Result<BlockImportParams<B>, String> {
 
-        log::info!("Verifying block: ---------------------------------------");
+        log::info!("QPOW: Verifying block: ---------------------------------------");
         Ok(block)
     }
 }
@@ -186,7 +185,7 @@ where
     C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockOf + Send + Sync + 'static,
     C::Api: QPoWApi<B> +BlockBuilderApi<B>,
 {
-    log::info!("Creating QPoW import queue ....");
+    log::info!("QPOW: Creating QPoW import queue ....");
 
     let qpow_block_import = QPoWBlockImport::new(
         block_import,
@@ -194,20 +193,13 @@ where
         select_chain
     );
 
-    Ok(DefaultImportQueue::new(
+    Ok(BasicQueue::new(
         QPoWVerifier::new(client.clone()),
         Box::new(qpow_block_import),
         None,
         spawner,
         None,
     ))
-/*    Ok(BasicQueue::new(
-        QPoWVerifier::new(client.clone()),
-        block_import,
-        None,
-        spawner,
-        None,
-    ))*/
 }
 
-pub type QPoWImportQueue<B> = sc_consensus::DefaultImportQueue<B>;
+pub type QPoWImportQueue<B> = DefaultImportQueue<B>;
