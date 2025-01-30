@@ -1,0 +1,1 @@
+./run_local_nodes.sh: line 31: ./target/release/solochain-template-node: No such file or directory
