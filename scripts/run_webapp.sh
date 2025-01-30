@@ -23,5 +23,5 @@ else
     yarn install
 fi
 
-echo "Starting Polkadot JS web app..."
-yarn start
+echo "Running Polkadot JS web app => http://localhost:3000/"
+yarn run start
