@@ -1,34 +1,25 @@
 const { ApiPromise, WsProvider, Keyring } = require('@polkadot/api');
 
 async function main() {
-  // Explicit type definitions for PoW chain
-  const types = {
-    Extrinsic: {
-      version: 'u8',
-      signature: 'Option<(Address, Signature, ExtrinsicEra, Compact<Index>, Compact<Weight>)>',
-      call: 'Call'
-    },
-    ExtrinsicEra: {
-      _enum: ['Immortal', 'Mortal']
-    }
-  };
+  const provider = new WsProvider('ws://127.0.0.1:9944');
 
-  const api = await ApiPromise.create({
-    provider: new WsProvider('ws://127.0.0.1:9944'),
-    types
-  });
+  // No need to manually specify types, Polkadot.js can infer them
+  const api = await ApiPromise.create({ provider });
 
   const keyring = new Keyring({ type: 'sr25519' });
   const alice = keyring.addFromUri('//Alice');
 
-  // Use immortal transactions (common in PoW chains)
+  // Create the transaction
   const tx = api.tx.balances.transferKeepAlive(
     '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
     123456789
   );
 
-  // Sign and send without era specification
-  const unsub = await tx.signAndSend(alice, ({ events = [], status }) => {
+  // Fetch nonce
+  const { nonce } = await api.query.system.account(alice.address);
+
+  // Sign and send explicitly as an Immortal transaction
+  const unsub = await tx.signAndSend(alice, { nonce, era: api.createType('ExtrinsicEra', 0) }, ({ events = [], status }) => {
     console.log(`Transaction status: ${status.type}`);
     
     if (status.isInBlock) {
