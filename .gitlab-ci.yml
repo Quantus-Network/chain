@@ -47,5 +47,7 @@ testnet:
       ssh \
         -v \
         -o StrictHostKeyChecking=accept-new \
+        -o IdentitiesOnly=yes \
+        -o IdentityFile=id_ed25519 \
         resonance@10.9.1.215 \
         "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
