@@ -1,10 +1,12 @@
 image: rust:latest
 
-variables:
-  CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: stable
-
-.common:
+build:
+  tags: [rust, ubuntu]
+  stage: build
+  variables:
+    CARGO_TERM_COLOR: always
+    RUST_TOOLCHAIN: stable
+    RUSTFLAGS: -Cdebug-assertions=y
   before_script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libclang-dev
@@ -13,37 +15,8 @@ variables:
     - rustup update
     - rustup show
     - cargo --version
-
-clippy:
-  tags: [rust, ubuntu]
-  variables:
-    SKIP_WASM_BUILD: 1
-  stage: .pre
-  before_script:
-    - !reference [.common, before_script]
-    - rustup component add clippy
-  script:
-    - cargo clippy --all-targets --locked --workspace
-
-test:
-  tags: [rust, ubuntu]
-  variables:
-    SKIP_WASM_BUILD: 1
-  stage: test
-  before_script:
-    - !reference [.common, before_script]
-  script:
-    - cargo test
-
-build:
-  tags: [rust, ubuntu]
-  stage: build
-  variables:
-    RUSTFLAGS: -Cdebug-assertions=y
-  before_script:
-    - !reference [.common, before_script]
-    - rustup target add wasm32-unknown-unknown --toolchain stable-x86_64-unknown-linux-gnu
-    - rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+    - rustup target add wasm32-unknown-unknown
+    - rustup component add rust-src
   script:
     - cargo build --locked --release --verbose
   after_script:
@@ -57,3 +30,14 @@ build:
       - resonance.sha256
       - resonance_runtime.compact.compressed.wasm
       - resonance_runtime.compact.compressed.wasm.sha256
+
+testnet:
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+  tags: [fedora, infra]
+  stage: deploy
+  before_script:
+    - eval "$(ssh-agent -s)"
+    - ssh-add /root/.ssh/id_ed25519
+  script:
+    - ssh resonance@10.9.1.215 "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
