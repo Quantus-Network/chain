@@ -1,11 +1,10 @@
-image: rust:latest
-
 compile:
   stage: build
   rules:
     - if: $CI_COMMIT_MESSAGE =~ /wip/i
       when: never
   tags: [rust, ubuntu]
+  image: rust:latest
   variables:
     CARGO_TERM_COLOR: always
     RUST_TOOLCHAIN: stable
@@ -39,5 +38,6 @@ testnet:
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
   tags: [fedora, infra]
+  image: fedora:latest
   script:
     - ssh -o StrictHostKeyChecking=accept-new resonance@10.9.1.215 "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
