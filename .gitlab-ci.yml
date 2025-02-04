@@ -2,6 +2,9 @@ image: rust:latest
 
 compile:
   stage: build
+  rules:
+    - if: $CI_COMMIT_MESSAGE =~ /wip/i
+      when: never
   tags: [rust, ubuntu]
   variables:
     CARGO_TERM_COLOR: always
@@ -36,10 +39,5 @@ testnet:
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
   tags: [fedora, infra]
-  before_script:
-    - whoami
-    - echo ${HOME}
-    #- eval "$(ssh-agent -s)"
-    #- ssh-add ${HOME}/.ssh/id_ed25519
   script:
-    - ssh resonance@10.9.1.215 "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
+    - ssh -o StrictHostKeyChecking=accept-new resonance@10.9.1.215 "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
