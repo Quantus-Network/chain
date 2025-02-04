@@ -42,5 +42,5 @@ testnet:
     - dnf update --assumeyes --quiet
     - dnf install --assumeyes --quiet rsync ssh
   script:
-    - ssh -o IdentityFile=~/.ssh/id_ed25519 -o IdentitiesOnly=yes resonance@10.9.1.215 'systemctl is-active --quiet resonance.service && sudo systemctl stop resonance.service'
+    - ssh -o IdentityFile=~/.ssh/id_ed25519 -o IdentitiesOnly=yes resonance@10.9.1.215 'systemctl is-active --quiet resonance.service && sudo systemctl stop resonance.service' || true
     - rsync --archive --compress --rsync-path='sudo rsync' --rsh 'ssh -o IdentityFile=~/.ssh/id_ed25519 -o IdentitiesOnly=yes' ./resonance resonance@10.9.1.215:/usr/local/bin/resonance
