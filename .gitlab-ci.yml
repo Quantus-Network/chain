@@ -41,13 +41,7 @@ testnet:
   image: fedora:latest
   before_script:
     - dnf update --assumeyes --quiet
-    - dnf install --assumeyes --quiet ssh
+    - dnf install --assumeyes --quiet rsync ssh
   script:
-    - |
-      ssh \
-        -v \
-        -o StrictHostKeyChecking=accept-new \
-        -o IdentitiesOnly=yes \
-        -o IdentityFile=~/.ssh/id_ed25519 \
-        resonance@10.9.1.215 \
-        "echo 'gitlab infra runner says hello' > ~/hello-world.txt"
+    - ssh resonance@10.9.1.215 'systemctl is-active --quiet resonance.service && sudo systemctl stop resonance.service'
+    - rsync --archive --compress --rsync-path='sudo rsync' ./resonance resonance@10.9.1.215:/usr/local/bin/resonance
