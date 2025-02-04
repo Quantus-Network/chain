@@ -39,5 +39,8 @@ testnet:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
   tags: [fedora, infra]
   image: fedora:latest
+  before_script:
+    - dnf update -y
+    - dnf install -y ssh
   script:
     - ssh -o StrictHostKeyChecking=accept-new resonance@10.9.1.215 "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
