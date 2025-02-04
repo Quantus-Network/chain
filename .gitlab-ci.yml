@@ -40,7 +40,12 @@ testnet:
   tags: [fedora, infra]
   image: fedora:latest
   before_script:
-    - dnf update -y
-    - dnf install -y ssh
+    - dnf update --assumeyes --quiet
+    - dnf install --assumeyes --quiet ssh
   script:
-    - ssh -o StrictHostKeyChecking=accept-new resonance@10.9.1.215 "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
+    - |
+      ssh \
+        -v \
+        -o StrictHostKeyChecking=accept-new \
+        resonance@10.9.1.215 \
+        "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
