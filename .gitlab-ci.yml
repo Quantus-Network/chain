@@ -1,8 +1,5 @@
 compile:
   stage: build
-  rules:
-    - if: $CI_COMMIT_MESSAGE =~ /wip/i
-      when: never
   tags: [rust, ubuntu]
   image: rust:latest
   variables:
@@ -35,6 +32,8 @@ compile:
 
 testnet:
   stage: deploy
+  dependencies:
+    - compile
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
   tags: [fedora, infra]
