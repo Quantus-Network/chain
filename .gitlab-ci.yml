@@ -50,4 +50,4 @@ testnet:
         -o IdentitiesOnly=yes \
         -o IdentityFile=~/.ssh/id_ed25519 \
         resonance@10.9.1.215 \
-        "echo 'gitlab infra runner says hello' > /home/resonance/hello-world.txt"
+        "echo 'gitlab infra runner says hello' > ~/hello-world.txt"
