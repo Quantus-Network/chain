@@ -93,14 +93,17 @@ where
             .await
             .map_err(|e| ConsensusError::ClientImport(e))?;
 
-        // Pobierz najlepszy blok za pomocą select_chain
+        //log::info!("Block verified -------");
+
         let best_header = self.select_chain
             .best_chain()
             .await
             .map_err(|e| ConsensusError::ChainLookup(format!("Failed to get best chain: {}", e)))?;
 
-        // Ustaw strategię wyboru forka jeśli nie jest ustawiona
+        //log::info!("Best header: {:?} -------", best_header);
+
         if block.fork_choice.is_none() {
+            log::info!("Fork choice strategy == none");
             let current_number = block.header.number();
             let best_number = best_header.number();
 
@@ -120,6 +123,8 @@ where
                 is_best
             );
         }
+
+
 
         // Wykonaj import bloku
         let result = self.inner.import_block(block).await.map_err(Into::into);
@@ -148,7 +153,7 @@ where
 {
     /// Create new QPoW verifier.
     pub fn new(client: Arc<C>) -> Self {
-        log::info!("QPOW: Creating QPoW verifier...");
+        //log::info!("QPOW: Creating QPoW verifier...");
         Self {
             client,
             _phantom: PhantomData,
@@ -168,7 +173,9 @@ where
         block: BlockImportParams<B>,
     ) -> Result<BlockImportParams<B>, String> {
 
-        log::info!("QPOW: Verifying block: ---------------------------------------");
+        //TODO we need a real content here
+        let _ = self.client.as_ref();
+        //log::info!("QPOW: Verifying block: ---------------------------------------");
         Ok(block)
     }
 }

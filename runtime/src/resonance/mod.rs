@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub mod sr25519;
 pub mod address_uri;
 pub mod crypto_bytes;

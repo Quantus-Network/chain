@@ -30,6 +30,7 @@ use frame_support::{
 	genesis_builder_helper::{build_state, get_preset},
 	weights::Weight,
 };
+use frame_support::__private::sp_io;
 use sp_api::impl_runtime_apis;
 use sp_core::{OpaqueMetadata};
 use sp_runtime::{
@@ -54,6 +55,11 @@ impl_runtime_apis! {
 		}
 
 		fn execute_block(block: Block) {
+				sp_io::logging::log(
+					sp_core::LogLevel::Info,
+					"runtime",
+					b"EXECUTE_BLOCK-------"
+				);
 			Executive::execute_block(block);
 		}
 

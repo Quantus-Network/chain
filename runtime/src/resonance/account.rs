@@ -694,7 +694,7 @@ mod dummy {
 
 
         #[cfg(feature = "full_crypto")]
-        fn sign(&self, message: &[u8]) -> Self::Signature{
+        fn sign(&self, _message: &[u8]) -> Self::Signature{
             Self::default()
         }
 

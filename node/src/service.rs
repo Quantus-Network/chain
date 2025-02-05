@@ -8,6 +8,8 @@ use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_consensus_qpow::{QPoWWorker, import_queue as qpow_import_queue, QPoWBlockImport};
 use std::sync::Arc;
+use sc_basic_authorship::ProposerFactory;
+use sp_consensus::DisableProofRecording;
 
 pub(crate) type FullClient = sc_service::TFullClient<
 	Block,
@@ -24,7 +26,16 @@ pub type Service = sc_service::PartialComponents<
 	sc_consensus_qpow::QPoWImportQueue<Block>,
 	sc_transaction_pool::FullPool<Block, FullClient>,
 	(
-		QPoWWorker<Block, FullClient>,
+		QPoWWorker<
+			Block,
+			FullClient,
+			sc_transaction_pool::FullPool<Block, FullClient>,
+			ProposerFactory<
+				sc_transaction_pool::FullPool<Block, FullClient>,
+				FullClient,
+				DisableProofRecording
+			>
+		>,
 		Option<Telemetry>,
 	),
 >;
@@ -75,9 +86,19 @@ pub fn new_partial(config: &mut Configuration) -> Result<Service, ServiceError> 
 		select_chain.clone(),
 	);
 
+	let proposer_factory = ProposerFactory::new(
+		task_manager.spawn_handle(),
+		client.clone(),
+		transaction_pool.clone(),
+		config.prometheus_registry(),
+		telemetry.as_ref().map(|t| t.handle()),
+	);
+
 	let qpow_worker = QPoWWorker::new(
 		client.clone(),
 		Box::new(base_block_import.clone()),
+		transaction_pool.clone(),
+		proposer_factory
 	);
 
 	let import_queue = {
@@ -115,7 +136,7 @@ pub fn new_full<
 		mut task_manager,
 		import_queue,
 		keystore_container,
-		select_chain,
+		select_chain: _,
 		transaction_pool,
 		other: (qpow_worker, mut telemetry),
 	} = new_partial(&mut config)?;
