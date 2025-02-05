@@ -19,9 +19,9 @@ compile:
   script:
     - cargo build --locked --release --verbose
   after_script:
-    - mv target/release/solochain-template-node ./resonance
+    - mv target/release/resonance-node ./resonance
     - sha256sum ./resonance | cut -d ' ' -f 1 | tee ./resonance.sha256
-    - mv target/release/wbuild/solochain-template-runtime/solochain_template_runtime.compact.compressed.wasm ./resonance_runtime.compact.compressed.wasm
+    - mv target/release/wbuild/resonance-runtime/resonance_runtime.compact.compressed.wasm ./resonance_runtime.compact.compressed.wasm
     - sha256sum ./resonance_runtime.compact.compressed.wasm | cut -d ' ' -f 1 | tee ./resonance_runtime.compact.compressed.wasm.sha256
   artifacts:
     paths:
