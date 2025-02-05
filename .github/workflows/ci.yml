@@ -61,12 +61,12 @@ jobs:
         uses: ./.github/actions/macos-dependencies
 
       - name: Build the node individually in release mode
-        run: cargo build --package solochain-template-node --release
+        run: cargo build --package resonance-node --release
         timeout-minutes: 90
 
       - name: Make sure the node is producing blocks
         run: |
-          ./target/release/solochain-template-node --dev 2>&1 | tee out.txt &
+          ./target/release/resonance-node --dev 2>&1 | tee out.txt &
           until curl -s '127.0.0.1:9944'; do sleep 5; done
           until cat out.txt | grep -s "Imported #2"; do sleep 5; done
         shell: bash
@@ -80,5 +80,5 @@ jobs:
       - uses: ./.github/actions/free-disk-space
 
       - name: Build the Dockerfile
-        run: docker build . -t polkadot-sdk-solochain-template
+        run: docker build . -t polkadot-sdk-resonance
         timeout-minutes: 90

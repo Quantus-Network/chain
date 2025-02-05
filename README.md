@@ -14,7 +14,7 @@ cargo build --release
 
 Run the first node as a validator. This node will act as the bootstrap node in the network.
 ```shell
-./target/release/solochain-template-node --chain local --validator
+./target/release/resonance-node --chain local --validator
 ```
 
 3. Look in the logs for the message similar to: ("Local node identity is")
@@ -28,7 +28,7 @@ Copy the <LOCAL_NODE_ID> value for use in the next step
 
 Start a second node and connect it to the first one using its identity and port.
 ```shell
-./target/release/solochain-template-node --chain local --name "PoW Node 2" --port 30334 --rpc-port 9934 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/<LOCAL_NODE_ID> --base-path /tmp/node2 --validator
+./target/release/resonance-node --chain local --name "PoW Node 2" --port 30334 --rpc-port 9934 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/<LOCAL_NODE_ID> --base-path /tmp/node2 --validator
 ```
 Explanation of flags:
 
@@ -47,7 +47,7 @@ Explanation of flags:
 
 2. Run the node with --dev flag
 ```sh
-./target/release/solochain-template-node --dev
+./target/release/resonance-node --dev
 ```
 
 ### Build
@@ -64,7 +64,7 @@ After you build the project, you can use the following command to explore its
 parameters and subcommands:
 
 ```sh
-./target/release/solochain-template-node -h
+./target/release/resonance-node -h
 ```
 
 You can generate and view the [Rust
@@ -81,19 +81,19 @@ The following command starts a single-node development chain that doesn't
 persist state:
 
 ```sh
-./target/release/solochain-template-node --dev
+./target/release/resonance-node --dev
 ```
 
 To purge the development chain's state, run the following command:
 
 ```sh
-./target/release/solochain-template-node purge-chain --dev
+./target/release/resonance-node purge-chain --dev
 ```
 
 To start the development chain with detailed logging, run the following command:
 
 ```sh
-RUST_BACKTRACE=1 ./target/release/solochain-template-node -ldebug --dev
+RUST_BACKTRACE=1 ./target/release/resonance-node -ldebug --dev
 ```
 
 Development chains:
@@ -113,7 +113,7 @@ similar to the following:
 $ mkdir my-chain-state
 
 // Use of that folder to store the chain state
-$ ./target/release/solochain-template-node --dev --base-path ./my-chain-state/
+$ ./target/release/resonance-node --dev --base-path ./my-chain-state/
 
 // Check the folder structure created inside the base path after running the chain
 $ ls ./my-chain-state

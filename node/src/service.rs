@@ -5,7 +5,7 @@ use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{log, Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
+use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_consensus_qpow::{QPoWWorker, import_queue as qpow_import_queue, QPoWBlockImport};
 use std::sync::Arc;
 use sc_basic_authorship::ProposerFactory;
