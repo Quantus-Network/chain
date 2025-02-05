@@ -84,6 +84,7 @@ fn testnet_genesis(
 	initial_difficulty: u32,
 	_enable_println: bool,
 ) -> serde_json::Value {
+
 	serde_json::json!({
 		"balances": {
 			// Configure endowed accounts with initial balance of 1 << 60.

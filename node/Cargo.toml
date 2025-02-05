@@ -60,6 +60,8 @@ sp-blockchain.workspace = true
 sp-blockchain.default-features = true
 sp-block-builder.workspace = true
 sp-block-builder.default-features = true
+sp-consensus.workspace = true
+sp-consensus.default-features = false
 sp-consensus-qpow = { path = "../primitives/consensus/qpow" } # Update the path
 frame-system.workspace = true
 frame-system.default-features = true
