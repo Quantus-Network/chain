@@ -4,12 +4,12 @@
 
 cargo build
 
-./target/release/solochain-template-node \
+./target/release/resonance-node \
   build-spec \
   --chain dev \
   --disable-default-bootnode > custom-spec.json
 
-  ./target/release/solochain-template-node \
+./target/release/resonance-node \
   build-spec \
   --chain custom-spec.json \
   --raw > custom-spec-raw.json

@@ -1,1 +1,1 @@
-pkill -f solochain-template-node
+pkill -f resonance-node

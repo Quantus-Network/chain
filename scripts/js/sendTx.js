@@ -17,7 +17,7 @@ async function main() {
 
   // 4) Prepare transaction using `transferKeepAlive`
   const to = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty'; // Bob
-  const amount = 123456789;
+  const amount = 223456789;
 
   // Use `transferKeepAlive` instead of `transfer`
   const txHash = await api.tx.balances

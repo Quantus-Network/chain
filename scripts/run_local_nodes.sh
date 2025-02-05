@@ -1,7 +1,10 @@
 #!/bin/zsh
 
-# Kill any previous solochain-template-node processes
-pkill -f solochain-template-node
+# Set node binary name at the top
+NODE_BIN="./target/release/resonance-node"
+
+# Kill any previous node processes
+pkill -f "$NODE_BIN"
 
 # Clean up old chain data
 rm -rf /tmp/validator1 /tmp/validator2 /tmp/listener
@@ -10,7 +13,7 @@ rm -rf /tmp/validator1 /tmp/validator2 /tmp/listener
 # 1) Start Node1 (Alice)
 #    WebSocket on 127.0.0.1:9944
 # -----------------------------
-./target/release/solochain-template-node \
+$NODE_BIN \
   --base-path /tmp/validator1 \
   --chain custom-spec-raw.json \
   --port 30333 \
@@ -42,7 +45,7 @@ echo "Node1 Peer ID: $NODE1_PEER_ID"
 # 2) Start Node2 (Bob)
 #    WebSocket on 127.0.0.1:9945
 # -----------------------------
-./target/release/solochain-template-node \
+$NODE_BIN \
   --base-path /tmp/validator2 \
   --chain custom-spec-raw.json \
   --port 30334 \
@@ -57,7 +60,7 @@ echo "Node1 Peer ID: $NODE1_PEER_ID"
 # 3) Start Listener (non-mining node)
 #    WebSocket on 127.0.0.1:9946
 # -----------------------------
-./target/release/solochain-template-node \
+$NODE_BIN \
   --base-path /tmp/listener \
   --chain custom-spec-raw.json \
   --port 30335 \
