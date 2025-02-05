@@ -4,4 +4,3 @@ target/
 /vendor
 /scripts/apps
 /scripts/js/node_modules
-Cargo.lock
