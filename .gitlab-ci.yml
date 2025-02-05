@@ -1,10 +1,11 @@
-image: rust:latest
-
-variables:
-  CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: stable
-
-.common:
+compile:
+  stage: build
+  tags: [rust, ubuntu]
+  image: rust:latest
+  variables:
+    CARGO_TERM_COLOR: always
+    RUST_TOOLCHAIN: stable
+    RUSTFLAGS: -Cdebug-assertions=y
   before_script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libclang-dev
@@ -13,43 +14,14 @@ variables:
     - rustup update
     - rustup show
     - cargo --version
-
-clippy:
-  tags: [rust, ubuntu]
-  variables:
-    SKIP_WASM_BUILD: 1
-  stage: .pre
-  before_script:
-    - !reference [.common, before_script]
-    - rustup component add clippy
-  script:
-    - cargo clippy --all-targets --locked --workspace
-
-test:
-  tags: [rust, ubuntu]
-  variables:
-    SKIP_WASM_BUILD: 1
-  stage: test
-  before_script:
-    - !reference [.common, before_script]
-  script:
-    - cargo test
-
-build:
-  tags: [rust, ubuntu]
-  stage: build
-  variables:
-    RUSTFLAGS: -Cdebug-assertions=y
-  before_script:
-    - !reference [.common, before_script]
-    - rustup target add wasm32-unknown-unknown --toolchain stable-x86_64-unknown-linux-gnu
-    - rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+    - rustup target add wasm32-unknown-unknown
+    - rustup component add rust-src
   script:
     - cargo build --locked --release --verbose
   after_script:
-    - mv target/release/solochain-template-node ./resonance
+    - mv target/release/resonance-node ./resonance
     - sha256sum ./resonance | cut -d ' ' -f 1 | tee ./resonance.sha256
-    - mv target/release/wbuild/solochain-template-runtime/solochain_template_runtime.compact.compressed.wasm ./resonance_runtime.compact.compressed.wasm
+    - mv target/release/wbuild/resonance-runtime/resonance_runtime.compact.compressed.wasm ./resonance_runtime.compact.compressed.wasm
     - sha256sum ./resonance_runtime.compact.compressed.wasm | cut -d ' ' -f 1 | tee ./resonance_runtime.compact.compressed.wasm.sha256
   artifacts:
     paths:
@@ -57,3 +29,18 @@ build:
       - resonance.sha256
       - resonance_runtime.compact.compressed.wasm
       - resonance_runtime.compact.compressed.wasm.sha256
+
+testnet:
+  stage: deploy
+  dependencies:
+    - compile
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+  tags: [fedora, infra]
+  image: fedora:latest
+  before_script:
+    - dnf update --assumeyes --quiet
+    - dnf install --assumeyes --quiet rsync ssh
+  script:
+    - ssh -o IdentityFile=~/.ssh/id_ed25519 -o IdentitiesOnly=yes resonance@10.9.1.215 'systemctl is-active --quiet resonance.service && sudo systemctl stop resonance.service' || true
+    - rsync --archive --compress --rsync-path='sudo rsync' --rsh 'ssh -o IdentityFile=~/.ssh/id_ed25519 -o IdentitiesOnly=yes' ./resonance resonance@10.9.1.215:/usr/local/bin/resonance

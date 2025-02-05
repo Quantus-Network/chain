@@ -1,8 +1,8 @@
 [package]
-name = "solochain-template-node"
-description = "A solochain node template built with Substrate, part of Polkadot Sdk."
+name = "resonance-node"
+description = "Resonance Runtime - Echo Chamber"
 version = "0.1.0"
-license = "Unlicense"
+license = "Apache-2.0"
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
@@ -60,6 +60,8 @@ sp-blockchain.workspace = true
 sp-blockchain.default-features = true
 sp-block-builder.workspace = true
 sp-block-builder.default-features = true
+sp-consensus.workspace = true
+sp-consensus.default-features = false
 sp-consensus-qpow = { path = "../primitives/consensus/qpow" } # Update the path
 frame-system.workspace = true
 frame-system.default-features = true
@@ -73,7 +75,7 @@ substrate-frame-rpc-system.workspace = true
 substrate-frame-rpc-system.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
-solochain-template-runtime.workspace = true
+resonance-runtime.workspace = true
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true
@@ -82,14 +84,14 @@ substrate-build-script-utils.default-features = true
 [features]
 default = ["std"]
 std = [
-	"solochain-template-runtime/std",
+	"resonance-runtime/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"sc-service/runtime-benchmarks",
-	"solochain-template-runtime/runtime-benchmarks",
+	"resonance-runtime/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 # Enable features that allow the runtime to be tried and debugged. Name might be subject to change
@@ -97,6 +99,6 @@ runtime-benchmarks = [
 try-runtime = [
 	"frame-system/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"solochain-template-runtime/try-runtime",
+	"resonance-runtime/try-runtime",
 	"sp-runtime/try-runtime",
 ]

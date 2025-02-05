@@ -1,5 +1,5 @@
 use sc_service::ChainType;
-use solochain_template_runtime::{AccountId, Signature, WASM_BINARY};
+use resonance_runtime::{AccountId, Signature, WASM_BINARY};
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
@@ -84,6 +84,7 @@ fn testnet_genesis(
 	initial_difficulty: u32,
 	_enable_println: bool,
 ) -> serde_json::Value {
+
 	serde_json::json!({
 		"balances": {
 			// Configure endowed accounts with initial balance of 1 << 60.

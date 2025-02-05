@@ -3,18 +3,23 @@ name = "sc-consensus-qpow"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 # Core dependencies
 sc-client-api = { workspace = true }
 sc-consensus = { workspace = true }
+sc-consensus-slots = {workspace = true}
+sc-transaction-pool = { workspace = true }
+sc-transaction-pool-api = { workspace = true }
 sp-consensus = { workspace = true }
 sp-consensus-qpow = { path = "../../../primitives/consensus/qpow" }
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
+sp-timestamp = {workspace = true}
+sp-inherents = {workspace = true}
 
 # Utilities
 futures = { workspace = true }

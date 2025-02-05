@@ -143,6 +143,41 @@ pub mod pallet {
 		}
 	}
 
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		/// Called at the beginning of each block.
+		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
+			//log::info!("📢 QPoW: on_initialize called at block {:?}", block_number);
+			Weight::zero()
+		}
+
+		/// Called at the end of each block.
+		fn on_finalize(_block_number: BlockNumberFor<T>) {
+			//log::info!("📢 QPoW: on_finalize called at block {:?}", block_number);
+		}
+
+		/// Called when there is remaining weight at the end of the block.
+		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
+			// 	log::info!(
+			//     "📢 QPoW: on_idle called at block {:?} with remaining weight {:?}",
+			//     block_number,
+			//     remaining_weight
+			// );
+			Weight::zero()
+		}
+
+		/// Called whenever a runtime upgrade is applied.
+		fn on_runtime_upgrade() -> Weight {
+			//log::info!("📢 QPoW: on_runtime_upgrade triggered!");
+			Weight::zero()
+		}
+
+		/// Called for off-chain worker tasks.
+		fn offchain_worker(_block_number: BlockNumberFor<T>) {
+			//log::info!("📢 QPoW: offchain_worker triggered at block {:?}", block_number);
+		}
+	}
+
 	impl<T: Config> Pallet<T> {
 		/// Generates a pair of RSA-style numbers (m,n) deterministically from input header
 		pub fn get_random_rsa(header: &[u8; 32]) -> (U256, U512) {
@@ -319,3 +354,4 @@ pub mod pallet {
 		}
 	}
 }
+
