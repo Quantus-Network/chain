@@ -1,5 +1,4 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-
 use codec::{Decode, Encode};
 use scale_info::TypeInfo;
 extern crate alloc;
@@ -10,22 +9,15 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
     pub trait QPoWApi {
-        /// Submit and verify a QPoW proof
-        fn submit_proof(
+        /// Check if solution is valid with given difficulty
+        fn verify_solution(
             header: [u8; 32],
             solution: [u8; 64],
-            difficulty: u32
-        ) -> Result<bool, Error>;
-
-        // Compute the proof of work function
-        fn compute_pow(
-            header: [u8; 32],
-            difficulty: u32,
-            solution: [u8; 64]
-        )  -> (Vec<u8>, Vec<u8>);
+            difficulty: u64,
+        ) -> bool;
 
         /// Get the current difficulty target for proof generation
-        fn get_difficulty() -> u32;
+        fn get_difficulty() -> u64;
 
         /// Retrieve latest submitted proof
         fn get_latest_proof() -> Option<[u8; 64]>;

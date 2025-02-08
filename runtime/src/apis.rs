@@ -41,7 +41,7 @@ use sp_runtime::{
 	format,
 };
 use sp_version::RuntimeVersion;
-use primitive_types::{U256, U512};
+
 // Local module imports
 use super::{
 	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
@@ -136,72 +136,15 @@ impl_runtime_apis! {
 	}
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
-		fn submit_proof(
+		fn verify_solution(
 			header: [u8; 32],
 			solution: [u8; 64],
-			difficulty: u32
-		) -> Result<bool, sp_consensus_qpow::Error> {
-			use sp_consensus_qpow::Error;
-
-
-			print("API: SUBMIT_PROOF");
-
-			if solution == [0u8; 64] {
-				return Err(Error::InvalidProof);
-			}
-
-			let (m, n) = QPoW::get_random_rsa(&header);
-			let header_int = U256::from_big_endian(&header);
-			let solution_int = U512::from_big_endian(&solution);
-
-			let (_, original_trunc) = QPoW::compute_pow(
-				&header_int,
-				&m,
-				&n,
-				&U512::zero(),
-				difficulty
-			);
-
-			let (_, solution_trunc) = QPoW::compute_pow(
-				&header_int,
-				&m,
-				&n,
-				&solution_int,
-				difficulty
-			);
-
-			if original_trunc == solution_trunc {
-				<pallet_qpow::LatestProof<Runtime>>::put(solution);
-				Ok(true)
-			} else {
-				Err(Error::InvalidProof)
-			}
+			difficulty: u64
+		) -> bool {
+			QPoW::verify_solution(header, solution, difficulty)
 		}
 
-		fn compute_pow(
-			header: [u8; 32],
-			difficulty: u32,
-			solution: [u8; 64]
-		) -> (Vec<u8>, Vec<u8>) {
-
-			let (m,n) = pallet_qpow::Pallet::<Self>::get_random_rsa(&header);
-
-			let (result,truncated) = pallet_qpow::Pallet::<Self>::compute_pow(
-				&U256::from_big_endian(&header),
-				&m,
-				&n,
-				&U512::from_big_endian(&solution),
-				difficulty,
-			);
-
-
-			let result_bytes = result.to_big_endian().to_vec();
-			let truncated_bytes = truncated.to_big_endian().to_vec();
-
-			(result_bytes, truncated_bytes)
-		}
-
-		fn get_difficulty() -> u32 {
+		fn get_difficulty() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
