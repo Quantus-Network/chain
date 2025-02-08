@@ -11,15 +11,21 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+
+
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{pallet_prelude::*, dispatch::DispatchResult, traits::BuildGenesisConfig};
 	use frame_system::pallet_prelude::*;
-	use primitive_types::{U256, U512};
+	use primitive_types::U512;
 	use sha2::{Digest, Sha256};
 	use sha3::Sha3_512;
 	use num_bigint::BigUint;
 	use frame_support::sp_runtime::traits::{Zero, One};
+
+	pub const CHUNK_SIZE: usize = 32;
+	pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE;
+	pub const MAX_DISTANCE: u64 = (1u64 << CHUNK_SIZE) * NUM_CHUNKS as u64;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -32,7 +38,7 @@ pub mod pallet {
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
-		pub initial_difficulty: u32,
+		pub initial_difficulty: u64,
 		#[serde(skip)]
 		pub _phantom: PhantomData<T>,
 	}
@@ -78,7 +84,6 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		ProofSubmitted {
-			who: T::AccountId,
 			solution: [u8; 64],
 		},
 	}
@@ -91,56 +96,6 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::submit_proof())]
-		pub fn submit_proof(
-			origin: OriginFor<T>,
-			header: [u8; 32],  // 256-bit header
-			solution: [u8; 64], // 512-bit solution
-			difficulty: u32
-		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-
-			// s = 0 is cheating
-			if solution == [0u8; 64] {
-				return Err(Error::<T>::InvalidSolution.into())
-			}
-
-			let (m, n) = Self::get_random_rsa(&header);
-			let header_int = U256::from_big_endian(&header);
-			let solution_int = U512::from_big_endian(&solution);
-
-			let (_, original_trunc) = Self::compute_pow(
-				&header_int,
-				&m,
-				&n,
-				&U512::zero(),
-				difficulty
-			);
-
-			// Compare PoW results
-			let (_, solution_trunc) = Self::compute_pow(
-				&header_int,
-				&m,
-				&n,
-				&solution_int,
-				difficulty
-			);
-
-			if original_trunc == solution_trunc {
-				LatestProof::<T>::put(solution);
-
-				// Emit an event
-				Self::deposit_event(Event::ProofSubmitted {
-					who,
-					solution
-				});
-
-				Ok(())
-			} else {
-				Err(Error::<T>::InvalidSolution.into())
-			}
-		}
 	}
 
 	#[pallet::hooks]
@@ -179,12 +134,55 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		pub fn get_solution_distance(
+			header: [u8; 32],  // 256-bit header
+			solution: [u8; 64], // 512-bit solution
+		) -> u64 {
+			// s = 0 is cheating
+			if solution == [0u8; 64] {
+				return 0u64
+			}
+
+			let (m, n) = Self::get_random_rsa(&header);
+			let header_int = U512::from_big_endian(&header);
+			let solution_int = U512::from_big_endian(&solution);
+
+			let original_chunks = Self::hash_to_group_bigint(
+				&header_int,
+				&m,
+				&n,
+				&U512::zero()
+			);
+
+			// Compare PoW results
+			let solution_chunks = Self::hash_to_group_bigint(
+				&header_int,
+				&m,
+				&n,
+				&solution_int
+			);
+
+			Self::l1_distance(&original_chunks, &solution_chunks)
+		}
+
+		pub fn verify_solution(header: [u8; 32], solution: [u8; 64], difficulty: u64) -> bool {
+			if solution == [0u8; 64] {
+				return false
+			}
+			let distance = Self::get_solution_distance(header, solution);
+			let verified = distance <= MAX_DISTANCE - difficulty;
+			if verified {
+				<LatestProof<T>>::put(solution);
+			}
+			verified
+		}
+
 		/// Generates a pair of RSA-style numbers (m,n) deterministically from input header
-		pub fn get_random_rsa(header: &[u8; 32]) -> (U256, U512) {
+		pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
 			// Generate m as random 256-bit number from SHA2-256
 			let mut sha256 = Sha256::new();
 			sha256.update(header);
-			let m = U256::from_big_endian(sha256.finalize().as_slice());
+			let m = U512::from_big_endian(sha256.finalize().as_slice());
 
 			// Generate initial n as random 512-bit number from SHA3-512
 			let mut sha3 = Sha3_512::new();
@@ -192,7 +190,7 @@ pub mod pallet {
 			let mut n = U512::from_big_endian(sha3.finalize().as_slice());
 
 			// Keep hashing until we find composite coprime n > m
-			while n <= U512::from(m) || !Self::is_coprime(&m, &n) || Self::is_prime(&n)  {
+			while n.clone() % 2u32 == U512::zero() || n <= m || !Self::is_coprime(&m, &n) || Self::is_prime(&n)  {
 				let mut sha3 = Sha3_512::new();
 				let bytes = n.to_big_endian();
 				sha3.update(&bytes);
@@ -203,9 +201,8 @@ pub mod pallet {
 		}
 
 		/// Check if two numbers are coprime using Euclidean algorithm
-		pub fn is_coprime(a: &U256, b: &U512) -> bool {
-			let a = U512::from(*a);
-			let mut x = a;
+		pub fn is_coprime(a: &U512, b: &U512) -> bool {
+			let mut x = *a;
 			let mut y = *b;
 
 			while y != U512::zero() {
@@ -217,17 +214,48 @@ pub mod pallet {
 			x == U512::one()
 		}
 
-		/// Compute the proof of work function
-		pub fn compute_pow(
-			h: &U256,
-			m: &U256,
-			n: &U512,
-			solution: &U512,
-			difficulty: u32
-		) -> (U512, U512) {
-			let h = U512::from(*h);
-			let m = U512::from(*m);
+		/// Split a 512-bit number into 32-bit chunks
+		pub fn split_chunks(num: &U512) -> [u32; NUM_CHUNKS] {
+			let mut chunks:[u32; 16] = [0u32; NUM_CHUNKS];
+			let mask = (U512::one() << CHUNK_SIZE) - U512::one();
 
+			for i in 0..NUM_CHUNKS {
+				let shift = i * CHUNK_SIZE;
+				let chunk = (num >> shift) & mask;
+				chunks[i] = chunk.as_u32();
+			}
+
+			chunks
+		}
+
+		/// Calculate L1 distance between two chunk vectors
+		pub fn l1_distance(original: &[u32], solution: &[u32]) -> u64 {
+			original.iter().zip(solution.iter())
+				.map(|(a, b)| if a > b { a - b } else { b - a })
+				.map(|x| x as u64)
+				.sum()
+		}
+
+		/// Compute the proof of work function
+		pub fn hash_to_group(
+			h: &[u8; 32],
+			m: &[u8; 32],
+			n: &[u8; 64],
+			solution: &[u8; 64]
+		) -> [u32; 16] {
+			let h = U512::from_big_endian(h);
+			let m = U512::from_big_endian(m);
+			let n = U512::from_big_endian(n);
+			let solution = U512::from_big_endian(solution);
+			Self::hash_to_group_bigint(&h, &m, &n, &solution)
+		}
+
+		fn hash_to_group_bigint(
+			h: &U512,
+			m: &U512,
+			n: &U512,
+			solution: &U512
+		) -> [u32; 16] {
 			// Compute sum = h + solution
 			let sum = h.saturating_add(*solution);
 			//log::info!("ComputePoW: h={:?}, m={:?}, n={:?}, solution={:?}, sum={:?}", h, m, n, solution, sum);
@@ -236,18 +264,8 @@ pub mod pallet {
 			let result = Self::mod_pow(&m, &sum, n);
 			//log::info!("ComputePoW: result={:?}", result);
 
-			// Create difficulty mask
-			let mask = (U512::one() << difficulty) - U512::one();
-			//log::info!("ComputePoW: mask={:?}", mask);
-
-			// Get truncated result
-			let truncated = result & mask;
-			//log::info!("ComputePoW: truncated={:?}", truncated);
-
-
-			(result, truncated)
+			Self::split_chunks(&result)
 		}
-
 
 		/// Modular exponentiation using Substrate's BigUint
 		pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
@@ -345,7 +363,7 @@ pub mod pallet {
 			true
 		}
 
-		pub fn get_difficulty() -> u32 {
+		pub fn get_difficulty() -> u64 {
 			GenesisConfig::<T>::default().initial_difficulty
 		}
 

@@ -124,19 +124,19 @@ where
         solution[0..8].copy_from_slice(&nonce.to_le_bytes());
 
         loop {
-            let seal = seal_block::<B, C>(
+            let valid_seal = seal_block::<B, C>(
                 self.client.clone(),
                 header.encode().try_into().unwrap_or([0u8; 32]),
-                difficulty,
                 solution,
+                difficulty
             )?;
 
-            if is_valid_seal(&seal, difficulty) {
+            if valid_seal {
                 log::info!("QPOW: Mined block: nonce={}", nonce);
 
                 header.digest_mut().push(sp_runtime::generic::DigestItem::Seal(
                     sp_consensus_qpow::QPOW_ENGINE_ID,
-                    seal.clone(),
+                    solution.to_vec(),
                 ));
 
                 let (_block_parts, body) = proposal.block.deconstruct();
@@ -210,26 +210,23 @@ where
 pub fn seal_block<B, C>(
     client: Arc<C>,
     header: [u8; 32],
-    difficulty: u32,
     solution: [u8; 64],
-) -> Result<Vec<u8>, ConsensusError>
+    difficulty: u64,
+) -> Result<bool, ConsensusError>
 where
     B: BlockT,
-    C: sp_api::ProvideRuntimeApi<B> + sc_client_api::BlockBackend<B> + Send + Sync + 'static,
+    C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
     C::Api: QPoWApi<B>,
 {
     let block_hash = client.block_hash(NumberFor::<B>::zero())
         .map_err(|e| ConsensusError::ClientImport(format!("QPOW: Failed to get block hash: {:?}", e)))?
         .ok_or_else(|| ConsensusError::ClientImport("QPOW: Block hash not found".into()))?;
 
-    let (_result, truncated) = client
+    let valid = client
         .runtime_api()
-        .compute_pow(block_hash, header, difficulty, solution)
-        .map_err(|e| ConsensusError::ClientImport(format!("QPOW: Runtime API error: {:?}", e)))?;
+        .verify_solution(block_hash, header, solution, difficulty)
+        .map_err(|e| ConsensusError::ClientImport(format!("QPOW: Failed to verify solution: {:?}", e)))?;
 
-    Ok(truncated)
+    Ok(valid)
 }
 
-pub fn is_valid_seal(_seal: &[u8], _difficulty: u32) -> bool {
-    true
-}

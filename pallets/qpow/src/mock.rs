@@ -1,6 +1,5 @@
 use crate as pallet_qpow;
 use frame_support::{parameter_types, traits::Everything};
-use primitive_types::{U256, U512};
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	testing::Header,
