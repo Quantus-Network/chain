@@ -9,7 +9,7 @@ mod benchmarks;
 pub mod configs;
 mod resonance;
 
-pub use resonance::sr25519::Keyring;
+pub use resonance::keyring::sr25519::Keyring;
 pub use resonance::account::ResonanceAccountId;
 
 extern crate alloc;
@@ -29,6 +29,7 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
+use sp_runtime::traits::{IdentifyAccount, Verify};
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -124,8 +125,8 @@ pub type Signature = ResonanceSignature;
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
 //pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId; - original cfg
-pub type AccountId = ResonanceAccountId;
-
+//pub type AccountId = ResonanceAccountId;
+pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 /// Balance of an account.
 pub type Balance = u128;
 

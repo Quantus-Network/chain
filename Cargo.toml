@@ -73,3 +73,5 @@ sp-storage = { version = "21.0.0", default-features = false }
 sp-transaction-pool = { version = "34.0.0", default-features = false }
 sp-version = { version = "37.0.0", default-features = false }
 substrate-wasm-builder = { version = "24.0.1", default-features = false }
+schnorrkel = { version = "0.11.4", default-features = false }
+merlin = { version = "3.0", default-features = false }
