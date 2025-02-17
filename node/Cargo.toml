@@ -79,6 +79,17 @@ substrate-frame-rpc-system.workspace = true
 substrate-frame-rpc-system.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
+num_cpus = "1.16.0"
+sysinfo = "0.30.5"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+tokio = { version = "1", features = ["full"] }
+wtransport = "0.5.0"
+
+# Remove later. This is used to determine the hash rate of device
+sha2 = "0.10"
+rand = "0.8"
+
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true

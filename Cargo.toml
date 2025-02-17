@@ -10,7 +10,7 @@ members = [
     "node",
     "pallets/template",
     "runtime",
-    "qpow",
+    "qpow", "miner",
 ]
 resolver = "2"
 

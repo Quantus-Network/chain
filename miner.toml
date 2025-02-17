@@ -1,0 +1,11 @@
+[general]
+max_memory_use = 8192  # in MB
+
+[cpu]
+use_cpu = true
+threads = 4
+
+
+[gpu]
+use_gpu = true
+intensity = 100  # Adjust based on available compute power

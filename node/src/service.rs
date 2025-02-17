@@ -1,17 +1,50 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
-use qpow::{QPow, Compute, QPoWSeal, MinimalQPowAlgorithm};
+use qpow::{ MinimalQPowAlgorithm}; //QPow, Compute, QPoWSeal,
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
-use sp_core::{H256, U256};
+use resonance_node::device_detector::HardwareDetector;
+use resonance_node::miner_config::MinerConfig;
+use resonance_node::miner::{Miner, CpuMiner};
+use resonance_node::worker::WorkerHandle;
+// use sp_core::{H256, U256};
 
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration, path::PathBuf, fs::metadata, io::{self, Write}};
 
-use jsonrpsee::tokio;
+use wtransport::{Endpoint, ServerConfig, Identity};
+use std::error::Error;
+
+
+async fn start_server() -> Result<(), Box<dyn Error>> {
+    // Load TLS identity (replace with your cert & key files)
+    let identity = Identity::load_pemfiles("cert.pem", "key.pem").await?;
+
+    // Configure the server
+    let config = ServerConfig::builder()
+        .with_bind_default(4433) // Listening on port 4433
+        .with_identity(identity)
+        .build();
+
+    // Start the server endpoint
+    let server = Endpoint::server(config)?;
+
+    println!("NODE: Server is running on port 4433...");
+
+    loop {
+        println!("Waiting for new connection in server!");
+        let incoming_session = server.accept().await;
+        let incoming_request = incoming_session.await?; 
+        let _connection = incoming_request.accept().await?;
+        println!("New connection accepted!");
+    }
+}
+
+
+// use jsonrpsee::tokio;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -205,6 +238,68 @@ pub fn new_full<
     })?;
 
     if role.is_authority() {
+        // Check if miner.toml exists
+        let miner_toml_path = PathBuf::from("miner.toml");
+        let (mut miner_config, hardware) = if metadata(&miner_toml_path).is_ok() {
+            // Load the miner configuration from the file
+            let config = MinerConfig::from_file(miner_toml_path.clone())?;
+            (config, HardwareDetector::detect()) // Detect hardware when loading from file
+        } else {
+            // Prompt the user for input
+            println!("⚠️  miner.toml not found. Do you want to continue? (yes/no)");
+
+            // Read user input
+            let mut input = String::new();
+            io::stdout().flush().unwrap(); // Ensure the prompt is printed before reading input
+            io::stdin().read_line(&mut input).expect("Failed to read line");
+
+            // Trim whitespace and convert to lowercase for comparison
+            let input = input.trim().to_lowercase();
+
+            if input == "no" {
+                println!("Not running miner.");
+                return Err(ServiceError::Other("Miner not running due to missing configuration.".into()));
+            } else if input == "yes" {
+                println!("Running miner.");
+            } else {
+                println!("Invalid input. Exiting.");
+                return Err(ServiceError::Other("Invalid input. Exiting.".into()));
+            }
+
+            // Detect available hardware
+            let hardware = HardwareDetector::detect();
+            println!("{}", hardware);   
+
+            // Call create_default_config instead
+            let miner_config = MinerConfig::create_default_config(&hardware)?; // Pass detected hardware
+            println!("\n🔧 Hello, World! Loaded Default Miner Config:");
+            miner_config.print();   
+
+            (miner_config, hardware) // Return the default miner config and detected hardware
+        };
+
+        // Logic to prioritize GPU over CPU if both are enabled
+        if miner_config.cpu.use_cpu && miner_config.gpu.use_gpu {
+            println!("⚠️ Both CPU and GPU mining are enabled. Using only GPU for mining.");
+            miner_config.cpu.use_cpu = false; // Disable CPU mining
+        }
+
+        // Print which mining method is being used
+        if miner_config.gpu.use_gpu {
+            println!("🔧 GPU mining is enabled.");
+        } else if miner_config.cpu.use_cpu {
+            println!("🔧 CPU mining is enabled.");
+        } else {
+            println!("⚠️ No mining method is enabled.");
+        }
+
+        // Validate the miner configuration if it was loaded from the file
+        if metadata(&miner_toml_path).is_ok() {
+            if let Err(e) = miner_config.validate(&hardware) {
+                eprintln!("Validation Error: {}", e);
+                return Err(ServiceError::Other("Miner configuration validation failed".into()));
+            }
+        }
 
         let proposer = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
@@ -224,7 +319,7 @@ pub fn new_full<
         // Also refer to kulupu config:
         //   https://github.com/kulupu/kulupu/blob/master/src/service.rs
 
-        let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
+        let (_worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
             //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
             client,
@@ -246,103 +341,70 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
-        task_manager.spawn_essential_handle().spawn(
-            "pow-mining-actualy-real-mining-happening",
-            None,
-            async move {
-                let mut nonce = 0;
-                loop {
-                    // Get mining metadata
-                    println!("getting metadata");
+        // Create a CPU miner instance
+        let cpu_miner = CpuMiner;
+        
 
-                    let metadata = match worker_handle.metadata() {
-                        Some(m) => m,
-                        None => {
-                            log::warn!(target: "pow", "No mining metadata available");
-                            tokio::time::sleep(Duration::from_millis(1000)).await;
-                            continue;
-                        }
-                    };
-                    let version = worker_handle.version();
+        // Start the mining process using the CPU miner
+        let worker_handle: Arc<WorkerHandle> = Arc::new(WorkerHandle {
+            id: 1, // Example ID
+            is_mining: false, // Example state
+            // Initialize other fields as necessary
+        });
 
-                    println!("mine block");
-
-                    // Mine the block
-                    let seal =
-					match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
-                            Ok(s) => {
-                                println!("valid seal: {:?}", s);
-                                s
-                            }
-                            Err(_) => {
-                                println!("error - seal not valid");
-                                nonce += 1;
-                                tokio::time::sleep(Duration::from_millis(100)).await;
-                                continue;
-                            }
-                        };
-
-                    println!("block found");
-
-                    let current_version = worker_handle.version();
-                    if current_version == version {
-                        if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                            println!("Successfully mined and submitted a new block");
-                            nonce = 0;
-                        } else {
-                            println!("Failed to submit mined block");
-                            nonce += 1;
-                        }
-                    }
-
-                    // Sleep to avoid spamming
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                }
-            }, // .boxed()
-        );
+        // cpu_miner.mine(worker_handle.clone(), &task_manager);
 
         println!("⛏️  Pow miner spawned");
+
+        // Call start_server here
+        println!("CALL SERVER?");
+        tokio::spawn(async {
+            println!("Spawn task for server");
+            if let Err(e) = start_server().await {
+                eprintln!("Error starting server: {}", e);
+            }
+        });
     }
 
     network_starter.start_network();
     Ok(task_manager)
 }
 
-use codec::Encode;
-use sp_runtime::traits::Block as BlockT;
+// use codec::Encode;
+// use sp_runtime::traits::Block as BlockT;
 
-fn try_nonce<B: BlockT<Hash = H256>>(
-    pre_hash: B::Hash,
-    nonce: u64,
-    difficulty: U256,
-) -> Result<QPoWSeal, ()> {
+// fn try_nonce<B: BlockT<Hash = H256>>(
+//     pre_hash: B::Hash,
+//     nonce: u64,
+//     difficulty: U256,
+// ) -> Result<QPoWSeal, ()> {
 
-    let compute = Compute {
-        difficulty,
-        pre_hash: H256::from_slice(pre_hash.as_ref()),
-        nonce,
-    };
+//     let compute = Compute {
+//         difficulty,
+//         pre_hash: H256::from_slice(pre_hash.as_ref()),
+//         nonce,
+//     };
 
-    // Compute the seal
-    println!("compute difficulty: {:?}", difficulty);
-    let seal = compute.compute();
+//     // Compute the seal
+//     println!("compute difficulty: {:?}", difficulty);
+//     let seal = compute.compute();
 
-    println!("compute done");
+//     println!("compute done");
 
-    // Convert pre_hash to [u8; 32] for verification
-    // TODO normalize all the different ways we do calculations
-    let header = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
+//     // Convert pre_hash to [u8; 32] for verification
+//     // TODO normalize all the different ways we do calculations
+//     let header = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
-    // Verify the solution using QPoW
-    if !QPow::verify_solution(header, seal.work, difficulty.low_u64()) {
-        println!("invalid seal");
-        return Err(());
-    }
-    println!("good seal");
+//     // Verify the solution using QPoW
+//     if !QPow::verify_solution(header, seal.work, difficulty.low_u64()) {
+//         println!("invalid seal");
+//         return Err(());
+//     }
+//     println!("good seal");
 
-    Ok(seal)
+//     Ok(seal)
 
-}
+// }
 
 #[cfg(test)]
 mod tests {
