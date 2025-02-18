@@ -35,10 +35,12 @@ use scale_info::TypeInfo;
 
 #[cfg(all(not(feature = "std"), feature = "serde"))]
 use alloc::{format, string::String};
+use frame_support::__private::sp_io;
 use schnorrkel::keys::{MINI_SECRET_KEY_LENGTH, SECRET_KEY_LENGTH};
 #[cfg(feature = "serde")]
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use sp_core::hexdisplay;
+use sp_runtime::traits::{IdentifyAccount, Lazy, Verify};
 #[cfg(feature = "std")]
 use sp_runtime_interface::pass_by::PassByInner;
 use crate::resonance::account::{CryptoBytes, CryptoTypeId, Derive, DeriveJunction, Public as TraitPublic, Pair as TraitPair, SecretStringError, DeriveError, CryptoType};
@@ -133,8 +135,25 @@ impl<'de> Deserialize<'de> for Public {
 	}
 }
 
+impl IdentifyAccount for Public {
+	type AccountId = Self;
+	fn into_account(self) -> Self {
+		self
+	}
+}
+
 /// An Schnorrkel/Ristretto x25519 ("sr25519") signature.
 pub type Signature = SignatureBytes<SIGNATURE_SERIALIZED_SIZE, Sr25519Tag>;
+
+impl Verify for Signature {
+	type Signer = Public;
+
+	fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &Public) -> bool {
+		//sp_io::crypto::sr25519_verify(self, msg.get(), signer)
+		//TODO - CUSTOM CODE
+		self::Pair::verify(&self,msg.get(), signer)
+	}
+}
 
 #[cfg(feature = "full_crypto")]
 impl From<schnorrkel::Signature> for Signature {

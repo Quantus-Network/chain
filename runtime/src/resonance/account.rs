@@ -28,7 +28,7 @@ use itertools::Itertools;
 #[cfg(feature = "std")]
 use rand::{rngs::OsRng, RngCore};
 use scale_info::TypeInfo;
-use sp_core::{ed25519, hash, hexdisplay, sr25519};
+use sp_core::{ed25519, hash, hexdisplay};
 pub use secrecy::{ExposeSecret, SecretString};
 use sp_core::serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use sp_runtime_interface::pass_by::PassByInner;
@@ -39,6 +39,7 @@ pub use crate::{
     resonance::address_uri::{AddressUri, Error as AddressUriError},
     resonance::crypto_bytes::{CryptoBytes},
 };
+use crate::resonance::sr25519;
 
 /// The root phrase for our publicly known keys.
 pub const DEV_PHRASE: &str =

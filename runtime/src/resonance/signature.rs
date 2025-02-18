@@ -3,10 +3,11 @@ use frame_support::__private::sp_io;
 use primitive_types::H256;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
-use sp_core::{crypto, ecdsa, ed25519, sr25519, RuntimeDebug};
-use sp_core::crypto::FromEntropy;
+use sp_core::{crypto, ecdsa, ed25519, RuntimeDebug};
 use sp_runtime::traits;
 use sp_runtime::traits::{Lazy, Verify};
+use crate::resonance::account::FromEntropy;
+use crate::resonance::sr25519;
 use crate::ResonanceAccountId;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -86,9 +87,9 @@ pub enum ResonanceSigner {
 impl FromEntropy for ResonanceSigner {
     fn from_entropy(input: &mut impl codec::Input) -> Result<Self, codec::Error> {
         Ok(match input.read_byte()? % 3 {
-            0 => Self::Ed25519(FromEntropy::from_entropy(input)?),
+            0 => Self::Ed25519(sp_core::crypto::FromEntropy::from_entropy(input)?),
             1 => Self::Sr25519(FromEntropy::from_entropy(input)?),
-            2.. => Self::Ecdsa(FromEntropy::from_entropy(input)?),
+            2.. => Self::Ecdsa(sp_core::crypto::FromEntropy::from_entropy(input)?),
         })
     }
 }
@@ -191,6 +192,8 @@ impl std::fmt::Display for ResonanceSigner {
         }
     }
 }
+
+
 
 impl Verify for ResonanceSignature {
     type Signer = ResonanceSigner;

@@ -36,8 +36,10 @@ use sp_core::serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(all(not(feature = "std"), feature = "serde"))]
 use alloc::{format, string::String};
-use crate::resonance;
+use sp_runtime::traits;
+use crate::{resonance, ResonanceAccountId};
 use crate::resonance::account::ByteArray;
+use crate::resonance::signature::ResonanceSigner;
 
 /// Generic byte array holding some crypto-related raw data.
 ///
@@ -242,6 +244,22 @@ impl<T> CryptoBytes<64, T> {
 		Self::from_raw(x.into())
 	}
 }
+/*
+impl<T> traits::IdentifyAccount for CryptoBytes<32,T> {
+	type AccountId = ResonanceAccountId;
+
+	fn into_account(self)  -> Self::AccountId {
+		ResonanceAccountId::from(self.0)
+	}
+}*/
+
+/*impl<T> traits::IdentifyAccount for CryptoBytes<64,T> {
+	type AccountId = ResonanceAccountId;
+
+	fn into_account(self)  -> Self::AccountId {
+		ResonanceAccountId::from(self.0)
+	}
+}*/
 
 pub mod public_bytes {
 	use sp_core::hexdisplay;
