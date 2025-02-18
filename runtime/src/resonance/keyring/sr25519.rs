@@ -18,16 +18,18 @@
 //! Support code for the runtime. A set of test accounts.
 
 #[cfg(feature = "std")]
-use sp_core::sr25519::Signature;
+use crate::sr25519::Signature;
 use sp_core::{
-    hex2array,
-    sr25519::{Pair, Public},
-    ByteArray, Pair as PairT, H256,
+    hex2array,H256,
 };
+// ByteArray, Pair as PairT,
 
 extern crate alloc;
 use alloc::{fmt, format, str::FromStr, string::String, vec::Vec};
-use crate::ResonanceAccountId;
+use crate::{sr25519::Public, Pair as PairT, ResonanceAccountId};
+use crate::resonance::account::ByteArray;
+use crate::resonance::signature::ResonanceSigner;
+use crate::sr25519::Pair;
 
 /// Set of test accounts.
 #[derive(
@@ -138,9 +140,10 @@ impl From<Keyring> for &'static str {
     }
 }
 
-impl From<Keyring> for sp_runtime::MultiSigner {
+impl From<Keyring> for ResonanceSigner {
     fn from(x: Keyring) -> Self {
-        sp_runtime::MultiSigner::Sr25519(x.into())
+        ResonanceSigner::Sr25519(x.into())
+        //sp_runtime::MultiSigner::Sr25519(x.into())
     }
 }
 
@@ -233,7 +236,8 @@ impl From<Keyring> for H256 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sp_core::{sr25519::Pair, Pair as PairT};
+    use crate::sr25519::Pair;
+    use crate::Pair as PairT;
 
     #[test]
     fn should_work() {

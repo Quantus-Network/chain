@@ -11,6 +11,9 @@ mod resonance;
 
 pub use resonance::keyring::sr25519::Keyring;
 pub use resonance::account::ResonanceAccountId;
+pub use resonance::account::Public;
+pub use resonance::account::Pair;
+pub use resonance::sr25519;
 
 extern crate alloc;
 extern crate core;

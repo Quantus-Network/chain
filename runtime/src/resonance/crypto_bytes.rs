@@ -36,10 +36,8 @@ use sp_core::serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(all(not(feature = "std"), feature = "serde"))]
 use alloc::{format, string::String};
-use sp_runtime::traits;
-use crate::{resonance, ResonanceAccountId};
+use crate::{resonance};
 use crate::resonance::account::ByteArray;
-use crate::resonance::signature::ResonanceSigner;
 
 /// Generic byte array holding some crypto-related raw data.
 ///

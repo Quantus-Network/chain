@@ -8,13 +8,13 @@ use runtime::{AccountId, Balance, BalancesCall, SystemCall};
 use sc_cli::Result;
 use sc_client_api::BlockBackend;
 use resonance_runtime as runtime;
-use sp_core::{Encode, Pair};
+use resonance_runtime::{Keyring as Sr25519Keyring, Pair};
+use sp_core::Encode;
 use sp_inherents::{InherentData, InherentDataProvider};
-use sp_keyring::Sr25519Keyring;
 use sp_runtime::{OpaqueExtrinsic, SaturatedConversion};
 
 use std::{sync::Arc, time::Duration};
-use resonance_runtime::ResonanceAccountId;
+use resonance_runtime::{sr25519, ResonanceAccountId};
 
 /// Generates extrinsics for the `benchmark overhead` command.
 ///
@@ -98,7 +98,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 /// Note: Should only be used for benchmarking.
 pub fn create_benchmark_extrinsic(
 	client: &FullClient,
-	sender: sp_core::sr25519::Pair,
+	sender: sr25519::Pair,
 	call: runtime::RuntimeCall,
 	nonce: u32,
 ) -> runtime::UncheckedExtrinsic {

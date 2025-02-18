@@ -35,7 +35,6 @@ use scale_info::TypeInfo;
 
 #[cfg(all(not(feature = "std"), feature = "serde"))]
 use alloc::{format, string::String};
-use frame_support::__private::sp_io;
 use schnorrkel::keys::{MINI_SECRET_KEY_LENGTH, SECRET_KEY_LENGTH};
 #[cfg(feature = "serde")]
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
