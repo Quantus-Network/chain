@@ -8,6 +8,10 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
+pub mod crypto;
+
+use crypto::crystals::DilithiumPublicKey;
+
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
