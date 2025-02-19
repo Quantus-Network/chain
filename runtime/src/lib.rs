@@ -8,12 +8,21 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
+mod resonance;
+
+pub use resonance::keyring::sr25519::Keyring;
+pub use resonance::account::ResonanceAccountId;
+pub use resonance::account::Public;
+pub use resonance::account::Pair;
+pub use resonance::sr25519;
+
+
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
-	MultiAddress, MultiSignature,
+	MultiAddress
 };
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -24,6 +33,7 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
+use crate::resonance::signature::ResonanceSignature;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -112,7 +122,7 @@ pub fn native_version() -> NativeVersion {
 }
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = MultiSignature;
+pub type Signature = ResonanceSignature;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.

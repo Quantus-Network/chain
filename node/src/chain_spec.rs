@@ -1,6 +1,5 @@
 use sc_service::ChainType;
-use resonance_runtime::{AccountId, Signature, WASM_BINARY};
-use sp_core::{sr25519, Pair, Public};
+use resonance_runtime::{sr25519, AccountId, Pair, Public, Signature, WASM_BINARY};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
 // The URL for the telemetry server.

@@ -15,45 +15,78 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { features = [
 	"derive",
-], workspace = true }
+], workspace = true, default-features = false }
 scale-info = { features = [
 	"derive",
 	"serde",
-], workspace = true }
-frame-support = { features = ["experimental"], workspace = true }
-frame-system.workspace = true
-frame-try-runtime = { optional = true, workspace = true }
-frame-executive.workspace = true
-frame-metadata-hash-extension.workspace = true
-pallet-balances.workspace = true
-pallet-sudo.workspace = true
-pallet-timestamp.workspace = true
-pallet-transaction-payment.workspace = true
-sp-api.workspace = true
-sp-block-builder.workspace = true
-sp-core = { features = ["serde"], workspace = true }
-sp-inherents.workspace = true
-sp-offchain.workspace = true
-sp-runtime = { features = ["serde"], workspace = true }
-sp-session.workspace = true
-sp-storage.workspace = true
-sp-transaction-pool.workspace = true
-sp-version = { features = ["serde"], workspace = true }
-sp-genesis-builder.workspace = true
-frame-system-rpc-runtime-api.workspace = true
-pallet-transaction-payment-rpc-runtime-api.workspace = true
-frame-benchmarking = { optional = true, workspace = true }
-frame-system-benchmarking = { optional = true, workspace = true }
-pallet-template.workspace = true
+], workspace = true, default-features = false }
+frame-support = { features = ["experimental"], default-features = false, workspace = true }
+frame-system ={ workspace = true, default-features = false }
+frame-try-runtime = { optional = true, workspace = true , default-features = false}
+frame-executive = {workspace = true, default-features = false}
+frame-metadata-hash-extension = {workspace = true, default-features=false}
+pallet-balances ={workspace = true, default-features=false}
+pallet-sudo ={workspace = true, default-features=false}
+pallet-timestamp ={workspace = true, default-features=false}
+pallet-transaction-payment ={workspace = true, default-features=false}
+sp-api =  {workspace = true, default-features = false}
+sp-block-builder = {workspace = true, default-features = false}
+sp-consensus-qpow = { version="0.1.0", default-features = false, path = "../primitives/consensus/qpow"}
+sp-core = { features = ["serde"], default-features = false, workspace = true } #features = ["serde"],
+sp-crypto-hashing = { version="0.1.0", default-features=false }
+sp-inherents = {workspace = true, default-features = false}
+sp-offchain = {workspace = true, default-features = false}
+sp-runtime = { features = ["serde"], default-features = false, workspace = true } #features = ["serde"],
+sp-session ={ workspace = true, default-features = false}
+sp-storage ={workspace = true, default-features = false}
+sp-transaction-pool ={workspace = true, default-features = false}
+sp-version = { features = ["serde"], default-features = false, workspace = true } #
+sp-genesis-builder ={workspace = true, default-features = false}
+frame-system-rpc-runtime-api ={workspace = true, default-features = false}
+pallet-transaction-payment-rpc-runtime-api ={workspace = true, default-features = false}
+primitive-types = {default-features=false, workspace = true}
+frame-benchmarking = { optional = true, workspace = true , default-features = false}
+frame-system-benchmarking = { optional = true, workspace = true , default-features = false}
+pallet-template={workspace = true, default-features = false}
+sp-std = { version="14.0.0", default-features=false}
+schnorrkel = { features = ["preaudit_deprecated"], default-features = false,workspace = true }
+merlin = { workspace = true, default-features = false }
+
+array-bytes = { version="6.2.2", default-features = false }
+secrecy = { version = "0.8.0", features = ["alloc"], default-features = false }
+bip39 = { package = "parity-bip39", version = "2.0.1", default-features = false, features = ["alloc"] }
+rand = { version = "0.8.5", features = ["small_rng"], optional = true, default-features = false }
+itertools = { version="0.11.0", optional=true }
+zeroize = { version="1.8.1", default-features = false }
+thiserror = { version="1.0.68",optional=true }
+sp-runtime-interface = { version="28.0.0", default-features=false }
+ss58-registry = { version = "1.34.0", default-features = false }
+bs58 = { version = "0.5.1", default-features = false }
+blake2 = { version = "0.10.4", default-features = false, optional=true}
+bounded-collections = { version = "0.2.0", default-features = false }
+serde = { optional = true, default-features=false, version = "1.0.209"} #features = ["alloc", "derive"]
+impl-serde = { optional = true, version = "0.4.0", default-features=false}
+k256 = { version = "0.13.3", default-features = false, features = ["alloc", "ecdsa"] }
+substrate-bip39 = { version="0.6.0", default-features=false }
+strum = { version = "0.26.2", features = ["derive"], default-features = false }
+regex = { version = "1.10.2",default-features=false }
+lazy_static = { version = "1.4.0", default-features=false }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
+[dev-dependencies]
+serde_json = { workspace = true, default-features = true }
+
+
 [features]
 default = ["std"]
 std = [
+	"bs58/std",
 	"codec/std",
+	"itertools",
 	"scale-info/std",
+	"schnorrkel/std",
 
 	"frame-executive/std",
 	"frame-metadata-hash-extension/std",
@@ -65,6 +98,9 @@ std = [
 	"frame-benchmarking?/std",
 	"frame-try-runtime?/std",
 
+	"k256/std",
+	"merlin/std",
+
 	"pallet-balances/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
@@ -72,8 +108,14 @@ std = [
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
 
+	"rand",
+
+	"impl-serde/std",
+	"serde/std",
+
 	"sp-api/std",
 	"sp-block-builder/std",
+	"sp-consensus-qpow/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",
 	"sp-inherents/std",
@@ -81,11 +123,30 @@ std = [
 	"sp-runtime/std",
 	"sp-session/std",
 	"sp-storage/std",
+	"sp-std/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
+	"full_crypto",
 
+	"ss58-registry/std",
+	"substrate-bip39/std",
 	"substrate-wasm-builder",
+	"sp-runtime-interface/std",
+	"thiserror",
+	"zeroize/std",
+]
 
+# Serde support without relying on std features.
+serde = [
+	"blake2",
+	"bounded-collections/serde",
+	"bs58/alloc",
+	"dep:serde",
+	"impl-serde",
+	"k256/serde",
+	"primitive-types/serde_no_std",
+	"scale-info/serde",
+	"sp-storage/serde",
 ]
 
 runtime-benchmarks = [
@@ -111,6 +172,14 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"sp-runtime/try-runtime",
+]
+
+# This feature enables all crypto primitives for `no_std` builds like microcontrollers
+# or Intel SGX.
+# For the regular wasm runtime builds this should not be used.
+full_crypto = [
+	"blake2",
+	"sp-runtime-interface/disable_target_static_assertions",
 ]
 
 # Enable the metadata hash generation.
