@@ -45,7 +45,6 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 
-sp-consensus-qpow = { version="0.1.0", default-features = false, path = "../primitives/consensus/qpow"}	
 sp-crypto-hashing = { version="0.1.0", default-features=false }
 primitive-types = {default-features=false, workspace = true}
 pallet-template.workspace = true
@@ -115,7 +114,6 @@ std = [
 
 	"sp-api/std",
 	"sp-block-builder/std",
-	"sp-consensus-qpow/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",
 	"sp-inherents/std",
