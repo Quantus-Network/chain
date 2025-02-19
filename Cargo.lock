@@ -6496,6 +6496,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "rand",
  "regex",
+ "rusty-crystals-dilithium",
  "scale-info",
  "schnorrkel",
  "secrecy",
@@ -6746,6 +6747,14 @@ name = "rustversion"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7c45b9784283f1b2e7fb61b42047c2fd678ef0960d4f6f1eba131594cc369d4"
+
+[[package]]
+name = "rusty-crystals-dilithium"
+version = "1.0.0"
+source = "git+https://gitlab.com/resonance-network/rusty-crystals#5b0aae0cf04a6f5200fece045dd1d3ec6734e507"
+dependencies = [
+ "sha2 0.10.8",
+]
 
 [[package]]
 name = "rw-stream-sink"
