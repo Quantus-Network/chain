@@ -79,6 +79,9 @@ substrate-frame-rpc-system.workspace = true
 substrate-frame-rpc-system.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
+tokio-tungstenite = "0.26.2"
+futures-util = "0.3"
+chrono = "0.4.39"
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true

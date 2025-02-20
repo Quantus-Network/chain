@@ -11,6 +11,7 @@ members = [
     "pallets/template",
     "runtime",
     "qpow",
+    "miner",
 ]
 resolver = "2"
 

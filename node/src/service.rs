@@ -1,6 +1,6 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt, SinkExt};
 use qpow::{QPow, Compute, QPoWSeal, MinimalQPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
@@ -12,6 +12,11 @@ use sp_core::{H256, U256};
 use std::{sync::Arc, time::Duration};
 
 use jsonrpsee::tokio;
+use tokio::net::TcpListener;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::accept_async;
+use chrono::Local;
+
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -246,65 +251,70 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
-        task_manager.spawn_essential_handle().spawn(
-            "pow-mining-actualy-real-mining-happening",
-            None,
-            async move {
-                let mut nonce = 0;
-                loop {
-                    // Get mining metadata
-                    println!("getting metadata");
+        // task_manager.spawn_essential_handle().spawn(
+        //     "pow-mining-actualy-real-mining-happening",
+        //     None,
+        //     async move {
+        //         let mut nonce = 0;
+        //         loop {
+        //             // Get mining metadata
+        //             println!("getting metadata");
 
-                    let metadata = match worker_handle.metadata() {
-                        Some(m) => m,
-                        None => {
-                            log::warn!(target: "pow", "No mining metadata available");
-                            tokio::time::sleep(Duration::from_millis(1000)).await;
-                            continue;
-                        }
-                    };
-                    let version = worker_handle.version();
+        //             let metadata = match worker_handle.metadata() {
+        //                 Some(m) => m,
+        //                 None => {
+        //                     log::warn!(target: "pow", "No mining metadata available");
+        //                     tokio::time::sleep(Duration::from_millis(1000)).await;
+        //                     continue;
+        //                 }
+        //             };
+        //             let version = worker_handle.version();
 
-                    println!("mine block");
+        //             println!("mine block");
 
-                    // Mine the block
-                    let seal =
-					match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
-                            Ok(s) => {
-                                println!("valid seal: {:?}", s);
-                                s
-                            }
-                            Err(_) => {
-                                println!("error - seal not valid");
-                                nonce += 1;
-                                tokio::time::sleep(Duration::from_millis(100)).await;
-                                continue;
-                            }
-                        };
+        //             // Mine the block
+        //             let seal =
+		// 			match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
+        //                     Ok(s) => {
+        //                         println!("valid seal: {:?}", s);
+        //                         s
+        //                     }
+        //                     Err(_) => {
+        //                         println!("error - seal not valid");
+        //                         nonce += 1;
+        //                         tokio::time::sleep(Duration::from_millis(100)).await;
+        //                         continue;
+        //                     }
+        //                 };
 
-                    println!("block found");
+        //             println!("block found");
 
-                    let current_version = worker_handle.version();
-                    if current_version == version {
-                        if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                            println!("Successfully mined and submitted a new block");
-                            nonce = 0;
-                        } else {
-                            println!("Failed to submit mined block");
-                            nonce += 1;
-                        }
-                    }
+        //             let current_version = worker_handle.version();
+        //             if current_version == version {
+        //                 if futures::executor::block_on(worker_handle.submit(seal.encode())) {
+        //                     println!("Successfully mined and submitted a new block");
+        //                     nonce = 0;
+        //                 } else {
+        //                     println!("Failed to submit mined block");
+        //                     nonce += 1;
+        //                 }
+        //             }
 
-                    // Sleep to avoid spamming
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                }
-            }, // .boxed()
-        );
+        //             // Sleep to avoid spamming
+        //             tokio::time::sleep(Duration::from_millis(1000)).await;
+        //         }
+        //     }, // .boxed()
+        // );
 
         println!("⛏️  Pow miner spawned");
     }
 
     network_starter.start_network();
+
+    // Start the WebSocket server
+    let websocket_addr = "127.0.0.1:8080"; // Change this to your desired address
+    tokio::spawn(start_websocket_server(websocket_addr));
+
     Ok(task_manager)
 }
 
@@ -343,6 +353,52 @@ fn try_nonce<B: BlockT<Hash = H256>>(
     Ok(seal)
 
 }
+
+
+
+async fn start_websocket_server(addr: &str) {
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind WebSocket server");
+    println!("WebSocket server listening on {}", addr);
+
+    while let Ok((stream, _)) = listener.accept().await {
+        tokio::spawn(handle_connection(stream));
+    }
+}
+
+async fn handle_connection(stream: tokio::net::TcpStream) {
+    let ws_stream = accept_async(stream)
+        .await
+        .expect("Error during WebSocket handshake");
+
+    println!("{} 🏷 New WebSocket connection", Local::now().format("%Y-%m-%d %H:%M:%S"));
+
+    let (mut write, mut read) = ws_stream.split();
+    while let Some(message) = read.next().await {
+        match message {
+            Ok(msg) => {
+                match msg {
+                    Message::Text(text) => {
+                        println!("{} 📩 Received message: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), text);
+                        write.send(Message::Text(text)).await.unwrap();
+                    }
+                    Message::Ping(ping_data) => {
+                        println!("{} 🔔 Received Ping, responding with Pong", Local::now().format("%Y-%m-%d %H:%M:%S"));
+                        write.send(Message::Pong(ping_data)).await.unwrap();
+                    }
+                    Message::Pong(_) => {
+                        println!("{} 📡 Received Pong response", Local::now().format("%Y-%m-%d %H:%M:%S"));
+                    }
+                    _ => {} // Ignore other message types
+                }
+            }
+            Err(e) => {
+                println!("{} ⚠️ Error while reading message: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), e);
+                break;
+            }
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
