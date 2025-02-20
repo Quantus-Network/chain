@@ -1653,6 +1653,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dilithium-crypto"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "rusty-crystals-dilithium",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "directories"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6458,6 +6470,7 @@ dependencies = [
 name = "resonance-runtime"
 version = "0.1.0"
 dependencies = [
+ "dilithium-crypto",
  "frame-benchmarking",
  "frame-executive",
  "frame-metadata-hash-extension",
