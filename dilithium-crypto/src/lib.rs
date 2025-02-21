@@ -1,24 +1,37 @@
 #![no_std]
 
+use core::marker::PhantomData;
+
 use scale_info::prelude::string::String;
 use sp_core::{
-    crypto::{Derive, PublicBytes, Signature, SignatureBytes}, ByteArray, Pair, Public
+    crypto::{Derive, PublicBytes, Signature, SignatureBytes}, ByteArray, Get, Pair, Public
 };
-use sp_runtime::CryptoType;
+use sp_runtime::{transaction_validity::TransactionValidityError, AccountId32, CryptoType};
 use sp_std::vec::Vec;
 use sp_core::crypto::SecretStringError;
 use sp_core::crypto::DeriveError;
 use sp_core::crypto::DeriveJunction;
-use sp_std::vec;
+use codec::{Encode, Decode};
+use scale_info::TypeInfo;
+use frame_system::Config;
 
-use sp_std::prelude::ToOwned;
+use sp_runtime::{
+	traits::{BlakeTwo256, IdentifyAccount, Verify, Checkable, Extrinsic, SignedExtension},
+	MultiAddress, MultiSignature,
+};
+
+// use sp_core::crypto::ExposeSecret;
+// use sp_std::str::FromStr;
+// use array_bytes::{Dehexify, Hexify};
+
+// use sp_std::prelude::ToOwned;
 
 ////// TEST
-#[derive(Clone, Eq, PartialEq, Debug, Hash)]
-struct TestCryptoTag;
+#[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo)]
+pub struct TestCryptoTag;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-enum TestPair {
+pub enum TestPair {
     Generated,
     GeneratedWithPhrase,
     GeneratedFromPhrase { phrase: String, password: Option<String> },
@@ -35,8 +48,8 @@ impl Default for TestPair {
 impl CryptoType for TestPair {
     type Pair = Self;
 }
-#[derive(Clone, Eq, PartialEq, Hash)]
-struct WrappedPublicBytes<const N: usize, SubTag>(PublicBytes<N, SubTag>);
+#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo)]
+pub struct WrappedPublicBytes<const N: usize, SubTag>(PublicBytes<N, SubTag>);
 
 impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
     fn default() -> Self {
@@ -87,7 +100,7 @@ impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
 
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
-type TestPublic = WrappedPublicBytes<100, TestCryptoTag>;
+pub type RezPublic = WrappedPublicBytes<100, TestCryptoTag>;
 
 /// 
 /// Signature type
@@ -96,8 +109,8 @@ type TestPublic = WrappedPublicBytes<100, TestCryptoTag>;
 /// So in order to not have to implement the same methods twice, we use the same type for both.
 /// Except that doesn't work for some reason, so lets do it the hard way.
 /// 
-#[derive(Clone, Eq, PartialEq, Hash)]
-struct WrappedSignatureBytes<const N: usize, SubTag>(SignatureBytes<N, SubTag>);
+#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo)]
+pub struct WrappedSignatureBytes<const N: usize, SubTag>(SignatureBytes<N, SubTag>);
 
 impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
     fn default() -> Self {
@@ -153,137 +166,129 @@ impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
 
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
-type TestSignature = WrappedSignatureBytes<1000, TestCryptoTag>;
+pub type RezSignature = WrappedSignatureBytes<1000, TestCryptoTag>;
+
+impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
+    type AccountId = AccountId32;
+    fn into_account(self) -> Self::AccountId {
+        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
+    }
+}
+
+impl Verify for RezSignature {
+    type Signer = RezPublic;
+
+    fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
+            &self,
+            msg: L,
+            signer: &<Self::Signer as IdentifyAccount>::AccountId,
+        ) -> bool {
+        todo!()
+    }
+}
 
 impl Pair for TestPair {
-    type Public = TestPublic;
+    type Public = RezPublic;
     type Seed = [u8; 8];
-    type Signature = TestSignature;
-
-    fn generate() -> (Self, <Self as Pair>::Seed) {
-        (TestPair::Generated, [0u8; 8])
-    }
-
-    fn generate_with_phrase(_password: Option<&str>) -> (Self, String, <Self as Pair>::Seed) {
-        (TestPair::GeneratedWithPhrase, "".into(), [0u8; 8])
-    }
-
-    fn from_phrase(
-        phrase: &str,
-        password: Option<&str>,
-    ) -> Result<(Self, <Self as Pair>::Seed), SecretStringError> {
-        Ok((
-            TestPair::GeneratedFromPhrase {
-                phrase: phrase.to_owned(),
-                password: password.map(Into::into),
-            },
-            [0u8; 8],
-        ))
-    }
+    type Signature = RezSignature;
 
     fn derive<Iter: Iterator<Item = DeriveJunction>>(
         &self,
         path_iter: Iter,
-        _: Option<[u8; 8]>,
-    ) -> Result<(Self, Option<[u8; 8]>), DeriveError> {
+        _seed: Option<<TestPair as Pair>::Seed>,
+    ) -> Result<(Self, Option<<TestPair as Pair>::Seed>), DeriveError> {
         Ok((
             match self.clone() {
+                #[cfg(feature = "std")]
                 TestPair::Standard { phrase, password, path } => TestPair::Standard {
                     phrase,
                     password,
                     path: path.into_iter().chain(path_iter).collect(),
                 },
-                TestPair::GeneratedFromPhrase { phrase, password } =>
-                    TestPair::Standard { phrase, password, path: path_iter.collect() },
-                x =>
-                    if path_iter.count() == 0 {
-                        x
-                    } else {
-                        return Err(DeriveError::SoftKeyInPath)
-                    },
+                #[cfg(feature = "std")]
+                TestPair::GeneratedFromPhrase { phrase, password } => TestPair::Standard {
+                    phrase,
+                    password,
+                    path: path_iter.collect(),
+                },
+                x => if path_iter.count() == 0 {
+                    x
+                } else {
+                    return Err(DeriveError::SoftKeyInPath)
+                },
             },
             None,
         ))
-    }
-
-    fn sign(&self, _message: &[u8]) -> Self::Signature {
-        TestSignature::default()
-    }
-
-    fn verify<M: AsRef<[u8]>>(_: &Self::Signature, _: M, _: &Self::Public) -> bool {
-        true
-    }
-
-    fn public(&self) -> Self::Public {
-        TestPublic::default()
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
         Ok(TestPair::Seed(seed.to_vec()))
     }
 
-    fn to_raw_vec(&self) -> Vec<u8> {
-        vec![]
+	// #[cfg(feature = "full_crypto")] // the OG feature for this is full_crypto 
+	#[cfg(feature = "std")]
+    fn sign(&self, _message: &[u8]) -> Self::Signature {
+        RezSignature::default()
     }
+
+    fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, pubkey: &Self::Public) -> bool {
+        // sig.verify(message, &pubkey.into_account())
+        true
+    }
+
+    fn public(&self) -> Self::Public {
+        RezPublic::default()
+    }
+
+    fn to_raw_vec(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    #[cfg(feature = "std")]
+    fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
+        Self::from_string_with_seed(s, password_override).map(|x| x.0)
+    }
+    
 }
 
-///// DUMMY
 
-// pub struct DummyTag;
+// pub struct ChainContext<Runtime>(sp_std::marker::PhantomData<Runtime>)
+// where
+//     Runtime: Config;
 
-// /// Dummy cryptography. Doesn't do anything.
-// pub type Dummy = CryptoBytes<0, DummyTag>;
+// type RuntimeCall<Runtime> = <Runtime as Config>::RuntimeCall;
 
-// impl CryptoType for Dummy {
-//     type Pair = Dummy;
+// impl<Runtime> Get<Runtime::Hash> for ChainContext<Runtime>
+// where
+//     Runtime: Config,
+// {
+//     fn get() -> Runtime::Hash {
+//         Default::default()
+//     }
 // }
 
-// impl Derive for Dummy {}
+// impl<const N: usize, SubTag, Runtime> Checkable<ChainContext<Runtime>> for WrappedSignatureBytes<N, SubTag>
+// where
+//     Runtime: Config,
+// {
+//     type Checked = Self;
 
-// impl Public for Dummy {}
-
-// impl Signature for Dummy {}
-
-// impl Pair for Dummy {
-//     type Public = Dummy;
-//     type Seed = Dummy;
-//     type Signature = Dummy;
-
-//     #[cfg(feature = "std")]
-//     fn generate_with_phrase(_: Option<&str>) -> (Self, String, Self::Seed) {
-//         Default::default()
+//     fn check(self, _c: &ChainContext<Runtime>) -> Result<Self::Checked, TransactionValidityError> {
+//         // Implement your signature verification logic here
+//         Ok(self)
 //     }
+// }
 
-//     #[cfg(feature = "std")]
-//     fn from_phrase(_: &str, _: Option<&str>) -> Result<(Self, Self::Seed), SecretStringError> {
-//         Ok(Default::default())
-//     }
+// impl<const N: usize, SubTag, RuntimeT> Extrinsic for WrappedSignatureBytes<N, SubTag>
+// where
+//     RuntimeT: Config,
+// {
+//     //type Call = RuntimeCall<Runtime>;
+//     type SignaturePayload = ();
 
-//     fn derive<Iter: Iterator<Item = DeriveJunction>>(
-//         &self,
-//         _: Iter,
-//         _: Option<Dummy>,
-//     ) -> Result<(Self, Option<Dummy>), DeriveError> {
-//         Ok((Self::default(), None))
+//     fn is_signed(&self) -> Option<bool> {
+//         Some(true)
 //     }
-
-//     fn from_seed_slice(_: &[u8]) -> Result<Self, SecretStringError> {
-//         Ok(Self::default())
-//     }
-
-//     fn sign(&self, _: &[u8]) -> Self::Signature {
-//         Self::default()
-//     }
-
-//     fn verify<M: AsRef<[u8]>>(_: &Self::Signature, _: M, _: &Self::Public) -> bool {
-//         true
-//     }
-
-//     fn public(&self) -> Self::Public {
-//         Self::default()
-//     }
-
-//     fn to_raw_vec(&self) -> Vec<u8> {
-//         Default::default()
-//     }
+    
+//     type Call = RuntimeCall<RuntimeT>;
 // }
