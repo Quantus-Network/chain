@@ -26,6 +26,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 pub use dilithium_crypto::RezSignature;
 pub use dilithium_crypto::RezPublic;
+// pub use rusty_crystals_dilithium::dilithium5;// causes errors
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats

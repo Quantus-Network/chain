@@ -1,37 +1,30 @@
 #![no_std]
 
-use core::marker::PhantomData;
-
 use scale_info::prelude::string::String;
 use sp_core::{
-    crypto::{Derive, PublicBytes, Signature, SignatureBytes}, ByteArray, Get, Pair, Public
+    crypto::{Derive, PublicBytes, Signature, SignatureBytes}, ByteArray, /*Get,*/ Pair, Public
 };
-use sp_runtime::{transaction_validity::TransactionValidityError, AccountId32, CryptoType};
+use sp_runtime::{AccountId32, CryptoType};
 use sp_std::vec::Vec;
 use sp_core::crypto::SecretStringError;
 use sp_core::crypto::DeriveError;
 use sp_core::crypto::DeriveJunction;
 use codec::{Encode, Decode};
 use scale_info::TypeInfo;
-use frame_system::Config;
 
-use sp_runtime::{
-	traits::{BlakeTwo256, IdentifyAccount, Verify, Checkable, Extrinsic, SignedExtension},
-	MultiAddress, MultiSignature,
-};
+use sp_runtime::traits::{IdentifyAccount, Verify};
 
-// use sp_core::crypto::ExposeSecret;
-// use sp_std::str::FromStr;
-// use array_bytes::{Dehexify, Hexify};
+// use rusty_crystals_dilithium::dilithium5;  // causes errors! TODO
+// pub const PUB_KEY_BYTES: usize = dilithium5::PUBLICKEYBYTES;
+// pub const SECRET_KEY_BYTES: usize = dilithium5::SECRETKEYBYTES;
+// pub const SIGNATURE_BYTES: usize = dilithium5::SIGNBYTES;
 
-// use sp_std::prelude::ToOwned;
-
-////// TEST
+////// REZ CRYPTO //////
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo)]
-pub struct TestCryptoTag;
+pub struct RezCryptoTag;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub enum TestPair {
+pub enum RezPair {
     Generated,
     GeneratedWithPhrase,
     GeneratedFromPhrase { phrase: String, password: Option<String> },
@@ -39,13 +32,13 @@ pub enum TestPair {
     Seed(Vec<u8>),
 }
 
-impl Default for TestPair {
+impl Default for RezPair {
     fn default() -> Self {
-        TestPair::Generated
+        RezPair::Generated
     }
 }
 
-impl CryptoType for TestPair {
+impl CryptoType for RezPair {
     type Pair = Self;
 }
 #[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo)]
@@ -95,12 +88,12 @@ impl<const N: usize, SubTag> ByteArray for WrappedPublicBytes<N, SubTag> {
     }
 }
 impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
-    type Pair = TestPair;
+    type Pair = RezPair;
 }
 
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
-pub type RezPublic = WrappedPublicBytes<100, TestCryptoTag>;
+pub type RezPublic = WrappedPublicBytes<100, RezCryptoTag>;
 
 /// 
 /// Signature type
@@ -118,7 +111,7 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
     }
 }
 impl<const N: usize, SubTag> CryptoType for WrappedSignatureBytes<N, SubTag> {
-    type Pair = TestPair;
+    type Pair = RezPair;
 }
 
 impl<const N: usize, SubTag> Derive for WrappedSignatureBytes<N, SubTag> {}
@@ -166,7 +159,7 @@ impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
 
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
-pub type RezSignature = WrappedSignatureBytes<1000, TestCryptoTag>;
+pub type RezSignature = WrappedSignatureBytes<1000, RezCryptoTag>;
 
 impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
     type AccountId = AccountId32;
@@ -180,14 +173,39 @@ impl Verify for RezSignature {
 
     fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
             &self,
-            msg: L,
+            mut msg: L,
             signer: &<Self::Signer as IdentifyAccount>::AccountId,
         ) -> bool {
-        todo!()
+            true
+        // Extract public key (2592 bytes) and signature (4595 bytes) from self
+        // let public_key_bytes = &self.0[4595..]; // Last 2592 bytes
+        // let signature_bytes = &self.0[..4595];  // First 4595 bytes
+
+        // // Convert public key bytes to Dilithium5 PublicKey
+        // let public_key = dilithium5::PublicKey::from_bytes(public_key_bytes);
+
+        // // Hash the public key to compare with signer (AccountId32)
+        // let pk_hash = sp_io::hashing::blake2_256(public_key_bytes);
+        // if <AccountId32 as AsRef<[u8]>>::as_ref(signer) != &pk_hash {            
+        //     return false;
+        // }
+
+        // // Verify the signature with the extracted public key and message
+        // public_key.verify(msg.get(), signature_bytes)
     }
 }
 
-impl Pair for TestPair {
+        // let extracted_public_key = [0u8; dilithium5::PUBLICKEYBYTES];
+        // let extracted_message = [0u8; 32];
+        // let public_key = dilithium5::PublicKey::from_bytes(&extracted_public_key);
+        // let pk_hash = sp_io::hashing::blake2_256(&extracted_public_key);
+        // if <AccountId32 as AsRef<[u8]>>::as_ref(signer) != &pk_hash {            
+        //     return false;
+        // }
+        // public_key.verify(&extracted_message, &extracted_public_key);
+
+
+impl Pair for RezPair {
     type Public = RezPublic;
     type Seed = [u8; 8];
     type Signature = RezSignature;
@@ -195,18 +213,18 @@ impl Pair for TestPair {
     fn derive<Iter: Iterator<Item = DeriveJunction>>(
         &self,
         path_iter: Iter,
-        _seed: Option<<TestPair as Pair>::Seed>,
-    ) -> Result<(Self, Option<<TestPair as Pair>::Seed>), DeriveError> {
+        _seed: Option<<RezPair as Pair>::Seed>,
+    ) -> Result<(Self, Option<<RezPair as Pair>::Seed>), DeriveError> {
         Ok((
             match self.clone() {
                 #[cfg(feature = "std")]
-                TestPair::Standard { phrase, password, path } => TestPair::Standard {
+                RezPair::Standard { phrase, password, path } => RezPair::Standard {
                     phrase,
                     password,
                     path: path.into_iter().chain(path_iter).collect(),
                 },
                 #[cfg(feature = "std")]
-                TestPair::GeneratedFromPhrase { phrase, password } => TestPair::Standard {
+                RezPair::GeneratedFromPhrase { phrase, password } => RezPair::Standard {
                     phrase,
                     password,
                     path: path_iter.collect(),
@@ -222,7 +240,7 @@ impl Pair for TestPair {
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-        Ok(TestPair::Seed(seed.to_vec()))
+        Ok(RezPair::Seed(seed.to_vec()))
     }
 
 	// #[cfg(feature = "full_crypto")] // the OG feature for this is full_crypto 
@@ -251,6 +269,10 @@ impl Pair for TestPair {
     
 }
 
+
+// We got into the following traits implementation when trying to replace MultiSignature with RezSignature
+// So the new straregy is to make a custom MultiSignature type that implements all this and has RezSignature as one of the sig options.
+// Maybe!? 
 
 // pub struct ChainContext<Runtime>(sp_std::marker::PhantomData<Runtime>)
 // where
