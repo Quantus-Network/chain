@@ -8,11 +8,11 @@ sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 sp-std = { version = "14.0.0", default-features = false }
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["verifier_only"] }
 codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 array-bytes = { version = "9.1.2", optional = true }
 frame-system = { workspace = true, default-features = false }
+rusty-crystals-dilithium.workspace = true
 
 [features]
 default = ["std"]

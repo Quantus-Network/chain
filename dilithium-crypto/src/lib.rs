@@ -14,10 +14,11 @@ use scale_info::TypeInfo;
 
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
-// use rusty_crystals_dilithium::dilithium5;  // causes errors! TODO
-// pub const PUB_KEY_BYTES: usize = dilithium5::PUBLICKEYBYTES;
-// pub const SECRET_KEY_BYTES: usize = dilithium5::SECRETKEYBYTES;
-// pub const SIGNATURE_BYTES: usize = dilithium5::SIGNBYTES;
+// Rusty Crystals Dilithium dependencies
+use rusty_crystals_dilithium::ml_dsa_87; 
+pub const PUB_KEY_BYTES: usize = ml_dsa_87::PUBLICKEYBYTES;
+pub const SECRET_KEY_BYTES: usize = ml_dsa_87::SECRETKEYBYTES;
+pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
 
 ////// REZ CRYPTO //////
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo)]
@@ -93,7 +94,7 @@ impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
 
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
-pub type RezPublic = WrappedPublicBytes<100, RezCryptoTag>;
+pub type RezPublic = WrappedPublicBytes<PUB_KEY_BYTES, RezCryptoTag>;
 
 /// 
 /// Signature type
@@ -159,7 +160,7 @@ impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
 
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
-pub type RezSignature = WrappedSignatureBytes<1000, RezCryptoTag>;
+pub type RezSignature = WrappedSignatureBytes<SIGNATURE_BYTES, RezCryptoTag>;
 
 impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
     type AccountId = AccountId32;
