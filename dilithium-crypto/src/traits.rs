@@ -121,9 +121,17 @@ impl TryFrom<RezMultiSignature> for ecdsa::Signature {
     }
 }
 
-impl From<RezSignature> for RezMultiSignature {
-    fn from(sig: RezSignature) -> Self {
-        Self::Rez(sig)
+// impl From<RezSignature> for RezMultiSignature {
+//     fn from(sig: RezSignature) -> Self {
+//         Self::Rez(sig)
+//     }
+// }
+impl From<(RezSignature, Vec<u8>)> for RezMultiSignature {
+    fn from((sig, pk_bytes): (RezSignature, Vec<u8>)) -> Self {
+        let mut combined = Vec::new();
+        combined.extend_from_slice(&pk_bytes); // PUB_KEY_BYTES
+        combined.extend_from_slice(sig.as_ref()); // SIGNATURE_BYTES
+        Self::Rez(combined)
     }
 }
 
@@ -160,17 +168,17 @@ impl Verify for RezMultiSignature {
                 sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
-            Self::Rez(sig) => {
-                let msg_data = msg.get();
-                // take the first PUB_KEY_BYTES as the public key
-                let pk_bytes = &msg_data[..super::crypto::PUB_KEY_BYTES];
-                // take the rest as the message
-                let msg_bytes = &msg_data[super::crypto::PUB_KEY_BYTES..];
+            Self::Rez(data) => {
+                if data.len() != super::crypto::PUB_KEY_BYTES + super::crypto::SIGNATURE_BYTES {
+                    return false;
+                }
+                let pk_bytes = &data[..super::crypto::PUB_KEY_BYTES];
+                let sig_bytes = &data[super::crypto::PUB_KEY_BYTES..];
                 let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
                 }
-                verify(pk_bytes, msg_bytes, sig.as_ref())
+                verify(pk_bytes, msg.get(), sig_bytes)
             },
         }
     }

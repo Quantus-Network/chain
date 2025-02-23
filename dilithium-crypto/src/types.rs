@@ -43,11 +43,10 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
 pub type RezPublic = WrappedPublicBytes<{super::crypto::PUB_KEY_BYTES}, RezCryptoTag>;
 pub type RezSignature = WrappedSignatureBytes<{super::crypto::SIGNATURE_BYTES}, RezCryptoTag>;
 
-// Define RezMultiSignature
 #[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo)]
 pub enum RezMultiSignature {
     Ed25519(ed25519::Signature),
     Sr25519(sr25519::Signature),
     Ecdsa(ecdsa::Signature),
-    Rez(RezSignature), // Signature and public key bytes
+    Rez(Vec<u8>), // Combined signature and public key
 }
