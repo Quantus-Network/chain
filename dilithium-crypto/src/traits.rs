@@ -1,11 +1,17 @@
 #![no_std]
 
 use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezPublic, RezSignature, RezMultiSignature};
+use scale_info::TypeInfo;
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
 use sp_std::vec::Vec;
 use sp_core::{ecdsa, ed25519, sr25519};
 use verify::verify;
+use codec::{Encode, Decode};
+
+// 
+// WrappedPublicBytes
+// 
 
 impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedPublicBytes<N, SubTag> {
@@ -33,6 +39,33 @@ impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
 }
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
+impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
+    fn default() -> Self {
+        WrappedPublicBytes(PublicBytes::default())
+    }
+}
+impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag> {
+    #[cfg(feature = "std")]
+    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
+    type AccountId = AccountId32;
+    fn into_account(self) -> Self::AccountId {
+        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
+    }
+}
+
+// 
+// WrappedSignatureBytes
+// 
 impl<const N: usize, SubTag> Derive for WrappedSignatureBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedSignatureBytes<N, SubTag> {
     fn as_mut(&mut self) -> &mut [u8] { self.0.as_mut() }
@@ -59,10 +92,21 @@ impl<const N: usize, SubTag> CryptoType for WrappedSignatureBytes<N, SubTag> {
 }
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
-impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
-    type AccountId = AccountId32;
-    fn into_account(self) -> Self::AccountId {
-        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
+impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
+    fn default() -> Self {
+        WrappedSignatureBytes(SignatureBytes::default())
+    }
+}
+
+impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
+    #[cfg(feature = "std")]
+    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        Ok(())
     }
 }
 
@@ -121,14 +165,14 @@ impl TryFrom<RezMultiSignature> for ecdsa::Signature {
     }
 }
 
-impl From<(RezSignature, Vec<u8>)> for RezMultiSignature {
-    fn from((sig, pk): (RezSignature, Vec<u8>)) -> Self {
+impl From<(RezSignature, [u8; 2592])> for RezMultiSignature {
+    fn from((sig, pk): (RezSignature, [u8; 2592])) -> Self {
         Self::Rez(sig, pk)
     }
 }
 
 // Define RezMultiSigner (simplified to just use AccountId32)
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo)]
 pub struct RezMultiSigner(AccountId32);
 
 impl IdentifyAccount for RezMultiSigner {

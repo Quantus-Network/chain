@@ -1,10 +1,12 @@
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::{prelude::string::String, TypeInfo};
-use sp_core::crypto::{DeriveJunction, PublicBytes, SignatureBytes};
+use sp_core::{crypto::{DeriveJunction, PublicBytes, SignatureBytes}, RuntimeDebug};
 use sp_std::vec::Vec;
 use sp_core::{ecdsa, ed25519, sr25519};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo)]
+#[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo, Ord, PartialOrd)]
 pub struct RezCryptoTag;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -22,31 +24,31 @@ impl Default for RezPair {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo)]
+#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
 pub struct WrappedPublicBytes<const N: usize, SubTag>(pub PublicBytes<N, SubTag>);
 
-impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
-    fn default() -> Self {
-        WrappedPublicBytes(PublicBytes::default())
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo)]
+#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
 pub struct WrappedSignatureBytes<const N: usize, SubTag>(pub SignatureBytes<N, SubTag>);
-
-impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
-    fn default() -> Self {
-        WrappedSignatureBytes(SignatureBytes::default())
-    }
-}
 
 pub type RezPublic = WrappedPublicBytes<{super::crypto::PUB_KEY_BYTES}, RezCryptoTag>;
 pub type RezSignature = WrappedSignatureBytes<{super::crypto::SIGNATURE_BYTES}, RezCryptoTag>;
 
-#[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo)]
+// Updated RezMultiSignature with separate fields, matching MultiSignature traits
+#[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum RezMultiSignature {
     Ed25519(ed25519::Signature),
     Sr25519(sr25519::Signature),
     Ecdsa(ecdsa::Signature),
-    Rez(RezSignature, Vec<u8>), // Signature and public key bytes
+    Rez(RezSignature, [u8; super::crypto::PUB_KEY_BYTES]), // Signature and public key bytes
+}
+
+// Updated RezMultiSigner to match MultiSigner
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum RezMultiSigner {
+    Ed25519(ed25519::Public),
+    Sr25519(sr25519::Public),
+    Ecdsa(ecdsa::Public),
+    Rez(RezPublic),
 }

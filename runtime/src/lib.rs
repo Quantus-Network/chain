@@ -26,7 +26,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 pub use dilithium_crypto::RezSignature;
 pub use dilithium_crypto::RezPublic;
-// pub use rusty_crystals_dilithium::dilithium5;// causes errors
+use dilithium_crypto::RezMultiSignature;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -116,6 +116,7 @@ pub fn native_version() -> NativeVersion {
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
+// pub type Signature = RezMultiSignature;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
