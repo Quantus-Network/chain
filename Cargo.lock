@@ -430,6 +430,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-channel"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89b47800b0be77592da0afd425cc03468052844aff33b84e33cc696f64e77b6a"
+dependencies = [
+ "concurrent-queue",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-io"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6456,6 +6468,7 @@ dependencies = [
 name = "resonance-node"
 version = "0.1.0"
 dependencies = [
+ "async-channel 2.3.1",
  "chrono",
  "clap",
  "frame-benchmarking-cli",
@@ -6464,7 +6477,9 @@ dependencies = [
  "futures",
  "futures-util",
  "jsonrpsee",
+ "lazy_static",
  "log",
+ "once_cell",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
@@ -6497,6 +6512,7 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "tokio-tungstenite 0.26.2",
+ "uuid",
 ]
 
 [[package]]
@@ -7170,7 +7186,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51392c871f3c8867481e2b1d3426fa997fe14d3c739ae20e48c676aa92b9af08"
 dependencies = [
  "array-bytes",
- "async-channel",
+ "async-channel 1.9.0",
  "async-trait",
  "asynchronous-codec",
  "bytes",
@@ -7241,7 +7257,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8150e7a09695c60b09939a7815be4cc3fb48592779c197ba9442d29c0a98f8ad"
 dependencies = [
  "array-bytes",
- "async-channel",
+ "async-channel 1.9.0",
  "futures",
  "log",
  "parity-scale-codec",
@@ -7263,7 +7279,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82cb3b9939d57083495b3ed1304094b939c99ebdc651fb779ab6d2c83428679e"
 dependencies = [
  "array-bytes",
- "async-channel",
+ "async-channel 1.9.0",
  "async-trait",
  "fork-tree",
  "futures",
@@ -7702,7 +7718,7 @@ version = "17.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acf1bad736c230f16beb1cf48af9e69564df23b13aca9e5751a61266340b4bb5"
 dependencies = [
- "async-channel",
+ "async-channel 1.9.0",
  "futures",
  "futures-timer",
  "lazy_static",
@@ -9992,6 +10008,15 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c1f41ffb7cf259f1ecc2876861a17e7142e63ead296f671f81f6ae85903e0d6"
+dependencies = [
+ "getrandom 0.3.1",
+]
 
 [[package]]
 name = "valuable"

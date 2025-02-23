@@ -1,6 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::{FutureExt, StreamExt, SinkExt};
+use jsonrpsee::tokio::net::TcpStream;
 use qpow::{QPow, Compute, QPoWSeal, MinimalQPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
@@ -16,6 +17,57 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::accept_async;
 use chrono::Local;
+
+
+use tokio::sync::watch;
+use once_cell::sync::Lazy;
+
+
+// ## Design for handling mining microservice.
+
+// fn handle_connection: 
+// only handles the websocket connection. New connections, connection health.
+
+// It uses the *Connection* struct (could be a hash map). To collect connections and attach metadata.
+// Metadata of interest would be:
+// id - to uniquely identify miners across restarts both for the node and the miner
+// role - allowing the Node, Mining Pool, Miner to know what type of connection it is.
+// created - to track when the connection was created
+// future ideas - tracking reliability of the connection
+// Using this data orientated approach makes it easier to print this data out and serialise it for telemetry or a UI for monitoring.
+
+// Spawned task: "pow-mining-actualy-real-mining-happening" would pass the new blocks to be mined through a channel. Which would be recieved by a function called something like job_manager.
+// fn job_manager (not defined in this file yet): could keep track of job_id's and distribute the work to the miners. Looping over the Connection struct and sending out work to each connection.
+
+// Define global watch channel as Lazy static
+static CHANNEL: Lazy<(watch::Sender<String>, watch::Receiver<String>)> = Lazy::new(|| {
+    watch::channel("Initial Value".to_string())
+});
+
+// Helper function to get a cloned sender
+pub fn get_sender() -> watch::Sender<String> {
+    CHANNEL.0.clone()
+}
+
+// Helper function to get a receiver
+pub fn get_receiver() -> watch::Receiver<String> {
+    CHANNEL.1.clone()
+}
+
+
+// Can be removed. Only for confirming channel updates.
+async fn watch_channel_updates() {
+    let mut rx = get_receiver(); // Subscribe to the channel
+
+    println!("👀 Watching for new channel updates...");
+
+    loop {
+        if rx.changed().await.is_ok() {
+            let new_value = rx.borrow().clone();
+            println!("📡 New value in channel: {}", new_value);
+        }
+    }
+}
 
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -251,60 +303,64 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
-        // task_manager.spawn_essential_handle().spawn(
-        //     "pow-mining-actualy-real-mining-happening",
-        //     None,
-        //     async move {
-        //         let mut nonce = 0;
-        //         loop {
-        //             // Get mining metadata
-        //             println!("getting metadata");
+        task_manager.spawn_essential_handle().spawn(
+            "pow-mining-actualy-real-mining-happening",
+            None,
+            async move {
+                let mut nonce = 0;
+                let sender = get_sender();
 
-        //             let metadata = match worker_handle.metadata() {
-        //                 Some(m) => m,
-        //                 None => {
-        //                     log::warn!(target: "pow", "No mining metadata available");
-        //                     tokio::time::sleep(Duration::from_millis(1000)).await;
-        //                     continue;
-        //                 }
-        //             };
-        //             let version = worker_handle.version();
+                // Used to verify that channel gets updates
+                tokio::spawn(watch_channel_updates());
+                loop {
+                    // Get mining metadata
+                    println!("getting metadata");
+                                // Send a message to the watch channel
+                    let message = format!("Mining iteration, nonce: {}", nonce);
+                    if sender.send(message.clone()).is_ok() {
+                        println!("✅ Sent to channel: {}", message);
+                    } else {
+                        println!("❌ Failed to send to channel");
+                    }
 
-        //             println!("mine block");
+                    // Simulating mining process
+                    nonce += 1;
 
-        //             // Mine the block
-        //             let seal =
-		// 			match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
-        //                     Ok(s) => {
-        //                         println!("valid seal: {:?}", s);
-        //                         s
-        //                     }
-        //                     Err(_) => {
-        //                         println!("error - seal not valid");
-        //                         nonce += 1;
-        //                         tokio::time::sleep(Duration::from_millis(100)).await;
-        //                         continue;
-        //                     }
-        //                 };
+                    // println!("mine block");
 
-        //             println!("block found");
+                    // Mine the block
+                    // let seal =
+					// match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
+                    //         Ok(s) => {
+                    //             println!("valid seal: {:?}", s);
+                    //             s
+                    //         }
+                    //         Err(_) => {
+                    //             println!("error - seal not valid");
+                    //             nonce += 1;
+                    //             tokio::time::sleep(Duration::from_millis(100)).await;
+                    //             continue;
+                    //         }
+                    //     };
 
-        //             let current_version = worker_handle.version();
-        //             if current_version == version {
-        //                 if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-        //                     println!("Successfully mined and submitted a new block");
-        //                     nonce = 0;
-        //                 } else {
-        //                     println!("Failed to submit mined block");
-        //                     nonce += 1;
-        //                 }
-        //             }
+                    // println!("block found");
 
-        //             // Sleep to avoid spamming
-        //             tokio::time::sleep(Duration::from_millis(1000)).await;
-        //         }
-        //     }, // .boxed()
-        // );
+                    // let current_version = worker_handle.version();
+                    // if current_version == version {
+                    //     if futures::executor::block_on(worker_handle.submit(seal.encode())) {
+                    //         println!("Successfully mined and submitted a new block");
+                    //         nonce = 0;
+                    //     } else {
+                    //         println!("Failed to submit mined block");
+                    //         nonce += 1;
+                    //     }
+                    // }
+
+                    // Sleep to avoid spamming
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                }
+            }, // .boxed()
+        );
 
         println!("⛏️  Pow miner spawned");
     }
@@ -354,25 +410,75 @@ fn try_nonce<B: BlockT<Hash = H256>>(
 
 }
 
+// Websockets
 
+use std::time::SystemTime;
+use uuid::Uuid;
+use std::sync::Mutex;
+use tokio_tungstenite::WebSocketStream;
+
+
+// #[derive(Clone, Debug)]
+struct Connection {
+    id: Uuid,
+    role: String,
+    created: SystemTime,
+    stream: WebSocketStream<TcpStream>,
+}
+
+type ConnectionList = Arc<Mutex<Vec<Connection>>>;
+
+lazy_static::lazy_static! {
+    static ref CONNECTIONS: ConnectionList = Arc::new(Mutex::new(Vec::new()));
+}
+
+// // Shared list of active connections
+// type ConnectionList = Arc<Mutex<Vec<Connection>>>;
 
 async fn start_websocket_server(addr: &str) {
     let listener = TcpListener::bind(addr).await.expect("Failed to bind WebSocket server");
     println!("WebSocket server listening on {}", addr);
 
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(handle_connection(stream));
+        tokio::spawn(handle_connection(stream, "Miner".to_string()));
     }
 }
 
-async fn handle_connection(stream: tokio::net::TcpStream) {
+
+async fn handle_connection(stream: TcpStream, role: String) {
     let ws_stream = accept_async(stream)
         .await
         .expect("Error during WebSocket handshake");
+        
+    let conn = Connection {
+        id: Uuid::new_v4(),
+        role,
+        created: SystemTime::now(),
+        stream: ws_stream
+    };
+    // Lock and add the new connection to the list of active connections
+    // {
+    //     let mut conn_list = connections.lock().await;
+    //     conn_list.push(conn.clone());
+    // }
 
-    println!("{} 🏷 New WebSocket connection", Local::now().format("%Y-%m-%d %H:%M:%S"));
+    // println!("{} 🏷 New WebSocket connection: {:?}", Local::now().format("%Y-%m-%d %H:%M:%S"), conn);
 
-    let (mut write, mut read) = ws_stream.split();
+    // println!("{} 🏷 New WebSocket connection", Local::now().format("%Y-%m-%d %H:%M:%S"));
+
+    let (mut write, mut read) = conn.stream.split();
+    let mut rx = get_receiver();
+
+    // Spawn a separate task to listen for mining updates
+    // tokio::spawn(async move {
+    //     while rx.changed().await.is_ok() {
+    //         let new_value = rx.borrow().clone();
+    //         println!("📡 New value in channel: {}", new_value);
+    //     }
+    // });
+
+    
+    
     while let Some(message) = read.next().await {
         match message {
             Ok(msg) => {
