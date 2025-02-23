@@ -48,5 +48,5 @@ pub enum RezMultiSignature {
     Ed25519(ed25519::Signature),
     Sr25519(sr25519::Signature),
     Ecdsa(ecdsa::Signature),
-    Rez(Vec<u8>), // Combined signature and public key
+    Rez(RezSignature, Vec<u8>), // Signature and public key bytes
 }
