@@ -1,11 +1,8 @@
-#![no_std]
-
-use codec::{Encode, Decode};
-use scale_info::TypeInfo;
-use scale_info::prelude::string::String;
-use sp_core::crypto::{PublicBytes, SignatureBytes};
+use codec::{Decode, Encode};
+use scale_info::{prelude::string::String, TypeInfo};
+use sp_core::crypto::{DeriveJunction, PublicBytes, SignatureBytes};
 use sp_std::vec::Vec;
-use sp_core::crypto::DeriveJunction;
+use sp_core::{ecdsa, ed25519, sr25519};
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo)]
 pub struct RezCryptoTag;
@@ -45,3 +42,12 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
 
 pub type RezPublic = WrappedPublicBytes<{super::crypto::PUB_KEY_BYTES}, RezCryptoTag>;
 pub type RezSignature = WrappedSignatureBytes<{super::crypto::SIGNATURE_BYTES}, RezCryptoTag>;
+
+// Define RezMultiSignature
+#[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo)]
+pub enum RezMultiSignature {
+    Ed25519(ed25519::Signature),
+    Sr25519(sr25519::Signature),
+    Ecdsa(ecdsa::Signature),
+    Rez(RezSignature), // Signature and public key bytes
+}
