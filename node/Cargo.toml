@@ -22,6 +22,7 @@ log = { workspace = true }
 codec = { workspace = true }
 resonance-runtime.workspace = true
 qpow = { path = "../qpow" }
+dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 
 clap = { features = ["derive"], workspace = true }
 futures = { features = ["thread-pool"], workspace = true }
