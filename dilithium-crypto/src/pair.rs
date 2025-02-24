@@ -42,7 +42,7 @@ impl Pair for RezPair {
         Ok(RezPair::Seed(seed.to_vec()))
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "default")]
     fn sign(&self, _message: &[u8]) -> Self::Signature {
         RezSignature::default()
     }
