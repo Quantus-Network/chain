@@ -1657,6 +1657,7 @@ name = "dilithium-crypto"
 version = "0.1.0"
 dependencies = [
  "frame-system",
+ "hdwallet",
  "parity-scale-codec",
  "rusty-crystals-dilithium",
  "scale-info",
@@ -2839,6 +2840,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8094feaf31ff591f651a2664fb9cfd92bba7a60ce3197265e9482ebe753c8f7"
 dependencies = [
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "hdwallet"
+version = "0.1.0"
+dependencies = [
+ "rusty-crystals-dilithium",
 ]
 
 [[package]]
