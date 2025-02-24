@@ -1,5 +1,5 @@
 # HD Wallet for PQ Crystals
 
-Uses std
+no_std compatible
 
 TBD

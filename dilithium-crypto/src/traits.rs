@@ -1,5 +1,7 @@
 #![no_std]
 
+use crate::SIGNATURE_BYTES;
+
 use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezPublic, RezSignature, RezMultiSignature, RezMultiSigner};
 use scale_info::TypeInfo;
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
@@ -110,16 +112,16 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
     }
 }
 
-impl Verify for RezSignature {
-    type Signer = RezPublic;
-    fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
-        &self,
-        mut msg: L,
-        signer: &<Self::Signer as IdentifyAccount>::AccountId,
-    ) -> bool {
-        true // Placeholder
-    }
-}
+// impl Verify for RezSignature {
+//     type Signer = RezPublic;
+//     fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
+//         &self,
+//         mut msg: L,
+//         signer: &<Self::Signer as IdentifyAccount>::AccountId,
+//     ) -> bool {
+//         RezMultiSignature::from(self).verify(msg, signer);
+//     }
+// }
 
 impl CryptoType for RezPair {
     type Pair = Self;
@@ -222,6 +224,15 @@ impl IdentifyAccount for RezMultiSigner {
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
             Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
             Self::Rez(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+        }
+    }
+}
+impl RezSignature {
+    pub fn from_slice(slice: &[u8]) -> Result<Self, &'static str> {
+        if slice.len() == SIGNATURE_BYTES {
+            Ok(Self(slice.try_into().unwrap()))
+        } else {
+            Err("Signature length mismatch")
         }
     }
 }

@@ -14,6 +14,7 @@ array-bytes = { version = "9.1.2", optional = true }
 frame-system = { workspace = true, default-features = false }
 rusty-crystals-dilithium.workspace = true
 verify = { path = "./verify", default-features = false } 
+# hdwallet = { path = "./hdwallet", default-features = false } 
 
 [features]
 default = ["std"]
