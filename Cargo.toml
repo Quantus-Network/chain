@@ -21,6 +21,8 @@ sc-consensus-pow = { version = "0.44.0", default-features = false }
 sp-consensus-pow = { version = "0.40.0", default-features = false }
 log = { version = "0.4.22", default-features = true }
 primitive-types = { version="0.13.1", default-features=false }
+dusk-poseidon = { version = "0.40.0", default-features = false }
+dusk-bls12_381 = { version = "0.13.0", default-features = false}
 
 pallet-template = { path = "./pallets/template", default-features = false }
 clap = { version = "4.5.10" }
@@ -71,6 +73,7 @@ sp-offchain = { version = "34.0.0", default-features = false }
 sp-session = { version = "36.0.0", default-features = false }
 sp-storage = { version = "21.0.0", default-features = false }
 sp-transaction-pool = { version = "34.0.0", default-features = false }
+sp-trie = { version = "37.0.0", default-features = false }
 sp-version = { version = "37.0.0", default-features = false }
 substrate-wasm-builder = { version = "24.0.1", default-features = false }
 schnorrkel = { version = "0.11.4", default-features = false }
