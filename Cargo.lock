@@ -6440,6 +6440,7 @@ name = "resonance-node"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "dilithium-crypto",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
  "frame-system",

@@ -6,7 +6,7 @@ use sp_std::vec::Vec;
 
 impl Pair for RezPair {
     type Public = RezPublic;
-    type Seed = [u8; 8]; // Address seed size issue below
+    type Seed = [u8; 32]; // Address seed size issue below
     type Signature = RezSignature;
 
     fn derive<Iter: Iterator<Item = DeriveJunction>>(

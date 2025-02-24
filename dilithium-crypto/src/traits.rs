@@ -1,6 +1,6 @@
 #![no_std]
 
-use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezPublic, RezSignature, RezMultiSignature};
+use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezPublic, RezSignature, RezMultiSignature, RezMultiSigner};
 use scale_info::TypeInfo;
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
@@ -171,17 +171,6 @@ impl From<(RezSignature, [u8; 2592])> for RezMultiSignature {
     }
 }
 
-// Define RezMultiSigner (simplified to just use AccountId32)
-#[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo)]
-pub struct RezMultiSigner(AccountId32);
-
-impl IdentifyAccount for RezMultiSigner {
-    type AccountId = AccountId32;
-    fn into_account(self) -> Self::AccountId {
-        self.0
-    }
-}
-
 impl Verify for RezMultiSignature {
     type Signer = RezMultiSigner;
 
@@ -211,6 +200,28 @@ impl Verify for RezMultiSignature {
                 }
                 verify(pk_bytes, msg.get(), sig.as_ref())
             },
+        }
+    }
+}
+
+//
+// RezMultiSigner
+//
+impl From<sr25519::Public> for RezMultiSigner {
+    fn from(x: sr25519::Public) -> Self {
+        Self::Sr25519(x)
+    }
+}
+
+impl IdentifyAccount for RezMultiSigner {
+    type AccountId = AccountId32;
+
+    fn into_account(self) -> AccountId32 {
+        match self {
+            Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            Self::Rez(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
         }
     }
 }

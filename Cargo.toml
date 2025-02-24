@@ -24,7 +24,7 @@ sc-consensus-pow = { version = "0.44.0", default-features = false }
 sp-consensus-pow = { version = "0.40.0", default-features = false }
 log = { version = "0.4.22", default-features = true }
 primitive-types = { version="0.13.1", default-features=false }
-rusty-crystals-dilithium = { path = "../rusty-crystals/dilithium", package = "rusty-crystals-dilithium", default-features = false, features = ["verifier_only"] }
+rusty-crystals-dilithium = { path = "../rusty-crystals/dilithium", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 
 pallet-template = { path = "./pallets/template", default-features = false }
 clap = { version = "4.5.10" }

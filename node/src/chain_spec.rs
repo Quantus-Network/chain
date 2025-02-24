@@ -26,6 +26,7 @@ where
 	AccountPublic::from(get_from_seed::<TPublic>(seed)).into_account()
 }
 
+
 // This dicciulty can on average be found on 100 tries of the nonce, so it's quite easy
 // Difficulty grows by an exponential of x^16 so it's a non-linear growth, difficulty adjustments. 
 // We will experiment and provide a formula on how to increase the difficulty linearly.
