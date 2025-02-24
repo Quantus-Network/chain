@@ -1,4 +1,3 @@
-#![no_std]
 use rusty_crystals_dilithium::ml_dsa_87;
 
 pub const PUB_KEY_BYTES: usize = ml_dsa_87::PUBLICKEYBYTES;

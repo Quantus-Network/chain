@@ -2,7 +2,7 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::{prelude::string::String, TypeInfo};
 use sp_core::{crypto::{DeriveJunction, PublicBytes, SignatureBytes}, RuntimeDebug};
 use sp_std::vec::Vec;
-use sp_core::{ecdsa, ed25519, sr25519};
+use sp_core::sr25519;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +39,7 @@ pub type RezSignature = WrappedSignatureBytes<{super::crypto::SIGNATURE_BYTES}, 
 #[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum RezMultiSignature {
-    Ed25519(ed25519::Signature),
     Sr25519(sr25519::Signature),
-    Ecdsa(ecdsa::Signature),
     Rez(RezSignature, [u8; super::crypto::PUB_KEY_BYTES]), // Signature and public key bytes
 }
 
@@ -49,8 +47,6 @@ pub enum RezMultiSignature {
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum RezMultiSigner {
-    Ed25519(ed25519::Public),
     Sr25519(sr25519::Public),
-    Ecdsa(ecdsa::Public),
     Rez(RezPublic),
 }

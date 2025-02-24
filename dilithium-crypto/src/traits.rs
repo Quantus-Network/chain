@@ -1,20 +1,13 @@
-#![no_std]
-
-use crate::SIGNATURE_BYTES;
-
-use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezPublic, RezSignature, RezMultiSignature, RezMultiSigner};
-use scale_info::TypeInfo;
+use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezSignature, RezMultiSignature, RezMultiSigner};
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
 use sp_std::vec::Vec;
-use sp_core::{ecdsa, ed25519, sr25519};
+use sp_core::sr25519;
 use verify::verify;
-use codec::{Encode, Decode};
 
 // 
 // WrappedPublicBytes
 // 
-
 impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedPublicBytes<N, SubTag> {
     fn as_mut(&mut self) -> &mut [u8] { self.0.as_mut() }
@@ -128,18 +121,6 @@ impl CryptoType for RezPair {
 }
 
 // Conversions for RezMultiSignature
-impl From<ed25519::Signature> for RezMultiSignature {
-    fn from(x: ed25519::Signature) -> Self {
-        Self::Ed25519(x)
-    }
-}
-
-impl TryFrom<RezMultiSignature> for ed25519::Signature {
-    type Error = ();
-    fn try_from(m: RezMultiSignature) -> Result<Self, Self::Error> {
-        if let RezMultiSignature::Ed25519(x) = m { Ok(x) } else { Err(()) }
-    }
-}
 
 impl From<sr25519::Signature> for RezMultiSignature {
     fn from(x: sr25519::Signature) -> Self {
@@ -151,19 +132,6 @@ impl TryFrom<RezMultiSignature> for sr25519::Signature {
     type Error = ();
     fn try_from(m: RezMultiSignature) -> Result<Self, Self::Error> {
         if let RezMultiSignature::Sr25519(x) = m { Ok(x) } else { Err(()) }
-    }
-}
-
-impl From<ecdsa::Signature> for RezMultiSignature {
-    fn from(x: ecdsa::Signature) -> Self {
-        Self::Ecdsa(x)
-    }
-}
-
-impl TryFrom<RezMultiSignature> for ecdsa::Signature {
-    type Error = ();
-    fn try_from(m: RezMultiSignature) -> Result<Self, Self::Error> {
-        if let RezMultiSignature::Ecdsa(x) = m { Ok(x) } else { Err(()) }
     }
 }
 
@@ -196,22 +164,13 @@ impl Verify for RezMultiSignature {
         log::info!("Verify CALLED");
 
         match self {
-            Self::Ed25519(sig) => {
-                let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
-                sig.verify(msg, &pk)
-            },
             Self::Sr25519(sig) => {
                 let pk = sr25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
                 sig.verify(msg, &pk)
             },
-            Self::Ecdsa(sig) => {
-                let m = sp_io::hashing::blake2_256(msg.get());
-                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
-                    .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
-            },
             Self::Rez(sig, pk_bytes) => {
-                let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
                 #[cfg(test)] {
+                    let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
                     log::info!("Signature bytes: {:?}", format_hex_truncated(bytes));            
                     log::info!("RezMultiSignature::Rez bytes {:?}", format_hex_truncated(pk_bytes));    
                 }
@@ -240,19 +199,8 @@ impl IdentifyAccount for RezMultiSigner {
 
     fn into_account(self) -> AccountId32 {
         match self {
-            Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
-            Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
             Self::Rez(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
         }
     }
 }
-// impl RezSignature {
-//     pub fn from_slice(slice: &[u8]) -> Result<Self, &'static str> {
-//         if slice.len() == SIGNATURE_BYTES {
-//             Ok(Self(slice.try_into().unwrap()))
-//         } else {
-//             Err("Signature length mismatch")
-//         }
-//     }
-// }

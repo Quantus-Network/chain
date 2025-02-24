@@ -1,5 +1,3 @@
-#![no_std]
-
 use super::types::{RezPair, RezPublic, RezSignature};
 use sp_core::{Pair, crypto::{SecretStringError, DeriveError, DeriveJunction}};
 use sp_std::vec::Vec;
