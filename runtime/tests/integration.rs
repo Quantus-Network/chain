@@ -172,16 +172,6 @@ fn test_dilithium_extrinsic_fail_verify() {
             // Extract components into individual variables for debugging
             let decoded_address: Address = address;
             let decoded_signature: RezMultiSignature = signature;
-            let decoded_extra: SignedExtra = extra;
-
-            // Debug output for each component
-            // println!("Decoded Address: {:?}", decoded_address);
-            // println!("Decoded Signature: {:?}", decoded_signature);
-            // println!("Decoded Extra: {:?}", decoded_extra);
-
-            // println!("Decoded PK bytes: {:?}", signature.1);
-            // println!("Decoded signature bytes: {:?}", signature.0);
-
 
             // Extract AccountId from Address
             let decoded_account_id = match decoded_address {
@@ -197,6 +187,70 @@ fn test_dilithium_extrinsic_fail_verify() {
             let is_valid = decoded_signature.verify(&msg[..], &decoded_account_id);
 
             assert!(!is_valid, "Signature verification worked with wrong signature: {:?}", decoded_account_id);
+        },
+        None => panic!("Decoded extrinsic has no signature"),
+    }
+}
+
+///
+/// This test is to verify that the signature verification fails if the account id is wrong
+#[test]
+fn test_dilithium_extrinsic_fail_by_account_id() {
+    let entropy = [0u8; 32]; // Fixed entropy of all zeros
+    let keypair = hdwallet::generate(Some(&entropy));
+    let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
+    let payload: RuntimeCall = 77;
+    let msg = payload.encode();
+
+    // So we create a valid public key and signature for account 1 but then we try to sign something on behalf
+    // of account 2. We send the wrong address. Should fail. 
+    let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
+    let signature = RezSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
+    
+    // Make a random account that has nothing to do with our public key
+    let account_id_2 = hashing::blake2_256(&[0u8; PUB_KEY_BYTES]).into();
+    let id = Address::Id(account_id_2);
+    let signed_extra: SignedExtra = ();
+
+    // pass in account id 1, and pk_bytes (public key of account 1)
+    let extrinsic = UncheckedExtrinsic::new_signed(
+        payload,
+        id,
+        RezMultiSignature::Rez(signature, pk_bytes), // correct signature! 
+        signed_extra,
+    );
+
+    // Step 4: Encode the extrinsic
+    let encoded = extrinsic.encode();
+
+    // Step 5: Decode the extrinsic
+    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, RezMultiSignature, ()> = 
+        UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
+    
+    assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
+    assert_eq!(decoded.signature, extrinsic.signature, "Decoded signature does not match original");
+
+    // Step 6: Verify the signature using the AccountId from the decoded extrinsic
+    match decoded.signature {
+        Some((address, signature, extra)) => {
+            // Extract components into individual variables for debugging
+            let decoded_address: Address = address;
+            let decoded_signature: RezMultiSignature = signature;
+
+            // Extract AccountId from Address
+            let decoded_account_id = match decoded_address {
+                Address::Id(id) => id,
+                _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
+            };
+
+            // Additional debug output for AccountId
+            println!("Decoded AccountId: {:?}", decoded_account_id);
+            println!("Decoded Payload: {:?}", decoded.function);
+
+            // Verify the signature
+            let is_valid = decoded_signature.verify(&msg[..], &decoded_account_id);
+
+            assert!(!is_valid, "Signature verification worked with wrong account id: {:?}", decoded_account_id);
         },
         None => panic!("Decoded extrinsic has no signature"),
     }
