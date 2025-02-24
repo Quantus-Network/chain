@@ -27,31 +27,31 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     FullClient,
     FullSelectChain,
     MinimalQPowAlgorithm,
-    Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=()>>,
+    Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>,
 >;
 pub type Service = sc_service::PartialComponents<
     FullClient,
     FullBackend,
     FullSelectChain,
     sc_consensus::DefaultImportQueue<Block>,
-    sc_transaction_pool::TransactionPoolHandle<Block, FullClient>, //We had FullPool here
+    sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
     (PowBlockImport, Option<Telemetry>),
 >;
 //TODO Question - for what is this method?
 pub fn build_inherent_data_providers(
-) -> Result<Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=()>>, ServiceError> {
+) -> Result<Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>, ServiceError> {
     struct Provider;
-    #[async_trait::async_trait]  // Dodajemy ten atrybut!
+    #[async_trait::async_trait]
     impl sp_inherents::CreateInherentDataProviders<Block, ()> for Provider {
-        type InherentDataProviders = ();  // Zmieniamy na ()
+        type InherentDataProviders = sp_timestamp::InherentDataProvider;
 
         async fn create_inherent_data_providers(
             &self,
-            _parent: <Block as BlockT>::Hash,  // Poprawiamy definicję Hash
+            _parent: <Block as BlockT>::Hash,
             _extra: (),
         ) -> Result<Self::InherentDataProviders, Box<dyn std::error::Error + Send + Sync>> {
-            let _provider = sp_timestamp::InherentDataProvider::from_system_time();
-            Ok(())  // Zwracamy ()
+            let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+            Ok(timestamp)
         }
     }
 
@@ -87,14 +87,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     });
 
     let select_chain = sc_consensus::LongestChain::new(backend.clone());
-
-/*    let transaction_pool = sc_transaction_pool::BasicPool::new_full(
-        config.transaction_pool.clone().into(), //We had without into()
-        config.role.is_authority().into(),
-        config.prometheus_registry(),
-        task_manager.spawn_essential_handle(),
-        client.clone(),
-    );*/
 
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
