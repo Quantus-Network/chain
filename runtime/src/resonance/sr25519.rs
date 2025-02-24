@@ -603,7 +603,6 @@ pub mod vrf {
 
 #[cfg(test)]
 mod tests {
-	use sp_core::ByteArray;
 	use super::{vrf::*, *};
 	use crate::resonance::account::{
 		Ss58Codec,VrfPublic,VrfSecret,DEV_ADDRESS,DEV_PHRASE,

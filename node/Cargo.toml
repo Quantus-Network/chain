@@ -15,17 +15,13 @@ build = "build.rs"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-sp-consensus = { workspace = true }
-sc-consensus-pow = { version = "0.44.0", default-features = false }
-sp-consensus-pow = { version = "0.40.0", default-features = false }
+sc-consensus-pow = { workspace = true, default-features = false }
 log = { workspace = true }
 codec = { workspace = true }
-resonance-runtime.workspace = true
 qpow = { path = "../qpow" }
 
 clap = { features = ["derive"], workspace = true }
 futures = { features = ["thread-pool"], workspace = true }
-serde_json = { workspace = true, default-features = true }
 jsonrpsee = { features = ["server"], workspace = true }
 sc-cli.workspace = true
 sc-cli.default-features = true
@@ -47,6 +43,8 @@ sc-offchain.workspace = true
 sc-offchain.default-features = true
 sc-consensus.workspace = true
 sc-consensus.default-features = true
+sp-genesis-builder.workspace = true
+sp-genesis-builder.default-features = true
 sc-client-api.workspace = true
 sc-client-api.default-features = true
 sc-basic-authorship.workspace = true
@@ -59,8 +57,6 @@ sp-timestamp.workspace = true
 sp-timestamp.default-features = true
 sp-inherents.workspace = true
 sp-inherents.default-features = true
-sp-keyring.workspace = true
-sp-keyring.default-features = true
 sp-api.workspace = true
 sp-api.default-features = true
 sp-blockchain.workspace = true
@@ -79,6 +75,9 @@ substrate-frame-rpc-system.workspace = true
 substrate-frame-rpc-system.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
+resonance-runtime.workspace = true
+
+async-trait = "0.1.86"
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true
@@ -86,13 +85,12 @@ substrate-build-script-utils.default-features = true
 
 [features]
 default = ["std"]
-std = [
-	"resonance-runtime/std",
-]
+std = ["resonance-runtime/std"]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
+	"pallet-transaction-payment/runtime-benchmarks",
 	"sc-service/runtime-benchmarks",
 	"resonance-runtime/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
