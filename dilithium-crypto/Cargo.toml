@@ -3,6 +3,9 @@ name = "dilithium-crypto"
 version = "0.1.0"
 edition = "2021"
 
+[build]
+target = "wasm32-unknown-unknown"
+
 [dependencies]
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
@@ -14,6 +17,7 @@ frame-system = { workspace = true, default-features = false }
 rusty-crystals-dilithium.workspace = true
 verify = { path = "./verify", default-features = false } 
 hdwallet = { path = "./hdwallet", default-features = false } 
+log = { workspace = true, default-features = false }
 
 [features]
 default = []

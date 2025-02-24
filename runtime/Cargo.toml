@@ -55,6 +55,7 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 sp-io = { workspace = true, default-features = true }
 sp-std = { version = "14.0.0", default-features = true }
 hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
+env_logger = "0.11.5"  # Latest version as of now; adjust as needed
 
 [features]
 default = ["std"]

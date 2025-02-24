@@ -42,7 +42,7 @@ impl Pair for RezPair {
         Ok(RezPair::Seed(seed.to_vec()))
     }
 
-	#[cfg(feature = "full_crypto")]
+	#[cfg(feature = "default")]
     fn sign(&self, _message: &[u8]) -> Self::Signature {
         RezSignature::default()
     }

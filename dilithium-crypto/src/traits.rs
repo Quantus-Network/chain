@@ -119,7 +119,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
 //         mut msg: L,
 //         signer: &<Self::Signer as IdentifyAccount>::AccountId,
 //     ) -> bool {
-//         RezMultiSignature::from(self).verify(msg, signer);
+//         RezMultiSignature::from(self).verify(msg, signer)
 //     }
 // }
 
@@ -173,6 +173,18 @@ impl From<(RezSignature, [u8; 2592])> for RezMultiSignature {
     }
 }
 
+#[cfg(feature = "std")]
+#[cfg(test)]
+pub fn format_hex_truncated(bytes: &[u8]) -> String {
+    if bytes.len() <= 16 {
+        format!("{:02x?}", bytes)
+    } else {
+        let first = &bytes[..8];
+        let last = &bytes[bytes.len() - 8..];
+        format!("{:02x?}..{:02x?}", first, last)
+    }
+}
+
 impl Verify for RezMultiSignature {
     type Signer = RezMultiSigner;
 
@@ -181,6 +193,8 @@ impl Verify for RezMultiSignature {
         mut msg: L,
         signer: &<Self::Signer as IdentifyAccount>::AccountId,
     ) -> bool {
+        log::info!("Verify CALLED");
+
         match self {
             Self::Ed25519(sig) => {
                 let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
@@ -196,11 +210,17 @@ impl Verify for RezMultiSignature {
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Rez(sig, pk_bytes) => {
+                let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
+                #[cfg(test)] {
+                    log::info!("Signature bytes: {:?}", format_hex_truncated(bytes));            
+                    log::info!("RezMultiSignature::Rez bytes {:?}", format_hex_truncated(pk_bytes));    
+                }
                 let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
                 }
-                verify(pk_bytes, msg.get(), sig.as_ref())
+                let result = verify(pk_bytes, msg.get(), sig.as_ref());
+                result
             },
         }
     }
@@ -227,12 +247,12 @@ impl IdentifyAccount for RezMultiSigner {
         }
     }
 }
-impl RezSignature {
-    pub fn from_slice(slice: &[u8]) -> Result<Self, &'static str> {
-        if slice.len() == SIGNATURE_BYTES {
-            Ok(Self(slice.try_into().unwrap()))
-        } else {
-            Err("Signature length mismatch")
-        }
-    }
-}
+// impl RezSignature {
+//     pub fn from_slice(slice: &[u8]) -> Result<Self, &'static str> {
+//         if slice.len() == SIGNATURE_BYTES {
+//             Ok(Self(slice.try_into().unwrap()))
+//         } else {
+//             Err("Signature length mismatch")
+//         }
+//     }
+// }
