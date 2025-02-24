@@ -32,12 +32,11 @@ use frame_support::{
 use sp_api::impl_runtime_apis;
 use sp_core::OpaqueMetadata;
 use sp_runtime::{
-	traits::{Block as BlockT, NumberFor},
+	traits::Block as BlockT,
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult,
 };
 use sp_version::RuntimeVersion;
-use crate::resonance::account::KeyTypeId;
 // Local module imports
 use super::{
 	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,

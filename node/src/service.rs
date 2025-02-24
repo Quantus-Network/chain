@@ -27,23 +27,35 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     FullClient,
     FullSelectChain,
     MinimalQPowAlgorithm,
-    impl sp_inherents::CreateInherentDataProviders<Block, ()>,
+    Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=()>>,
 >;
 pub type Service = sc_service::PartialComponents<
     FullClient,
     FullBackend,
     FullSelectChain,
     sc_consensus::DefaultImportQueue<Block>,
-    sc_transaction_pool::FullPool<Block, FullClient>,
+    sc_transaction_pool::TransactionPoolHandle<Block, FullClient>, //We had FullPool here
     (PowBlockImport, Option<Telemetry>),
 >;
-
+//TODO Question - for what is this method?
 pub fn build_inherent_data_providers(
-) -> Result<impl sp_inherents::CreateInherentDataProviders<Block, ()>, ServiceError> {
-    Ok(|_parent, _extra: ()| async move {
-        let provider = sp_timestamp::InherentDataProvider::from_system_time();
-        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(provider)
-    })
+) -> Result<Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=()>>, ServiceError> {
+    struct Provider;
+    #[async_trait::async_trait]  // Dodajemy ten atrybut!
+    impl sp_inherents::CreateInherentDataProviders<Block, ()> for Provider {
+        type InherentDataProviders = ();  // Zmieniamy na ()
+
+        async fn create_inherent_data_providers(
+            &self,
+            _parent: <Block as BlockT>::Hash,  // Poprawiamy definicję Hash
+            _extra: (),
+        ) -> Result<Self::InherentDataProviders, Box<dyn std::error::Error + Send + Sync>> {
+            let _provider = sp_timestamp::InherentDataProvider::from_system_time();
+            Ok(())  // Zwracamy ()
+        }
+    }
+
+    Ok(Box::new(Provider))
 }
 
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
@@ -76,13 +88,25 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
     let select_chain = sc_consensus::LongestChain::new(backend.clone());
 
-    let transaction_pool = sc_transaction_pool::BasicPool::new_full(
-        config.transaction_pool.clone(),
+/*    let transaction_pool = sc_transaction_pool::BasicPool::new_full(
+        config.transaction_pool.clone().into(), //We had without into()
         config.role.is_authority().into(),
         config.prometheus_registry(),
         task_manager.spawn_essential_handle(),
         client.clone(),
+    );*/
+
+    let transaction_pool = Arc::from(
+        sc_transaction_pool::Builder::new(
+            task_manager.spawn_essential_handle(),
+            client.clone(),
+            config.role.is_authority().into(),
+        )
+            .with_options(config.transaction_pool.clone())
+            .with_prometheus(config.prometheus_registry())
+            .build(),
     );
+
 
     let inherent_data_providers = build_inherent_data_providers()?;
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
@@ -102,16 +126,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         config.prometheus_registry(),
     )?;
 
-    Ok(sc_service::PartialComponents {
-        client,
-        backend,
-        task_manager,
-        import_queue,
-        keystore_container,
-        select_chain,
-        transaction_pool,
-        other: (pow_block_import, telemetry),
-    })
+	Ok(sc_service::PartialComponents {
+		client,
+		backend,
+		task_manager,
+		import_queue,
+		keystore_container,
+		select_chain,
+		transaction_pool,
+		other: (pow_block_import, telemetry),
+	})
 }
 
 /// Builds a new service for a full client.
@@ -152,26 +176,26 @@ pub fn new_full<
             metrics,
         })?;
 
-    if config.offchain_worker.enabled {
-        task_manager.spawn_handle().spawn(
-            "offchain-workers-runner",
-            "offchain-worker",
-            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-                runtime_api_provider: client.clone(),
-                is_validator: config.role.is_authority(),
-                keystore: Some(keystore_container.keystore()),
-                offchain_db: backend.offchain_storage(),
-                transaction_pool: Some(OffchainTransactionPoolFactory::new(
-                    transaction_pool.clone(),
-                )),
-                network_provider: Arc::new(network.clone()),
-                enable_http_requests: true,
-                custom_extensions: |_| vec![],
-            })
-            .run(client.clone(), task_manager.spawn_handle())
-            .boxed(),
-        );
-    }
+	if config.offchain_worker.enabled {
+		let offchain_workers =
+			sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+				runtime_api_provider: client.clone(),
+				is_validator: config.role.is_authority(),
+				keystore: Some(keystore_container.keystore()),
+				offchain_db: backend.offchain_storage(),
+				transaction_pool: Some(OffchainTransactionPoolFactory::new(
+					transaction_pool.clone(),
+				)),
+				network_provider: Arc::new(network.clone()),
+				enable_http_requests: true,
+				custom_extensions: |_| vec![],
+			})?;
+		task_manager.spawn_handle().spawn(
+			"offchain-workers-runner",
+			"offchain-worker",
+			offchain_workers.run(client.clone(), task_manager.spawn_handle()).boxed(),
+		);
+	}
 
     let role = config.role;
     let prometheus_registry = config.prometheus_registry().cloned();
