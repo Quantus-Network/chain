@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo, Ord, PartialOrd)]
 pub struct RezCryptoTag;
 
+// TODO: Review if we even need Pair - we need some sort of pair trait in order to satisfy crypto bytes
+// which is one of the wrapped public key types. But I am not sure we need that either. 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum RezPair {
     Generated,
