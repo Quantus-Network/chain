@@ -366,7 +366,6 @@ mod tests {
 
     use super::*;
     use sp_core::H256;
-    use sp_runtime::testing::{Block as TestBlock, H256 as TestH256, TestXt};
     // Import OpaqueExtrinsic (our opaque extrinsic type)
     use sp_runtime::OpaqueExtrinsic;
     // Define a TestXt with OpaqueExtrinsic as the Call and () as the Extra.
