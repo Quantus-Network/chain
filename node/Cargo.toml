@@ -15,17 +15,13 @@ build = "build.rs"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-sp-consensus = { workspace = true }
-# we have versions in workspace for this as well
-sp-consensus-pow = { version = "0.41.0", default-features = false } # in stable2412 we have 0.32.0 version
-sc-consensus-pow = { version = "0.47.0", default-features = false } # in stable2412 we have 0.33.0 version
+sc-consensus-pow = { workspace = true, default-features = false }
 log = { workspace = true }
 codec = { workspace = true }
 qpow = { path = "../qpow" }
 
 clap = { features = ["derive"], workspace = true }
 futures = { features = ["thread-pool"], workspace = true }
-serde_json = { workspace = true, default-features = true }
 jsonrpsee = { features = ["server"], workspace = true }
 sc-cli.workspace = true
 sc-cli.default-features = true
@@ -80,6 +76,7 @@ substrate-frame-rpc-system.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
 resonance-runtime.workspace = true
+
 async-trait = "0.1.86"
 
 [build-dependencies]
