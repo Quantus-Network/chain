@@ -1,4 +1,4 @@
-use super::types::{WrappedPublicBytes, WrappedSignatureBytes, RezPair, RezSignature, RezMultiSignature, RezMultiSigner};
+use super::types::{WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
 use sp_std::vec::Vec;
@@ -30,7 +30,7 @@ impl<const N: usize, SubTag> ByteArray for WrappedPublicBytes<N, SubTag> {
     fn to_raw_vec(&self) -> Vec<u8> { self.0.as_slice().to_vec() }
 }
 impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
-    type Pair = RezPair;
+    type Pair = ResonancePair;
 }
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
@@ -83,7 +83,7 @@ impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
     fn to_raw_vec(&self) -> Vec<u8> { self.0.as_slice().to_vec() }
 }
 impl<const N: usize, SubTag> CryptoType for WrappedSignatureBytes<N, SubTag> {
-    type Pair = RezPair;
+    type Pair = ResonancePair;
 }
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
@@ -105,39 +105,39 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
     }
 }
 
-// impl Verify for RezSignature {
-//     type Signer = RezPublic;
+// impl Verify for ResonanceSignature {
+//     type Signer = ResonancePublic;
 //     fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
 //         &self,
 //         mut msg: L,
 //         signer: &<Self::Signer as IdentifyAccount>::AccountId,
 //     ) -> bool {
-//         RezMultiSignature::from(self).verify(msg, signer)
+//         ResonanceSignatureScheme::from(self).verify(msg, signer)
 //     }
 // }
 
-impl CryptoType for RezPair {
+impl CryptoType for ResonancePair {
     type Pair = Self;
 }
 
-// Conversions for RezMultiSignature
+// Conversions for ResonanceSignatureScheme
 
-impl From<sr25519::Signature> for RezMultiSignature {
+impl From<sr25519::Signature> for ResonanceSignatureScheme {
     fn from(x: sr25519::Signature) -> Self {
         Self::Sr25519(x)
     }
 }
 
-impl TryFrom<RezMultiSignature> for sr25519::Signature {
+impl TryFrom<ResonanceSignatureScheme> for sr25519::Signature {
     type Error = ();
-    fn try_from(m: RezMultiSignature) -> Result<Self, Self::Error> {
-        if let RezMultiSignature::Sr25519(x) = m { Ok(x) } else { Err(()) }
+    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
+        if let ResonanceSignatureScheme::Sr25519(x) = m { Ok(x) } else { Err(()) }
     }
 }
 
-impl From<(RezSignature, [u8; 2592])> for RezMultiSignature {
-    fn from((sig, pk): (RezSignature, [u8; 2592])) -> Self {
-        Self::Rez(sig, pk)
+impl From<(ResonanceSignature, [u8; 2592])> for ResonanceSignatureScheme {
+    fn from((sig, pk): (ResonanceSignature, [u8; 2592])) -> Self {
+        Self::Resonance(sig, pk)
     }
 }
 
@@ -153,8 +153,8 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
     }
 }
 
-impl Verify for RezMultiSignature {
-    type Signer = RezMultiSigner;
+impl Verify for ResonanceSignatureScheme {
+    type Signer = ResonanceSigner;
 
     fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
         &self,
@@ -168,11 +168,12 @@ impl Verify for RezMultiSignature {
                 let pk = sr25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
                 sig.verify(msg, &pk)
             },
-            Self::Rez(sig, pk_bytes) => {
+            Self::Resonance(sig, pk_bytes) => {
                 #[cfg(test)] {
+                    // TODO: Remove test printouts.
                     let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
                     log::info!("Signature bytes: {:?}", format_hex_truncated(bytes));            
-                    log::info!("RezMultiSignature::Rez bytes {:?}", format_hex_truncated(pk_bytes));    
+                    log::info!("ResonanceSignatureScheme::Resonance bytes {:?}", format_hex_truncated(pk_bytes));    
                 }
                 let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
@@ -186,21 +187,21 @@ impl Verify for RezMultiSignature {
 }
 
 //
-// RezMultiSigner
+// ResonanceSigner
 //
-impl From<sr25519::Public> for RezMultiSigner {
+impl From<sr25519::Public> for ResonanceSigner {
     fn from(x: sr25519::Public) -> Self {
         Self::Sr25519(x)
     }
 }
 
-impl IdentifyAccount for RezMultiSigner {
+impl IdentifyAccount for ResonanceSigner {
     type AccountId = AccountId32;
 
     fn into_account(self) -> AccountId32 {
         match self {
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
-            Self::Rez(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
         }
     }
 }

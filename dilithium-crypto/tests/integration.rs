@@ -3,7 +3,7 @@
 
 
 // use dilithium_crypto::{
-//     RezMultiSignature, RezMultiSigner, RezPublic, RezSignature, PUB_KEY_BYTES, SIGNATURE_BYTES
+//     ResonanceSignatureScheme, ResonanceSigner, ResonancePublic, ResonanceSignature, PUB_KEY_BYTES, SIGNATURE_BYTES
 // };
 // use hdwallet;
 
@@ -40,7 +40,7 @@
 
 //     println!("Signature (hex): {:02x?}", sig_bytes);
 
-//     let signature = RezSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+//     let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
     
 //     // Step 3: Derive AccountId and create extrinsic
@@ -49,7 +49,7 @@
 //     let extrinsic = UncheckedExtrinsic::new_signed(
 //         payload,
 //         Address::Id(account_id),
-//         RezMultiSignature::Rez(signature, pk_bytes),
+//         ResonanceSignatureScheme::Resonance(signature, pk_bytes),
 //         signed_extra,
 //     );
 
@@ -69,7 +69,7 @@
 //         Some((address, signature, extra)) => {
 //             // Extract components into individual variables for debugging
 //             let decoded_address: Address = address;
-//             let decoded_signature: RezMultiSignature = signature;
+//             let decoded_signature: ResonanceSignatureScheme = signature;
 //             let decoded_extra: SignedExtra = extra;
 
 //             // Debug output for each component

@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
-	MultiAddress, MultiSignature,
+	MultiAddress,
 };
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -24,9 +24,9 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
-pub use dilithium_crypto::RezSignature;
-pub use dilithium_crypto::RezPublic;
-use dilithium_crypto::RezMultiSignature;
+pub use dilithium_crypto::ResonanceSignature;
+pub use dilithium_crypto::ResonancePublic;
+use dilithium_crypto::ResonanceSignatureScheme;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -116,7 +116,7 @@ pub fn native_version() -> NativeVersion {
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 // pub type Signature = MultiSignature;
-pub type Signature = RezMultiSignature;
+pub type Signature = ResonanceSignatureScheme;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.

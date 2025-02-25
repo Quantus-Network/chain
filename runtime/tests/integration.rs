@@ -1,5 +1,5 @@
 use dilithium_crypto::{
-    RezMultiSignature, RezMultiSigner, RezPublic, RezSignature, WrappedPublicBytes, WrappedSignatureBytes, PUB_KEY_BYTES, SIGNATURE_BYTES
+    ResonanceSignatureScheme, ResonanceSigner, ResonancePublic, ResonanceSignature, WrappedPublicBytes, WrappedSignatureBytes, PUB_KEY_BYTES, SIGNATURE_BYTES
 };
 use hdwallet;
 use sp_runtime::{
@@ -45,8 +45,8 @@ fn test_dilithium_extrinsic() {
     let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
 
     println!("Signature (hex): {:?}", format_hex_truncated(&sig_bytes));
-    let signature = RezSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
-    // let signature = RezSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+    let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+    // let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
     // let signature_bytes = signature.as_slice();
 
@@ -63,7 +63,7 @@ fn test_dilithium_extrinsic() {
     let extrinsic = UncheckedExtrinsic::new_signed(
         payload,
         id,
-        RezMultiSignature::Rez(signature, pk_bytes),
+        ResonanceSignatureScheme::Resonance(signature, pk_bytes),
         signed_extra,
     );
 
@@ -73,7 +73,7 @@ fn test_dilithium_extrinsic() {
 
     // Step 5: Decode the extrinsic
 
-    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, RezMultiSignature, ()> = 
+    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, ResonanceSignatureScheme, ()> = 
         UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
     
     assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
@@ -85,7 +85,7 @@ fn test_dilithium_extrinsic() {
         Some((address, signature, extra)) => {
             // Extract components into individual variables for debugging
             let decoded_address: Address = address;
-            let decoded_signature: RezMultiSignature = signature;
+            let decoded_signature: ResonanceSignatureScheme = signature;
             let decoded_extra: SignedExtra = extra;
 
             // Debug output for each component
@@ -93,7 +93,7 @@ fn test_dilithium_extrinsic() {
             println!("Decoded Extra: {:?}", decoded_extra);
 
             match decoded_signature {
-                RezMultiSignature::Rez(ref sig, pk_bytes) => {
+                ResonanceSignatureScheme::Resonance(ref sig, pk_bytes) => {
                     let sig_bytes = sig.as_slice();
                     println!("Decoded Signature: {:?}", format_hex_truncated(&sig_bytes));
                     println!("Public Key: {:?}", format_hex_truncated(&pk_bytes));
@@ -136,9 +136,9 @@ fn test_dilithium_extrinsic_fail_verify() {
     // sign with key 2
     let sig_bytes = keypair2.sign(&msg, None, false).expect("Signing failed");
 
-    let signature = RezSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
+    let signature = ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
-    // let signature = RezSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+    // let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
     
     // Step 3: Derive AccountId and create extrinsic
@@ -151,7 +151,7 @@ fn test_dilithium_extrinsic_fail_verify() {
     let extrinsic = UncheckedExtrinsic::new_signed(
         payload,
         id,
-        RezMultiSignature::Rez(signature, pk_bytes),
+        ResonanceSignatureScheme::Resonance(signature, pk_bytes),
         signed_extra,
     );
 
@@ -159,7 +159,7 @@ fn test_dilithium_extrinsic_fail_verify() {
     let encoded = extrinsic.encode();
 
     // Step 5: Decode the extrinsic
-    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, RezMultiSignature, ()> = 
+    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, ResonanceSignatureScheme, ()> = 
         UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
     
     assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
@@ -171,7 +171,7 @@ fn test_dilithium_extrinsic_fail_verify() {
         Some((address, signature, extra)) => {
             // Extract components into individual variables for debugging
             let decoded_address: Address = address;
-            let decoded_signature: RezMultiSignature = signature;
+            let decoded_signature: ResonanceSignatureScheme = signature;
 
             // Extract AccountId from Address
             let decoded_account_id = match decoded_address {
@@ -205,7 +205,7 @@ fn test_dilithium_extrinsic_fail_by_account_id() {
     // So we create a valid public key and signature for account 1 but then we try to sign something on behalf
     // of account 2. We send the wrong address. Should fail. 
     let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
-    let signature = RezSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
+    let signature = ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
     
     // Make a random account that has nothing to do with our public key
     let account_id_2 = hashing::blake2_256(&[0u8; PUB_KEY_BYTES]).into();
@@ -216,7 +216,7 @@ fn test_dilithium_extrinsic_fail_by_account_id() {
     let extrinsic = UncheckedExtrinsic::new_signed(
         payload,
         id,
-        RezMultiSignature::Rez(signature, pk_bytes), // correct signature! 
+        ResonanceSignatureScheme::Resonance(signature, pk_bytes), // correct signature! 
         signed_extra,
     );
 
@@ -224,7 +224,7 @@ fn test_dilithium_extrinsic_fail_by_account_id() {
     let encoded = extrinsic.encode();
 
     // Step 5: Decode the extrinsic
-    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, RezMultiSignature, ()> = 
+    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, ResonanceSignatureScheme, ()> = 
         UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
     
     assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
@@ -235,7 +235,7 @@ fn test_dilithium_extrinsic_fail_by_account_id() {
         Some((address, signature, extra)) => {
             // Extract components into individual variables for debugging
             let decoded_address: Address = address;
-            let decoded_signature: RezMultiSignature = signature;
+            let decoded_signature: ResonanceSignatureScheme = signature;
 
             // Extract AccountId from Address
             let decoded_account_id = match decoded_address {

@@ -21,6 +21,6 @@ pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
 // let extrinsic = UncheckedExtrinsic::new_signed(
 //     call,
 //     Address::Id(account_id),
-//     RezMultiSignature::Rez(combined),
+//     ResonanceSignatureScheme::Resonance(combined),
 //     signed_extra,
 // );

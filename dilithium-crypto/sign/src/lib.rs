@@ -7,12 +7,12 @@
 // let pk_bytes: [u8; PUB_KEY_BYTES] = pk.to_bytes();
 // let msg = runtime_call.encode();
 // let sig_bytes = ml_dsa_87::sign(&msg, &sk, None);
-// let sig = RezSignature::from_slice(&sig_bytes).unwrap();
+// let sig = ResonanceSignature::from_slice(&sig_bytes).unwrap();
 // let account_id = sp_io::hashing::blake2_256(&pk_bytes).into();
 // let extrinsic = UncheckedExtrinsic::new_signed(
 //     call,
 //     Address::Id(account_id),
-//     RezMultiSignature::Rez(sig, pk_bytes),
+//     ResonanceSignatureScheme::Resonance(sig, pk_bytes),
 //     signed_extra,
 // );
 
@@ -29,7 +29,7 @@
 // let extrinsic = UncheckedExtrinsic::new_signed(
 //     call,
 //     Address::Id(account_id),
-//     RezMultiSignature::Rez(combined),
+//     ResonanceSignatureScheme::Resonance(combined),
 //     signed_extra,
 // );
 
