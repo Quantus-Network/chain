@@ -6768,6 +6768,7 @@ checksum = "f7c45b9784283f1b2e7fb61b42047c2fd678ef0960d4f6f1eba131594cc369d4"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
+source = "git+https://gitlab.com/resonance-network/rusty-crystals.git#4932ee6fbeb67499b5a01e835e842c0e3295f419"
 dependencies = [
  "sha2 0.10.8",
 ]
