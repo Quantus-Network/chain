@@ -1,27 +1,27 @@
-use super::types::{RezPair, RezPublic, RezSignature};
+use super::types::{ResonancePair, ResonancePublic, ResonanceSignature};
 use sp_core::{Pair, crypto::{SecretStringError, DeriveError, DeriveJunction}};
 use sp_std::vec::Vec;
 
-impl Pair for RezPair {
-    type Public = RezPublic;
-    type Seed = [u8; 32]; // Address seed size issue below
-    type Signature = RezSignature;
+impl Pair for ResonancePair {
+    type Public = ResonancePublic;
+    type Seed = Vec<u8>;
+    type Signature = ResonanceSignature;
 
     fn derive<Iter: Iterator<Item = DeriveJunction>>(
         &self,
         path_iter: Iter,
-        _seed: Option<<RezPair as Pair>::Seed>,
-    ) -> Result<(Self, Option<<RezPair as Pair>::Seed>), DeriveError> {
+        _seed: Option<<ResonancePair as Pair>::Seed>,
+    ) -> Result<(Self, Option<<ResonancePair as Pair>::Seed>), DeriveError> {
         Ok((
             match self.clone() {
                 #[cfg(feature = "std")]
-                RezPair::Standard { phrase, password, path } => RezPair::Standard {
+                ResonancePair::Standard { phrase, password, path } => ResonancePair::Standard {
                     phrase,
                     password,
                     path: path.into_iter().chain(path_iter).collect(),
                 },
                 #[cfg(feature = "std")]
-                RezPair::GeneratedFromPhrase { phrase, password } => RezPair::Standard {
+                ResonancePair::GeneratedFromPhrase { phrase, password } => ResonancePair::Standard {
                     phrase,
                     password,
                     path: path_iter.collect(),
@@ -37,12 +37,12 @@ impl Pair for RezPair {
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-        Ok(RezPair::Seed(seed.to_vec()))
+        Ok(ResonancePair::Seed(seed.to_vec()))
     }
 
 	#[cfg(feature = "default")]
     fn sign(&self, _message: &[u8]) -> Self::Signature {
-        RezSignature::default()
+        ResonanceSignature::default()
     }
 
     fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, pubkey: &Self::Public) -> bool {
@@ -50,7 +50,7 @@ impl Pair for RezPair {
     }
 
     fn public(&self) -> Self::Public {
-        RezPublic::default()
+        ResonancePublic::default()
     }
 
     fn to_raw_vec(&self) -> Vec<u8> {
