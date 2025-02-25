@@ -47,6 +47,8 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
+pallet-qpow = { workspace = true, default-features = false}
+sp-consensus-qpow = {workspace = true, default-features = false}
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 sp-runtime-interface = { version="24.0.0", default-features=false }
@@ -76,6 +78,7 @@ std = [
 	"pallet-balances/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
+	"pallet-qpow/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -121,6 +124,7 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-template/try-runtime",
+	"pallet-qpow/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"sp-runtime/try-runtime",

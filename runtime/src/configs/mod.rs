@@ -97,6 +97,11 @@ parameter_types! {
     pub const MinimumPeriod: u64 = 3000;
 }
 
+impl pallet_qpow::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_qpow::DefaultWeightInfo;
+}
+
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
 	type Moment = u64;

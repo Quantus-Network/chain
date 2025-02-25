@@ -26,6 +26,7 @@ pub mod pallet {
 	pub const CHUNK_SIZE: usize = 32;
 	pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE;
 	pub const MAX_DISTANCE: u64 = (1u64 << CHUNK_SIZE) * NUM_CHUNKS as u64;
+	pub const INITIAL_DIFFICULTY: u64 = 56255914621; // around 100 iterations
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -47,7 +48,7 @@ pub mod pallet {
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self {
-				initial_difficulty: 16,
+				initial_difficulty: INITIAL_DIFFICULTY/2,
 				_phantom: PhantomData,
 			}
 		}

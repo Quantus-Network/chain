@@ -7562,6 +7562,7 @@ dependencies = [
  "frame-try-runtime",
  "hdwallet",
  "pallet-balances",
+ "pallet-qpow",
  "pallet-sudo",
  "pallet-template",
  "pallet-timestamp",
@@ -7572,6 +7573,7 @@ dependencies = [
  "serde_json",
  "sp-api",
  "sp-block-builder",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-genesis-builder",
  "sp-inherents",
@@ -9834,6 +9836,17 @@ dependencies = [
  "parity-scale-codec",
  "sp-api",
  "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
+name = "sp-consensus-qpow"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-api",
  "sp-runtime",
 ]
 
