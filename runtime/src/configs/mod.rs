@@ -36,6 +36,7 @@ use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
+use crate::resonance::poseidon::PoseidonHasher;
 
 // Local module imports
 use super::{
@@ -78,7 +79,8 @@ impl frame_system::Config for Runtime {
 	type Nonce = Nonce;
 	/// The type for hashing blocks and tries.
 	type Hash = Hash;
-	// type Hashing = ;
+	/// Hash function used for tries (?)
+	type Hashing = PoseidonHasher;
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;
 	/// The weight of database operations that the runtime can invoke.

@@ -5,4 +5,4 @@ pub mod account;
 pub mod signature;
 pub mod keyring;
 pub mod sr25519;
-mod poseidon;
+pub mod poseidon;

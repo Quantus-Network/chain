@@ -1,7 +1,5 @@
-use core::fmt::Debug;
-use codec::Encode;
 use scale_info::TypeInfo;
-use sp_runtime::traits::{Hash, HashOutput, MaybeSerializeDeserialize};
+use sp_runtime::traits::Hash;
 use sp_core::Hasher;
 use sp_core::H256;
 use sp_runtime::{Deserialize, RuntimeDebug, Serialize, Vec};
@@ -10,7 +8,6 @@ use dusk_poseidon::{Hash as DuskPoseidonHash, Domain};
 use dusk_bls12_381::BlsScalar;
 use sp_trie::TrieConfiguration;
 use core::hash::Hasher as StdHasher;
-use sp_core::crypto::CryptoBytes;
 use log;
 
 #[derive(Default)]
@@ -18,11 +15,8 @@ pub struct PoseidonStdHasher(Vec<u8>);
 
 impl StdHasher for PoseidonStdHasher {
     fn finish(&self) -> u64 {
-        // TODO: why do we need to do "as Hasher" here??
-        // let hash = std::ptr::hash(&self.0);
-        let mut res = [0u8; 8];
-        // res.copy_from_slice(&hash[..8]);
-        u64::from_le_bytes(res)
+        let hash = poseidon_hash(self.0.as_slice()).0;
+        u64::from_le_bytes(hash[0..8].try_into().unwrap())
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -42,43 +36,44 @@ impl Hasher for PoseidonHasher {
     const LENGTH: usize = 0;
 
     fn hash(x: &[u8]) -> H256 {
-        const BYTES_PER_ELEMENT: usize = 32;
-
-        let mut field_elements: Vec<BlsScalar> = Vec::new();
-        for chunk in x.chunks(BYTES_PER_ELEMENT) {
-            // Pad with zeros if the chunk is smaller than BYTES_PER_ELEMENT
-            let mut padded_chunk = [0u8; BYTES_PER_ELEMENT];
-            padded_chunk[..chunk.len()].copy_from_slice(chunk);
-            // Convert the chunk to a field element
-            let field_element = BlsScalar::from_bytes(&padded_chunk).expect("Invalid field element");
-            field_elements.push(field_element);
-        }
-
-        if x.len() == 0 {
-            field_elements.push(BlsScalar::zero());
-        }
-
-        let hash = DuskPoseidonHash::digest(Domain::Other, &field_elements);
-        log::error!("hash output: {:?}", hash);
-        assert_eq!(hash.len(), 1, "Expected exactly 1 BlsScalar");
-        let mut flat_bytes = [0u8; 32];
-        flat_bytes[..].copy_from_slice(&hash[0].to_bytes());
-
-        H256::from_slice(&flat_bytes)
+        poseidon_hash(x)
     }
 
 }
 
 
+fn poseidon_hash(x: &[u8]) -> H256 {
+    const BYTES_PER_ELEMENT: usize = 32;
+
+    let mut field_elements: Vec<BlsScalar> = Vec::new();
+    for chunk in x.chunks(BYTES_PER_ELEMENT) {
+        // Pad with zeros if the chunk is smaller than BYTES_PER_ELEMENT
+        let mut padded_chunk = [0u8; BYTES_PER_ELEMENT];
+        padded_chunk[..chunk.len()].copy_from_slice(chunk);
+        // Convert the chunk to a field element
+        let field_element = BlsScalar::from_bytes(&padded_chunk).expect("Invalid field element");
+        field_elements.push(field_element);
+    }
+
+    if x.len() == 0 {
+        field_elements.push(BlsScalar::zero());
+    }
+
+    let hash = DuskPoseidonHash::digest(Domain::Other, &field_elements);
+    log::error!("hash output: {:?}", hash);
+    assert_eq!(hash.len(), 1, "Expected exactly 1 BlsScalar");
+    H256::from_slice(&hash[0].to_bytes())
+}
+
 impl Hash for PoseidonHasher {
     type Output = H256;
 
-    fn ordered_trie_root(input: Vec<Vec<u8>>, state_version: StateVersion) -> Self::Output {
+    fn ordered_trie_root(input: Vec<Vec<u8>>, _state_version: StateVersion) -> Self::Output {
         let input = input.into_iter().map(|v| (v, Vec::new()));
         Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input))
     }
 
-    fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, state_version: StateVersion) -> Self::Output {
+    fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, _state_version: StateVersion) -> Self::Output {
         Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input))
     }
 }
