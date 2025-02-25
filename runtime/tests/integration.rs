@@ -1,20 +1,20 @@
+use codec::{Decode, Encode};
 use dilithium_crypto::{
-    ResonanceSignatureScheme, ResonanceSigner, ResonancePublic, ResonanceSignature, WrappedPublicBytes, WrappedSignatureBytes, PUB_KEY_BYTES, SIGNATURE_BYTES
+    ResonancePublic, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner,
+    WrappedPublicBytes, WrappedSignatureBytes, PUB_KEY_BYTES, SIGNATURE_BYTES,
 };
 use hdwallet;
+use sp_core::ByteArray;
+use sp_io::hashing;
 use sp_runtime::{
     generic::UncheckedExtrinsic,
-    traits::{Verify, BlakeTwo256, IdentifyAccount},
-    MultiAddress, AccountId32
-};
-use codec::{Encode, Decode};
-use sp_io::hashing;
-use sp_core::ByteArray; // Add this to bring as_slice and from_slice into scope
-
+    traits::{BlakeTwo256, IdentifyAccount, Verify},
+    AccountId32, MultiAddress,
+}; // Add this to bring as_slice and from_slice into scope
 
 // Placeholder types (replace with your actual runtime types)
 type RuntimeCall = u32; // Simplified for testing
-type SignedExtra = ();  // Simplified for testing
+type SignedExtra = (); // Simplified for testing
 type Address = MultiAddress<AccountId32, ()>;
 
 pub fn format_hex_truncated(bytes: &[u8]) -> String {
@@ -26,232 +26,276 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
         format!("{:02x?}..{:02x?}", first, last)
     }
 }
-// Integration test
-#[test]
-fn test_dilithium_extrinsic() {
-    // Initialize the logger
-    env_logger::init();
 
-    // Step 1: Generate a keypair
-    let entropy = [0u8; 32]; // Fixed entropy of all zeros
-    let keypair = hdwallet::generate(Some(&entropy));
-    let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
-    println!("Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Step 2: Create and sign a payload
-    let payload: RuntimeCall = 42; // Example call
-    let msg = payload.encode();
+    fn setup() {
+        // Initialize the logger once per test run
+        // Using try_init to avoid panics if called multiple times
+        let _ = env_logger::try_init();
+    }
 
-    let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
+    //
+    // Integration test for dilithium signatures
+    // Tests valid case and fail cases 
+    //
+    #[test]
+    fn test_dilithium_extrinsic() {
+        setup();
 
-    println!("Signature (hex): {:?}", format_hex_truncated(&sig_bytes));
-    let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
-    // let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+        // Generate a keypair
+        let entropy = [0u8; 32]; // Fixed entropy of all zeros
+        let keypair = hdwallet::generate(Some(&entropy));
+        let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
 
-    // let signature_bytes = signature.as_slice();
+        println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
 
-    let bytes: &[u8] = signature.as_ref();  // or signature.as_slice()
-    println!("Signature bytes: {:?}", format_hex_truncated(&bytes));
+        // Create and sign a payload
+        let payload: RuntimeCall = 42; // Example call
+        let msg = payload.encode();
+        let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
 
-    // println!("signature length: {:?}", signature.bytes.len());
-    
-    // Step 3: Derive AccountId and create extrinsic
-    let account_id = hashing::blake2_256(&pk_bytes).into();
-    let id = Address::Id(account_id);
-    println!("Payload AccountId: {:?}", &id);
-    let signed_extra: SignedExtra = ();
-    let extrinsic = UncheckedExtrinsic::new_signed(
-        payload,
-        id,
-        ResonanceSignatureScheme::Resonance(signature, pk_bytes),
-        signed_extra,
-    );
+        println!("Gen Signature (hex): {:?}", format_hex_truncated(&sig_bytes));
 
+        let signature =
+            ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
-    // Step 4: Encode the extrinsic
-    let encoded = extrinsic.encode();
+        let bytes: &[u8] = signature.as_ref(); // or signature.as_slice()
+        println!("Gen Signature bytes: {:?}", format_hex_truncated(&bytes));
+        println!("Gen Signature length: {:?}", bytes.len());
 
-    // Step 5: Decode the extrinsic
+        // Step 3: Derive AccountId and create extrinsic
+        let account_id = hashing::blake2_256(&pk_bytes).into();
+        let id = Address::Id(account_id);
+        println!("Payload AccountId: {:?}", &id);
+        let signed_extra: SignedExtra = ();
+        let extrinsic = UncheckedExtrinsic::new_signed(
+            payload,
+            id,
+            ResonanceSignatureScheme::Resonance(signature, pk_bytes),
+            signed_extra,
+        );
 
-    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, ResonanceSignatureScheme, ()> = 
-        UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
-    
-    assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
-    assert_eq!(decoded.signature, extrinsic.signature, "Decoded signature does not match original");
+        // Step 4: Encode the extrinsic
+        let encoded = extrinsic.encode();
 
+        // Step 5: Decode the extrinsic
+        let decoded: UncheckedExtrinsic<
+            MultiAddress<AccountId32, ()>,
+            RuntimeCall,
+            ResonanceSignatureScheme,
+            (),
+        > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
-    // Step 6: Verify the signature using the AccountId from the decoded extrinsic
-    match decoded.signature {
-        Some((address, signature, extra)) => {
-            // Extract components into individual variables for debugging
-            let decoded_address: Address = address;
-            let decoded_signature: ResonanceSignatureScheme = signature;
-            let decoded_extra: SignedExtra = extra;
+        assert_eq!(
+            decoded.function, payload,
+            "Decoded function does not match original payload"
+        );
+        assert_eq!(
+            decoded.signature, extrinsic.signature,
+            "Decoded signature does not match original"
+        );
 
-            // Debug output for each component
-            println!("Decoded Address: {:?}", decoded_address);
-            println!("Decoded Extra: {:?}", decoded_extra);
+        // Step 6: Verify the signature using the AccountId from the decoded extrinsic
+        match decoded.signature {
+            Some((address, signature, extra)) => {
+                // Extract components into individual variables for debugging
+                let decoded_address: Address = address;
+                let decoded_signature: ResonanceSignatureScheme = signature;
+                let decoded_extra: SignedExtra = extra;
 
-            match decoded_signature {
-                ResonanceSignatureScheme::Resonance(ref sig, pk_bytes) => {
-                    let sig_bytes = sig.as_slice();
-                    println!("Decoded Signature: {:?}", format_hex_truncated(&sig_bytes));
-                    println!("Public Key: {:?}", format_hex_truncated(&pk_bytes));
+                // Debug output for each component
+                println!("Decoded Address: {:?}", decoded_address);
+                println!("Decoded Extra: {:?}", decoded_extra);
+
+                match decoded_signature {
+                    ResonanceSignatureScheme::Resonance(ref sig, pk_bytes) => {
+                        let sig_bytes = sig.as_slice();
+                        println!("Decoded Signature: {:?}", format_hex_truncated(&sig_bytes));
+                        println!("Decoded Public Key: {:?}", format_hex_truncated(&pk_bytes));
+                    }
+                    _ => println!("Decoded Signature: --"),
                 }
-                _ => println!("Decoded Signature: --"),
+                // Extract AccountId from Address
+                let decoded_account_id = match decoded_address {
+                    Address::Id(id) => id,
+                    _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
+                };
+
+                // Additional debug output for AccountId
+                println!("Decoded AccountId: {:?}", decoded_account_id);
+                println!("Decoded Payload: {:?}", decoded.function);
+
+                // Verify the signature
+                let msg_decoded = decoded.function.encode();
+                let is_valid = decoded_signature.verify(&msg_decoded[..], &decoded_account_id);
+
+                assert!(
+                    is_valid,
+                    "Signature verification failed for AccountId: {:?}",
+                    decoded_account_id
+                );
             }
-            // Extract AccountId from Address
-            let decoded_account_id = match decoded_address {
-                Address::Id(id) => id,
-                _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
-            };
-
-            // Additional debug output for AccountId
-            println!("Decoded AccountId: {:?}", decoded_account_id);
-            println!("Decoded Payload: {:?}", decoded.function);
-
-            // Verify the signature
-            let is_valid = decoded_signature.verify(&msg[..], &decoded_account_id);
-            println!("valid: {}", is_valid);
-
-            assert!(is_valid, "Signature verification failed for AccountId: {:?}", decoded_account_id);
-        },
-        None => panic!("Decoded extrinsic has no signature"),
+            None => panic!("Decoded extrinsic has no signature"),
+        }
     }
-}
 
-#[test]
-fn test_dilithium_extrinsic_fail_verify() {
-    // Step 1: Generate a keypair
-    let entropy = [0u8; 32]; // Fixed entropy of all zeros
-    let entropy2 = [1u8; 32]; // Fixed entropy of all zeros
-    let keypair = hdwallet::generate(Some(&entropy));
-    let keypair2 = hdwallet::generate(Some(&entropy2));
-    let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
-    // let pk_bytes2: [u8; PUB_KEY_BYTES] = keypair2.public.to_bytes();
-    // Step 2: Create and sign a payload
-    let payload: RuntimeCall = 99;
-    let msg = payload.encode();
+    #[test]
+    fn test_dilithium_extrinsic_fail_signature() {
+        setup();
 
-    // sign with key 2
-    let sig_bytes = keypair2.sign(&msg, None, false).expect("Signing failed");
+        // Generate a keypair
+        let entropy = [0u8; 32]; // Fixed entropy of all zeros
+        let keypair = hdwallet::generate(Some(&entropy));
+        let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
+        let account_id = hashing::blake2_256(&pk_bytes).into();
+        let id = Address::Id(account_id);
+        let signed_extra: SignedExtra = ();
 
-    let signature = ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
+        // Create a payload
+        let payload: RuntimeCall = 99;
+        let msg = payload.encode();
 
-    // let signature = ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+        // Sign payload with a different key
+        let entropy2 = [1u8; 32]; // Fixed entropy of all zeros
+        let keypair2 = hdwallet::generate(Some(&entropy2));
+        let sig_bytes_wrong_key = keypair2.sign(&msg, None, false).expect("Signing failed");
+        let signature_wrong_key = ResonanceSignature::try_from(&sig_bytes_wrong_key[..])
+            .expect("Signature length mismatch");
 
-    
-    // Step 3: Derive AccountId and create extrinsic
-    let account_id = hashing::blake2_256(&pk_bytes).into();
-    // let account_id_2 = hashing::blake2_256(&pk_bytes2).into();
-    let id = Address::Id(account_id);
-    let signed_extra: SignedExtra = ();
+        // Create transaction with invalid signature
+        let extrinsic = UncheckedExtrinsic::new_signed(
+            payload,
+            id,
+            ResonanceSignatureScheme::Resonance(signature_wrong_key, pk_bytes),
+            signed_extra,
+        );
 
-    // pass in account id 1, and pk_bytes (public key of account 1)
-    let extrinsic = UncheckedExtrinsic::new_signed(
-        payload,
-        id,
-        ResonanceSignatureScheme::Resonance(signature, pk_bytes),
-        signed_extra,
-    );
+        // Encode, decode, and verify
+        let encoded = extrinsic.encode();
 
-    // Step 4: Encode the extrinsic
-    let encoded = extrinsic.encode();
+        let decoded: UncheckedExtrinsic<
+            MultiAddress<AccountId32, ()>,
+            RuntimeCall,
+            ResonanceSignatureScheme,
+            (),
+        > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
-    // Step 5: Decode the extrinsic
-    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, ResonanceSignatureScheme, ()> = 
-        UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
-    
-    assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
-    assert_eq!(decoded.signature, extrinsic.signature, "Decoded signature does not match original");
+        let (address, signature, _) = decoded.signature.unwrap();
+        let Address::Id(decoded_account_id) = address else {
+            unreachable!("Test assumes Address::Id")
+        };
+        let msg_decoded = decoded.function.encode();
 
-
-    // Step 6: Verify the signature using the AccountId from the decoded extrinsic
-    match decoded.signature {
-        Some((address, signature, extra)) => {
-            // Extract components into individual variables for debugging
-            let decoded_address: Address = address;
-            let decoded_signature: ResonanceSignatureScheme = signature;
-
-            // Extract AccountId from Address
-            let decoded_account_id = match decoded_address {
-                Address::Id(id) => id,
-                _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
-            };
-
-            // Additional debug output for AccountId
-            println!("Decoded AccountId: {:?}", decoded_account_id);
-            println!("Decoded Payload: {:?}", decoded.function);
-
-            // Verify the signature
-            let is_valid = decoded_signature.verify(&msg[..], &decoded_account_id);
-
-            assert!(!is_valid, "Signature verification worked with wrong signature: {:?}", decoded_account_id);
-        },
-        None => panic!("Decoded extrinsic has no signature"),
+        let is_valid = signature.verify(&msg_decoded[..], &decoded_account_id);
+        assert!(!is_valid, "Signature verification unexpectedly succeeded");
     }
-}
 
-///
-/// This test is to verify that the signature verification fails if the account id is wrong
-#[test]
-fn test_dilithium_extrinsic_fail_by_account_id() {
-    let entropy = [0u8; 32]; // Fixed entropy of all zeros
-    let keypair = hdwallet::generate(Some(&entropy));
-    let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
-    let payload: RuntimeCall = 77;
-    let msg = payload.encode();
+    ///
+    /// This test is to verify that the signature verification fails if the account id is wrong
+    #[test]
+    fn test_dilithium_extrinsic_fail_by_account_id() {
+        setup();
 
-    // So we create a valid public key and signature for account 1 but then we try to sign something on behalf
-    // of account 2. We send the wrong address. Should fail. 
-    let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
-    let signature = ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
-    
-    // Make a random account that has nothing to do with our public key
-    let account_id_2 = hashing::blake2_256(&[0u8; PUB_KEY_BYTES]).into();
-    let id = Address::Id(account_id_2);
-    let signed_extra: SignedExtra = ();
+        // Generate a keypair
+        let entropy = [0u8; 32]; // Fixed entropy of all zeros
+        let keypair = hdwallet::generate(Some(&entropy));
+        let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
-    // pass in account id 1, and pk_bytes (public key of account 1)
-    let extrinsic = UncheckedExtrinsic::new_signed(
-        payload,
-        id,
-        ResonanceSignatureScheme::Resonance(signature, pk_bytes), // correct signature! 
-        signed_extra,
-    );
+        // Create and sign a payload
+        let payload: RuntimeCall = 77;
+        let msg = payload.encode();
+        let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
+        let signature =
+            ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
-    // Step 4: Encode the extrinsic
-    let encoded = extrinsic.encode();
+        // Create a second account
+        let account_id_2 = hashing::blake2_256(&[0u8; PUB_KEY_BYTES]).into();
+        let id_2 = Address::Id(account_id_2);
+        let signed_extra: SignedExtra = ();
 
-    // Step 5: Decode the extrinsic
-    let decoded: UncheckedExtrinsic<MultiAddress<AccountId32, ()>, RuntimeCall, ResonanceSignatureScheme, ()> = 
-        UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
-    
-    assert_eq!(decoded.function, payload, "Decoded function does not match original payload");
-    assert_eq!(decoded.signature, extrinsic.signature, "Decoded signature does not match original");
+        // Create transaction with wrong account ID.
+        let extrinsic = UncheckedExtrinsic::new_signed(
+            payload,
+            id_2,
+            ResonanceSignatureScheme::Resonance(signature, pk_bytes), // correct signature!
+            signed_extra,
+        );
 
-    // Step 6: Verify the signature using the AccountId from the decoded extrinsic
-    match decoded.signature {
-        Some((address, signature, extra)) => {
-            // Extract components into individual variables for debugging
-            let decoded_address: Address = address;
-            let decoded_signature: ResonanceSignatureScheme = signature;
+        // Encode, decode, and verify
+        let encoded = extrinsic.encode();
 
-            // Extract AccountId from Address
-            let decoded_account_id = match decoded_address {
-                Address::Id(id) => id,
-                _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
-            };
+        let decoded: UncheckedExtrinsic<
+            MultiAddress<AccountId32, ()>,
+            RuntimeCall,
+            ResonanceSignatureScheme,
+            (),
+        > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
-            // Additional debug output for AccountId
-            println!("Decoded AccountId: {:?}", decoded_account_id);
-            println!("Decoded Payload: {:?}", decoded.function);
+        let (address, signature, _) = decoded.signature.unwrap();
+        let Address::Id(decoded_account_id) = address else {
+            unreachable!("Test assumes Address::Id")
+        };
+        let msg_decoded = decoded.function.encode();
 
-            // Verify the signature
-            let is_valid = decoded_signature.verify(&msg[..], &decoded_account_id);
+        let is_valid = signature.verify(&msg_decoded[..], &decoded_account_id);
+        assert!(
+            !is_valid,
+            "Signature verification worked with wrong account id: {:?}",
+            decoded_account_id
+        );
+    }
 
-            assert!(!is_valid, "Signature verification worked with wrong account id: {:?}", decoded_account_id);
-        },
-        None => panic!("Decoded extrinsic has no signature"),
+    #[test]
+    fn test_dilithium_extrinsic_fail_payload() {
+        setup();
+
+        // Generate a keypair
+        let entropy = [0u8; 32]; // Fixed entropy of all zeros
+        let keypair = hdwallet::generate(Some(&entropy));
+        let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
+
+        // Create and sign a payload
+        let payload: RuntimeCall = 42;
+        let msg = payload.encode();
+        let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
+        let signature =
+            ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+            
+        let account_id = hashing::blake2_256(&pk_bytes).into();
+        let id = Address::Id(account_id);
+        let signed_extra: SignedExtra = ();
+
+        // Create transaction with wrong payload. Should fail.
+        let wrong_payload: RuntimeCall = 40;
+
+        let extrinsic = UncheckedExtrinsic::new_signed(
+            wrong_payload,
+            id,
+            ResonanceSignatureScheme::Resonance(signature, pk_bytes),
+            signed_extra,
+        );
+
+        // Encode, decode, and verify
+        let encoded = extrinsic.encode();
+        let decoded: UncheckedExtrinsic<
+            MultiAddress<AccountId32, ()>,
+            RuntimeCall,
+            ResonanceSignatureScheme,
+            (),
+        > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
+
+        let (address, signature, _) = decoded.signature.unwrap();
+        let Address::Id(decoded_account_id) = address else {
+            unreachable!("Test assumes Address::Id")
+        };
+        let msg_decoded = decoded.function.encode();
+        let is_valid = signature.verify(&msg_decoded[..], &decoded_account_id);
+        assert!(
+            !is_valid,
+            "Signature verification worked with wrong payload"
+        );
     }
 }

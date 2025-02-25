@@ -46,7 +46,8 @@ impl Pair for ResonancePair {
     }
 
     fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, pubkey: &Self::Public) -> bool {
-        true // Placeholder; implement actual verification
+        unimplemented!();
+        //true // Placeholder; implement actual verification
     }
 
     fn public(&self) -> Self::Public {

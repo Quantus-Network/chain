@@ -141,17 +141,19 @@ impl From<(ResonanceSignature, [u8; 2592])> for ResonanceSignatureScheme {
     }
 }
 
-#[cfg(feature = "std")]
-#[cfg(test)]
-pub fn format_hex_truncated(bytes: &[u8]) -> String {
-    if bytes.len() <= 16 {
-        format!("{:02x?}", bytes)
-    } else {
-        let first = &bytes[..8];
-        let last = &bytes[bytes.len() - 8..];
-        format!("{:02x?}..{:02x?}", first, last)
-    }
-}
+// test printout code
+// use scale_info::prelude::string::String;
+// pub fn format_hex_truncated(bytes: &[u8]) -> String {
+//     use scale_info::prelude::format;
+
+//     if bytes.len() <= 16 {
+//         format!("{:02x?}", bytes)
+//     } else {
+//         let first = &bytes[..8];
+//         let last = &bytes[bytes.len() - 8..];
+//         format!("{:02x?}..{:02x?}", first, last)
+//     }
+// }
 
 impl Verify for ResonanceSignatureScheme {
     type Signer = ResonanceSigner;
@@ -169,12 +171,12 @@ impl Verify for ResonanceSignatureScheme {
                 sig.verify(msg, &pk)
             },
             Self::Resonance(sig, pk_bytes) => {
-                #[cfg(test)] {
-                    // TODO: Remove test printouts.
-                    let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
-                    log::info!("Signature bytes: {:?}", format_hex_truncated(bytes));            
-                    log::info!("ResonanceSignatureScheme::Resonance bytes {:?}", format_hex_truncated(pk_bytes));    
-                }
+                // TODO: Remove test printouts.
+                // let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
+                // log::info!("XX Signature bytes: {:?}", format_hex_truncated(bytes));            
+                // log::info!("XX ResonanceSignatureScheme::Resonance bytes {:?}", format_hex_truncated(pk_bytes));   
+                // log::info!("XX message {:?}", &msg.get());    
+
                 let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
