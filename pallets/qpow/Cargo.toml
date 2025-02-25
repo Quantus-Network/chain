@@ -1,0 +1,53 @@
+[package]
+name = "pallet-qpow"
+description = "Resonance POW template"
+version = "0.1.0"
+license = "Apache-2.0"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "wasm32-unknown-unknown"]
+
+#package = "parity-scale-codec",
+[dependencies]
+codec = { workspace=true, default-features = false, features = ["derive"] }
+scale-info = { workspace=true, default-features = false, features = ["derive"] }
+frame-benchmarking = { optional = true, default-features = false, workspace = true }
+frame-support = { default-features = false, workspace = true }
+frame-system = { default-features = false, workspace = true }
+primitive-types = { workspace=true, default-features = false }
+sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
+sp-runtime = { workspace=true, default-features = false }
+sp-core = { workspace=true, default-features = false }
+sp-io = { workspace=true, default-features = false }
+num-bigint = { version = "0.4", default-features = false }
+num-traits = { version = "0.2", default-features = false }
+log = { version = "0.4.22", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"scale-info/std",
+	"primitive-types/std",
+	"sha2/std",
+	"sha3/std",
+	"sp-core/std",
+	"sp-runtime/std",
+	#"sp-io/std"
+]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+]

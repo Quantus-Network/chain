@@ -11,7 +11,6 @@ use primitive_types::U512;
 use sha2::{Digest, Sha256};
 use sha3::Sha3_512;
 
-
 #[cfg(test)]
 mod mock;
 

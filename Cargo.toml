@@ -9,6 +9,7 @@ edition = "2021"
 members = [
     "node",
     "pallets/template",
+    "pallets/qpow",
     "runtime",
     "qpow",
     "dilithium-crypto",
@@ -22,6 +23,7 @@ resonance-runtime = { path = "./runtime", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 
 pallet-template = { path = "./pallets/template", default-features = false }
+pallet-qpow = { path = "./pallets/qpow", default-features = false}
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
