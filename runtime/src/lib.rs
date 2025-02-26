@@ -8,10 +8,19 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
+mod resonance;
+
+pub use resonance::keyring::sr25519::Keyring;
+pub use resonance::account::ResonanceAccountId;
+pub use resonance::account::Public;
+pub use resonance::account::Pair;
+pub use resonance::sr25519;
+
+
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
+	generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
 	MultiAddress,
 };
@@ -62,8 +71,8 @@ impl_opaque_keys! {
 // https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("resonance-runtime"),
-	impl_name: create_runtime_str!("resonance-runtime"),
+	spec_name: alloc::borrow::Cow::Borrowed("resonance-runtime"),
+	impl_name: alloc::borrow::Cow::Borrowed("resonance-runtime"),
 	authoring_version: 1,
 	// The version of the runtime specification. A full node will not attempt to use its native
 	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
@@ -74,7 +83,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	impl_version: 1,
 	apis: apis::RUNTIME_API_VERSIONS,
 	transaction_version: 1,
-	state_version: 1,
+	system_version: 1,
 };
 
 // this seems to be aura related??
@@ -149,8 +158,8 @@ pub type SignedBlock = generic::SignedBlock<Block>;
 /// BlockId type as expected by this runtime.
 pub type BlockId = generic::BlockId<Block>;
 
-/// The SignedExtension to the basic transaction logic.
-pub type SignedExtra = (
+/// The TransactionExtension to the basic transaction logic.
+pub type TxExtension = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,
 	frame_system::CheckTxVersion<Runtime>,
@@ -164,10 +173,10 @@ pub type SignedExtra = (
 
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
+	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
 
 /// The payload being signed in transactions.
-pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
+pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 
 /// All migrations of the runtime, aside from the ones declared in the pallets.
 ///
@@ -219,5 +228,5 @@ mod runtime {
 
 	// Include the custom logic from the pallet-template in the runtime.
 	#[runtime::pallet_index(5)]
-	pub type TemplateModule = pallet_template;
+	pub type Template = pallet_template;
 }

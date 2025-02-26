@@ -1,6 +1,6 @@
 use crate::QPow;
 use primitive_types::U512;
-use sp_runtime::testing::ExtrinsicWrapper;
+use sp_runtime::testing::TestXt;
 use super::*;
 use sp_core::U256 as SpU256;
 use sp_core::H256 as SpH256;
@@ -269,7 +269,7 @@ fn test_minimal_qpow_algorithm_verify() {
     let seal = compute.compute();
     let raw_seal = seal.encode();
 
-    let block_id: BlockId<sp_runtime::testing::Block<ExtrinsicWrapper<()>>> = BlockId::Number(0);    
+    let block_id: BlockId<sp_runtime::testing::Block<TestXt<(), ()>>> = BlockId::Number(0);
     let result = algorithm.verify(
         &block_id,
         &pre_hash,
@@ -297,7 +297,7 @@ fn test_minimal_qpow_algorithm_verify_invalid() {
     let raw_seal = invalid_seal.encode();
 
     // Verify the seal
-    let block_id: BlockId<sp_runtime::testing::Block<ExtrinsicWrapper<()>>> = BlockId::Number(0);    
+    let block_id: BlockId<sp_runtime::testing::Block<TestXt<(), ()>>> = BlockId::Number(0);
 
     let result = algorithm.verify(
         &block_id,

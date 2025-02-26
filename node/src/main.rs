@@ -1,6 +1,5 @@
 //! Substrate Node Template CLI library.
 #![warn(missing_docs)]
-#![feature(type_alias_impl_trait)]
 
 mod benchmarking;
 mod chain_spec;

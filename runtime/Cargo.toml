@@ -20,6 +20,7 @@ scale-info = { features = [
 	"derive",
 	"serde",
 ], workspace = true }
+serde_json = { workspace = true, default-features = false, features = ["alloc"] } # Test it
 frame-support = { features = ["experimental"], workspace = true }
 frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
@@ -31,6 +32,7 @@ pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
 sp-api.workspace = true
 sp-block-builder.workspace = true
+sp-keyring.workspace = true
 sp-core = { features = ["serde"], workspace = true }
 sp-inherents.workspace = true
 sp-offchain.workspace = true
@@ -48,6 +50,35 @@ pallet-template.workspace = true
 rusty-crystals-dilithium.workspace = true
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 
+primitive-types = {default-features=false, workspace = true}
+merlin = { workspace = true, default-features = false }
+schnorrkel = { features = ["preaudit_deprecated"], default-features = false,workspace = true }
+
+sp-crypto-hashing = { version="0.1.0", default-features=false }
+sp-runtime-interface = { version="24.0.0", default-features=false }
+sp-std = { version="14.0.0", default-features=false}
+
+array-bytes = { version="6.2.2", default-features = false }
+secrecy = { version = "0.8.0", features = ["alloc"], default-features = false }
+bip39 = { package = "parity-bip39", version = "2.0.0", default-features = false, features = ["alloc"] }
+rand = { version = "0.8.5", features = ["small_rng"], optional = true, default-features = false }
+itertools = { version="0.11.0", optional=true }
+zeroize = { version="1.7.0", default-features = false }
+thiserror = { version="1.0.64",optional=true }
+ss58-registry = { version = "1.34.0", default-features = false }
+bs58 = { version = "0.5.1", default-features = false }
+blake2 = { version = "0.10.4", default-features = false, optional=true}
+bounded-collections = { version = "0.2.0", default-features = false }
+serde = { optional = true, default-features=false, version = "1.0.214"} #features = ["alloc", "derive"]
+impl-serde = { optional = true, version = "0.5.0", default-features=false}
+k256 = { version = "0.13.4", default-features = false, features = ["alloc", "ecdsa"] }
+substrate-bip39 = { version="0.4.6", default-features=false } #0.4.7 in SDK - but not released
+strum = { version = "0.26.3", features = ["derive"], default-features = false }
+regex = { version = "1.10.2",default-features=false }
+
+lazy_static = { version = "1.4.0", default-features=false } # Do we need this?
+rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["verifier_only"] }
+
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
@@ -61,25 +92,22 @@ env_logger = "0.11.5"  # Latest version as of now; adjust as needed
 default = ["std"]
 std = [
 	"codec/std",
-	"scale-info/std",
-
+	"frame-benchmarking?/std",
 	"frame-executive/std",
 	"frame-metadata-hash-extension/std",
 	"frame-support/std",
 	"frame-system-benchmarking?/std",
 	"frame-system-rpc-runtime-api/std",
 	"frame-system/std",
-
-	"frame-benchmarking?/std",
 	"frame-try-runtime?/std",
-
 	"pallet-balances/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
-
+	"scale-info/std", # Test it
+	"serde_json/std", # Test it
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-core/std",
@@ -91,9 +119,38 @@ std = [
 	"sp-storage/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
-
 	"substrate-wasm-builder",
 
+	"sp-std/std",
+	"sp-runtime-interface/std",
+
+	"bs58/std",
+	"itertools",
+	"scale-info/std",
+	"schnorrkel/std",
+	"k256/std",
+	"merlin/std",
+	"rand",
+	"impl-serde/std",
+	"serde/std",
+	"full_crypto",
+	"ss58-registry/std",
+	"substrate-bip39/std",
+	"thiserror",
+	"zeroize/std",
+]
+
+# Serde support without relying on std features.
+serde = [
+	"blake2",
+	"bounded-collections/serde",
+	"bs58/alloc",
+	"dep:serde",
+	"impl-serde",
+	"k256/serde",
+	"primitive-types/serde_no_std",
+	"scale-info/serde",
+	"sp-storage/serde",
 ]
 
 runtime-benchmarks = [
@@ -105,6 +162,7 @@ runtime-benchmarks = [
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-template/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
+	"pallet-transaction-payment/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
@@ -119,6 +177,14 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"sp-runtime/try-runtime",
+]
+
+# This feature enables all crypto primitives for `no_std` builds like microcontrollers
+# or Intel SGX.
+# For the regular wasm runtime builds this should not be used.
+full_crypto = [
+	"blake2",
+	"sp-runtime-interface/disable_target_static_assertions",
 ]
 
 # Enable the metadata hash generation.
