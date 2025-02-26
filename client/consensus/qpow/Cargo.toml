@@ -15,6 +15,7 @@ sp-consensus-qpow.workspace = true
 sp-runtime.workspace = true
 sp-api.workspace = true
 primitive-types.workspace = true
+log = { workspace = true }
 
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }

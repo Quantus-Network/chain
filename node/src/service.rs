@@ -1,17 +1,17 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
-use sc_consensus_qpow::{Compute, QPoWSeal, QPowAlgorithm};
+use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
-use sp_core::{H256, U256};
 
 use std::{sync::Arc, time::Duration};
-
+use codec::Encode;
 use jsonrpsee::tokio;
+use sp_api::__private::BlockT;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -298,9 +298,11 @@ pub fn new_full<
                     log::info!("mine block");
 
                     // Mine the block
-                    let seal =
-					match try_nonce::<Block>(metadata.best_hash,&client.clone(),
-                                             metadata.pre_hash, nonce, metadata.difficulty) {
+
+                    let miner = QPoWMiner::new(client.clone());
+
+                    let seal: QPoWSeal =
+                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce, metadata.difficulty) {
                             Ok(s) => {
                                 log::info!("valid seal: {:?}", s);
                                 s
@@ -337,62 +339,6 @@ pub fn new_full<
 
     network_starter.start_network();
     Ok(task_manager)
-}
-
-use codec::Encode;
-use sp_api::ProvideRuntimeApi;
-use sp_runtime::traits::Block as BlockT;
-use sp_consensus_qpow::QPoWApi;
-
-fn try_nonce<B: BlockT<Hash = H256>>(
-    parent_hash: B::Hash,
-    client: &Arc<FullClient>,
-    pre_hash: B::Hash,
-    nonce: u64,
-    difficulty: U256,
-) -> Result<QPoWSeal, ()> {
-
-    let compute = Compute {
-        difficulty,
-        pre_hash: H256::from_slice(pre_hash.as_ref()),
-        nonce,
-        _phantom: Default::default(),
-    };
-
-    // Compute the seal
-    log::info!("compute difficulty: {:?}", difficulty);
-    let seal = match compute.compute(parent_hash.clone(), client) {
-        Ok(seal) => seal,
-        Err(e) => {
-            log::info!("compute error: {:?}", e);
-            return Err(());
-        }
-    };
-
-
-    log::info!("compute done");
-
-    // Convert pre_hash to [u8; 32] for verification
-    // TODO normalize all the different ways we do calculations
-    let header = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
-
-    // Verify the solution using QPoW
-
-    match client.runtime_api().verify_solution(parent_hash, header, seal.work, difficulty.low_u64()) {
-        Ok(true) => {
-            log::info!("good seal");
-            Ok(seal)
-        }
-        Ok(false) => {
-            log::info!("invalid seal");
-            Err(())
-        }
-        Err(e) => {
-            log::info!("API error in verify_solution: {:?}", e);
-            Err(())
-        }
-    }
-
 }
 /*
 #[cfg(test)]
