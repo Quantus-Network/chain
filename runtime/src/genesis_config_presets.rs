@@ -19,7 +19,7 @@ use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
 use serde_json::Value;
 use sp_genesis_builder::{self, PresetId};
-use crate::resonance::keyring::AccountKeyring;
+use sp_keyring::AccountKeyring;
 
 // Returns the genesis config presets populated with given parameters.
 fn testnet_genesis(
