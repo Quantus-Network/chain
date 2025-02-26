@@ -40,7 +40,7 @@ impl Pair for ResonancePair {
         Ok(ResonancePair::Seed(seed.to_vec()))
     }
 
-	#[cfg(feature = "default")]
+    #[cfg(any(feature = "default", feature = "full_crypto"))]
     fn sign(&self, _message: &[u8]) -> Self::Signature {
         ResonanceSignature::default()
     }

@@ -26,7 +26,6 @@ log = { version = "0.4.22", default-features = true }
 primitive-types = { version="0.13.1", default-features=false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 
-
 pallet-template = { path = "./pallets/template", default-features = false }
 clap = { version = "4.5.10" }
 frame-benchmarking-cli = { version = "43.0.0", default-features = false }
@@ -78,7 +77,3 @@ sp-storage = { version = "21.0.0", default-features = false }
 sp-transaction-pool = { version = "34.0.0", default-features = false }
 sp-version = { version = "37.0.0", default-features = false }
 substrate-wasm-builder = { version = "24.0.1", default-features = false }
-
-[dev.dependencies]
-sp-std = { version = "14.0.0", default-features = false }
-hdwallet = { path = "./dilithium-crypto/hdwallet", default-features = false }

@@ -1,14 +1,13 @@
 use codec::{Decode, Encode};
 use dilithium_crypto::{
-    ResonancePublic, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner,
-    WrappedPublicBytes, WrappedSignatureBytes, PUB_KEY_BYTES, SIGNATURE_BYTES,
+    ResonanceSignature, ResonanceSignatureScheme, PUB_KEY_BYTES,
 };
 use hdwallet;
 use sp_core::ByteArray;
 use sp_io::hashing;
 use sp_runtime::{
     generic::UncheckedExtrinsic,
-    traits::{BlakeTwo256, IdentifyAccount, Verify},
+    traits::Verify,
     AccountId32, MultiAddress,
 }; // Add this to bring as_slice and from_slice into scope
 
