@@ -6,7 +6,7 @@ use hdwallet;
 use sp_core::ByteArray;
 use sp_io::hashing;
 use sp_runtime::{
-    generic::UncheckedExtrinsic,
+    generic::UncheckedExtrinsic,generic::Preamble,
     traits::Verify,
     AccountId32, MultiAddress,
 }; // Add this to bring as_slice and from_slice into scope
@@ -93,13 +93,13 @@ mod tests {
             "Decoded function does not match original payload"
         );
         assert_eq!(
-            decoded.signature, extrinsic.signature,
+            decoded.preamble, extrinsic.preamble,
             "Decoded signature does not match original"
         );
 
         // Step 6: Verify the signature using the AccountId from the decoded extrinsic
-        match decoded.signature {
-            Some((address, signature, extra)) => {
+        match decoded.preamble {
+            Preamble::Signed(address, signature, extra) => {
                 // Extract components into individual variables for debugging
                 let decoded_address: Address = address;
                 let decoded_signature: ResonanceSignatureScheme = signature;
@@ -137,7 +137,7 @@ mod tests {
                     decoded_account_id
                 );
             }
-            None => panic!("Decoded extrinsic has no signature"),
+            _ => panic!("Decoded extrinsic has no signature"),
         }
     }
 
@@ -182,7 +182,9 @@ mod tests {
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
-        let (address, signature, _) = decoded.signature.unwrap();
+        let Preamble::Signed(address, signature, _) = decoded.preamble else {
+            unreachable!("Test assumes Preamble::Signed")
+        };
         let Address::Id(decoded_account_id) = address else {
             unreachable!("Test assumes Address::Id")
         };
@@ -233,7 +235,9 @@ mod tests {
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
-        let (address, signature, _) = decoded.signature.unwrap();
+        let Preamble::Signed(address, signature, _) = decoded.preamble else {
+            unreachable!("Test assumes Preamble::Signed")
+        };
         let Address::Id(decoded_account_id) = address else {
             unreachable!("Test assumes Address::Id")
         };
@@ -286,7 +290,9 @@ mod tests {
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
-        let (address, signature, _) = decoded.signature.unwrap();
+        let Preamble::Signed(address, signature, _) = decoded.preamble else {
+            unreachable!("Test assumes Preamble::Signed")
+        };
         let Address::Id(decoded_account_id) = address else {
             unreachable!("Test assumes Address::Id")
         };
