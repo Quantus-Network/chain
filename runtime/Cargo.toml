@@ -77,7 +77,6 @@ strum = { version = "0.26.3", features = ["derive"], default-features = false }
 regex = { version = "1.10.2",default-features=false }
 
 lazy_static = { version = "1.4.0", default-features=false } # Do we need this?
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["verifier_only"] }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
