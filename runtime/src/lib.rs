@@ -8,6 +8,10 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
+pub use dilithium_crypto::ResonanceSignature;
+pub use dilithium_crypto::ResonancePublic;
+use dilithium_crypto::ResonanceSignatureScheme;
+
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
@@ -24,9 +28,8 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
-pub use dilithium_crypto::ResonanceSignature;
-pub use dilithium_crypto::ResonancePublic;
-use dilithium_crypto::ResonanceSignatureScheme;
+
+pub mod genesis_config_presets;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -219,5 +222,5 @@ mod runtime {
 
 	// Include the custom logic from the pallet-template in the runtime.
 	#[runtime::pallet_index(5)]
-	pub type TemplateModule = pallet_template;
+	pub type Template = pallet_template;
 }
