@@ -9,7 +9,9 @@ edition = "2021"
 members = [
     "node",
     "pallets/template",
+    "client/consensus/qpow",
     "pallets/qpow",
+    "primitives/consensus/qpow",
     "runtime",
     "qpow",
     "dilithium-crypto",
@@ -37,6 +39,7 @@ sc-cli = { version = "0.50.0", default-features = false }
 sc-client-api = { version = "38.0.0", default-features = false }
 sc-consensus = { version = "0.47.0", default-features = false }
 sc-consensus-pow = { version = "0.47.0", default-features = false }
+sc-consensus-qpow = { path ="./client/consensus/qpow", default-features = false}
 sc-executor = { version = "0.41.0", default-features = false }
 sc-network = { version = "0.48.2", default-features = false }
 sc-offchain = { version = "43.0.0", default-features = false }

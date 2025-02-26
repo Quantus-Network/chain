@@ -99,41 +99,6 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 	}
 
-	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		/// Called at the beginning of each block.
-		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-			//log::info!("📢 QPoW: on_initialize called at block {:?}", block_number);
-			Weight::zero()
-		}
-
-		/// Called at the end of each block.
-		fn on_finalize(_block_number: BlockNumberFor<T>) {
-			//log::info!("📢 QPoW: on_finalize called at block {:?}", block_number);
-		}
-
-		/// Called when there is remaining weight at the end of the block.
-		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
-			// 	log::info!(
-			//     "📢 QPoW: on_idle called at block {:?} with remaining weight {:?}",
-			//     block_number,
-			//     remaining_weight
-			// );
-			Weight::zero()
-		}
-
-		/// Called whenever a runtime upgrade is applied.
-		fn on_runtime_upgrade() -> Weight {
-			//log::info!("📢 QPoW: on_runtime_upgrade triggered!");
-			Weight::zero()
-		}
-
-		/// Called for off-chain worker tasks.
-		fn offchain_worker(_block_number: BlockNumberFor<T>) {
-			//log::info!("📢 QPoW: offchain_worker triggered at block {:?}", block_number);
-		}
-	}
-
 	impl<T: Config> Pallet<T> {
 		pub fn get_solution_distance(
 			header: [u8; 32],  // 256-bit header
@@ -148,7 +113,7 @@ pub mod pallet {
 			let header_int = U512::from_big_endian(&header);
 			let solution_int = U512::from_big_endian(&solution);
 
-			let original_chunks = Self::hash_to_group_bigint(
+			let original_chunks = Self::hash_to_group_bigint_split(
 				&header_int,
 				&m,
 				&n,
@@ -156,7 +121,7 @@ pub mod pallet {
 			);
 
 			// Compare PoW results
-			let solution_chunks = Self::hash_to_group_bigint(
+			let solution_chunks = Self::hash_to_group_bigint_split(
 				&header_int,
 				&m,
 				&n,
@@ -202,7 +167,7 @@ pub mod pallet {
 		}
 
 		/// Check if two numbers are coprime using Euclidean algorithm
-		pub fn is_coprime(a: &U512, b: &U512) -> bool {
+		fn is_coprime(a: &U512, b: &U512) -> bool {
 			let mut x = *a;
 			let mut y = *b;
 
@@ -216,7 +181,7 @@ pub mod pallet {
 		}
 
 		/// Split a 512-bit number into 32-bit chunks
-		pub fn split_chunks(num: &U512) -> [u32; NUM_CHUNKS] {
+		fn split_chunks(num: &U512) -> [u32; NUM_CHUNKS] {
 			let mut chunks:[u32; 16] = [0u32; NUM_CHUNKS];
 			let mask = (U512::one() << CHUNK_SIZE) - U512::one();
 
@@ -230,7 +195,7 @@ pub mod pallet {
 		}
 
 		/// Calculate L1 distance between two chunk vectors
-		pub fn l1_distance(original: &[u32], solution: &[u32]) -> u64 {
+		fn l1_distance(original: &[u32], solution: &[u32]) -> u64 {
 			original.iter().zip(solution.iter())
 				.map(|(a, b)| if a > b { a - b } else { b - a })
 				.map(|x| x as u64)
@@ -238,7 +203,7 @@ pub mod pallet {
 		}
 
 		/// Compute the proof of work function
-		pub fn hash_to_group(
+		fn hash_to_group(
 			h: &[u8; 32],
 			m: &[u8; 32],
 			n: &[u8; 64],
@@ -248,28 +213,34 @@ pub mod pallet {
 			let m = U512::from_big_endian(m);
 			let n = U512::from_big_endian(n);
 			let solution = U512::from_big_endian(solution);
-			Self::hash_to_group_bigint(&h, &m, &n, &solution)
+			Self::hash_to_group_bigint_split(&h, &m, &n, &solution)
 		}
 
-		fn hash_to_group_bigint(
+		fn hash_to_group_bigint_split(
 			h: &U512,
 			m: &U512,
 			n: &U512,
 			solution: &U512
 		) -> [u32; 16] {
+			let result = Self::hash_to_group_bigint(h,m,n,solution);
+
+			Self::split_chunks(&result)
+		}
+
+		// no split chunks by Nik
+		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
 			// Compute sum = h + solution
 			let sum = h.saturating_add(*solution);
 			//log::info!("ComputePoW: h={:?}, m={:?}, n={:?}, solution={:?}, sum={:?}", h, m, n, solution, sum);
 
 			// Compute m^sum mod n using modular exponentiation
 			let result = Self::mod_pow(&m, &sum, n);
-			//log::info!("ComputePoW: result={:?}", result);
 
-			Self::split_chunks(&result)
+			result
 		}
 
 		/// Modular exponentiation using Substrate's BigUint
-		pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
+		fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
 			if modulus == &U512::zero() {
 				panic!("Modulus cannot be zero");
 			}
@@ -295,7 +266,7 @@ pub mod pallet {
 		}
 
 		// Miller-Rabin primality test
-		pub fn is_prime(n: &U512) -> bool {
+		fn is_prime(n: &U512) -> bool {
 			if *n <= U512::one() {
 				return false;
 			}

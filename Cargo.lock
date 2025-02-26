@@ -7525,6 +7525,7 @@ dependencies = [
  "sc-client-api",
  "sc-consensus",
  "sc-consensus-pow",
+ "sc-consensus-qpow",
  "sc-executor",
  "sc-network",
  "sc-offchain",
@@ -7535,6 +7536,7 @@ dependencies = [
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-genesis-builder",
  "sp-inherents",
@@ -8252,6 +8254,28 @@ dependencies = [
  "sp-runtime",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "sc-consensus-qpow"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "num-bigint",
+ "num-traits",
+ "pallet-qpow",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "sc-client-api",
+ "sc-consensus-pow",
+ "scale-info",
+ "sha2 0.10.8",
+ "sha3",
+ "sp-api",
+ "sp-consensus-pow",
+ "sp-consensus-qpow",
+ "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]

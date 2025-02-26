@@ -16,6 +16,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 sc-consensus-pow = { workspace = true, default-features = false }
+sc-consensus-qpow = {workspace = true, default-features = false}
+sp-consensus-qpow = {workspace = true, default-features = false}
 log = { workspace = true }
 codec = { workspace = true }
 qpow = { path = "../qpow" }
