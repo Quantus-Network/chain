@@ -1,13 +1,19 @@
 use super::types::{WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
+
+use crate::SIGNATURE_BYTES;
+
+use scale_info::TypeInfo;
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
 use sp_std::vec::Vec;
-use sp_core::sr25519;
+use sp_core::{ecdsa, ed25519, sr25519};
 use verify::verify;
+use codec::{Encode, Decode};
 
 // 
 // WrappedPublicBytes
 // 
+
 impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedPublicBytes<N, SubTag> {
     fn as_mut(&mut self) -> &mut [u8] { self.0.as_mut() }
@@ -121,6 +127,18 @@ impl CryptoType for ResonancePair {
 }
 
 // Conversions for ResonanceSignatureScheme
+impl From<ed25519::Signature> for ResonanceSignatureScheme {
+    fn from(x: ed25519::Signature) -> Self {
+        Self::Ed25519(x)
+    }
+}
+
+impl TryFrom<ResonanceSignatureScheme> for ed25519::Signature {
+    type Error = ();
+    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
+        if let ResonanceSignatureScheme::Ed25519(x) = m { Ok(x) } else { Err(()) }
+    }
+}
 
 impl From<sr25519::Signature> for ResonanceSignatureScheme {
     fn from(x: sr25519::Signature) -> Self {
@@ -140,6 +158,20 @@ impl From<(ResonanceSignature, [u8; 2592])> for ResonanceSignatureScheme {
         Self::Resonance(sig, pk)
     }
 }
+
+impl From<ecdsa::Signature> for ResonanceSignatureScheme {
+    fn from(x: ecdsa::Signature) -> Self {
+        Self::Ecdsa(x)
+    }
+}
+
+impl TryFrom<ResonanceSignatureScheme> for ecdsa::Signature {
+    type Error = ();
+    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
+        if let ResonanceSignatureScheme::Ecdsa(x) = m { Ok(x) } else { Err(()) }
+    }
+}
+
 
 // test printout code
 // use scale_info::prelude::string::String;
@@ -166,17 +198,27 @@ impl Verify for ResonanceSignatureScheme {
         log::info!("Verify CALLED");
 
         match self {
+            Self::Ed25519(sig) => {
+                let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
+                sig.verify(msg, &pk)
+            },
             Self::Sr25519(sig) => {
                 let pk = sr25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
                 sig.verify(msg, &pk)
             },
+
+            Self::Ecdsa(sig) => {
+                let m = sp_io::hashing::blake2_256(msg.get());
+                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
+                    .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
+            },
             Self::Resonance(sig, pk_bytes) => {
                 // TODO: Remove test printouts.
                 // let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
-                // log::info!("XX Signature bytes: {:?}", format_hex_truncated(bytes));            
-                // log::info!("XX ResonanceSignatureScheme::Resonance bytes {:?}", format_hex_truncated(pk_bytes));   
-                // log::info!("XX message {:?}", &msg.get());    
-
+                // #[cfg(test)] {
+                //     log::info!("Signature bytes: {:?}", format_hex_truncated(bytes));            
+                //     log::info!("ResonanceSignatureScheme::Rez bytes {:?}", format_hex_truncated(pk_bytes));    
+                // }
                 let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
@@ -202,8 +244,19 @@ impl IdentifyAccount for ResonanceSigner {
 
     fn into_account(self) -> AccountId32 {
         match self {
+            Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
             Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
         }
     }
 }
+// impl RezSignature {
+//     pub fn from_slice(slice: &[u8]) -> Result<Self, &'static str> {
+//         if slice.len() == SIGNATURE_BYTES {
+//             Ok(Self(slice.try_into().unwrap()))
+//         } else {
+//             Err("Signature length mismatch")
+//         }
+//     }
+// }
