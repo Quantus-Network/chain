@@ -20,7 +20,6 @@ sc-consensus-qpow = {workspace = true, default-features = false}
 sp-consensus-qpow = {workspace = true, default-features = false}
 log = { workspace = true }
 codec = { workspace = true }
-qpow = { path = "../qpow" }
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 
 clap = { features = ["derive"], workspace = true }
@@ -90,10 +89,7 @@ substrate-build-script-utils.default-features = true
 
 [features]
 default = ["std"]
-std = [
-	"dilithium-crypto/full_crypto",
-	"resonance-runtime/std"
-]
+std = ["resonance-runtime/std"]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",

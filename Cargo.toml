@@ -13,7 +13,6 @@ members = [
     "pallets/qpow",
     "primitives/consensus/qpow",
     "runtime",
-    "qpow",
     "dilithium-crypto",
     "dilithium-crypto/verify", 
     "dilithium-crypto/sign",

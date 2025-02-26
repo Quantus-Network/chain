@@ -12,17 +12,12 @@ sc-client-api = { workspace = true }
 sc-consensus-pow.workspace = true
 sp-consensus-pow.workspace = true
 sp-consensus-qpow.workspace = true
-sp-core.workspace = true
 sp-runtime.workspace = true
 sp-api.workspace = true
-pallet-qpow.workspace = true
 primitive-types.workspace = true
-log.workspace = true
 
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
-num-bigint = { version = "0.4.6", default-features = false }
-num-traits = { version = "0.2.19", default-features = false }
 
 [features]
 default = ["std"]

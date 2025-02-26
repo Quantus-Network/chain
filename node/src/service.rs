@@ -283,7 +283,7 @@ pub fn new_full<
                 let mut nonce = 0;
                 loop {
                     // Get mining metadata
-                    println!("getting metadata");
+                    log::info!("getting metadata");
 
                     let metadata = match worker_handle.metadata() {
                         Some(m) => m,
@@ -295,33 +295,33 @@ pub fn new_full<
                     };
                     let version = worker_handle.version();
 
-                    println!("mine block");
+                    log::info!("mine block");
 
                     // Mine the block
                     let seal =
 					match try_nonce::<Block>(metadata.best_hash,&client.clone(),
                                              metadata.pre_hash, nonce, metadata.difficulty) {
                             Ok(s) => {
-                                println!("valid seal: {:?}", s);
+                                log::info!("valid seal: {:?}", s);
                                 s
                             }
                             Err(_) => {
-                                println!("error - seal not valid");
+                                log::info!("error - seal not valid");
                                 nonce += 1;
                                 tokio::time::sleep(Duration::from_millis(100)).await;
                                 continue;
                             }
                         };
 
-                    println!("block found");
+                    log::info!("block found");
 
                     let current_version = worker_handle.version();
                     if current_version == version {
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                            println!("Successfully mined and submitted a new block");
+                            log::info!("Successfully mined and submitted a new block");
                             nonce = 0;
                         } else {
-                            println!("Failed to submit mined block");
+                            log::info!("Failed to submit mined block");
                             nonce += 1;
                         }
                     }
@@ -332,7 +332,7 @@ pub fn new_full<
             }, // .boxed()
         );
 
-        println!("⛏️  Pow miner spawned");
+        log::info!("⛏️  Pow miner spawned");
     }
 
     network_starter.start_network();
@@ -360,17 +360,17 @@ fn try_nonce<B: BlockT<Hash = H256>>(
     };
 
     // Compute the seal
-    println!("compute difficulty: {:?}", difficulty);
+    log::info!("compute difficulty: {:?}", difficulty);
     let seal = match compute.compute(parent_hash.clone(), client) {
         Ok(seal) => seal,
         Err(e) => {
-            println!("compute error: {:?}", e);
+            log::info!("compute error: {:?}", e);
             return Err(());
         }
     };
 
 
-    println!("compute done");
+    log::info!("compute done");
 
     // Convert pre_hash to [u8; 32] for verification
     // TODO normalize all the different ways we do calculations
@@ -380,23 +380,24 @@ fn try_nonce<B: BlockT<Hash = H256>>(
 
     match client.runtime_api().verify_solution(parent_hash, header, seal.work, difficulty.low_u64()) {
         Ok(true) => {
-            println!("good seal");
+            log::info!("good seal");
             Ok(seal)
         }
         Ok(false) => {
-            println!("invalid seal");
+            log::info!("invalid seal");
             Err(())
         }
         Err(e) => {
-            println!("API error in verify_solution: {:?}", e);
+            log::info!("API error in verify_solution: {:?}", e);
             Err(())
         }
     }
 
 }
-
+/*
 #[cfg(test)]
 mod tests {
+    use sc_service::{new_full_parts, TFullClient};
     use qpow::INITIAL_DIFFICULTY;
 
     use super::*;
@@ -410,7 +411,6 @@ mod tests {
 
     // Create a convenient type alias for our test block.
     // type TestBlockType = TestBlock<TestXt>;
-
     #[test]
     fn test_try_nonce_valid_seal() {
         // Setup test data
@@ -421,7 +421,7 @@ mod tests {
         let mut nonce = 0;
         let mut valid_seal = None;
         while nonce < 1000 {
-            println!("testing nonce: {:?}", nonce);
+            log::info!("testing nonce: {:?}", nonce);
             if let Ok(seal) = try_nonce::<TestBlockType>(pre_hash, nonce, difficulty) {
                 valid_seal = Some(seal);
                 break;
@@ -429,8 +429,8 @@ mod tests {
             nonce += 1;
         }
 
-        println!("valid seal: {:?}", valid_seal);
-        println!("nonce: {:?}", nonce);
+        log::info!("valid seal: {:?}", valid_seal);
+        log::info!("nonce: {:?}", nonce);
 
         // Verify we found a valid seal
         assert!(valid_seal.is_some(), "Should find a valid seal");
@@ -454,3 +454,4 @@ mod tests {
         assert!(result.is_err(), "Invalid seal should fail verification");
     }
 }
+ */

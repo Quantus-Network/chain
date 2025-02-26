@@ -7097,26 +7097,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qpow"
-version = "0.1.0"
-dependencies = [
- "log",
- "num-bigint",
- "num-traits",
- "pallet-qpow",
- "parity-scale-codec",
- "primitive-types 0.13.1",
- "sc-consensus-pow",
- "scale-info",
- "sha2 0.10.8",
- "sha3",
- "sp-api",
- "sp-consensus-pow",
- "sp-core",
- "sp-runtime",
-]
-
-[[package]]
 name = "quanta"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7518,7 +7498,6 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
- "qpow",
  "resonance-runtime",
  "sc-basic-authorship",
  "sc-cli",
@@ -7571,6 +7550,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
+ "primitive-types 0.13.1",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -8260,10 +8240,6 @@ dependencies = [
 name = "sc-consensus-qpow"
 version = "0.1.0"
 dependencies = [
- "log",
- "num-bigint",
- "num-traits",
- "pallet-qpow",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "sc-client-api",
@@ -8274,7 +8250,6 @@ dependencies = [
  "sp-api",
  "sp-consensus-pow",
  "sp-consensus-qpow",
- "sp-core",
  "sp-runtime",
 ]
 
