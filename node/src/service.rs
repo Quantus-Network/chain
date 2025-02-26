@@ -1,7 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
-use qpow::{QPow, Compute, QPoWSeal, MinimalQPowAlgorithm};
+use sc_consensus_qpow::{Compute, QPoWSeal, QPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
@@ -26,7 +26,7 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     Arc<FullClient>,
     FullClient,
     FullSelectChain,
-    MinimalQPowAlgorithm,
+    QPowAlgorithm<Block, FullClient>,
     Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>,
 >;
 pub type Service = sc_service::PartialComponents<
@@ -101,10 +101,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 
     let inherent_data_providers = build_inherent_data_providers()?;
+
+    let pow_algorithm = QPowAlgorithm {
+        client: client.clone(),
+        _phantom: Default::default(),
+    };
+
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
         client.clone(),
         client.clone(),
-        MinimalQPowAlgorithm,
+        pow_algorithm,
         0, // check inherents starting at block 0
         select_chain.clone(),
         inherent_data_providers,
@@ -113,7 +119,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     let import_queue = sc_consensus_pow::import_queue(
         Box::new(pow_block_import.clone()),
         None,
-        MinimalQPowAlgorithm,
+        QPowAlgorithm {
+            client: client.clone(),
+            _phantom: Default::default(),
+        },
         &task_manager.spawn_essential_handle(),
         config.prometheus_registry(),
     )?;
@@ -240,12 +249,17 @@ pub fn new_full<
         // Also refer to kulupu config:
         //   https://github.com/kulupu/kulupu/blob/master/src/service.rs
 
+        let pow_algorithm = QPowAlgorithm {
+            client: client.clone(),
+            _phantom: Default::default(),
+        };
+
         let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
             //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
-            client,
+            client.clone(),
             select_chain,
-            MinimalQPowAlgorithm,
+            pow_algorithm,
             proposer, // Env E == proposer! TODO
             /*sync_oracle:*/ sync_service.clone(),
             /*justification_sync_link:*/ sync_service.clone(),
@@ -285,7 +299,8 @@ pub fn new_full<
 
                     // Mine the block
                     let seal =
-					match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
+					match try_nonce::<Block>(metadata.best_hash,&client.clone(),
+                                             metadata.pre_hash, nonce, metadata.difficulty) {
                             Ok(s) => {
                                 println!("valid seal: {:?}", s);
                                 s
@@ -325,9 +340,13 @@ pub fn new_full<
 }
 
 use codec::Encode;
+use sp_api::ProvideRuntimeApi;
 use sp_runtime::traits::Block as BlockT;
+use sp_consensus_qpow::QPoWApi;
 
 fn try_nonce<B: BlockT<Hash = H256>>(
+    parent_hash: B::Hash,
+    client: &Arc<FullClient>,
     pre_hash: B::Hash,
     nonce: u64,
     difficulty: U256,
@@ -337,11 +356,19 @@ fn try_nonce<B: BlockT<Hash = H256>>(
         difficulty,
         pre_hash: H256::from_slice(pre_hash.as_ref()),
         nonce,
+        _phantom: Default::default(),
     };
 
     // Compute the seal
     println!("compute difficulty: {:?}", difficulty);
-    let seal = compute.compute();
+    let seal = match compute.compute(parent_hash.clone(), client) {
+        Ok(seal) => seal,
+        Err(e) => {
+            println!("compute error: {:?}", e);
+            return Err(());
+        }
+    };
+
 
     println!("compute done");
 
@@ -350,13 +377,21 @@ fn try_nonce<B: BlockT<Hash = H256>>(
     let header = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
     // Verify the solution using QPoW
-    if !QPow::verify_solution(header, seal.work, difficulty.low_u64()) {
-        println!("invalid seal");
-        return Err(());
-    }
-    println!("good seal");
 
-    Ok(seal)
+    match client.runtime_api().verify_solution(parent_hash, header, seal.work, difficulty.low_u64()) {
+        Ok(true) => {
+            println!("good seal");
+            Ok(seal)
+        }
+        Ok(false) => {
+            println!("invalid seal");
+            Err(())
+        }
+        Err(e) => {
+            println!("API error in verify_solution: {:?}", e);
+            Err(())
+        }
+    }
 
 }
 

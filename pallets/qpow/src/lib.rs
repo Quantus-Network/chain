@@ -16,7 +16,6 @@ mod benchmarking;
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig};
-	use frame_system::pallet_prelude::*;
 	use primitive_types::U512;
 	use sha2::{Digest, Sha256};
 	use sha3::Sha3_512;
@@ -139,6 +138,7 @@ pub mod pallet {
 			let verified = distance <= MAX_DISTANCE - difficulty;
 			if verified {
 				<LatestProof<T>>::put(solution);
+				Self::deposit_event(Event::ProofSubmitted { solution });
 			}
 			verified
 		}
@@ -203,7 +203,8 @@ pub mod pallet {
 		}
 
 		/// Compute the proof of work function
-		fn hash_to_group(
+		/// TODO - do we still need it ?
+/*		fn hash_to_group(
 			h: &[u8; 32],
 			m: &[u8; 32],
 			n: &[u8; 64],
@@ -214,7 +215,7 @@ pub mod pallet {
 			let n = U512::from_big_endian(n);
 			let solution = U512::from_big_endian(solution);
 			Self::hash_to_group_bigint_split(&h, &m, &n, &solution)
-		}
+		}*/
 
 		fn hash_to_group_bigint_split(
 			h: &U512,

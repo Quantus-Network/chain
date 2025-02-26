@@ -18,14 +18,27 @@ pub struct QPoWSeal {
     pub nonce: u64,
 }
 
-#[derive(Clone)]
+//#[derive(Clone)]
 pub struct QPowAlgorithm<B,C>
 where
     B: BlockT<Hash = H256>,
     C: ProvideRuntimeApi<B>
 {
-    client: Arc<C>,
-    _phantom: PhantomData<B>,
+    pub client: Arc<C>,
+    pub _phantom: PhantomData<B>,
+}
+
+impl<B, C> Clone for QPowAlgorithm<B, C>
+where
+    B: BlockT<Hash = H256>,
+    C: ProvideRuntimeApi<B>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            client: Arc::clone(&self.client),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 // Here we implement the general PowAlgorithm trait for our concrete Sha3Algorithm
@@ -79,7 +92,7 @@ where
             _phantom: Default::default(),
         };
 
-        match compute.compute(parent, &self.client) {
+        match compute.compute(extract_block_hash(parent)?, &self.client) {
             Ok(computed_seal) => {
                 if computed_seal != seal {
                     return Ok(false);
@@ -102,7 +115,7 @@ where
     pub difficulty: U256,
     pub pre_hash: H256,
     pub nonce: u64,
-    _phantom: PhantomData<(B, C)>,
+    pub _phantom: PhantomData<(B, C)>,
 }
 
 impl<B,C> Compute<B,C>
@@ -111,17 +124,17 @@ where
     C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
     C::Api: QPoWApi<B>,
 {
-    fn compute(self, parent: &BlockId<B>, client: &Arc<C>) -> Result<QPoWSeal, Error<B>> {
+    pub fn compute(self,parent_hash: B::Hash, client: &Arc<C>) -> Result<QPoWSeal, Error<B>> {
         // Convert pre_hash into U512.
         let header_int = U512::from_big_endian(self.pre_hash.as_bytes());
         // Convert nonce into U512.
         let nonce_val = U512::from(self.nonce);
         // Get RSA-like parameters (m, n) deterministically from the pre_hash.
-        let (m, n) = client.runtime_api().get_random_rsa(extract_block_hash(parent)?,self.pre_hash.as_ref().try_into().unwrap())
+        let (m, n) = client.runtime_api().get_random_rsa(parent_hash,self.pre_hash.as_ref().try_into().unwrap())
             .map(|(m,n)| (U512::from(m), U512::from(n)))
             .map_err(|_| Error::Runtime("Failed to get random RSA".into()))?;
         // Compute group element (an array of 16 u32 values) from header and nonce.
-        let work = client.runtime_api().hash_to_group_bigint(extract_block_hash(parent)?,&header_int, &m, &n, &nonce_val)
+        let work = client.runtime_api().hash_to_group_bigint(parent_hash,&header_int, &m, &n, &nonce_val)
             .map(|work| U512::from(work))
             .map_err(|_| Error::Runtime("Failed to convert hash to group_bigint".into()))?;
 
@@ -133,7 +146,7 @@ where
     }
 }
 
-fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
+pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
     match parent {
         BlockId::Hash(hash) => Ok(*hash),
         BlockId::Number(_) => Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
