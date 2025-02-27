@@ -77,35 +77,15 @@ where
             Ok(seal) => seal,
             Err(_) => return Ok(false),
         };
-        // FILL IN using qpow
 
         // Convert pre_hash to [u8; 32] for verification
-        let header = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
+        let pre_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
         // Verify the solution using QPoW
         if !self.client.runtime_api()
-            .verify_solution(extract_block_hash(parent)?, header, seal.work, difficulty.low_u64())
+            .verify_solution(extract_block_hash(parent)?, pre_hash, seal.work, difficulty.low_u64())
             .map_err(|e| Error::Runtime(format!("API error in verify_solution: {:?}", e)))? {
             return Ok(false);
-        }
-
-        // Make sure the provided work actually comes from the correct pre_hash
-        let compute = Compute {
-            difficulty,
-            pre_hash: *pre_hash,
-            nonce: seal.nonce,
-            _phantom: Default::default(),
-        };
-
-        match compute.compute(extract_block_hash(parent)?, &self.client) {
-            Ok(computed_seal) => {
-                if computed_seal != seal {
-                    return Ok(false);
-                }
-            }
-            Err(e) => {
-                return Err(e);
-            }
         }
 
         Ok(true)
