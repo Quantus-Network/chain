@@ -8,21 +8,16 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
-mod resonance;
-
-pub use resonance::keyring::sr25519::Keyring;
-pub use resonance::account::ResonanceAccountId;
-pub use resonance::account::Public;
-pub use resonance::account::Pair;
-pub use resonance::sr25519;
-
+pub use dilithium_crypto::ResonanceSignature;
+pub use dilithium_crypto::ResonancePublic;
+use dilithium_crypto::ResonanceSignatureScheme;
 
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
-	MultiAddress
+	MultiAddress,
 };
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
@@ -33,7 +28,6 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
-use crate::resonance::signature::ResonanceSignature;
 
 pub mod genesis_config_presets;
 
@@ -124,7 +118,8 @@ pub fn native_version() -> NativeVersion {
 }
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = ResonanceSignature;
+// pub type Signature = MultiSignature;
+pub type Signature = ResonanceSignatureScheme;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
@@ -157,7 +152,7 @@ pub type SignedBlock = generic::SignedBlock<Block>;
 /// BlockId type as expected by this runtime.
 pub type BlockId = generic::BlockId<Block>;
 
-/// The TransactionExtension to the basic transaction logic.
+/// The SignedExtension to the basic transaction logic.
 pub type TxExtension = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,

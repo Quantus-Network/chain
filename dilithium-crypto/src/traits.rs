@@ -1,0 +1,221 @@
+use super::types::{WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
+
+use crate::SIGNATURE_BYTES;
+
+use scale_info::TypeInfo;
+use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
+use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
+use sp_std::vec::Vec;
+use sp_core::{ecdsa, ed25519, sr25519};
+use verify::verify;
+use codec::{Encode, Decode};
+
+// 
+// WrappedPublicBytes
+// 
+
+impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
+impl<const N: usize, SubTag> AsMut<[u8]> for WrappedPublicBytes<N, SubTag> {
+    fn as_mut(&mut self) -> &mut [u8] { self.0.as_mut() }
+}
+impl<const N: usize, SubTag> AsRef<[u8]> for WrappedPublicBytes<N, SubTag> {
+    fn as_ref(&self) -> &[u8] { self.0.as_slice() }
+}
+impl<const N: usize, SubTag> TryFrom<&[u8]> for WrappedPublicBytes<N, SubTag> {
+    type Error = ();
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        PublicBytes::from_slice(data).map(|bytes| WrappedPublicBytes(bytes)).map_err(|_| ())
+    }
+}
+impl<const N: usize, SubTag> ByteArray for WrappedPublicBytes<N, SubTag> {
+    fn as_slice(&self) -> &[u8] { self.0.as_slice() }
+    const LEN: usize = N;
+    fn from_slice(data: &[u8]) -> Result<Self, ()> {
+        PublicBytes::from_slice(data).map(|bytes| WrappedPublicBytes(bytes)).map_err(|_| ())
+    }
+    fn to_raw_vec(&self) -> Vec<u8> { self.0.as_slice().to_vec() }
+}
+impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
+    type Pair = ResonancePair;
+}
+impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
+
+impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
+    fn default() -> Self {
+        WrappedPublicBytes(PublicBytes::default())
+    }
+}
+impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag> {
+    #[cfg(feature = "std")]
+    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
+    type AccountId = AccountId32;
+    fn into_account(self) -> Self::AccountId {
+        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
+    }
+}
+
+// 
+// WrappedSignatureBytes
+// 
+impl<const N: usize, SubTag> Derive for WrappedSignatureBytes<N, SubTag> {}
+impl<const N: usize, SubTag> AsMut<[u8]> for WrappedSignatureBytes<N, SubTag> {
+    fn as_mut(&mut self) -> &mut [u8] { self.0.as_mut() }
+}
+impl<const N: usize, SubTag> AsRef<[u8]> for WrappedSignatureBytes<N, SubTag> {
+    fn as_ref(&self) -> &[u8] { self.0.as_slice() }
+}
+impl<const N: usize, SubTag> TryFrom<&[u8]> for WrappedSignatureBytes<N, SubTag> {
+    type Error = ();
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        SignatureBytes::from_slice(data).map(|bytes| WrappedSignatureBytes(bytes)).map_err(|_| ())
+    }
+}
+impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
+    fn as_slice(&self) -> &[u8] { self.0.as_slice() }
+    const LEN: usize = N;
+    fn from_slice(data: &[u8]) -> Result<Self, ()> {
+        SignatureBytes::from_slice(data).map(|bytes| WrappedSignatureBytes(bytes)).map_err(|_| ())
+    }
+    fn to_raw_vec(&self) -> Vec<u8> { self.0.as_slice().to_vec() }
+}
+impl<const N: usize, SubTag> CryptoType for WrappedSignatureBytes<N, SubTag> {
+    type Pair = ResonancePair;
+}
+impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
+
+impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
+    fn default() -> Self {
+        WrappedSignatureBytes(SignatureBytes::default())
+    }
+}
+
+impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
+    #[cfg(feature = "std")]
+    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl CryptoType for ResonancePair {
+    type Pair = Self;
+}
+
+// Conversions for ResonanceSignatureScheme
+impl From<ed25519::Signature> for ResonanceSignatureScheme {
+    fn from(x: ed25519::Signature) -> Self {
+        Self::Ed25519(x)
+    }
+}
+
+impl TryFrom<ResonanceSignatureScheme> for ed25519::Signature {
+    type Error = ();
+    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
+        if let ResonanceSignatureScheme::Ed25519(x) = m { Ok(x) } else { Err(()) }
+    }
+}
+
+impl From<sr25519::Signature> for ResonanceSignatureScheme {
+    fn from(x: sr25519::Signature) -> Self {
+        Self::Sr25519(x)
+    }
+}
+
+impl TryFrom<ResonanceSignatureScheme> for sr25519::Signature {
+    type Error = ();
+    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
+        if let ResonanceSignatureScheme::Sr25519(x) = m { Ok(x) } else { Err(()) }
+    }
+}
+
+impl From<(ResonanceSignature, [u8; 2592])> for ResonanceSignatureScheme {
+    fn from((sig, pk): (ResonanceSignature, [u8; 2592])) -> Self {
+        Self::Resonance(sig, pk)
+    }
+}
+
+impl From<ecdsa::Signature> for ResonanceSignatureScheme {
+    fn from(x: ecdsa::Signature) -> Self {
+        Self::Ecdsa(x)
+    }
+}
+
+impl TryFrom<ResonanceSignatureScheme> for ecdsa::Signature {
+    type Error = ();
+    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
+        if let ResonanceSignatureScheme::Ecdsa(x) = m { Ok(x) } else { Err(()) }
+    }
+}
+
+impl Verify for ResonanceSignatureScheme {
+    type Signer = ResonanceSigner;
+
+    fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
+        &self,
+        mut msg: L,
+        signer: &<Self::Signer as IdentifyAccount>::AccountId,
+    ) -> bool {
+        log::info!("Verify CALLED");
+
+        match self {
+            Self::Ed25519(sig) => {
+                let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
+                sig.verify(msg, &pk)
+            },
+            Self::Sr25519(sig) => {
+                let pk = sr25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
+                sig.verify(msg, &pk)
+            },
+
+            Self::Ecdsa(sig) => {
+                let m = sp_io::hashing::blake2_256(msg.get());
+                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
+                    .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
+            },
+            Self::Resonance(sig, pk_bytes) => {
+                let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
+                if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
+                    return false;
+                }
+                let result = verify(pk_bytes, msg.get(), sig.as_ref());
+                result
+            },
+        }
+    }
+}
+
+//
+// ResonanceSigner
+//
+impl From<sr25519::Public> for ResonanceSigner {
+    fn from(x: sr25519::Public) -> Self {
+        Self::Sr25519(x)
+    }
+}
+
+impl IdentifyAccount for ResonanceSigner {
+    type AccountId = AccountId32;
+
+    fn into_account(self) -> AccountId32 {
+        match self {
+            Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+        }
+    }
+}

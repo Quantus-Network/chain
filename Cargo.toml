@@ -10,11 +10,17 @@ members = [
     "node",
     "pallets/template",
     "runtime",
+    "qpow",
+    "dilithium-crypto",
+    "dilithium-crypto/verify", 
+    "dilithium-crypto/sign",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
+rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+
 pallet-template = { path = "./pallets/template", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.0.0", default-features = false }

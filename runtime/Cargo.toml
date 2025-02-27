@@ -47,6 +47,8 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
+rusty-crystals-dilithium.workspace = true
+dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 
 primitive-types = {default-features=false, workspace = true}
 merlin = { workspace = true, default-features = false }
@@ -75,14 +77,15 @@ strum = { version = "0.26.3", features = ["derive"], default-features = false }
 regex = { version = "1.10.2",default-features=false }
 
 lazy_static = { version = "1.4.0", default-features=false } # Do we need this?
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["verifier_only"] }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
-#[dev-dependencies] Test it
-#serde_json = { workspace = true, default-features = true }
-
+[dev-dependencies]
+sp-io = { workspace = true, default-features = true }
+sp-std = { version = "14.0.0", default-features = true }
+hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
+env_logger = "0.11.5"  # Latest version as of now; adjust as needed
 
 [features]
 default = ["std"]
