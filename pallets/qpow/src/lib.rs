@@ -167,7 +167,7 @@ pub mod pallet {
 		}
 
 		/// Check if two numbers are coprime using Euclidean algorithm
-		fn is_coprime(a: &U512, b: &U512) -> bool {
+		pub fn is_coprime(a: &U512, b: &U512) -> bool {
 			let mut x = *a;
 			let mut y = *b;
 
@@ -181,7 +181,7 @@ pub mod pallet {
 		}
 
 		/// Split a 512-bit number into 32-bit chunks
-		fn split_chunks(num: &U512) -> [u32; NUM_CHUNKS] {
+		pub fn split_chunks(num: &U512) -> [u32; NUM_CHUNKS] {
 			let mut chunks:[u32; 16] = [0u32; NUM_CHUNKS];
 			let mask = (U512::one() << CHUNK_SIZE) - U512::one();
 
@@ -204,20 +204,20 @@ pub mod pallet {
 
 		/// Compute the proof of work function
 		/// TODO - do we still need it ?
-/*		fn hash_to_group(
-			h: &[u8; 32],
-			m: &[u8; 32],
-			n: &[u8; 64],
-			solution: &[u8; 64]
-		) -> [u32; 16] {
-			let h = U512::from_big_endian(h);
-			let m = U512::from_big_endian(m);
-			let n = U512::from_big_endian(n);
-			let solution = U512::from_big_endian(solution);
-			Self::hash_to_group_bigint_split(&h, &m, &n, &solution)
-		}*/
+		pub fn hash_to_group(
+                    h: &[u8; 32],
+                    m: &[u8; 32],
+                    n: &[u8; 64],
+                    solution: &[u8; 64]
+                ) -> [u32; 16] {
+                    let h = U512::from_big_endian(h);
+                    let m = U512::from_big_endian(m);
+                    let n = U512::from_big_endian(n);
+                    let solution = U512::from_big_endian(solution);
+                    Self::hash_to_group_bigint_split(&h, &m, &n, &solution)
+		}
 
-		fn hash_to_group_bigint_split(
+		pub fn hash_to_group_bigint_split(
 			h: &U512,
 			m: &U512,
 			n: &U512,
@@ -241,7 +241,7 @@ pub mod pallet {
 		}
 
 		/// Modular exponentiation using Substrate's BigUint
-		fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
+		pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
 			if modulus == &U512::zero() {
 				panic!("Modulus cannot be zero");
 			}
@@ -267,7 +267,7 @@ pub mod pallet {
 		}
 
 		// Miller-Rabin primality test
-		fn is_prime(n: &U512) -> bool {
+		pub fn is_prime(n: &U512) -> bool {
 			if *n <= U512::one() {
 				return false;
 			}
