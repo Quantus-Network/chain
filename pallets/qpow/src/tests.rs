@@ -1,6 +1,5 @@
-use crate::{mock::*, Error, Event};
-use frame_support::{assert_noop, assert_ok};
-use primitive_types::{U256, U512};
+use crate::mock::*;
+use primitive_types::U512;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -152,7 +151,7 @@ fn test_compute_pow_valid_solution() {
 #[test]
 fn test_compute_pow_overflow_check() {
     new_test_ext().execute_with(|| {
-        let mut h = [0xfu8; 32];
+        let h = [0xfu8; 32];
 
         let mut m = [0u8; 32];
         m[31] = 5;   // For value 5
