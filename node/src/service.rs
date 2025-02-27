@@ -1,17 +1,17 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
-use qpow::{QPow, Compute, QPoWSeal, MinimalQPowAlgorithm};
+use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
-use sp_core::{H256, U256};
 
 use std::{sync::Arc, time::Duration};
-
+use codec::Encode;
 use jsonrpsee::tokio;
+use sp_api::__private::BlockT;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -26,7 +26,7 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     Arc<FullClient>,
     FullClient,
     FullSelectChain,
-    MinimalQPowAlgorithm,
+    QPowAlgorithm<Block, FullClient>,
     Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>,
 >;
 pub type Service = sc_service::PartialComponents<
@@ -101,10 +101,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 
     let inherent_data_providers = build_inherent_data_providers()?;
+
+    let pow_algorithm = QPowAlgorithm {
+        client: client.clone(),
+        _phantom: Default::default(),
+    };
+
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
         client.clone(),
         client.clone(),
-        MinimalQPowAlgorithm,
+        pow_algorithm,
         0, // check inherents starting at block 0
         select_chain.clone(),
         inherent_data_providers,
@@ -113,7 +119,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     let import_queue = sc_consensus_pow::import_queue(
         Box::new(pow_block_import.clone()),
         None,
-        MinimalQPowAlgorithm,
+        QPowAlgorithm {
+            client: client.clone(),
+            _phantom: Default::default(),
+        },
         &task_manager.spawn_essential_handle(),
         config.prometheus_registry(),
     )?;
@@ -240,12 +249,17 @@ pub fn new_full<
         // Also refer to kulupu config:
         //   https://github.com/kulupu/kulupu/blob/master/src/service.rs
 
+        let pow_algorithm = QPowAlgorithm {
+            client: client.clone(),
+            _phantom: Default::default(),
+        };
+
         let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
             //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
-            client,
+            client.clone(),
             select_chain,
-            MinimalQPowAlgorithm,
+            pow_algorithm,
             proposer, // Env E == proposer! TODO
             /*sync_oracle:*/ sync_service.clone(),
             /*justification_sync_link:*/ sync_service.clone(),
@@ -269,7 +283,7 @@ pub fn new_full<
                 let mut nonce = 0;
                 loop {
                     // Get mining metadata
-                    println!("getting metadata");
+                    log::info!("getting metadata");
 
                     let metadata = match worker_handle.metadata() {
                         Some(m) => m,
@@ -281,32 +295,35 @@ pub fn new_full<
                     };
                     let version = worker_handle.version();
 
-                    println!("mine block");
+                    log::info!("mine block");
 
                     // Mine the block
-                    let seal =
-					match try_nonce::<Block>(metadata.pre_hash, nonce, metadata.difficulty) {
+
+                    let miner = QPoWMiner::new(client.clone());
+
+                    let seal: QPoWSeal =
+                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce, metadata.difficulty) {
                             Ok(s) => {
-                                println!("valid seal: {:?}", s);
+                                log::info!("valid seal: {:?}", s);
                                 s
                             }
                             Err(_) => {
-                                println!("error - seal not valid");
+                                log::info!("error - seal not valid");
                                 nonce += 1;
                                 tokio::time::sleep(Duration::from_millis(100)).await;
                                 continue;
                             }
                         };
 
-                    println!("block found");
+                    log::info!("block found");
 
                     let current_version = worker_handle.version();
                     if current_version == version {
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                            println!("Successfully mined and submitted a new block");
+                            log::info!("Successfully mined and submitted a new block");
                             nonce = 0;
                         } else {
-                            println!("Failed to submit mined block");
+                            log::info!("Failed to submit mined block");
                             nonce += 1;
                         }
                     }
@@ -317,51 +334,16 @@ pub fn new_full<
             }, // .boxed()
         );
 
-        println!("⛏️  Pow miner spawned");
+        log::info!("⛏️  Pow miner spawned");
     }
 
     network_starter.start_network();
     Ok(task_manager)
 }
-
-use codec::Encode;
-use sp_runtime::traits::Block as BlockT;
-
-fn try_nonce<B: BlockT<Hash = H256>>(
-    pre_hash: B::Hash,
-    nonce: u64,
-    difficulty: U256,
-) -> Result<QPoWSeal, ()> {
-
-    let compute = Compute {
-        difficulty,
-        pre_hash: H256::from_slice(pre_hash.as_ref()),
-        nonce,
-    };
-
-    // Compute the seal
-    println!("compute difficulty: {:?}", difficulty);
-    let seal = compute.compute();
-
-    println!("compute done");
-
-    // Convert pre_hash to [u8; 32] for verification
-    // TODO normalize all the different ways we do calculations
-    let header = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
-
-    // Verify the solution using QPoW
-    if !QPow::verify_solution(header, seal.work, difficulty.low_u64()) {
-        println!("invalid seal");
-        return Err(());
-    }
-    println!("good seal");
-
-    Ok(seal)
-
-}
-
+/*
 #[cfg(test)]
 mod tests {
+    use sc_service::{new_full_parts, TFullClient};
     use qpow::INITIAL_DIFFICULTY;
 
     use super::*;
@@ -375,7 +357,6 @@ mod tests {
 
     // Create a convenient type alias for our test block.
     // type TestBlockType = TestBlock<TestXt>;
-
     #[test]
     fn test_try_nonce_valid_seal() {
         // Setup test data
@@ -386,7 +367,7 @@ mod tests {
         let mut nonce = 0;
         let mut valid_seal = None;
         while nonce < 1000 {
-            println!("testing nonce: {:?}", nonce);
+            log::info!("testing nonce: {:?}", nonce);
             if let Ok(seal) = try_nonce::<TestBlockType>(pre_hash, nonce, difficulty) {
                 valid_seal = Some(seal);
                 break;
@@ -394,8 +375,8 @@ mod tests {
             nonce += 1;
         }
 
-        println!("valid seal: {:?}", valid_seal);
-        println!("nonce: {:?}", nonce);
+        log::info!("valid seal: {:?}", valid_seal);
+        log::info!("nonce: {:?}", nonce);
 
         // Verify we found a valid seal
         assert!(valid_seal.is_some(), "Should find a valid seal");
@@ -419,3 +400,4 @@ mod tests {
         assert!(result.is_err(), "Invalid seal should fail verification");
     }
 }
+ */

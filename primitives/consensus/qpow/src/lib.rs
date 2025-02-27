@@ -3,6 +3,7 @@ use codec::{Decode, Encode};
 use scale_info::TypeInfo;
 extern crate alloc;
 use alloc::vec::Vec;
+use primitive_types::U512;
 
 /// Engine ID for QPoW consensus.
 pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
@@ -21,6 +22,9 @@ sp_api::decl_runtime_apis! {
 
         /// Retrieve latest submitted proof
         fn get_latest_proof() -> Option<[u8; 64]>;
+
+        fn get_random_rsa(header: &[u8; 32]) -> (U512, U512);
+        fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
     }
 }
 

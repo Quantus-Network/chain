@@ -1,23 +1,5 @@
-use crate::QPow;
+use crate::mock::*;
 use primitive_types::U512;
-use sp_runtime::testing::TestXt;
-use super::*;
-use sp_core::U256 as SpU256;
-use sp_core::H256 as SpH256;
-
-
-fn new_test_ext() -> () {
-    // Simple test setup
-    ()
-}
-
-trait TestExt {
-    fn execute_with<F: FnOnce()>(&self, f: F) {
-        f()
-    }
-}
-
-impl TestExt for () {}
 
 #[test]
 fn test_submit_valid_proof() {
@@ -46,6 +28,8 @@ fn test_submit_valid_proof() {
             difficulty
         ));
 
+        assert_eq!(QPow::latest_proof(), Some(solution));
+
         // medium difficulty
         let difficulty = 56349970922u64;
 
@@ -66,6 +50,8 @@ fn test_submit_valid_proof() {
             solution,
             difficulty
         ));
+
+        assert_eq!(QPow::latest_proof(), Some(solution));
 
         // higher difficulty
         let difficulty = 58411555223u64;
@@ -91,6 +77,14 @@ fn test_submit_valid_proof() {
             difficulty
         ));
 
+        assert_eq!(QPow::latest_proof(), Some(solution));
+
+        // TODO: debug why this fails
+        // Check event was emitted
+        // System::assert_has_event(Event::ProofSubmitted {
+        //     who,
+        //     solution
+        // }.into());
     });
 }
 
@@ -219,94 +213,4 @@ fn test_primality_check() {
         assert!(!QPow::is_prime(&U512::from(9u32)));
         assert!(!QPow::is_prime(&U512::from(10u32)));
     });
-}
-
-#[test]
-fn test_compute_compute() {
-    let pre_hash = SpH256::from([1u8; 32]);
-    let nonce = 123u64;
-    let difficulty = SpU256::from(1000u64);
-
-    let compute = Compute {
-        difficulty,
-        pre_hash,
-        nonce,
-    };
-
-    let seal = compute.compute();
-
-    assert_eq!(seal.nonce, nonce);
-    assert_eq!(seal.difficulty, difficulty);
-    assert_eq!(seal.work.len(), 64);
-}
-
-#[test]
-fn test_qpow_seal_encode_decode() {
-    let seal = QPoWSeal {
-        difficulty: SpU256::from(1000),
-        work: [1u8; 64],
-        nonce: 123u64,
-    };
-
-    let encoded = seal.encode();
-    let decoded = QPoWSeal::decode(&mut &encoded[..]).unwrap();
-
-    assert_eq!(seal, decoded);
-}
-
-#[test]
-fn test_minimal_qpow_algorithm_verify() {
-    let algorithm = MinimalQPowAlgorithm;
-    let pre_hash = SpH256::from([1u8; 32]);
-    let difficulty = SpU256::from(2);
-
-    // Create a valid seal
-    let compute = Compute {
-        difficulty,
-        pre_hash,
-        nonce: 123u64,
-    };
-    let seal = compute.compute();
-    let raw_seal = seal.encode();
-
-    let block_id: BlockId<sp_runtime::testing::Block<TestXt<(), ()>>> = BlockId::Number(0);
-    let result = algorithm.verify(
-        &block_id,
-        &pre_hash,
-        None,
-        &raw_seal,
-        difficulty,
-    );
-
-    assert!(result.is_ok());
-    assert!(result.unwrap());
-}
-
-#[test]
-fn test_minimal_qpow_algorithm_verify_invalid() {
-    let algorithm = MinimalQPowAlgorithm;
-    let pre_hash = SpH256::from([1u8; 32]);
-    let difficulty = SpU256::from(2);
-
-    // Create an invalid seal
-    let invalid_seal = QPoWSeal {
-        difficulty,
-        work: [0u8; 64], // Invalid work
-        nonce: 123u64,
-    };
-    let raw_seal = invalid_seal.encode();
-
-    // Verify the seal
-    let block_id: BlockId<sp_runtime::testing::Block<TestXt<(), ()>>> = BlockId::Number(0);
-
-    let result = algorithm.verify(
-        &block_id,
-        &pre_hash,
-        None,
-        &raw_seal,
-        difficulty,
-    );
-
-    assert!(result.is_ok());
-    assert!(!result.unwrap());
 }

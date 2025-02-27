@@ -6037,6 +6037,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-qpow"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "num-bigint",
+ "num-traits",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sha2 0.10.8",
+ "sha3",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-sudo"
 version = "39.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7077,25 +7097,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qpow"
-version = "0.1.0"
-dependencies = [
- "log",
- "num-bigint",
- "num-traits",
- "parity-scale-codec",
- "primitive-types 0.13.1",
- "sc-consensus-pow",
- "scale-info",
- "sha2 0.10.8",
- "sha3",
- "sp-api",
- "sp-consensus-pow",
- "sp-core",
- "sp-runtime",
-]
-
-[[package]]
 name = "quanta"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7497,13 +7498,13 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
- "qpow",
  "resonance-runtime",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client-api",
  "sc-consensus",
  "sc-consensus-pow",
+ "sc-consensus-qpow",
  "sc-executor",
  "sc-network",
  "sc-offchain",
@@ -7514,6 +7515,7 @@ dependencies = [
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-genesis-builder",
  "sp-inherents",
@@ -7541,16 +7543,19 @@ dependencies = [
  "frame-try-runtime",
  "hdwallet",
  "pallet-balances",
+ "pallet-qpow",
  "pallet-sudo",
  "pallet-template",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
+ "primitive-types 0.13.1",
  "scale-info",
  "serde_json",
  "sp-api",
  "sp-block-builder",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-genesis-builder",
  "sp-inherents",
@@ -8229,6 +8234,24 @@ dependencies = [
  "sp-runtime",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "sc-consensus-qpow"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "sc-client-api",
+ "sc-consensus-pow",
+ "scale-info",
+ "sha2 0.10.8",
+ "sha3",
+ "sp-api",
+ "sp-consensus-pow",
+ "sp-consensus-qpow",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -9813,6 +9836,17 @@ dependencies = [
  "parity-scale-codec",
  "sp-api",
  "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
+name = "sp-consensus-qpow"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-api",
  "sp-runtime",
 ]
 

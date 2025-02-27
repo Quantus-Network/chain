@@ -29,6 +29,7 @@ use frame_support::{
 	genesis_builder_helper::{build_state, get_preset},
 	weights::Weight,
 };
+use primitive_types::U512;
 use sp_api::impl_runtime_apis;
 use sp_core::OpaqueMetadata;
 use sp_runtime::{
@@ -39,7 +40,7 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
-	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
+	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
 
@@ -119,6 +120,32 @@ impl_runtime_apis! {
 			_encoded: Vec<u8>,
 		) -> Option<Vec<(Vec<u8>, sp_core::crypto::KeyTypeId)>> {
 			None
+		}
+	}
+
+	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
+		fn verify_solution(
+			header: [u8; 32],
+			solution: [u8; 64],
+			difficulty: u64
+		) -> bool {
+			QPoW::verify_solution(header, solution, difficulty)
+		}
+
+		fn get_difficulty() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_difficulty()
+		}
+
+		fn get_latest_proof() -> Option<[u8; 64]> {
+			<pallet_qpow::LatestProof<Runtime>>::get()
+		}
+
+		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
+			pallet_qpow::Pallet::<Self>::get_random_rsa(header)
+		}
+
+		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
+			pallet_qpow::Pallet::<Self>::hash_to_group_bigint(h,m,n,solution)
 		}
 	}
 

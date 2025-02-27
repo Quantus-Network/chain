@@ -1,27 +1,24 @@
 [package]
-name = "qpow"
+name = "sc-consensus-qpow"
 version = "0.1.0"
-edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
-description = "Quantum Proof of Work implementation"
+authors.workspace = true
+edition.workspace = true
 license = "Apache-2.0"
-publish = false
 
 [dependencies]
 codec.workspace = true
 scale-info.workspace = true
+sc-client-api = { workspace = true }
 sc-consensus-pow.workspace = true
 sp-consensus-pow.workspace = true
-sp-core.workspace = true
+sp-consensus-qpow.workspace = true
 sp-runtime.workspace = true
 sp-api.workspace = true
-
 primitive-types.workspace = true
+log = { workspace = true }
+
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
-num-bigint = { version = "0.4.6", default-features = false }
-num-traits = { version = "0.2.19", default-features = false }
-log.workspace = true
 
 [features]
 default = ["std"]
