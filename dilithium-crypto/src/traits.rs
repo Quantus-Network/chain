@@ -1,14 +1,10 @@
 use super::types::{WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
 
-use crate::SIGNATURE_BYTES;
-
-use scale_info::TypeInfo;
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
 use sp_std::vec::Vec;
 use sp_core::{ecdsa, ed25519, sr25519};
 use verify::verify;
-use codec::{Encode, Decode};
 
 // 
 // WrappedPublicBytes

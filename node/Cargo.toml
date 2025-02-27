@@ -88,7 +88,10 @@ substrate-build-script-utils.default-features = true
 
 [features]
 default = ["std"]
-std = ["resonance-runtime/std"]
+std = [
+	"dilithium-crypto/full_crypto",
+	"resonance-runtime/std"
+]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",

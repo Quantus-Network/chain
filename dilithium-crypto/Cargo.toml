@@ -3,9 +3,6 @@ name = "dilithium-crypto"
 version = "0.1.0"
 edition = "2021"
 
-[build]
-target = "wasm32-unknown-unknown"
-
 [dependencies]
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
@@ -13,14 +10,9 @@ sp-runtime = { workspace = true, default-features = false }
 sp-std = { version = "14.0.0", default-features = false }
 codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
-frame-system = { workspace = true, default-features = false }
 rusty-crystals-dilithium.workspace = true
 verify = { path = "./verify", default-features = false } 
-hdwallet = { path = "./hdwallet", default-features = false } 
-log = { workspace = true, default-features = false }
-
-[dev-dependencies]
-env_logger = "0.11.5"  # Latest version as of now; adjust as needed
+log = { workspace = true}
 
 [features]
 default = []
