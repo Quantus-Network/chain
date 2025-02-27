@@ -111,17 +111,6 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
     }
 }
 
-// impl Verify for ResonanceSignature {
-//     type Signer = ResonancePublic;
-//     fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
-//         &self,
-//         mut msg: L,
-//         signer: &<Self::Signer as IdentifyAccount>::AccountId,
-//     ) -> bool {
-//         ResonanceSignatureScheme::from(self).verify(msg, signer)
-//     }
-// }
-
 impl CryptoType for ResonancePair {
     type Pair = Self;
 }
@@ -172,21 +161,6 @@ impl TryFrom<ResonanceSignatureScheme> for ecdsa::Signature {
     }
 }
 
-
-// test printout code
-// use scale_info::prelude::string::String;
-// pub fn format_hex_truncated(bytes: &[u8]) -> String {
-//     use scale_info::prelude::format;
-
-//     if bytes.len() <= 16 {
-//         format!("{:02x?}", bytes)
-//     } else {
-//         let first = &bytes[..8];
-//         let last = &bytes[bytes.len() - 8..];
-//         format!("{:02x?}..{:02x?}", first, last)
-//     }
-// }
-
 impl Verify for ResonanceSignatureScheme {
     type Signer = ResonanceSigner;
 
@@ -213,12 +187,6 @@ impl Verify for ResonanceSignatureScheme {
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Resonance(sig, pk_bytes) => {
-                // TODO: Remove test printouts.
-                // let bytes: &[u8] = sig.as_ref();  // or signature.as_slice()
-                // #[cfg(test)] {
-                //     log::info!("Signature bytes: {:?}", format_hex_truncated(bytes));            
-                //     log::info!("ResonanceSignatureScheme::Rez bytes {:?}", format_hex_truncated(pk_bytes));    
-                // }
                 let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
@@ -251,12 +219,3 @@ impl IdentifyAccount for ResonanceSigner {
         }
     }
 }
-// impl RezSignature {
-//     pub fn from_slice(slice: &[u8]) -> Result<Self, &'static str> {
-//         if slice.len() == SIGNATURE_BYTES {
-//             Ok(Self(slice.try_into().unwrap()))
-//         } else {
-//             Err("Signature length mismatch")
-//         }
-//     }
-// }
