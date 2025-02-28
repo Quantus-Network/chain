@@ -134,7 +134,7 @@ fn test_compute_pow_valid_solution() {
         solution[63] = 2; // For value 2
 
         // Compute the result and the truncated result based on difficulty
-        let hash = QPow::hash_to_group(&h, &m, &n, &solution);
+        let hash = hash_to_group(&h, &m, &n, &solution);
 
         let manual_mod = QPow::mod_pow(
             &U512::from_big_endian(&m),
@@ -163,7 +163,7 @@ fn test_compute_pow_overflow_check() {
         solution[63] = 2; // For value 2
 
         // Compute the result and the truncated result based on difficulty
-        let hash = QPow::hash_to_group(&h, &m, &n, &solution);
+        let hash = hash_to_group(&h, &m, &n, &solution);
 
         let manual_mod = QPow::mod_pow(
             &U512::from_big_endian(&m),
@@ -213,4 +213,18 @@ fn test_primality_check() {
         assert!(!QPow::is_prime(&U512::from(9u32)));
         assert!(!QPow::is_prime(&U512::from(10u32)));
     });
+}
+
+//////////// Support methods
+pub fn hash_to_group(
+    h: &[u8; 32],
+    m: &[u8; 32],
+    n: &[u8; 64],
+    solution: &[u8; 64]
+) -> [u32; 16] {
+    let h = U512::from_big_endian(h);
+    let m = U512::from_big_endian(m);
+    let n = U512::from_big_endian(n);
+    let solution = U512::from_big_endian(solution);
+    QPow::hash_to_group_bigint_split(&h, &m, &n, &solution)
 }

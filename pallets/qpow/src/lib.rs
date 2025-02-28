@@ -202,21 +202,6 @@ pub mod pallet {
 				.sum()
 		}
 
-		/// Compute the proof of work function
-		/// TODO - do we still need it ?
-		pub fn hash_to_group(
-                    h: &[u8; 32],
-                    m: &[u8; 32],
-                    n: &[u8; 64],
-                    solution: &[u8; 64]
-                ) -> [u32; 16] {
-                    let h = U512::from_big_endian(h);
-                    let m = U512::from_big_endian(m);
-                    let n = U512::from_big_endian(n);
-                    let solution = U512::from_big_endian(solution);
-                    Self::hash_to_group_bigint_split(&h, &m, &n, &solution)
-		}
-
 		pub fn hash_to_group_bigint_split(
 			h: &U512,
 			m: &U512,
@@ -341,7 +326,7 @@ pub mod pallet {
 		}
 
 		pub fn log_info(message: &str){
-			log::info!("FROM PALL: {}",message);
+			log::info!("From QPoW Pallet: {}",message);
 		}
 	}
 }
