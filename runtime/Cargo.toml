@@ -48,6 +48,7 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
 pallet-qpow = { workspace = true, default-features = false}
+pallet-wormhole = {workspace = true, default-features = false}
 sp-consensus-qpow = {workspace = true, default-features = false}
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }

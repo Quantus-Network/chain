@@ -1,0 +1,48 @@
+[package]
+name = "pallet-wormhole"
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+frame-support = { workspace = true, default-features = false }
+frame-system = { workspace = true, default-features = false }
+
+sp-core = { version = "34.0.0", default-features = false }
+plonky2 = { workspace = true }
+sp-std = { workspace = true, default-features = false }
+sp-runtime = { version = "39.0.1", default-features = false }
+sp-io = { version = "38.0.0", default-features = false }
+#light-poseidon = { workspace = true, default-features = false }
+scale-info = { version = "2.5.0", default-features = false, features = ["derive"] }
+codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = ["derive"] }
+log = { version = "0.4.22", default-features = false }
+toml = {  version = "0.8.19", default-features = false }
+lazy_static = { version = "1.5.0", default-features = false }
+pallet-balances = { workspace = true, default-features = false }
+
+
+[features]
+default = ["std"]
+std = [
+    "frame-support/std",
+    "frame-system/std",
+    "sp-core/std",
+    "sp-std/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "codec/std",
+    "scale-info/std",
+    "pallet-balances/std",
+]
+runtime-benchmarks = [
+    "frame-system/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+]
