@@ -50,6 +50,7 @@ pallet-template.workspace = true
 pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = {workspace = true, default-features = false}
 sp-consensus-qpow = {workspace = true, default-features = false}
+sp-externalities = { workspace = true, default-features = false}
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = {default-features=false, workspace = true}

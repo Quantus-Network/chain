@@ -3167,10 +3167,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -6524,12 +6522,11 @@ checksum = "953ec861398dccce10c670dfeaf3ec4911ca479e9c02154b3a215178c5f566f2"
 
 [[package]]
 name = "plonky2"
-version = "0.2.0"
-source = "git+https://github.com/metacraft-labs/plonky2#0369c971b977b920c5d9828f86ec700e235bbf61"
+version = "1.0.2"
+source = "git+https://github.com/illuzen/plonky2#80a10007d8359b54843acb826097561859a6b621"
 dependencies = [
  "ahash",
  "anyhow",
- "getrandom 0.2.15",
  "hashbrown 0.14.5",
  "itertools 0.11.0",
  "keccak-hash 0.8.0",
@@ -6546,14 +6543,13 @@ dependencies = [
 
 [[package]]
 name = "plonky2_field"
-version = "0.2.0"
-source = "git+https://github.com/metacraft-labs/plonky2#0369c971b977b920c5d9828f86ec700e235bbf61"
+version = "1.0.0"
+source = "git+https://github.com/illuzen/plonky2#80a10007d8359b54843acb826097561859a6b621"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
  "plonky2_util",
- "rand 0.8.5",
  "serde",
  "static_assertions",
  "unroll",
@@ -6561,13 +6557,13 @@ dependencies = [
 
 [[package]]
 name = "plonky2_maybe_rayon"
-version = "0.2.0"
-source = "git+https://github.com/metacraft-labs/plonky2#0369c971b977b920c5d9828f86ec700e235bbf61"
+version = "1.0.0"
+source = "git+https://github.com/illuzen/plonky2#80a10007d8359b54843acb826097561859a6b621"
 
 [[package]]
 name = "plonky2_util"
-version = "0.2.0"
-source = "git+https://github.com/metacraft-labs/plonky2#0369c971b977b920c5d9828f86ec700e235bbf61"
+version = "1.0.0"
+source = "git+https://github.com/illuzen/plonky2#80a10007d8359b54843acb826097561859a6b621"
 
 [[package]]
 name = "polkadot-core-primitives"
@@ -7683,6 +7679,7 @@ dependencies = [
  "sp-block-builder",
  "sp-consensus-qpow",
  "sp-core 35.0.0",
+ "sp-externalities 0.30.0",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-io 39.0.0",

@@ -12,7 +12,7 @@ frame-support = { workspace = true, default-features = false }
 frame-system = { workspace = true, default-features = false }
 
 sp-core = { version = "34.0.0", default-features = false }
-plonky2 = { workspace = true }
+plonky2 = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 sp-runtime = { version = "39.0.1", default-features = false }
 sp-io = { version = "38.0.0", default-features = false }
@@ -37,6 +37,7 @@ std = [
     "codec/std",
     "scale-info/std",
     "pallet-balances/std",
+    "plonky2/no_random",
 ]
 runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
