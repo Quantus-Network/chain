@@ -326,7 +326,7 @@ pub mod pallet {
 		}
 
 		pub fn log_info(message: &str){
-			log::info!("FROM PALL: {}",message);
+			log::info!("From QPoW Pallet: {}",message);
 		}
 	}
 }
