@@ -12,6 +12,7 @@ use std::{sync::Arc, time::Duration};
 use codec::Encode;
 use jsonrpsee::tokio;
 use sp_api::__private::BlockT;
+use sp_core::U512;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -277,14 +278,12 @@ pub fn new_full<
             .spawn_blocking("pow", None, worker_task);
 
         task_manager.spawn_essential_handle().spawn(
-            "pow-mining-actualy-real-mining-happening",
+            "qpow-mining",
             None,
             async move {
-                let mut nonce = 0;
+                let mut nonce: U512 = U512::zero();
                 loop {
                     // Get mining metadata
-                    log::info!("getting metadata");
-
                     let metadata = match worker_handle.metadata() {
                         Some(m) => m,
                         None => {
@@ -295,22 +294,19 @@ pub fn new_full<
                     };
                     let version = worker_handle.version();
 
-                    log::info!("mine block");
-
                     // Mine the block
 
                     let miner = QPoWMiner::new(client.clone());
 
                     let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce, metadata.difficulty) {
+                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian(), metadata.difficulty) {
                             Ok(s) => {
-                                log::info!("valid seal: {:?}", s);
+                                log::info!("valid nonce: {:?}", s);
                                 s
                             }
                             Err(_) => {
-                                log::info!("error - seal not valid");
-                                nonce += 1;
-                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                nonce += U512::one();
+                                // tokio::time::sleep(Duration::from_millis(100)).await;
                                 continue;
                             }
                         };
@@ -321,10 +317,10 @@ pub fn new_full<
                     if current_version == version {
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
                             log::info!("Successfully mined and submitted a new block");
-                            nonce = 0;
+                            nonce = U512::zero();
                         } else {
-                            log::info!("Failed to submit mined block");
-                            nonce += 1;
+                            log::warn!("Failed to submit mined block");
+                            nonce += U512::one();
                         }
                     }
 
