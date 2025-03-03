@@ -102,6 +102,10 @@ impl pallet_qpow::Config for Runtime {
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
 }
 
+impl pallet_wormhole::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
+
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
 	type Moment = u64;

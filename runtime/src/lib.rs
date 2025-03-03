@@ -226,4 +226,7 @@ mod runtime {
 
 	#[runtime::pallet_index(6)]
 	pub type QPoW = pallet_qpow;
+
+	#[runtime::pallet_index(7)]
+	pub type Wormhole = pallet_wormhole;
 }
