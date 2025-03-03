@@ -1,7 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::FutureExt;
-use sc_consensus_qpow::{QPoWMiner, QPowAlgorithm};
+use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
@@ -298,7 +298,7 @@ pub fn new_full<
 
                     let miner = QPoWMiner::new(client.clone());
 
-                    let seal: [u8; 64] =
+                    let seal: QPoWSeal =
                         match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian(), metadata.difficulty) {
                             Ok(s) => {
                                 log::info!("valid nonce: {:?}", s);

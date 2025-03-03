@@ -16,7 +16,11 @@ pub use miner::QPoWMiner;
 
 
 
-//#[derive(Clone)]
+#[derive(Clone, Debug, Encode, Decode, PartialEq)]
+pub struct QPoWSeal {
+    pub nonce: [u8; 64],
+}
+
 pub struct QPowAlgorithm<B,C>
 where
     B: BlockT<Hash = H256>,

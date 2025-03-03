@@ -6,6 +6,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::Seal;
 use sp_runtime::traits::Block as BlockT;
 use sp_consensus_qpow::QPoWApi;
+use crate::QPoWSeal;
 
 pub struct QPoWMiner<B,C>
 where
@@ -37,7 +38,7 @@ where
         pre_hash: BA::Hash,
         nonce: [u8; 64],
         difficulty: U256,
-    ) -> Result<[u8; 64], ()> {
+    ) -> Result<QPoWSeal, ()> {
 
         // Convert pre_hash to [u8; 32] for verification
         // TODO normalize all the different ways we do calculations
@@ -47,7 +48,7 @@ where
         match self.client.runtime_api().verify_nonce(parent_hash, block_hash, nonce, difficulty.low_u64()) {
             Ok(true) => {
                 log::info!("good seal");
-                Ok(nonce)
+                Ok(QPoWSeal { nonce })
             }
             Ok(false) => {
                 Err(())
