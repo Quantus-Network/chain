@@ -3,7 +3,7 @@ mod miner;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use codec::{Decode, Encode};
-use primitive_types::{H256, U256, U512};
+use primitive_types::{H256, U256};
 use sc_consensus_pow::{Error, PowAlgorithm};
 use sp_consensus_pow::{Seal as RawSeal};
 use sp_api::__private::BlockT;

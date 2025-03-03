@@ -48,12 +48,13 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
 pallet-qpow = { workspace = true, default-features = false}
+pallet-wormhole = {workspace = true, default-features = false}
 sp-consensus-qpow = {workspace = true, default-features = false}
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = {default-features=false, workspace = true}
 sp-runtime-interface = { version="24.0.0", default-features=false }
-sp-std = { version="14.0.0", default-features=false}
+sp-std = { workspace = true, default-features=false}
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -80,6 +81,7 @@ std = [
 	"pallet-sudo/std",
 	"pallet-template/std",
 	"pallet-qpow/std",
+	"pallet-wormhole/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -87,6 +89,7 @@ std = [
 	"serde_json/std", # Test it
 	"sp-api/std",
 	"sp-block-builder/std",
+	"sp-consensus-qpow/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",
 	"sp-inherents/std",

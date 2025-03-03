@@ -1,0 +1,50 @@
+[package]
+name = "pallet-wormhole"
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+codec = { workspace=true, default-features = false, features = ["derive"] }
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
+frame-support = { workspace = true, default-features = false }
+frame-system = { workspace = true, default-features = false }
+
+sp-runtime = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
+
+plonky2 = { git="https://github.com/Resonance-Network/plonky2", default-features = false, features = ["no_random"] }
+sp-std = { workspace = true, default-features = false }
+
+#light-poseidon = { workspace = true, default-features = false }
+
+log = { version = "0.4.22", default-features = false }
+lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
+pallet-balances = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "frame-support/std",
+    "frame-system/std",
+    "sp-core/std",
+    "sp-std/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "codec/std",
+    "scale-info/std",
+    "pallet-balances/std",
+    "lazy_static/spin_no_std",
+]
+runtime-benchmarks = [
+    "frame-system/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+]
