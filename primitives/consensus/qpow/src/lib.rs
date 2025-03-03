@@ -10,10 +10,10 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
     pub trait QPoWApi {
-        /// Check if solution is valid with given difficulty
-        fn verify_solution(
+        /// Check if nonce is valid with given difficulty
+        fn verify_nonce(
             header: [u8; 32],
-            solution: [u8; 64],
+            nonce: [u8; 64],
             difficulty: u64,
         ) -> bool;
 

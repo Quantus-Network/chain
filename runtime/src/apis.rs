@@ -124,12 +124,12 @@ impl_runtime_apis! {
 	}
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
-		fn verify_solution(
+		fn verify_nonce(
 			header: [u8; 32],
-			solution: [u8; 64],
+			nonce: [u8; 64],
 			difficulty: u64
 		) -> bool {
-			QPoW::verify_solution(header, solution, difficulty)
+			QPoW::verify_nonce(header, nonce, difficulty)
 		}
 
 		fn get_difficulty() -> u64 {

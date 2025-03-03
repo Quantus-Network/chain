@@ -84,7 +84,7 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		ProofSubmitted {
-			solution: [u8; 64],
+			nonce: [u8; 64],
 		},
 	}
 
@@ -99,18 +99,18 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		pub fn get_solution_distance(
+		pub fn get_nonce_distance(
 			header: [u8; 32],  // 256-bit header
-			solution: [u8; 64], // 512-bit solution
+			nonce: [u8; 64], // 512-bit nonce
 		) -> u64 {
 			// s = 0 is cheating
-			if solution == [0u8; 64] {
+			if nonce == [0u8; 64] {
 				return 0u64
 			}
 
 			let (m, n) = Self::get_random_rsa(&header);
 			let header_int = U512::from_big_endian(&header);
-			let solution_int = U512::from_big_endian(&solution);
+			let nonce_int = U512::from_big_endian(&nonce);
 
 			let original_chunks = Self::hash_to_group_bigint_split(
 				&header_int,
@@ -120,25 +120,25 @@ pub mod pallet {
 			);
 
 			// Compare PoW results
-			let solution_chunks = Self::hash_to_group_bigint_split(
+			let nonce_chunks = Self::hash_to_group_bigint_split(
 				&header_int,
 				&m,
 				&n,
-				&solution_int
+				&nonce_int
 			);
 
-			Self::l1_distance(&original_chunks, &solution_chunks)
+			Self::l1_distance(&original_chunks, &nonce_chunks)
 		}
 
-		pub fn verify_solution(header: [u8; 32], solution: [u8; 64], difficulty: u64) -> bool {
-			if solution == [0u8; 64] {
+		pub fn verify_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+			if nonce == [0u8; 64] {
 				return false
 			}
-			let distance = Self::get_solution_distance(header, solution);
+			let distance = Self::get_nonce_distance(header, nonce);
 			let verified = distance <= MAX_DISTANCE - difficulty;
 			if verified {
-				<LatestProof<T>>::put(solution);
-				Self::deposit_event(Event::ProofSubmitted { solution });
+				<LatestProof<T>>::put(nonce);
+				Self::deposit_event(Event::ProofSubmitted { nonce });
 			}
 			verified
 		}

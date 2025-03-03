@@ -6,84 +6,84 @@ fn test_submit_valid_proof() {
     new_test_ext().execute_with(|| {
         // Set up test data
         let header = [1u8; 32];
-        let mut solution = [0u8; 64];
+        let mut nonce = [0u8; 64];
 
         // lower difficulty
         let difficulty = 54975581388u64;
-        solution[63] = 4;
+        nonce[63] = 4;
 
         // Submit an invalid proof
-        assert!(!QPow::verify_solution(
+        assert!(!QPow::verify_nonce(
             header,
-            solution,
+            nonce,
             difficulty
         ));
 
-        solution[63] = 5;
+        nonce[63] = 5;
 
         // Submit a valid proof
-        assert!(QPow::verify_solution(
+        assert!(QPow::verify_nonce(
             header,
-            solution,
+            nonce,
             difficulty
         ));
 
-        assert_eq!(QPow::latest_proof(), Some(solution));
+        assert_eq!(QPow::latest_proof(), Some(nonce));
 
         // medium difficulty
         let difficulty = 56349970922u64;
 
-        solution[63] = 13;
+        nonce[63] = 13;
 
         // Submit an invalid proof
-        assert!(!QPow::verify_solution(
+        assert!(!QPow::verify_nonce(
             header,
-            solution,
+            nonce,
             difficulty
         ));
 
-        solution[63] = 14;
+        nonce[63] = 14;
 
         // Submit a valid proof
-        assert!(QPow::verify_solution(
+        assert!(QPow::verify_nonce(
             header,
-            solution,
+            nonce,
             difficulty
         ));
 
-        assert_eq!(QPow::latest_proof(), Some(solution));
+        assert_eq!(QPow::latest_proof(), Some(nonce));
 
         // higher difficulty
         let difficulty = 58411555223u64;
 
-        solution[62] = 0x11;
-        solution[63] = 0xf1;
+        nonce[62] = 0x11;
+        nonce[63] = 0xf1;
 
         // Submit an invalid proof
-        assert!(!QPow::verify_solution(
+        assert!(!QPow::verify_nonce(
             header,
-            solution,
+            nonce,
             difficulty
         ));
 
-        solution[62] = 0x11;
-        solution[63] = 0xf2;
+        nonce[62] = 0x11;
+        nonce[63] = 0xf2;
 
 
         // Submit a valid proof
-        assert!(QPow::verify_solution(
+        assert!(QPow::verify_nonce(
             header,
-            solution,
+            nonce,
             difficulty
         ));
 
-        assert_eq!(QPow::latest_proof(), Some(solution));
+        assert_eq!(QPow::latest_proof(), Some(nonce));
 
         // TODO: debug why this fails
         // Check event was emitted
         // System::assert_has_event(Event::ProofSubmitted {
         //     who,
-        //     solution
+        //     nonce
         // }.into());
     });
 }
@@ -92,25 +92,25 @@ fn test_submit_valid_proof() {
 fn test_submit_invalid_proof() {
     new_test_ext().execute_with(|| {
         let header = [1u8; 32];
-        let invalid_solution = [0u8; 64];  // Invalid solution
+        let invalid_nonce = [0u8; 64];  // Invalid nonce
         let difficulty = 64975581388u64;
 
-        // Should fail with invalid solution
+        // Should fail with invalid nonce
         assert!(
-            !QPow::verify_solution(
+            !QPow::verify_nonce(
                 header,
-                invalid_solution,
+                invalid_nonce,
                 difficulty
             )
         );
 
-        let invalid_solution2 = [2u8; 64];  // Invalid solution
+        let invalid_nonce2 = [2u8; 64];  // Invalid nonce
 
-        // Should fail with invalid solution
+        // Should fail with invalid nonce
         assert!(
-            !QPow::verify_solution(
+            !QPow::verify_nonce(
                 header,
-                invalid_solution2,
+                invalid_nonce2,
                 difficulty
             )
         );
@@ -119,7 +119,7 @@ fn test_submit_invalid_proof() {
 }
 
 #[test]
-fn test_compute_pow_valid_solution() {
+fn test_compute_pow_valid_nonce() {
     new_test_ext().execute_with(|| {
         let mut h = [0u8; 32];
         h[31] = 123; // For value 123
@@ -130,15 +130,15 @@ fn test_compute_pow_valid_solution() {
         let mut n = [0u8; 64];
         n[63] = 17;  // For value 17
 
-        let mut solution = [0u8; 64];
-        solution[63] = 2; // For value 2
+        let mut nonce = [0u8; 64];
+        nonce[63] = 2; // For value 2
 
         // Compute the result and the truncated result based on difficulty
-        let hash = hash_to_group(&h, &m, &n, &solution);
+        let hash = hash_to_group(&h, &m, &n, &nonce);
 
         let manual_mod = QPow::mod_pow(
             &U512::from_big_endian(&m),
-            &(U512::from_big_endian(&h) + U512::from_big_endian(&solution)),
+            &(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
             &U512::from_big_endian(&n)
         );
         let manual_chunks = QPow::split_chunks(&manual_mod);
@@ -159,15 +159,15 @@ fn test_compute_pow_overflow_check() {
         let mut n = [0u8; 64];
         n[63] = 17;  // For value 17
 
-        let mut solution = [0u8; 64];
-        solution[63] = 2; // For value 2
+        let mut nonce = [0u8; 64];
+        nonce[63] = 2; // For value 2
 
         // Compute the result and the truncated result based on difficulty
-        let hash = hash_to_group(&h, &m, &n, &solution);
+        let hash = hash_to_group(&h, &m, &n, &nonce);
 
         let manual_mod = QPow::mod_pow(
             &U512::from_big_endian(&m),
-            &(U512::from_big_endian(&h) + U512::from_big_endian(&solution)),
+            &(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
             &U512::from_big_endian(&n)
         );
         let manual_chunks = QPow::split_chunks(&manual_mod);
@@ -220,11 +220,11 @@ pub fn hash_to_group(
     h: &[u8; 32],
     m: &[u8; 32],
     n: &[u8; 64],
-    solution: &[u8; 64]
+    nonce: &[u8; 64]
 ) -> [u32; 16] {
     let h = U512::from_big_endian(h);
     let m = U512::from_big_endian(m);
     let n = U512::from_big_endian(n);
-    let solution = U512::from_big_endian(solution);
-    QPow::hash_to_group_bigint_split(&h, &m, &n, &solution)
+    let nonce_u = U512::from_big_endian(nonce);
+    QPow::hash_to_group_bigint_split(&h, &m, &n, &nonce_u)
 }
