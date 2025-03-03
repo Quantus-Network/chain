@@ -13,13 +13,25 @@ scale-info = { workspace = true, default-features = false }
 rusty-crystals-dilithium.workspace = true
 verify = { path = "./verify", default-features = false } 
 log = { workspace = true}
+sp-runtime-interface = { version="29.0.0", default-features=false }
+hdwallet = { path = "./hdwallet", default-features = false }
+
 
 [features]
-default = []
+default = ["std"]
 std = [
     "sp-core/std",
     "sp-runtime/std",
+    "sp-io/std",
+    "sp-std/std",
+    "codec/std",
+    "scale-info/std",
+    "sp-runtime-interface/std",
+    "hdwallet/std"
 ]
 full_crypto = [ # pass through for "sign" in pair trait. 
-    "sp-core/full_crypto",
+    "sp-core/full_crypto"
+]
+serde = [
+    "sp-core/serde"
 ]

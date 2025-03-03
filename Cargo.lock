@@ -2079,6 +2079,7 @@ dependencies = [
 name = "dilithium-crypto"
 version = "0.1.0"
 dependencies = [
+ "hdwallet",
  "log",
  "parity-scale-codec",
  "rusty-crystals-dilithium",
@@ -2086,6 +2087,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-runtime-interface 29.0.0",
  "sp-std",
  "verify",
 ]
