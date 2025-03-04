@@ -103,7 +103,7 @@ std = [
 	"sp-std/std",
 	"sp-runtime-interface/std",
 	"scale-info/std",
-	"dilithium-crypto/full_crypto",
+	"dilithium-crypto/std",
 ]
 
 
