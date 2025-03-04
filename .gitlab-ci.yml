@@ -1,5 +1,6 @@
 ---
-.common
+
+.common:
   before_script:
     - apt-get update -yqq
     - >
