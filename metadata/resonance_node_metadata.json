@@ -8,10 +8,9 @@
             "id": 0,
             "type": {
               "path": [
-                "resonance_runtime",
-                "resonance",
-                "account",
-                "ResonanceAccountId"
+                "sp_core",
+                "crypto",
+                "AccountId32"
               ],
               "def": {
                 "composite": {
@@ -438,7 +437,7 @@
                   "fields": [
                     {
                       "name": "phase",
-                      "type": 40,
+                      "type": 43,
                       "typeName": "Phase"
                     },
                     {
@@ -448,7 +447,7 @@
                     },
                     {
                       "name": "topics",
-                      "type": 41,
+                      "type": 44,
                       "typeName": "Vec<T>"
                     }
                   ]
@@ -515,6 +514,26 @@
                         }
                       ],
                       "index": 5
+                    },
+                    {
+                      "name": "QPoW",
+                      "fields": [
+                        {
+                          "type": 40,
+                          "typeName": "pallet_qpow::Event<Runtime>"
+                        }
+                      ],
+                      "index": 6
+                    },
+                    {
+                      "name": "Wormhole",
+                      "fields": [
+                        {
+                          "type": 42,
+                          "typeName": "pallet_wormhole::Event<Runtime>"
+                        }
+                      ],
+                      "index": 7
                     }
                   ]
                 }
@@ -1803,6 +1822,89 @@
             "id": 40,
             "type": {
               "path": [
+                "pallet_qpow",
+                "pallet",
+                "Event"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": null
+                }
+              ],
+              "def": {
+                "variant": {
+                  "variants": [
+                    {
+                      "name": "ProofSubmitted",
+                      "fields": [
+                        {
+                          "name": "nonce",
+                          "type": 41,
+                          "typeName": "[u8; 64]"
+                        }
+                      ],
+                      "index": 0
+                    }
+                  ]
+                }
+              },
+              "docs": [
+                "The `Event` enum of this pallet"
+              ]
+            }
+          },
+          {
+            "id": 41,
+            "type": {
+              "def": {
+                "array": {
+                  "len": 64,
+                  "type": 2
+                }
+              }
+            }
+          },
+          {
+            "id": 42,
+            "type": {
+              "path": [
+                "pallet_wormhole",
+                "pallet",
+                "Event"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": null
+                }
+              ],
+              "def": {
+                "variant": {
+                  "variants": [
+                    {
+                      "name": "ProofVerified",
+                      "fields": [
+                        {
+                          "name": "exit_amount",
+                          "type": 6,
+                          "typeName": "<T as BalancesConfig>::Balance"
+                        }
+                      ],
+                      "index": 0
+                    }
+                  ]
+                }
+              },
+              "docs": [
+                "The `Event` enum of this pallet"
+              ]
+            }
+          },
+          {
+            "id": 43,
+            "type": {
+              "path": [
                 "frame_system",
                 "Phase"
               ],
@@ -1833,7 +1935,7 @@
             }
           },
           {
-            "id": 41,
+            "id": 44,
             "type": {
               "def": {
                 "sequence": {
@@ -1843,17 +1945,17 @@
             }
           },
           {
-            "id": 42,
+            "id": 45,
             "type": {
               "def": {
                 "sequence": {
-                  "type": 43
+                  "type": 46
                 }
               }
             }
           },
           {
-            "id": 43,
+            "id": 46,
             "type": {
               "def": {
                 "tuple": [
@@ -1864,7 +1966,7 @@
             }
           },
           {
-            "id": 44,
+            "id": 47,
             "type": {
               "path": [
                 "frame_system",
@@ -1875,12 +1977,12 @@
                   "fields": [
                     {
                       "name": "spec_version",
-                      "type": 45,
+                      "type": 48,
                       "typeName": "codec::Compact<u32>"
                     },
                     {
                       "name": "spec_name",
-                      "type": 46,
+                      "type": 49,
                       "typeName": "Cow<'static, str>"
                     }
                   ]
@@ -1889,7 +1991,7 @@
             }
           },
           {
-            "id": 45,
+            "id": 48,
             "type": {
               "def": {
                 "compact": {
@@ -1899,7 +2001,7 @@
             }
           },
           {
-            "id": 46,
+            "id": 49,
             "type": {
               "path": [
                 "Cow"
@@ -1907,14 +2009,14 @@
               "params": [
                 {
                   "name": "T",
-                  "type": 47
+                  "type": 50
                 }
               ],
               "def": {
                 "composite": {
                   "fields": [
                     {
-                      "type": 47
+                      "type": 50
                     }
                   ]
                 }
@@ -1922,7 +2024,7 @@
             }
           },
           {
-            "id": 47,
+            "id": 50,
             "type": {
               "def": {
                 "primitive": "str"
@@ -1930,7 +2032,7 @@
             }
           },
           {
-            "id": 48,
+            "id": 51,
             "type": {
               "path": [
                 "frame_system",
@@ -1961,7 +2063,7 @@
             }
           },
           {
-            "id": 49,
+            "id": 52,
             "type": {
               "path": [
                 "frame_system",
@@ -2043,7 +2145,7 @@
                       "fields": [
                         {
                           "name": "items",
-                          "type": 50,
+                          "type": 53,
                           "typeName": "Vec<KeyValue>"
                         }
                       ],
@@ -2057,7 +2159,7 @@
                       "fields": [
                         {
                           "name": "keys",
-                          "type": 52,
+                          "type": 55,
                           "typeName": "Vec<Key>"
                         }
                       ],
@@ -2171,17 +2273,17 @@
             }
           },
           {
-            "id": 50,
+            "id": 53,
             "type": {
               "def": {
                 "sequence": {
-                  "type": 51
+                  "type": 54
                 }
               }
             }
           },
           {
-            "id": 51,
+            "id": 54,
             "type": {
               "def": {
                 "tuple": [
@@ -2192,7 +2294,7 @@
             }
           },
           {
-            "id": 52,
+            "id": 55,
             "type": {
               "def": {
                 "sequence": {
@@ -2202,7 +2304,7 @@
             }
           },
           {
-            "id": 53,
+            "id": 56,
             "type": {
               "path": [
                 "frame_system",
@@ -2224,7 +2326,7 @@
                     },
                     {
                       "name": "per_class",
-                      "type": 54,
+                      "type": 57,
                       "typeName": "PerDispatchClass<WeightsPerClass>"
                     }
                   ]
@@ -2233,7 +2335,7 @@
             }
           },
           {
-            "id": 54,
+            "id": 57,
             "type": {
               "path": [
                 "frame_support",
@@ -2243,7 +2345,7 @@
               "params": [
                 {
                   "name": "T",
-                  "type": 55
+                  "type": 58
                 }
               ],
               "def": {
@@ -2251,17 +2353,17 @@
                   "fields": [
                     {
                       "name": "normal",
-                      "type": 55,
+                      "type": 58,
                       "typeName": "T"
                     },
                     {
                       "name": "operational",
-                      "type": 55,
+                      "type": 58,
                       "typeName": "T"
                     },
                     {
                       "name": "mandatory",
-                      "type": 55,
+                      "type": 58,
                       "typeName": "T"
                     }
                   ]
@@ -2270,7 +2372,7 @@
             }
           },
           {
-            "id": 55,
+            "id": 58,
             "type": {
               "path": [
                 "frame_system",
@@ -2287,17 +2389,17 @@
                     },
                     {
                       "name": "max_extrinsic",
-                      "type": 56,
+                      "type": 59,
                       "typeName": "Option<Weight>"
                     },
                     {
                       "name": "max_total",
-                      "type": 56,
+                      "type": 59,
                       "typeName": "Option<Weight>"
                     },
                     {
                       "name": "reserved",
-                      "type": 56,
+                      "type": 59,
                       "typeName": "Option<Weight>"
                     }
                   ]
@@ -2306,7 +2408,7 @@
             }
           },
           {
-            "id": 56,
+            "id": 59,
             "type": {
               "path": [
                 "Option"
@@ -2339,7 +2441,7 @@
             }
           },
           {
-            "id": 57,
+            "id": 60,
             "type": {
               "path": [
                 "frame_system",
@@ -2351,7 +2453,7 @@
                   "fields": [
                     {
                       "name": "max",
-                      "type": 58,
+                      "type": 61,
                       "typeName": "PerDispatchClass<u32>"
                     }
                   ]
@@ -2360,7 +2462,7 @@
             }
           },
           {
-            "id": 58,
+            "id": 61,
             "type": {
               "path": [
                 "frame_support",
@@ -2397,7 +2499,7 @@
             }
           },
           {
-            "id": 59,
+            "id": 62,
             "type": {
               "path": [
                 "sp_weights",
@@ -2422,7 +2524,7 @@
             }
           },
           {
-            "id": 60,
+            "id": 63,
             "type": {
               "path": [
                 "sp_version",
@@ -2433,12 +2535,12 @@
                   "fields": [
                     {
                       "name": "spec_name",
-                      "type": 46,
+                      "type": 49,
                       "typeName": "Cow<'static, str>"
                     },
                     {
                       "name": "impl_name",
-                      "type": 46,
+                      "type": 49,
                       "typeName": "Cow<'static, str>"
                     },
                     {
@@ -2458,7 +2560,7 @@
                     },
                     {
                       "name": "apis",
-                      "type": 61,
+                      "type": 64,
                       "typeName": "ApisVec"
                     },
                     {
@@ -2477,7 +2579,7 @@
             }
           },
           {
-            "id": 61,
+            "id": 64,
             "type": {
               "path": [
                 "Cow"
@@ -2485,14 +2587,14 @@
               "params": [
                 {
                   "name": "T",
-                  "type": 62
+                  "type": 65
                 }
               ],
               "def": {
                 "composite": {
                   "fields": [
                     {
-                      "type": 62
+                      "type": 65
                     }
                   ]
                 }
@@ -2500,28 +2602,28 @@
             }
           },
           {
-            "id": 62,
+            "id": 65,
             "type": {
               "def": {
                 "sequence": {
-                  "type": 63
+                  "type": 66
                 }
               }
             }
           },
           {
-            "id": 63,
+            "id": 66,
             "type": {
               "def": {
                 "tuple": [
-                  64,
+                  67,
                   4
                 ]
               }
             }
           },
           {
-            "id": 64,
+            "id": 67,
             "type": {
               "def": {
                 "array": {
@@ -2532,7 +2634,7 @@
             }
           },
           {
-            "id": 65,
+            "id": 68,
             "type": {
               "def": {
                 "primitive": "u16"
@@ -2540,7 +2642,7 @@
             }
           },
           {
-            "id": 66,
+            "id": 69,
             "type": {
               "path": [
                 "frame_system",
@@ -2632,7 +2734,7 @@
             }
           },
           {
-            "id": 67,
+            "id": 70,
             "type": {
               "path": [
                 "pallet_timestamp",
@@ -2689,7 +2791,7 @@
             }
           },
           {
-            "id": 68,
+            "id": 71,
             "type": {
               "path": [
                 "bounded_collections",
@@ -2699,7 +2801,7 @@
               "params": [
                 {
                   "name": "T",
-                  "type": 69
+                  "type": 72
                 },
                 {
                   "name": "S",
@@ -2710,7 +2812,7 @@
                 "composite": {
                   "fields": [
                     {
-                      "type": 71,
+                      "type": 74,
                       "typeName": "Vec<T>"
                     }
                   ]
@@ -2719,7 +2821,7 @@
             }
           },
           {
-            "id": 69,
+            "id": 72,
             "type": {
               "path": [
                 "pallet_balances",
@@ -2737,7 +2839,7 @@
                   "fields": [
                     {
                       "name": "id",
-                      "type": 64,
+                      "type": 67,
                       "typeName": "LockIdentifier"
                     },
                     {
@@ -2747,7 +2849,7 @@
                     },
                     {
                       "name": "reasons",
-                      "type": 70,
+                      "type": 73,
                       "typeName": "Reasons"
                     }
                   ]
@@ -2756,7 +2858,7 @@
             }
           },
           {
-            "id": 70,
+            "id": 73,
             "type": {
               "path": [
                 "pallet_balances",
@@ -2784,87 +2886,11 @@
             }
           },
           {
-            "id": 71,
-            "type": {
-              "def": {
-                "sequence": {
-                  "type": 69
-                }
-              }
-            }
-          },
-          {
-            "id": 72,
-            "type": {
-              "path": [
-                "bounded_collections",
-                "bounded_vec",
-                "BoundedVec"
-              ],
-              "params": [
-                {
-                  "name": "T",
-                  "type": 73
-                },
-                {
-                  "name": "S",
-                  "type": null
-                }
-              ],
-              "def": {
-                "composite": {
-                  "fields": [
-                    {
-                      "type": 74,
-                      "typeName": "Vec<T>"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          {
-            "id": 73,
-            "type": {
-              "path": [
-                "pallet_balances",
-                "types",
-                "ReserveData"
-              ],
-              "params": [
-                {
-                  "name": "ReserveIdentifier",
-                  "type": 64
-                },
-                {
-                  "name": "Balance",
-                  "type": 6
-                }
-              ],
-              "def": {
-                "composite": {
-                  "fields": [
-                    {
-                      "name": "id",
-                      "type": 64,
-                      "typeName": "ReserveIdentifier"
-                    },
-                    {
-                      "name": "amount",
-                      "type": 6,
-                      "typeName": "Balance"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          {
             "id": 74,
             "type": {
               "def": {
                 "sequence": {
-                  "type": 73
+                  "type": 72
                 }
               }
             }
@@ -2891,7 +2917,7 @@
                 "composite": {
                   "fields": [
                     {
-                      "type": 78,
+                      "type": 77,
                       "typeName": "Vec<T>"
                     }
                   ]
@@ -2903,16 +2929,14 @@
             "id": 76,
             "type": {
               "path": [
-                "frame_support",
-                "traits",
-                "tokens",
-                "misc",
-                "IdAmount"
+                "pallet_balances",
+                "types",
+                "ReserveData"
               ],
               "params": [
                 {
-                  "name": "Id",
-                  "type": 77
+                  "name": "ReserveIdentifier",
+                  "type": 67
                 },
                 {
                   "name": "Balance",
@@ -2924,8 +2948,8 @@
                   "fields": [
                     {
                       "name": "id",
-                      "type": 77,
-                      "typeName": "Id"
+                      "type": 67,
+                      "typeName": "ReserveIdentifier"
                     },
                     {
                       "name": "amount",
@@ -2940,18 +2964,6 @@
           {
             "id": 77,
             "type": {
-              "path": [
-                "resonance_runtime",
-                "RuntimeHoldReason"
-              ],
-              "def": {
-                "variant": {}
-              }
-            }
-          },
-          {
-            "id": 78,
-            "type": {
               "def": {
                 "sequence": {
                   "type": 76
@@ -2960,7 +2972,7 @@
             }
           },
           {
-            "id": 79,
+            "id": 78,
             "type": {
               "path": [
                 "bounded_collections",
@@ -2970,7 +2982,7 @@
               "params": [
                 {
                   "name": "T",
-                  "type": 80
+                  "type": 79
                 },
                 {
                   "name": "S",
@@ -2981,7 +2993,7 @@
                 "composite": {
                   "fields": [
                     {
-                      "type": 82,
+                      "type": 81,
                       "typeName": "Vec<T>"
                     }
                   ]
@@ -2990,7 +3002,7 @@
             }
           },
           {
-            "id": 80,
+            "id": 79,
             "type": {
               "path": [
                 "frame_support",
@@ -3002,7 +3014,7 @@
               "params": [
                 {
                   "name": "Id",
-                  "type": 81
+                  "type": 80
                 },
                 {
                   "name": "Balance",
@@ -3014,7 +3026,7 @@
                   "fields": [
                     {
                       "name": "id",
-                      "type": 81,
+                      "type": 80,
                       "typeName": "Id"
                     },
                     {
@@ -3028,7 +3040,97 @@
             }
           },
           {
+            "id": 80,
+            "type": {
+              "path": [
+                "resonance_runtime",
+                "RuntimeHoldReason"
+              ],
+              "def": {
+                "variant": {}
+              }
+            }
+          },
+          {
             "id": 81,
+            "type": {
+              "def": {
+                "sequence": {
+                  "type": 79
+                }
+              }
+            }
+          },
+          {
+            "id": 82,
+            "type": {
+              "path": [
+                "bounded_collections",
+                "bounded_vec",
+                "BoundedVec"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": 83
+                },
+                {
+                  "name": "S",
+                  "type": null
+                }
+              ],
+              "def": {
+                "composite": {
+                  "fields": [
+                    {
+                      "type": 85,
+                      "typeName": "Vec<T>"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 83,
+            "type": {
+              "path": [
+                "frame_support",
+                "traits",
+                "tokens",
+                "misc",
+                "IdAmount"
+              ],
+              "params": [
+                {
+                  "name": "Id",
+                  "type": 84
+                },
+                {
+                  "name": "Balance",
+                  "type": 6
+                }
+              ],
+              "def": {
+                "composite": {
+                  "fields": [
+                    {
+                      "name": "id",
+                      "type": 84,
+                      "typeName": "Id"
+                    },
+                    {
+                      "name": "amount",
+                      "type": 6,
+                      "typeName": "Balance"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 84,
             "type": {
               "path": [
                 "resonance_runtime",
@@ -3040,17 +3142,17 @@
             }
           },
           {
-            "id": 82,
+            "id": 85,
             "type": {
               "def": {
                 "sequence": {
-                  "type": 80
+                  "type": 83
                 }
               }
             }
           },
           {
-            "id": 83,
+            "id": 86,
             "type": {
               "path": [
                 "pallet_balances",
@@ -3075,12 +3177,12 @@
                       "fields": [
                         {
                           "name": "dest",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
                           "name": "value",
-                          "type": 87,
+                          "type": 90,
                           "typeName": "T::Balance"
                         }
                       ],
@@ -3100,17 +3202,17 @@
                       "fields": [
                         {
                           "name": "source",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
                           "name": "dest",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
                           "name": "value",
-                          "type": 87,
+                          "type": 90,
                           "typeName": "T::Balance"
                         }
                       ],
@@ -3125,12 +3227,12 @@
                       "fields": [
                         {
                           "name": "dest",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
                           "name": "value",
-                          "type": 87,
+                          "type": 90,
                           "typeName": "T::Balance"
                         }
                       ],
@@ -3149,7 +3251,7 @@
                       "fields": [
                         {
                           "name": "dest",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
@@ -3182,7 +3284,7 @@
                       "fields": [
                         {
                           "name": "who",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
@@ -3203,7 +3305,7 @@
                       "fields": [
                         {
                           "name": "who",
-                          "type": 88,
+                          "type": 91,
                           "typeName": "Vec<T::AccountId>"
                         }
                       ],
@@ -3224,12 +3326,12 @@
                       "fields": [
                         {
                           "name": "who",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
                           "name": "new_free",
-                          "type": 87,
+                          "type": 90,
                           "typeName": "T::Balance"
                         }
                       ],
@@ -3245,12 +3347,12 @@
                       "fields": [
                         {
                           "name": "direction",
-                          "type": 89,
+                          "type": 92,
                           "typeName": "AdjustmentDirection"
                         },
                         {
                           "name": "delta",
-                          "type": 87,
+                          "type": 90,
                           "typeName": "T::Balance"
                         }
                       ],
@@ -3268,7 +3370,7 @@
                       "fields": [
                         {
                           "name": "value",
-                          "type": 87,
+                          "type": 90,
                           "typeName": "T::Balance"
                         },
                         {
@@ -3297,7 +3399,7 @@
             }
           },
           {
-            "id": 84,
+            "id": 87,
             "type": {
               "path": [
                 "sp_runtime",
@@ -3331,7 +3433,7 @@
                       "name": "Index",
                       "fields": [
                         {
-                          "type": 85,
+                          "type": 88,
                           "typeName": "AccountIndex"
                         }
                       ],
@@ -3361,7 +3463,7 @@
                       "name": "Address20",
                       "fields": [
                         {
-                          "type": 86,
+                          "type": 89,
                           "typeName": "[u8; 20]"
                         }
                       ],
@@ -3373,7 +3475,7 @@
             }
           },
           {
-            "id": 85,
+            "id": 88,
             "type": {
               "def": {
                 "compact": {
@@ -3383,7 +3485,7 @@
             }
           },
           {
-            "id": 86,
+            "id": 89,
             "type": {
               "def": {
                 "array": {
@@ -3394,7 +3496,7 @@
             }
           },
           {
-            "id": 87,
+            "id": 90,
             "type": {
               "def": {
                 "compact": {
@@ -3404,7 +3506,7 @@
             }
           },
           {
-            "id": 88,
+            "id": 91,
             "type": {
               "def": {
                 "sequence": {
@@ -3414,7 +3516,7 @@
             }
           },
           {
-            "id": 89,
+            "id": 92,
             "type": {
               "path": [
                 "pallet_balances",
@@ -3438,7 +3540,7 @@
             }
           },
           {
-            "id": 90,
+            "id": 93,
             "type": {
               "path": [
                 "pallet_balances",
@@ -3551,7 +3653,7 @@
             }
           },
           {
-            "id": 91,
+            "id": 94,
             "type": {
               "path": [
                 "sp_arithmetic",
@@ -3571,7 +3673,7 @@
             }
           },
           {
-            "id": 92,
+            "id": 95,
             "type": {
               "path": [
                 "pallet_transaction_payment",
@@ -3594,7 +3696,7 @@
             }
           },
           {
-            "id": 93,
+            "id": 96,
             "type": {
               "path": [
                 "pallet_sudo",
@@ -3615,7 +3717,7 @@
                       "fields": [
                         {
                           "name": "call",
-                          "type": 94,
+                          "type": 97,
                           "typeName": "Box<<T as Config>::RuntimeCall>"
                         }
                       ],
@@ -3629,7 +3731,7 @@
                       "fields": [
                         {
                           "name": "call",
-                          "type": 94,
+                          "type": 97,
                           "typeName": "Box<<T as Config>::RuntimeCall>"
                         },
                         {
@@ -3652,7 +3754,7 @@
                       "fields": [
                         {
                           "name": "new",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         }
                       ],
@@ -3667,12 +3769,12 @@
                       "fields": [
                         {
                           "name": "who",
-                          "type": 84,
+                          "type": 87,
                           "typeName": "AccountIdLookupOf<T>"
                         },
                         {
                           "name": "call",
-                          "type": 94,
+                          "type": 97,
                           "typeName": "Box<<T as Config>::RuntimeCall>"
                         }
                       ],
@@ -3702,7 +3804,7 @@
             }
           },
           {
-            "id": 94,
+            "id": 97,
             "type": {
               "path": [
                 "resonance_runtime",
@@ -3715,7 +3817,7 @@
                       "name": "System",
                       "fields": [
                         {
-                          "type": 49,
+                          "type": 52,
                           "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<System, Runtime>"
                         }
                       ],
@@ -3725,7 +3827,7 @@
                       "name": "Timestamp",
                       "fields": [
                         {
-                          "type": 67,
+                          "type": 70,
                           "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<Timestamp, Runtime>"
                         }
                       ],
@@ -3735,7 +3837,7 @@
                       "name": "Balances",
                       "fields": [
                         {
-                          "type": 83,
+                          "type": 86,
                           "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<Balances, Runtime>"
                         }
                       ],
@@ -3745,7 +3847,7 @@
                       "name": "Sudo",
                       "fields": [
                         {
-                          "type": 93,
+                          "type": 96,
                           "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<Sudo, Runtime>"
                         }
                       ],
@@ -3755,11 +3857,31 @@
                       "name": "Template",
                       "fields": [
                         {
-                          "type": 95,
+                          "type": 98,
                           "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<Template, Runtime>"
                         }
                       ],
                       "index": 5
+                    },
+                    {
+                      "name": "QPoW",
+                      "fields": [
+                        {
+                          "type": 99,
+                          "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<QPoW, Runtime>"
+                        }
+                      ],
+                      "index": 6
+                    },
+                    {
+                      "name": "Wormhole",
+                      "fields": [
+                        {
+                          "type": 100,
+                          "typeName": "self::sp_api_hidden_includes_construct_runtime::hidden_include::dispatch\n::CallableCallFor<Wormhole, Runtime>"
+                        }
+                      ],
+                      "index": 7
                     }
                   ]
                 }
@@ -3767,7 +3889,7 @@
             }
           },
           {
-            "id": 95,
+            "id": 98,
             "type": {
               "path": [
                 "pallet_template",
@@ -3840,7 +3962,65 @@
             }
           },
           {
-            "id": 96,
+            "id": 99,
+            "type": {
+              "path": [
+                "pallet_qpow",
+                "pallet",
+                "Call"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": null
+                }
+              ],
+              "def": {
+                "variant": {}
+              },
+              "docs": [
+                "Contains a variant per dispatchable extrinsic that this pallet has."
+              ]
+            }
+          },
+          {
+            "id": 100,
+            "type": {
+              "path": [
+                "pallet_wormhole",
+                "pallet",
+                "Call"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": null
+                }
+              ],
+              "def": {
+                "variant": {
+                  "variants": [
+                    {
+                      "name": "verify_wormhole_proof",
+                      "fields": [
+                        {
+                          "name": "proof_bytes",
+                          "type": 14,
+                          "typeName": "Vec<u8>"
+                        }
+                      ],
+                      "index": 0
+                    }
+                  ]
+                }
+              },
+              "docs": [
+                "Contains a variant per dispatchable extrinsic that this pallet has."
+              ]
+            }
+          },
+          {
+            "id": 101,
             "type": {
               "path": [
                 "pallet_sudo",
@@ -3872,7 +4052,7 @@
             }
           },
           {
-            "id": 97,
+            "id": 102,
             "type": {
               "path": [
                 "pallet_template",
@@ -3918,13 +4098,106 @@
             }
           },
           {
-            "id": 98,
+            "id": 103,
             "type": {
               "path": [
-                "resonance_runtime",
-                "resonance",
-                "signature",
-                "ResonanceSignature"
+                "pallet_qpow",
+                "pallet",
+                "Error"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": null
+                }
+              ],
+              "def": {
+                "variant": {
+                  "variants": [
+                    {
+                      "name": "InvalidSolution",
+                      "index": 0
+                    },
+                    {
+                      "name": "ArithmeticOverflow",
+                      "index": 1
+                    }
+                  ]
+                }
+              },
+              "docs": [
+                "The `Error` enum of this pallet."
+              ]
+            }
+          },
+          {
+            "id": 104,
+            "type": {
+              "path": [
+                "pallet_wormhole",
+                "pallet",
+                "Error"
+              ],
+              "params": [
+                {
+                  "name": "T",
+                  "type": null
+                }
+              ],
+              "def": {
+                "variant": {
+                  "variants": [
+                    {
+                      "name": "InvalidProof",
+                      "index": 0
+                    },
+                    {
+                      "name": "ProofDeserializationFailed",
+                      "index": 1
+                    },
+                    {
+                      "name": "InvalidVerificationKey",
+                      "index": 2
+                    },
+                    {
+                      "name": "NotInitialized",
+                      "index": 3
+                    },
+                    {
+                      "name": "AlreadyInitialized",
+                      "index": 4
+                    },
+                    {
+                      "name": "VerificationFailed",
+                      "index": 5
+                    },
+                    {
+                      "name": "VerifierNotFound",
+                      "index": 6
+                    },
+                    {
+                      "name": "InvalidPublicInputs",
+                      "index": 7
+                    },
+                    {
+                      "name": "NullifierAlreadyUsed",
+                      "index": 8
+                    }
+                  ]
+                }
+              },
+              "docs": [
+                "The `Error` enum of this pallet."
+              ]
+            }
+          },
+          {
+            "id": 105,
+            "type": {
+              "path": [
+                "dilithium_crypto",
+                "types",
+                "ResonanceSignatureScheme"
               ],
               "def": {
                 "variant": {
@@ -3933,7 +4206,7 @@
                       "name": "Ed25519",
                       "fields": [
                         {
-                          "type": 99,
+                          "type": 41,
                           "typeName": "ed25519::Signature"
                         }
                       ],
@@ -3943,7 +4216,7 @@
                       "name": "Sr25519",
                       "fields": [
                         {
-                          "type": 99,
+                          "type": 41,
                           "typeName": "sr25519::Signature"
                         }
                       ],
@@ -3953,11 +4226,25 @@
                       "name": "Ecdsa",
                       "fields": [
                         {
-                          "type": 100,
+                          "type": 106,
                           "typeName": "ecdsa::Signature"
                         }
                       ],
                       "index": 2
+                    },
+                    {
+                      "name": "Resonance",
+                      "fields": [
+                        {
+                          "type": 107,
+                          "typeName": "ResonanceSignature"
+                        },
+                        {
+                          "type": 110,
+                          "typeName": "[u8; super::crypto::PUB_KEY_BYTES]"
+                        }
+                      ],
+                      "index": 3
                     }
                   ]
                 }
@@ -3965,18 +4252,7 @@
             }
           },
           {
-            "id": 99,
-            "type": {
-              "def": {
-                "array": {
-                  "len": 64,
-                  "type": 2
-                }
-              }
-            }
-          },
-          {
-            "id": 100,
+            "id": 106,
             "type": {
               "def": {
                 "array": {
@@ -3987,25 +4263,86 @@
             }
           },
           {
-            "id": 101,
+            "id": 107,
+            "type": {
+              "path": [
+                "dilithium_crypto",
+                "types",
+                "WrappedSignatureBytes"
+              ],
+              "params": [
+                {
+                  "name": "SubTag",
+                  "type": 108
+                }
+              ],
+              "def": {
+                "composite": {
+                  "fields": [
+                    {
+                      "type": 109,
+                      "typeName": "SignatureBytes<N, SubTag>"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 108,
+            "type": {
+              "path": [
+                "dilithium_crypto",
+                "types",
+                "ResonanceCryptoTag"
+              ],
+              "def": {
+                "composite": {}
+              }
+            }
+          },
+          {
+            "id": 109,
+            "type": {
+              "def": {
+                "array": {
+                  "len": 4627,
+                  "type": 2
+                }
+              }
+            }
+          },
+          {
+            "id": 110,
+            "type": {
+              "def": {
+                "array": {
+                  "len": 2592,
+                  "type": 2
+                }
+              }
+            }
+          },
+          {
+            "id": 111,
             "type": {
               "def": {
                 "tuple": [
-                  102,
-                  103,
-                  104,
-                  105,
-                  106,
-                  108,
-                  109,
-                  110,
-                  111
+                  112,
+                  113,
+                  114,
+                  115,
+                  116,
+                  118,
+                  119,
+                  120,
+                  121
                 ]
               }
             }
           },
           {
-            "id": 102,
+            "id": 112,
             "type": {
               "path": [
                 "frame_system",
@@ -4025,7 +4362,7 @@
             }
           },
           {
-            "id": 103,
+            "id": 113,
             "type": {
               "path": [
                 "frame_system",
@@ -4045,7 +4382,7 @@
             }
           },
           {
-            "id": 104,
+            "id": 114,
             "type": {
               "path": [
                 "frame_system",
@@ -4065,7 +4402,7 @@
             }
           },
           {
-            "id": 105,
+            "id": 115,
             "type": {
               "path": [
                 "frame_system",
@@ -4085,7 +4422,7 @@
             }
           },
           {
-            "id": 106,
+            "id": 116,
             "type": {
               "path": [
                 "frame_system",
@@ -4103,7 +4440,7 @@
                 "composite": {
                   "fields": [
                     {
-                      "type": 107,
+                      "type": 117,
                       "typeName": "Era"
                     }
                   ]
@@ -4112,7 +4449,7 @@
             }
           },
           {
-            "id": 107,
+            "id": 117,
             "type": {
               "path": [
                 "sp_runtime",
@@ -6428,7 +6765,7 @@
             }
           },
           {
-            "id": 108,
+            "id": 118,
             "type": {
               "path": [
                 "frame_system",
@@ -6446,7 +6783,7 @@
                 "composite": {
                   "fields": [
                     {
-                      "type": 45,
+                      "type": 48,
                       "typeName": "T::Nonce"
                     }
                   ]
@@ -6455,7 +6792,7 @@
             }
           },
           {
-            "id": 109,
+            "id": 119,
             "type": {
               "path": [
                 "frame_system",
@@ -6475,7 +6812,7 @@
             }
           },
           {
-            "id": 110,
+            "id": 120,
             "type": {
               "path": [
                 "pallet_transaction_payment",
@@ -6491,7 +6828,7 @@
                 "composite": {
                   "fields": [
                     {
-                      "type": 87,
+                      "type": 90,
                       "typeName": "BalanceOf<T>"
                     }
                   ]
@@ -6500,7 +6837,7 @@
             }
           },
           {
-            "id": 111,
+            "id": 121,
             "type": {
               "path": [
                 "frame_metadata_hash_extension",
@@ -6517,7 +6854,7 @@
                   "fields": [
                     {
                       "name": "mode",
-                      "type": 112,
+                      "type": 122,
                       "typeName": "Mode"
                     }
                   ]
@@ -6526,7 +6863,7 @@
             }
           },
           {
-            "id": 112,
+            "id": 122,
             "type": {
               "path": [
                 "frame_metadata_hash_extension",
@@ -6549,7 +6886,7 @@
             }
           },
           {
-            "id": 113,
+            "id": 123,
             "type": {
               "path": [
                 "Option"
@@ -6582,7 +6919,7 @@
             }
           },
           {
-            "id": 114,
+            "id": 124,
             "type": {
               "path": [
                 "resonance_runtime",
@@ -6594,7 +6931,7 @@
             }
           },
           {
-            "id": 115,
+            "id": 125,
             "type": {
               "path": [
                 "resonance_runtime",
@@ -6607,7 +6944,7 @@
                       "name": "System",
                       "fields": [
                         {
-                          "type": 66,
+                          "type": 69,
                           "typeName": "frame_system::Error<Runtime>"
                         }
                       ],
@@ -6617,7 +6954,7 @@
                       "name": "Balances",
                       "fields": [
                         {
-                          "type": 90,
+                          "type": 93,
                           "typeName": "pallet_balances::Error<Runtime>"
                         }
                       ],
@@ -6627,7 +6964,7 @@
                       "name": "Sudo",
                       "fields": [
                         {
-                          "type": 96,
+                          "type": 101,
                           "typeName": "pallet_sudo::Error<Runtime>"
                         }
                       ],
@@ -6637,11 +6974,31 @@
                       "name": "Template",
                       "fields": [
                         {
-                          "type": 97,
+                          "type": 102,
                           "typeName": "pallet_template::Error<Runtime>"
                         }
                       ],
                       "index": 5
+                    },
+                    {
+                      "name": "QPoW",
+                      "fields": [
+                        {
+                          "type": 103,
+                          "typeName": "pallet_qpow::Error<Runtime>"
+                        }
+                      ],
+                      "index": 6
+                    },
+                    {
+                      "name": "Wormhole",
+                      "fields": [
+                        {
+                          "type": 104,
+                          "typeName": "pallet_wormhole::Error<Runtime>"
+                        }
+                      ],
+                      "index": 7
                     }
                   ]
                 }
@@ -6997,7 +7354,7 @@
                       "Blake2_128Concat"
                     ],
                     "key": 13,
-                    "value": 42
+                    "value": 45
                   }
                 },
                 "default": [
@@ -7020,7 +7377,7 @@
                 "name": "LastRuntimeUpgrade",
                 "modifier": "Optional",
                 "ty": {
-                  "Plain": 44
+                  "Plain": 47
                 },
                 "default": [
                   0
@@ -7060,7 +7417,7 @@
                 "name": "ExecutionPhase",
                 "modifier": "Optional",
                 "ty": {
-                  "Plain": 40
+                  "Plain": 43
                 },
                 "default": [
                   0
@@ -7073,7 +7430,7 @@
                 "name": "AuthorizedUpgrade",
                 "modifier": "Optional",
                 "ty": {
-                  "Plain": 48
+                  "Plain": 51
                 },
                 "default": [
                   0
@@ -7085,7 +7442,7 @@
             ]
           },
           "calls": {
-            "ty": 49
+            "ty": 52
           },
           "event": {
             "ty": 22
@@ -7093,7 +7450,7 @@
           "constants": [
             {
               "name": "BlockWeights",
-              "ty": 53,
+              "ty": 56,
               "value": [
                 194,
                 160,
@@ -7228,7 +7585,7 @@
             },
             {
               "name": "BlockLength",
-              "ty": 57,
+              "ty": 60,
               "value": [
                 0,
                 0,
@@ -7262,7 +7619,7 @@
             },
             {
               "name": "DbWeight",
-              "ty": 59,
+              "ty": 62,
               "value": [
                 64,
                 120,
@@ -7287,7 +7644,7 @@
             },
             {
               "name": "Version",
-              "ty": 60,
+              "ty": 63,
               "value": [
                 68,
                 114,
@@ -7337,7 +7694,7 @@
                 0,
                 0,
                 0,
-                40,
+                44,
                 223,
                 106,
                 203,
@@ -7410,6 +7767,18 @@
                 0,
                 0,
                 0,
+                19,
+                40,
+                169,
+                252,
+                46,
+                48,
+                6,
+                19,
+                1,
+                0,
+                0,
+                0,
                 188,
                 157,
                 137,
@@ -7470,7 +7839,7 @@
             },
             {
               "name": "SS58Prefix",
-              "ty": 65,
+              "ty": 68,
               "value": [
                 42,
                 0
@@ -7485,7 +7854,7 @@
             }
           ],
           "error": {
-            "ty": 66
+            "ty": 69
           },
           "index": 0,
           "docs": []
@@ -7534,7 +7903,7 @@
             ]
           },
           "calls": {
-            "ty": 67
+            "ty": 70
           },
           "event": null,
           "constants": [
@@ -7740,7 +8109,7 @@
                       "Blake2_128Concat"
                     ],
                     "key": 0,
-                    "value": 68
+                    "value": 71
                   }
                 },
                 "default": [
@@ -7762,7 +8131,7 @@
                       "Blake2_128Concat"
                     ],
                     "key": 0,
-                    "value": 72
+                    "value": 75
                   }
                 },
                 "default": [
@@ -7783,7 +8152,7 @@
                       "Blake2_128Concat"
                     ],
                     "key": 0,
-                    "value": 75
+                    "value": 78
                   }
                 },
                 "default": [
@@ -7802,7 +8171,7 @@
                       "Blake2_128Concat"
                     ],
                     "key": 0,
-                    "value": 79
+                    "value": 82
                   }
                 },
                 "default": [
@@ -7815,7 +8184,7 @@
             ]
           },
           "calls": {
-            "ty": 83
+            "ty": 86
           },
           "event": {
             "ty": 32
@@ -7899,7 +8268,7 @@
             }
           ],
           "error": {
-            "ty": 90
+            "ty": 93
           },
           "index": 2,
           "docs": []
@@ -7913,7 +8282,7 @@
                 "name": "NextFeeMultiplier",
                 "modifier": "Default",
                 "ty": {
-                  "Plain": 91
+                  "Plain": 94
                 },
                 "default": [
                   0,
@@ -7939,7 +8308,7 @@
                 "name": "StorageVersion",
                 "modifier": "Default",
                 "ty": {
-                  "Plain": 92
+                  "Plain": 95
                 },
                 "default": [
                   0
@@ -8009,14 +8378,14 @@
             ]
           },
           "calls": {
-            "ty": 93
+            "ty": 96
           },
           "event": {
             "ty": 35
           },
           "constants": [],
           "error": {
-            "ty": 96
+            "ty": 101
           },
           "index": 4,
           "docs": []
@@ -8045,79 +8414,147 @@
             ]
           },
           "calls": {
-            "ty": 95
+            "ty": 98
           },
           "event": {
             "ty": 39
           },
           "constants": [],
           "error": {
-            "ty": 97
+            "ty": 102
           },
           "index": 5,
+          "docs": []
+        },
+        {
+          "name": "QPoW",
+          "storage": {
+            "prefix": "QPoW",
+            "entries": [
+              {
+                "name": "LatestProof",
+                "modifier": "Optional",
+                "ty": {
+                  "Plain": 41
+                },
+                "default": [
+                  0
+                ],
+                "docs": []
+              }
+            ]
+          },
+          "calls": {
+            "ty": 99
+          },
+          "event": {
+            "ty": 40
+          },
+          "constants": [],
+          "error": {
+            "ty": 103
+          },
+          "index": 6,
+          "docs": []
+        },
+        {
+          "name": "Wormhole",
+          "storage": {
+            "prefix": "Wormhole",
+            "entries": [
+              {
+                "name": "UsedNullifiers",
+                "modifier": "Default",
+                "ty": {
+                  "Map": {
+                    "hashers": [
+                      "Blake2_128Concat"
+                    ],
+                    "key": 41,
+                    "value": 8
+                  }
+                },
+                "default": [
+                  0
+                ],
+                "docs": []
+              }
+            ]
+          },
+          "calls": {
+            "ty": 100
+          },
+          "event": {
+            "ty": 42
+          },
+          "constants": [],
+          "error": {
+            "ty": 104
+          },
+          "index": 7,
           "docs": []
         }
       ],
       "extrinsic": {
         "version": 4,
-        "address_ty": 84,
-        "call_ty": 94,
-        "signature_ty": 98,
-        "extra_ty": 101,
+        "address_ty": 87,
+        "call_ty": 97,
+        "signature_ty": 105,
+        "extra_ty": 111,
         "signed_extensions": [
           {
             "identifier": "CheckNonZeroSender",
-            "ty": 102,
+            "ty": 112,
             "additional_signed": 37
           },
           {
             "identifier": "CheckSpecVersion",
-            "ty": 103,
+            "ty": 113,
             "additional_signed": 4
           },
           {
             "identifier": "CheckTxVersion",
-            "ty": 104,
+            "ty": 114,
             "additional_signed": 4
           },
           {
             "identifier": "CheckGenesis",
-            "ty": 105,
+            "ty": 115,
             "additional_signed": 13
           },
           {
             "identifier": "CheckMortality",
-            "ty": 106,
+            "ty": 116,
             "additional_signed": 13
           },
           {
             "identifier": "CheckNonce",
-            "ty": 108,
+            "ty": 118,
             "additional_signed": 37
           },
           {
             "identifier": "CheckWeight",
-            "ty": 109,
+            "ty": 119,
             "additional_signed": 37
           },
           {
             "identifier": "ChargeTransactionPayment",
-            "ty": 110,
+            "ty": 120,
             "additional_signed": 37
           },
           {
             "identifier": "CheckMetadataHash",
-            "ty": 111,
-            "additional_signed": 113
+            "ty": 121,
+            "additional_signed": 123
           }
         ]
       },
-      "ty": 114,
+      "ty": 124,
       "apis": [],
       "outer_enums": {
-        "call_enum_ty": 94,
+        "call_enum_ty": 97,
         "event_enum_ty": 21,
-        "error_enum_ty": 115
+        "error_enum_ty": 125
       },
       "custom": {
         "map": {}
