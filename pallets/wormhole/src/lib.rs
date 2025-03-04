@@ -32,8 +32,21 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config + TypeInfo + pallet_balances::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+        type WeightInfo: WeightInfo;
     }
 
+    pub trait WeightInfo {
+        fn verify_wormhole_proof() -> Weight;
+    }
+
+    pub struct DefaultWeightInfo;
+
+    impl WeightInfo for DefaultWeightInfo {
+        fn verify_wormhole_proof() -> Weight {
+            Weight::from_parts(10_000, 0)
+        }
+    }
 
     const D: usize = 2;
     type C = PoseidonGoldilocksConfig;
@@ -115,9 +128,9 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        // ProofVerified {
-        //     public_values: WormholePublicInputs<T>,
-        // },
+        ProofVerified {
+            exit_amount: <T as BalancesConfig>::Balance,
+        },
     }
 
     #[pallet::error]
@@ -136,7 +149,7 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
         pub fn verify_wormhole_proof(
             origin: OriginFor<T>,
             proof_bytes: Vec<u8>,
@@ -182,9 +195,9 @@ pub mod pallet {
             );
 
             // // Emit event
-            // Self::deposit_event(Event::ProofVerified {
-            //     public_values: public_inputs
-            // });
+            Self::deposit_event(Event::ProofVerified {
+                exit_amount: exit_balance,
+            });
 
             Ok(())
         }
