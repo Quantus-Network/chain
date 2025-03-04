@@ -22,6 +22,7 @@ pub mod pallet {
 	use sha2::{Digest, Sha256};
 	use sha3::Sha3_512;
 	use num_bigint::BigUint;
+	use num_traits::Pow;
 	use frame_support::sp_runtime::traits::{Zero, One};
 
 
@@ -190,16 +191,36 @@ pub mod pallet {
 
 					let new_difficulty = if average_block_time < target_time_u64 {
 						// Blocks are being mined too quickly, increase difficulty
-						// Difficulty increases proportionally to the time ratio
-						let adjustment_factor = target_time_u64.saturating_div(average_block_time.max(1));
-						current_difficulty.saturating_mul(adjustment_factor).min(MAX_DISTANCE - 1)
+
+						// Calculate ratio (keeping precision with fixed-point arithmetic)
+						let ratio = (average_block_time * 1000) as f32 / (target_time_u64 * 1000) as f32;
+
+						// Calculate difference from ideal ratio (1.0)
+						let diff = (1.0 - ratio).max(0.0);
+
+						// Apply power function using num_traits::Pow
+						let power_factor = Pow::pow(diff as u64, 16u32) as f64 + 1.0;
+
+						// Calculate new difficulty with bounds check
+						let adjusted = (current_difficulty as f64 * power_factor) as u64;
+						adjusted.min(MAX_DISTANCE - 1)
 					} else if average_block_time > target_time_u64 {
 						// Blocks are being mined too slowly, decrease difficulty
-						// Difficulty decreases proportionally to the time ratio
-						let adjustment_factor = average_block_time.saturating_div(target_time_u64.max(1));
-						current_difficulty.saturating_div(adjustment_factor.max(1)).max(INITIAL_DIFFICULTY / 10)
+
+						// Calculate ratio
+						let ratio = (average_block_time * 1000) as f32 / (target_time_u64 * 1000) as f32;
+
+						// Calculate difference from ideal ratio (1.0)
+						let diff = (ratio - 1.0).max(0.0);
+
+						// Apply power function
+						let power_factor = Pow::pow(diff as u64, 16u32) as f64 + 1.0;
+
+						// Calculate new difficulty with bounds check
+						let adjusted = (current_difficulty as f64 / power_factor) as u64;
+						adjusted.max(INITIAL_DIFFICULTY / 10)
 					} else {
-						// Blocks are being mined at target pace, maintain difficulty
+						// Blocks are being mined at ideal pace
 						current_difficulty
 					};
 
