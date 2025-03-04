@@ -16,10 +16,12 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { features = [
 	"derive",
 ], workspace = true }
+log = { workspace = true }
 scale-info = { features = [
 	"derive",
 	"serde",
 ], workspace = true }
+serde = { optional = true, default-features=false, version = "1.0.209"} #features = ["alloc", "derive"]
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
 frame-support = { features = ["experimental"], workspace = true }
 frame-system.workspace = true
@@ -40,6 +42,7 @@ sp-runtime = { features = ["serde"], workspace = true }
 sp-session.workspace = true
 sp-storage.workspace = true
 sp-transaction-pool.workspace = true
+sp-trie = { workspace = true }
 sp-version = { features = ["serde"], workspace = true }
 sp-genesis-builder.workspace = true
 frame-system-rpc-runtime-api.workspace = true
@@ -55,6 +58,9 @@ dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = {default-features=false, workspace = true}
 sp-runtime-interface = { version="24.0.0", default-features=false }
 sp-std = { workspace = true, default-features=false}
+
+dusk-poseidon = { workspace = true }
+dusk-bls12_381 = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -87,6 +93,7 @@ std = [
 	"pallet-transaction-payment/std",
 	"scale-info/std", # Test it
 	"serde_json/std", # Test it
+	"serde/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-qpow/std",

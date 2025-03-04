@@ -43,6 +43,7 @@ use super::{
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
 	System, EXISTENTIAL_DEPOSIT, VERSION,
 };
+use crate::poseidon::PoseidonHasher;
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 

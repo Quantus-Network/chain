@@ -7,6 +7,7 @@ pub mod apis;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarks;
 pub mod configs;
+mod poseidon;
 
 pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonancePublic;
@@ -30,6 +31,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
+use crate::poseidon::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -39,19 +41,22 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{BlakeTwo256, Hash as HashT},
+		traits::{Hash as HashT},
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
+	/// For whatever reason, changing this one or the Header type below causes the block hash and
+	/// the storage root to be computed with poseidon, but not the extrinsics root.
+	/// For the wormhole proofs, we only need the storage root to be calculated with poseidon.
 	/// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 	/// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 	/// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
 	/// Opaque block hash type.
-	pub type Hash = <BlakeTwo256 as HashT>::Output;
+	pub type Hash = <PoseidonHasher as HashT>::Output;
 }
 
 impl_opaque_keys! {
@@ -141,7 +146,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
