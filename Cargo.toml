@@ -11,6 +11,7 @@ members = [
     "pallets/template",
     "client/consensus/qpow",
     "pallets/qpow",
+    "pallets/wormhole",
     "primitives/consensus/qpow",
     "runtime",
     "dilithium-crypto",
@@ -25,6 +26,7 @@ rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-c
 
 pallet-template = { path = "./pallets/template", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false}
+pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
@@ -57,6 +59,7 @@ sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }
 sp-inherents = { version = "35.0.0", default-features = false }
 sp-io = { version = "39.0.0", default-features = false }
+sp-std = { version="14.0.0", default-features = false} # Expected by wormhole
 sp-keyring = { version = "40.0.0", default-features = false }
 sp-runtime = { version = "40.1.0", default-features = false }
 sp-timestamp = { version = "35.0.0", default-features = false }

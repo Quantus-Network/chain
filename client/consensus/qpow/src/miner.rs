@@ -3,7 +3,6 @@ use std::sync::Arc;
 use primitive_types::{H256, U256};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
-use sp_consensus_pow::Seal;
 use sp_runtime::traits::Block as BlockT;
 use sp_consensus_qpow::QPoWApi;
 use crate::QPoWSeal;
