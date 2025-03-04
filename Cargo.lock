@@ -6153,6 +6153,7 @@ dependencies = [
  "log",
  "num-bigint",
  "num-traits",
+ "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "scale-info",

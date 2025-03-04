@@ -32,6 +32,7 @@ use frame_support::{
 		IdentityFee, Weight,
 	},
 };
+use frame_support::traits::ConstU64;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
@@ -100,6 +101,8 @@ parameter_types! {
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
+	type TargetBlockTime = ConstU64<6000>;
+	type AdjustmentPeriod = ConstU32<5>;
 }
 
 impl pallet_wormhole::Config for Runtime {

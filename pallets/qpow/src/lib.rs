@@ -15,12 +15,15 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig};
+	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig, traits::Time};
+	use frame_support::sp_runtime::SaturatedConversion;
+	use frame_system::pallet_prelude::BlockNumberFor;
 	use primitive_types::U512;
 	use sha2::{Digest, Sha256};
 	use sha3::Sha3_512;
 	use num_bigint::BigUint;
 	use frame_support::sp_runtime::traits::{Zero, One};
+
 
 	pub const CHUNK_SIZE: usize = 32;
 	pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE;
@@ -30,10 +33,26 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+	#[pallet::storage]
+	pub type LastBlockTime<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::storage]
+	pub type CurrentDifficulty<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::storage]
+	pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 		type WeightInfo: WeightInfo;
+
+		#[pallet::constant]
+		type TargetBlockTime: Get<u64>;
+
+		#[pallet::constant]
+		type AdjustmentPeriod: Get<u32>;
 	}
 
 	#[pallet::genesis_config]
@@ -86,12 +105,127 @@ pub mod pallet {
 		ProofSubmitted {
 			nonce: [u8; 64],
 		},
+		DifficultyAdjusted {
+			old_difficulty: u64,
+			new_difficulty: u64,
+			average_block_time: u64,
+		},
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
 		InvalidSolution,
 		ArithmeticOverflow
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
+			log::info!("📢 QPoW: on_initialize called at block {:?}", block_number);
+			Weight::zero()
+		}
+
+		/// Called at the end of each block.
+		fn on_finalize(block_number: BlockNumberFor<T>) {
+			let blocks = <BlocksInPeriod<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
+			log::info!(
+				"📢 QPoW: on_finalize called at block {:?}, blocks_in_period={}, current_difficulty={}",
+				block_number,
+				blocks,
+				current_difficulty
+			);
+			Self::adjust_difficulty();
+		}
+
+		/// Called when there is remaining weight at the end of the block.
+		fn on_idle(block_number: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
+			log::info!(
+			    "📢 QPoW: on_idle called at block {:?} with remaining weight {:?}",
+			    block_number,
+			    remaining_weight
+			);
+			if <LastBlockTime<T>>::get() == 0 {
+				<LastBlockTime<T>>::put(pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>());
+				<CurrentDifficulty<T>>::put(INITIAL_DIFFICULTY);
+			}
+			Weight::zero()
+		}
+
+		/// Called whenever a runtime upgrade is applied.
+		fn on_runtime_upgrade() -> Weight {
+			log::info!("📢 QPoW: on_runtime_upgrade triggered!");
+			Weight::zero()
+		}
+
+		/// Called for off-chain worker tasks.
+		fn offchain_worker(block_number: BlockNumberFor<T>) {
+			log::info!("📢 QPoW: offchain_worker triggered at block {:?}", block_number);
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+		fn adjust_difficulty() {
+			// Get current time from timestamp pallet (in milliseconds)
+			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
+			let last_time = <LastBlockTime<T>>::get();
+			let blocks = <BlocksInPeriod<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
+
+			// Increment block counter
+			<BlocksInPeriod<T>>::put(blocks + 1);
+
+			// Update last block time for future calculations
+			<LastBlockTime<T>>::put(now);
+
+			// Check if difficulty adjustment is needed (after specified number of blocks)
+			if blocks >= T::AdjustmentPeriod::get() {
+				if last_time > 0 { // Make sure this is not the first block
+					// Calculate average time between blocks in milliseconds
+					let time_diff = now.saturating_sub(last_time);
+					let average_block_time = time_diff / (blocks as u64);
+
+					// Adjust difficulty to approach target block time
+					let target_time_u64 = T::TargetBlockTime::get();
+
+					let new_difficulty = if average_block_time < target_time_u64 {
+						// Blocks are being mined too quickly, increase difficulty
+						// Difficulty increases proportionally to the time ratio
+						let adjustment_factor = target_time_u64.saturating_div(average_block_time.max(1));
+						current_difficulty.saturating_mul(adjustment_factor).min(MAX_DISTANCE - 1)
+					} else if average_block_time > target_time_u64 {
+						// Blocks are being mined too slowly, decrease difficulty
+						// Difficulty decreases proportionally to the time ratio
+						let adjustment_factor = average_block_time.saturating_div(target_time_u64.max(1));
+						current_difficulty.saturating_div(adjustment_factor.max(1)).max(INITIAL_DIFFICULTY / 10)
+					} else {
+						// Blocks are being mined at target pace, maintain difficulty
+						current_difficulty
+					};
+
+					// Save the new difficulty
+					<CurrentDifficulty<T>>::put(new_difficulty);
+
+					// Emit difficulty adjustment event
+					Self::deposit_event(Event::DifficultyAdjusted {
+						old_difficulty: current_difficulty,
+						new_difficulty,
+						average_block_time,
+					});
+
+					log::info!(
+               "Adjusted mining difficulty: {} -> {} (avg block time: {}ms, target: {}ms)",
+               current_difficulty,
+               new_difficulty,
+               average_block_time,
+               target_time_u64
+           );
+				}
+
+				// Reset block counter for new adjustment period
+				<BlocksInPeriod<T>>::put(0);
+			}
+		}
 	}
 
 	#[pallet::call]
@@ -322,7 +456,11 @@ pub mod pallet {
 		}
 
 		pub fn get_difficulty() -> u64 {
-			GenesisConfig::<T>::default().initial_difficulty
+			let stored = <CurrentDifficulty<T>>::get();
+			if stored == 0 {
+				return GenesisConfig::<T>::default().initial_difficulty;
+			}
+			stored
 		}
 
 		pub fn log_info(message: &str){
