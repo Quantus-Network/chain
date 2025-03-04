@@ -79,6 +79,7 @@ substrate-frame-rpc-system.workspace = true
 substrate-frame-rpc-system.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
+async-trait = "0.1.86"
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true

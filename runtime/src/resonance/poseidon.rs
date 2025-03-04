@@ -8,7 +8,9 @@ use dusk_poseidon::{Hash as DuskPoseidonHash, Domain};
 use dusk_bls12_381::BlsScalar;
 use sp_trie::TrieConfiguration;
 use core::hash::Hasher as StdHasher;
+use codec::Encode;
 use log;
+use sp_runtime::traits::BlakeTwo256;
 
 #[derive(Default)]
 pub struct PoseidonStdHasher(Vec<u8>);
@@ -24,7 +26,6 @@ impl StdHasher for PoseidonStdHasher {
     }
 }
 
-
 #[derive(PartialEq, Eq, Clone, RuntimeDebug, TypeInfo)]
 #[derive(Serialize, Deserialize)]
 pub struct PoseidonHasher;
@@ -33,7 +34,7 @@ pub struct PoseidonHasher;
 impl Hasher for PoseidonHasher {
     type Out = H256;
     type StdHasher = PoseidonStdHasher;
-    const LENGTH: usize = 0;
+    const LENGTH: usize = 32;
 
     fn hash(x: &[u8]) -> H256 {
         poseidon_hash(x)
@@ -43,38 +44,57 @@ impl Hasher for PoseidonHasher {
 
 
 fn poseidon_hash(x: &[u8]) -> H256 {
-    const BYTES_PER_ELEMENT: usize = 32;
+    // We don't want to exceed the scalar field modulus, so we only take 31 bytes at a time
+    const BYTES_PER_ELEMENT: usize = 31;
 
     let mut field_elements: Vec<BlsScalar> = Vec::new();
     for chunk in x.chunks(BYTES_PER_ELEMENT) {
         // Pad with zeros if the chunk is smaller than BYTES_PER_ELEMENT
-        let mut padded_chunk = [0u8; BYTES_PER_ELEMENT];
+        let mut padded_chunk = [0u8; 32];
         padded_chunk[..chunk.len()].copy_from_slice(chunk);
         // Convert the chunk to a field element
+        // log::info!("PoseidonHasher::hash(chunk={:?})", padded_chunk);
         let field_element = BlsScalar::from_bytes(&padded_chunk).expect("Invalid field element");
         field_elements.push(field_element);
     }
 
     if x.len() == 0 {
+        log::info!("PoseidonHasher::hash EMPTY INPUT");
         field_elements.push(BlsScalar::zero());
     }
 
     let hash = DuskPoseidonHash::digest(Domain::Other, &field_elements);
-    log::error!("hash output: {:?}", hash);
+    log::debug!("hash output: {:?}", hash);
     assert_eq!(hash.len(), 1, "Expected exactly 1 BlsScalar");
-    H256::from_slice(&hash[0].to_bytes())
+    let mut bytes = hash[0].to_bytes();
+    bytes.reverse();
+
+    let h256 = H256::from_slice(bytes.as_slice());
+
+    h256
 }
 
 impl Hash for PoseidonHasher {
     type Output = H256;
 
+    fn hash(s: &[u8]) -> Self::Output {
+        poseidon_hash(s)
+    }
+
+    /// Produce the hash of some codec-encodable value.
+    fn hash_of<S: Encode>(s: &S) -> Self::Output {
+        Encode::using_encoded(s, <Self as Hasher>::hash)
+    }
+
     fn ordered_trie_root(input: Vec<Vec<u8>>, _state_version: StateVersion) -> Self::Output {
         let input = input.into_iter().map(|v| (v, Vec::new()));
-        Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input))
+        let root = Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input));
+        root
     }
 
     fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, _state_version: StateVersion) -> Self::Output {
-        Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input))
+        let root = Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input));
+        root
     }
 }
 #[cfg(test)]
@@ -139,4 +159,31 @@ mod tests {
         let hash2 = <PoseidonHasher as Hasher>::hash(&input2);
         assert_ne!(hash1, hash2, "Different inputs should produce different hashes");
     }
+
+    #[test]
+    fn test_poseidon_hash_input_sizes() {
+
+        // Test inputs from 1 to 128 bytes
+        for size in 1..=128 {
+            // Create a predictable input: repeating byte value based on size
+            let input: Vec<u8> = (0..size).map(|i| (i*i % 256) as u8).collect();
+            let hash = <PoseidonHasher as Hasher>::hash(&input);
+            println!("Size {}: {:?}", size, hash);
+
+            // Assertions
+            assert_eq!(
+                hash.as_bytes().len(),
+                32,
+                "Input size {} should produce 32-byte H256",
+                size
+            );
+        }
+    }
+
+    // #[test]
+    // fn test_empty_blake2() {
+    //     let result = <BlakeTwo256 as Hasher>::hash(&[]);
+    //     println!("hash output: {:?}", result);
+    //     assert_eq!(result.0.len(), 32);
+    // }
 }

@@ -7,10 +7,10 @@ use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
-use sp_core::{H256, U256};
+use sp_core::{RuntimeDebug, H256, U256};
 
 use std::{sync::Arc, time::Duration};
-
+use async_trait::async_trait;
 use jsonrpsee::tokio;
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -29,14 +29,53 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     MinimalQPowAlgorithm,
     impl sp_inherents::CreateInherentDataProviders<Block, ()>,
 >;
+
 pub type Service = sc_service::PartialComponents<
     FullClient,
     FullBackend,
     FullSelectChain,
     sc_consensus::DefaultImportQueue<Block>,
     sc_transaction_pool::FullPool<Block, FullClient>,
-    (PowBlockImport, Option<Telemetry>),
+    (LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
 >;
+
+// Define a wrapper struct
+#[derive(PartialEq, Eq, Clone, RuntimeDebug)]
+pub struct LoggingBlockImport<B: BlockT, I> {
+    inner: I,
+    _phantom: std::marker::PhantomData<B>,
+}
+
+impl<B: BlockT, I> LoggingBlockImport<B, I> {
+    fn new(inner: I) -> Self {
+        Self {
+            inner,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B>  for LoggingBlockImport<B, I>
+{
+    type Error = I::Error;
+
+    async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
+        self.inner.check_block(block).await.map_err(Into::into)
+    }
+
+    async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
+        log::info!(
+            "Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+            block.header.number(),
+            block.header.hash(),
+            block.header.extrinsics_root(),
+            block.header.state_root()
+        );
+        self.inner.import_block(block).await.map_err(Into::into)
+    }
+
+}
 
 pub fn build_inherent_data_providers(
 ) -> Result<impl sp_inherents::CreateInherentDataProviders<Block, ()>, ServiceError> {
@@ -94,8 +133,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         inherent_data_providers,
     );
 
+    let logging_block_import = LoggingBlockImport::new(pow_block_import);
+
     let import_queue = sc_consensus_pow::import_queue(
-        Box::new(pow_block_import.clone()),
+        Box::new(logging_block_import.clone()),
         None,
         MinimalQPowAlgorithm,
         &task_manager.spawn_essential_handle(),
@@ -110,7 +151,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         keystore_container,
         select_chain,
         transaction_pool,
-        other: (pow_block_import, telemetry),
+        other: (logging_block_import, telemetry),
     })
 }
 
@@ -309,7 +350,9 @@ pub fn new_full<
 }
 
 use codec::Encode;
-use sp_runtime::traits::Block as BlockT;
+use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
+use sp_api::__private::scale_info::TypeInfo;
+use sp_runtime::traits::{Block as BlockT, Header};
 
 fn try_nonce<B: BlockT<Hash = H256>>(
     pre_hash: B::Hash,

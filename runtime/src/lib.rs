@@ -33,6 +33,7 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
+use crate::resonance::poseidon::{PoseidonHasher, Blake2Hasher};
 use crate::resonance::signature::ResonanceSignature;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -43,19 +44,19 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{BlakeTwo256, Hash as HashT},
+		traits::{Hash as HashT},
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
 	/// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 	/// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 	/// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
 	/// Opaque block hash type.
-	pub type Hash = <BlakeTwo256 as HashT>::Output;
+	pub type Hash = <PoseidonHasher as HashT>::Output;
 }
 
 impl_opaque_keys! {
@@ -144,7 +145,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
