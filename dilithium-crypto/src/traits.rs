@@ -1,3 +1,5 @@
+use crate::ResonancePublic;
+
 use super::types::{WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
 
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
@@ -200,6 +202,11 @@ impl Verify for ResonanceSignatureScheme {
 impl From<sr25519::Public> for ResonanceSigner {
     fn from(x: sr25519::Public) -> Self {
         Self::Sr25519(x)
+    }
+}
+impl From<ResonancePublic> for ResonanceSigner {
+    fn from(x: ResonancePublic) -> Self {
+        Self::Resonance(x)
     }
 }
 
