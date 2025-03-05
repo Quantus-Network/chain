@@ -102,5 +102,11 @@ testnet:
       done
     - |
       for ip in ${target_ips}; do
-        ${ssh_command} resonance@${ip} 'journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance.service) && systemctl status --no-pager resonance.service' || true
+        ${ssh_command} resonance@${ip} '
+          while ! journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance.service) -g "2 peers" -n 1 --no-pager > /dev/null; do
+            echo "awaiting peer discovery on $(hostname -s)";
+            sleep 1;
+          done;
+          journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance.service) && systemctl status --no-pager resonance.service;
+        ' || true
       done
