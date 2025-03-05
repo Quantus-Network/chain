@@ -189,41 +189,13 @@ pub mod pallet {
 					// Adjust difficulty to approach target block time
 					let target_time_u64 = T::TargetBlockTime::get();
 
-					let new_difficulty = if average_block_time < target_time_u64 {
-						// Blocks are being mined too quickly, increase difficulty
-
-						// Calculate ratio (keeping precision with fixed-point arithmetic)
-						let ratio = (average_block_time * 1000) as f32 / (target_time_u64 * 1000) as f32;
-
-						// Calculate difference from ideal ratio (1.0)
-						let diff = (1.0 - ratio).max(0.0);
-
-						// Apply power function using num_traits::Pow
-						let power_factor = Pow::pow(diff as u64, 16u32) as f64 + 1.0;
-
-						// Calculate new difficulty with bounds check
-						let adjusted = (current_difficulty as f64 * power_factor) as u64;
-						adjusted.min(MAX_DISTANCE - 1)
-					} else if average_block_time > target_time_u64 {
-						// Blocks are being mined too slowly, decrease difficulty
-
-						// Calculate ratio
-						let ratio = (average_block_time * 1000) as f32 / (target_time_u64 * 1000) as f32;
-
-						// Calculate difference from ideal ratio (1.0)
-						let diff = (ratio - 1.0).max(0.0);
-
-						// Apply power function
-						let power_factor = Pow::pow(diff as u64, 16u32) as f64 + 1.0;
-
-						// Calculate new difficulty with bounds check
-						let adjusted = (current_difficulty as f64 / power_factor) as u64;
-						adjusted.max(INITIAL_DIFFICULTY / 10)
-					} else {
-						// Blocks are being mined at ideal pace
-						current_difficulty
-					};
-
+					// Calculate ratio (keeping precision with fixed-point arithmetic)
+					let ratio = (average_block_time * 1000) as f64 / (target_time_u64 * 1000) as f64;
+					let update = ratio.powf(1.0 / 16.0);
+					let mut new_difficulty = (current_difficulty as f64 * update) as u64;
+					new_difficulty = new_difficulty.min(MAX_DISTANCE - 1);
+					new_difficulty = new_difficulty.max(INITIAL_DIFFICULTY / 10);
+					
 					// Save the new difficulty
 					<CurrentDifficulty<T>>::put(new_difficulty);
 
