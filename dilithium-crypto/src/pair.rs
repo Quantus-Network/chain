@@ -21,33 +21,6 @@ impl Pair for ResonancePair {
         let new_path: Vec<DeriveJunction> = path_iter.collect();
 
         match self {
-            ResonancePair::Standard {
-                phrase,
-                password,
-                path,
-            } => {
-                // Append the new path to the existing one
-                let combined_path = path.iter().cloned().chain(new_path.into_iter()).collect();
-                Ok((
-                    ResonancePair::Standard {
-                        phrase: phrase.clone(),
-                        password: password.clone(),
-                        path: combined_path,
-                    },
-                    None,
-                ))
-            }
-            ResonancePair::GeneratedFromPhrase { phrase, password } => {
-                // Convert to Standard with the new path
-                Ok((
-                    ResonancePair::Standard {
-                        phrase: phrase.clone(),
-                        password: password.clone(),
-                        path: new_path,
-                    },
-                    None,
-                ))
-            }
             ResonancePair::Seed(seed_vec) => {
                 if new_path.is_empty() {
                     // No derivation needed; return the same seed
@@ -64,15 +37,6 @@ impl Pair for ResonancePair {
                     Err(DeriveError::SoftKeyInPath)
                 }
             }
-            ResonancePair::Generated | ResonancePair::GeneratedWithPhrase => {
-                if new_path.is_empty() {
-                    // No path to derive; return unchanged
-                    Ok((self.clone(), None))
-                } else {
-                    // These variants don't naturally support derivation paths
-                    Err(DeriveError::SoftKeyInPath)
-                }
-            }
         }
     }
 
@@ -84,51 +48,6 @@ impl Pair for ResonancePair {
     fn sign(&self, message: &[u8]) -> ResonanceSignature {
         // Helper function to derive a seed from the variant
         let seed = match self {
-            ResonancePair::Generated => {
-                unimplemented!("Generated can't be used for signing");
-                // No specific data provided; generate random entropy
-                // This might not be ideal for reproducibility; consider requiring a seed
-                // let mut entropy = sp_std::vec![0u8; 32]; // 32 bytes is typical for HD wallets
-                // // In a real system, use a cryptographically secure RNG
-                // #[cfg(feature = "std")]
-                // rand::Rng::fill(&mut rand::thread_rng(), &mut entropy[..]);
-                // entropy
-            }
-            ResonancePair::GeneratedWithPhrase => {
-                unimplemented!("GeneratedWithPhrase can't be used for signing");
-
-                // Similar to Generated, but could imply a default phrase
-                // For now, treat as random entropy (adjust as needed)
-                // let mut entropy = vec![0u8; 32];
-                // #[cfg(feature = "std")]
-                // rand::Rng::fill(&mut rand::thread_rng(), &mut entropy[..]);
-                // entropy
-            }
-            ResonancePair::GeneratedFromPhrase { phrase: _, password: _ } => {
-                unimplemented!("GeneratedFromPhrase can't be used for signing");
-                // Convert mnemonic phrase (and optional password) to seed
-                // This assumes a BIP-39-like mnemonic-to-seed function
-                // hdwallet::mnemonic_to_seed(phrase, password.as_deref().unwrap_or(""))
-                //     .expect("Invalid mnemonic phrase")
-            }
-            ResonancePair::Standard {
-                phrase: _,
-                password: _,
-                path: _,
-            } => {
-                unimplemented!("Standard can't be used for signing");
-
-                // // Convert phrase to seed, then potentially derive further with path
-                // let base_seed = hdwallet::mnemonic_to_seed(phrase, password.as_deref().unwrap_or(""))
-                //     .expect("Invalid mnemonic phrase");
-                // if path.is_empty() {
-                //     base_seed
-                // } else {
-                //     // Derive a child key seed using the path (HD wallet derivation)
-                //     hdwallet::derive_seed_from_base(&base_seed, path)
-                //         .expect("Path derivation failed")
-                // }
-            }
             ResonancePair::Seed(seed) => {
                 // Directly use the provided seed
                 seed.clone()
@@ -155,10 +74,6 @@ impl Pair for ResonancePair {
     fn public(&self) -> Self::Public {
         let seed = match self {
             ResonancePair::Seed(seed) => seed,
-            ResonancePair::Generated => todo!(),
-            ResonancePair::GeneratedWithPhrase => todo!(),
-            ResonancePair::GeneratedFromPhrase { phrase: _, password: _ } => todo!(),
-            ResonancePair::Standard { phrase: _, password: _, path: _ } => todo!(),
         };
         let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();

@@ -316,7 +316,6 @@ mod tests {
 
         // Generate a keypair
         let alice_keyring = AccountKeyring::Alice;
-        let bob_keyring = AccountKeyring::Bob;
 
         // Create and sign a payload
         let payload: RuntimeCall = 42; // Example call

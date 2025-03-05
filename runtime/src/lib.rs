@@ -41,7 +41,7 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{Hash as HashT},
+		traits::Hash as HashT,
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;

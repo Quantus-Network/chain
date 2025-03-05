@@ -1,7 +1,7 @@
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use scale_info::{prelude::string::String, TypeInfo};
-use sp_core::{crypto::{DeriveJunction, PublicBytes, SignatureBytes}, RuntimeDebug};
+use scale_info::TypeInfo;
+use sp_core::{crypto::{PublicBytes, SignatureBytes}, RuntimeDebug};
 use sp_std::vec::Vec;
 use sp_core::{ecdsa, ed25519, sr25519};
 #[cfg(feature = "serde")]
@@ -24,16 +24,12 @@ pub struct ResonanceCryptoTag;
 // which is one of the wrapped public key types. But I am not sure we need that either. 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum ResonancePair {
-    Generated,
-    GeneratedWithPhrase,
-    GeneratedFromPhrase { phrase: String, password: Option<String> },
-    Standard { phrase: String, password: Option<String>, path: Vec<DeriveJunction> },
-    Seed(Vec<u8>),
+    Seed(Vec<u8>)
 }
 
 impl Default for ResonancePair {
     fn default() -> Self {
-        ResonancePair::Generated
+        ResonancePair::Seed(sp_std::vec![0u8; 32])
     }
 }
 
