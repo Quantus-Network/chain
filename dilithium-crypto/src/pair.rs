@@ -1,4 +1,4 @@
-use crate::{types::ResonanceCryptoTag, ResonanceSignatureScheme, ResonanceSigner, WrappedSignatureBytes};
+use crate::{ResonanceSignatureScheme, ResonanceSigner, PUB_KEY_BYTES};
 
 use super::types::{ResonancePair, ResonancePublic, ResonanceSignature};
 use sp_core::{
@@ -104,7 +104,7 @@ impl Pair for ResonancePair {
                 // rand::Rng::fill(&mut rand::thread_rng(), &mut entropy[..]);
                 // entropy
             }
-            ResonancePair::GeneratedFromPhrase { phrase, password } => {
+            ResonancePair::GeneratedFromPhrase { phrase: _, password: _ } => {
                 unimplemented!("GeneratedFromPhrase can't be used for signing");
                 // Convert mnemonic phrase (and optional password) to seed
                 // This assumes a BIP-39-like mnemonic-to-seed function
@@ -112,9 +112,9 @@ impl Pair for ResonancePair {
                 //     .expect("Invalid mnemonic phrase")
             }
             ResonancePair::Standard {
-                phrase,
-                password,
-                path,
+                phrase: _,
+                password: _,
+                path: _,
             } => {
                 unimplemented!("Standard can't be used for signing");
 
@@ -153,11 +153,20 @@ impl Pair for ResonancePair {
     }
 
     fn public(&self) -> Self::Public {
-        ResonancePublic::default()
+        let seed = match self {
+            ResonancePair::Seed(seed) => seed,
+            ResonancePair::Generated => todo!(),
+            ResonancePair::GeneratedWithPhrase => todo!(),
+            ResonancePair::GeneratedFromPhrase { phrase: _, password: _ } => todo!(),
+            ResonancePair::Standard { phrase: _, password: _, path: _ } => todo!(),
+        };
+        let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
+        let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
+        ResonancePublic::from_slice(&pk_bytes).expect("Failed to create ResonancePublic")
     }
 
     fn to_raw_vec(&self) -> Vec<u8> {
-        Vec::new()
+        unimplemented!("to_raw_vec not implemented");
     }
 
     #[cfg(feature = "std")]
@@ -183,24 +192,22 @@ mod tests {
     fn test_sign_and_verify() {
         setup();
 
-        let seed = vec![0u8; 64];
+        let seed = vec![0u8; 32];
 
-        log::warn!("EHLLO:");
-
-        let pair = ResonancePair::Seed(seed.clone());
-        let message = b"Hello, world!";
+        let pair = ResonancePair::from_seed_slice(&seed).expect("Failed to create pair");
+        let message: Vec<u8> = b"Hello, world!".to_vec();
         
-        let signature = pair.sign(message);
+        let signature = pair.sign(&message);
 
-        log::warn!("Signature length: {}", signature.as_ref().len());
-        // log::warn!("Signature: {:?}", signature);
+        // sanity check
+        let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
+        let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
+        assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
 
+        
         let public = pair.public();
-        log::warn!("Public length: {}", public.as_ref().len());
 
         let result = ResonancePair::verify(&signature, message, &public);
-        
-        log::warn!("result: {}", result);
 
         assert!(result, "Signature should verify");
     }

@@ -167,8 +167,6 @@ impl Verify for ResonanceSignatureScheme {
         mut msg: L,
         signer: &<Self::Signer as IdentifyAccount>::AccountId,
     ) -> bool {
-        log::info!("Verify CALLED");
-
         match self {
             Self::Ed25519(sig) => {
                 let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();

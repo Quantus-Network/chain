@@ -17,7 +17,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{BlakeTwo256, IdentifyAccount, Verify},
+	traits::{IdentifyAccount, Verify},
 	MultiAddress,
 };
 #[cfg(feature = "std")]

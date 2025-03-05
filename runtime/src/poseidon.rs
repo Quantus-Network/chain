@@ -8,7 +8,7 @@ use dusk_poseidon::{Hash as DuskPoseidonHash, Domain};
 use dusk_bls12_381::BlsScalar;
 use sp_trie::TrieConfiguration;
 use core::hash::Hasher as StdHasher;
-use codec::{Encode, Decode};
+use codec::Encode;
 use log;
 
 #[derive(Default)]
