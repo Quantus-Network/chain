@@ -48,7 +48,7 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy));
+        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
 
         println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
@@ -149,7 +149,7 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy));
+        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
         let account_id = hashing::blake2_256(&pk_bytes).into();
         let id = Address::Id(account_id);
@@ -161,7 +161,7 @@ mod tests {
 
         // Sign payload with a different key
         let entropy2 = [1u8; 32]; // Fixed entropy of all zeros
-        let keypair2 = hdwallet::generate(Some(&entropy2));
+        let keypair2 = hdwallet::generate(Some(&entropy2)).expect("Failed to generate keypair");
         let sig_bytes_wrong_key = keypair2.sign(&msg, None, false).expect("Signing failed");
         let signature_wrong_key = ResonanceSignature::try_from(&sig_bytes_wrong_key[..])
             .expect("Signature length mismatch");
@@ -204,7 +204,7 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy));
+        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
         // Create and sign a payload
@@ -259,7 +259,7 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy));
+        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
 
         // Create and sign a payload
@@ -316,7 +316,6 @@ mod tests {
 
         // Generate a keypair
         let alice_keyring = AccountKeyring::Alice;
-        let bob_keyring = AccountKeyring::Bob;
 
         // Create and sign a payload
         let payload: RuntimeCall = 42; // Example call

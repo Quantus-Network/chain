@@ -1,11 +1,12 @@
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use scale_info::{prelude::string::String, TypeInfo};
-use sp_core::{crypto::{DeriveJunction, PublicBytes, SignatureBytes}, RuntimeDebug};
-use sp_std::vec::Vec;
+use rusty_crystals_dilithium::ml_dsa_87::{PUBLICKEYBYTES, SECRETKEYBYTES};
+use scale_info::TypeInfo;
+use sp_core::{crypto::{PublicBytes, SignatureBytes}, RuntimeDebug};
 use sp_core::{ecdsa, ed25519, sr25519};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 ///
 /// Resonance Crypto Types
@@ -23,17 +24,26 @@ pub struct ResonanceCryptoTag;
 // TODO: Review if we even need Pair - we need some sort of pair trait in order to satisfy crypto bytes
 // which is one of the wrapped public key types. But I am not sure we need that either. 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub enum ResonancePair {
-    Generated,
-    GeneratedWithPhrase,
-    GeneratedFromPhrase { phrase: String, password: Option<String> },
-    Standard { phrase: String, password: Option<String>, path: Vec<DeriveJunction> },
-    Seed(Vec<u8>),
+pub struct ResonancePair {
+    pub secret: [u8; SECRETKEYBYTES],
+    pub public: [u8; PUBLICKEYBYTES]
+
+}
+
+impl ResonancePair {
+    pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
+        let keypair = hdwallet::generate(Some(&seed)).map_err(|_| Error::KeyGenerationFailed)?;
+        Ok(ResonancePair {
+            secret: keypair.secret.to_bytes(),
+            public: keypair.public.to_bytes()
+        })
+    }
 }
 
 impl Default for ResonancePair {
     fn default() -> Self {
-        ResonancePair::Generated
+        let seed = sp_std::vec![0u8; 32];
+        return ResonancePair::from_seed(&seed).expect("Failed to generate keypair");
     }
 }
 
@@ -64,4 +74,10 @@ pub enum ResonanceSigner {
     Sr25519(sr25519::Public),
     Ecdsa(ecdsa::Public),
     Resonance(ResonancePublic),
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Failed to generate keypair")]
+    KeyGenerationFailed,
 }
