@@ -1,4 +1,4 @@
-use crate::{ResonanceSignatureScheme, ResonanceSigner, PUB_KEY_BYTES};
+use crate::{ResonanceSignatureScheme, ResonanceSigner};
 
 use super::types::{ResonancePair, ResonancePublic, ResonanceSignature};
 use sp_core::{
@@ -14,47 +14,22 @@ impl Pair for ResonancePair {
 
     fn derive<Iter: Iterator<Item = DeriveJunction>>(
         &self,
-        path_iter: Iter,
-        seed: Option<<ResonancePair as Pair>::Seed>,
+        _path_iter: Iter,
+        _seed: Option<<ResonancePair as Pair>::Seed>,
     ) -> Result<(Self, Option<<ResonancePair as Pair>::Seed>), DeriveError> {
         // Collect the path_iter into a Vec to avoid consuming it prematurely in checks
-        let new_path: Vec<DeriveJunction> = path_iter.collect();
-
-        match self {
-            ResonancePair::Seed(seed_vec) => {
-                if new_path.is_empty() {
-                    // No derivation needed; return the same seed
-                    Ok((
-                        ResonancePair::Seed(seed_vec.clone()),
-                        Some(seed_vec.clone()),
-                    ))
-                } else {
-                    // Use the provided seed parameter if available, otherwise use the variant's seed
-                    let _effective_seed = seed.unwrap_or_else(|| seed_vec.clone());
-                    // Here, we could derive a new seed using the path, but since Seed doesn't
-                    // inherently support paths, we might need to transition to Standard or reject
-                    // For simplicity, reject derivation with paths for raw seeds
-                    Err(DeriveError::SoftKeyInPath)
-                }
-            }
-        }
+        unimplemented!("derive not implemented");
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-        Ok(ResonancePair::Seed(seed.to_vec()))
+        Ok(ResonancePair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)?)
     }
 
     #[cfg(any(feature = "default", feature = "full_crypto"))]
     fn sign(&self, message: &[u8]) -> ResonanceSignature {
         // Helper function to derive a seed from the variant
-        let seed = match self {
-            ResonancePair::Seed(seed) => {
-                // Directly use the provided seed
-                seed.clone()
-            }
-        };
         // Generate a keypair from the seed
-        let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
+        let keypair = hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
         let signature = keypair
@@ -72,16 +47,12 @@ impl Pair for ResonancePair {
     }
 
     fn public(&self) -> Self::Public {
-        let seed = match self {
-            ResonancePair::Seed(seed) => seed,
-        };
-        let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
-        let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
-        ResonancePublic::from_slice(&pk_bytes).expect("Failed to create ResonancePublic")
+        ResonancePublic::from_slice(&self.public).expect("Failed to create ResonancePublic")
     }
 
     fn to_raw_vec(&self) -> Vec<u8> {
-        unimplemented!("to_raw_vec not implemented");
+        // this is modeled after sr25519 which returns the private key for this method
+        self.secret.to_vec()
     }
 
     #[cfg(feature = "std")]
@@ -129,8 +100,8 @@ mod tests {
 
     #[test]
     fn test_sign_different_message_fails() {
-        let seed = vec![0u8; 32];
-        let pair = ResonancePair::Seed(seed.clone());
+        let seed = [0u8; 32];
+        let pair = ResonancePair::from_seed(&seed).expect("Failed to create pair");
         let message = b"Hello, world!";
         let wrong_message = b"Goodbye, world!";
         
@@ -145,8 +116,8 @@ mod tests {
 
     #[test]
     fn test_wrong_signature_fails() {
-        let seed = vec![0u8; 32];
-        let pair = ResonancePair::Seed(seed.clone());
+        let seed = [0u8; 32];
+        let pair = ResonancePair::from_seed(&seed).expect("Failed to create pair");
         let message = b"Hello, world!";
         
         let mut signature = pair.sign(message);
@@ -166,8 +137,8 @@ mod tests {
     fn test_different_seed_different_public() {
         let seed1 = vec![0u8; 32];
         let seed2 = vec![1u8; 32];
-        let pair1 = ResonancePair::Seed(seed1);
-        let pair2 = ResonancePair::Seed(seed2);
+        let pair1 = ResonancePair::from_seed(&seed1).expect("Failed to create pair");
+        let pair2 = ResonancePair::from_seed(&seed2).expect("Failed to create pair");
         
         let pub1 = pair1.public();
         let pub2 = pair2.public();
