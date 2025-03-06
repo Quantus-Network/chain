@@ -27,8 +27,7 @@ impl Pair for ResonancePair {
 
     #[cfg(any(feature = "default", feature = "full_crypto"))]
     fn sign(&self, message: &[u8]) -> ResonanceSignature {
-        // Helper function to derive a seed from the variant
-        // Generate a keypair from the seed
+        // Create keypair struct
         let keypair = hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
@@ -41,6 +40,7 @@ impl Pair for ResonancePair {
     }
 
     fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignature, message: M, pubkey: &ResonancePublic) -> bool {
+        // Don't repeat the code in the sig scheme - use the sig scheme to verify
         let sig_scheme = ResonanceSignatureScheme::Resonance(sig.clone(), pubkey.as_slice().try_into().unwrap());
         let signer = ResonanceSigner::Resonance(pubkey.clone());
         sig_scheme.verify(message.as_ref(), &signer.into_account())
