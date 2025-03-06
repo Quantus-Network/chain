@@ -22,7 +22,7 @@ pub mod pallet {
 	use sha2::{Digest, Sha256};
 	use sha3::Sha3_512;
 	use num_bigint::BigUint;
-	use num_traits::Pow;
+	use num_traits::Float;
 	use frame_support::sp_runtime::traits::{Zero, One};
 
 
@@ -190,12 +190,25 @@ pub mod pallet {
 					let target_time_u64 = T::TargetBlockTime::get();
 
 					// Calculate ratio (keeping precision with fixed-point arithmetic)
-					let ratio = (average_block_time * 1000) as f64 / (target_time_u64 * 1000) as f64;
-					let update = ratio.powf(1.0 / 16.0);
-					let mut new_difficulty = (current_difficulty as f64 * update) as u64;
-					new_difficulty = new_difficulty.min(MAX_DISTANCE - 1);
-					new_difficulty = new_difficulty.max(INITIAL_DIFFICULTY / 10);
-					
+					let ratio = (average_block_time) as f32 / (target_time_u64) as f32;
+
+					// Adjust difficulty to approach target block time
+					let target_time_u64 = T::TargetBlockTime::get();
+					// Calculate difference from ideal ratio (1.0)
+					//let diff = (1.0 - ratio).max(0.0);
+
+
+					let power_factor = <f64 as Float>::powf(ratio as f64, 1.0/48.0);
+
+					log::info!("POWER FACTOR: {}",power_factor);
+
+					// Parabolic adjustment
+					let adjusted = (current_difficulty as f64 / power_factor) as u64;
+					let init_diff = INITIAL_DIFFICULTY / 10;
+					log::info!("Adjusted: {}, MD: {}, ID/10: {}", adjusted, MAX_DISTANCE, init_diff);
+					let new_difficulty
+						= adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10);
+
 					// Save the new difficulty
 					<CurrentDifficulty<T>>::put(new_difficulty);
 
@@ -461,4 +474,3 @@ pub mod pallet {
 		}
 	}
 }
-
