@@ -28,8 +28,6 @@ pallet-template = { path = "./pallets/template", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false}
 pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 clap = { version = "4.5.13" }
-dusk-poseidon = { version = "0.40.0", default-features = false }
-dusk-bls12_381 = { version = "0.13.0", default-features = false }
 frame-benchmarking-cli = { version = "46.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
 frame-system = { version = "39.1.0", default-features = false }
@@ -83,7 +81,6 @@ sp-offchain = { version = "35.0.0", default-features = false }
 sp-session = { version = "37.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-transaction-pool = { version = "35.0.0", default-features = false }
-sp-trie = { version = "38.0.0", default-features = false }
 sp-version = { version = "38.0.0", default-features = false }
 substrate-wasm-builder = { version = "25.0.0", default-features = false }
 
