@@ -4,8 +4,29 @@ use super::types::{ResonancePair, ResonancePublic, ResonanceSignature};
 use sp_core::{
     crypto::{DeriveError, DeriveJunction, SecretStringError}, ByteArray, Pair
 };
-use sp_runtime::traits::{IdentifyAccount, Verify};
+use sp_runtime::{traits::{IdentifyAccount, Verify}, AccountId32};
 use sp_std::vec::Vec;
+
+pub fn crystal_alice() -> ResonancePair {
+    let seed = [0u8; 32];
+    ResonancePair::from_seed_slice(&seed).expect("Always succeeds")
+}
+pub fn dilithium_bob() -> ResonancePair {
+    let seed = [1u8; 32];
+    ResonancePair::from_seed_slice(&seed).expect("Always succeeds")
+}
+pub fn crystal_charlie() -> ResonancePair {
+    let seed = [2u8; 32];
+    ResonancePair::from_seed_slice(&seed).expect("Always succeeds")
+}
+
+impl IdentifyAccount for ResonancePair {
+    type AccountId = AccountId32;
+    fn into_account(self) -> AccountId32 {
+       self.public().into_account()
+    }
+}
+
 
 impl Pair for ResonancePair {
     type Public = ResonancePublic;

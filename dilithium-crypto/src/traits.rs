@@ -1,6 +1,4 @@
-use crate::ResonancePublic;
-
-use super::types::{WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
+use super::types::{ResonancePublic, Error, WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
 
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
@@ -55,7 +53,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag
     }
 }
 
-impl<const N: usize, SubTag: Clone + Eq> IdentifyAccount for WrappedPublicBytes<N, SubTag> {
+impl IdentifyAccount for ResonancePublic {
     type AccountId = AccountId32;
     fn into_account(self) -> Self::AccountId {
         AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
@@ -218,5 +216,18 @@ impl IdentifyAccount for ResonanceSigner {
             Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
             Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
         }
+    }
+}
+
+impl ResonancePair {
+    pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
+        let keypair = hdwallet::generate(Some(&seed)).map_err(|_| Error::KeyGenerationFailed)?;
+        Ok(ResonancePair {
+            secret: keypair.secret.to_bytes(),
+            public: keypair.public.to_bytes()
+        })
+    }
+    pub fn public(&self) -> ResonancePublic {
+        ResonancePublic::from_slice(&self.public).unwrap()
     }
 }

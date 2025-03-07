@@ -30,16 +30,6 @@ pub struct ResonancePair {
 
 }
 
-impl ResonancePair {
-    pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
-        let keypair = hdwallet::generate(Some(&seed)).map_err(|_| Error::KeyGenerationFailed)?;
-        Ok(ResonancePair {
-            secret: keypair.secret.to_bytes(),
-            public: keypair.public.to_bytes()
-        })
-    }
-}
-
 impl Default for ResonancePair {
     fn default() -> Self {
         let seed = sp_std::vec![0u8; 32];

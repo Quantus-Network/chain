@@ -17,9 +17,11 @@
 
 use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
+use dilithium_crypto::pair::{crystal_alice, dilithium_bob, crystal_charlie};
 use serde_json::Value;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::AccountKeyring;
+use sp_runtime::traits::IdentifyAccount;
 
 // Returns the genesis config presets populated with given parameters.
 fn testnet_genesis(
@@ -43,15 +45,25 @@ fn testnet_genesis(
 
 /// Return the development genesis config.
 pub fn development_config_genesis() -> Value {
-	testnet_genesis(
-		vec![
-			AccountKeyring::Alice.to_account_id(),
-			AccountKeyring::Bob.to_account_id(),
-			AccountKeyring::AliceStash.to_account_id(),
-			AccountKeyring::BobStash.to_account_id(),
-		],
-		AccountKeyring::Alice.to_account_id(),
-	)
+    let mut endowed_accounts = vec![
+        AccountKeyring::Alice.to_account_id(),
+        AccountKeyring::Bob.to_account_id(),
+        AccountKeyring::AliceStash.to_account_id(),
+        AccountKeyring::BobStash.to_account_id(),
+    ];
+
+    // Add Dilithium-based accounts
+    let dilithium_accounts = vec![
+        crystal_alice().into_account(), 
+        dilithium_bob().into_account(),
+        crystal_charlie().into_account(),
+    ];
+    endowed_accounts.extend(dilithium_accounts);
+
+    testnet_genesis(
+        endowed_accounts,
+        AccountKeyring::Alice.to_account_id(), // Keep Alice as sudo
+    )
 }
 
 /// Return the local genesis config preset.
