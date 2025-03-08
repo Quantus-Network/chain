@@ -43,6 +43,7 @@ use super::{
 	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
+use log;
 
 impl_runtime_apis! {
 	impl sp_api::Core<Block> for Runtime {
@@ -75,7 +76,10 @@ impl_runtime_apis! {
 
 	impl sp_block_builder::BlockBuilder<Block> for Runtime {
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
-			Executive::apply_extrinsic(extrinsic)
+			log::info!("apply_extrinsic begin: {:?}", extrinsic);
+			let result = Executive::apply_extrinsic(extrinsic);
+			log::info!("apply_extrinsic end: {:?}", result);
+			result
 		}
 
 		fn finalize_block() -> <Block as BlockT>::Header {

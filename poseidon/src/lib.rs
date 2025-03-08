@@ -1,15 +1,21 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 use scale_info::TypeInfo;
 use sp_runtime::traits::Hash;
 use sp_core::Hasher;
 use sp_core::H256;
-use sp_runtime::{Deserialize, RuntimeDebug, Serialize, Vec};
+use sp_runtime::{RuntimeDebug, Vec};
 use sp_storage::StateVersion;
 use dusk_poseidon::{Hash as DuskPoseidonHash, Domain};
 use dusk_bls12_381::BlsScalar;
 use sp_trie::TrieConfiguration;
 use core::hash::Hasher as StdHasher;
-use codec::{Encode, Decode};
+use codec::Encode;
 use log;
+
+#[cfg(feature = "serde")]
+use sp_runtime::{Deserialize, Serialize};
+
 
 #[derive(Default)]
 pub struct PoseidonStdHasher(Vec<u8>);
@@ -26,7 +32,7 @@ impl StdHasher for PoseidonStdHasher {
 }
 
 #[derive(PartialEq, Eq, Clone, RuntimeDebug, TypeInfo)]
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PoseidonHasher;
 
 impl Hasher for PoseidonHasher {
@@ -37,7 +43,6 @@ impl Hasher for PoseidonHasher {
     fn hash(x: &[u8]) -> H256 {
         poseidon_hash(x)
     }
-
 }
 
 
@@ -62,7 +67,7 @@ fn poseidon_hash(x: &[u8]) -> H256 {
     }
 
     let hash = DuskPoseidonHash::digest(Domain::Other, &field_elements);
-    log::debug!("hash output: {:?}", hash);
+    log::info!("hash output: {:?}", hash);
     assert_eq!(hash.len(), 1, "Expected exactly 1 BlsScalar");
     let mut bytes = hash[0].to_bytes();
     bytes.reverse();
@@ -144,9 +149,14 @@ mod tests {
     #[test]
     fn test_consistency() {
         let input = [4u8; 50];
-        let hash1 = <PoseidonHasher as Hasher>::hash(&input);
-        let hash2 = <PoseidonHasher as Hasher>::hash(&input);
-        assert_eq!(hash1, hash2, "Hash function should be deterministic");
+        let iterations = 100;
+        let mut current_hash = <PoseidonHasher as Hasher>::hash(&input); // Compute the first hash
+
+        for _ in 0..iterations {
+            let hash1 = <PoseidonHasher as Hasher>::hash((&current_hash).as_ref());
+            let current_hash = <PoseidonHasher as Hasher>::hash((&current_hash).as_ref());
+            assert_eq!(hash1, current_hash, "Hash function should be deterministic");
+        }
     }
 
     #[test]

@@ -7,7 +7,6 @@ pub mod apis;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarks;
 pub mod configs;
-mod poseidon;
 
 pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonancePublic;
@@ -31,7 +30,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
-use crate::poseidon::PoseidonHasher;
+use poseidon_resonance::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -41,7 +40,7 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{Hash as HashT},
+		traits::{BlakeTwo256, Hash as HashT},
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;

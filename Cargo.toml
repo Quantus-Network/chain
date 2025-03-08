@@ -16,7 +16,7 @@ members = [
     "runtime",
     "dilithium-crypto",
     "dilithium-crypto/verify", 
-    "dilithium-crypto/sign",
+    "dilithium-crypto/sign", "poseidon",
 ]
 resolver = "2"
 

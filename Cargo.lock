@@ -2094,6 +2094,7 @@ dependencies = [
  "hdwallet",
  "log",
  "parity-scale-codec",
+ "poseidon-resonance",
  "rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
@@ -6963,6 +6964,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "350e9b48cbc6b0e028b0473b114454c6316e57336ee184ceab6e53f72c178b3e"
 
 [[package]]
+name = "poseidon-resonance"
+version = "0.1.0"
+dependencies = [
+ "dusk-bls12_381",
+ "dusk-poseidon",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-runtime",
+ "sp-storage 22.0.0",
+ "sp-trie",
+]
+
+[[package]]
 name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7727,8 +7744,6 @@ name = "resonance-runtime"
 version = "0.1.0"
 dependencies = [
  "dilithium-crypto",
- "dusk-bls12_381",
- "dusk-poseidon",
  "env_logger 0.11.6",
  "frame-benchmarking",
  "frame-executive",
@@ -7749,9 +7764,9 @@ dependencies = [
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-wormhole",
  "parity-scale-codec",
+ "poseidon-resonance",
  "primitive-types 0.13.1",
  "scale-info",
- "serde",
  "serde_json",
  "sp-api",
  "sp-block-builder",
@@ -7768,7 +7783,6 @@ dependencies = [
  "sp-std",
  "sp-storage 22.0.0",
  "sp-transaction-pool",
- "sp-trie",
  "sp-version",
  "substrate-wasm-builder",
 ]

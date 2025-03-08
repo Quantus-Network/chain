@@ -4,9 +4,11 @@ use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, Signat
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
 use sp_std::vec::Vec;
 use sp_core::{ecdsa, ed25519, sr25519};
+use sp_runtime::traits::Hash;
 use verify::verify;
+use poseidon_resonance::PoseidonHasher;
 
-// 
+//
 // WrappedPublicBytes
 // 
 
@@ -183,7 +185,7 @@ impl Verify for ResonanceSignatureScheme {
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Resonance(sig, pk_bytes) => {
-                let pk_hash = sp_io::hashing::blake2_256(pk_bytes);
+                let pk_hash = PoseidonHasher::hash(pk_bytes).0;
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
                 }
@@ -211,7 +213,7 @@ impl IdentifyAccount for ResonanceSigner {
             Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
             Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
-            Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            Self::Resonance(who) => PoseidonHasher::hash(who.as_ref()).0.into(),
         }
     }
 }
