@@ -29,7 +29,7 @@ pub mod pallet {
 	pub const CHUNK_SIZE: usize = 32;
 	pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE;
 	pub const MAX_DISTANCE: u64 = (1u64 << CHUNK_SIZE) * NUM_CHUNKS as u64;
-	pub const INITIAL_DIFFICULTY: u64 = 56255914621; // around 100 iterations
+	pub const INITIAL_DIFFICULTY: u64 = 50255914621; // around 100 iterations
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -121,8 +121,16 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
-			log::info!("📢 QPoW: on_initialize called at block {:?}", block_number);
+		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
+			Weight::zero()
+		}
+
+		/// Called when there is remaining weight at the end of the block.
+		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
+			if <LastBlockTime<T>>::get() == 0 {
+				<LastBlockTime<T>>::put(pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>());
+				<CurrentDifficulty<T>>::put(INITIAL_DIFFICULTY);
+			}
 			Weight::zero()
 		}
 
@@ -131,37 +139,12 @@ pub mod pallet {
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::info!(
-				"📢 QPoW: on_finalize called at block {:?}, blocks_in_period={}, current_difficulty={}",
+				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_difficulty={}",
 				block_number,
 				blocks,
 				current_difficulty
 			);
 			Self::adjust_difficulty();
-		}
-
-		/// Called when there is remaining weight at the end of the block.
-		fn on_idle(block_number: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
-			log::info!(
-			    "📢 QPoW: on_idle called at block {:?} with remaining weight {:?}",
-			    block_number,
-			    remaining_weight
-			);
-			if <LastBlockTime<T>>::get() == 0 {
-				<LastBlockTime<T>>::put(pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>());
-				<CurrentDifficulty<T>>::put(INITIAL_DIFFICULTY);
-			}
-			Weight::zero()
-		}
-
-		/// Called whenever a runtime upgrade is applied.
-		fn on_runtime_upgrade() -> Weight {
-			log::info!("📢 QPoW: on_runtime_upgrade triggered!");
-			Weight::zero()
-		}
-
-		/// Called for off-chain worker tasks.
-		fn offchain_worker(block_number: BlockNumberFor<T>) {
-			log::info!("📢 QPoW: offchain_worker triggered at block {:?}", block_number);
 		}
 	}
 
@@ -187,18 +170,21 @@ pub mod pallet {
 					let average_block_time = time_diff / (blocks as u64);
 
 					// Adjust difficulty to approach target block time
-					let target_time_u64 = T::TargetBlockTime::get();
+					let target_time = T::TargetBlockTime::get();
 
-					// Calculate ratio (keeping precision with fixed-point arithmetic)
+					let new_difficulty = Self::calculate_new_difficulty(
+						current_difficulty,
+						average_block_time,
+						target_time
+					);
+
+/*					// Calculate ratio (keeping precision with fixed-point arithmetic)
 					let ratio = (average_block_time) as f32 / (target_time_u64) as f32;
 
 					// Adjust difficulty to approach target block time
 					let target_time_u64 = T::TargetBlockTime::get();
-					// Calculate difference from ideal ratio (1.0)
-					//let diff = (1.0 - ratio).max(0.0);
 
-
-					let power_factor = <f64 as Float>::powf(ratio as f64, 1.0/48.0);
+					let power_factor = <f64 as Float>::powf(ratio as f64, 1.0/16.0);
 
 					log::info!("POWER FACTOR: {}",power_factor);
 
@@ -208,7 +194,7 @@ pub mod pallet {
 					log::info!("Adjusted: {}, MD: {}, ID/10: {}", adjusted, MAX_DISTANCE, init_diff);
 					let new_difficulty
 						= adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10);
-
+*/
 					// Save the new difficulty
 					<CurrentDifficulty<T>>::put(new_difficulty);
 
@@ -220,17 +206,55 @@ pub mod pallet {
 					});
 
 					log::info!(
-               "Adjusted mining difficulty: {} -> {} (avg block time: {}ms, target: {}ms)",
-               current_difficulty,
-               new_difficulty,
-               average_block_time,
-               target_time_u64
-           );
+					   "Adjusted mining difficulty: {} -> {} (avg block time: {}ms, target: {}ms)",
+					   current_difficulty,
+					   new_difficulty,
+					   average_block_time,
+					   target_time
+				   );
 				}
 
 				// Reset block counter for new adjustment period
 				<BlocksInPeriod<T>>::put(0);
+				<LastBlockTime<T>>::put(now);
 			}
+			else{
+				if blocks == 0 {
+					<LastBlockTime<T>>::put(now);
+				}
+			}
+		}
+		pub fn calculate_new_difficulty(
+			current_difficulty: u64,
+			average_block_time: u64,
+			target_block_time: u64,
+			) -> u64 {
+			log::info!("");
+            log::info!(
+				"📊 Calculating new difficulty\n\t🟢 Current Difficulty: {}\n\t🕒 Average Block Time: {}ms\n\t🎯 Target Block Time: {}ms",
+				current_difficulty,
+				average_block_time,
+				target_block_time
+			);
+				
+			// Calculate ratio
+			let ratio = (average_block_time as f32) / (target_block_time as f32);
+
+			// Calculate power factor
+			let power_factor = <f64 as Float>::powf(ratio as f64, 1.0/16.0);
+
+			// Calculate adjusted difficulty
+			let adjusted = (current_difficulty as f64 / power_factor) as u64;
+
+			log::info!("POWER FACTOR: {}", power_factor);
+			log::info!("Adjusted: {}, MD: {}, ID/10: {}",
+				adjusted,
+				MAX_DISTANCE,
+				INITIAL_DIFFICULTY / 10
+			);
+			
+			// Enforce bounds
+			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
 		}
 	}
 

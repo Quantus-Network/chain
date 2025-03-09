@@ -233,6 +233,42 @@ fn test_primality_check() {
     });
 }
 
+
+#[test]
+fn display_difficulty_adjustments() {
+    // Base difficulty for tests
+    let base_difficulty = 56_000_000_000;
+    // Target block time
+    let target_time = 6000;
+
+    // Generate a range of average block times
+    // From very fast blocks (10% of target) to very slow blocks (300% of target)
+    let avg_times = vec![
+        600,   // 10% of target
+        1200,  // 20% of target
+        1800,  // 30% of target
+        3000,  // 50% of target
+        4500,  // 75% of target
+        6000,  // 100% of target (ideal)
+        7500,  // 125% of target
+        9000,  // 150% of target
+        12000, // 200% of target
+        18000, // 300% of target
+    ];
+
+    println!("| Average Time (ms) | % of Target | New Difficulty | Change Factor |");
+    println!("|------------------|--------------|----------------|---------------|");
+
+    for avg_time in avg_times {
+        let new_difficulty = QPow::calculate_new_difficulty(base_difficulty, avg_time, target_time);
+        let factor = new_difficulty as f64 / base_difficulty as f64;
+        let percent_of_target = (avg_time as f64 / target_time as f64) * 100.0;
+
+        println!("| {:16} | {:11.1}% | {:14} | {:13.3} |",
+                 avg_time, percent_of_target, new_difficulty, factor);
+    }
+}
+
 //////////// Support methods
 pub fn hash_to_group(
     h: &[u8; 32],

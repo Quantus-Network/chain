@@ -101,8 +101,8 @@ parameter_types! {
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
-	type TargetBlockTime = ConstU64<6000>;
-	type AdjustmentPeriod = ConstU32<5>;
+	type TargetBlockTime = ConstU64<1000>;
+	type AdjustmentPeriod = ConstU32<10>;
 }
 
 impl pallet_wormhole::Config for Runtime {
