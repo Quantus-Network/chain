@@ -44,7 +44,7 @@ sp-version = { features = ["serde"], workspace = true }
 sp-genesis-builder.workspace = true
 frame-system-rpc-runtime-api.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
-frame-benchmarking = { version = "39.0.0", default-features = false }
+frame-benchmarking = { optional = true, workspace = true }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
 pallet-qpow = { workspace = true, default-features = false}
@@ -65,6 +65,7 @@ sp-std = { version = "14.0.0", default-features = true }
 hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
 env_logger = "0.11.5"  # Latest version as of now; adjust as needed
 sp-keyring = { workspace = true, features = ["std"]}
+pallet-balances = {workspace = true, default-features = false}
 
 [features]
 default = ["std"]
@@ -147,3 +148,7 @@ metadata-hash = ["substrate-wasm-builder/metadata-hash"]
 # A convenience feature for enabling things when doing a build
 # for an on-chain release.
 on-chain-release-build = ["metadata-hash", "sp-api/disable-logging"]
+
+[[test]]
+name = "extrinsic_test"
+path = "tests/extrinsic_test.rs"
