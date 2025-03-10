@@ -21,7 +21,7 @@ pub(crate) type FullClient = sc_service::TFullClient<
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
 //type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
-type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend, QPowAlgorithm<Block, FullClient>>;
+type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     Block,
     Arc<FullClient>,
@@ -93,7 +93,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     };
 
     //let select_chain = sc_consensus::LongestChain::new(backend.clone());
-    let select_chain = sc_consensus_qpow::HeaviestChain::new(client.backend().clone(), client.clone(), pow_algorithm.clone());
+    let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client), pow_algorithm.clone());
 
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
@@ -110,8 +110,8 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     let inherent_data_providers = build_inherent_data_providers()?;
 
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
-        client.clone(),
-        client.clone(),
+        Arc::clone(&client),
+        Arc::clone(&client),
         pow_algorithm,
         0, // check inherents starting at block 0
         select_chain.clone(),
