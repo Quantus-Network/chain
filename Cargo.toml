@@ -72,7 +72,9 @@ frame-support = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "35.0.0", default-features = false }
 frame-try-runtime = { version = "0.45.0", default-features = false }
-pallet-balances = { version = "40.0.1", default-features = false }
+# pallet-balances = { version = "40.0.1", default-features = false }
+pallet-balances = { path = "../pallet_balances_local", default-features = false }
+
 pallet-sudo = { version = "39.0.0", default-features = false }
 pallet-timestamp = { version = "38.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "39.0.0", default-features = false }
@@ -86,3 +88,7 @@ substrate-wasm-builder = { version = "25.0.0", default-features = false }
 
 log = { version = "0.4.22", default-features = true }
 primitive-types = { version="0.13.1", default-features=false }
+
+# temporary patch for local testing
+[patch.crates-io]
+pallet-balances = { path = "../pallet_balances_local" }

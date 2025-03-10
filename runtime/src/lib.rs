@@ -165,6 +165,7 @@ pub type TxExtension = (
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
+// pub type TxExtension = (); // debug
 
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
