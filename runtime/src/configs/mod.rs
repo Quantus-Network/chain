@@ -101,11 +101,11 @@ parameter_types! {
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
-	type TargetBlockTime = ConstU64<3000>;
+	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
 	type MinDifficultyMultiplier = MinDifficultyMultiplier;
 	type MaxDifficultyMultiplier = MaxDifficultyMultiplier;
-	type DampeningFactor = ConstU64<10>;
+	type DampeningFactor = ConstU64<3>;
 	type BlockTimeHistorySize = ConstU32<10>;
 }
 

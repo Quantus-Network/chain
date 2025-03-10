@@ -238,7 +238,7 @@ pub mod pallet {
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 
-			// Incerement number of blocks in period
+			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks + 1);
 
 			// Save if it's not the first block
@@ -278,7 +278,7 @@ pub mod pallet {
 					let median_block_time = Self::get_median_block_time();
 					let target_time = T::TargetBlockTime::get();
 
-					let new_difficulty = Self::calculate_new_difficulty_advanced(
+					let new_difficulty = Self::calculate_difficulty(
 						current_difficulty,
 						median_block_time,
 						target_time
@@ -312,110 +312,35 @@ pub mod pallet {
 			}
 		}
 
-
-		fn adjust_difficulty_v1() {
-			// Get current time from timestamp pallet (in milliseconds)
-			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
-			let last_time = <LastBlockTime<T>>::get();
-			let blocks = <BlocksInPeriod<T>>::get();
-			let current_difficulty = <CurrentDifficulty<T>>::get();
-
-			// Increment block counter
-			<BlocksInPeriod<T>>::put(blocks + 1);
-
-			// Update last block time for future calculations
-			<LastBlockTime<T>>::put(now);
-
-			// Check if difficulty adjustment is needed (after specified number of blocks)
-			if blocks >= T::AdjustmentPeriod::get() {
-				if last_time > 0 { // Make sure this is not the first block
-					// Calculate average time between blocks in milliseconds
-					let time_diff = now.saturating_sub(last_time);
-					let average_block_time = time_diff / (blocks as u64);
-
-					// Adjust difficulty to approach target block time
-					let target_time = T::TargetBlockTime::get();
-
-					let new_difficulty = Self::calculate_new_difficulty_advanced(
-						current_difficulty,
-						average_block_time,
-						target_time
-					);
-
-/*					// Calculate ratio (keeping precision with fixed-point arithmetic)
-					let ratio = (average_block_time) as f32 / (target_time_u64) as f32;
-
-					// Adjust difficulty to approach target block time
-					let target_time_u64 = T::TargetBlockTime::get();
-
-					let power_factor = <f64 as Float>::powf(ratio as f64, 1.0/16.0);
-
-					log::info!("POWER FACTOR: {}",power_factor);
-
-					// Parabolic adjustment
-					let adjusted = (current_difficulty as f64 / power_factor) as u64;
-					let init_diff = INITIAL_DIFFICULTY / 10;
-					log::info!("Adjusted: {}, MD: {}, ID/10: {}", adjusted, MAX_DISTANCE, init_diff);
-					let new_difficulty
-						= adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10);
-*/
-					// Save the new difficulty
-					<CurrentDifficulty<T>>::put(new_difficulty);
-
-					// Emit difficulty adjustment event
-					Self::deposit_event(Event::DifficultyAdjusted {
-						old_difficulty: current_difficulty,
-						new_difficulty,
-						average_block_time,
-					});
-
-					log::info!(
-					   "Adjusted mining difficulty: {} -> {} (avg block time: {}ms, target: {}ms)",
-					   current_difficulty,
-					   new_difficulty,
-					   average_block_time,
-					   target_time
-				   );
-				}
-
-				// Reset block counter for new adjustment period
-				<BlocksInPeriod<T>>::put(0);
-				<LastBlockTime<T>>::put(now);
-			}
-			else{
-				if blocks == 0 {
-					<LastBlockTime<T>>::put(now);
-				}
-			}
-		}
-		pub fn calculate_new_difficulty(
+		pub fn calculate_difficulty(
 			current_difficulty: u64,
 			average_block_time: u64,
 			target_block_time: u64,
 			) -> u64 {
-			log::info!("");
-            log::info!(
-				"📊 Calculating new difficulty\n\t🟢 Current Difficulty: {}\n\t🕒 Average Block Time: {}ms\n\t🎯 Target Block Time: {}ms",
-				current_difficulty,
-				average_block_time,
-				target_block_time
-			);
+
+			log::info!("📊 Calculating new difficulty ---------------------------------------------");
+			log::info!("🟢 Current Difficulty: {}",current_difficulty);
+			log::info!("🕒 Average Block Time: {}ms",average_block_time);
+			log::info!("🎯 Target Block Time: {}ms",target_block_time);
 				
 			// Calculate ratio
 			let ratio = (average_block_time as f32) / (target_block_time as f32);
 
 			// Calculate power factor
-			let power_factor = <f64 as Float>::powf(ratio as f64, 1.0/16.0);
+			let change_factor = <f64 as Float>::powf(ratio as f64, 1.0/16.0);
+			//let change_factor = <f64 as Float>::exp(<f64 as Float>::ln(ratio as f64) / 16 as f64);
+
+			let dampening = T::DampeningFactor::get();
+			let dampening_factor = dampening as f64;
+
+			// Apply additional damping
+			let damped_ratio = 1.0 + (change_factor - 1.0) / dampening_factor;
+
+			log::info!("Change factor: {}, damped ratio: {}", change_factor, damped_ratio);
 
 			// Calculate adjusted difficulty
-			let adjusted = (current_difficulty as f64 / power_factor) as u64;
-
-			log::info!("POWER FACTOR: {}", power_factor);
-			log::info!("Adjusted: {}, MD: {}, ID/10: {}",
-				adjusted,
-				MAX_DISTANCE,
-				INITIAL_DIFFICULTY / 10
-			);
+			//let adjusted = (current_difficulty as f64 / change_factor) as u64;
+			let adjusted = (current_difficulty as f64 / damped_ratio) as u64;
 			
 			// Enforce bounds
 			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
@@ -435,13 +360,10 @@ pub mod pallet {
 			let max_multiplier = max_num as f64 / max_denom as f64;
 			let dampening_factor = dampening as f64;
 
-			log::info!("");
-			log::info!(
-				"📊 Calculating new difficulty\n\t🟢 Current Difficulty: {}\n\t🕒 Average Block Time: {}ms\n\t🎯 Target Block Time: {}ms",
-				current_difficulty,
-				average_block_time,
-				target_block_time
-			);
+			log::info!("📊 Calculating new difficulty ---------------------------------------------");
+			log::info!("🟢 Current Difficulty: {}",current_difficulty);
+			log::info!("🕒 Average Block Time: {}ms",average_block_time);
+			log::info!("🎯 Target Block Time: {}ms",target_block_time);
 
 			// Calculate parameters
 			let raw_ratio = (average_block_time as f64) / (target_block_time as f64);
