@@ -1,18 +1,14 @@
-// use frame_support::{
-//     assert_ok,
-//     traits::{Currency, OnInitialize, OnFinalize},
-// };
 use resonance_runtime::{
     Balances, Executive, RuntimeCall, UncheckedExtrinsic,
-    AccountId, Address, Header, Block,
-    ResonanceSignatureScheme, Runtime,
-    SignedPayload
+    AccountId, Address, Header, Block, ResonanceSignatureScheme,
+    Runtime, SignedPayload, RuntimeGenesisConfig, // Import the genesis config
 };
 use sp_runtime::generic::{Era, Preamble};
 use sp_keyring::AccountKeyring;
 use sp_core::H256;
 use frame_support::traits::fungible::Mutate;
 use sp_io::TestExternalities;
+use sp_runtime::BuildStorage;
 
 mod tests {
     use super::*;
@@ -29,17 +25,23 @@ mod tests {
         let alice = AccountKeyring::Alice.to_account_id();
         let bob = AccountKeyring::Bob.to_account_id();
 
-        // Create test runtime with genesis state
-        let mut t = TestExternalities::new_empty();
+        // Use the runtime's default genesis config
+        let mut t = TestExternalities::new(RuntimeGenesisConfig::default().build_storage().unwrap());
         t.execute_with(|| {
-            // Initialize genesis block (block 0)
+            // Initialize block 1
             frame_system::Pallet::<Runtime>::initialize(
-                &1, // Start at block 1
-                &H256::default(), // Parent hash
-                &Default::default(), // Digest
+                &1,
+                &H256::default(),
+                &Default::default(),
             );
-            Balances::set_balance(&alice, 1000);
-            Balances::set_balance(&bob, 0);
+
+            // Set initial balances
+            Balances::set_balance(&alice, 1000000000);
+            Balances::set_balance(&bob, 1000000);
+
+            // Add this after setting balances
+            frame_system::Pallet::<Runtime>::inc_providers(&alice);
+            frame_system::Pallet::<Runtime>::inc_providers(&bob);
 
             // Create transfer transaction
             let transfer_amount = 500;
@@ -53,8 +55,12 @@ mod tests {
                 alice.clone(),
                 call,
                 AccountKeyring::Alice,
+                1000u128, // fee 
             );
 
+            let dispatch_info = call.get_dispatch_info();
+            let fee_required = <YourFeeConverter as Convert<Weight, Balance>>::convert(dispatch_info.weight);
+            
             // Execute the block
             Executive::execute_block(Block {
                 header: Header {
@@ -80,31 +86,26 @@ mod tests {
         sender: AccountId,
         call: RuntimeCall,
         signer: AccountKeyring,
+        fee: u128,
     ) -> UncheckedExtrinsic {
         // Compute account nonce
         let account_nonce = frame_system::Pallet::<Runtime>::account_nonce(&sender);
-
-
-        // Use Era::Mortal aligned with current block (1)
-        // let current_block = frame_system::Pallet::<Runtime>::block_number();
-        // let period = 64; // Typical period
-        // let phase = current_block % period;
 
         let extra = (
             frame_system::CheckNonZeroSender::<Runtime>::new(),
             frame_system::CheckSpecVersion::<Runtime>::new(),
             frame_system::CheckTxVersion::<Runtime>::new(),
             frame_system::CheckGenesis::<Runtime>::new(),
-            frame_system::CheckMortality::<Runtime>::from(Era::immortal()),
+            frame_system::CheckMortality::<Runtime>::from(Era::Immortal),
             frame_system::CheckNonce::<Runtime>::from(account_nonce),
             frame_system::CheckWeight::<Runtime>::new(),
-            pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(1000u128),
-            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
+            pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(fee),
+            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
         );
 
         // Create signed payload
         let raw_payload = SignedPayload::new(call.clone(), extra.clone()).unwrap();
-        let signature = signer.sign(&raw_payload.encode()); // Fixed encoding
+        let signature = signer.sign(&raw_payload.encode());
 
         UncheckedExtrinsic::from_parts(
             call,

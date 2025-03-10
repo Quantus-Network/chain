@@ -87,6 +87,11 @@ async-trait = "0.1.86"
 substrate-build-script-utils.workspace = true
 substrate-build-script-utils.default-features = true
 
+[dev-dependencies]
+frame-support = { workspace = true, default-features = false }
+env_logger = "0.11"
+pallet-balances = { workspace = true, default-features = false }
+
 [features]
 default = ["std"]
 std = [
