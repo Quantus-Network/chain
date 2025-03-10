@@ -6,12 +6,15 @@ edition.workspace = true
 license = "Apache-2.0"
 
 [dependencies]
+async-trait = "0.1"
 codec.workspace = true
 scale-info.workspace = true
 sc-client-api = { workspace = true }
 sc-consensus-pow.workspace = true
 sp-consensus-pow.workspace = true
 sp-consensus-qpow.workspace = true
+sp-consensus.workspace = true
+sp-blockchain.workspace = true 
 sp-runtime.workspace = true
 sp-api.workspace = true
 primitive-types.workspace = true

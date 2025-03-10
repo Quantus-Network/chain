@@ -11,6 +11,9 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
+use sp_consensus::{SelectChain};
+use sp_runtime::traits::{ Header, Zero};
+use sp_blockchain::{HeaderBackend};
 
 pub use miner::QPoWMiner;
 
@@ -97,5 +100,125 @@ pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result
     match parent {
         BlockId::Hash(hash) => Ok(*hash),
         BlockId::Number(_) => Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
+    }
+}
+
+#[derive(Clone)]
+pub struct HeaviestChain<B, C, Backend, Algorithm> 
+where 
+    B: BlockT<Hash = H256>,
+    C: ProvideRuntimeApi<B>,
+{
+    backend: Arc<Backend>,
+    client: Arc<C>,
+    algorithm: Algorithm,
+    _phantom: PhantomData<B>,
+}
+
+impl<B, C, Backend, Algorithm> HeaviestChain<B, C, Backend, Algorithm>
+where
+    B: BlockT<Hash = H256>,
+    C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
+    C::Api: QPoWApi<B>,
+    Algorithm: PowAlgorithm<B, Difficulty = U256> + Send + Sync + Clone + 'static,
+    //Block: sp_runtime::traits::Block,
+    Backend: sc_client_api::blockchain::Backend<B> +HeaderBackend<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
+{
+    pub fn new(backend: Arc<Backend>, client: Arc<C>, algorithm: Algorithm) -> Self {
+        Self { backend,
+               client,
+               algorithm,
+               _phantom: PhantomData }
+    }
+
+    fn calculate_chain_difficulty(&self, chain_head: &B::Header) -> Result<U256, sp_consensus::Error> {
+        // calculate cumulative difficulty of a chain
+        
+        let mut current_hash = chain_head.hash();
+        let mut total_difficulty = U256::zero();
+        
+        // Traverse the chain backwards to calculate cumulative difficulty
+        loop {
+            let header = self.backend.header(current_hash)
+                                .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
+                                .ok_or_else(|| sp_consensus::Error::Other(format!("Missing Header {:?}", current_hash).into()))?;
+            
+            if let Some(seal) = header.digest().logs().iter().find(|item| {
+                item.as_seal().is_some()
+            }) {
+                if let Some((_, seal_data)) = seal.as_seal() {
+                    // Convert header hash to [u8; 32]
+                    let header_bytes = header.hash().as_ref().try_into().unwrap_or([0u8; 32]);
+                    
+                    // Try to decode nonce from seal data
+                    let nonce = if seal_data.len() == 64 {
+                        let mut nonce_bytes = [0u8; 64];
+                        nonce_bytes.copy_from_slice(&seal_data[0..64]);
+                        nonce_bytes
+                    } else {
+                        //seal data doesn't match expected format
+                        [0u8; 64]
+                    };
+
+                    let max_distance = self.client.runtime_api().get_max_distance(current_hash.clone())
+                        .map_err(|e| sp_consensus::Error::Other(format!("Failed to get max distance: {:?}", e).into()))?;
+
+                    let actual_distance = self.client.runtime_api().get_nonce_distance(current_hash.clone(), header_bytes, nonce)
+                        .map_err(|e| sp_consensus::Error::Other(format!("Failed to get nonce distance: {:?}", e).into()))?;
+
+                    let block_difficulty = U256::from(max_distance.saturating_sub(actual_distance));
+                    
+                    total_difficulty = total_difficulty.saturating_add(U256::from(block_difficulty));
+                }
+            }
+            
+            // Stop at genesis block
+            if header.number().is_zero() {
+                break;
+            }
+            
+            // Move to the parent block
+            current_hash = *header.parent_hash();
+        }
+        
+        Ok(total_difficulty)
+    }
+}
+
+
+
+#[async_trait::async_trait]
+impl<B, C, Backend, Algorithm> SelectChain<B> for HeaviestChain<B, C, Backend, Algorithm> 
+where
+    B: BlockT<Hash = H256>,
+    C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
+    C::Api: QPoWApi<B>,
+    Backend: sc_client_api::blockchain::Backend<B> + HeaderBackend<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
+    Algorithm: PowAlgorithm<B, Difficulty = U256> + Send + Sync + Clone + 'static,
+{
+    async fn leaves(&self) -> Result<Vec<B::Hash>, sp_consensus::Error>{
+        self.backend.leaves().map_err(|e| {
+            sp_consensus::Error::Other(format!("Failed to fetch leaves: {:?}", e).into())
+        })
+    }
+
+    async fn best_chain(&self) -> Result<B::Header, sp_consensus::Error> {
+        let leaves = self.leaves().await?;
+        let mut best_header = None;
+        let mut best_work = U256::zero();
+        
+        for leaf_hash in leaves {
+            let header = self.backend.header(leaf_hash)
+                .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
+                .ok_or_else(|| sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into()))?;
+            let chain_work = self.calculate_chain_difficulty(&header)?;
+            if chain_work > best_work {
+                best_work = chain_work;
+                best_header = Some(header);
+            }
+        }
+
+        best_header.ok_or(sp_consensus::Error::Other("No Valid Chain Found".into()))
+        
     }
 }
