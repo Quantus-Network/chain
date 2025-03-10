@@ -46,8 +46,8 @@ sc-network = { version = "0.48.2", default-features = false }
 sc-offchain = { version = "43.0.0", default-features = false }
 sc-service = { version = "0.49.0", default-features = false }
 sc-telemetry = { version = "28.0.0", default-features = false }
-sc-transaction-pool = { version = "38.0.0", default-features = false }
-sc-transaction-pool-api = { version = "38.0.0", default-features = false }
+sc-transaction-pool = { version = "38.1.0", default-features = false }
+sc-transaction-pool-api = { version = "38.1.0", default-features = false }
 serde_json = { version = "1.0.132", default-features = false }
 sp-api = { version = "35.0.0", default-features = false }
 sp-block-builder = { version = "35.0.0", default-features = false }
@@ -59,7 +59,7 @@ sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }
 sp-inherents = { version = "35.0.0", default-features = false }
 sp-io = { version = "39.0.0", default-features = false }
-sp-std = { version="14.0.0", default-features = false} # Expected by wormhole
+sp-std = { version = "14.0.0", default-features = false }
 sp-keyring = { version = "40.0.0", default-features = false }
 sp-runtime = { version = "40.1.0", default-features = false }
 sp-timestamp = { version = "35.0.0", default-features = false }
@@ -72,7 +72,7 @@ frame-support = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "35.0.0", default-features = false }
 frame-try-runtime = { version = "0.45.0", default-features = false }
-pallet-balances = { version = "40.0.0", default-features = false }
+pallet-balances = { version = "40.0.1", default-features = false }
 pallet-sudo = { version = "39.0.0", default-features = false }
 pallet-timestamp = { version = "38.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "39.0.0", default-features = false }

@@ -18,10 +18,12 @@
 use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
 use dilithium_crypto::pair::{crystal_alice, dilithium_bob, crystal_charlie};
+use frame_benchmarking::v2::__private::log;
 use serde_json::Value;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::AccountKeyring;
 use sp_runtime::traits::IdentifyAccount;
+use sp_core::crypto::Ss58Codec;
 
 // Returns the genesis config presets populated with given parameters.
 fn testnet_genesis(
@@ -54,9 +56,9 @@ pub fn development_config_genesis() -> Value {
 
     // Add Dilithium-based accounts
     let dilithium_accounts = vec![
-        crystal_alice().into_account(), 
-        dilithium_bob().into_account(),
-        crystal_charlie().into_account(),
+        crystal_alice().into_account(), // 5HXbJzpBF2oxUWeSAq3AFQu9zA6nfN2fwu71d7e44bbkrQJj
+        dilithium_bob().into_account(), // 5EjGLVmu9wwPxguLqbb1hXvwfQLxsm3Ug57En9reLkKLL7Fp
+        crystal_charlie().into_account(), // 5E1tXyYePf2a2Me83j3bUzVTtDd8YfsEn47bDjwLMgWTSemJ
     ];
     endowed_accounts.extend(dilithium_accounts);
 
