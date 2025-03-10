@@ -24,6 +24,7 @@ pub mod pallet {
 	use num_bigint::BigUint;
 	use num_traits::Float;
 	use frame_support::sp_runtime::traits::{Zero, One};
+	use sp_std::prelude::*;
 
 
 	pub const CHUNK_SIZE: usize = 32;
@@ -43,6 +44,17 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+	#[pallet::storage]
+	pub type BlockTimeHistory<T: Config> = StorageMap<_, Twox64Concat, u32, u64, ValueQuery>;
+
+	// Indeks dla aktualnej pozycji w historii (bufor cykliczny)
+	#[pallet::storage]
+	pub type HistoryIndex<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	// Aktualny rozmiar historii
+	#[pallet::storage]
+	pub type HistorySize<T: Config> = StorageValue<_, u32, ValueQuery>;
+
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
@@ -54,6 +66,18 @@ pub mod pallet {
 
 		#[pallet::constant]
 		type AdjustmentPeriod: Get<u32>;
+
+		#[pallet::constant]
+		type MinDifficultyMultiplier: Get<(u64, u64)>;
+
+		#[pallet::constant]
+		type MaxDifficultyMultiplier: Get<(u64, u64)>;
+
+		#[pallet::constant]
+		type DampeningFactor: Get<u64>;
+
+		#[pallet::constant]
+		type BlockTimeHistorySize: Get<u32>;
 	}
 
 	#[pallet::genesis_config]
@@ -149,7 +173,147 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+
+		// Block time recording for median calculation
+		fn record_block_time(block_time: u64) {
+			//History size limiter
+			let max_history = T::BlockTimeHistorySize::get();
+			let mut index = <HistoryIndex<T>>::get();
+			let size = <HistorySize<T>>::get();
+
+			//Save block time
+			<BlockTimeHistory<T>>::insert(index, block_time);
+
+			// Update index and time
+			index = (index + 1) % max_history;
+			let new_size = if size < max_history { size + 1 } else { max_history };
+
+			<HistoryIndex<T>>::put(index);
+			<HistorySize<T>>::put(new_size);
+
+			log::info!(
+				"📊 Recorded block time: {}ms, history size: {}/{}",
+				block_time,
+				new_size,
+				max_history
+			);
+		}
+
+		// Median calculation
+		fn get_median_block_time() -> u64 {
+			let size = <HistorySize<T>>::get();
+
+			if size == 0 {
+				return T::TargetBlockTime::get();
+			}
+
+			// Take all data
+			let mut times = Vec::with_capacity(size as usize);
+			for i in 0..size {
+				times.push(<BlockTimeHistory<T>>::get(i));
+			}
+
+			// Sort it
+			times.sort();
+
+			let median_time = if times.len() % 2 == 0u32 as usize {
+				(times[times.len() / 2 - 1] + times[times.len() / 2]) / 2
+			} else {
+				times[times.len() / 2]
+			};
+
+			log::info!(
+				"📊 Calculated median block time: {}ms from {} samples",
+				median_time,
+				times.len()
+			);
+
+			median_time
+		}
+
 		fn adjust_difficulty() {
+			// Get current time
+			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
+			let last_time = <LastBlockTime<T>>::get();
+			let blocks = <BlocksInPeriod<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
+
+			// Incerement number of blocks in period
+			<BlocksInPeriod<T>>::put(blocks + 1);
+
+			// Save if it's not the first block
+			if last_time > 0 {
+				let block_time = now.saturating_sub(last_time);
+
+				log::info!(
+					"Time calculation: now={}, last_time={}, diff={}ms",
+					now,
+					last_time,
+					block_time
+				);
+
+				// Additional protection against super high block times
+				let max_reasonable_time = T::TargetBlockTime::get() * 10;
+				// takes smaller value
+				let capped_time = block_time.min(max_reasonable_time);
+
+				if block_time != capped_time {
+					log::warn!(
+						"Capped excessive block time from {}ms to {}ms",
+						block_time,
+						capped_time
+					);
+				}
+
+				// record new block time
+				Self::record_block_time(block_time);
+			}
+
+			// Add last block time for the next calculations
+			<LastBlockTime<T>>::put(now);
+
+			// Should we correct difficulty ?
+			if blocks >= T::AdjustmentPeriod::get() {
+				if <HistorySize<T>>::get() > 0 {
+					let median_block_time = Self::get_median_block_time();
+					let target_time = T::TargetBlockTime::get();
+
+					let new_difficulty = Self::calculate_new_difficulty_advanced(
+						current_difficulty,
+						median_block_time,
+						target_time
+					);
+
+					// Save new difficulty
+					<CurrentDifficulty<T>>::put(new_difficulty);
+
+					// Propagate new Event
+					Self::deposit_event(Event::DifficultyAdjusted {
+						old_difficulty: current_difficulty,
+						new_difficulty,
+						average_block_time: median_block_time,
+					});
+
+					log::info!(
+                    "Adjusted mining difficulty: {} -> {} (median block time: {}ms, target: {}ms)",
+                    current_difficulty,
+                    new_difficulty,
+                    median_block_time,
+                    target_time
+                );
+				}
+
+				// Reset counters before new iteration
+				<BlocksInPeriod<T>>::put(0);
+				<LastBlockTime<T>>::put(now);
+			}
+			else if blocks == 0 {
+				<LastBlockTime<T>>::put(now);
+			}
+		}
+
+
+		fn adjust_difficulty_v1() {
 			// Get current time from timestamp pallet (in milliseconds)
 			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
 			let last_time = <LastBlockTime<T>>::get();
@@ -172,7 +336,7 @@ pub mod pallet {
 					// Adjust difficulty to approach target block time
 					let target_time = T::TargetBlockTime::get();
 
-					let new_difficulty = Self::calculate_new_difficulty(
+					let new_difficulty = Self::calculate_new_difficulty_advanced(
 						current_difficulty,
 						average_block_time,
 						target_time
@@ -256,6 +420,54 @@ pub mod pallet {
 			// Enforce bounds
 			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
 		}
+
+		fn calculate_new_difficulty_advanced(
+			current_difficulty: u64,
+			average_block_time: u64,
+			target_block_time: u64,
+		) -> u64 {
+			// Load configuration
+			let (min_num, min_denom) = T::MinDifficultyMultiplier::get();
+			let (max_num, max_denom) = T::MaxDifficultyMultiplier::get();
+			let dampening = T::DampeningFactor::get();
+
+			let min_multiplier = min_num as f64 / min_denom as f64;
+			let max_multiplier = max_num as f64 / max_denom as f64;
+			let dampening_factor = dampening as f64;
+
+			log::info!("");
+			log::info!(
+				"📊 Calculating new difficulty\n\t🟢 Current Difficulty: {}\n\t🕒 Average Block Time: {}ms\n\t🎯 Target Block Time: {}ms",
+				current_difficulty,
+				average_block_time,
+				target_block_time
+			);
+
+			// Calculate parameters
+			let raw_ratio = (average_block_time as f64) / (target_block_time as f64);
+			let clamped_ratio = raw_ratio.max(min_multiplier).min(max_multiplier);
+
+			// Apply additional damping
+			let damped_ratio = 1.0 + (clamped_ratio - 1.0) / dampening_factor;
+
+			// Calculate new difficulty
+			let adjusted = (current_difficulty as f64 / damped_ratio) as u64;
+
+			log::info!("Raw ratio: {}, Clamped ratio: {}, Damped ratio: {}",
+				raw_ratio,
+				clamped_ratio,
+				damped_ratio
+			);
+			log::info!("Adjusted difficulty: {}, MIN: {}, MAX: {}",
+				adjusted,
+				INITIAL_DIFFICULTY / 10,
+				MAX_DISTANCE - 1
+			);
+
+			// Cut to the expected range
+			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
+		}
+
 	}
 
 	#[pallet::call]
