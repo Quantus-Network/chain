@@ -346,7 +346,8 @@ pub mod pallet {
 			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
 		}
 
-		fn calculate_new_difficulty_advanced(
+		/*
+		fn calculate_new_difficulty_three_params(
 			current_difficulty: u64,
 			average_block_time: u64,
 			target_block_time: u64,
@@ -389,7 +390,7 @@ pub mod pallet {
 			// Cut to the expected range
 			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
 		}
-
+		*/
 	}
 
 	#[pallet::call]

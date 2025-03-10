@@ -1,5 +1,6 @@
 use crate::mock::*;
 use primitive_types::U512;
+use crate::{INITIAL_DIFFICULTY, MAX_DISTANCE};
 
 #[test]
 fn test_submit_valid_proof() {
@@ -233,40 +234,73 @@ fn test_primality_check() {
     });
 }
 
-
 #[test]
-fn display_difficulty_adjustments() {
-    // Base difficulty for tests
-    let base_difficulty = 56_000_000_000;
-    // Target block time
-    let target_time = 6000;
+fn test_difficulty_adjustment_boundaries() {
+    new_test_ext().execute_with(|| {
+        // 1. Test minimum difficulty boundary
 
-    // Generate a range of average block times
-    // From very fast blocks (10% of target) to very slow blocks (300% of target)
-    let avg_times = vec![
-        600,   // 10% of target
-        1200,  // 20% of target
-        1800,  // 30% of target
-        3000,  // 50% of target
-        4500,  // 75% of target
-        6000,  // 100% of target (ideal)
-        7500,  // 125% of target
-        9000,  // 150% of target
-        12000, // 200% of target
-        18000, // 300% of target
-    ];
+        // A. If initial difficulty is already at minimum, it should stay there
+        let min_difficulty = INITIAL_DIFFICULTY / 10;
+        let current_difficulty = min_difficulty;  // Already at minimum
 
-    println!("| Average Time (ms) | % of Target | New Difficulty | Change Factor |");
-    println!("|------------------|--------------|----------------|---------------|");
+        let new_difficulty = QPow::calculate_difficulty(
+            current_difficulty,
+            10000,  // 10x target (extremely slow blocks)
+            1000    // Target block time
+        );
 
-    for avg_time in avg_times {
-        let new_difficulty = QPow::calculate_new_difficulty(base_difficulty, avg_time, target_time);
-        let factor = new_difficulty as f64 / base_difficulty as f64;
-        let percent_of_target = (avg_time as f64 / target_time as f64) * 100.0;
+        // Should be clamped exactly to minimum
+        assert_eq!(new_difficulty, min_difficulty,
+                   "When already at minimum difficulty, it should stay at minimum: {}", min_difficulty);
 
-        println!("| {:16} | {:11.1}% | {:14} | {:13.3} |",
-                 avg_time, percent_of_target, new_difficulty, factor);
-    }
+        // B. If calculated difficulty would be below minimum, it should be clamped up
+        let current_difficulty = min_difficulty + 100;  // Slightly above minimum
+
+        // Set block time extremely high to force adjustment below minimum
+        let extreme_block_time = 20000;  // 20x target
+
+        let new_difficulty = QPow::calculate_difficulty(
+            current_difficulty,
+            extreme_block_time,
+            1000    // Target block time
+        );
+
+        // Should be exactly at minimum
+        assert_eq!(new_difficulty, min_difficulty,
+                   "When adjustment would put difficulty below minimum, it should be clamped to minimum");
+
+        // 2. Test maximum difficulty boundary
+
+        // A. If initial difficulty is already at maximum, it should stay there
+        let max_difficulty = MAX_DISTANCE - 1;
+        let current_difficulty = max_difficulty+100;  // Above Maximum
+
+        let new_difficulty = QPow::calculate_difficulty(
+            current_difficulty,
+            100,    // 0.1x target (extremely fast blocks)
+            1000    // Target block time
+        );
+
+        // Should be clamped exactly to maximum
+        assert_eq!(new_difficulty, max_difficulty,
+                   "When already at maximum difficulty, it should stay at maximum: {}", max_difficulty);
+
+        // B. If calculated difficulty would be above maximum, it should be clamped down
+        let current_difficulty = max_difficulty - 1000;  // Slightly below maximum
+
+        // Set block time extremely low to force adjustment above maximum
+        let extreme_block_time = 10;  // 0.01x target
+
+        let new_difficulty = QPow::calculate_difficulty(
+            current_difficulty,
+            extreme_block_time,
+            1000    // Target block time
+        );
+
+        // Should be exactly at maximum
+        assert_eq!(new_difficulty, max_difficulty,
+                   "When adjustment would put difficulty above maximum, it should be clamped to maximum");
+    });
 }
 
 //////////// Support methods
