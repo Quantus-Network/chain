@@ -324,6 +324,9 @@ pub mod pallet {
 		pub fn get_difficulty() -> u64 {
 			GenesisConfig::<T>::default().initial_difficulty
 		}
+		pub fn get_max_distance() -> u64 {
+			MAX_DISTANCE
+		}
 
 		pub fn log_info(message: &str){
 			log::info!("From QPoW Pallet: {}",message);

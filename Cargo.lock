@@ -8366,6 +8366,7 @@ dependencies = [
 name = "sc-consensus-qpow"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "log",
  "parity-scale-codec",
  "primitive-types 0.13.1",
@@ -8375,6 +8376,8 @@ dependencies = [
  "sha2 0.10.8",
  "sha3",
  "sp-api",
+ "sp-blockchain",
+ "sp-consensus",
  "sp-consensus-pow",
  "sp-consensus-qpow",
  "sp-runtime",

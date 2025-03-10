@@ -17,6 +17,15 @@ sp_api::decl_runtime_apis! {
             difficulty: u64,
         ) -> bool;
 
+        /// calculate distance header with nonce to with nonce
+        fn get_nonce_distance(
+            header: [u8; 32],  // 256-bit header
+			nonce: [u8; 64], // 512-bit nonce
+		) -> u64;
+
+        /// Get the max possible difficulty for work calculation
+        fn get_max_distance() -> u64;
+
         /// Get the current difficulty target for proof generation
         fn get_difficulty() -> u64;
 

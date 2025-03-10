@@ -20,8 +20,8 @@ pub(crate) type FullClient = sc_service::TFullClient<
     sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
-type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
-
+//type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
+type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend, QPowAlgorithm<Block, FullClient>>;
 pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     Block,
     Arc<FullClient>,
@@ -87,7 +87,13 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         telemetry
     });
 
-    let select_chain = sc_consensus::LongestChain::new(backend.clone());
+    let pow_algorithm = QPowAlgorithm {
+        client: client.clone(),
+        _phantom: Default::default(),
+    };
+
+    //let select_chain = sc_consensus::LongestChain::new(backend.clone());
+    let select_chain = sc_consensus_qpow::HeaviestChain::new(client.backend().clone(), client.clone(), pow_algorithm.clone());
 
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
@@ -102,11 +108,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 
     let inherent_data_providers = build_inherent_data_providers()?;
-
-    let pow_algorithm = QPowAlgorithm {
-        client: client.clone(),
-        _phantom: Default::default(),
-    };
 
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
         client.clone(),

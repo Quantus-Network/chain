@@ -124,6 +124,13 @@ impl_runtime_apis! {
 	}
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
+		fn get_nonce_distance(
+			header: [u8; 32],
+			nonce: [u8; 64]
+		) -> u64 {
+			QPoW::get_nonce_distance(header, nonce)
+		}
+
 		fn verify_nonce(
 			header: [u8; 32],
 			nonce: [u8; 64],
@@ -134,6 +141,10 @@ impl_runtime_apis! {
 
 		fn get_difficulty() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
+		}
+
+		fn get_max_distance() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_max_distance()
 		}
 
 		fn get_latest_proof() -> Option<[u8; 64]> {
