@@ -13,7 +13,7 @@ use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
 use sp_consensus::{SelectChain};
 use sp_runtime::traits::{ Header, Zero};
-use sp_blockchain::{HeaderBackend};
+use sp_blockchain::{Backend, HeaderBackend};
 
 pub use miner::QPoWMiner;
 
@@ -103,29 +103,45 @@ pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result
     }
 }
 
-#[derive(Clone)]
-pub struct HeaviestChain<B, C, Backend, Algorithm> 
+//#[derive(Clone)]
+pub struct HeaviestChain<B, C, BE>
 where 
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B>,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B>,
+    BE: sc_client_api::Backend<B>,
 {
-    backend: Arc<Backend>,
+    backend: Arc<BE>,
     client: Arc<C>,
-    algorithm: Algorithm,
+    algorithm: QPowAlgorithm<B, C>,
     _phantom: PhantomData<B>,
 }
 
-impl<B, C, Backend, Algorithm> HeaviestChain<B, C, Backend, Algorithm>
+impl<B, C, BE> Clone for HeaviestChain<B, C, BE>
 where
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
-    C::Api: QPoWApi<B>,
-    Algorithm: PowAlgorithm<B, Difficulty = U256> + Send + Sync + Clone + 'static,
-    //Block: sp_runtime::traits::Block,
-    Backend: sc_client_api::blockchain::Backend<B> +HeaderBackend<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B>,
+    BE: sc_client_api::Backend<B>,
 {
-    pub fn new(backend: Arc<Backend>, client: Arc<C>, algorithm: Algorithm) -> Self {
-        Self { backend,
+    fn clone(&self) -> Self {
+        Self {
+            backend: Arc::clone(&self.backend),
+            client: Arc::clone(&self.client),
+            algorithm: self.algorithm.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<B, C, BE> HeaviestChain<B, C, BE>
+where
+    B: BlockT<Hash = H256>,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + Send + Sync + 'static,
+    C::Api: QPoWApi<B>,
+    BE: sc_client_api::Backend<B> + 'static,
+{
+    pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>) -> Self {
+        Self {
+               backend,
                client,
                algorithm,
                _phantom: PhantomData }
@@ -139,7 +155,7 @@ where
         
         // Traverse the chain backwards to calculate cumulative difficulty
         loop {
-            let header = self.backend.header(current_hash)
+            let header = self.client.header(current_hash)
                                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                                 .ok_or_else(|| sp_consensus::Error::Other(format!("Missing Header {:?}", current_hash).into()))?;
             
@@ -185,30 +201,27 @@ where
     }
 }
 
-
-
 #[async_trait::async_trait]
-impl<B, C, Backend, Algorithm> SelectChain<B> for HeaviestChain<B, C, Backend, Algorithm> 
+impl<B, C, BE> SelectChain<B> for HeaviestChain<B, C, BE>
 where
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + Send + Sync + 'static,
     C::Api: QPoWApi<B>,
-    Backend: sc_client_api::blockchain::Backend<B> + HeaderBackend<B> + BlockBackend<B> + Send + Sync + Clone + 'static,
-    Algorithm: PowAlgorithm<B, Difficulty = U256> + Send + Sync + Clone + 'static,
+    BE: sc_client_api::Backend<B> + 'static,
 {
     async fn leaves(&self) -> Result<Vec<B::Hash>, sp_consensus::Error>{
-        self.backend.leaves().map_err(|e| {
+        self.backend.blockchain().leaves().map_err(|e| {
             sp_consensus::Error::Other(format!("Failed to fetch leaves: {:?}", e).into())
         })
     }
 
     async fn best_chain(&self) -> Result<B::Header, sp_consensus::Error> {
-        let leaves = self.leaves().await?;
+        let leaves = self.backend.blockchain().leaves().unwrap();
         let mut best_header = None;
         let mut best_work = U256::zero();
         
         for leaf_hash in leaves {
-            let header = self.backend.header(leaf_hash)
+            let header = self.client.header(leaf_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into()))?;
             let chain_work = self.calculate_chain_difficulty(&header)?;
