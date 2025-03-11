@@ -267,11 +267,6 @@ impl TryFrom<ResonanceSignatureScheme> for ResonanceSignatureWithPublic {
     }
 }
 
-// impl AsRef<[u8]> for ResonanceSignatureWithPublic {
-//     fn as_ref(&self) -> &[u8] {
-//         self.to_raw_vec().as_slice()
-//     }
-// }
 impl AsMut<[u8]> for ResonanceSignatureWithPublic {
     fn as_mut(&mut self) -> &mut [u8] {
         self.bytes.as_mut()
