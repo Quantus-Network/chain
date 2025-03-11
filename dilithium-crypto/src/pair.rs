@@ -108,19 +108,18 @@ mod tests {
         let message: Vec<u8> = b"Hello, world!".to_vec();
         
         log::info!("Signing message: {:?}", &message[..10]);
+
         let signature = pair.sign(&message);
 
         log::info!("Signature: {:?}", &message[..10]);
 
         // sanity check
-        // TODO something with this sanity check broke - but it's not really needed. 
         // This should go in a separate unit test where we check the hdwallet crate.
         // this is keypair as hdwallet::generate vs keypair as hdwallet::create_keypair (in pair.sign)
         // TODO: fix this
         // let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
         // let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
         // assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
-
         
         let public = pair.public();
 
