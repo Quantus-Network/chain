@@ -1,4 +1,4 @@
-use crate::{ResonanceSignatureScheme, ResonanceSigner};
+use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSigner};
 
 use super::types::{ResonancePair, ResonancePublic, ResonanceSignature};
 use sp_core::{
@@ -62,7 +62,7 @@ impl Pair for ResonancePair {
 
     fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignature, message: M, pubkey: &ResonancePublic) -> bool {
         // Don't repeat the code in the sig scheme - use the sig scheme to verify
-        let sig_scheme = ResonanceSignatureScheme::Resonance(sig.clone(), pubkey.as_slice().try_into().unwrap());
+        let sig_scheme = ResonanceSignatureScheme::Resonance(ResonanceSignatureWithPublic { signature: sig.clone(), public: pubkey.as_slice().try_into().unwrap() });
         let signer = ResonanceSigner::Resonance(pubkey.clone());
         sig_scheme.verify(message.as_ref(), &signer.into_account())
     }

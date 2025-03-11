@@ -28,6 +28,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use dilithium_crypto::{ResonancePublic, ResonanceSignatureWithPublic};
     use sp_keyring::AccountKeyring;
 
     use super::*;
@@ -72,10 +73,13 @@ mod tests {
         let id = Address::Id(account_id);
         println!("Payload AccountId: {:?}", &id);
         let signed_extra: SignedExtra = ();
+
+        let sig_with_public = ResonanceSignatureWithPublic { signature, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
             id,
-            ResonanceSignatureScheme::Resonance(signature, pk_bytes),
+            ResonanceSignatureScheme::Resonance(sig_with_public),
             signed_extra,
         );
 
@@ -111,11 +115,11 @@ mod tests {
                 println!("Decoded Address: {:?}", decoded_address);
                 println!("Decoded Extra: {:?}", decoded_extra);
 
-                match decoded_signature {
-                    ResonanceSignatureScheme::Resonance(ref sig, pk_bytes) => {
-                        let sig_bytes = sig.as_slice();
+                match decoded_signature.clone() {
+                    ResonanceSignatureScheme::Resonance(sig_public) => {
+                        let sig_bytes = sig_public.signature.as_slice();
                         println!("Decoded Signature: {:?}", format_hex_truncated(&sig_bytes));
-                        println!("Decoded Public Key: {:?}", format_hex_truncated(&pk_bytes));
+                        println!("Decoded Public Key: {:?}", format_hex_truncated(&sig_public.public.as_ref()));
                     }
                     _ => println!("Decoded Signature: --"),
                 }
@@ -166,11 +170,13 @@ mod tests {
         let signature_wrong_key = ResonanceSignature::try_from(&sig_bytes_wrong_key[..])
             .expect("Signature length mismatch");
 
+        let sig_with_public = ResonanceSignatureWithPublic { signature: signature_wrong_key, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+
         // Create transaction with invalid signature
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
             id,
-            ResonanceSignatureScheme::Resonance(signature_wrong_key, pk_bytes),
+            ResonanceSignatureScheme::Resonance(sig_with_public),
             signed_extra,
         );
 
@@ -219,11 +225,13 @@ mod tests {
         let id_2 = Address::Id(account_id_2);
         let signed_extra: SignedExtra = ();
 
+        let sig_with_public = ResonanceSignatureWithPublic { signature, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+
         // Create transaction with wrong account ID.
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
             id_2,
-            ResonanceSignatureScheme::Resonance(signature, pk_bytes), // correct signature!
+            ResonanceSignatureScheme::Resonance(sig_with_public), // correct signature!
             signed_extra,
         );
 
@@ -276,10 +284,12 @@ mod tests {
         // Create transaction with wrong payload. Should fail.
         let wrong_payload: RuntimeCall = 40;
 
+        let sig_with_public = ResonanceSignatureWithPublic { signature, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+
         let extrinsic = UncheckedExtrinsic::new_signed(
             wrong_payload,
             id,
-            ResonanceSignatureScheme::Resonance(signature, pk_bytes),
+            ResonanceSignatureScheme::Resonance(sig_with_public),
             signed_extra,
         );
 

@@ -53,7 +53,8 @@ pub enum ResonanceSignatureScheme {
     Ed25519(ed25519::Signature),
     Sr25519(sr25519::Signature),
     Ecdsa(ecdsa::Signature),
-    Resonance(ResonanceSignature, [u8; super::crypto::PUB_KEY_BYTES]), // Signature and public key bytes
+    // Resonance(ResonanceSignature, [u8; super::crypto::PUB_KEY_BYTES]), // Signature and public key bytes
+    Resonance(ResonanceSignatureWithPublic)
 }
 
 // Replacement for MultiSigner
@@ -70,4 +71,10 @@ pub enum ResonanceSigner {
 pub enum Error {
     #[error("Failed to generate keypair")]
     KeyGenerationFailed,
+}
+
+#[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, TypeInfo)]
+pub struct ResonanceSignatureWithPublic {
+    pub signature: ResonanceSignature,
+    pub public: ResonancePublic,
 }
