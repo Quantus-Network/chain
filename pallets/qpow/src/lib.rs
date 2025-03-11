@@ -47,11 +47,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type BlockTimeHistory<T: Config> = StorageMap<_, Twox64Concat, u32, u64, ValueQuery>;
 
-	// Indeks dla aktualnej pozycji w historii (bufor cykliczny)
+	// Index for current position in ring buffer
 	#[pallet::storage]
 	pub type HistoryIndex<T: Config> = StorageValue<_, u32, ValueQuery>;
 
-	// Aktualny rozmiar historii
+	// Current history size
 	#[pallet::storage]
 	pub type HistorySize<T: Config> = StorageValue<_, u32, ValueQuery>;
 
@@ -66,12 +66,6 @@ pub mod pallet {
 
 		#[pallet::constant]
 		type AdjustmentPeriod: Get<u32>;
-
-		#[pallet::constant]
-		type MinDifficultyMultiplier: Get<(u64, u64)>;
-
-		#[pallet::constant]
-		type MaxDifficultyMultiplier: Get<(u64, u64)>;
 
 		#[pallet::constant]
 		type DampeningFactor: Get<u64>;
@@ -133,7 +127,7 @@ pub mod pallet {
 		DifficultyAdjusted {
 			old_difficulty: u64,
 			new_difficulty: u64,
-			average_block_time: u64,
+			median_block_time: u64,
 		},
 	}
 
@@ -200,7 +194,7 @@ pub mod pallet {
 		}
 
 		// Median calculation
-		fn get_median_block_time() -> u64 {
+		pub fn get_median_block_time() -> u64 {
 			let size = <HistorySize<T>>::get();
 
 			if size == 0 {
@@ -291,7 +285,7 @@ pub mod pallet {
 					Self::deposit_event(Event::DifficultyAdjusted {
 						old_difficulty: current_difficulty,
 						new_difficulty,
-						average_block_time: median_block_time,
+						median_block_time,
 					});
 
 					log::info!(
@@ -345,52 +339,6 @@ pub mod pallet {
 			// Enforce bounds
 			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
 		}
-
-		/*
-		fn calculate_new_difficulty_three_params(
-			current_difficulty: u64,
-			average_block_time: u64,
-			target_block_time: u64,
-		) -> u64 {
-			// Load configuration
-			let (min_num, min_denom) = T::MinDifficultyMultiplier::get();
-			let (max_num, max_denom) = T::MaxDifficultyMultiplier::get();
-			let dampening = T::DampeningFactor::get();
-
-			let min_multiplier = min_num as f64 / min_denom as f64;
-			let max_multiplier = max_num as f64 / max_denom as f64;
-			let dampening_factor = dampening as f64;
-
-			log::info!("📊 Calculating new difficulty ---------------------------------------------");
-			log::info!("🟢 Current Difficulty: {}",current_difficulty);
-			log::info!("🕒 Average Block Time: {}ms",average_block_time);
-			log::info!("🎯 Target Block Time: {}ms",target_block_time);
-
-			// Calculate parameters
-			let raw_ratio = (average_block_time as f64) / (target_block_time as f64);
-			let clamped_ratio = raw_ratio.max(min_multiplier).min(max_multiplier);
-
-			// Apply additional damping
-			let damped_ratio = 1.0 + (clamped_ratio - 1.0) / dampening_factor;
-
-			// Calculate new difficulty
-			let adjusted = (current_difficulty as f64 / damped_ratio) as u64;
-
-			log::info!("Raw ratio: {}, Clamped ratio: {}, Damped ratio: {}",
-				raw_ratio,
-				clamped_ratio,
-				damped_ratio
-			);
-			log::info!("Adjusted difficulty: {}, MIN: {}, MAX: {}",
-				adjusted,
-				INITIAL_DIFFICULTY / 10,
-				MAX_DISTANCE - 1
-			);
-
-			// Cut to the expected range
-			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
-		}
-		*/
 	}
 
 	#[pallet::call]

@@ -103,8 +103,6 @@ impl pallet_qpow::Config for Runtime {
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
-	type MinDifficultyMultiplier = MinDifficultyMultiplier;
-	type MaxDifficultyMultiplier = MaxDifficultyMultiplier;
 	type DampeningFactor = ConstU64<3>;
 	type BlockTimeHistorySize = ConstU32<10>;
 }
@@ -143,9 +141,6 @@ impl pallet_balances::Config for Runtime {
 
 parameter_types! {
 	pub FeeMultiplier: Multiplier = Multiplier::one();
-	//QPoW - difficulty adjustment
-	pub const MinDifficultyMultiplier: (u64, u64) = (2, 3);  // 2/3 ≈ 0.67
-    pub const MaxDifficultyMultiplier: (u64, u64) = (3, 2);  // 3/2 = 1.5
 }
 
 impl pallet_transaction_payment::Config for Runtime {

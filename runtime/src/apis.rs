@@ -140,6 +140,10 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
+		fn get_median_block_time() -> u64{
+			pallet_qpow::Pallet::<Self>::get_median_block_time()
+		}
+
 		fn get_latest_proof() -> Option<[u8; 64]> {
 			<pallet_qpow::LatestProof<Runtime>>::get()
 		}

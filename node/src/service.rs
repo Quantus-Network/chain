@@ -2,7 +2,7 @@
 
 use futures::{FutureExt, StreamExt};
 use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
-use sc_client_api::Backend;
+use sc_client_api::{Backend, BlockchainEvents};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -12,7 +12,10 @@ use std::{sync::Arc, time::Duration};
 use codec::Encode;
 use jsonrpsee::tokio;
 use sp_api::__private::BlockT;
+use sp_api::ProvideRuntimeApi;
 use sp_core::U512;
+use sp_consensus_qpow::QPoWApi;
+use crate::prometheus::ResonanceBusinessMetrics;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -278,10 +281,40 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
+        let client_monitoring = client.clone();
+        let prometheus_registry_monitoring = prometheus_registry.clone();
+        task_manager.spawn_essential_handle().spawn(
+            "monitoring_qpow",
+            None,
+            async move {
+                log::info!("⚙️  QPoW Monitoring task spawned");
+                let gauge_vec =
+                    if let Some(registry) = prometheus_registry_monitoring.as_ref() {
+                        Some(ResonanceBusinessMetrics::register_gauge_vec(registry))
+                    } else {
+                        None
+                    };
+
+                let mut sub = client_monitoring.import_notification_stream();
+                while let Some(notification) = sub.next().await {
+                    let block_hash = notification.hash;
+                    if let Some(ref gauge) = gauge_vec {
+                        gauge.with_label_values(&["median_block_time"]).set(
+                            client_monitoring.runtime_api().get_median_block_time(block_hash).unwrap_or(0) as f64
+                        )
+                    }else{
+                        log::warn!("QPoW Monitoring: Prometheus registry not found");
+                    }
+
+                }
+            }
+        );
+
         task_manager.spawn_essential_handle().spawn(
             "qpow-mining",
             None,
             async move {
+                log::info!("⚙️  QPoW Mining task spawned");
                 let mut nonce: U512 = U512::zero();
                 loop {
                     // Get mining metadata
