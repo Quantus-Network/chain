@@ -1,4 +1,4 @@
-use crate::types::{ResonanceCryptoTag, ResonanceSignature, ResonanceSignatureWithPublic};
+use crate::types::{ResonanceSignature, ResonanceSignatureWithPublic};
 
 use super::types::{ResonancePublic, Error, WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignatureScheme, ResonanceSigner};
 
@@ -182,16 +182,6 @@ impl Verify for ResonanceSignatureScheme {
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
                 }
-                // log::info!(
-                //     "Verifying signature:\n\
-                //      public key: {:?}\n\
-                //      message: {:?}\n\
-                //      signature: {:?}",
-                //     &sig_public.public.as_ref()[..10],
-                //     &msg.get()[..10],
-                //     &sig_public.signature.as_ref()[..10]
-                // );
-
                 let result = verify(sig_public.public.as_ref(), msg.get(), sig_public.signature.as_ref());
                 result
             },

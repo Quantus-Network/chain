@@ -6,10 +6,7 @@ use sp_core::{crypto::{PublicBytes, SignatureBytes}, ByteArray, RuntimeDebug};
 use sp_core::{ecdsa, ed25519, sr25519};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use sp_std::vec::Vec;
 use thiserror::Error;
-
-use crate::SIGNATURE_BYTES;
 
 ///
 /// Resonance Crypto Types
