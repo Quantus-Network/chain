@@ -9,7 +9,7 @@ mod benchmarks;
 pub mod configs;
 
 pub use dilithium_crypto::ResonancePublic;
-pub	use dilithium_crypto::ResonanceSignatureScheme;
+pub use dilithium_crypto::ResonanceSignatureScheme;
 
 extern crate alloc;
 use alloc::vec::Vec;
