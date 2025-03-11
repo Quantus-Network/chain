@@ -65,7 +65,6 @@ impl Pair for ResonancePair {
     }
 
     fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignatureWithPublic, message: M, pubkey: &ResonancePublic) -> bool {
-        // TODO maybe we can remove this pubkey parameter? 
         let sig_scheme = ResonanceSignatureScheme::Resonance(sig.clone());
         let signer = ResonanceSigner::Resonance(pubkey.clone());
         sig_scheme.verify(message.as_ref(), &signer.into_account())
