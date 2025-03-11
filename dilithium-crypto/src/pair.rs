@@ -61,16 +61,6 @@ impl Pair for ResonancePair {
         let signature = ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
         let sig_with_public = ResonanceSignatureWithPublic::new(signature, self.public());
 
-        log::info!(
-            "Created signature:\n\
-             public key: {:?}\n\
-             message: {:?}\n\
-             signature: {:?}",
-             &sig_with_public.public.as_ref()[..10],
-             &message[..10],
-             &sig_with_public.signature.as_ref()[..10]
-         );
-
         sig_with_public
     }
 
