@@ -8,9 +8,8 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
-pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonancePublic;
-use dilithium_crypto::ResonanceSignatureScheme;
+pub	use dilithium_crypto::ResonanceSignatureScheme;
 
 extern crate alloc;
 use alloc::vec::Vec;

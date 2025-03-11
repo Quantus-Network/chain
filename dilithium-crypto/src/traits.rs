@@ -1,6 +1,6 @@
-use crate::types::ResonanceSignatureWithPublic;
+use crate::types::{ResonanceCryptoTag, ResonanceSignature, ResonanceSignatureWithPublic};
 
-use super::types::{ResonancePublic, Error, WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignature, ResonanceSignatureScheme, ResonanceSigner};
+use super::types::{ResonancePublic, Error, WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignatureScheme, ResonanceSigner};
 
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
@@ -141,12 +141,6 @@ impl TryFrom<ResonanceSignatureScheme> for sr25519::Signature {
     }
 }
 
-// impl From<(ResonanceSignature, [u8; 2592])> for ResonanceSignatureScheme {
-//     fn from((sig, pk): (ResonanceSignature, [u8; 2592])) -> Self {
-//         Self::Resonance(sig, pk)
-//     }
-// }
-
 impl From<ecdsa::Signature> for ResonanceSignatureScheme {
     fn from(x: ecdsa::Signature) -> Self {
         Self::Ecdsa(x)
@@ -188,6 +182,16 @@ impl Verify for ResonanceSignatureScheme {
                 if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
                     return false;
                 }
+                // log::info!(
+                //     "Verifying signature:\n\
+                //      public key: {:?}\n\
+                //      message: {:?}\n\
+                //      signature: {:?}",
+                //     &sig_public.public.as_ref()[..10],
+                //     &msg.get()[..10],
+                //     &sig_public.signature.as_ref()[..10]
+                // );
+
                 let result = verify(sig_public.public.as_ref(), msg.get(), sig_public.signature.as_ref());
                 result
             },
@@ -273,3 +277,59 @@ impl TryFrom<ResonanceSignatureScheme> for ResonanceSignatureWithPublic {
     }
 }
 
+// impl AsRef<[u8]> for ResonanceSignatureWithPublic {
+//     fn as_ref(&self) -> &[u8] {
+//         self.to_raw_vec().as_slice()
+//     }
+// }
+impl AsMut<[u8]> for ResonanceSignatureWithPublic {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.bytes.as_mut()
+    }
+}
+impl TryFrom<&[u8]> for ResonanceSignatureWithPublic {
+    type Error = ();
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        let (sig_bytes, pub_bytes) = data.split_at(<ResonanceSignature as ByteArray>::LEN);
+        Ok(Self::new(
+            ResonanceSignature::from_slice(sig_bytes)?,
+            ResonancePublic::from_slice(pub_bytes)?
+        ))
+    }
+}
+
+impl ByteArray for ResonanceSignatureWithPublic {
+    const LEN: usize = Self::TOTAL_LEN;
+
+    fn to_raw_vec(&self) -> Vec<u8> {
+        self.to_bytes().to_vec()
+    }
+
+    fn from_slice(data: &[u8]) -> Result<Self, ()> {
+        if data.len() != Self::LEN {
+            return Err(());
+        }
+        let bytes = <[u8; Self::LEN]>::try_from(data).map_err(|_| ())?;
+        Self::from_bytes(&bytes).map_err(|_| ())
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+}
+impl AsRef<[u8; Self::LEN]> for ResonanceSignatureWithPublic {
+    fn as_ref(&self) -> &[u8; Self::LEN] {
+        &self.bytes
+    }
+}
+
+impl AsRef<[u8]> for ResonanceSignatureWithPublic {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+impl Signature for ResonanceSignatureWithPublic {}
+
+impl CryptoType for ResonanceSignatureWithPublic {
+    type Pair = ResonancePair;
+}

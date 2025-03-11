@@ -1,6 +1,6 @@
 use codec::{Decode, Encode};
 use dilithium_crypto::{
-    ResonanceSignature, ResonanceSignatureScheme, PUB_KEY_BYTES,
+    ResonanceSignatureWithPublic, ResonanceSignatureScheme, PUB_KEY_BYTES,
 };
 use hdwallet;
 use sp_core::ByteArray;
@@ -28,7 +28,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use dilithium_crypto::{ResonancePublic, ResonanceSignatureWithPublic};
+    use dilithium_crypto::{ResonancePublic, ResonanceSignature, ResonanceSignatureWithPublic};
     use sp_keyring::AccountKeyring;
 
     use super::*;
@@ -74,7 +74,7 @@ mod tests {
         println!("Payload AccountId: {:?}", &id);
         let signed_extra: SignedExtra = ();
 
-        let sig_with_public = ResonanceSignatureWithPublic { signature, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+        let sig_with_public = ResonanceSignatureWithPublic::new(signature, ResonancePublic::from_slice(&pk_bytes).unwrap());
 
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
@@ -170,7 +170,7 @@ mod tests {
         let signature_wrong_key = ResonanceSignature::try_from(&sig_bytes_wrong_key[..])
             .expect("Signature length mismatch");
 
-        let sig_with_public = ResonanceSignatureWithPublic { signature: signature_wrong_key, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+        let sig_with_public = ResonanceSignatureWithPublic::new(signature_wrong_key, ResonancePublic::from_slice(&pk_bytes).unwrap());
 
         // Create transaction with invalid signature
         let extrinsic = UncheckedExtrinsic::new_signed(
@@ -225,7 +225,7 @@ mod tests {
         let id_2 = Address::Id(account_id_2);
         let signed_extra: SignedExtra = ();
 
-        let sig_with_public = ResonanceSignatureWithPublic { signature, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+        let sig_with_public = ResonanceSignatureWithPublic::new(signature, ResonancePublic::from_slice(&pk_bytes).unwrap());
 
         // Create transaction with wrong account ID.
         let extrinsic = UncheckedExtrinsic::new_signed(
@@ -284,7 +284,7 @@ mod tests {
         // Create transaction with wrong payload. Should fail.
         let wrong_payload: RuntimeCall = 40;
 
-        let sig_with_public = ResonanceSignatureWithPublic { signature, public: ResonancePublic::from_slice(&pk_bytes).unwrap() };
+        let sig_with_public = ResonanceSignatureWithPublic::new(signature, ResonancePublic::from_slice(&pk_bytes).unwrap());
 
         let extrinsic = UncheckedExtrinsic::new_signed(
             wrong_payload,

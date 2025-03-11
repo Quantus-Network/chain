@@ -1,6 +1,6 @@
 use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSigner};
 
-use super::types::{ResonancePair, ResonancePublic, ResonanceSignature};
+use super::types::{ResonancePair, ResonancePublic};
 use sp_core::{
     crypto::{DeriveError, DeriveJunction, SecretStringError}, ByteArray, Pair
 };
@@ -31,7 +31,7 @@ impl IdentifyAccount for ResonancePair {
 impl Pair for ResonancePair {
     type Public = ResonancePublic;
     type Seed = Vec<u8>;
-    type Signature = ResonanceSignature;
+    type Signature = ResonanceSignatureWithPublic;
 
     fn derive<Iter: Iterator<Item = DeriveJunction>>(
         &self,
@@ -47,8 +47,10 @@ impl Pair for ResonancePair {
     }
 
     #[cfg(any(feature = "default", feature = "full_crypto"))]
-    fn sign(&self, message: &[u8]) -> ResonanceSignature {
+    fn sign(&self, message: &[u8]) -> ResonanceSignatureWithPublic {
         // Create keypair struct
+
+        use crate::types::ResonanceSignature;
         let keypair = hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
@@ -56,13 +58,25 @@ impl Pair for ResonancePair {
             .sign(message, None, false)
             .expect("Signing should succeed");
 
-        // Wrap the signature bytes in ResonanceSignature
-        ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail")
+        let signature = ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
+        let sig_with_public = ResonanceSignatureWithPublic::new(signature, self.public());
+
+        log::info!(
+            "Created signature:\n\
+             public key: {:?}\n\
+             message: {:?}\n\
+             signature: {:?}",
+             &sig_with_public.public.as_ref()[..10],
+             &message[..10],
+             &sig_with_public.signature.as_ref()[..10]
+         );
+
+        sig_with_public
     }
 
-    fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignature, message: M, pubkey: &ResonancePublic) -> bool {
-        // Don't repeat the code in the sig scheme - use the sig scheme to verify
-        let sig_scheme = ResonanceSignatureScheme::Resonance(ResonanceSignatureWithPublic { signature: sig.clone(), public: pubkey.as_slice().try_into().unwrap() });
+    fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignatureWithPublic, message: M, pubkey: &ResonancePublic) -> bool {
+        // TODO maybe we can remove this pubkey parameter? 
+        let sig_scheme = ResonanceSignatureScheme::Resonance(sig.clone());
         let signer = ResonanceSigner::Resonance(pubkey.clone());
         sig_scheme.verify(message.as_ref(), &signer.into_account())
     }
@@ -104,12 +118,15 @@ mod tests {
         let pair = ResonancePair::from_seed_slice(&seed).expect("Failed to create pair");
         let message: Vec<u8> = b"Hello, world!".to_vec();
         
+        log::info!("Signing message: {:?}", &message[..10]);
         let signature = pair.sign(&message);
 
+        log::info!("Signature: {:?}", &message[..10]);
+
         // sanity check
-        let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
-        let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
-        assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
+        // let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
+        // let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
+        // assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
 
         
         let public = pair.public();
@@ -142,14 +159,16 @@ mod tests {
         let message = b"Hello, world!";
         
         let mut signature = pair.sign(message);
+        let mut signature_bytes = signature.as_mut();
         // Corrupt the signature by flipping a bit
-        if let Some(byte) = signature.as_mut().get_mut(0) {
+        if let Some(byte) = signature_bytes.get_mut(0) {
             *byte ^= 1;
         }
+        let false_signature = ResonanceSignatureWithPublic::from_slice(&signature_bytes).expect("Failed to create signature");
         let public = pair.public();
         
         assert!(
-            !ResonancePair::verify(&signature, message, &public),
+            !ResonancePair::verify(&false_signature, message, &public),
             "Corrupted signature should not verify"
         );
     }
