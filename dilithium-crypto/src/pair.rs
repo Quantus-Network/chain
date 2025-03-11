@@ -163,7 +163,7 @@ mod tests {
         let message = b"Hello, world!";
         
         let mut signature = pair.sign(message);
-        let mut signature_bytes = signature.as_mut();
+        let signature_bytes = signature.as_mut();
         // Corrupt the signature by flipping a bit
         if let Some(byte) = signature_bytes.get_mut(0) {
             *byte ^= 1;
