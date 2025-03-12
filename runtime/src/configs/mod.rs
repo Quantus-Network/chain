@@ -96,7 +96,7 @@ impl frame_system::Config for Runtime {
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
-	type InitialDifficulty = ConstU64<50255914621>;
+	type InitialDifficulty = ConstU64<25127957310>;
 	type MinDifficulty = ConstU64<5025591462>; //InitialDifficulty / 10
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
@@ -110,7 +110,6 @@ impl pallet_wormhole::Config for Runtime {
 }
 
 parameter_types! {
-    //pub const SlotDuration: u64 = 6000; // 6 sec
     pub const MinimumPeriod: u64 = 100;
 }
 impl pallet_timestamp::Config for Runtime {
