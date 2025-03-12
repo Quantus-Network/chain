@@ -1,7 +1,7 @@
 use frame_support::pallet_prelude::TypedGet;
 use crate::mock::*;
 use primitive_types::U512;
-use crate::{BlockTimeHistory, HistoryIndex, HistorySize, INITIAL_DIFFICULTY, MAX_DISTANCE};
+use crate::{BlockTimeHistory, HistoryIndex, HistorySize, MAX_DISTANCE};
 use crate::Config;
 
 #[test]
@@ -242,7 +242,7 @@ fn test_difficulty_adjustment_boundaries() {
         // 1. Test minimum difficulty boundary
 
         // A. If initial difficulty is already at minimum, it should stay there
-        let min_difficulty = INITIAL_DIFFICULTY / 10;
+        let min_difficulty = <Test as Config>::MinDifficulty::get();
         let current_difficulty = min_difficulty;  // Already at minimum
 
         let new_difficulty = QPow::calculate_difficulty(
@@ -302,6 +302,242 @@ fn test_difficulty_adjustment_boundaries() {
         // Should be exactly at maximum
         assert_eq!(new_difficulty, max_difficulty,
                    "When adjustment would put difficulty above maximum, it should be clamped to maximum");
+    });
+}
+
+#[test]
+fn test_calculate_difficulty_normal_adjustment() {
+    new_test_ext().execute_with(|| {
+        // Start with a medium difficulty
+        let current_difficulty = <Test as Config>::InitialDifficulty::get();
+        let target_time = 1000; // 1000ms target
+
+        // Test slight deviation (10% slower)
+        let block_time_slower = 1100; // 1.1x target
+        let new_difficulty_slower = QPow::calculate_difficulty(
+            current_difficulty,
+            block_time_slower,
+            target_time
+        );
+
+        // Difficulty should decrease slightly but not drastically
+        assert!(new_difficulty_slower < current_difficulty, "Difficulty should decrease when blocks are slower");
+        let decrease_percentage = (current_difficulty - new_difficulty_slower) as f64 / current_difficulty as f64 * 100.0;
+        assert!(decrease_percentage < 5.0, "For 10% slower blocks, difficulty should decrease by less than 5%, but decreased by {:.2}%", decrease_percentage);
+
+        // Test slight deviation (10% faster)
+        let block_time_faster = 900; // 0.9x target
+        let new_difficulty_faster = QPow::calculate_difficulty(
+            current_difficulty,
+            block_time_faster,
+            target_time
+        );
+
+        // Difficulty should increase slightly but not drastically
+        assert!(new_difficulty_faster > current_difficulty, "Difficulty should increase when blocks are faster");
+        let increase_percentage = (new_difficulty_faster - current_difficulty) as f64 / current_difficulty as f64 * 100.0;
+        assert!(increase_percentage < 5.0, "For 10% faster blocks, difficulty should increase by less than 5%, but increased by {:.2}%", increase_percentage);
+    });
+}
+
+#[test]
+fn test_calculate_difficulty_dampening_effect() {
+    new_test_ext().execute_with(|| {
+        let current_difficulty = <Test as Config>::InitialDifficulty::get();
+        let target_time = 1000;
+
+        // Test significant deviation (2x slower blocks)
+        let block_time_much_slower = 2000; // 2x target
+        let new_difficulty_much_slower = QPow::calculate_difficulty(
+            current_difficulty,
+            block_time_much_slower,
+            target_time
+        );
+
+        // The dampening should prevent the difficulty from halving immediately
+        let decrease_percentage = (current_difficulty - new_difficulty_much_slower) as f64 / current_difficulty as f64 * 100.0;
+        assert!(decrease_percentage < 25.0, "Even for 2x slower blocks, dampening should limit decrease to less than 25%, but got {:.2}%", decrease_percentage);
+
+        // Test significant deviation (0.5x faster blocks)
+        let block_time_much_faster = 500; // 0.5x target
+        let new_difficulty_much_faster = QPow::calculate_difficulty(
+            current_difficulty,
+            block_time_much_faster,
+            target_time
+        );
+
+        // The dampening should prevent the difficulty from doubling immediately
+        let increase_percentage = (new_difficulty_much_faster - current_difficulty) as f64 / current_difficulty as f64 * 100.0;
+        assert!(increase_percentage < 25.0, "Even for 2x faster blocks, dampening should limit increase to less than 25%, but got {:.2}%", increase_percentage);
+    });
+}
+
+#[test]
+fn test_calculate_difficulty_consecutive_adjustments() {
+    new_test_ext().execute_with(|| {
+        let mut current_difficulty = <Test as Config>::InitialDifficulty::get();
+        let target_time = 1000;
+
+        // First, measure the effect of a single adjustment
+        let block_time = 1500; // 50% slower than target
+        let new_difficulty = QPow::calculate_difficulty(
+            current_difficulty,
+            block_time,
+            target_time
+        );
+        let single_adjustment_decrease = (current_difficulty - new_difficulty) as f64 / current_difficulty as f64 * 100.0;
+        println!("Single adjustment decrease: {:.2}%", single_adjustment_decrease);
+
+        // Reset and simulate 5 consecutive periods
+        current_difficulty = <Test as Config>::InitialDifficulty::get();
+        for i in 0..5 {
+            let new_difficulty = QPow::calculate_difficulty(
+                current_difficulty,
+                block_time,
+                target_time
+            );
+
+            // Each adjustment should decrease difficulty
+            assert!(new_difficulty < current_difficulty,
+                    "Difficulty should decrease with consistently slower blocks (iteration {})", i);
+
+            println!("Adjustment {}: decreased by {:.2}%",
+                     i + 1,
+                     (current_difficulty - new_difficulty) as f64 / current_difficulty as f64 * 100.0);
+
+            // Set up for next iteration
+            current_difficulty = new_difficulty;
+        }
+
+        // After 5 consecutive adjustments, calculate total decrease
+        let total_decrease_percentage = (<Test as Config>::InitialDifficulty::get() - current_difficulty) as f64 / <Test as Config>::InitialDifficulty::get() as f64 * 100.0;
+        println!("Total difficulty decrease after 5 periods: {:.2}%", total_decrease_percentage);
+
+        // Check that there is some decrease
+        assert!(total_decrease_percentage > 0.0,
+                "After 5 consecutive periods of 50% slower blocks, difficulty should decrease somewhat");
+
+        // Verify the diminishing returns behavior
+        assert!(total_decrease_percentage < single_adjustment_decrease * 5.0,
+                "With strong dampening, total effect should be less than a single period effect multiplied by 5");
+    });
+}
+
+#[test]
+fn test_calculate_difficulty_oscillation_damping() {
+    new_test_ext().execute_with(|| {
+        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+        let target_time = 1000;
+
+        // Start with current difficulty
+        let mut current_difficulty = initial_difficulty;
+
+        // First adjustment: blocks 50% slower
+        let first_adjustment = QPow::calculate_difficulty(
+            current_difficulty,
+            1500, // 50% slower
+            target_time
+        );
+
+        // Difficulty should decrease
+        assert!(first_adjustment < current_difficulty);
+        current_difficulty = first_adjustment;
+
+        // Second adjustment: blocks 50% faster than target (return to normal speed)
+        let second_adjustment = QPow::calculate_difficulty(
+            current_difficulty,
+            500, // 50% faster
+            target_time
+        );
+
+        // Difficulty should increase but should not overshoot initial difficulty significantly
+        assert!(second_adjustment > current_difficulty);
+        let overshoot_percentage = (second_adjustment as f64 - initial_difficulty as f64) / initial_difficulty as f64 * 100.0;
+
+        // Due to dampening, we don't expect massive overshooting
+        assert!(overshoot_percentage.abs() < 15.0,
+                "After oscillating block times, difficulty should not overshoot initial value by more than 15%, but overshot by {:.2}%",
+                overshoot_percentage);
+    });
+}
+
+#[test]
+fn test_calculate_difficulty_stability_over_time() {
+    new_test_ext().execute_with(|| {
+        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+        let target_time = 1000;
+        let mut current_difficulty = initial_difficulty;
+
+        // Simulate slight random variance around target (normal mining conditions)
+        let block_times = [950, 1050, 980, 1020, 990, 1010, 970, 1030, 960, 1040];
+
+        // Apply 10 consecutive adjustments with minor variations around target
+        for &block_time in &block_times {
+            current_difficulty = QPow::calculate_difficulty(
+                current_difficulty,
+                block_time,
+                target_time
+            );
+        }
+
+        // After these minor variations, difficulty should remain relatively stable
+        let final_change_percentage = (current_difficulty as f64 - initial_difficulty as f64) / initial_difficulty as f64 * 100.0;
+        assert!(final_change_percentage.abs() < 10.0,
+                "With minor variations around target time, difficulty should not change by more than 10%, but changed by {:.2}%",
+                final_change_percentage);
+    });
+}
+
+#[test]
+fn test_calculate_difficulty_power_factor_effect() {
+    new_test_ext().execute_with(|| {
+        let current_difficulty = <Test as Config>::InitialDifficulty::get();
+        let target_time = 1000;
+
+        // Test with extreme deviations to check power factor effect
+        let deviations = [
+            (4000, "4x slower"), // 4x slower
+            (2000, "2x slower"),
+            (1500, "1.5x slower"),
+            (667, "1.5x faster"),
+            (500, "2x faster"),
+            (250, "4x faster")
+        ];
+
+        for (block_time, description) in &deviations {
+            let new_difficulty = QPow::calculate_difficulty(
+                current_difficulty,
+                *block_time,
+                target_time
+            );
+
+            // Calculate the relative change
+            let change_ratio = new_difficulty as f64 / current_difficulty as f64;
+
+            // Verify the direction of change is correct
+            if *block_time > target_time {
+                assert!(change_ratio < 1.0, "For {} blocks, difficulty should decrease", description);
+            } else {
+                assert!(change_ratio > 1.0, "For {} blocks, difficulty should increase", description);
+            }
+
+            // Log the change for analysis
+            println!("For {} blocks: difficulty changed by factor {:.3}", description, change_ratio);
+
+            // Power factor (1/16) with dampening should make the change less dramatic than the time deviation
+            let expected_max_change = if *block_time > target_time {
+                // For slower blocks, difficulty decrease should be less dramatic than time increase
+                1.0 / ((*block_time as f64 / target_time as f64).powf(0.25)) // 1/4 is much more aggressive than 1/16
+            } else {
+                // For faster blocks, difficulty increase should be less dramatic than time decrease
+                (target_time as f64 / *block_time as f64).powf(0.25) // 1/4 is much more aggressive than 1/16
+            };
+
+            // Due to dampening, the actual change should be much less than even the 1/4 power
+            assert!((change_ratio - 1.0).abs() < (expected_max_change - 1.0).abs(),
+                    "For {} blocks, change ratio {:.3} should be less extreme than 1/4 power factor would suggest {:.3}",
+                    description, change_ratio, expected_max_change);
+        }
     });
 }
 

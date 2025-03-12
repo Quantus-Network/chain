@@ -26,11 +26,9 @@ pub mod pallet {
 	use frame_support::sp_runtime::traits::{Zero, One};
 	use sp_std::prelude::*;
 
-
 	pub const CHUNK_SIZE: usize = 32;
 	pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE;
 	pub const MAX_DISTANCE: u64 = (1u64 << CHUNK_SIZE) * NUM_CHUNKS as u64;
-	pub const INITIAL_DIFFICULTY: u64 = 50255914621; // around 100 iterations
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -55,11 +53,16 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistorySize<T: Config> = StorageValue<_, u32, ValueQuery>;
 
-
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 		type WeightInfo: WeightInfo;
+
+		#[pallet::constant]
+		type InitialDifficulty: Get<u64>;
+
+		#[pallet::constant]
+		type MinDifficulty: Get<u64>;
 
 		#[pallet::constant]
 		type TargetBlockTime: Get<u64>;
@@ -85,7 +88,7 @@ pub mod pallet {
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self {
-				initial_difficulty: INITIAL_DIFFICULTY/2,
+				initial_difficulty: T::InitialDifficulty::get(),
 				_phantom: PhantomData,
 			}
 		}
@@ -147,7 +150,7 @@ pub mod pallet {
 		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
 			if <LastBlockTime<T>>::get() == 0 {
 				<LastBlockTime<T>>::put(pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>());
-				<CurrentDifficulty<T>>::put(INITIAL_DIFFICULTY);
+				<CurrentDifficulty<T>>::put(T::InitialDifficulty::get());
 			}
 			Weight::zero()
 		}
@@ -337,7 +340,7 @@ pub mod pallet {
 			let adjusted = (current_difficulty as f64 / damped_ratio) as u64;
 			
 			// Enforce bounds
-			adjusted.min(MAX_DISTANCE - 1).max(INITIAL_DIFFICULTY / 10)
+			adjusted.min(MAX_DISTANCE - 1).max(T::MinDifficulty::get())
 		}
 	}
 

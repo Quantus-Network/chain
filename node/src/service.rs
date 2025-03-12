@@ -357,11 +357,8 @@ pub fn new_full<
                             nonce += U512::one();
                         }
                     }
-
-                    // Sleep to avoid spamming
-                    //tokio::time::sleep(Duration::from_millis(1000)).await;
                 }
-            }, // .boxed()
+            },
         );
 
         task_manager.spawn_handle().spawn("tx-logger", None, async move {
