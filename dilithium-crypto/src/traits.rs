@@ -61,7 +61,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag
 impl IdentifyAccount for ResonancePublic {
     type AccountId = AccountId32;
     fn into_account(self) -> Self::AccountId {
-        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
+        AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
     }
 }
 
