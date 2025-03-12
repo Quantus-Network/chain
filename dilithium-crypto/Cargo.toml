@@ -16,6 +16,10 @@ log = { workspace = true}
 sp-runtime-interface = { version="29.0.0", default-features=false }
 hdwallet = { path = "./hdwallet", default-features = false }
 poseidon-resonance = { path = "../poseidon", default-features = false }
+thiserror = { version = "2.0.12", default-features = false }
+
+[dev-dependencies]
+env_logger = "0.11.5"
 
 [features]
 default = ["std"]

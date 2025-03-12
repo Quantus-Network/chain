@@ -10,13 +10,13 @@ pub mod configs;
 
 pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonancePublic;
-use dilithium_crypto::ResonanceSignatureScheme;
+pub use dilithium_crypto::ResonanceSignatureScheme;
 
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{BlakeTwo256, IdentifyAccount, Verify},
+	traits::{IdentifyAccount, Verify, BlakeTwo256},
 	MultiAddress,
 };
 #[cfg(feature = "std")]
@@ -40,7 +40,7 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{BlakeTwo256, Hash as HashT},
+		traits::{Hash as HashT},
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
