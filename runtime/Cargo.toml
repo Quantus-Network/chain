@@ -48,13 +48,16 @@ frame-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
 pallet-qpow = { workspace = true, default-features = false}
-pallet-wormhole = {workspace = true, default-features = false}
-sp-consensus-qpow = {workspace = true, default-features = false}
+pallet-wormhole = { workspace = true, default-features = false}
+sp-consensus-qpow = { workspace = true, default-features = false}
+log = { workspace = true }
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = {default-features=false, workspace = true}
 sp-runtime-interface = { version="29.0.0", default-features=false }
 sp-std = { workspace = true, default-features=false}
+
+poseidon-resonance = { path = "../poseidon", default-features = false, features = ["serde"] }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -63,7 +66,7 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 sp-io = { workspace = true, default-features = true }
 sp-std = { version = "14.0.0", default-features = true }
 hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
-env_logger = "0.11.5"  # Latest version as of now; adjust as needed
+env_logger = "0.11.5"
 sp-keyring = { workspace = true, features = ["std"]}
 
 [features]
@@ -86,8 +89,8 @@ std = [
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
-	"scale-info/std", # Test it
-	"serde_json/std", # Test it
+	"scale-info/std",
+	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-qpow/std",
@@ -105,6 +108,7 @@ std = [
 	"sp-runtime-interface/std",
 	"scale-info/std",
 	"dilithium-crypto/full_crypto",
+	"poseidon-resonance/std"
 ]
 
 

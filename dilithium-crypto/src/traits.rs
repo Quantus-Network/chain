@@ -1,15 +1,17 @@
-use crate::types::{ResonanceSignature, ResonanceSignatureWithPublic};
-
-use super::types::{ResonancePublic, Error, WrappedPublicBytes, WrappedSignatureBytes, ResonancePair, ResonanceSignatureScheme, ResonanceSigner};
+use super::types::{
+    ResonancePublic, Error, WrappedPublicBytes, WrappedSignatureBytes,
+    ResonancePair, ResonanceSignatureScheme, ResonanceSigner
+};
 
 use sp_core::{ByteArray, crypto::{Derive, Signature, Public, PublicBytes, SignatureBytes}};
 use sp_runtime::{AccountId32, CryptoType, traits::{IdentifyAccount, Verify}};
-
 use sp_std::vec::Vec;
 use sp_core::{ecdsa, ed25519, sr25519};
+use sp_runtime::traits::Hash;
 use verify::verify;
-
-// 
+use poseidon_resonance::PoseidonHasher;
+use crate::{ResonanceSignature, ResonanceSignatureWithPublic};
+//
 // WrappedPublicBytes
 // 
 
@@ -59,7 +61,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag
 impl IdentifyAccount for ResonancePublic {
     type AccountId = AccountId32;
     fn into_account(self) -> Self::AccountId {
-        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice()))
+        AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
     }
 }
 
@@ -178,8 +180,8 @@ impl Verify for ResonanceSignatureScheme {
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Resonance(sig_public) => {
-                let pk_hash = sp_io::hashing::blake2_256(sig_public.public.as_ref());
-                if &pk_hash != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
+                let account = sig_public.public.clone().into_account();
+                if account != *signer {
                     return false;
                 }
                 let result = verify(sig_public.public.as_ref(), msg.get(), sig_public.signature.as_ref());
@@ -211,7 +213,7 @@ impl IdentifyAccount for ResonanceSigner {
             Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
             Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
-            Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            Self::Resonance(who) => PoseidonHasher::hash(who.as_ref()).0.into(),
         }
     }
 }
@@ -239,11 +241,11 @@ impl sp_std::fmt::Debug for ResonanceSignatureWithPublic {
     #[cfg(feature = "std")]
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
         write!(
-            f, 
+            f,
             "ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}", self.signature, self.public
         )
     }
-    
+
     #[cfg(not(feature = "std"))]
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
         write!(f, "ResonanceSignatureWithPublic")
@@ -259,10 +261,10 @@ impl From<ResonanceSignatureWithPublic> for ResonanceSignatureScheme {
 impl TryFrom<ResonanceSignatureScheme> for ResonanceSignatureWithPublic {
     type Error = (); // TODO: fix errors
     fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
-        if let ResonanceSignatureScheme::Resonance(sig_public) = m { 
-            Ok(sig_public) 
+        if let ResonanceSignatureScheme::Resonance(sig_public) = m {
+            Ok(sig_public)
         } else {
-             Err(()) 
+             Err(())
         }
     }
 }

@@ -205,6 +205,13 @@ fn test_primality_check() {
         assert!(QPow::is_prime(&U512::from(5u32)));
         assert!(QPow::is_prime(&U512::from(7u32)));
         assert!(QPow::is_prime(&U512::from(11u32)));
+        assert!(QPow::is_prime(&U512::from(104729u32)));
+        assert!(QPow::is_prime(&U512::from(1299709u32)));
+        assert!(QPow::is_prime(&U512::from(15485863u32)));
+        assert!(QPow::is_prime(&U512::from(982451653u32)));
+        assert!(QPow::is_prime(&U512::from(32416190071u64)));
+        assert!(QPow::is_prime(&U512::from(2305843009213693951u64)));
+        assert!(QPow::is_prime(&U512::from(162259276829213363391578010288127u128)));
 
         // Test some known composites
         assert!(!QPow::is_prime(&U512::from(4u32)));
@@ -212,6 +219,17 @@ fn test_primality_check() {
         assert!(!QPow::is_prime(&U512::from(8u32)));
         assert!(!QPow::is_prime(&U512::from(9u32)));
         assert!(!QPow::is_prime(&U512::from(10u32)));
+        assert!(!QPow::is_prime(&U512::from(561u32)));
+        assert!(!QPow::is_prime(&U512::from(1105u32)));
+        assert!(!QPow::is_prime(&U512::from(1729u32)));
+        assert!(!QPow::is_prime(&U512::from(2465u32)));
+        assert!(!QPow::is_prime(&U512::from(15841u32)));
+        assert!(!QPow::is_prime(&U512::from(29341u32)));
+        assert!(!QPow::is_prime(&U512::from(41041u32)));
+        assert!(!QPow::is_prime(&U512::from(52633u32)));
+        assert!(!QPow::is_prime(&U512::from(291311u32)));
+        assert!(!QPow::is_prime(&U512::from(9999999600000123u64)));
+        assert!(!QPow::is_prime(&U512::from(1000000016000000063u64)));
     });
 }
 

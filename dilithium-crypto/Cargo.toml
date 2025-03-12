@@ -15,6 +15,7 @@ verify = { path = "./verify", default-features = false }
 log = { workspace = true}
 sp-runtime-interface = { version="29.0.0", default-features=false }
 hdwallet = { path = "./hdwallet", default-features = false }
+poseidon-resonance = { path = "../poseidon", default-features = false }
 thiserror = { version = "2.0.12", default-features = false }
 
 [dev-dependencies]
@@ -30,11 +31,13 @@ std = [
     "codec/std",
     "scale-info/std",
     "sp-runtime-interface/std",
-    "hdwallet/std"
+    "hdwallet/std",
+    "poseidon-resonance/std"
 ]
 full_crypto = [ # pass through for "sign" in pair trait. 
     "sp-core/full_crypto"
 ]
 serde = [
-    "sp-core/serde"
+    "sp-core/serde",
+    "poseidon-resonance/serde"
 ]

@@ -16,13 +16,16 @@ members = [
     "runtime",
     "dilithium-crypto",
     "dilithium-crypto/verify", 
-    "dilithium-crypto/sign",
+    "dilithium-crypto/sign", 
+    "poseidon",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+dusk-poseidon = { version = "0.40.0", default-features = false }
+dusk-bls12_381 = { version = "0.13.0", default-features = false }
 
 pallet-template = { path = "./pallets/template", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false}
@@ -63,6 +66,7 @@ sp-std = { version = "14.0.0", default-features = false }
 sp-keyring = { version = "40.0.0", default-features = false }
 sp-runtime = { version = "40.1.0", default-features = false }
 sp-timestamp = { version = "35.0.0", default-features = false }
+sp-trie = { version = "38.0.0", default-features = false }
 substrate-frame-rpc-system = { version = "42.0.0", default-features = false }
 substrate-build-script-utils = { version = "11.0.0", default-features = false }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }

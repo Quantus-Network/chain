@@ -1,11 +1,11 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
-use sc_transaction_pool_api::OffchainTransactionPoolFactory;
+use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 
 use std::{sync::Arc, time::Duration};
@@ -100,7 +100,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
             .build(),
     );
 
-
     let inherent_data_providers = build_inherent_data_providers()?;
 
     let pow_algorithm = QPowAlgorithm {
@@ -156,6 +155,8 @@ pub fn new_full<
         transaction_pool,
         other: (pow_block_import, mut telemetry),
     } = new_partial(&config)?;
+
+    let mut tx_stream = transaction_pool.clone().import_notification_stream();
 
     let net_config = sc_network::config::FullNetworkConfiguration::<
         Block,
@@ -235,7 +236,7 @@ pub fn new_full<
         let proposer = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
             client.clone(),
-            transaction_pool,
+            transaction_pool.clone(),
             prometheus_registry.as_ref(),
             None, // lets worry about telemetry later! TODO
         );
@@ -330,8 +331,23 @@ pub fn new_full<
             }, // .boxed()
         );
 
+        task_manager.spawn_handle().spawn("tx-logger", None, async move {
+            while let Some(tx_hash) = tx_stream.next().await {
+                if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
+                    log::info!("New transaction: Hash = {:?}", tx_hash);
+                    let extrinsic = tx.data();
+                    log::info!("Payload: {:?}", extrinsic);
+                    // log::info!("Signature: {:?}", tx.data());
+                    // log::info!("Signer: {:?}", tx.);
+                } else {
+                    log::warn!("Transaction {:?} not found in pool", tx_hash);
+                }
+            }
+        });
+
         log::info!("⛏️  Pow miner spawned");
     }
+
 
     network_starter.start_network();
     Ok(task_manager)
