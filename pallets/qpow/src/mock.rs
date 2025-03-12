@@ -15,9 +15,6 @@ type Block = frame_system::mocking::MockBlock<Test>;
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
 	pub const MinimumPeriod: u64 = 100; // 100ms
-
-	pub const MinDifficultyMultiplier: (u64, u64) = (2, 3);  // 2/3 ≈ 0.67
-    pub const MaxDifficultyMultiplier: (u64, u64) = (3, 2);  // 3/2 = 1.5
 }
 
 impl frame_system::Config for Test {
@@ -77,10 +74,8 @@ impl pallet_qpow::Config for Test {
 	type WeightInfo = DefaultWeightInfo;
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
-	type MinDifficultyMultiplier = MinDifficultyMultiplier;
-	type MaxDifficultyMultiplier = MaxDifficultyMultiplier;
 	type DampeningFactor = ConstU64<3>;
-	type BlockTimeHistorySize = ConstU32<10>;
+	type BlockTimeHistorySize = ConstU32<5>;
 }
 
 

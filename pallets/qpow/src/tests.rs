@@ -1,6 +1,8 @@
+use frame_support::pallet_prelude::TypedGet;
 use crate::mock::*;
 use primitive_types::U512;
-use crate::{INITIAL_DIFFICULTY, MAX_DISTANCE};
+use crate::{BlockTimeHistory, HistoryIndex, HistorySize, INITIAL_DIFFICULTY, MAX_DISTANCE};
+use crate::Config;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -233,7 +235,7 @@ fn test_primality_check() {
         assert!(!QPow::is_prime(&U512::from(1000000016000000063u64)));
     });
 }
-
+/// Difficulty adjustment
 #[test]
 fn test_difficulty_adjustment_boundaries() {
     new_test_ext().execute_with(|| {
@@ -300,6 +302,130 @@ fn test_difficulty_adjustment_boundaries() {
         // Should be exactly at maximum
         assert_eq!(new_difficulty, max_difficulty,
                    "When adjustment would put difficulty above maximum, it should be clamped to maximum");
+    });
+}
+
+/// Median & Ring Buffer
+
+#[test]
+fn test_median_block_time_empty_history() {
+    new_test_ext().execute_with(|| {
+        // When history is empty, we should get TargetBlockTime
+        let target_block_time = <Test as Config>::TargetBlockTime::get();
+        let median = QPow::get_median_block_time();
+        assert_eq!(median, target_block_time, "Empty history should return target block time");
+    });
+}
+
+#[test]
+fn test_median_block_time_single_value() {
+    new_test_ext().execute_with(|| {
+        // Add a single entry to history
+        let block_time = 2000;
+        <HistoryIndex<Test>>::put(0);
+        <HistorySize<Test>>::put(1);
+        <BlockTimeHistory<Test>>::insert(0, block_time);
+
+        // Median of a single value is that value
+        let median = QPow::get_median_block_time();
+        assert_eq!(median, block_time, "Median of a single value should be that value");
+    });
+}
+
+#[test]
+fn test_median_block_time_odd_count() {
+    new_test_ext().execute_with(|| {
+        // Add odd number of entries
+        let block_times = vec![1000, 3000, 2000, 5000, 4000];
+        let history_size = block_times.len() as u32;
+
+        <HistorySize<Test>>::put(history_size);
+
+        // Add times to history
+        for (i, &time) in block_times.iter().enumerate() {
+            <BlockTimeHistory<Test>>::insert(i as u32, time);
+        }
+
+        // Median of sorted values [1000, 2000, 3000, 4000, 5000] is 3000
+        let expected_median = 3000;
+        let median = QPow::get_median_block_time();
+        assert_eq!(median, expected_median, "Median of odd count should be the middle value");
+    });
+}
+
+#[test]
+fn test_median_block_time_even_count() {
+    new_test_ext().execute_with(|| {
+        // Add even number of entries
+        let block_times = vec![1000, 3000, 2000, 4000];
+        let history_size = block_times.len() as u32;
+
+        <HistorySize<Test>>::put(history_size);
+
+        // Add times to history
+        for (i, &time) in block_times.iter().enumerate() {
+            <BlockTimeHistory<Test>>::insert(i as u32, time);
+        }
+
+        // Median of sorted values [1000, 2000, 3000, 4000] is (2000 + 3000) / 2 = 2500
+        let expected_median = 2500;
+        let median = QPow::get_median_block_time();
+        assert_eq!(median, expected_median, "Median of even count should be average of two middle values");
+    });
+}
+
+#[test]
+fn test_median_block_time_with_duplicates() {
+    new_test_ext().execute_with(|| {
+        // Add entries with duplicates
+        let block_times = vec![1000, 2000, 2000, 2000, 3000];
+        let history_size = block_times.len() as u32;
+
+        <HistorySize<Test>>::put(history_size);
+
+        // Add times to history
+        for (i, &time) in block_times.iter().enumerate() {
+            <BlockTimeHistory<Test>>::insert(i as u32, time);
+        }
+
+        // Median of sorted values [1000, 2000, 2000, 2000, 3000] is 2000
+        let expected_median = 2000;
+        let median = QPow::get_median_block_time();
+        assert_eq!(median, expected_median, "Median with duplicates should be correctly calculated");
+    });
+}
+
+#[test]
+fn test_median_block_time_ring_buffer() {
+    new_test_ext().execute_with(|| {
+        // Test if the ring buffer works correctly
+        // Assuming <Test as Config>::BlockTimeHistorySize::get() = 5
+
+        // Add more entries than the maximum history size
+        let initial_times = vec![1000, 2000, 3000, 4000, 5000];
+
+        // Set initial history
+        <HistoryIndex<Test>>::put(0);
+        <HistorySize<Test>>::put(5);
+
+        for (i, &time) in initial_times.iter().enumerate() {
+            <BlockTimeHistory<Test>>::insert(i as u32, time);
+        }
+
+        // Initial median
+        let initial_median = QPow::get_median_block_time();
+        assert_eq!(initial_median, 3000, "Initial median should be 3000");
+
+        // Simulate record_block_time for new values
+        // Should overwrite oldest values in the ring buffer
+        <HistoryIndex<Test>>::put(0); // Start overwriting from index 0
+        <BlockTimeHistory<Test>>::insert(0, 6000);
+        <HistoryIndex<Test>>::put(1);
+        <BlockTimeHistory<Test>>::insert(1, 7000);
+
+        // New median from [3000, 4000, 5000, 6000, 7000]
+        let new_median = QPow::get_median_block_time();
+        assert_eq!(new_median, 5000, "New median should be calculated from updated ring buffer");
     });
 }
 

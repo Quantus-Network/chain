@@ -104,7 +104,7 @@ impl pallet_qpow::Config for Runtime {
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
 	type DampeningFactor = ConstU64<3>;
-	type BlockTimeHistorySize = ConstU32<10>;
+	type BlockTimeHistorySize = ConstU32<60>;
 }
 
 impl pallet_wormhole::Config for Runtime {
