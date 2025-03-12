@@ -234,12 +234,13 @@ pub mod pallet {
 			let last_time = <LastBlockTime<T>>::get();
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
+			let current_block_number = <frame_system::Pallet<T>>::block_number();
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks + 1);
 
-			// Save if it's not the first block
-			if last_time > 0 {
+			// Only calculate block time if we're past the genesis block
+			if current_block_number > One::one() {
 				let block_time = now.saturating_sub(last_time);
 
 				log::info!(
