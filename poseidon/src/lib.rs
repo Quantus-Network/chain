@@ -67,7 +67,7 @@ fn poseidon_hash(x: &[u8]) -> H256 {
     }
 
     let hash = DuskPoseidonHash::digest(Domain::Other, &field_elements);
-    log::info!("hash output: {:?}", hash);
+    log::debug!("hash output: {:?}", hash);
     assert_eq!(hash.len(), 1, "Expected exactly 1 BlsScalar");
     let mut bytes = hash[0].to_bytes();
     bytes.reverse();
@@ -150,7 +150,7 @@ mod tests {
     fn test_consistency() {
         let input = [4u8; 50];
         let iterations = 100;
-        let mut current_hash = <PoseidonHasher as Hasher>::hash(&input); // Compute the first hash
+        let current_hash = <PoseidonHasher as Hasher>::hash(&input); // Compute the first hash
 
         for _ in 0..iterations {
             let hash1 = <PoseidonHasher as Hasher>::hash((&current_hash).as_ref());
