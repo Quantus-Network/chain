@@ -5,7 +5,7 @@ use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
-use sc_transaction_pool_api::{ChainEvent, InPoolTransaction, MaintainedTransactionPool, OffchainTransactionPoolFactory, TransactionPool};
+use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 
 use std::{sync::Arc, time::Duration};

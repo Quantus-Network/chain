@@ -180,8 +180,8 @@ impl Verify for ResonanceSignatureScheme {
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Resonance(sig_public) => {
-                let pk_hash = PoseidonHasher::hash(sig_public.public.as_ref());
-                if &pk_hash.0 != <AccountId32 as AsRef<[u8]>>::as_ref(signer) {
+                let account = sig_public.public.clone().into_account();
+                if account != *signer {
                     return false;
                 }
                 let result = verify(sig_public.public.as_ref(), msg.get(), sig_public.signature.as_ref());
