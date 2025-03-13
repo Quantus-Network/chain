@@ -16,7 +16,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{IdentifyAccount, Verify},
+	traits::{IdentifyAccount, Verify, BlakeTwo256},
 	MultiAddress,
 };
 #[cfg(feature = "std")]
@@ -40,22 +40,27 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{Hash as HashT},
+		traits::{BlakeTwo256, Hash as HashT},
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
-	/// For whatever reason, changing this one or the Header type below causes the block hash and
-	/// the storage root to be computed with poseidon, but not the extrinsics root.
-	/// For the wormhole proofs, we only need the storage root to be calculated with poseidon.
-	/// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
-	/// Opaque block type.
+	// For whatever reason, changing this one or the Header type below causes the block hash and
+	// the storage root to be computed with poseidon, but not the extrinsics root.
+	// For the wormhole proofs, we only need the storage root to be calculated with poseidon.
+	// Opaque block header type.
+	// pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+	pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+
+	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
-	/// Opaque block identifier type.
+	// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
-	/// Opaque block hash type.
-	pub type Hash = <PoseidonHasher as HashT>::Output;
+	
+	// Opaque block hash type.
+	// pub type Hash = <PoseidonHasher as HashT>::Output;
+	pub type Hash = <BlakeTwo256 as HashT>::Output;
+
 }
 
 impl_opaque_keys! {
@@ -146,6 +151,8 @@ pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+pub type Hasher = PoseidonHasher;
+// pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
