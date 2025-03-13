@@ -1,5 +1,7 @@
 use crate as pallet_qpow;
 use frame_support::{parameter_types, traits::Everything};
+use frame_support::pallet_prelude::ConstU32;
+use frame_support::traits::ConstU64;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 };
@@ -12,6 +14,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
+	pub const MinimumPeriod: u64 = 100; // 100ms
 }
 
 impl frame_system::Config for Test {
@@ -54,14 +57,29 @@ frame_support::construct_runtime!(
     pub enum Test
     {
         System: frame_system,
+		Timestamp: pallet_timestamp,
         QPow: pallet_qpow,
     }
 );
 
+impl pallet_timestamp::Config for Test {
+	type Moment = u64;
+	type OnTimestampSet = ();
+	type MinimumPeriod = MinimumPeriod;
+	type WeightInfo = ();
+}
+
 impl pallet_qpow::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = DefaultWeightInfo;
+	type InitialDifficulty = ConstU64<50255914621>;
+	type MinDifficulty = ConstU64<5025591462>;
+	type TargetBlockTime = ConstU64<1000>;
+	type AdjustmentPeriod = ConstU32<10>;
+	type DampeningFactor = ConstU64<3>;
+	type BlockTimeHistorySize = ConstU32<5>;
 }
+
 
 // Build genesis storage according to the mock runtime
 pub fn new_test_ext() -> sp_io::TestExternalities {

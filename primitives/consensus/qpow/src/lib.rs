@@ -19,6 +19,7 @@ sp_api::decl_runtime_apis! {
 
         /// Get the current difficulty target for proof generation
         fn get_difficulty() -> u64;
+        fn get_median_block_time() -> u64;
 
         /// Retrieve latest submitted proof
         fn get_latest_proof() -> Option<[u8; 64]>;

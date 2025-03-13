@@ -6153,6 +6153,7 @@ dependencies = [
  "log",
  "num-bigint",
  "num-traits",
+ "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "scale-info",
@@ -6161,6 +6162,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]
@@ -7694,6 +7696,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
+ "prometheus",
  "resonance-runtime",
  "sc-basic-authorship",
  "sc-cli",
