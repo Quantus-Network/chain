@@ -20,7 +20,7 @@ variables:
 
 compile:
   stage: build
-  tags: [rust, ubuntu]
+  tags: [ci, ubuntu]
   image: rust:latest
   before_script:
     - !reference [.common, before_script]
@@ -40,7 +40,7 @@ compile:
 
 test:
   stage: test
-  tags: [rust, ubuntu]
+  tags: [ci, ubuntu]
   image: rust:latest
   dependencies:
     - compile
