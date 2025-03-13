@@ -8,7 +8,7 @@ use sp_runtime::{RuntimeDebug, Vec};
 use sp_storage::StateVersion;
 use dusk_poseidon::{Hash as DuskPoseidonHash, Domain};
 use dusk_bls12_381::BlsScalar;
-use sp_trie::TrieConfiguration;
+use sp_trie::{LayoutV0, LayoutV1, TrieConfiguration};
 use core::hash::Hasher as StdHasher;
 use codec::Encode;
 use log;
@@ -89,16 +89,26 @@ impl Hash for PoseidonHasher {
         Encode::using_encoded(s, <Self as Hasher>::hash)
     }
 
-    fn ordered_trie_root(input: Vec<Vec<u8>>, _state_version: StateVersion) -> Self::Output {
-        let input = input.into_iter().map(|v| (v, Vec::new()));
-        let root = Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input));
-        root
+    fn ordered_trie_root(input: Vec<Vec<u8>>, state_version: StateVersion) -> Self::Output {
+        log::info!("PoseidonHasher::ordered_trie_root input={:?}", input);
+        let res = match state_version {
+            StateVersion::V0 => LayoutV0::<PoseidonHasher>::ordered_trie_root(input),
+            StateVersion::V1 => LayoutV1::<PoseidonHasher>::ordered_trie_root(input),
+        };
+        log::info!("PoseidonHasher::ordered_trie_root res={:?}", res);
+        res
     }
 
-    fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, _state_version: StateVersion) -> Self::Output {
-        let root = Self::Output::from(sp_trie::LayoutV1::<PoseidonHasher>::trie_root(input));
-        root
+    fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>, version: StateVersion) -> Self::Output {
+        log::info!("PoseidonHasher::trie_root input={:?}", input);
+        let res = match version {
+            StateVersion::V0 => LayoutV0::<PoseidonHasher>::trie_root(input),
+            StateVersion::V1 => LayoutV1::<PoseidonHasher>::trie_root(input),
+        };
+        log::info!("PoseidonHasher::trie_root res={:?}", res);
+        res
     }
+
 }
 #[cfg(test)]
 mod tests {

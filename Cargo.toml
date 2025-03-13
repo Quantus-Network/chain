@@ -27,6 +27,7 @@ rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-c
 dusk-poseidon = { version = "0.40.0", default-features = false }
 dusk-bls12_381 = { version = "0.13.0", default-features = false }
 
+async-trait = { version = "0.1.85", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false}
 pallet-wormhole = { path="./pallets/wormhole", default-features = false }
