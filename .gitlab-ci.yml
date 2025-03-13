@@ -25,7 +25,7 @@ compile:
   before_script:
     - !reference [.common, before_script]
   script:
-    - cargo +nightly build --locked --release --verbose
+    - cargo +nightly build --locked --release
   after_script:
     - mv target/release/resonance-node ./resonance
     - sha256sum ./resonance | cut -d ' ' -f 1 | tee ./resonance.sha256
