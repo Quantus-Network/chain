@@ -32,6 +32,7 @@ use frame_support::{
 		IdentityFee, Weight,
 	},
 };
+use frame_support::traits::ConstU64;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
@@ -95,14 +96,15 @@ impl frame_system::Config for Runtime {
 }
 
 
-parameter_types! {
-    pub const SlotDuration: u64 = 6000; // 6 sec
-    pub const MinimumPeriod: u64 = 3000;
-}
-
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
+	type InitialDifficulty = ConstU64<25127957310>;
+	type MinDifficulty = ConstU64<5025591462>; //InitialDifficulty / 10
+	type TargetBlockTime = ConstU64<1000>;
+	type AdjustmentPeriod = ConstU32<10>;
+	type DampeningFactor = ConstU64<3>;
+	type BlockTimeHistorySize = ConstU32<60>;
 }
 
 impl pallet_wormhole::Config for Runtime {
@@ -110,6 +112,9 @@ impl pallet_wormhole::Config for Runtime {
 	type WeightInfo = pallet_wormhole::DefaultWeightInfo;
 }
 
+parameter_types! {
+    pub const MinimumPeriod: u64 = 100;
+}
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
 	type Moment = u64;
