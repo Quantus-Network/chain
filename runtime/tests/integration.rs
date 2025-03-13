@@ -14,6 +14,7 @@ use sp_runtime::{
 type RuntimeCall = u32; // Simplified for testing
 type SignedExtra = (); // Simplified for testing
 type Address = MultiAddress<AccountId32, ()>;
+use sp_runtime::traits::IdentifyAccount;
 
 pub fn format_hex_truncated(bytes: &[u8]) -> String {
     if bytes.len() <= 16 {
@@ -70,7 +71,10 @@ mod tests {
         println!("Gen Signature length: {:?}", bytes.len());
 
         // Step 3: Derive AccountId and create extrinsic
-        let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+        let public = ResonancePublic::from_slice(&pk_bytes).unwrap();
+        let account_id = public.into_account();
+        // let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+
         let id = Address::Id(account_id);
         println!("Payload AccountId: {:?}", &id);
         let signed_extra: SignedExtra = ();
@@ -156,7 +160,9 @@ mod tests {
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
         let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
-        let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+        let public = ResonancePublic::from_slice(&pk_bytes).unwrap();
+        let account_id = public.into_account();
+
         let id = Address::Id(account_id);
         let signed_extra: SignedExtra = ();
 
@@ -222,7 +228,10 @@ mod tests {
             ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
         // Create a second account
-        let account_id_2 = PoseidonHasher::hash(&[0u8; PUB_KEY_BYTES]).0.into();
+        let public_2 = ResonancePublic::from_slice(&[0u8; PUB_KEY_BYTES]).unwrap();
+        let account_id_2 = public_2.into_account();
+        // let account_id_2 = PoseidonHasher::hash(&[0u8; PUB_KEY_BYTES]).0.into();
+
         let id_2 = Address::Id(account_id_2);
         let signed_extra: SignedExtra = ();
 
@@ -278,7 +287,10 @@ mod tests {
         let signature =
             ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
             
-        let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+        // let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+        let public = ResonancePublic::from_slice(&pk_bytes).unwrap();
+        let account_id = public.into_account();
+
         let id = Address::Id(account_id);
         let signed_extra: SignedExtra = ();
 

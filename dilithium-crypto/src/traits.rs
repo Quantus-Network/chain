@@ -61,7 +61,8 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag
 impl IdentifyAccount for ResonancePublic {
     type AccountId = AccountId32;
     fn into_account(self) -> Self::AccountId {
-        AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
+        AccountId32::new(sp_io::hashing::blake2_256(self.0.as_slice())) // normal hashing
+        // AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0) // Poseidon hashing
     }
 }
 
@@ -213,7 +214,9 @@ impl IdentifyAccount for ResonanceSigner {
             Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
             Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
             Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
-            Self::Resonance(who) => PoseidonHasher::hash(who.as_ref()).0.into(),
+            Self::Resonance(who) => who.into_account(), // universal
+            // Self::Resonance(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            // Self::Resonance(who) => PoseidonHasher::hash(who.as_ref()).0.into(), // Poseidon Accound ID
         }
     }
 }

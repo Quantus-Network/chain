@@ -56,6 +56,7 @@ pub mod opaque {
 	pub type BlockId = generic::BlockId<Block>;
 	/// Opaque block hash type.
 	pub type Hash = <PoseidonHasher as HashT>::Output;
+	pub type Hasher = PoseidonHasher;
 }
 
 impl_opaque_keys! {
@@ -146,6 +147,8 @@ pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+
+pub type Hasher = PoseidonHasher;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
