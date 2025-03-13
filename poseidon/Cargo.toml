@@ -13,11 +13,10 @@ scale-info = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true}
 sp-storage = { workspace = true }
-dusk-poseidon = { workspace = true }
-dusk-bls12_381 = { workspace = true }
 sp-trie = { workspace = true }
 codec = { workspace = true }
 serde = { version = "1.0.217", default-features = false, optional = true }
+plonky2 = { workspace = true }
 
 [features]
 default = ["std"]

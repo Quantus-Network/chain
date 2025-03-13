@@ -6,13 +6,14 @@ use sp_core::Hasher;
 use sp_core::H256;
 use sp_runtime::{RuntimeDebug, Vec};
 use sp_storage::StateVersion;
-use dusk_poseidon::{Hash as DuskPoseidonHash, Domain};
-use dusk_bls12_381::BlsScalar;
 use sp_trie::{LayoutV0, LayoutV1, TrieConfiguration};
 use core::hash::Hasher as StdHasher;
 use codec::Encode;
 use log;
-
+use plonky2::field::goldilocks_field::GoldilocksField;
+use plonky2::field::types::{Field, PrimeField64};
+use plonky2::hash::poseidon::PoseidonHash;
+use plonky2::plonk::config::{Hasher as PlonkyHasher};
 #[cfg(feature = "serde")]
 use sp_runtime::{Deserialize, Serialize};
 
@@ -47,32 +48,33 @@ impl Hasher for PoseidonHasher {
 
 
 fn poseidon_hash(x: &[u8]) -> H256 {
-    // We don't want to exceed the scalar field modulus, so we only take 31 bytes at a time
-    const BYTES_PER_ELEMENT: usize = 31;
+    // We don't want to exceed the scalar field modulus, so we only take 7 bytes at a time
+    const BYTES_PER_ELEMENT: usize = 7;
 
-    let mut field_elements: Vec<BlsScalar> = Vec::new();
+    let mut field_elements: Vec<GoldilocksField> = Vec::new();
     for chunk in x.chunks(BYTES_PER_ELEMENT) {
-        // Pad with zeros if the chunk is smaller than BYTES_PER_ELEMENT
-        let mut padded_chunk = [0u8; 32];
-        padded_chunk[..chunk.len()].copy_from_slice(chunk);
+        let mut bytes = [0u8; 8];
+        bytes[..chunk.len()].copy_from_slice(chunk);
         // Convert the chunk to a field element
-        // log::info!("PoseidonHasher::hash(chunk={:?})", padded_chunk);
-        let field_element = BlsScalar::from_bytes(&padded_chunk).expect("Invalid field element");
+        let value = u64::from_le_bytes(bytes);
+        let field_element = GoldilocksField::from_canonical_u64(value);
         field_elements.push(field_element);
     }
 
     if x.len() == 0 {
         log::info!("PoseidonHasher::hash EMPTY INPUT");
-        field_elements.push(BlsScalar::zero());
+        field_elements.push(GoldilocksField::ZERO);
     }
 
-    let hash = DuskPoseidonHash::digest(Domain::Other, &field_elements);
-    log::debug!("hash output: {:?}", hash);
-    assert_eq!(hash.len(), 1, "Expected exactly 1 BlsScalar");
-    let mut bytes = hash[0].to_bytes();
-    bytes.reverse();
+    let hash = PoseidonHash::hash_pad(&field_elements);
+    let mut bytes = [0u8; 32];
+    for (i, element) in hash.elements.iter().enumerate() {
+        let element_bytes = element.to_canonical_u64().to_le_bytes();
+        bytes[i * 8..(i + 1) * 8].copy_from_slice(&element_bytes);
+    }
 
     let h256 = H256::from_slice(bytes.as_slice());
+    log::debug!("hash output: {:?}", h256);
 
     h256
 }

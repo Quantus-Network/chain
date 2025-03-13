@@ -24,8 +24,7 @@ resolver = "2"
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-dusk-poseidon = { version = "0.40.0", default-features = false }
-dusk-bls12_381 = { version = "0.13.0", default-features = false }
+plonky2 = { git="https://github.com/Resonance-Network/plonky2", default-features = false, features = ["no_random"] }
 
 async-trait = { version = "0.1.85", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }

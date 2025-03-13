@@ -17,7 +17,7 @@ sp-runtime = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 
-plonky2 = { git="https://github.com/Resonance-Network/plonky2", default-features = false, features = ["no_random"] }
+plonky2 = { workspace = true }
 sp-std = { workspace = true, default-features = false }
 
 #light-poseidon = { workspace = true, default-features = false }
