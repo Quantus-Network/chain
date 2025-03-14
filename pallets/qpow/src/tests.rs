@@ -82,7 +82,7 @@ fn test_submit_valid_proof() {
             println!("Could not find second valid nonce, skipping that part of test");
         }
 
-        // Event check could be added here
+        // TODO:  Event check could be added here
     });
 }
 
