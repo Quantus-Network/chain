@@ -40,7 +40,7 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
-	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
+	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
 use log;

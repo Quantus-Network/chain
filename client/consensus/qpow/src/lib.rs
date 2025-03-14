@@ -67,7 +67,7 @@ where
         pre_hash: &H256,
         _pre_digest: Option<&[u8]>,
         seal: &RawSeal,
-        difficulty: Self::Difficulty,
+        _difficulty: Self::Difficulty,
     ) -> Result<bool, Error<B>> {
         // Convert seal to nonce [u8; 64]
         let nonce: [u8; 64] = match seal.as_slice().try_into() {

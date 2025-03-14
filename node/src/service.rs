@@ -335,7 +335,7 @@ pub fn new_full<
                     let miner = QPoWMiner::new(client.clone());
 
                     let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian(), metadata.difficulty) {
+                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
                             Ok(s) => {
                                 log::info!("valid nonce: {} ==> {:?}", nonce, s);
                                 s

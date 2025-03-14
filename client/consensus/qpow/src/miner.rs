@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
-use primitive_types::{H256, U256};
+use primitive_types::H256;
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
 use sp_runtime::traits::Block as BlockT;
@@ -36,7 +36,6 @@ where
         parent_hash: BA::Hash,
         pre_hash: BA::Hash,
         nonce: [u8; 64],
-        difficulty: U256,
     ) -> Result<QPoWSeal, ()> {
 
         // Convert pre_hash to [u8; 32] for verification

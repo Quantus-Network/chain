@@ -454,7 +454,7 @@ pub mod pallet {
 		}
 
 		// Common verification logic
-		fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+		pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
 			if nonce == [0u8; 64] {
 				return false
 			}

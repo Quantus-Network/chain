@@ -1,6 +1,6 @@
 use crate as pallet_qpow;
 use frame_support::{parameter_types, traits::Everything};
-use frame_support::pallet_prelude::ConstU32;
+use frame_support::pallet_prelude::{ConstU32, TypedGet};
 use frame_support::traits::ConstU64;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -83,8 +83,17 @@ impl pallet_qpow::Config for Test {
 
 // Build genesis storage according to the mock runtime
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	frame_system::GenesisConfig::<Test>::default()
+	let mut t = frame_system::GenesisConfig::<Test>::default()
 		.build_storage()
-		.unwrap()
-		.into()
+		.unwrap();
+
+	// Add QPow genesis configuration
+	pallet_qpow::GenesisConfig::<Test> {
+		initial_difficulty: <Test as pallet_qpow::Config>::InitialDifficulty::get(),
+		_phantom: Default::default(),
+	}
+		.assimilate_storage(&mut t)
+		.unwrap();
+
+	t.into()
 }
