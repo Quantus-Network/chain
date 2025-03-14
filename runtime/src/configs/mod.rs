@@ -99,11 +99,11 @@ impl frame_system::Config for Runtime {
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
-	type InitialDifficulty = ConstU64<25127957310>;
-	type MinDifficulty = ConstU64<5025591462>; //InitialDifficulty / 10
+	type InitialDifficulty = ConstU64<5500000000>; //Min + 5
+	type MinDifficulty = ConstU64<50000000000>;
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
-	type DampeningFactor = ConstU64<3>;
+	type DampeningFactor = ConstU64<5>;
 	type BlockTimeHistorySize = ConstU32<60>;
 }
 

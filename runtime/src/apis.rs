@@ -40,7 +40,7 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
-	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
+	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
 use log;
@@ -128,12 +128,19 @@ impl_runtime_apis! {
 	}
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
-		fn verify_nonce(
-			header: [u8; 32],
-			nonce: [u8; 64],
-			difficulty: u64
-		) -> bool {
-			QPoW::verify_nonce(header, nonce, difficulty)
+
+		fn verify_for_import(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_for_import(header, nonce)
+		}
+
+		fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: u32) -> bool {
+			// Convert u32 to the appropriate BlockNumber type used by your runtime
+			let block_number_param = block_number.into();
+			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
+		}
+
+		fn submit_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::submit_nonce(header, nonce)
 		}
 
 		fn get_difficulty() -> u64 {
@@ -145,7 +152,7 @@ impl_runtime_apis! {
 		}
 
 		fn get_latest_proof() -> Option<[u8; 64]> {
-			<pallet_qpow::LatestProof<Runtime>>::get()
+			<pallet_qpow::LatestNonce<Runtime>>::get()
 		}
 
 		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {

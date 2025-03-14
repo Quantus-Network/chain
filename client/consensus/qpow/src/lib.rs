@@ -67,7 +67,7 @@ where
         pre_hash: &H256,
         _pre_digest: Option<&[u8]>,
         seal: &RawSeal,
-        difficulty: Self::Difficulty,
+        _difficulty: Self::Difficulty,
     ) -> Result<bool, Error<B>> {
         // Convert seal to nonce [u8; 64]
         let nonce: [u8; 64] = match seal.as_slice().try_into() {
@@ -83,7 +83,7 @@ where
 
         // Verify the nonce using QPoW
         if !self.client.runtime_api()
-            .verify_nonce(parent_hash, pre_hash, nonce, difficulty.low_u64())
+            .verify_for_import(parent_hash, pre_hash, nonce)
             .map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))? {
             return Ok(false);
         }

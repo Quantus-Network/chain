@@ -33,6 +33,14 @@ pub mod pallet {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+
+	#[pallet::storage]
+	pub type BlockDifficulties<T: Config> = StorageMap<_,Twox64Concat,BlockNumberFor<T>,u64,ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn latest_nonce)]
+	pub type LatestNonce<T> = StorageValue<_, [u8; 64]>;
+
 	#[pallet::storage]
 	pub type LastBlockTime<T: Config> = StorageValue<_, u64, ValueQuery>;
 
@@ -98,7 +106,14 @@ pub mod pallet {
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
 			let initial_proof = [0u8; 64];
-			<LatestProof<T>>::put(initial_proof);
+			<LatestNonce<T>>::put(initial_proof);
+
+			//Set current difficulty for the genesis block
+			<CurrentDifficulty<T>>::put(self.initial_difficulty);
+
+			//Save initial difficulty for the genesis block
+			let genesis_block_number = BlockNumberFor::<T>::zero();
+			<BlockDifficulties<T>>::insert(genesis_block_number, self.initial_difficulty);
 		}
 	}
 
@@ -115,11 +130,6 @@ pub mod pallet {
 			Weight::from_parts(10_000, 0)
 		}
 	}
-
-
-	#[pallet::storage]
-	#[pallet::getter(fn latest_proof)]
-	pub type LatestProof<T> = StorageValue<_, [u8; 64]>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -235,6 +245,9 @@ pub mod pallet {
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
+
+			// Store difficulty for block
+			<BlockDifficulties<T>>::insert(current_block_number, current_difficulty);
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks + 1);
@@ -381,7 +394,7 @@ pub mod pallet {
 			Self::l1_distance(&original_chunks, &nonce_chunks)
 		}
 
-		pub fn verify_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+/*		pub fn verify_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
 			if nonce == [0u8; 64] {
 				return false
 			}
@@ -392,6 +405,62 @@ pub mod pallet {
 				Self::deposit_event(Event::ProofSubmitted { nonce });
 			}
 			verified
+		}*/
+
+		// Function used during block import from the network
+		pub fn verify_for_import(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			// During import, we use the current network difficulty
+			// This value will be correct because we're importing at the appropriate point in the chain
+			let current_difficulty = Self::get_difficulty();
+
+			// Verify using current difficulty
+			let valid = Self::is_valid_nonce(header, nonce, current_difficulty);
+
+			if valid {
+				// Store the proof but don't emit event - imported blocks shouldn't trigger events
+				<LatestNonce<T>>::put(nonce);
+				// No new events for imported blocks
+			}
+
+			valid
+		}
+
+		// Function used to verify a block that's already in the chain
+		pub fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: BlockNumberFor<T>) -> bool {
+			// Get the stored difficulty for this specific block
+			let block_difficulty = Self::get_difficulty_at_block(block_number);
+
+			if block_difficulty == 0 {
+				// No stored difficulty - cannot verify
+				return false;
+			}
+
+			// Verify with historical difficulty
+			Self::is_valid_nonce(header, nonce, block_difficulty)
+		}
+
+
+		// Function for local mining
+		pub fn submit_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			let difficulty = Self::get_difficulty();
+			let valid = Self::is_valid_nonce(header, nonce, difficulty);
+
+			if valid {
+				<LatestNonce<T>>::put(nonce);
+				Self::deposit_event(Event::ProofSubmitted { nonce });
+			}
+
+			valid
+		}
+
+		// Common verification logic
+		pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+			if nonce == [0u8; 64] {
+				return false
+			}
+
+			let distance = Self::get_nonce_distance(header, nonce);
+			distance <= MAX_DISTANCE - difficulty
 		}
 
 		/// Generates a pair of RSA-style numbers (m,n) deterministically from input header
@@ -580,8 +649,13 @@ pub mod pallet {
 			stored
 		}
 
-		pub fn log_info(message: &str){
-			log::info!("From QPoW Pallet: {}",message);
+		pub fn get_difficulty_at_block(block_number: BlockNumberFor<T>) -> u64 {
+			let difficulty = <BlockDifficulties<T>>::get(block_number);
+			if difficulty == 0 {
+				0
+			} else {
+				difficulty
+			}
 		}
 	}
 }

@@ -365,20 +365,22 @@ pub fn new_full<
                         Some(m) => m,
                         None => {
                             log::warn!(target: "pow", "No mining metadata available");
-                            tokio::time::sleep(Duration::from_millis(1000)).await;
+                            tokio::time::sleep(Duration::from_millis(250)).await;
                             continue;
                         }
                     };
                     let version = worker_handle.version();
 
                     // Mine the block
+                    //log::info!("Nonce: {}", nonce);
+                    //log::info!("Difficulty: {}",metadata.difficulty);
 
                     let miner = QPoWMiner::new(client.clone());
 
                     let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian(), metadata.difficulty) {
+                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
                             Ok(s) => {
-                                log::info!("valid nonce: {:?}", s);
+                                log::info!("valid nonce: {} ==> {:?}", nonce, s);
                                 s
                             }
                             Err(_) => {
