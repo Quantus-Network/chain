@@ -152,7 +152,7 @@ impl_runtime_apis! {
 		}
 
 		fn get_latest_proof() -> Option<[u8; 64]> {
-			<pallet_qpow::LatestProof<Runtime>>::get()
+			<pallet_qpow::LatestNonce<Runtime>>::get()
 		}
 
 		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {

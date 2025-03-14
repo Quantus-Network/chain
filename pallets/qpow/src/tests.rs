@@ -58,7 +58,7 @@ fn test_submit_valid_proof() {
                 QPow::get_nonce_distance(header, valid_nonce),
                 MAX_DISTANCE - difficulty);
 
-        assert_eq!(QPow::latest_proof(), Some(valid_nonce));
+        assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
 
         // Find a second valid nonce for medium difficulty test
         let mut second_valid = valid_nonce;
@@ -77,7 +77,7 @@ fn test_submit_valid_proof() {
         if found_second {
             // Submit the second valid proof
             assert!(QPow::submit_nonce(header, second_valid));
-            assert_eq!(QPow::latest_proof(), Some(second_valid));
+            assert_eq!(QPow::latest_nonce(), Some(second_valid));
         } else {
             println!("Could not find second valid nonce, skipping that part of test");
         }
@@ -91,19 +91,39 @@ fn test_verify_for_import() {
     new_test_ext().execute_with(|| {
         // Set up test data
         let header = [1u8; 32];
-        let mut nonce = [0u8; 64];
 
-        // Use a nonce that would be valid with current difficulty
-        nonce[63] = 5;  // Assuming this gives a valid distance for the current difficulty
+        // Get current difficulty to understand what we need to target
+        let difficulty = QPow::get_difficulty();
+        println!("Current difficulty: {}", difficulty);
 
-        // Verify the nonce during import
-        assert!(QPow::verify_for_import(header, nonce));
+        // Find a nonce that will be valid for the current difficulty
+        let mut valid_nonce = [0u8; 64];
+        let mut found_valid = false;
 
-        // Check that the latest proof was stored but no event was emitted
-        assert_eq!(QPow::latest_proof(), Some(nonce));
+        // Try various values until we find one that works
+        for i in 1..255 {
+            valid_nonce[63] = i;
+            let distance = QPow::get_nonce_distance(header, valid_nonce);
+            let threshold = MAX_DISTANCE - difficulty;
 
-        // TODO: Verify no event was emitted
-        // This requires specific testing infrastructure to verify absence of events
+            if distance <= threshold {
+                println!("Found valid nonce with value {} - distance: {}, threshold: {}",
+                         i, distance, threshold);
+                found_valid = true;
+                break;
+            }
+        }
+
+        assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
+
+        // Now verify using the dynamically found valid nonce
+        assert!(QPow::verify_for_import(header, valid_nonce));
+
+        // Check that the latest proof was stored
+        assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
+
+        // Check for events if needed
+        // ...
     });
 }
 

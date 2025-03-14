@@ -38,8 +38,8 @@ pub mod pallet {
 	pub type BlockDifficulties<T: Config> = StorageMap<_,Twox64Concat,BlockNumberFor<T>,u64,ValueQuery>;
 
 	#[pallet::storage]
-	#[pallet::getter(fn latest_proof)]
-	pub type LatestProof<T> = StorageValue<_, [u8; 64]>;
+	#[pallet::getter(fn latest_nonce)]
+	pub type LatestNonce<T> = StorageValue<_, [u8; 64]>;
 
 	#[pallet::storage]
 	pub type LastBlockTime<T: Config> = StorageValue<_, u64, ValueQuery>;
@@ -106,7 +106,7 @@ pub mod pallet {
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
 			let initial_proof = [0u8; 64];
-			<LatestProof<T>>::put(initial_proof);
+			<LatestNonce<T>>::put(initial_proof);
 
 			//Set current difficulty for the genesis block
 			<CurrentDifficulty<T>>::put(self.initial_difficulty);
@@ -418,7 +418,7 @@ pub mod pallet {
 
 			if valid {
 				// Store the proof but don't emit event - imported blocks shouldn't trigger events
-				<LatestProof<T>>::put(nonce);
+				<LatestNonce<T>>::put(nonce);
 				// No new events for imported blocks
 			}
 
@@ -446,7 +446,7 @@ pub mod pallet {
 			let valid = Self::is_valid_nonce(header, nonce, difficulty);
 
 			if valid {
-				<LatestProof<T>>::put(nonce);
+				<LatestNonce<T>>::put(nonce);
 				Self::deposit_event(Event::ProofSubmitted { nonce });
 			}
 
