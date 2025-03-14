@@ -83,7 +83,7 @@ where
 
         // Verify the nonce using QPoW
         if !self.client.runtime_api()
-            .verify_nonce(parent_hash, pre_hash, nonce, difficulty.low_u64())
+            .verify_for_import(parent_hash, pre_hash, nonce)
             .map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))? {
             return Ok(false);
         }

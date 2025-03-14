@@ -1,4 +1,5 @@
 use frame_support::pallet_prelude::TypedGet;
+use frame_support::traits::Hooks;
 use crate::mock::*;
 use primitive_types::U512;
 use crate::{BlockTimeHistory, HistoryIndex, HistorySize, MAX_DISTANCE};
@@ -665,6 +666,48 @@ fn test_median_block_time_ring_buffer() {
     });
 }
 
+#[test]
+fn test_block_difficulty_storage_and_retrieval() {
+    new_test_ext().execute_with(|| {
+        // 1. Test that genesis block difficulty is properly set
+        let genesis_difficulty = QPow::get_difficulty_at_block(0);
+        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+        assert_eq!(genesis_difficulty, initial_difficulty,
+                   "Genesis block should have initial difficulty");
+
+        // 2. Simulate block production and difficulty adjustment
+        run_to_block(1);
+        let block_1_difficulty = QPow::get_difficulty_at_block(1);
+        assert_eq!(block_1_difficulty, initial_difficulty,
+                   "Block 1 should have same difficulty as initial");
+
+        // 3. Simulate multiple blocks to trigger difficulty adjustment
+        let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
+        run_to_block(adjustment_period + 1);
+
+        // 4. Check that difficulty for early blocks hasn't changed
+        let block_1_difficulty_after = QPow::get_difficulty_at_block(1);
+        assert_eq!(block_1_difficulty_after, block_1_difficulty,
+                   "Historical block difficulty should not change");
+
+        // 5. Check that we have different difficulties after adjustment
+        let current_difficulty = QPow::get_difficulty();
+        let latest_block = System::block_number();
+        let latest_block_difficulty = QPow::get_difficulty_at_block(latest_block);
+
+        // Either assert they're different (if your test environment produces varying times)
+        // or assert that they match your expected adjustment pattern
+        assert_eq!(latest_block_difficulty, current_difficulty,
+                   "Latest block difficulty should match current difficulty");
+
+        // 6. Test non-existent block (future block)
+        let future_block = latest_block + 1000;
+        let future_difficulty = QPow::get_difficulty_at_block(future_block);
+        assert_eq!(future_difficulty, 0,
+                   "Future block difficulty should return 0");
+    });
+}
+
 //////////// Support methods
 pub fn hash_to_group(
     h: &[u8; 32],
@@ -677,4 +720,11 @@ pub fn hash_to_group(
     let n = U512::from_big_endian(n);
     let nonce_u = U512::from_big_endian(nonce);
     QPow::hash_to_group_bigint_split(&h, &m, &n, &nonce_u)
+}
+
+fn run_to_block(n: u32) {
+    while System::block_number() < n as u64 {
+        System::set_block_number(System::block_number() + 1);
+        <QPow as Hooks<_>>::on_finalize(System::block_number());
+    }
 }

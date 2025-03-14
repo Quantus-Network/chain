@@ -44,7 +44,7 @@ where
         let block_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
         // Verify the nonce using runtime api
-        match self.client.runtime_api().verify_nonce(parent_hash, block_hash, nonce, difficulty.low_u64()) {
+        match self.client.runtime_api().submit_nonce(parent_hash, block_hash, nonce) {
             Ok(true) => {
                 log::info!("good seal");
                 Ok(QPoWSeal { nonce })

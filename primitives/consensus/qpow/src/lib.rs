@@ -10,15 +10,29 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
     pub trait QPoWApi {
-        /// Check if nonce is valid with given difficulty
-        fn verify_nonce(
+        /// Verify a nonce for a block being imported from the network
+        fn verify_for_import(
             header: [u8; 32],
             nonce: [u8; 64],
-            difficulty: u64,
+        ) -> bool;
+
+        /// Verify a nonce for a historical block that's already in the chain
+        fn verify_historical_block(
+            header: [u8; 32],
+            nonce: [u8; 64],
+            block_number: u32,
+        ) -> bool;
+
+        /// Submit a locally mined nonce
+        fn submit_nonce(
+            header: [u8; 32],
+            nonce: [u8; 64],
         ) -> bool;
 
         /// Get the current difficulty target for proof generation
         fn get_difficulty() -> u64;
+
+        /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;
 
         /// Retrieve latest submitted proof
