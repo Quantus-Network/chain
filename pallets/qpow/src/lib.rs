@@ -657,5 +657,9 @@ pub mod pallet {
 				difficulty
 			}
 		}
+
+		pub fn get_last_block_time() -> u64 {
+			<LastBlockTime<T>>::get()
+		}
 	}
 }
