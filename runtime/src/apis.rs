@@ -155,6 +155,10 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_last_block_time()
 		}
 
+		fn get_last_block_duration() -> u64{
+			pallet_qpow::Pallet::<Self>::get_last_block_duration()
+		}
+
 		fn get_latest_nonce() -> Option<[u8; 64]> {
 			<pallet_qpow::LatestNonce<Runtime>>::get()
 		}

@@ -350,7 +350,10 @@ pub fn new_full<
                         );
                         gauge.with_label_values(&["last_block_time"]).set(
                             client_monitoring.runtime_api().get_last_block_time(block_hash).unwrap_or(0) as f64
-                        )
+                        );
+                        gauge.with_label_values(&["last_block_duration"]).set(
+                            client_monitoring.runtime_api().get_last_block_duration(block_hash).unwrap_or(0) as f64
+                        );
                     }else{
                         log::warn!("QPoW Monitoring: Prometheus registry not found");
                     }

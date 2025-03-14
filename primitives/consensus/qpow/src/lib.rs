@@ -35,7 +35,11 @@ sp_api::decl_runtime_apis! {
         /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;
 
+        /// Get last block timestamp
         fn get_last_block_time() -> u64;
+
+        // Get last block mining time
+        fn get_last_block_duration() -> u64;
 
         /// Retrieve latest submitted proof
         fn get_latest_nonce() -> Option<[u8; 64]>;

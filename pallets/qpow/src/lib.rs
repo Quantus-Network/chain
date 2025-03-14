@@ -45,6 +45,9 @@ pub mod pallet {
 	pub type LastBlockTime<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	#[pallet::storage]
+	pub type LastBlockDuration<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::storage]
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	#[pallet::storage]
@@ -267,6 +270,10 @@ pub mod pallet {
 				let max_reasonable_time = T::TargetBlockTime::get() * 10;
 				// takes smaller value
 				let capped_time = block_time.min(max_reasonable_time);
+
+				// Store the actual block duration
+				<LastBlockDuration<T>>::put(capped_time);
+
 
 				if block_time != capped_time {
 					log::warn!(
@@ -660,6 +667,10 @@ pub mod pallet {
 
 		pub fn get_last_block_time() -> u64 {
 			<LastBlockTime<T>>::get()
+		}
+
+		pub fn get_last_block_duration() -> u64 {
+			<LastBlockDuration<T>>::get()
 		}
 	}
 }
