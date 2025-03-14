@@ -12,10 +12,13 @@ use std::{sync::Arc, time::Duration};
 use codec::Encode;
 use jsonrpsee::tokio;
 use sp_api::__private::BlockT;
-use sp_api::ProvideRuntimeApi;
-use sp_core::U512;
+use sp_core::{RuntimeDebug, U512};
+use async_trait::async_trait;
+use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
+use sp_runtime::traits::Header;
 use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
+use sp_api::ProvideRuntimeApi;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -33,13 +36,51 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     QPowAlgorithm<Block, FullClient>,
     Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>,
 >;
+
+#[derive(PartialEq, Eq, Clone, RuntimeDebug)]
+pub struct LoggingBlockImport<B: BlockT, I> {
+    inner: I,
+    _phantom: std::marker::PhantomData<B>,
+}
+
+impl<B: BlockT, I> LoggingBlockImport<B, I> {
+    fn new(inner: I) -> Self {
+        Self {
+            inner,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B>  for LoggingBlockImport<B, I>
+{
+    type Error = I::Error;
+
+    async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
+        self.inner.check_block(block).await.map_err(Into::into)
+    }
+
+    async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
+        log::info!(
+            "🏆 Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+            block.header.number(),
+            block.header.hash(),
+            block.header.extrinsics_root(),
+            block.header.state_root()
+        );
+        self.inner.import_block(block).await.map_err(Into::into)
+    }
+}
+
+
 pub type Service = sc_service::PartialComponents<
     FullClient,
     FullBackend,
     FullSelectChain,
     sc_consensus::DefaultImportQueue<Block>,
     sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-    (PowBlockImport, Option<Telemetry>),
+    (LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
 >;
 //TODO Question - for what is this method?
 pub fn build_inherent_data_providers(
@@ -119,8 +160,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         inherent_data_providers,
     );
 
+    let logging_block_import = LoggingBlockImport::new(pow_block_import);
+
     let import_queue = sc_consensus_pow::import_queue(
-        Box::new(pow_block_import.clone()),
+        Box::new(logging_block_import.clone()),
         None,
         QPowAlgorithm {
             client: client.clone(),
@@ -138,7 +181,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (pow_block_import, telemetry),
+		other: (logging_block_import, telemetry),
 	})
 }
 
