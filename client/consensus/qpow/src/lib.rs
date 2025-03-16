@@ -152,50 +152,82 @@ where
         
         let mut current_hash = chain_head.hash();
         let mut total_difficulty = U256::zero();
+
+        log::info!(
+            "Calculating difficulty for chain with head: {:?} (#{:?})", 
+            current_hash, 
+            chain_head.number()
+        );
         
+        if chain_head.number().is_zero() {
+            // Genesis block should have some minimal difficulty
+            let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
+                        .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
+
+            return Ok(U256::from(genesis_difficulty));
+            //return Ok(U256::from(1));
+        }
+
         // Traverse the chain backwards to calculate cumulative difficulty
         loop {
             let header = self.client.header(current_hash)
                                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                                 .ok_or_else(|| sp_consensus::Error::Other(format!("Missing Header {:?}", current_hash).into()))?;
-            
-            if let Some(seal) = header.digest().logs().iter().find(|item| {
-                item.as_seal().is_some()
-            }) {
-                if let Some((_, seal_data)) = seal.as_seal() {
-                    // Convert header hash to [u8; 32]
-                    let header_bytes = header.hash().as_ref().try_into().unwrap_or([0u8; 32]);
-                    
-                    // Try to decode nonce from seal data
-                    let nonce = if seal_data.len() == 64 {
-                        let mut nonce_bytes = [0u8; 64];
-                        nonce_bytes.copy_from_slice(&seal_data[0..64]);
-                        nonce_bytes
-                    } else {
-                        //seal data doesn't match expected format
-                        [0u8; 64]
-                    };
 
-                    let max_distance = self.client.runtime_api().get_max_distance(current_hash.clone())
-                        .map_err(|e| sp_consensus::Error::Other(format!("Failed to get max distance: {:?}", e).into()))?;
-
-                    let actual_distance = self.client.runtime_api().get_nonce_distance(current_hash.clone(), header_bytes, nonce)
-                        .map_err(|e| sp_consensus::Error::Other(format!("Failed to get nonce distance: {:?}", e).into()))?;
-
-                    let block_difficulty = U256::from(max_distance.saturating_sub(actual_distance));
-                    
-                    total_difficulty = total_difficulty.saturating_add(U256::from(block_difficulty));
-                }
-            }
-            
             // Stop at genesis block
             if header.number().is_zero() {
+                // Genesis block should have some minimal difficulty
+                let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
+                .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
+
+                total_difficulty = total_difficulty.saturating_add(U256::from(genesis_difficulty));
                 break;
             }
+            
+            let seal_log = header.digest().logs().iter().find(|item| 
+                item.as_seal().is_some())
+                .ok_or_else(|| sp_consensus::Error::Other("No seal found in block digest".into()))?;
+
+            let (_, seal_data) = seal_log.as_seal().ok_or_else(|| sp_consensus::Error::Other("Invalid seal format".into()))?;
+
+            // Convert header hash to [u8; 32]
+            let header_bytes = header.hash().as_ref().try_into().unwrap_or([0u8; 32]);
+            
+            // Try to decode nonce from seal data
+            let nonce = if seal_data.len() == 64 {
+                let mut nonce_bytes = [0u8; 64];
+                nonce_bytes.copy_from_slice(&seal_data[0..64]);
+                nonce_bytes
+            } else {
+                //seal data doesn't match expected format
+                return Err(sp_consensus::Error::Other(format!("Invalid seal data length: {}", seal_data.len()).into()));
+            };
+
+            let max_distance = self.client.runtime_api().get_max_distance(current_hash.clone())
+                .map_err(|e| sp_consensus::Error::Other(format!("Failed to get max distance: {:?}", e).into()))?;
+
+            let actual_distance = self.client.runtime_api().get_nonce_distance(current_hash.clone(), header_bytes, nonce)
+                .map_err(|e| sp_consensus::Error::Other(format!("Failed to get nonce distance: {:?}", e).into()))?;
+
+            let block_difficulty = U256::from(max_distance.saturating_sub(actual_distance));
+
+            log::info!(
+                "Block #{:?} difficulty: {:?}", 
+                header.number(), 
+                block_difficulty
+            );
+            
+            total_difficulty = total_difficulty.saturating_add(U256::from(block_difficulty));
             
             // Move to the parent block
             current_hash = *header.parent_hash();
         }
+
+        log::info!(
+            "Total chain difficulty: {:?} for chain with head at #{:?}", 
+            total_difficulty, 
+            chain_head.number()
+        );
         
         Ok(total_difficulty)
     }
@@ -216,7 +248,11 @@ where
     }
 
     async fn best_chain(&self) -> Result<B::Header, sp_consensus::Error> {
-        let leaves = self.backend.blockchain().leaves().unwrap();
+        let leaves = self.backend.blockchain().leaves().map_err(|e| sp_consensus::Error::Other(format!("Failed to fetch leaves: {:?}", e).into()))?;
+        if leaves.is_empty() {
+            return Err(sp_consensus::Error::Other("Blockchain has no leaves".into()));
+        }
+
         let mut best_header = None;
         let mut best_work = U256::zero();
         
