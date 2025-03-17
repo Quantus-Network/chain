@@ -865,13 +865,13 @@ pub mod pallet {
 		}
 
 		pub fn transfer_proof_storage_key(
-			nonce: u64,
+			nonce: T::Nonce,
 			from: T::AccountId,
 			to: T::AccountId,
 			amount: T::Balance,
 		) -> Vec<u8> {
 			let key = (nonce, from, to, amount);
-			TransferProof::<T>::hashed_key_for(&key)
+			TransferProof::<T, I>::hashed_key_for(&key)
 		}
 	}
 
