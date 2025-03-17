@@ -21,6 +21,7 @@ frame-support.workspace = true
 frame-system.workspace = true
 sp-runtime.workspace = true
 docify = { workspace = true }
+poseidon-resonance = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 pallet-transaction-payment = { workspace = true, default-features = true }

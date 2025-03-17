@@ -168,8 +168,9 @@ use frame_support::{
 		},
 		Currency, Defensive, Get, OnUnbalanced, ReservableCurrency, StoredMap,
 	},
-	BoundedSlice, WeakBoundedVec,
+	BoundedSlice, WeakBoundedVec, StorageHasher
 };
+use frame_support::__private::metadata_ir::StorageHasherIR;
 use frame_system as system;
 pub use impl_currency::{NegativeImbalance, PositiveImbalance};
 use scale_info::TypeInfo;
@@ -184,12 +185,29 @@ pub use types::{
 	AccountData, AdjustmentDirection, BalanceLock, DustCleaner, ExtraFlags, Reasons, ReserveData,
 };
 pub use weights::WeightInfo;
-
+use poseidon_resonance::PoseidonHasher as PoseidonCore;
+use sp_runtime::traits::Hash;
 pub use pallet::*;
 
 const LOG_TARGET: &str = "runtime::balances";
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
+
+pub struct PoseidonHasher;
+
+impl StorageHasher for PoseidonHasher {
+	// We are lying here, but maybe it's ok because it's just metadata
+	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
+	type Output = [u8; 32];
+
+	fn hash(x: &[u8]) -> Self::Output {
+		PoseidonCore::hash(x).0
+	}
+
+	fn max_len<K: MaxEncodedLen>() -> usize {
+		32
+	}
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -502,6 +520,16 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
+	#[pallet::storage]
+	#[pallet::getter(fn transfer_proof)]
+	pub type TransferProof<T: Config<I>, I: 'static = ()> = StorageMap<
+		_,
+		PoseidonHasher,
+		(T::Nonce, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
+		(), // Unit value, acts like a set
+		OptionQuery, // Returns None if not present
+	>;
+
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
 		pub balances: Vec<(T::AccountId, T::Balance)>,
@@ -606,6 +634,7 @@ pub mod pallet {
 			let source = ensure_signed(origin)?;
 			let dest = T::Lookup::lookup(dest)?;
 			<Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Expendable)?;
+			Self::store_transfer_proof(&source, &dest, value);
 			Ok(())
 		}
 
@@ -622,6 +651,7 @@ pub mod pallet {
 			let source = T::Lookup::lookup(source)?;
 			let dest = T::Lookup::lookup(dest)?;
 			<Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Expendable)?;
+			Self::store_transfer_proof(&source, &dest, value);
 			Ok(())
 		}
 
@@ -640,6 +670,7 @@ pub mod pallet {
 			let source = ensure_signed(origin)?;
 			let dest = T::Lookup::lookup(dest)?;
 			<Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Preserve)?;
+			Self::store_transfer_proof(&source, &dest, value);
 			Ok(())
 		}
 
@@ -678,6 +709,7 @@ pub mod pallet {
 				reducible_balance,
 				keep_alive,
 			)?;
+			Self::store_transfer_proof(&transactor, &dest, reducible_balance);
 			Ok(())
 		}
 
@@ -825,6 +857,14 @@ pub mod pallet {
 			Ok(())
 		}
 	}
+
+	impl<T: Config<I>, I: 'static> Pallet<T, I> {
+		fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
+			let nonce = <frame_system::Pallet<T>>::account_nonce(from);
+			TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), ());
+		}
+	}
+
 
 	impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		/// Public function to get the total issuance.

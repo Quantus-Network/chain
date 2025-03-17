@@ -6069,6 +6069,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "paste",
+ "poseidon-resonance",
  "scale-info",
  "sp-core",
  "sp-io",
