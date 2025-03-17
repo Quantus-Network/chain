@@ -32,6 +32,9 @@ sp_api::decl_runtime_apis! {
         /// Get the current difficulty target for proof generation
         fn get_difficulty() -> u64;
 
+        // Get difficulty at block
+        fn get_difficulty_at_block(block_number: u32) -> u64;
+
         /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;
 

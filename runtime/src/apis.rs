@@ -147,6 +147,12 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
+		fn get_difficulty_at_block(block_number: u32) -> u64 {
+			// Convert u32 to the appropriate BlockNumber type used by your runtime
+			let block_number_param = block_number.into();
+			pallet_qpow::Pallet::<Self>::get_difficulty_at_block(block_number_param)
+		}
+
 		fn get_median_block_time() -> u64{
 			pallet_qpow::Pallet::<Self>::get_median_block_time()
 		}
