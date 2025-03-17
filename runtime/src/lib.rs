@@ -24,8 +24,8 @@ use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
 pub use frame_system::Call as SystemCall;
-pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
+pub use pallet_balances::Call as BalancesCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 
@@ -229,13 +229,10 @@ mod runtime {
 	#[runtime::pallet_index(4)]
 	pub type Sudo = pallet_sudo;
 
-	// Include the custom logic from the pallet-template in the runtime.
 	#[runtime::pallet_index(5)]
-	pub type Template = pallet_template;
-
-	#[runtime::pallet_index(6)]
 	pub type QPoW = pallet_qpow;
 
-	#[runtime::pallet_index(7)]
+	#[runtime::pallet_index(6)]
 	pub type Wormhole = pallet_wormhole;
+
 }
