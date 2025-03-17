@@ -863,6 +863,16 @@ pub mod pallet {
 			let nonce = <frame_system::Pallet<T>>::account_nonce(from);
 			TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), ());
 		}
+
+		pub fn transfer_proof_storage_key(
+			nonce: u64,
+			from: T::AccountId,
+			to: T::AccountId,
+			amount: T::Balance,
+		) -> Vec<u8> {
+			let key = (nonce, from, to, amount);
+			TransferProof::<T>::hashed_key_for(&key)
+		}
 	}
 
 
