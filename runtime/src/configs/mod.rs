@@ -103,7 +103,7 @@ impl pallet_qpow::Config for Runtime {
 	type MinDifficulty = ConstU64<50000000000>;
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<10>;
-	type DampeningFactor = ConstU64<5>;
+	type DampeningFactor = ConstU64<8>;
 	type BlockTimeHistorySize = ConstU32<60>;
 }
 
