@@ -9,6 +9,11 @@ pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, &'static str> {
     Ok(Keypair::generate(entropy))
 }
 
+pub fn generate(mnemonic: String) -> Result<Keypair, &'static str> {
+    Ok(Keypair::
+}
+
+
 pub fn create_keypair(public_key: &[u8], secret_key: &[u8]) -> Result<Keypair, &'static str> {
     let keypair = Keypair {
         secret: SecretKey::from_bytes(&secret_key),

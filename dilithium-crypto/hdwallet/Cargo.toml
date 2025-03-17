@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 rusty-crystals-dilithium = { workspace = true, default-features = false }
+hdwallet = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "hdwallet", default-features = false, features = ["no_std"] }
 
 [features]
 default = ["std"]
