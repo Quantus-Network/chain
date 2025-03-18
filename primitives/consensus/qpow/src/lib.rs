@@ -35,8 +35,8 @@ sp_api::decl_runtime_apis! {
         /// Get difficulty at block
         fn get_difficulty_at_block(block_number: u32) -> u64;
 
-        /// Get total difficulty at block
-        fn get_total_difficulty_at_block(block_number: u32) -> u128;
+        /// Get total difficulty
+        fn get_total_difficulty() -> u128;
 
         /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;

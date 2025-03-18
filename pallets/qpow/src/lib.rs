@@ -16,7 +16,7 @@ mod benchmarking;
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig, traits::Time};
-	use frame_support::sp_runtime::{SaturatedConversion,Saturating};
+	use frame_support::sp_runtime::SaturatedConversion;
 	use frame_system::pallet_prelude::BlockNumberFor;
 	use primitive_types::U512;
 	use sha2::{Digest, Sha256};
@@ -51,7 +51,7 @@ pub mod pallet {
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	#[pallet::storage]
-	pub type TotalDifficulty<T: Config> = StorageMap<_, Twox64Concat, BlockNumberFor<T>, u128, ValueQuery>;
+	pub type TotalDifficulty<T: Config> = StorageValue<_, u128, ValueQuery>;
 
 	#[pallet::storage]
 	pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
@@ -255,14 +255,9 @@ pub mod pallet {
 			// Store difficulty for block
 			<BlockDifficulties<T>>::insert(current_block_number, current_difficulty);
 
-			if current_block_number == One::one() {
-				<TotalDifficulty<T>>::insert(current_block_number, current_difficulty as u128);
-			} else {
-				let parent_block_number = current_block_number.saturating_sub(One::one());
-				let parent_total_difficulty = <TotalDifficulty<T>>::get(parent_block_number);
-				let new_total_difficulty = parent_total_difficulty.saturating_add(current_difficulty as u128);
-				<TotalDifficulty<T>>::insert(current_block_number, new_total_difficulty);
-			}
+			let total_difficulty = <TotalDifficulty<T>>::get();
+			let new_total_difficulty = total_difficulty.saturating_add(current_difficulty as u128);
+			<TotalDifficulty<T>>::put(new_total_difficulty);
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks + 1);
@@ -677,8 +672,8 @@ pub mod pallet {
 			}
 		}
 
-		pub fn get_total_difficulty_at_block(block_number: BlockNumberFor<T>) -> u128 {
-			<TotalDifficulty<T>>::get(block_number)
+		pub fn get_total_difficulty() -> u128 {
+			<TotalDifficulty<T>>::get()
 		}
 
 		pub fn get_last_block_time() -> u64 {

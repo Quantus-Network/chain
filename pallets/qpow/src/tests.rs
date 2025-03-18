@@ -244,16 +244,16 @@ fn test_difficulty_storage_and_retrieval() {
 #[test]
 fn test_total_difficulty_initialization() {
     new_test_ext().execute_with(|| {
-        // Check if TotalDifficulty for block 0 is not set
-        assert_eq!(QPow::get_total_difficulty_at_block(0), 0,
-                   "TotalDifficulty for block 0 (genesis) should be 0");
+        // Initially, total difficulty should be 0
+        assert_eq!(QPow::get_total_difficulty(), 0,
+                   "Initial TotalDifficulty should be 0");
 
         // After the first block, TotalDifficulty should equal block 1's difficulty
         run_to_block(1);
         let block_1_difficulty = QPow::get_difficulty_at_block(1);
-        let block_1_total_difficulty = QPow::get_total_difficulty_at_block(1);
-        assert_eq!(block_1_total_difficulty, block_1_difficulty as u128,
-                   "TotalDifficulty for block 1 should equal block 1's difficulty");
+        let total_difficulty = QPow::get_total_difficulty();
+        assert_eq!(total_difficulty, block_1_difficulty as u128,
+                   "TotalDifficulty after block 1 should equal block 1's difficulty");
     });
 }
 
@@ -268,9 +268,9 @@ fn test_total_difficulty_accumulation() {
             let block_difficulty = QPow::get_difficulty_at_block(i as u64);
             expected_total += block_difficulty as u128;
 
-            let stored_total = QPow::get_total_difficulty_at_block(i as u64);
+            let stored_total = QPow::get_total_difficulty();
             assert_eq!(stored_total, expected_total,
-                       "TotalDifficulty for block {} should be the sum of all previous blocks' difficulties", i);
+                       "TotalDifficulty after block {} should be the sum of all blocks' difficulties", i);
         }
     });
 }
@@ -297,9 +297,37 @@ fn test_total_difficulty_after_adjustment() {
         }
 
         // Compare with stored value
-        let stored_total = QPow::get_total_difficulty_at_block((adjustment_period + 1) as u64);
+        let stored_total = QPow::get_total_difficulty();
         assert_eq!(stored_total, expected_total,
                    "TotalDifficulty should correctly account for difficulty changes");
+    });
+}
+
+#[test]
+fn test_total_difficulty_increases_with_each_block() {
+    new_test_ext().execute_with(|| {
+        // Check initial value
+        let initial_total = QPow::get_total_difficulty();
+
+        // Run to block 1 and check the increase
+        run_to_block(1);
+        let total_after_block_1 = QPow::get_total_difficulty();
+        assert!(total_after_block_1 > initial_total,
+                "TotalDifficulty should increase after a new block");
+
+        // Store the value to compare later
+        let block_1_diff = total_after_block_1 - initial_total;
+
+        // Run to block 2 and check the increase again
+        run_to_block(2);
+        let total_after_block_2 = QPow::get_total_difficulty();
+        assert!(total_after_block_2 > total_after_block_1,
+                "TotalDifficulty should increase after each new block");
+
+        // Verify that the increase matches the difficulty of block 2
+        let block_2_diff = total_after_block_2 - total_after_block_1;
+        assert_eq!(block_2_diff, QPow::get_difficulty_at_block(2) as u128,
+                   "TotalDifficulty increase should match the difficulty of the new block");
     });
 }
 
