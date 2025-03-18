@@ -19,6 +19,7 @@ use sp_runtime::traits::Header;
 use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
 use sp_api::ProvideRuntimeApi;
+use sp_core::crypto::AccountId32;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -302,6 +303,26 @@ pub fn new_full<
             _phantom: Default::default(),
         };
 
+        let keystore = keystore_container.keystore();
+        let miner_id = {
+            // Get sr25519 public keys (this directly returns a Vec)
+            let keys = keystore.sr25519_public_keys(sp_core::crypto::key_types::ACCOUNT);
+
+            if let Some(key) = keys.first() {
+                AccountId32::from(*key)
+            } else {
+                log::warn!("No mining key found in keystore, using default account");
+                // Use a default account when no keys are available
+                AccountId32::from([1; 32])
+            }
+        };
+        log::info!("⛏️ Mining with identity: {:?}", miner_id);
+
+        // Encode the miner ID for pre-runtime digest
+        let encoded_miner = miner_id.encode();
+
+
+
         let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
             //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
@@ -312,7 +333,7 @@ pub fn new_full<
             /*sync_oracle:*/ sync_service.clone(),
             /*justification_sync_link:*/ sync_service.clone(),
             //pre_runtime: Option<Vec<u8>>,
-            None,
+            Some(encoded_miner),
             inherent_data_providers,
             // time to wait for a new block before starting to mine a new one
             Duration::from_secs(10),
