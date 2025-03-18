@@ -20,6 +20,7 @@ use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::AccountId32;
+use dilithium_crypto::ResonancePair;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -303,6 +304,14 @@ pub fn new_full<
             _phantom: Default::default(),
         };
 
+        let seed = [0u8; 32];
+        let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
+        //log::info!("Mining identity generated: {:?}", resonance_pair.public().clone());
+        let miner_id = AccountId32::from(resonance_pair.public());
+        /*
+
+        //Keystore version - our type is not implemented there
+
         let keystore = keystore_container.keystore();
         let miner_id = {
             // Get sr25519 public keys (this directly returns a Vec)
@@ -315,7 +324,7 @@ pub fn new_full<
                 // Use a default account when no keys are available
                 AccountId32::from([1; 32])
             }
-        };
+        };*/
         log::info!("⛏️ Mining with identity: {:?}", miner_id);
 
         // Encode the miner ID for pre-runtime digest
