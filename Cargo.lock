@@ -6074,6 +6074,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-mining-rewards"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-consensus-pow",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-qpow"
 version = "0.1.0"
 dependencies = [
@@ -7673,6 +7688,7 @@ dependencies = [
  "hdwallet",
  "log",
  "pallet-balances",
+ "pallet-mining-rewards",
  "pallet-qpow",
  "pallet-sudo",
  "pallet-template",

@@ -95,6 +95,10 @@ impl frame_system::Config for Runtime {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+impl pallet_mining_rewards::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
+}
 
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
