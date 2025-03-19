@@ -244,15 +244,16 @@ fn test_difficulty_storage_and_retrieval() {
 #[test]
 fn test_total_difficulty_initialization() {
     new_test_ext().execute_with(|| {
-        // Initially, total difficulty should be 0
-        assert_eq!(QPow::get_total_difficulty(), 0,
+        // Initially, total difficulty should be as genesis difficulty
+        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+        assert_eq!(QPow::get_total_difficulty(), initial_difficulty.into(),
                    "Initial TotalDifficulty should be 0");
 
         // After the first block, TotalDifficulty should equal block 1's difficulty
         run_to_block(1);
         let block_1_difficulty = QPow::get_difficulty_at_block(1);
         let total_difficulty = QPow::get_total_difficulty();
-        assert_eq!(total_difficulty, block_1_difficulty as u128,
+        assert_eq!(total_difficulty, block_1_difficulty.saturating_add(initial_difficulty).into(),
                    "TotalDifficulty after block 1 should equal block 1's difficulty");
     });
 }
@@ -263,7 +264,7 @@ fn test_total_difficulty_accumulation() {
         // Generate consecutive blocks and check difficulty accumulation
         let mut expected_total = 0u128;
 
-        for i in 1..=10 {
+        for i in 0..=10 {
             run_to_block(i);
             let block_difficulty = QPow::get_difficulty_at_block(i as u64);
             expected_total += block_difficulty as u128;
@@ -291,7 +292,7 @@ fn test_total_difficulty_after_adjustment() {
 
         // Calculate expected cumulative difficulty
         let mut expected_total = 0u128;
-        for i in 1..=(adjustment_period + 1) {
+        for i in 0..=(adjustment_period + 1) {
             let block_diff = QPow::get_difficulty_at_block(i as u64);
             expected_total += block_diff as u128;
         }

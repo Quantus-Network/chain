@@ -73,6 +73,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B>  for LoggingBlockImport
     }
 }
 
+pub const MAX_REORG_DEPTH: u32 = 10;
 
 pub type Service = sc_service::PartialComponents<
     FullClient,
@@ -137,7 +138,8 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     };
 
     //let select_chain = sc_consensus::LongestChain::new(backend.clone());
-    let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client), pow_algorithm.clone());
+    // todo: create depth const
+    let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client), pow_algorithm.clone(), MAX_REORG_DEPTH);
 
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(

@@ -180,6 +180,15 @@ impl_runtime_apis! {
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
 			pallet_qpow::Pallet::<Self>::hash_to_group_bigint(h,m,n,solution)
 		}
+		fn get_max_distance() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_max_distance()
+		}
+		fn get_nonce_distance(
+			header: [u8; 32],
+			nonce: [u8; 64]
+		) -> u64 {
+			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
+		}
 	}
 
 	impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce> for Runtime {

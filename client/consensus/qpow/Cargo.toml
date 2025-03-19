@@ -34,3 +34,7 @@ std = [
 ]
 runtime-benchmarks = [
 ]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+

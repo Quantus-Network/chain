@@ -120,6 +120,9 @@ pub mod pallet {
 			//Save initial difficulty for the genesis block
 			let genesis_block_number = BlockNumberFor::<T>::zero();
 			<BlockDifficulties<T>>::insert(genesis_block_number, self.initial_difficulty);
+
+			//Initialize the total difficulty with the genesis block's difficulty
+			<TotalDifficulty<T>>::put(self.initial_difficulty as u128);
 		}
 	}
 
