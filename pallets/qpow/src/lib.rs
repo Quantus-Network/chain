@@ -15,25 +15,80 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig};
+	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig, traits::Time};
+	use frame_support::sp_runtime::SaturatedConversion;
+	use frame_system::pallet_prelude::BlockNumberFor;
 	use primitive_types::U512;
 	use sha2::{Digest, Sha256};
 	use sha3::Sha3_512;
 	use num_bigint::BigUint;
+	use num_traits::Float;
 	use frame_support::sp_runtime::traits::{Zero, One};
+	use sp_std::prelude::*;
 
 	pub const CHUNK_SIZE: usize = 32;
 	pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE;
 	pub const MAX_DISTANCE: u64 = (1u64 << CHUNK_SIZE) * NUM_CHUNKS as u64;
-	pub const INITIAL_DIFFICULTY: u64 = 56255914621; // around 100 iterations
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
+
+	#[pallet::storage]
+	pub type BlockDifficulties<T: Config> = StorageMap<_,Twox64Concat,BlockNumberFor<T>,u64,ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn latest_nonce)]
+	pub type LatestNonce<T> = StorageValue<_, [u8; 64]>;
+
+	#[pallet::storage]
+	pub type LastBlockTime<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::storage]
+	pub type LastBlockDuration<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::storage]
+	pub type CurrentDifficulty<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::storage]
+	pub type TotalDifficulty<T: Config> = StorageValue<_, u128, ValueQuery>;
+
+	#[pallet::storage]
+	pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	#[pallet::storage]
+	pub type BlockTimeHistory<T: Config> = StorageMap<_, Twox64Concat, u32, u64, ValueQuery>;
+
+	// Index for current position in ring buffer
+	#[pallet::storage]
+	pub type HistoryIndex<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	// Current history size
+	#[pallet::storage]
+	pub type HistorySize<T: Config> = StorageValue<_, u32, ValueQuery>;
+
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 		type WeightInfo: WeightInfo;
+
+		#[pallet::constant]
+		type InitialDifficulty: Get<u64>;
+
+		#[pallet::constant]
+		type MinDifficulty: Get<u64>;
+
+		#[pallet::constant]
+		type TargetBlockTime: Get<u64>;
+
+		#[pallet::constant]
+		type AdjustmentPeriod: Get<u32>;
+
+		#[pallet::constant]
+		type DampeningFactor: Get<u64>;
+
+		#[pallet::constant]
+		type BlockTimeHistorySize: Get<u32>;
 	}
 
 	#[pallet::genesis_config]
@@ -47,7 +102,7 @@ pub mod pallet {
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self {
-				initial_difficulty: INITIAL_DIFFICULTY/2,
+				initial_difficulty: T::InitialDifficulty::get(),
 				_phantom: PhantomData,
 			}
 		}
@@ -57,7 +112,14 @@ pub mod pallet {
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
 			let initial_proof = [0u8; 64];
-			<LatestProof<T>>::put(initial_proof);
+			<LatestNonce<T>>::put(initial_proof);
+
+			//Set current difficulty for the genesis block
+			<CurrentDifficulty<T>>::put(self.initial_difficulty);
+
+			//Save initial difficulty for the genesis block
+			let genesis_block_number = BlockNumberFor::<T>::zero();
+			<BlockDifficulties<T>>::insert(genesis_block_number, self.initial_difficulty);
 		}
 	}
 
@@ -75,16 +137,16 @@ pub mod pallet {
 		}
 	}
 
-
-	#[pallet::storage]
-	#[pallet::getter(fn latest_proof)]
-	pub type LatestProof<T> = StorageValue<_, [u8; 64]>;
-
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		ProofSubmitted {
 			nonce: [u8; 64],
+		},
+		DifficultyAdjusted {
+			old_difficulty: u64,
+			new_difficulty: u64,
+			median_block_time: u64,
 		},
 	}
 
@@ -92,6 +154,222 @@ pub mod pallet {
 	pub enum Error<T> {
 		InvalidSolution,
 		ArithmeticOverflow
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
+			Weight::zero()
+		}
+
+		/// Called when there is remaining weight at the end of the block.
+		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
+			if <LastBlockTime<T>>::get() == 0 {
+				<LastBlockTime<T>>::put(pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>());
+				<CurrentDifficulty<T>>::put(T::InitialDifficulty::get());
+			}
+			Weight::zero()
+		}
+
+		/// Called at the end of each block.
+		fn on_finalize(block_number: BlockNumberFor<T>) {
+			let blocks = <BlocksInPeriod<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
+			log::info!(
+				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_difficulty={}",
+				block_number,
+				blocks,
+				current_difficulty
+			);
+			Self::adjust_difficulty();
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+
+		// Block time recording for median calculation
+		fn record_block_time(block_time: u64) {
+			//History size limiter
+			let max_history = T::BlockTimeHistorySize::get();
+			let mut index = <HistoryIndex<T>>::get();
+			let size = <HistorySize<T>>::get();
+
+			//Save block time
+			<BlockTimeHistory<T>>::insert(index, block_time);
+
+			// Update index and time
+			index = (index + 1) % max_history;
+			let new_size = if size < max_history { size + 1 } else { max_history };
+
+			<HistoryIndex<T>>::put(index);
+			<HistorySize<T>>::put(new_size);
+
+			log::info!(
+				"📊 Recorded block time: {}ms, history size: {}/{}",
+				block_time,
+				new_size,
+				max_history
+			);
+		}
+
+		// Median calculation
+		pub fn get_median_block_time() -> u64 {
+			let size = <HistorySize<T>>::get();
+
+			if size == 0 {
+				return T::TargetBlockTime::get();
+			}
+
+			// Take all data
+			let mut times = Vec::with_capacity(size as usize);
+			for i in 0..size {
+				times.push(<BlockTimeHistory<T>>::get(i));
+			}
+
+			// Sort it
+			times.sort();
+
+			let median_time = if times.len() % 2 == 0u32 as usize {
+				(times[times.len() / 2 - 1] + times[times.len() / 2]) / 2
+			} else {
+				times[times.len() / 2]
+			};
+
+			log::info!(
+				"📊 Calculated median block time: {}ms from {} samples",
+				median_time,
+				times.len()
+			);
+
+			median_time
+		}
+
+		fn adjust_difficulty() {
+			// Get current time
+			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
+			let last_time = <LastBlockTime<T>>::get();
+			let blocks = <BlocksInPeriod<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
+			let current_block_number = <frame_system::Pallet<T>>::block_number();
+
+			// Store difficulty for block
+			<BlockDifficulties<T>>::insert(current_block_number, current_difficulty);
+
+			let total_difficulty = <TotalDifficulty<T>>::get();
+			let new_total_difficulty = total_difficulty.saturating_add(current_difficulty as u128);
+			<TotalDifficulty<T>>::put(new_total_difficulty);
+
+			// Increment number of blocks in period
+			<BlocksInPeriod<T>>::put(blocks + 1);
+
+			// Only calculate block time if we're past the genesis block
+			if current_block_number > One::one() {
+				let block_time = now.saturating_sub(last_time);
+
+				log::info!(
+					"Time calculation: now={}, last_time={}, diff={}ms",
+					now,
+					last_time,
+					block_time
+				);
+
+				// Additional protection against super high block times
+				let max_reasonable_time = T::TargetBlockTime::get() * 10;
+				// takes smaller value
+				let capped_time = block_time.min(max_reasonable_time);
+
+				// Store the actual block duration
+				<LastBlockDuration<T>>::put(capped_time);
+
+
+				if block_time != capped_time {
+					log::warn!(
+						"Capped excessive block time from {}ms to {}ms",
+						block_time,
+						capped_time
+					);
+				}
+
+				// record new block time
+				Self::record_block_time(block_time);
+			}
+
+			// Add last block time for the next calculations
+			<LastBlockTime<T>>::put(now);
+
+			// Should we correct difficulty ?
+			if blocks >= T::AdjustmentPeriod::get() {
+				if <HistorySize<T>>::get() > 0 {
+					let median_block_time = Self::get_median_block_time();
+					let target_time = T::TargetBlockTime::get();
+
+					let new_difficulty = Self::calculate_difficulty(
+						current_difficulty,
+						median_block_time,
+						target_time
+					);
+
+					// Save new difficulty
+					<CurrentDifficulty<T>>::put(new_difficulty);
+
+					// Propagate new Event
+					Self::deposit_event(Event::DifficultyAdjusted {
+						old_difficulty: current_difficulty,
+						new_difficulty,
+						median_block_time,
+					});
+
+					log::info!(
+                    "Adjusted mining difficulty: {} -> {} (median block time: {}ms, target: {}ms)",
+                    current_difficulty,
+                    new_difficulty,
+                    median_block_time,
+                    target_time
+                );
+				}
+
+				// Reset counters before new iteration
+				<BlocksInPeriod<T>>::put(0);
+				<LastBlockTime<T>>::put(now);
+			}
+			else if blocks == 0 {
+				<LastBlockTime<T>>::put(now);
+			}
+		}
+
+		pub fn calculate_difficulty(
+			current_difficulty: u64,
+			average_block_time: u64,
+			target_block_time: u64,
+			) -> u64 {
+
+			log::info!("📊 Calculating new difficulty ---------------------------------------------");
+			log::info!("🟢 Current Difficulty: {}",current_difficulty);
+			log::info!("🕒 Average Block Time: {}ms",average_block_time);
+			log::info!("🎯 Target Block Time: {}ms",target_block_time);
+				
+			// Calculate ratio
+			let ratio = (average_block_time as f32) / (target_block_time as f32);
+
+			// Calculate power factor
+			let change_factor = <f64 as Float>::powf(ratio as f64, 1.0/16.0);
+			//let change_factor = <f64 as Float>::exp(<f64 as Float>::ln(ratio as f64) / 16 as f64);
+
+			let dampening = T::DampeningFactor::get();
+			let dampening_factor = dampening as f64;
+
+			// Apply additional damping
+			let damped_ratio = 1.0 + (change_factor - 1.0) / dampening_factor;
+
+			log::info!("Change factor: {}, damped ratio: {}", change_factor, damped_ratio);
+
+			// Calculate adjusted difficulty
+			//let adjusted = (current_difficulty as f64 / change_factor) as u64;
+			let adjusted = (current_difficulty as f64 / damped_ratio) as u64;
+			
+			// Enforce bounds
+			adjusted.min(MAX_DISTANCE - 1).max(T::MinDifficulty::get())
+		}
 	}
 
 	#[pallet::call]
@@ -130,7 +408,7 @@ pub mod pallet {
 			Self::l1_distance(&original_chunks, &nonce_chunks)
 		}
 
-		pub fn verify_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+/*		pub fn verify_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
 			if nonce == [0u8; 64] {
 				return false
 			}
@@ -141,6 +419,62 @@ pub mod pallet {
 				Self::deposit_event(Event::ProofSubmitted { nonce });
 			}
 			verified
+		}*/
+
+		// Function used during block import from the network
+		pub fn verify_for_import(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			// During import, we use the current network difficulty
+			// This value will be correct because we're importing at the appropriate point in the chain
+			let current_difficulty = Self::get_difficulty();
+
+			// Verify using current difficulty
+			let valid = Self::is_valid_nonce(header, nonce, current_difficulty);
+
+			if valid {
+				// Store the proof but don't emit event - imported blocks shouldn't trigger events
+				<LatestNonce<T>>::put(nonce);
+				// No new events for imported blocks
+			}
+
+			valid
+		}
+
+		// Function used to verify a block that's already in the chain
+		pub fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: BlockNumberFor<T>) -> bool {
+			// Get the stored difficulty for this specific block
+			let block_difficulty = Self::get_difficulty_at_block(block_number);
+
+			if block_difficulty == 0 {
+				// No stored difficulty - cannot verify
+				return false;
+			}
+
+			// Verify with historical difficulty
+			Self::is_valid_nonce(header, nonce, block_difficulty)
+		}
+
+
+		// Function for local mining
+		pub fn submit_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			let difficulty = Self::get_difficulty();
+			let valid = Self::is_valid_nonce(header, nonce, difficulty);
+
+			if valid {
+				<LatestNonce<T>>::put(nonce);
+				Self::deposit_event(Event::ProofSubmitted { nonce });
+			}
+
+			valid
+		}
+
+		// Common verification logic
+		pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+			if nonce == [0u8; 64] {
+				return false
+			}
+
+			let distance = Self::get_nonce_distance(header, nonce);
+			distance <= MAX_DISTANCE - difficulty
 		}
 
 		/// Generates a pair of RSA-style numbers (m,n) deterministically from input header
@@ -322,15 +656,35 @@ pub mod pallet {
 		}
 
 		pub fn get_difficulty() -> u64 {
-			GenesisConfig::<T>::default().initial_difficulty
+			let stored = <CurrentDifficulty<T>>::get();
+			if stored == 0 {
+				return GenesisConfig::<T>::default().initial_difficulty;
+			}
+			stored
 		}
 		pub fn get_max_distance() -> u64 {
 			MAX_DISTANCE
 		}
 
-		pub fn log_info(message: &str){
-			log::info!("From QPoW Pallet: {}",message);
+		pub fn get_difficulty_at_block(block_number: BlockNumberFor<T>) -> u64 {
+			let difficulty = <BlockDifficulties<T>>::get(block_number);
+			if difficulty == 0 {
+				0
+			} else {
+				difficulty
+			}
+		}
+
+		pub fn get_total_difficulty() -> u128 {
+			<TotalDifficulty<T>>::get()
+		}
+
+		pub fn get_last_block_time() -> u64 {
+			<LastBlockTime<T>>::get()
+		}
+
+		pub fn get_last_block_duration() -> u64 {
+			<LastBlockDuration<T>>::get()
 		}
 	}
 }
-

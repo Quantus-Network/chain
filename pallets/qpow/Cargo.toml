@@ -25,8 +25,12 @@ sha3 = { version = "0.10", default-features = false }
 sp-runtime = { workspace=true, default-features = false }
 sp-core = { workspace=true, default-features = false }
 sp-io = { workspace=true, default-features = false }
+sp-std = {workspace = true, default-features = false}
+
+pallet-timestamp = {workspace = true, default-features = false}
+
 num-bigint = { version = "0.4", default-features = false }
-num-traits = { version = "0.2", default-features = false }
+num-traits = { version = "0.2", default-features = false, features = ["libm"]}
 log = { version = "0.4.22", default-features = false }
 
 [features]
@@ -42,7 +46,7 @@ std = [
 	"sha3/std",
 	"sp-core/std",
 	"sp-runtime/std",
-	#"sp-io/std"
+	"sp-std/std",
 ]
 runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",

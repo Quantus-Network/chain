@@ -21,7 +21,7 @@ sp-consensus-qpow = {workspace = true, default-features = false}
 log = { workspace = true }
 codec = { workspace = true }
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
-
+async-trait = { workspace = true }
 clap = { features = ["derive"], workspace = true }
 futures = { features = ["thread-pool"], workspace = true }
 jsonrpsee = { features = ["server"], workspace = true }
@@ -81,7 +81,7 @@ frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
 resonance-runtime.workspace = true
 
-async-trait = "0.1.86"
+prometheus = {version="0.13.4", default-features = false}
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true

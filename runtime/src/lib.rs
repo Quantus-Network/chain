@@ -10,13 +10,13 @@ pub mod configs;
 
 pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonancePublic;
-use dilithium_crypto::ResonanceSignatureScheme;
+pub use dilithium_crypto::ResonanceSignatureScheme;
 
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{BlakeTwo256, IdentifyAccount, Verify},
+	traits::{IdentifyAccount, Verify},
 	MultiAddress,
 };
 #[cfg(feature = "std")]
@@ -30,6 +30,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
+use poseidon_resonance::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -39,19 +40,27 @@ pub mod opaque {
 	use super::*;
 	use sp_runtime::{
 		generic,
-		traits::{BlakeTwo256, Hash as HashT},
+		traits::{Hash as HashT},
 	};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
-	/// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
-	/// Opaque block type.
+	// For whatever reason, changing this causes the block hash and
+	// the storage root to be computed with poseidon, but not the extrinsics root.
+	// For the wormhole proofs, we only need the storage root to be calculated with poseidon.
+	// However, some internal checks in dev build expect extrinsics_root to be computed with same
+	// Hash function, so we change the configs/mod.rs Hashing type as well
+	// Opaque block header type.
+	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+
+	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
-	/// Opaque block identifier type.
+	// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
-	/// Opaque block hash type.
-	pub type Hash = <BlakeTwo256 as HashT>::Output;
+	
+	// Opaque block hash type.
+	pub type Hash = <PoseidonHasher as HashT>::Output;
+
 }
 
 impl_opaque_keys! {
@@ -141,7 +150,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;

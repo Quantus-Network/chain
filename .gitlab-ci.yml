@@ -1,22 +1,31 @@
-compile:
-  stage: build
-  tags: [rust, ubuntu]
-  image: rust:latest
-  variables:
-    CARGO_TERM_COLOR: always
-    RUSTFLAGS: -Cdebug-assertions=y
+---
+
+.common:
   before_script:
     - apt-get update -yqq
-    - apt-get install -yqq --no-install-recommends libclang-dev
-    - apt-get install -yqq --no-install-recommends protobuf-compiler
+    - >
+      apt-get install -yqq --no-install-recommends
+      libclang-dev
+      protobuf-compiler
     - rustup toolchain install nightly
     - rustup update
-    - rustup show
-    - cargo --version
     - rustup target add wasm32-unknown-unknown --toolchain nightly-x86_64-unknown-linux-gnu
     - rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
+    - rustup show
+    - cargo --version
+
+variables:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Cdebug-assertions=y
+
+compile:
+  stage: build
+  tags: [ci, ubuntu]
+  image: rust:latest
+  before_script:
+    - !reference [.common, before_script]
   script:
-    - cargo +nightly build --locked --release --verbose
+    - cargo +nightly build --locked --release
   after_script:
     - mv target/release/resonance-node ./resonance
     - sha256sum ./resonance | cut -d ' ' -f 1 | tee ./resonance.sha256
@@ -28,6 +37,17 @@ compile:
       - resonance.sha256
       - resonance_runtime.compact.compressed.wasm
       - resonance_runtime.compact.compressed.wasm.sha256
+
+test:
+  stage: test
+  tags: [ci, ubuntu]
+  image: rust:latest
+  dependencies:
+    - compile
+  before_script:
+    - !reference [.common, before_script]
+  script:
+    - cargo +nightly test --locked --release --workspace
 
 testnet:
   stage: deploy
@@ -58,12 +78,12 @@ testnet:
           fi;
           if sudo test -d /var/lib/resonance/chains; then
             if sudo rm -rf /var/lib/resonance/chains; then
-              echo "$(resonance --version | head -n 1) purged on $(hostname -s)";
+              echo "/var/lib/resonance/chains deleted on $(hostname -s)";
             else
-              echo "failed to purge $(resonance --version | head -n 1) on $(hostname -s)";
+              echo "failed to delete /var/lib/resonance/chains on $(hostname -s)";
             fi;
           else
-            echo "purged $(resonance --version | head -n 1) observed on $(hostname -s)";
+            echo "deleted /var/lib/resonance/chains observed on $(hostname -s)";
           fi;
         ' || true
       done
@@ -82,5 +102,11 @@ testnet:
       done
     - |
       for ip in ${target_ips}; do
-        ${ssh_command} resonance@${ip} 'journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance.service) && systemctl status --no-pager resonance.service' || true
+        ${ssh_command} resonance@${ip} '
+          while ! journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance.service) -g "2 peers" -n 1 --no-pager > /dev/null; do
+            echo "awaiting peer discovery on $(hostname -s)";
+            sleep 1;
+          done;
+          journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance.service) && systemctl status --no-pager resonance.service;
+        ' || true
       done

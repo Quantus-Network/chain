@@ -40,9 +40,10 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
-	AccountId, QPoW, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
+	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
 	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
+use log;
 
 impl_runtime_apis! {
 	impl sp_api::Core<Block> for Runtime {
@@ -75,7 +76,10 @@ impl_runtime_apis! {
 
 	impl sp_block_builder::BlockBuilder<Block> for Runtime {
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
-			Executive::apply_extrinsic(extrinsic)
+			log::info!("apply_extrinsic begin: {:?}", extrinsic);
+			let result = Executive::apply_extrinsic(extrinsic);
+			log::info!("apply_extrinsic end: {:?}", result);
+			result
 		}
 
 		fn finalize_block() -> <Block as BlockT>::Header {
@@ -124,31 +128,49 @@ impl_runtime_apis! {
 	}
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
-		fn get_nonce_distance(
-			header: [u8; 32],
-			nonce: [u8; 64]
-		) -> u64 {
-			QPoW::get_nonce_distance(header, nonce)
+
+		fn verify_for_import(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_for_import(header, nonce)
 		}
 
-		fn verify_nonce(
-			header: [u8; 32],
-			nonce: [u8; 64],
-			difficulty: u64
-		) -> bool {
-			QPoW::verify_nonce(header, nonce, difficulty)
+		fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: u32) -> bool {
+			// Convert u32 to the appropriate BlockNumber type used by your runtime
+			let block_number_param = block_number.into();
+			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
+		}
+
+		fn submit_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::submit_nonce(header, nonce)
 		}
 
 		fn get_difficulty() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
-		fn get_max_distance() -> u64 {
-			pallet_qpow::Pallet::<Self>::get_max_distance()
+		fn get_difficulty_at_block(block_number: u32) -> u64 {
+			// Convert u32 to the appropriate BlockNumber type used by your runtime
+			let block_number_param = block_number.into();
+			pallet_qpow::Pallet::<Self>::get_difficulty_at_block(block_number_param)
 		}
 
-		fn get_latest_proof() -> Option<[u8; 64]> {
-			<pallet_qpow::LatestProof<Runtime>>::get()
+		fn get_total_difficulty() -> u128{
+			pallet_qpow::Pallet::<Self>::get_total_difficulty()
+		}
+
+		fn get_median_block_time() -> u64{
+			pallet_qpow::Pallet::<Self>::get_median_block_time()
+		}
+
+		fn get_last_block_time() -> u64{
+			pallet_qpow::Pallet::<Self>::get_last_block_time()
+		}
+
+		fn get_last_block_duration() -> u64{
+			pallet_qpow::Pallet::<Self>::get_last_block_duration()
+		}
+
+		fn get_latest_nonce() -> Option<[u8; 64]> {
+			<pallet_qpow::LatestNonce<Runtime>>::get()
 		}
 
 		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {

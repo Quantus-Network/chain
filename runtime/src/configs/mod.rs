@@ -32,10 +32,12 @@ use frame_support::{
 		IdentityFee, Weight,
 	},
 };
+use frame_support::traits::ConstU64;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
+use poseidon_resonance::PoseidonHasher;
 
 // Local module imports
 use super::{
@@ -78,6 +80,8 @@ impl frame_system::Config for Runtime {
 	type Nonce = Nonce;
 	/// The type for hashing blocks and tries.
 	type Hash = Hash;
+	/// The type for hash function that computes extrinsic root
+	type Hashing = PoseidonHasher;
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;
 	/// The weight of database operations that the runtime can invoke.
@@ -92,14 +96,15 @@ impl frame_system::Config for Runtime {
 }
 
 
-parameter_types! {
-    pub const SlotDuration: u64 = 6000; // 6 sec
-    pub const MinimumPeriod: u64 = 3000;
-}
-
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
+	type InitialDifficulty = ConstU64<5500000000>; //Min + 5
+	type MinDifficulty = ConstU64<50000000000>;
+	type TargetBlockTime = ConstU64<1000>;
+	type AdjustmentPeriod = ConstU32<10>;
+	type DampeningFactor = ConstU64<8>;
+	type BlockTimeHistorySize = ConstU32<60>;
 }
 
 impl pallet_wormhole::Config for Runtime {
@@ -107,6 +112,9 @@ impl pallet_wormhole::Config for Runtime {
 	type WeightInfo = pallet_wormhole::DefaultWeightInfo;
 }
 
+parameter_types! {
+    pub const MinimumPeriod: u64 = 100;
+}
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
 	type Moment = u64;

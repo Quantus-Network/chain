@@ -1,18 +1,24 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
-use sc_client_api::Backend;
+use sc_client_api::{Backend, BlockchainEvents};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
-use sc_transaction_pool_api::OffchainTransactionPoolFactory;
+use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 
 use std::{sync::Arc, time::Duration};
 use codec::Encode;
 use jsonrpsee::tokio;
 use sp_api::__private::BlockT;
-use sp_core::U512;
+use sp_core::{RuntimeDebug, U512};
+use async_trait::async_trait;
+use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
+use sp_runtime::traits::Header;
+use sp_consensus_qpow::QPoWApi;
+use crate::prometheus::ResonanceBusinessMetrics;
+use sp_api::ProvideRuntimeApi;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -30,13 +36,51 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     QPowAlgorithm<Block, FullClient>,
     Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>,
 >;
+
+#[derive(PartialEq, Eq, Clone, RuntimeDebug)]
+pub struct LoggingBlockImport<B: BlockT, I> {
+    inner: I,
+    _phantom: std::marker::PhantomData<B>,
+}
+
+impl<B: BlockT, I> LoggingBlockImport<B, I> {
+    fn new(inner: I) -> Self {
+        Self {
+            inner,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B>  for LoggingBlockImport<B, I>
+{
+    type Error = I::Error;
+
+    async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
+        self.inner.check_block(block).await.map_err(Into::into)
+    }
+
+    async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
+        log::info!(
+            "🏆 Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+            block.header.number(),
+            block.header.hash(),
+            block.header.extrinsics_root(),
+            block.header.state_root()
+        );
+        self.inner.import_block(block).await.map_err(Into::into)
+    }
+}
+
+
 pub type Service = sc_service::PartialComponents<
     FullClient,
     FullBackend,
     FullSelectChain,
     sc_consensus::DefaultImportQueue<Block>,
     sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-    (PowBlockImport, Option<Telemetry>),
+    (LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
 >;
 //TODO Question - for what is this method?
 pub fn build_inherent_data_providers(
@@ -106,7 +150,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
             .build(),
     );
 
-
     let inherent_data_providers = build_inherent_data_providers()?;
 
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
@@ -118,8 +161,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         inherent_data_providers,
     );
 
+    let logging_block_import = LoggingBlockImport::new(pow_block_import);
+
     let import_queue = sc_consensus_pow::import_queue(
-        Box::new(pow_block_import.clone()),
+        Box::new(logging_block_import.clone()),
         None,
         QPowAlgorithm {
             client: client.clone(),
@@ -137,7 +182,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (pow_block_import, telemetry),
+		other: (logging_block_import, telemetry),
 	})
 }
 
@@ -157,6 +202,8 @@ pub fn new_full<
         transaction_pool,
         other: (pow_block_import, mut telemetry),
     } = new_partial(&config)?;
+
+    let mut tx_stream = transaction_pool.clone().import_notification_stream();
 
     let net_config = sc_network::config::FullNetworkConfiguration::<
         Block,
@@ -236,7 +283,7 @@ pub fn new_full<
         let proposer = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
             client.clone(),
-            transaction_pool,
+            transaction_pool.clone(),
             prometheus_registry.as_ref(),
             None, // lets worry about telemetry later! TODO
         );
@@ -278,10 +325,49 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
+        let client_monitoring = client.clone();
+        let prometheus_registry_monitoring = prometheus_registry.clone();
+        task_manager.spawn_essential_handle().spawn(
+            "monitoring_qpow",
+            None,
+            async move {
+                log::info!("⚙️  QPoW Monitoring task spawned");
+                let gauge_vec =
+                    if let Some(registry) = prometheus_registry_monitoring.as_ref() {
+                        Some(ResonanceBusinessMetrics::register_gauge_vec(registry))
+                    } else {
+                        None
+                    };
+
+                let mut sub = client_monitoring.import_notification_stream();
+                while let Some(notification) = sub.next().await {
+                    let block_hash = notification.hash;
+                    if let Some(ref gauge) = gauge_vec {
+                        gauge.with_label_values(&["median_block_time"]).set(
+                            client_monitoring.runtime_api().get_median_block_time(block_hash).unwrap_or(0) as f64
+                        );
+                        gauge.with_label_values(&["difficulty"]).set(
+                            client_monitoring.runtime_api().get_difficulty(block_hash).unwrap_or(0) as f64
+                        );
+                        gauge.with_label_values(&["last_block_time"]).set(
+                            client_monitoring.runtime_api().get_last_block_time(block_hash).unwrap_or(0) as f64
+                        );
+                        gauge.with_label_values(&["last_block_duration"]).set(
+                            client_monitoring.runtime_api().get_last_block_duration(block_hash).unwrap_or(0) as f64
+                        );
+                    }else{
+                        log::warn!("QPoW Monitoring: Prometheus registry not found");
+                    }
+
+                }
+            }
+        );
+
         task_manager.spawn_essential_handle().spawn(
             "qpow-mining",
             None,
             async move {
+                log::info!("⚙️  QPoW Mining task spawned");
                 let mut nonce: U512 = U512::zero();
                 loop {
                     // Get mining metadata
@@ -289,20 +375,22 @@ pub fn new_full<
                         Some(m) => m,
                         None => {
                             log::warn!(target: "pow", "No mining metadata available");
-                            tokio::time::sleep(Duration::from_millis(1000)).await;
+                            tokio::time::sleep(Duration::from_millis(250)).await;
                             continue;
                         }
                     };
                     let version = worker_handle.version();
 
                     // Mine the block
+                    //log::info!("Nonce: {}", nonce);
+                    //log::info!("Difficulty: {}",metadata.difficulty);
 
                     let miner = QPoWMiner::new(client.clone());
 
                     let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian(), metadata.difficulty) {
+                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
                             Ok(s) => {
-                                log::info!("valid nonce: {:?}", s);
+                                log::info!("valid nonce: {} ==> {:?}", nonce, s);
                                 s
                             }
                             Err(_) => {
@@ -324,15 +412,27 @@ pub fn new_full<
                             nonce += U512::one();
                         }
                     }
-
-                    // Sleep to avoid spamming
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
                 }
-            }, // .boxed()
+            },
         );
+
+        task_manager.spawn_handle().spawn("tx-logger", None, async move {
+            while let Some(tx_hash) = tx_stream.next().await {
+                if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
+                    log::info!("New transaction: Hash = {:?}", tx_hash);
+                    let extrinsic = tx.data();
+                    log::info!("Payload: {:?}", extrinsic);
+                    // log::info!("Signature: {:?}", tx.data());
+                    // log::info!("Signer: {:?}", tx.);
+                } else {
+                    log::warn!("Transaction {:?} not found in pool", tx_hash);
+                }
+            }
+        });
 
         log::info!("⛏️  Pow miner spawned");
     }
+
 
     network_starter.start_network();
     Ok(task_manager)
