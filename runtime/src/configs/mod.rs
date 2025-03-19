@@ -98,6 +98,8 @@ impl frame_system::Config for Runtime {
 impl pallet_mining_rewards::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type BlockReward = ConstU128<1_000_000_000_000>; // 1 token
 }
 
 impl pallet_qpow::Config for Runtime {

@@ -81,6 +81,8 @@ frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
 resonance-runtime.workspace = true
 
+hex = {workspace = true,default-features = false}
+
 prometheus = {version="0.13.4", default-features = false}
 
 [build-dependencies]

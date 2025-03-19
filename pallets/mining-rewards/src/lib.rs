@@ -22,14 +22,28 @@ pub mod pallet {
 	use sp_runtime::generic::DigestItem;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use codec::Decode;
+	use frame_support::traits::{Currency, Get};
+
+	type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
+		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
+		/// The currency in which fees are paid and rewards are issued
+		type Currency: Currency<Self::AccountId>;
+
+		/// The base block reward given to miners
+		#[pallet::constant]
+		type BlockReward: Get<BalanceOf<Self>>;
+
 	}
 
 	#[pallet::event]
@@ -41,7 +55,8 @@ pub mod pallet {
 			block: BlockNumberFor<T>,
 			/// Miner account
 			miner: T::AccountId,
-			// TODO add revard details
+			/// Total reward (base + fees)
+			reward: BalanceOf<T>,
 		},
 	}
 
@@ -51,18 +66,38 @@ pub mod pallet {
 			// Extract miner ID from the pre-runtime digest
 			if let Some(miner) = Self::extract_miner_from_digest() {
 
+				// Get the block reward
+				let base_reward = T::BlockReward::get();
+
+				// Create imbalance for block reward
+				let reward_imbalance = T::Currency::issue(base_reward);
+
+				// We could do this in a more sophisticated way with OnUnbalanced<NegativeInbalance>
+				T::Currency::resolve_creating(&miner, reward_imbalance);
+
 				// Emit an event
 				Self::deposit_event(Event::MinerRewarded {
 					block: block_number,
-					miner: miner.clone()
+					miner: miner.clone(),
+					reward: base_reward,
 				});
 
+				/*
 				log::info!(
                     target: "mining-rewards",
                     "Miner identified for block {:?}: {:?}",
                     block_number,
                     miner
-                );
+                );*/
+				log::info!(
+					target: "mining-rewards",
+					"💰 Miner rewarded: {:?}",
+					base_reward);
+				let miner_balance = T::Currency::free_balance(&miner);
+				log::info!(target: "mining-rewards",
+					"🏦 Miner balance: {:?}",
+					miner_balance);
+
 			} else {
 				log::warn!(
                     target: "mining-rewards",

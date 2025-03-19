@@ -304,10 +304,11 @@ pub fn new_full<
             _phantom: Default::default(),
         };
 
-        let seed = [0u8; 32];
+        let seed = [20u8; 32];
         let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
         //log::info!("Mining identity generated: {:?}", resonance_pair.public().clone());
         let miner_id = AccountId32::from(resonance_pair.public());
+        //let miner_secret = hex::encode(resonance_pair.secret);
         /*
 
         //Keystore version - our type is not implemented there
@@ -326,6 +327,8 @@ pub fn new_full<
             }
         };*/
         log::info!("⛏️ Mining with identity: {:?}", miner_id);
+        // Only for tests !!!
+        //log::info!("🙈 Miner's secret: {}", miner_secret);
 
         // Encode the miner ID for pre-runtime digest
         let encoded_miner = miner_id.encode();
