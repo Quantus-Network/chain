@@ -160,12 +160,11 @@ where
         );
         
         if chain_head.number().is_zero() {
-            // Genesis block should have some minimal difficulty
+            // Genesis block
             let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
                         .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
 
             return Ok(U256::from(genesis_difficulty));
-            //return Ok(U256::from(1));
         }
 
         // Traverse the chain backwards to calculate cumulative difficulty
@@ -176,7 +175,6 @@ where
 
             // Stop at genesis block
             if header.number().is_zero() {
-                // Genesis block should have some minimal difficulty
                 let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
                 .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
 
