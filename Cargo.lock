@@ -8387,6 +8387,7 @@ dependencies = [
  "sp-consensus-pow",
  "sp-consensus-qpow",
  "sp-runtime",
+ "tokio",
 ]
 
 [[package]]
