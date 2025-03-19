@@ -32,45 +32,27 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 	}
 
-	/// Storage for mapping blocks to their miners
-	#[pallet::storage]
-	pub type BlockMiners<T: Config> = StorageMap<_, Twox64Concat, BlockNumberFor<T>, T::AccountId>;
-
-	/// The latest identified miner
-	#[pallet::storage]
-	pub type CurrentMiner<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
-
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A miner has been identified for a block
-		MinerIdentified {
+		MinerRewarded {
 			/// Block number
 			block: BlockNumberFor<T>,
 			/// Miner account
 			miner: T::AccountId,
+			// TODO add revard details
 		},
-	}
-
-	#[pallet::error]
-	pub enum Error<T> {
-		NoneValue,
-		StorageOverflow,
-		MinerNotFound,
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
-			log::info!("MiningRewards: on_initialize -------------------------------------");
 			// Extract miner ID from the pre-runtime digest
 			if let Some(miner) = Self::extract_miner_from_digest() {
-				// Store the miner ID for this block
-				<BlockMiners<T>>::insert(block_number, &miner);
-				<CurrentMiner<T>>::put(&miner);
 
-				// Emit an event for the identified miner
-				Self::deposit_event(Event::MinerIdentified {
+				// Emit an event
+				Self::deposit_event(Event::MinerRewarded {
 					block: block_number,
 					miner: miner.clone()
 				});
@@ -116,18 +98,7 @@ pub mod pallet {
 					}
 				}
 			}
-
 			None
-		}
-
-		/// Get the miner for a specific block
-		pub fn get_block_miner(block_number: BlockNumberFor<T>) -> Option<T::AccountId> {
-			<BlockMiners<T>>::get(block_number)
-		}
-
-		/// Get the current miner
-		pub fn get_current_miner() -> Option<T::AccountId> {
-			<CurrentMiner<T>>::get()
 		}
 	}
 }
