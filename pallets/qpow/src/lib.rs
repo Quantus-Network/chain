@@ -51,6 +51,9 @@ pub mod pallet {
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	#[pallet::storage]
+	pub type TotalDifficulty<T: Config> = StorageValue<_, u128, ValueQuery>;
+
+	#[pallet::storage]
 	pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
 
 	#[pallet::storage]
@@ -251,6 +254,10 @@ pub mod pallet {
 
 			// Store difficulty for block
 			<BlockDifficulties<T>>::insert(current_block_number, current_difficulty);
+
+			let total_difficulty = <TotalDifficulty<T>>::get();
+			let new_total_difficulty = total_difficulty.saturating_add(current_difficulty as u128);
+			<TotalDifficulty<T>>::put(new_total_difficulty);
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks + 1);
@@ -663,6 +670,10 @@ pub mod pallet {
 			} else {
 				difficulty
 			}
+		}
+
+		pub fn get_total_difficulty() -> u128 {
+			<TotalDifficulty<T>>::get()
 		}
 
 		pub fn get_last_block_time() -> u64 {
