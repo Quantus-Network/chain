@@ -22,13 +22,24 @@ pub mod pallet {
 	use sp_runtime::generic::DigestItem;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use codec::Decode;
-	use frame_support::traits::{Currency, Get};
+	use frame_support::traits::{Currency, Get, Imbalance, OnUnbalanced};
+	use sp_runtime::traits::Saturating;
+	use frame_support::traits::fungible::{DecreaseIssuance,IncreaseIssuance};
 
 	type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
+	type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
+			u128,
+			DecreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T>>,
+			IncreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T>>
+		>;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
+
+	#[pallet::storage]
+	#[pallet::getter(fn collected_fees)]
+	pub(super) type CollectedFees<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -69,8 +80,15 @@ pub mod pallet {
 				// Get the block reward
 				let base_reward = T::BlockReward::get();
 
+				let tx_fees = <CollectedFees<T>>::take();
+
+				log::info!("💰 Base reward: {:?}", base_reward);
+				log::info!("💰 Tx_fees: {:?}",tx_fees);
+
+				let total_reward = base_reward.saturating_add(tx_fees);
+
 				// Create imbalance for block reward
-				let reward_imbalance = T::Currency::issue(base_reward);
+				let reward_imbalance = T::Currency::issue(total_reward);
 
 				// We could do this in a more sophisticated way with OnUnbalanced<NegativeInbalance>
 				T::Currency::resolve_creating(&miner, reward_imbalance);
@@ -79,7 +97,7 @@ pub mod pallet {
 				Self::deposit_event(Event::MinerRewarded {
 					block: block_number,
 					miner: miner.clone(),
-					reward: base_reward,
+					reward: total_reward,
 				});
 
 				/*
@@ -92,7 +110,7 @@ pub mod pallet {
 				log::info!(
 					target: "mining-rewards",
 					"💰 Miner rewarded: {:?}",
-					base_reward);
+					total_reward);
 				let miner_balance = T::Currency::free_balance(&miner);
 				log::info!(target: "mining-rewards",
 					"🏦 Miner balance: {:?}",
@@ -134,6 +152,34 @@ pub mod pallet {
 				}
 			}
 			None
+		}
+
+		pub fn collect_transaction_fees(fees: BalanceOf<T>) {
+			<CollectedFees<T>>::mutate(|total_fees| {
+				*total_fees = total_fees.saturating_add(fees);
+			});
+		}
+	}
+
+	pub struct TransactionFeesCollector<T>(PhantomData<T>);
+
+	impl<T> OnUnbalanced<NegativeImbalanceOf<T>> for TransactionFeesCollector<T>
+	where
+		T: Config + pallet_balances::Config<Balance = u128>,
+		BalanceOf<T>: From<u128>
+	{
+		fn on_nonzero_unbalanced(amount: NegativeImbalanceOf<T>) {
+
+			let value_u128 = amount.peek();
+
+			log::info!("OnUnbalanced: {:?}", amount);
+
+			<CollectedFees<T>>::mutate(|fees| {
+				//let fixed_fee = T::BlockReward::get().min(T::BlockReward::get()); - only for tests
+				*fees = fees.saturating_add(BalanceOf::<T>::from(value_u128));
+			});
+
+			drop(amount);
 		}
 	}
 }

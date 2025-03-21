@@ -23,6 +23,7 @@ sp-runtime = {workspace = true,default-features = false}
 sp-std = {workspace = true, default-features = false}
 
 log = {workspace = true, default-features = false}
+pallet-balances = {workspace = true, default-features = false}
 
 [features]
 default = ["std"]
