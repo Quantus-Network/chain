@@ -178,12 +178,7 @@ pub mod pallet {
 
 			let value_u128 = amount.peek();
 
-			log::info!("OnUnbalanced: {:?}", amount);
-
-			<CollectedFees<T>>::mutate(|fees| {
-				//let fixed_fee = T::BlockReward::get().min(T::BlockReward::get()); - only for tests
-				*fees = fees.saturating_add(BalanceOf::<T>::from(value_u128));
-			});
+			Pallet::<T>::collect_transaction_fees(BalanceOf::<T>::from(value_u128));
 
 			drop(amount);
 		}
