@@ -289,9 +289,6 @@ pub fn new_full<
             None, // lets worry about telemetry later! TODO
         );
 
-        // let can_author_with =
-        // 	sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
-
         let inherent_data_providers = build_inherent_data_providers()?;
 
         // Parameter details:
@@ -306,29 +303,9 @@ pub fn new_full<
 
         let seed = [20u8; 32];
         let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
-        //log::info!("Mining identity generated: {:?}", resonance_pair.public().clone());
         let miner_id = AccountId32::from(resonance_pair.public());
-        //let miner_secret = hex::encode(resonance_pair.secret);
-        /*
 
-        //Keystore version - our type is not implemented there
-
-        let keystore = keystore_container.keystore();
-        let miner_id = {
-            // Get sr25519 public keys (this directly returns a Vec)
-            let keys = keystore.sr25519_public_keys(sp_core::crypto::key_types::ACCOUNT);
-
-            if let Some(key) = keys.first() {
-                AccountId32::from(*key)
-            } else {
-                log::warn!("No mining key found in keystore, using default account");
-                // Use a default account when no keys are available
-                AccountId32::from([1; 32])
-            }
-        };*/
         log::info!("⛏️ Mining with identity: {:?}", miner_id);
-        // Only for tests !!!
-        //log::info!("🙈 Miner's secret: {}", miner_secret);
 
         // Encode the miner ID for pre-runtime digest
         let encoded_miner = miner_id.encode();
@@ -344,8 +321,7 @@ pub fn new_full<
             proposer, // Env E == proposer! TODO
             /*sync_oracle:*/ sync_service.clone(),
             /*justification_sync_link:*/ sync_service.clone(),
-            //pre_runtime: Option<Vec<u8>>,
-            Some(encoded_miner),
+            Some(encoded_miner), //pre_runtime as Option<Vec<u8>>
             inherent_data_providers,
             // time to wait for a new block before starting to mine a new one
             Duration::from_secs(10),
@@ -414,8 +390,6 @@ pub fn new_full<
                     let version = worker_handle.version();
 
                     // Mine the block
-                    //log::info!("Nonce: {}", nonce);
-                    //log::info!("Difficulty: {}",metadata.difficulty);
 
                     let miner = QPoWMiner::new(client.clone());
 
@@ -427,7 +401,6 @@ pub fn new_full<
                             }
                             Err(_) => {
                                 nonce += U512::one();
-                                // tokio::time::sleep(Duration::from_millis(100)).await;
                                 continue;
                             }
                         };
@@ -469,64 +442,3 @@ pub fn new_full<
     network_starter.start_network();
     Ok(task_manager)
 }
-/*
-#[cfg(test)]
-mod tests {
-    use sc_service::{new_full_parts, TFullClient};
-    use qpow::INITIAL_DIFFICULTY;
-
-    use super::*;
-    use sp_core::H256;
-    // Import OpaqueExtrinsic (our opaque extrinsic type)
-    use sp_runtime::OpaqueExtrinsic;
-    // Define a TestXt with OpaqueExtrinsic as the Call and () as the Extra.
-    type TestXtType = sp_runtime::testing::TestXt<OpaqueExtrinsic, ()>;
-    // Now define our test block using that TestXtType:
-    type TestBlockType = sp_runtime::testing::Block<TestXtType>;
-
-    // Create a convenient type alias for our test block.
-    // type TestBlockType = TestBlock<TestXt>;
-    #[test]
-    fn test_try_nonce_valid_seal() {
-        // Setup test data
-        let pre_hash = H256::from_slice(&[1; 32]);
-        let difficulty = U256::from(INITIAL_DIFFICULTY);
-
-        // First, find a valid nonce
-        let mut nonce = 0;
-        let mut valid_seal = None;
-        while nonce < 1000 {
-            log::info!("testing nonce: {:?}", nonce);
-            if let Ok(seal) = try_nonce::<TestBlockType>(pre_hash, nonce, difficulty) {
-                valid_seal = Some(seal);
-                break;
-            }
-            nonce += 1;
-        }
-
-        log::info!("valid seal: {:?}", valid_seal);
-        log::info!("nonce: {:?}", nonce);
-
-        // Verify we found a valid seal
-        assert!(valid_seal.is_some(), "Should find a valid seal");
-
-        // Test that the valid seal passes verification
-        let result = try_nonce::<TestBlockType>(pre_hash, valid_seal.unwrap().nonce, difficulty);
-        assert!(result.is_ok(), "Valid seal should pass verification");
-    }
-
-    #[test]
-    fn test_try_nonce_invalid_seal() {
-        // Setup test data
-        let pre_hash = H256::from_slice(&[1; 32]);
-        let difficulty = U256::from(INITIAL_DIFFICULTY);
-
-        // Use an obviously invalid nonce
-        let invalid_nonce = 12345;
-
-        // Test that the invalid seal fails verification
-        let result = try_nonce::<TestBlockType>(pre_hash, invalid_nonce, difficulty);
-        assert!(result.is_err(), "Invalid seal should fail verification");
-    }
-}
- */

@@ -6900,7 +6900,7 @@ checksum = "350e9b48cbc6b0e028b0473b114454c6316e57336ee184ceab6e53f72c178b3e"
 [[package]]
 name = "poseidon-resonance"
 version = "0.1.0"
-source = "git+https://github.com/czareko/poseidon-resonance#8487470923481ee185d281a7a27a1dc23c59b568"
+source = "git+https://github.com/Resonance-Network/poseidon-resonance#56e20159654cd1221c1e0fcc6334458455da18ae"
 dependencies = [
  "log",
  "parity-scale-codec",

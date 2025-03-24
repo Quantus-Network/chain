@@ -25,7 +25,7 @@ resolver = "2"
 resonance-runtime = { path = "./runtime", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 plonky2 = { git="https://github.com/Resonance-Network/plonky2", default-features = false, features = ["no_random"] }
-poseidon-resonance = { git = "https://github.com/czareko/poseidon-resonance", default-features = false }
+poseidon-resonance = { git = "https://github.com/Resonance-Network/poseidon-resonance", default-features = false }
 
 async-trait = { version = "0.1.85", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
