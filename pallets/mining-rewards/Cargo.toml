@@ -25,6 +25,10 @@ sp-std = {workspace = true, default-features = false}
 log = {workspace = true, default-features = false}
 pallet-balances = {workspace = true, default-features = false}
 
+[dev-dependencies]
+sp-io = {workspace = true, default-features = false}
+sp-core = {workspace = true, default-features = false}
+
 [features]
 default = ["std"]
 std = [
@@ -34,6 +38,7 @@ std = [
 	"frame-system/std",
 	"scale-info/std",
 	"sp-consensus-pow/std",
+	"pallet-balances/std",
 	"sp-runtime/std",
 	"sp-std/std",
 ]

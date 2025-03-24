@@ -26,9 +26,9 @@ pub mod pallet {
 	use sp_runtime::traits::Saturating;
 	use frame_support::traits::fungible::{DecreaseIssuance,IncreaseIssuance};
 
-	type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+	pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-	type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
+	pub type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
 			u128,
 			DecreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T>>,
 			IncreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T>>
@@ -69,11 +69,23 @@ pub mod pallet {
 			/// Total reward (base + fees)
 			reward: BalanceOf<T>,
 		},
+		/// Transaction fees were collected for later distribution
+		FeesCollected {
+			/// The amount collected
+			amount: BalanceOf<T>,
+			/// Total fees waiting for distribution
+			total: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
+		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
+			// Return weight consumed
+			Weight::from_parts(10_000, 0)
+		}
+
+		fn on_finalize(block_number: BlockNumberFor<T>){
 			// Extract miner ID from the pre-runtime digest
 			if let Some(miner) = Self::extract_miner_from_digest() {
 
@@ -100,13 +112,6 @@ pub mod pallet {
 					reward: total_reward,
 				});
 
-				/*
-				log::info!(
-                    target: "mining-rewards",
-                    "Miner identified for block {:?}: {:?}",
-                    block_number,
-                    miner
-                );*/
 				log::info!(
 					target: "mining-rewards",
 					"💰 Miner rewarded: {:?}",
@@ -123,9 +128,6 @@ pub mod pallet {
                     block_number
                 );
 			}
-
-			// Return weight consumed
-			Weight::from_parts(10_000, 0)
 		}
 	}
 
@@ -157,6 +159,10 @@ pub mod pallet {
 		pub fn collect_transaction_fees(fees: BalanceOf<T>) {
 			<CollectedFees<T>>::mutate(|total_fees| {
 				*total_fees = total_fees.saturating_add(fees);
+			});
+			Self::deposit_event(Event::FeesCollected {
+				amount: fees,
+				total: <CollectedFees<T>>::get(),
 			});
 		}
 	}
