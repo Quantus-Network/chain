@@ -238,4 +238,7 @@ mod runtime {
 
 	#[runtime::pallet_index(7)]
 	pub type Wormhole = pallet_wormhole;
+
+	#[runtime::pallet_index(8)]
+	pub type MiningRewards = pallet_mining_rewards;
 }

@@ -11,7 +11,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
-
+use sp_runtime::AccountId32;
 pub use miner::QPoWMiner;
 
 
@@ -65,10 +65,27 @@ where
         &self,
         parent: &BlockId<B>,
         pre_hash: &H256,
-        _pre_digest: Option<&[u8]>,
+        pre_digest: Option<&[u8]>,
         seal: &RawSeal,
         _difficulty: Self::Difficulty,
     ) -> Result<bool, Error<B>> {
+
+        //Executed for mined and imported blocks
+
+        // Block miner should exist
+
+        let mut extracted_author: Option<AccountId32> = None;
+        if let Some(pre_digest_bytes) = pre_digest {
+            if let Ok(account) = <AccountId32 as Decode>::decode(&mut &pre_digest_bytes[..]) {
+                extracted_author = Some(account);
+            }
+        }
+
+        let _author = match extracted_author {
+            Some(acc) => acc,
+            None => return Err(Error::Runtime("Failed to extract AccountId32 from pre_digest".into())),
+        };
+
         // Convert seal to nonce [u8; 64]
         let nonce: [u8; 64] = match seal.as_slice().try_into() {
             Ok(arr) => arr,

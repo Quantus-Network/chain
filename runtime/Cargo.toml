@@ -47,6 +47,7 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { optional = true, workspace = true }
 pallet-template.workspace = true
+pallet-mining-rewards = {workspace = true, default-features = false}
 pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = { workspace = true, default-features = false}
 sp-consensus-qpow = { workspace = true, default-features = false}
@@ -82,6 +83,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"pallet-balances/std",
+	"pallet-mining-rewards/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
 	"pallet-qpow/std",
@@ -131,6 +133,7 @@ try-runtime = [
 	"frame-system/try-runtime",
 	"frame-try-runtime/try-runtime",
 	"pallet-balances/try-runtime",
+	"pallet-mining-rewards/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-template/try-runtime",
 	"pallet-qpow/try-runtime",
