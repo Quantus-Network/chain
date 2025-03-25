@@ -172,7 +172,7 @@ where
         let (_, seal_data) = seal_log.as_seal().ok_or_else(|| sp_consensus::Error::Other("Invalid seal format".into()))?;
 
         // Convert header hash to [u8; 32]
-        let header_bytes = header.hash().as_ref().try_into().unwrap_or([0u8; 32]);
+        let header_bytes: [u8; 32] = header.hash().as_ref().try_into().expect("Failed to convert header H256 to [u8; 32]; this should never happen");
         
         // Try to decode nonce from seal data
         let nonce = if seal_data.len() == 64 {
@@ -272,14 +272,21 @@ where
         
         let mut current_height = *current_best.number();
         let mut competing_height = *competing_header.number();
+
+        let mut reorg_depth = 0;
         
         // First, move the headers to the same height
         while current_height > competing_height {
+            if current_best_hash == competing_hash {
+                // Fork point found early due to competing_header being a descendant
+                return Ok((current_best_hash, reorg_depth));
+            }
             current_best_hash = self.client.header(current_best_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other("Missing header".into()))?
                 .parent_hash().clone();
             current_height -= One::one();
+            reorg_depth += 1;
         }
         
         while competing_height > current_height {
@@ -292,12 +299,10 @@ where
         
         // Now both headers are at the same height
         // Find the fork-point by traversing the chain backwards
-        let mut reorg_depth = 0;
         while current_best_hash != competing_hash {
-            reorg_depth += 1;
-            if reorg_depth >= self.max_reorg_depth{
-                return Ok((current_best_hash, reorg_depth))
-                
+            // If current_best reaches height 0 and still no match, no common ancestor
+            if current_height.is_zero() {
+                return Err(sp_consensus::Error::Other("No common ancestor found".into()));
             }
             
             current_best_hash = self.client.header(current_best_hash)
@@ -309,6 +314,9 @@ where
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other("Missing header".into()))?
                 .parent_hash().clone();
+
+            current_height -= One::one();
+            reorg_depth += 1;
         }
         
         Ok((current_best_hash, reorg_depth))
@@ -375,11 +383,12 @@ where
                         chain_work,
                         reorg_depth
                     );
-                    // Tie braking mechanism when chains have same amount of work
+                    // Tie breaking mechanism when chains have same amount of work
                     if chain_work == best_work {
                         let current_block_height = best_header.number();
                         let new_block_height = header.number();
-
+                        
+                        // select the chain with more blocks when chains have equal work
                         if new_block_height > current_block_height{
                             best_header = header;
                         }
