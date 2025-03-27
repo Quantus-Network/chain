@@ -180,11 +180,11 @@ impl Verify for ResonanceSignatureScheme {
                     .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Resonance(sig_public) => {
-                let account = sig_public.public.clone().into_account();
+                let account = sig_public.public().clone().into_account();
                 if account != *signer {
                     return false;
                 }
-                let result = verify(sig_public.public.as_ref(), msg.get(), sig_public.signature.as_ref());
+                let result = verify(sig_public.public().as_ref(), msg.get(), sig_public.signature().as_ref());
                 result
             },
         }
@@ -242,7 +242,7 @@ impl sp_std::fmt::Debug for ResonanceSignatureWithPublic {
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
         write!(
             f,
-            "ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}", self.signature, self.public
+            "ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}", self.signature(), self.public() 
         )
     }
 

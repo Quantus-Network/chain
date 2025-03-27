@@ -118,9 +118,10 @@ mod tests {
 
                 match decoded_signature.clone() {
                     ResonanceSignatureScheme::Resonance(sig_public) => {
-                        let sig_bytes = sig_public.signature.as_slice();
-                        println!("Decoded Signature: {:?}", format_hex_truncated(&sig_bytes));
-                        println!("Decoded Public Key: {:?}", format_hex_truncated(&sig_public.public.as_ref()));
+                        let sig = sig_public.signature();
+                        let sig_bytes = sig.as_slice();
+                        println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
+                        println!("Decoded Public Key: {:?}", format_hex_truncated(&sig_public.public().as_ref()));
                     }
                     _ => println!("Decoded Signature: --"),
                 }
