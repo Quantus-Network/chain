@@ -46,7 +46,6 @@ frame-system-rpc-runtime-api.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { optional = true, workspace = true }
-pallet-template.workspace = true
 pallet-mining-rewards = {workspace = true, default-features = false}
 pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = { workspace = true, default-features = false}
@@ -64,7 +63,6 @@ poseidon-resonance = { workspace = true, features = ["serde"] }
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
 [dev-dependencies]
-sp-io = { workspace = true, default-features = true }
 sp-std = { version = "14.0.0", default-features = true }
 hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
 env_logger = "0.11.5"
@@ -85,7 +83,6 @@ std = [
 	"pallet-balances/std",
 	"pallet-mining-rewards/std",
 	"pallet-sudo/std",
-	"pallet-template/std",
 	"pallet-qpow/std",
 	"pallet-wormhole/std",
 	"pallet-timestamp/std",
@@ -121,7 +118,6 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
-	"pallet-template/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
@@ -135,7 +131,6 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-mining-rewards/try-runtime",
 	"pallet-sudo/try-runtime",
-	"pallet-template/try-runtime",
 	"pallet-qpow/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
