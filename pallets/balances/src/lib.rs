@@ -860,8 +860,10 @@ pub mod pallet {
 
 	impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
-			let nonce = <frame_system::Pallet<T>>::account_nonce(from);
-			TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), true);
+			if from != to {
+				let nonce = <frame_system::Pallet<T>>::account_nonce(from);
+				TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), true);
+			}
 		}
 
 		pub fn transfer_proof_storage_key(
