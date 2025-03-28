@@ -10554,7 +10554,9 @@ dependencies = [
 name = "sp-wormhole"
 version = "0.1.0"
 dependencies = [
+ "hex-literal",
  "poseidon-resonance",
+ "rand 0.8.5",
  "sp-core",
 ]
 

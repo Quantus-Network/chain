@@ -9,14 +9,18 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-sp-core = {workspace = true, default-features = false}
+sp-core = {workspace = true, default-features = false }
 poseidon-resonance = {workspace = true, default-features = false}
+rand = {version = "0.8.5", default-features = false, features = ["alloc","getrandom"]}
 
+[dev-dependencies]
+hex-literal = { version="0.4.1" ,default-features = false }
 
 [features]
 default = ["std"]
 std = [
     "sp-core/std",
     "poseidon-resonance/std",
+    "rand/std",
 ]
 
