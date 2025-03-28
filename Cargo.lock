@@ -7660,6 +7660,7 @@ dependencies = [
  "sp-keyring",
  "sp-runtime",
  "sp-timestamp",
+ "sp-wormhole",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
 ]

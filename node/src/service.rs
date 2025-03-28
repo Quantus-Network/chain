@@ -20,7 +20,7 @@ use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::AccountId32;
-use dilithium_crypto::ResonancePair;
+use sp_wormhole::WormholePair;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -301,9 +301,13 @@ pub fn new_full<
             _phantom: Default::default(),
         };
 
-        let seed = [20u8; 32];
-        let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
-        let miner_id = AccountId32::from(resonance_pair.public());
+
+        let wormhole_pair = WormholePair::generate_new().unwrap();
+
+        log::info!("Wormhole address {:?}",wormhole_pair.address);
+        log::info!("Wormhole secret {:?}",wormhole_pair.secret);
+
+        let miner_id = AccountId32::from(wormhole_pair.address.0);
 
         log::info!("⛏️ Mining with identity: {:?}", miner_id);
 
