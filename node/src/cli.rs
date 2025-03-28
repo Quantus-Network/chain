@@ -7,6 +7,10 @@ pub struct Cli {
 
 	#[clap(flatten)]
 	pub run: RunCmd,
+
+	/// Specify a rewards address for the miner
+	#[arg(long, value_name = "REWARDS_ADDRESS")]
+	pub rewards_address: Option<String>,
 }
 
 #[derive(Debug, clap::Subcommand)]
