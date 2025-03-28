@@ -70,16 +70,18 @@ impl WormholePair {
         Ok(&generated_address == address)
     }
 
-    /// Verifies whether the given pre-hashed secret generates the specified wormhole address.
+
+    /// Verifies whether the given combined hash generates the specified wormhole address.
     ///
     /// # Arguments
     /// * `address` - The expected wormhole address.
-    /// * `hashed_secret` - A 32-byte Poseidon hash of the secret.
+    /// * `combined_hash` - The result of the first Poseidon hash of (salt + secret).
+    ///                     This is the intermediate hash before the final address derivation.
     ///
     /// # Returns
     /// `Ok(true)` if the address matches the derived one, `Ok(false)` otherwise.
-    pub fn verify_with_hashed_secret(address: &H256, hashed_secret: &[u8; 32]) -> Result<bool, WormholeError> {
-        let generated = PoseidonHasher::hash(hashed_secret);
+    pub fn verify_with_combined_hash(address: &H256, combined_hash: &[u8; 32]) -> Result<bool, WormholeError> {
+        let generated = PoseidonHasher::hash(combined_hash);
         Ok(&generated == address)
     }
 
@@ -155,25 +157,23 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_with_hashed_secret() {
-        // We'll need to manually work through the hashing process to test this
-
+    fn test_verify_with_combined_hash() {
         // Arrange
         let secret = [3u8; 32];
 
         // Generate a pair using our normal process
         let pair = WormholePair::generate_pair_from_secret(&secret);
 
-        // Now we need to simulate the hashed_secret input expected by verify_with_hashed_secret
-        // In a real scenario, this would be the result of PoseidonHasher::hash(original_secret)
+        // Create the combined salt + secret
         let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.len());
         combined.extend_from_slice(&ADDRESS_SALT);
         combined.extend_from_slice(&secret);
 
-        let hashed_combined = PoseidonHasher::hash(&combined);
+        // This is the combined hash (first hash in the two-step process)
+        let combined_hash = PoseidonHasher::hash(&combined);
 
         // Act
-        let result = WormholePair::verify_with_hashed_secret(&pair.address, &hashed_combined.0);
+        let result = WormholePair::verify_with_combined_hash(&pair.address, &combined_hash.0);
 
         // Assert
         assert!(result.is_ok());
@@ -181,28 +181,39 @@ mod tests {
     }
 
     #[test]
-    fn test_address_derivation_process() {
-        // This test verifies the specific address derivation process
-
+    fn test_address_derivation_properties() {
         // Arrange
         let secret = hex!("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
 
-        // Step 1: Create the combined salt + secret
-        let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.len());
-        combined.extend_from_slice(&ADDRESS_SALT);
-        combined.extend_from_slice(&secret);
-
-        // Step 2: Hash the combined data
-        let first_hash = PoseidonHasher::hash(&combined);
-
-        // Step 3: Hash the result again to get the final address
-        let expected_address = PoseidonHasher::hash(&first_hash.0);
-
-        // Act
+        // Act - Generate the pair
         let pair = WormholePair::generate_pair_from_secret(&secret);
 
         // Assert
-        assert_eq!(pair.address, expected_address);
+        // 1. Verify that the secret is stored correctly
+        assert_eq!(pair.secret, secret);
+
+        // 2. Verify that the derived address is consistent with our verification method
+        assert!(WormholePair::verify(&pair.address, &secret).unwrap());
+
+        // 3. Verify that even a small change in the secret produces a different address
+        let mut altered_secret = secret;
+        altered_secret[0] ^= 1; // Flip one bit in the first byte
+        let altered_pair = WormholePair::generate_pair_from_secret(&altered_secret);
+        assert_ne!(pair.address, altered_pair.address);
+
+        // 4. Verify that the process uses the salt
+        // (Create a direct hash without salt and ensure it's different)
+        let direct_hash = PoseidonHasher::hash(&secret);
+        let double_hash = PoseidonHasher::hash(&direct_hash.0);
+        assert_ne!(pair.address, double_hash);
+
+        // 5. Verify that each stage of the hash process changes the result
+        // (Create a hash with salt but without the second hashing step)
+        let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.len());
+        combined.extend_from_slice(&ADDRESS_SALT);
+        combined.extend_from_slice(&secret);
+        let first_hash = PoseidonHasher::hash(&combined);
+        assert_ne!(pair.address, first_hash);
     }
 
     #[test]
