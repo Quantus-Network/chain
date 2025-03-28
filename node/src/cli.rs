@@ -14,7 +14,7 @@ pub struct Cli {
 pub enum Subcommand {
 	/// Key management cli utilities
 	#[command(subcommand)]
-	Key(sc_cli::KeySubcommand),
+	Key(ResonanceKeySubcommand),
 
 	/// Build a chain specification.
 	BuildSpec(sc_cli::BuildSpecCmd),
@@ -44,3 +44,26 @@ pub enum Subcommand {
 	/// Db meta columns information.
 	ChainInfo(sc_cli::ChainInfoCmd),
 }
+
+#[derive(Debug, clap::Subcommand)]
+pub enum ResonanceKeySubcommand{
+
+	/// Standard key commands from sc_cli
+	#[command(flatten)]
+	Sc(sc_cli::KeySubcommand),
+	/// Generate a resonance address
+	Resonance {
+		/// Type of the key
+		#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
+		scheme: Option<ResonanceAddressType>,
+
+		#[arg(long, value_name = "seed")]
+		seed: Option<String>,
+	},
+}
+#[derive(Clone, Debug, clap::ValueEnum)]
+pub enum ResonanceAddressType {
+	Wormhole,
+	Standard,
+}
+

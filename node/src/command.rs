@@ -7,8 +7,12 @@ use crate::{
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
+use sp_core::crypto::AccountId32;
 use resonance_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use sp_keyring::Sr25519Keyring;
+use dilithium_crypto::ResonancePair;
+use sp_wormhole::WormholePair;
+use crate::cli::{ResonanceAddressType, ResonanceKeySubcommand};
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
@@ -50,7 +54,66 @@ pub fn run() -> sc_cli::Result<()> {
 	let cli = Cli::from_args();
 
 	match &cli.subcommand {
-		Some(Subcommand::Key(cmd)) => cmd.run(&cli),
+		Some(Subcommand::Key(cmd)) => match cmd {
+			ResonanceKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
+			ResonanceKeySubcommand::Resonance { scheme, seed} => {
+
+
+			match scheme {
+				Some(ResonanceAddressType::Standard) | None => {
+					println!("Generating resonance address...");
+
+					let seed_value = match seed {
+						Some(seed_str) => {
+
+							let value = match seed_str.parse::<u8>() {
+								Ok(val) => val,
+								Err(_) => {
+									eprintln!("Error: Seed must be a valid u8 number (0-255)");
+									return Err("Invalid seed format".into());
+								}
+							};
+
+							value
+						},
+						None => {
+							eprintln!("Error: The seed parameter is required");
+							eprintln!("Usage: <command> --seed <VALUE>");
+							return Err("Missing required parameter: seed".into());
+						}
+					};
+
+					let seed = [seed_value; 32];
+					let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
+					let account_id = AccountId32::from(resonance_pair.public());
+
+					println!("XXXXXXXXXXXXXXX Resonance Account Details XXXXXXXXXXXXXXXXX");
+					println!("Address: 0x{}", hex::encode(account_id));
+					println!("Seed: 0x{}", hex::encode(seed));
+					println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
+					println!("Secret: 0x{}", hex::encode(resonance_pair.secret));
+					println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+					Ok(())
+
+				},
+				Some(ResonanceAddressType::Wormhole) => {
+					println!("Generating wormhole address...");
+					println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
+
+					let wormhole_pair = WormholePair::generate_new().unwrap();
+					//let wormhole_account_id = AccountId32::from(wormhole_pair.address.0);
+
+					//println!("Account ID: 0x{}", hex::encode(wormhole_account_id));
+					println!("Address: {:?}",wormhole_pair.address);
+					println!("Secret: 0x{}",hex::encode(wormhole_pair.secret));
+
+					println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+					Ok(())
+				},
+			}
+
+		}
+	},
 		Some(Subcommand::BuildSpec(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.sync_run(|config| cmd.run(config.chain_spec, config.network))
