@@ -60,11 +60,11 @@ pub fn development_config_genesis() -> Value {
     ];
     endowed_accounts.extend(dilithium_accounts);
 
-	use sp_core::crypto::ByteArray;
+	//use sp_core::crypto::ByteArray;
 
-	log::info!("crystal_alice: {:?}", crystal_alice().public().into_account());
-	log::info!("dilithium_bob: {:?}", dilithium_bob().public().as_slice());
-	log::info!("crystal_charlie: {:?}", crystal_charlie().public().as_slice());	
+	//log::info!("crystal_alice: {:?}", crystal_alice().public().into_account());
+	//log::info!("dilithium_bob: {:?}", dilithium_bob().public().as_slice());
+	//log::info!("crystal_charlie: {:?}", crystal_charlie().public().as_slice());
 
 	// crystal_alice: 5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq
 	// dilithium_bob: 5CxEUqBNycBAW5VvTaRXgkr4uK5HpMuS921gaTLVV9b3QYJx

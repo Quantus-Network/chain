@@ -81,6 +81,7 @@ frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
 resonance-runtime.workspace = true
 
+sp-wormhole = {workspace = true,default-features = false}
 hex = {workspace = true,default-features = false}
 
 prometheus = {version="0.13.4", default-features = false}
@@ -94,6 +95,7 @@ default = ["std"]
 std = [
 	"resonance-runtime/std",
 	"dilithium-crypto/std",
+	"sp-wormhole/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
