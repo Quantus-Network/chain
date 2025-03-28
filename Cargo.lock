@@ -6060,16 +6060,19 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "pallet-balances"
 version = "40.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3d18caaae72674d6536d339c1ae5b5063b55de5813a43ee045847d28c0a128"
 dependencies = [
  "docify",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
+ "pallet-transaction-payment",
  "parity-scale-codec",
+ "paste",
+ "poseidon-resonance",
  "scale-info",
+ "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
@@ -6125,20 +6128,6 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-template"
-version = "0.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
  "sp-io",
  "sp-runtime",
 ]
@@ -7695,7 +7684,6 @@ dependencies = [
  "pallet-mining-rewards",
  "pallet-qpow",
  "pallet-sudo",
- "pallet-template",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -7711,7 +7699,6 @@ dependencies = [
  "sp-core",
  "sp-genesis-builder",
  "sp-inherents",
- "sp-io",
  "sp-keyring",
  "sp-offchain",
  "sp-runtime",
