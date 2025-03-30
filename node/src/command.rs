@@ -5,10 +5,15 @@ use crate::{
 	service,
 };
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
+use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
+use sp_core::crypto::AccountId32;
 use resonance_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use sp_keyring::Sr25519Keyring;
+use dilithium_crypto::ResonancePair;
+use sp_wormhole::WormholePair;
+use crate::cli::{ResonanceAddressType, ResonanceKeySubcommand};
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
@@ -50,7 +55,88 @@ pub fn run() -> sc_cli::Result<()> {
 	let cli = Cli::from_args();
 
 	match &cli.subcommand {
-		Some(Subcommand::Key(cmd)) => cmd.run(&cli),
+		Some(Subcommand::Key(cmd)) => match cmd {
+			ResonanceKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
+			ResonanceKeySubcommand::Resonance { scheme, seed} => {
+
+
+			match scheme {
+				Some(ResonanceAddressType::Standard) => {
+					println!("Generating resonance address...");
+
+					let seed = match seed {
+						Some(seed_str) => {
+							// Accept a 64-character hex string representing 32 bytes
+							if seed_str.len() != 64 {
+								eprintln!("Error: Seed must be a 64-character hex string");
+								eprintln!("Example: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
+								return Err("Invalid seed length".into());
+							}
+
+							// Decode hex string to bytes
+							match hex::decode(seed_str) {
+								Ok(bytes) => {
+									if bytes.len() != 32 {
+										eprintln!("Error: Decoded seed must be exactly 32 bytes");
+										return Err("Invalid seed length".into());
+									}
+
+									// Convert Vec<u8> to [u8; 32]
+									let mut array = [0u8; 32];
+									array.copy_from_slice(&bytes);
+									array
+								},
+								Err(_) => {
+									eprintln!("Error: Seed must be a valid hex string (0-9, a-f)");
+									eprintln!("Example: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
+									return Err("Invalid seed format".into());
+								}
+							}
+						},
+						None => {
+							let mut rng = rand::thread_rng();
+							let mut random_seed = [0u8; 32];
+							rng.fill(&mut random_seed);
+
+							println!("No seed provided. Using random seed:");
+							println!("Seed: {}", hex::encode(&random_seed));
+
+							random_seed
+						}
+					};
+
+					let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
+					let account_id = AccountId32::from(resonance_pair.public());
+
+					println!("XXXXXXXXXXXXXXX Resonance Account Details XXXXXXXXXXXXXXXXX");
+					println!("Address: 0x{}", hex::encode(account_id));
+					println!("Seed: {}", hex::encode(seed));
+					println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
+					println!("Secret: 0x{}", hex::encode(resonance_pair.secret));
+					println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+					Ok(())
+
+				},
+				Some(ResonanceAddressType::Wormhole) => {
+					println!("Generating wormhole address...");
+					println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
+
+					let wormhole_pair = WormholePair::generate_new().unwrap();
+
+					println!("Address: {:?}",wormhole_pair.address);
+					println!("Secret: 0x{}",hex::encode(wormhole_pair.secret));
+
+					println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+					Ok(())
+				},
+				_ => {
+					println!("Error: The scheme parameter is required");
+					return Err("Invalid address scheme".into());
+				}
+			}
+
+		}
+	},
 		Some(Subcommand::BuildSpec(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.sync_run(|config| cmd.run(config.chain_spec, config.network))
@@ -183,10 +269,10 @@ pub fn run() -> sc_cli::Result<()> {
 							resonance_runtime::opaque::Block,
 							<resonance_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 						>,
-					>(config)
+					>(config, cli.rewards_address.clone())
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p =>
-						service::new_full::<sc_network::Litep2pNetworkBackend>(config)
+						service::new_full::<sc_network::Litep2pNetworkBackend>(config, cli.rewards_address.clone())
 							.map_err(sc_cli::Error::Service),
 				}
 			})

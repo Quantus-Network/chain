@@ -11,7 +11,6 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
-use sp_runtime::AccountId32;
 pub use miner::QPoWMiner;
 
 
@@ -65,12 +64,17 @@ where
         &self,
         parent: &BlockId<B>,
         pre_hash: &H256,
-        pre_digest: Option<&[u8]>,
+        _pre_digest: Option<&[u8]>,
         seal: &RawSeal,
         _difficulty: Self::Difficulty,
     ) -> Result<bool, Error<B>> {
 
         //Executed for mined and imported blocks
+
+        /*
+
+        For now, we will turn this off temporally.
+        In this way, node can mine/import blocks without rewarding anyone.
 
         // Block miner should exist
 
@@ -85,6 +89,8 @@ where
             Some(acc) => acc,
             None => return Err(Error::Runtime("Failed to extract AccountId32 from pre_digest".into())),
         };
+
+        */
 
         // Convert seal to nonce [u8; 64]
         let nonce: [u8; 64] = match seal.as_slice().try_into() {

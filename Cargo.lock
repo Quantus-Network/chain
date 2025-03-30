@@ -7635,6 +7635,7 @@ dependencies = [
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "prometheus",
+ "rand 0.8.5",
  "resonance-runtime",
  "sc-basic-authorship",
  "sc-cli",
