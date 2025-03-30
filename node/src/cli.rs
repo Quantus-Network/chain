@@ -61,6 +61,7 @@ pub enum ResonanceKeySubcommand{
 		#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
 		scheme: Option<ResonanceAddressType>,
 
+		/// Optional parameter for "standard" address type, must be a 64-character hex string
 		#[arg(long, value_name = "seed")]
 		seed: Option<String>,
 	},

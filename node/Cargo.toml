@@ -83,6 +83,7 @@ resonance-runtime.workspace = true
 
 sp-wormhole = {workspace = true,default-features = false}
 hex = {workspace = true,default-features = false}
+rand = {workspace = true, default-features = false, features = ["alloc","getrandom"]}
 
 prometheus = {version="0.13.4", default-features = false}
 
@@ -96,6 +97,7 @@ std = [
 	"resonance-runtime/std",
 	"dilithium-crypto/std",
 	"sp-wormhole/std",
+	"rand/std"
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [

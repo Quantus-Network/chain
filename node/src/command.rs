@@ -5,6 +5,7 @@ use crate::{
 	service,
 };
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
+use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
 use sp_core::crypto::AccountId32;
@@ -60,36 +61,56 @@ pub fn run() -> sc_cli::Result<()> {
 
 
 			match scheme {
-				Some(ResonanceAddressType::Standard) | None => {
+				Some(ResonanceAddressType::Standard) => {
 					println!("Generating resonance address...");
 
-					let seed_value = match seed {
+					let seed = match seed {
 						Some(seed_str) => {
+							// Accept a 64-character hex string representing 32 bytes
+							if seed_str.len() != 64 {
+								eprintln!("Error: Seed must be a 64-character hex string");
+								eprintln!("Example: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
+								return Err("Invalid seed length".into());
+							}
 
-							let value = match seed_str.parse::<u8>() {
-								Ok(val) => val,
+							// Decode hex string to bytes
+							match hex::decode(seed_str) {
+								Ok(bytes) => {
+									if bytes.len() != 32 {
+										eprintln!("Error: Decoded seed must be exactly 32 bytes");
+										return Err("Invalid seed length".into());
+									}
+
+									// Convert Vec<u8> to [u8; 32]
+									let mut array = [0u8; 32];
+									array.copy_from_slice(&bytes);
+									array
+								},
 								Err(_) => {
-									eprintln!("Error: Seed must be a valid u8 number (0-255)");
+									eprintln!("Error: Seed must be a valid hex string (0-9, a-f)");
+									eprintln!("Example: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
 									return Err("Invalid seed format".into());
 								}
-							};
-
-							value
+							}
 						},
 						None => {
-							eprintln!("Error: The seed parameter is required");
-							eprintln!("Usage: <command> --seed <VALUE>");
-							return Err("Missing required parameter: seed".into());
+							let mut rng = rand::thread_rng();
+							let mut random_seed = [0u8; 32];
+							rng.fill(&mut random_seed);
+
+							println!("No seed provided. Using random seed:");
+							println!("Seed: {}", hex::encode(&random_seed));
+
+							random_seed
 						}
 					};
 
-					let seed = [seed_value; 32];
 					let resonance_pair = ResonancePair::from_seed(&seed).unwrap();
 					let account_id = AccountId32::from(resonance_pair.public());
 
 					println!("XXXXXXXXXXXXXXX Resonance Account Details XXXXXXXXXXXXXXXXX");
 					println!("Address: 0x{}", hex::encode(account_id));
-					println!("Seed: 0x{}", hex::encode(seed));
+					println!("Seed: {}", hex::encode(seed));
 					println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
 					println!("Secret: 0x{}", hex::encode(resonance_pair.secret));
 					println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
@@ -101,15 +122,17 @@ pub fn run() -> sc_cli::Result<()> {
 					println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
 
 					let wormhole_pair = WormholePair::generate_new().unwrap();
-					//let wormhole_account_id = AccountId32::from(wormhole_pair.address.0);
 
-					//println!("Account ID: 0x{}", hex::encode(wormhole_account_id));
 					println!("Address: {:?}",wormhole_pair.address);
 					println!("Secret: 0x{}",hex::encode(wormhole_pair.secret));
 
 					println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
 					Ok(())
 				},
+				_ => {
+					println!("Error: The scheme parameter is required");
+					return Err("Invalid address scheme".into());
+				}
 			}
 
 		}

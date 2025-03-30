@@ -73,7 +73,8 @@ where
 
         /*
 
-        For now, we will turn this off temporally
+        For now, we will turn this off temporally.
+        In this way, node can mine/import blocks without rewarding anyone.
 
         // Block miner should exist
 
