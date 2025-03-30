@@ -1,5 +1,29 @@
 # Resonance Network Node
 
+## CLI Resonance commands
+
+### Standard address pair generation
+
+```sh
+./resonance-node key resonance --scheme standard --seed "123"
+```
+
+### Wormhole address pair generation
+
+```sh
+./resonance-node key resonance --scheme wormhole
+```
+
+### Rewards address
+
+By providing the optional `--rewards-address` parameter, the node will start sending mining and transaction rewards after each block confirmation by the runtime.
+If this address is not specified, rewards will not be minted.
+
+```shell
+./resonance-node --chain local --validator --rewards-address <NODE_OPERATOR_ADDRESS>
+```
+
+
 ## Multinode local run
 
 1. Build the release binary
