@@ -54,11 +54,24 @@ pub fn development_config_genesis() -> Value {
 
     // Add Dilithium-based accounts
     let dilithium_accounts = vec![
-        crystal_alice().into_account(), // 5HXbJzpBF2oxUWeSAq3AFQu9zA6nfN2fwu71d7e44bbkrQJj
-        dilithium_bob().into_account(), // 5EjGLVmu9wwPxguLqbb1hXvwfQLxsm3Ug57En9reLkKLL7Fp
-        crystal_charlie().into_account(), // 5E1tXyYePf2a2Me83j3bUzVTtDd8YfsEn47bDjwLMgWTSemJ
+        crystal_alice().into_account(),
+        dilithium_bob().into_account(),
+        crystal_charlie().into_account(),
     ];
     endowed_accounts.extend(dilithium_accounts);
+
+	//use sp_core::crypto::ByteArray;
+
+	//log::info!("crystal_alice: {:?}", crystal_alice().public().into_account());
+	//log::info!("dilithium_bob: {:?}", dilithium_bob().public().as_slice());
+	//log::info!("crystal_charlie: {:?}", crystal_charlie().public().as_slice());
+
+	// crystal_alice: 5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq
+	// dilithium_bob: 5CxEUqBNycBAW5VvTaRXgkr4uK5HpMuS921gaTLVV9b3QYJx
+	// crystal_charlie: 5Fj6VYnJGMeAPg9y5oWzEyXakZbJMGSy9VdbehdE5suDvB4t
+	// crystal_alice: 553ffb66c8f627b6b6bd982ef564e144e779fc745f24241fdedac7e43f3ea486 (5DzUw8DM...)    
+	// dilithium_bob: 274c9a7ecffb52c25173be718b5fcf2d383bf6e465d63a34cbc26de56efa24f0 (5CxEUqBN...)    
+	// crystal_charlie: a1fc398e6f48f42c820cb3dcc3da40758a57f1a3243674ffe81832cd051c094c (5Fj6VYnJ...)    
 
     testnet_genesis(
         endowed_accounts,

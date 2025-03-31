@@ -11,6 +11,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
+use sp_runtime::AccountId32;
 use sp_consensus::{SelectChain};
 use sp_runtime::traits::{ Header, Zero, One};
 use sp_blockchain::{Backend, HeaderBackend};
@@ -68,10 +69,27 @@ where
         &self,
         parent: &BlockId<B>,
         pre_hash: &H256,
-        _pre_digest: Option<&[u8]>,
+        pre_digest: Option<&[u8]>,
         seal: &RawSeal,
         _difficulty: Self::Difficulty,
     ) -> Result<bool, Error<B>> {
+
+        //Executed for mined and imported blocks
+
+        // Block miner should exist
+
+        let mut extracted_author: Option<AccountId32> = None;
+        if let Some(pre_digest_bytes) = pre_digest {
+            if let Ok(account) = <AccountId32 as Decode>::decode(&mut &pre_digest_bytes[..]) {
+                extracted_author = Some(account);
+            }
+        }
+
+        let _author = match extracted_author {
+            Some(acc) => acc,
+            None => return Err(Error::Runtime("Failed to extract AccountId32 from pre_digest".into())),
+        };
+
         // Convert seal to nonce [u8; 64]
         let nonce: [u8; 64] = match seal.as_slice().try_into() {
             Ok(arr) => arr,
@@ -105,7 +123,7 @@ pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result
 
 //#[derive(Clone)]
 pub struct HeaviestChain<B, C, BE>
-where 
+where
     B: BlockT<Hash = H256>,
     C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B>,
     BE: sc_client_api::Backend<B>,
@@ -164,8 +182,8 @@ where
 
             return Ok(U256::from(genesis_difficulty));
         }
-        
-        let seal_log = header.digest().logs().iter().find(|item| 
+
+        let seal_log = header.digest().logs().iter().find(|item|
             item.as_seal().is_some())
             .ok_or_else(|| sp_consensus::Error::Other("No seal found in block digest".into()))?;
 
@@ -173,7 +191,7 @@ where
 
         // Convert header hash to [u8; 32]
         let header_bytes: [u8; 32] = header.hash().as_ref().try_into().expect("Failed to convert header H256 to [u8; 32]; this should never happen");
-        
+
         // Try to decode nonce from seal data
         let nonce = if seal_data.len() == 64 {
             let mut nonce_bytes = [0u8; 64];
@@ -198,15 +216,15 @@ where
 
     fn calculate_chain_difficulty(&self, chain_head: &B::Header) -> Result<U256, sp_consensus::Error> {
         // calculate cumulative difficulty of a chain
-        
+
         let current_hash = chain_head.hash();
-        
+
         log::info!(
-            "Calculating difficulty for chain with head: {:?} (#{:?})", 
-            current_hash, 
+            "Calculating difficulty for chain with head: {:?} (#{:?})",
+            current_hash,
             chain_head.number()
         );
-        
+
         if chain_head.number().is_zero() {
             // Genesis block
             let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
@@ -222,21 +240,21 @@ where
 
         // // calculate header's difficulty
         // let block_difficulty = self.calculate_block_difficulty(chain_head).map_err(|e| sp_consensus::Error::Other(format!("Failed to get compute block difficulty {:?}", e).into()))?;
-        
+
         // log::info!(
-        //     "Block #{:?} difficulty: {:?}", 
-        //     chain_head.number(), 
+        //     "Block #{:?} difficulty: {:?}",
+        //     chain_head.number(),
         //     block_difficulty
         // );
-        
+
         // total_difficulty = total_difficulty.saturating_add(U256::from(block_difficulty));
 
         log::info!(
-            "Total chain difficulty: {:?} for chain with head at #{:?}", 
-            total_difficulty, 
+            "Total chain difficulty: {:?} for chain with head at #{:?}",
+            total_difficulty,
             chain_head.number()
         );
-        
+
         Ok(total_difficulty)
     }
 
@@ -244,20 +262,20 @@ where
     async fn find_best_chain(&self, leaves: Vec<B::Hash>) -> Result<B::Header, sp_consensus::Error> {
         let mut best_header = None;
         let mut best_work = U256::zero();
-        
+
         for leaf_hash in leaves {
             let header = self.client.header(leaf_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into()))?;
-            
+
             let chain_work = self.calculate_chain_difficulty(&header)?;
-            
+
             if chain_work > best_work {
                 best_work = chain_work;
                 best_header = Some(header);
             }
         }
-        
+
         best_header.ok_or(sp_consensus::Error::Other("No Valid Chain Found".into()))
     }
 
@@ -269,12 +287,12 @@ where
     ) -> Result<(B::Hash, u32), sp_consensus::Error> {
         let mut current_best_hash = current_best.hash();
         let mut competing_hash = competing_header.hash();
-        
+
         let mut current_height = *current_best.number();
         let mut competing_height = *competing_header.number();
 
         let mut reorg_depth = 0;
-        
+
         // First, move the headers to the same height
         while current_height > competing_height {
             if current_best_hash == competing_hash {
@@ -288,7 +306,7 @@ where
             current_height -= One::one();
             reorg_depth += 1;
         }
-        
+
         while competing_height > current_height {
             competing_hash = self.client.header(competing_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
@@ -296,7 +314,7 @@ where
                 .parent_hash().clone();
             competing_height -= One::one();
         }
-        
+
         // Now both headers are at the same height
         // Find the fork-point by traversing the chain backwards
         while current_best_hash != competing_hash {
@@ -304,12 +322,12 @@ where
             if current_height.is_zero() {
                 return Err(sp_consensus::Error::Other("No common ancestor found".into()));
             }
-            
+
             current_best_hash = self.client.header(current_best_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other("Missing header".into()))?
                 .parent_hash().clone();
-                
+
             competing_hash = self.client.header(competing_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other("Missing header".into()))?
@@ -318,7 +336,7 @@ where
             current_height -= One::one();
             reorg_depth += 1;
         }
-        
+
         Ok((current_best_hash, reorg_depth))
     }
 }
@@ -357,7 +375,7 @@ where
         let mut best_header = current_best.clone();
         let mut best_work = self.calculate_chain_difficulty(&current_best)?;
         log::info!("Current best chain: {:?} with work: {:?}", best_header.hash(), best_work);
-        
+
         for leaf_hash in leaves {
 
             // skip if it's the same head as current head
@@ -387,7 +405,7 @@ where
                     if chain_work == best_work {
                         let current_block_height = best_header.number();
                         let new_block_height = header.number();
-                        
+
                         // select the chain with more blocks when chains have equal work
                         if new_block_height > current_block_height{
                             best_header = header;
@@ -396,7 +414,7 @@ where
                         best_work = chain_work;
                         best_header = header;
                     }
-                    
+
                 } else {
                     log::warn!(
                         "Ignoring chain with more work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",

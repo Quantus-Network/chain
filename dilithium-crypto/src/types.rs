@@ -76,8 +76,6 @@ pub enum Error {
 
 #[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
 pub struct ResonanceSignatureWithPublic {
-    pub signature: ResonanceSignature, // TODO remove these, we don't need them
-    pub public: ResonancePublic,
     pub bytes: [u8; Self::TOTAL_LEN], // we have to store raw bytes for some traits
 }
 
@@ -91,8 +89,6 @@ impl ResonanceSignatureWithPublic {
         bytes[..Self::SIGNATURE_LEN].copy_from_slice(signature.as_ref());
         bytes[Self::SIGNATURE_LEN..].copy_from_slice(public.as_ref());
         Self {
-            signature,
-            public,
             bytes,
         }
     }
