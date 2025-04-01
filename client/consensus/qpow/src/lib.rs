@@ -11,7 +11,7 @@ use sp_api::__private::BlockT;
 use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
-use sc_client_api::{BlockBackend, Finalizer};
+use sc_client_api::{AuxStore, BlockBackend, Finalizer};
 use sp_runtime::AccountId32;
 use sp_consensus::{SelectChain};
 use sp_runtime::traits::{ Header, Zero, One};
@@ -122,25 +122,27 @@ pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result
     }
 }
 
+const IGNORED_CHAINS_PREFIX: &[u8] = b"QPow:IgnoredChains:";
+
 //#[derive(Clone)]
 pub struct HeaviestChain<B, C, BE>
 where
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B>,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore,
     BE: sc_client_api::Backend<B>,
 {
     backend: Arc<BE>,
     client: Arc<C>,
     algorithm: QPowAlgorithm<B, C>,
     max_reorg_depth: u32,
-    ignored_chains: Mutex<HashSet<B::Hash>>,
+    //ignored_chains: Mutex<HashSet<B::Hash>>,
     _phantom: PhantomData<B>,
 }
 
 impl<B, C, BE> Clone for HeaviestChain<B, C, BE>
 where
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B>,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore,
     BE: sc_client_api::Backend<B>,
 {
     fn clone(&self) -> Self {
@@ -149,7 +151,7 @@ where
             client: Arc::clone(&self.client),
             algorithm: self.algorithm.clone(),
             max_reorg_depth: self.max_reorg_depth,
-            ignored_chains: Mutex::new(self.ignored_chains.lock().unwrap().clone()),
+            //ignored_chains: Mutex::new(self.ignored_chains.lock().unwrap().clone()),
             _phantom: PhantomData,
         }
     }
@@ -158,7 +160,7 @@ where
 impl<B, C, BE> HeaviestChain<B, C, BE>
 where
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + Send + Sync + 'static,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore + Send + Sync + 'static,
     C::Api: QPoWApi<B>,
     BE: sc_client_api::Backend<B> + 'static,
 {
@@ -168,7 +170,7 @@ where
             client,
             algorithm,
             max_reorg_depth,
-            ignored_chains: Mutex::new(HashSet::new()),
+            //ignored_chains: Mutex::new(HashSet::new()),
             _phantom: PhantomData
         }
     }
@@ -393,13 +395,32 @@ where
 
         Ok((current_best_hash, reorg_depth))
     }
+
+    fn is_chain_ignored(&self, hash: &B::Hash) -> Result<bool, sp_consensus::Error> {
+        let key = ignored_chain_key(hash);
+
+        match self.client.get_aux(&key) {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
+            Err(e) => Err(sp_consensus::Error::Other(format!("Failed to check ignored chain: {:?}", e).into())),
+        }
+    }
+
+    fn add_ignored_chain(&self, hash: B::Hash) -> Result<(), sp_consensus::Error> {
+        let key = ignored_chain_key(&hash);
+        // We'll just store a dummy value (1) to indicate that this chain is ignored
+        let dummy_value = vec![1];
+
+        self.client.insert_aux(&[(key.as_slice(), dummy_value.as_slice())], &[])
+            .map_err(|e| sp_consensus::Error::Other(format!("Failed to add ignored chain: {:?}", e).into()))
+    }
 }
 
 #[async_trait::async_trait]
 impl<B, C, BE> SelectChain<B> for HeaviestChain<B, C, BE>
 where
     B: BlockT<Hash = H256>,
-    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + Send + Sync + 'static,
+    C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> +AuxStore + Send + Sync + 'static,
     C::Api: QPoWApi<B>,
     BE: sc_client_api::Backend<B> + 'static,
 {
@@ -431,12 +452,12 @@ where
         log::info!("Current best chain: {:?} with work: {:?}", best_header.hash(), best_work);
 
         // Get access to the ignored chains
-        let mut ignored_chains = self.ignored_chains.lock().unwrap();
+        //let mut ignored_chains = self.ignored_chains.lock().unwrap();
 
         for leaf_hash in leaves {
 
             // Skip if it's the current best or already ignored
-            if leaf_hash == best_header.hash() || ignored_chains.contains(&leaf_hash) {
+            if leaf_hash == best_header.hash() || self.is_chain_ignored(&leaf_hash)? {
                 continue;
             }
 
@@ -473,7 +494,7 @@ where
                     }
 
                 } else {
-                    ignored_chains.insert(leaf_hash);
+                    self.add_ignored_chain(leaf_hash)?;
                     log::warn!(
                         "Permanently ignoring chain with more work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
                         header.hash(),
@@ -488,7 +509,7 @@ where
                 let (_, reorg_depth) = self.find_common_ancestor_and_depth(&current_best, &header)?;
 
                 if reorg_depth > self.max_reorg_depth {
-                    ignored_chains.insert(leaf_hash);
+                    self.add_ignored_chain(leaf_hash)?;
                     log::warn!(
                         "Permanently ignoring chain with less work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
                         leaf_hash,
@@ -502,4 +523,8 @@ where
 
         Ok(best_header)
     }
+}
+
+fn ignored_chain_key<T: AsRef<[u8]>>(hash: &T) -> Vec<u8> {
+    IGNORED_CHAINS_PREFIX.iter().chain(hash.as_ref()).copied().collect()
 }
