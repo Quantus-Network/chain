@@ -143,6 +143,10 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::submit_nonce(header, nonce)
 		}
 
+		fn get_max_reorg_depth() -> u32 {
+			pallet_qpow::Pallet::<Self>::get_max_reorg_depth()
+		}
+
 		fn get_difficulty() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}

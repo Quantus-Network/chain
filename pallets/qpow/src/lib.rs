@@ -89,6 +89,9 @@ pub mod pallet {
 
 		#[pallet::constant]
 		type BlockTimeHistorySize: Get<u32>;
+
+		#[pallet::constant]
+		type MaxReorgDepth: Get<u32>;
 	}
 
 	#[pallet::genesis_config]
@@ -689,5 +692,7 @@ pub mod pallet {
 		pub fn get_last_block_duration() -> u64 {
 			<LastBlockDuration<T>>::get()
 		}
+
+		pub fn get_max_reorg_depth() -> u32 { T::MaxReorgDepth::get() }
 	}
 }

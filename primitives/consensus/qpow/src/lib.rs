@@ -35,6 +35,9 @@ sp_api::decl_runtime_apis! {
 			nonce: [u8; 64], // 512-bit nonce
 		) -> u64;
 
+        /// Get the max possible reorg depth
+        fn get_max_reorg_depth() -> u32;
+
         /// Get the max possible difficulty for work calculation
         fn get_max_distance() -> u64;
 

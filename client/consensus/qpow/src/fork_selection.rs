@@ -49,7 +49,14 @@ where
     C::Api: QPoWApi<B>,
     BE: sc_client_api::Backend<B> + 'static,
 {
-    pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>, max_reorg_depth: u32,) -> Self {
+    pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>) -> Self {
+
+        let genesis_hash = client.hash(Zero::zero())
+            .expect("Failed to get gehesis hash")
+            .expect("Genesis block must exist");
+        let max_reorg_depth = client.runtime_api().get_max_reorg_depth(genesis_hash)
+            .expect("Failed to get max reorg depth");
+
         Self {
             backend,
             client,
