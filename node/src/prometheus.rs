@@ -1,10 +1,16 @@
 use prometheus::{Registry, Opts, GaugeVec};
-
+use sp_api::ProvideRuntimeApi;
+use resonance_runtime::opaque::Block;
+use log::*;
+use futures::StreamExt;
+use sc_client_api::BlockchainEvents;
+use std::sync::Arc;
+use sp_consensus_qpow::QPoWApi;
 
 pub struct ResonanceBusinessMetrics;
 
-
 impl ResonanceBusinessMetrics {
+    /// Register QPoW metrics gauge vector with Prometheus
     pub fn register_gauge_vec(registry: &Registry) -> GaugeVec {
         let gauge_vec = GaugeVec::new(
             Opts::new("qpow_metrics", "QPOW Metrics"),
@@ -13,5 +19,84 @@ impl ResonanceBusinessMetrics {
 
         registry.register(Box::new(gauge_vec.clone())).unwrap();
         gauge_vec
+    }
+
+    /// Update QPoW metrics in Prometheus for a given block
+    pub fn update_qpow_metrics<C>(
+        client: &C,
+        block_hash: <Block as sp_runtime::traits::Block>::Hash,
+        gauge: &GaugeVec,
+    ) where
+        C: ProvideRuntimeApi<Block>,
+        C::Api: sp_consensus_qpow::QPoWApi<Block>,
+    {
+        // Get values via the runtime API - we'll handle potential errors gracefully
+        let median_block_time = client.runtime_api()
+            .get_median_block_time(block_hash)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to get median_block_time: {:?}", e);
+                0
+            });
+
+        let difficulty = client.runtime_api()
+            .get_difficulty(block_hash)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to get difficulty: {:?}", e);
+                0
+            });
+
+        let last_block_time = client.runtime_api()
+            .get_last_block_time(block_hash)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to get last_block_time: {:?}", e);
+                0
+            });
+
+        let last_block_duration = client.runtime_api()
+            .get_last_block_duration(block_hash)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to get last_block_duration: {:?}", e);
+                0
+            });
+
+        // Update the metrics with the values we retrieved
+        gauge.with_label_values(&["median_block_time"]).set(median_block_time as f64);
+        gauge.with_label_values(&["difficulty"]).set(difficulty as f64);
+        gauge.with_label_values(&["last_block_time"]).set(last_block_time as f64);
+        gauge.with_label_values(&["last_block_duration"]).set(last_block_duration as f64);
+    }
+
+    /// Start a monitoring task for QPoW metrics
+    pub fn start_monitoring_task<C>(
+        client: Arc<C>,
+        prometheus_registry: Option<Registry>,
+        task_manager: &sc_service::TaskManager,
+    ) where
+        C: ProvideRuntimeApi<Block> + BlockchainEvents<Block> + Send + Sync + 'static,
+        C::Api: sp_consensus_qpow::QPoWApi<Block>,
+    {
+        // Get or create the gauge vector from the registry
+        let prometheus_gauge_vec = prometheus_registry
+            .as_ref()
+            .map(|registry| Self::register_gauge_vec(registry));
+
+        // Spawn the monitoring task
+        task_manager.spawn_essential_handle().spawn(
+            "monitoring_qpow",
+            None,
+            async move {
+                log::info!("⚙️  QPoW Monitoring task spawned");
+
+                let mut sub = client.import_notification_stream();
+                while let Some(notification) = sub.next().await {
+                    let block_hash = notification.hash;
+                    if let Some(ref gauge) = prometheus_gauge_vec {
+                        Self::update_qpow_metrics(&*client, block_hash, gauge);
+                    } else {
+                        log::warn!("QPoW Monitoring: Prometheus registry not found");
+                    }
+                }
+            }
+        );
     }
 }

@@ -360,42 +360,10 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
-        let client_monitoring = client.clone();
-        let prometheus_registry_monitoring = prometheus_registry.clone();
-        task_manager.spawn_essential_handle().spawn(
-            "monitoring_qpow",
-            None,
-            async move {
-                log::info!("⚙️  QPoW Monitoring task spawned");
-                let gauge_vec =
-                    if let Some(registry) = prometheus_registry_monitoring.as_ref() {
-                        Some(ResonanceBusinessMetrics::register_gauge_vec(registry))
-                    } else {
-                        None
-                    };
-
-                let mut sub = client_monitoring.import_notification_stream();
-                while let Some(notification) = sub.next().await {
-                    let block_hash = notification.hash;
-                    if let Some(ref gauge) = gauge_vec {
-                        gauge.with_label_values(&["median_block_time"]).set(
-                            client_monitoring.runtime_api().get_median_block_time(block_hash).unwrap_or(0) as f64
-                        );
-                        gauge.with_label_values(&["difficulty"]).set(
-                            client_monitoring.runtime_api().get_difficulty(block_hash).unwrap_or(0) as f64
-                        );
-                        gauge.with_label_values(&["last_block_time"]).set(
-                            client_monitoring.runtime_api().get_last_block_time(block_hash).unwrap_or(0) as f64
-                        );
-                        gauge.with_label_values(&["last_block_duration"]).set(
-                            client_monitoring.runtime_api().get_last_block_duration(block_hash).unwrap_or(0) as f64
-                        );
-                    }else{
-                        log::warn!("QPoW Monitoring: Prometheus registry not found");
-                    }
-
-                }
-            }
+        ResonanceBusinessMetrics::start_monitoring_task(
+            client.clone(),
+            prometheus_registry.clone(),
+            &task_manager
         );
 
         task_manager.spawn_essential_handle().spawn(
