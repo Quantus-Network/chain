@@ -2,7 +2,7 @@
 
 use futures::{FutureExt, StreamExt};
 use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
-use sc_client_api::{Backend, BlockchainEvents, Finalizer};
+use sc_client_api::{Backend, BlockchainEvents};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -28,7 +28,6 @@ pub(crate) type FullClient = sc_service::TFullClient<
     sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
-//type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
 type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     Block,
@@ -117,6 +116,8 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
             Ok((worker, telemetry))
         })
         .transpose()?;
+
+    //config.blocks_pruning = BlocksPruning::KeepFinalized;
 
     let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
     let (client, backend, keystore_container, task_manager) =
@@ -267,6 +268,8 @@ pub fn new_full<
         })
     };
 
+    log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
+
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network: Arc::new(network.clone()),
         client: client.clone(),
@@ -303,7 +306,6 @@ pub fn new_full<
             client: client.clone(),
             _phantom: Default::default(),
         };
-
 
 
         let wormhole_pair = WormholePair::generate_new().unwrap();
