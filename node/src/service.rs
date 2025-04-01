@@ -422,12 +422,6 @@ pub fn new_full<
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
                             log::info!("Successfully mined and submitted a new block");
 
-/*                            match client.finalize_block(metadata.best_hash, None, true) {
-                                Ok(_) => log::info!("✓ Finalized parent block #{}",
-                             client.header(metadata.best_hash).ok().flatten().map_or(0, |h| *h.number())),
-                                Err(e) => log::warn!("Failed to finalize parent block: {:?}", e),
-                            }*/
-
                             if let Err(e) = select_chain.finalize_canonical_at_depth() {
                                 log::warn!("Failed to finalize blocks: {:?}", e);
                             }
