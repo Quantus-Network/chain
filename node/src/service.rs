@@ -20,7 +20,6 @@ use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::AccountId32;
-use sp_wormhole::WormholePair;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -194,6 +193,7 @@ pub fn new_full<
     N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
     config: Configuration,
+    rewards_address: Option<String>,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -306,6 +306,8 @@ pub fn new_full<
         };
 
 
+        /*
+
         let wormhole_pair = WormholePair::generate_new().unwrap();
 
         log::info!("Wormhole address {:?}",wormhole_pair.address);
@@ -319,6 +321,23 @@ pub fn new_full<
         let encoded_miner = miner_id.encode();
 
 
+         */
+
+        let encoded_miner = if let Some(addr_str) = rewards_address {
+            match addr_str.parse::<AccountId32>() {
+                Ok(account) => {
+                    log::info!("Using provided rewards address: {:?}", account);
+                    Some(account.encode())
+                },
+                Err(_) => {
+                    log::warn!("Invalid rewards address format: {}", addr_str);
+                    None
+                }
+            }
+        }else {
+          None
+        };
+
 
         let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
             //block_import: BoxBlockImport<Block>,
@@ -329,7 +348,7 @@ pub fn new_full<
             proposer, // Env E == proposer! TODO
             /*sync_oracle:*/ sync_service.clone(),
             /*justification_sync_link:*/ sync_service.clone(),
-            Some(encoded_miner), //pre_runtime as Option<Vec<u8>>
+            encoded_miner, //pre_runtime as Option<Vec<u8>>
             inherent_data_providers,
             // time to wait for a new block before starting to mine a new one
             Duration::from_secs(10),
