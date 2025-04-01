@@ -1,7 +1,8 @@
 mod miner;
 
+use std::collections::HashSet;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use codec::{Decode, Encode};
 use primitive_types::{H256, U256};
 use sc_consensus_pow::{Error, PowAlgorithm};
@@ -10,7 +11,7 @@ use sp_api::__private::BlockT;
 use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
-use sc_client_api::BlockBackend;
+use sc_client_api::{BlockBackend, Finalizer};
 use sp_runtime::AccountId32;
 use sp_consensus::{SelectChain};
 use sp_runtime::traits::{ Header, Zero, One};
@@ -132,6 +133,7 @@ where
     client: Arc<C>,
     algorithm: QPowAlgorithm<B, C>,
     max_reorg_depth: u32,
+    ignored_chains: Mutex<HashSet<B::Hash>>,
     _phantom: PhantomData<B>,
 }
 
@@ -147,6 +149,7 @@ where
             client: Arc::clone(&self.client),
             algorithm: self.algorithm.clone(),
             max_reorg_depth: self.max_reorg_depth,
+            ignored_chains: Mutex::new(self.ignored_chains.lock().unwrap().clone()),
             _phantom: PhantomData,
         }
     }
@@ -161,11 +164,55 @@ where
 {
     pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>, max_reorg_depth: u32,) -> Self {
         Self {
-               backend,
-               client,
-               algorithm,
-               max_reorg_depth,
-               _phantom: PhantomData }
+            backend,
+            client,
+            algorithm,
+            max_reorg_depth,
+            ignored_chains: Mutex::new(HashSet::new()),
+            _phantom: PhantomData
+        }
+    }
+
+    /// Finalizes blocks that are `max_reorg_depth - 1` blocks behind the current best block
+    pub fn finalize_canonical_at_depth(&self) -> Result<(), sp_consensus::Error>
+    where
+        C: Finalizer<B, BE>,
+    {
+        // Get the current best block
+        let best_hash = self.client.info().best_hash;
+        if best_hash == Default::default() {
+            return Ok(());  // No blocks to finalize
+        }
+
+        let best_header = self.client.header(best_hash)
+            .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
+            .ok_or_else(|| sp_consensus::Error::Other("Missing current best header".into()))?;
+
+        let best_number = *best_header.number();
+
+        // Calculate how far back to finalize
+        let finalize_depth = self.max_reorg_depth.saturating_sub(1);
+
+        // Only finalize if we have enough blocks
+        if best_number <= finalize_depth.into() {
+            return Ok(());  // Chain not long enough yet
+        }
+
+        // Calculate block number to finalize
+        let finalize_number = best_number - finalize_depth.into();
+
+        // Get the hash for that block number in the current canonical chain
+        let finalize_hash = self.client.hash(finalize_number)
+            .map_err(|e| sp_consensus::Error::Other(format!("Failed to get hash at #{}: {:?}", finalize_number, e).into()))?
+            .ok_or_else(|| sp_consensus::Error::Other(format!("No block found at #{}", finalize_number).into()))?;
+
+        // Finalize the block
+        self.client.finalize_block(finalize_hash, None, true)
+            .map_err(|e| sp_consensus::Error::Other(format!("Failed to finalize block #{}: {:?}", finalize_number, e).into()))?;
+
+        log::info!("✓ Finalized block #{} ({:?})", finalize_number, finalize_hash);
+
+        Ok(())
     }
 
     pub fn calculate_block_difficulty(&self, chain_head: &B::Header) -> Result<U256, sp_consensus::Error> {
@@ -219,6 +266,7 @@ where
 
         let current_hash = chain_head.hash();
 
+
         log::info!(
             "Calculating difficulty for chain with head: {:?} (#{:?})",
             current_hash,
@@ -229,7 +277,7 @@ where
             // Genesis block
             let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
                         .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
-
+            log::info!("Calculating difficulty for genesis block: {} ",genesis_difficulty);
             return Ok(U256::from(genesis_difficulty));
         }
 
@@ -337,6 +385,12 @@ where
             reorg_depth += 1;
         }
 
+        log::info!(
+            "Fork-point ----------------------- found: {:?} at height: {:?} with reorg depth: {}",
+            current_best_hash,
+            current_height,
+            reorg_depth);
+
         Ok((current_best_hash, reorg_depth))
     }
 }
@@ -376,10 +430,13 @@ where
         let mut best_work = self.calculate_chain_difficulty(&current_best)?;
         log::info!("Current best chain: {:?} with work: {:?}", best_header.hash(), best_work);
 
+        // Get access to the ignored chains
+        let mut ignored_chains = self.ignored_chains.lock().unwrap();
+
         for leaf_hash in leaves {
 
-            // skip if it's the same head as current head
-            if leaf_hash == best_header.hash() {
+            // Skip if it's the current best or already ignored
+            if leaf_hash == best_header.hash() || ignored_chains.contains(&leaf_hash) {
                 continue;
             }
 
@@ -416,9 +473,25 @@ where
                     }
 
                 } else {
+                    ignored_chains.insert(leaf_hash);
                     log::warn!(
-                        "Ignoring chain with more work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
+                        "Permanently ignoring chain with more work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
                         header.hash(),
+                        chain_work,
+                        reorg_depth,
+                        self.max_reorg_depth
+                    );
+                }
+            }
+            else{
+                // This chain has less work - check if it should be ignored
+                let (_, reorg_depth) = self.find_common_ancestor_and_depth(&current_best, &header)?;
+
+                if reorg_depth > self.max_reorg_depth {
+                    ignored_chains.insert(leaf_hash);
+                    log::warn!(
+                        "Permanently ignoring chain with less work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
+                        leaf_hash,
                         chain_work,
                         reorg_depth,
                         self.max_reorg_depth

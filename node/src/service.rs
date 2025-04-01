@@ -2,7 +2,7 @@
 
 use futures::{FutureExt, StreamExt};
 use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
-use sc_client_api::{Backend, BlockchainEvents};
+use sc_client_api::{Backend, BlockchainEvents, Finalizer};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -305,6 +305,7 @@ pub fn new_full<
         };
 
 
+
         let wormhole_pair = WormholePair::generate_new().unwrap();
 
         log::info!("Wormhole address {:?}",wormhole_pair.address);
@@ -323,7 +324,7 @@ pub fn new_full<
             //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
             client.clone(),
-            select_chain,
+            select_chain.clone(),
             pow_algorithm,
             proposer, // Env E == proposer! TODO
             /*sync_oracle:*/ sync_service.clone(),
@@ -418,6 +419,17 @@ pub fn new_full<
                     if current_version == version {
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
                             log::info!("Successfully mined and submitted a new block");
+
+/*                            match client.finalize_block(metadata.best_hash, None, true) {
+                                Ok(_) => log::info!("✓ Finalized parent block #{}",
+                             client.header(metadata.best_hash).ok().flatten().map_or(0, |h| *h.number())),
+                                Err(e) => log::warn!("Failed to finalize parent block: {:?}", e),
+                            }*/
+
+                            if let Err(e) = select_chain.finalize_canonical_at_depth() {
+                                log::warn!("Failed to finalize blocks: {:?}", e);
+                            }
+
                             nonce = U512::zero();
                         } else {
                             log::warn!("Failed to submit mined block");
