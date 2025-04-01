@@ -316,9 +316,6 @@ fn test_total_difficulty_increases_with_each_block() {
         assert!(total_after_block_1 > initial_total,
                 "TotalDifficulty should increase after a new block");
 
-        // Store the value to compare later
-        let block_1_diff = total_after_block_1 - initial_total;
-
         // Run to block 2 and check the increase again
         run_to_block(2);
         let total_after_block_2 = QPow::get_total_difficulty();
