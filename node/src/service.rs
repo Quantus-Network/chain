@@ -112,8 +112,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         })
         .transpose()?;
 
-    //config.blocks_pruning = BlocksPruning::KeepFinalized;
-
     let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<Block, RuntimeApi, _>(
@@ -135,8 +133,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         _phantom: Default::default(),
     };
 
-    //let select_chain = sc_consensus::LongestChain::new(backend.clone());
-    // todo: create depth const
     let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client), pow_algorithm.clone());
 
     let transaction_pool = Arc::from(
