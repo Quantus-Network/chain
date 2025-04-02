@@ -143,8 +143,22 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::submit_nonce(header, nonce)
 		}
 
+		fn get_max_reorg_depth() -> u32 {
+			pallet_qpow::Pallet::<Self>::get_max_reorg_depth()
+		}
+
 		fn get_difficulty() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
+		}
+
+		fn get_difficulty_at_block(block_number: u32) -> u64 {
+			// Convert u32 to the appropriate BlockNumber type used by your runtime
+			let block_number_param = block_number.into();
+			pallet_qpow::Pallet::<Self>::get_difficulty_at_block(block_number_param)
+		}
+
+		fn get_total_difficulty() -> u128{
+			pallet_qpow::Pallet::<Self>::get_total_difficulty()
 		}
 
 		fn get_median_block_time() -> u64{
@@ -169,6 +183,15 @@ impl_runtime_apis! {
 
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
 			pallet_qpow::Pallet::<Self>::hash_to_group_bigint(h,m,n,solution)
+		}
+		fn get_max_distance() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_max_distance()
+		}
+		fn get_nonce_distance(
+			header: [u8; 32],
+			nonce: [u8; 64]
+		) -> u64 {
+			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
 		}
 	}
 

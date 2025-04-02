@@ -6,16 +6,21 @@ edition.workspace = true
 license = "Apache-2.0"
 
 [dependencies]
-codec.workspace = true
-scale-info.workspace = true
-sc-client-api = { workspace = true }
-sc-consensus-pow.workspace = true
-sp-consensus-pow.workspace = true
-sp-consensus-qpow.workspace = true
-sp-runtime.workspace = true
-sp-api.workspace = true
-primitive-types.workspace = true
-log = { workspace = true }
+async-trait = "0.1"
+codec = {workspace = true, default-features = false}
+scale-info = {workspace = true, default-features = false}
+sc-client-api = { workspace = true, default-features = false }
+sc-service = {workspace = true, default-features = false}
+sc-consensus-pow = {workspace = true, default-features = false}
+sp-consensus-pow = {workspace = true, default-features = false}
+sp-consensus-qpow = {workspace = true, default-features = false}
+sp-consensus = {workspace = true, default-features = false}
+sp-blockchain = {workspace = true, default-features = false}
+sp-runtime = {workspace = true, default-features = false}
+sp-api = {workspace = true, default-features = false}
+primitive-types = {workspace = true, default-features = false}
+log = { workspace = true, default-features = false }
+futures = { features = ["thread-pool"], workspace = true }
 
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
@@ -28,6 +33,4 @@ std = [
     "primitive-types/std",
     "sha2/std",
     "sha3/std",
-]
-runtime-benchmarks = [
 ]

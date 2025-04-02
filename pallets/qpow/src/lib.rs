@@ -51,6 +51,9 @@ pub mod pallet {
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	#[pallet::storage]
+	pub type TotalDifficulty<T: Config> = StorageValue<_, u128, ValueQuery>;
+
+	#[pallet::storage]
 	pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
 
 	#[pallet::storage]
@@ -86,6 +89,9 @@ pub mod pallet {
 
 		#[pallet::constant]
 		type BlockTimeHistorySize: Get<u32>;
+
+		#[pallet::constant]
+		type MaxReorgDepth: Get<u32>;
 	}
 
 	#[pallet::genesis_config]
@@ -117,6 +123,9 @@ pub mod pallet {
 			//Save initial difficulty for the genesis block
 			let genesis_block_number = BlockNumberFor::<T>::zero();
 			<BlockDifficulties<T>>::insert(genesis_block_number, self.initial_difficulty);
+
+			//Initialize the total difficulty with the genesis block's difficulty
+			<TotalDifficulty<T>>::put(self.initial_difficulty as u128);
 		}
 	}
 
@@ -251,6 +260,10 @@ pub mod pallet {
 
 			// Store difficulty for block
 			<BlockDifficulties<T>>::insert(current_block_number, current_difficulty);
+
+			let total_difficulty = <TotalDifficulty<T>>::get();
+			let new_total_difficulty = total_difficulty.saturating_add(current_difficulty as u128);
+			<TotalDifficulty<T>>::put(new_total_difficulty);
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks + 1);
@@ -655,6 +668,9 @@ pub mod pallet {
 			}
 			stored
 		}
+		pub fn get_max_distance() -> u64 {
+			MAX_DISTANCE
+		}
 
 		pub fn get_difficulty_at_block(block_number: BlockNumberFor<T>) -> u64 {
 			let difficulty = <BlockDifficulties<T>>::get(block_number);
@@ -665,6 +681,10 @@ pub mod pallet {
 			}
 		}
 
+		pub fn get_total_difficulty() -> u128 {
+			<TotalDifficulty<T>>::get()
+		}
+
 		pub fn get_last_block_time() -> u64 {
 			<LastBlockTime<T>>::get()
 		}
@@ -672,5 +692,7 @@ pub mod pallet {
 		pub fn get_last_block_duration() -> u64 {
 			<LastBlockDuration<T>>::get()
 		}
+
+		pub fn get_max_reorg_depth() -> u32 { T::MaxReorgDepth::get() }
 	}
 }

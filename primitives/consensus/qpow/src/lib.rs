@@ -29,8 +29,26 @@ sp_api::decl_runtime_apis! {
             nonce: [u8; 64],
         ) -> bool;
 
+        /// calculate distance header with nonce to with nonce
+        fn get_nonce_distance(
+            header: [u8; 32],  // 256-bit header
+			nonce: [u8; 64], // 512-bit nonce
+		) -> u64;
+
+        /// Get the max possible reorg depth
+        fn get_max_reorg_depth() -> u32;
+
+        /// Get the max possible difficulty for work calculation
+        fn get_max_distance() -> u64;
+
         /// Get the current difficulty target for proof generation
         fn get_difficulty() -> u64;
+
+        /// Get difficulty at block
+        fn get_difficulty_at_block(block_number: u32) -> u64;
+
+        /// Get total difficulty
+        fn get_total_difficulty() -> u128;
 
         /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;

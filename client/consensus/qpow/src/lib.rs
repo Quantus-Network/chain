@@ -1,4 +1,5 @@
 mod miner;
+mod chain_management;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -11,7 +12,10 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
+
 pub use miner::QPoWMiner;
+pub use chain_management::HeaviestChain;
+pub use chain_management::ChainManagement;
 
 
 

@@ -78,6 +78,7 @@ impl pallet_qpow::Config for Test {
 	type AdjustmentPeriod = ConstU32<10>;
 	type DampeningFactor = ConstU64<3>;
 	type BlockTimeHistorySize = ConstU32<5>;
+	type MaxReorgDepth = ConstU32<10>;
 }
 
 

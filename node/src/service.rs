@@ -1,8 +1,8 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::{FutureExt, StreamExt};
-use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
-use sc_client_api::{Backend, BlockchainEvents};
+use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
+use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -16,9 +16,7 @@ use sp_core::{RuntimeDebug, U512};
 use async_trait::async_trait;
 use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
 use sp_runtime::traits::Header;
-use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
-use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::AccountId32;
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -27,8 +25,7 @@ pub(crate) type FullClient = sc_service::TFullClient<
     sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
-type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
-
+type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     Block,
     Arc<FullClient>,
@@ -73,7 +70,6 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B>  for LoggingBlockImport
         self.inner.import_block(block).await.map_err(Into::into)
     }
 }
-
 
 pub type Service = sc_service::PartialComponents<
     FullClient,
@@ -132,7 +128,12 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         telemetry
     });
 
-    let select_chain = sc_consensus::LongestChain::new(backend.clone());
+    let pow_algorithm = QPowAlgorithm {
+        client: client.clone(),
+        _phantom: Default::default(),
+    };
+
+    let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client), pow_algorithm.clone());
 
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
@@ -147,14 +148,9 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
     let inherent_data_providers = build_inherent_data_providers()?;
 
-    let pow_algorithm = QPowAlgorithm {
-        client: client.clone(),
-        _phantom: Default::default(),
-    };
-
     let pow_block_import = sc_consensus_pow::PowBlockImport::new(
-        client.clone(),
-        client.clone(),
+        Arc::clone(&client),
+        Arc::clone(&client),
         pow_algorithm,
         0, // check inherents starting at block 0
         select_chain.clone(),
@@ -264,6 +260,8 @@ pub fn new_full<
         })
     };
 
+    log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
+
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network: Arc::new(network.clone()),
         client: client.clone(),
@@ -301,24 +299,6 @@ pub fn new_full<
             _phantom: Default::default(),
         };
 
-
-        /*
-
-        let wormhole_pair = WormholePair::generate_new().unwrap();
-
-        log::info!("Wormhole address {:?}",wormhole_pair.address);
-        log::info!("Wormhole secret {:?}",wormhole_pair.secret);
-
-        let miner_id = AccountId32::from(wormhole_pair.address.0);
-
-        log::info!("⛏️ Mining with identity: {:?}", miner_id);
-
-        // Encode the miner ID for pre-runtime digest
-        let encoded_miner = miner_id.encode();
-
-
-         */
-
         let encoded_miner = if let Some(addr_str) = rewards_address {
             match addr_str.parse::<AccountId32>() {
                 Ok(account) => {
@@ -339,7 +319,7 @@ pub fn new_full<
             //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
             client.clone(),
-            select_chain,
+            select_chain.clone(),
             pow_algorithm,
             proposer, // Env E == proposer! TODO
             /*sync_oracle:*/ sync_service.clone(),
@@ -356,42 +336,15 @@ pub fn new_full<
             .spawn_essential_handle()
             .spawn_blocking("pow", None, worker_task);
 
-        let client_monitoring = client.clone();
-        let prometheus_registry_monitoring = prometheus_registry.clone();
-        task_manager.spawn_essential_handle().spawn(
-            "monitoring_qpow",
-            None,
-            async move {
-                log::info!("⚙️  QPoW Monitoring task spawned");
-                let gauge_vec =
-                    if let Some(registry) = prometheus_registry_monitoring.as_ref() {
-                        Some(ResonanceBusinessMetrics::register_gauge_vec(registry))
-                    } else {
-                        None
-                    };
+        ResonanceBusinessMetrics::start_monitoring_task(
+            client.clone(),
+            prometheus_registry.clone(),
+            &task_manager
+        );
 
-                let mut sub = client_monitoring.import_notification_stream();
-                while let Some(notification) = sub.next().await {
-                    let block_hash = notification.hash;
-                    if let Some(ref gauge) = gauge_vec {
-                        gauge.with_label_values(&["median_block_time"]).set(
-                            client_monitoring.runtime_api().get_median_block_time(block_hash).unwrap_or(0) as f64
-                        );
-                        gauge.with_label_values(&["difficulty"]).set(
-                            client_monitoring.runtime_api().get_difficulty(block_hash).unwrap_or(0) as f64
-                        );
-                        gauge.with_label_values(&["last_block_time"]).set(
-                            client_monitoring.runtime_api().get_last_block_time(block_hash).unwrap_or(0) as f64
-                        );
-                        gauge.with_label_values(&["last_block_duration"]).set(
-                            client_monitoring.runtime_api().get_last_block_duration(block_hash).unwrap_or(0) as f64
-                        );
-                    }else{
-                        log::warn!("QPoW Monitoring: Prometheus registry not found");
-                    }
-
-                }
-            }
+        ChainManagement::spawn_finalization_task(
+            Arc::new(select_chain.clone())
+            , &task_manager
         );
 
         task_manager.spawn_essential_handle().spawn(
