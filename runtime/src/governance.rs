@@ -4,6 +4,9 @@ use frame_support::traits::{Consideration, Footprint, ReservableCurrency};
 use sp_runtime::DispatchError;
 use crate::{AccountId, Balance, Balances, MICRO_UNIT, UNIT};
 
+#[cfg(feature = "runtime-benchmarks")]
+use frame_support::traits::Currency;
+
 
 ///Preimage pallet fee model
 
@@ -44,6 +47,10 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
         Balances::unreserve(who, self.amount);
         Ok(())
     }
+
+
+    ///We will have to finally focus on fees, so weight and benchamrks will be important.
+    /// For now, it's AI implementation
 
     #[cfg(feature = "runtime-benchmarks")]
     fn ensure_successful(who: &AccountId, footprint: Footprint) {
