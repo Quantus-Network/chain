@@ -1,7 +1,6 @@
 use prometheus::{Registry, Opts, GaugeVec};
 use sp_api::ProvideRuntimeApi;
 use resonance_runtime::opaque::Block;
-use log::*;
 use futures::StreamExt;
 use sc_client_api::BlockchainEvents;
 use std::sync::Arc;

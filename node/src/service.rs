@@ -1,8 +1,8 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::{FutureExt, StreamExt};
-use sc_consensus_qpow::{QPoWMiner, QPoWSeal, QPowAlgorithm};
-use sc_client_api::{Backend, BlockchainEvents};
+use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
+use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -16,9 +16,7 @@ use sp_core::{RuntimeDebug, U512};
 use async_trait::async_trait;
 use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
 use sp_runtime::traits::Header;
-use sp_consensus_qpow::QPoWApi;
 use crate::prometheus::ResonanceBusinessMetrics;
-use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::AccountId32;
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -305,24 +303,6 @@ pub fn new_full<
             _phantom: Default::default(),
         };
 
-
-        /*
-
-        let wormhole_pair = WormholePair::generate_new().unwrap();
-
-        log::info!("Wormhole address {:?}",wormhole_pair.address);
-        log::info!("Wormhole secret {:?}",wormhole_pair.secret);
-
-        let miner_id = AccountId32::from(wormhole_pair.address.0);
-
-        log::info!("⛏️ Mining with identity: {:?}", miner_id);
-
-        // Encode the miner ID for pre-runtime digest
-        let encoded_miner = miner_id.encode();
-
-
-         */
-
         let encoded_miner = if let Some(addr_str) = rewards_address {
             match addr_str.parse::<AccountId32>() {
                 Ok(account) => {
@@ -366,6 +346,11 @@ pub fn new_full<
             &task_manager
         );
 
+        ChainManagement::spawn_finalization_task(
+            Arc::new(select_chain.clone())
+            , &task_manager
+        );
+
         task_manager.spawn_essential_handle().spawn(
             "qpow-mining",
             None,
@@ -406,11 +391,6 @@ pub fn new_full<
                     if current_version == version {
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
                             log::info!("Successfully mined and submitted a new block");
-
-                            if let Err(e) = select_chain.finalize_canonical_at_depth() {
-                                log::warn!("Failed to finalize blocks: {:?}", e);
-                            }
-
                             nonce = U512::zero();
                         } else {
                             log::warn!("Failed to submit mined block");

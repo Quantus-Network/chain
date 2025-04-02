@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
+use futures::StreamExt;
 use primitive_types::{H256, U256};
-use sc_client_api::{AuxStore, BlockBackend, Finalizer};
+use sc_client_api::{AuxStore, BlockBackend, BlockchainEvents, Finalizer};
+use sc_service::TaskManager;
 use sp_api::__private::BlockT;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{Backend, HeaderBackend};
@@ -409,4 +411,44 @@ where
 
 fn ignored_chain_key<T: AsRef<[u8]>>(hash: &T) -> Vec<u8> {
     IGNORED_CHAINS_PREFIX.iter().chain(hash.as_ref()).copied().collect()
+}
+
+pub struct ChainManagement;
+
+impl ChainManagement {
+    /// Start a task that listens for block imports and triggers finalization
+    pub fn spawn_finalization_task<B, C, BE>(
+        select_chain: Arc<HeaviestChain<B, C, BE>>,
+        task_manager: &TaskManager,
+    ) where
+        B: BlockT<Hash = H256>,
+        C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore + BlockchainEvents<B> + Finalizer<B, BE> + Send + Sync + 'static,
+        C::Api: QPoWApi<B>,
+        BE: sc_client_api::Backend<B> + 'static,
+    {
+        task_manager.spawn_essential_handle().spawn(
+            "chain_finalization",
+            None,
+            async move {
+                log::info!("⛓️ Chain finalization task spawned");
+
+                let mut import_notification_stream = select_chain.client.import_notification_stream();
+
+                while let Some(notification) = import_notification_stream.next().await {
+                    // Only attempt finalization on new best blocks
+                    if notification.is_new_best {
+                        log::debug!(
+                            "Attempting to finalize after import of block #{}: {:?}",
+                            notification.header.number(),
+                            notification.hash
+                        );
+
+                        if let Err(e) = select_chain.finalize_canonical_at_depth() {
+                            log::warn!("Failed to finalize blocks: {:?}", e);
+                        }
+                    }
+                }
+            }
+        );
+    }
 }
