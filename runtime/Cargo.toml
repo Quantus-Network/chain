@@ -49,6 +49,7 @@ frame-system-benchmarking = { optional = true, workspace = true }
 pallet-mining-rewards = {workspace = true, default-features = false}
 pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = { workspace = true, default-features = false}
+pallet-vesting = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false}
 log = { workspace = true }
 
@@ -86,6 +87,7 @@ std = [
 	"pallet-qpow/std",
 	"pallet-wormhole/std",
 	"pallet-timestamp/std",
+	"pallet-vesting/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
 	"scale-info/std",
@@ -121,6 +123,9 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
+	"pallet-vesting/runtime-benchmarks",
+	"pallet-wormhole/runtime-benchmarks",
+	"pallet-mining-rewards/runtime-benchmarks"
 ]
 
 try-runtime = [
@@ -133,6 +138,7 @@ try-runtime = [
 	"pallet-sudo/try-runtime",
 	"pallet-qpow/try-runtime",
 	"pallet-timestamp/try-runtime",
+	"pallet-vesting/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"sp-runtime/try-runtime",
 ]
