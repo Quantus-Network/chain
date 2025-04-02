@@ -38,13 +38,9 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
 use poseidon_resonance::PoseidonHasher;
-
+use crate::governance::PreimageDeposit;
 // Local module imports
-use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
-	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	System, EXISTENTIAL_DEPOSIT, VERSION,
-};
+use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -150,12 +146,25 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
+    pub const PreimageBaseDeposit: Balance = 1 * UNIT;
+    pub const PreimageByteDeposit: Balance = 1 * MICRO_UNIT;
+}
+
+impl pallet_preimage::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type ManagerOrigin = frame_system::EnsureRoot<AccountId>;
+	type Consideration = PreimageDeposit;
+}
+
+
+parameter_types! {
 	pub FeeMultiplier: Multiplier = Multiplier::one();
 }
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	//type OnChargeTransaction = FungibleAdapter<Balances, ()>;
 	type OnChargeTransaction = FungibleAdapter<
 		Balances,
 		pallet_mining_rewards::TransactionFeesCollector<Runtime>

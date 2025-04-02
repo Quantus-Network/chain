@@ -30,6 +30,8 @@ pub use pallet_balances::Call as BalancesCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
+pub mod governance;
+
 use poseidon_resonance::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -237,4 +239,7 @@ mod runtime {
 
 	#[runtime::pallet_index(7)]
 	pub type MiningRewards = pallet_mining_rewards;
+
+	#[runtime::pallet_index(8)]
+	pub type Preimage = pallet_preimage;
 }

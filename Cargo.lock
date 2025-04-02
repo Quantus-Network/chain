@@ -6095,6 +6095,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-preimage"
+version = "39.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e27478b70557e60dc34c3349724fb2f931e11edcdb7f03082c61f6d2b79e4e6"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-qpow"
 version = "0.1.0"
 dependencies = [
@@ -7684,6 +7701,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "pallet-mining-rewards",
+ "pallet-preimage",
  "pallet-qpow",
  "pallet-sudo",
  "pallet-timestamp",
