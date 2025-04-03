@@ -6235,6 +6235,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-utility"
+version = "39.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2edbaec3296bc377dce78d9c639513d0d6f3b8a56484ee61cfb36fb0a027498"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-wormhole"
 version = "0.1.0"
 dependencies = [
@@ -7726,6 +7742,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-utility",
  "pallet-wormhole",
  "parity-scale-codec",
  "poseidon-resonance",

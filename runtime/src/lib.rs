@@ -245,4 +245,7 @@ mod runtime {
 
 	#[runtime::pallet_index(9)]
 	pub type Scheduler = pallet_scheduler;
+
+	#[runtime::pallet_index(10)]
+	pub type Utility = pallet_utility;
 }
