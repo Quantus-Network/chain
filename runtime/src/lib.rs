@@ -26,6 +26,7 @@ use sp_version::RuntimeVersion;
 pub use frame_system::Call as SystemCall;
 pub use pallet_timestamp::Call as TimestampCall;
 pub use pallet_balances::Call as BalancesCall;
+pub use pallet_merkle_airdrop;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 
@@ -240,4 +241,7 @@ mod runtime {
 
 	#[runtime::pallet_index(8)]
 	pub type Vesting = pallet_vesting;
+
+	#[runtime::pallet_index(9)]
+	pub type MerkleAirdrop = pallet_merkle_airdrop;
 }
