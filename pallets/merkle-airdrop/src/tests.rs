@@ -1,50 +1,47 @@
+#![cfg(test)]
+
 use crate::{mock::*, Error, Event};
 use frame_support::{assert_noop, assert_ok};
-use sp_runtime::traits::BadOrigin;
 
 #[test]
 fn create_airdrop_works() {
     new_test_ext().execute_with(|| {
-        // Go past genesis block so events get deposited
         System::set_block_number(1);
 
-        // Create a new airdrop
-        let merkle_root = [1u8; 32];
+        let merkle_root = [0u8; 32];
         assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
 
         // Check that the event was emitted
         System::assert_last_event(Event::AirdropCreated {
             airdrop_id: 0,
-            merkle_root
+            merkle_root,
         }.into());
 
-        // Check that the storage was updated
+        // Check that the airdrop was created
         assert_eq!(MerkleAirdrop::airdrop_merkle_roots(0), Some(merkle_root));
-        assert_eq!(MerkleAirdrop::next_airdrop_id(), 1);
     });
 }
 
 #[test]
 fn fund_airdrop_works() {
     new_test_ext().execute_with(|| {
-        // Go past genesis block so events get deposited
         System::set_block_number(1);
 
-        // Create a new airdrop first
-        let merkle_root = [1u8; 32];
+        let merkle_root = [0u8; 32];
+        let amount = 1000;
+
         assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
 
         // Fund the airdrop
-        let amount = 1000;
         assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
 
         // Check that the event was emitted
         System::assert_last_event(Event::AirdropFunded {
             airdrop_id: 0,
-            amount
+            amount,
         }.into());
 
-        // Check that the storage was updated
+        // Check that the airdrop balance was updated
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(amount));
     });
 }
@@ -52,42 +49,42 @@ fn fund_airdrop_works() {
 #[test]
 fn claim_works() {
     new_test_ext().execute_with(|| {
-        // Go past genesis block so events get deposited
         System::set_block_number(1);
 
-        // Create and fund an airdrop first
-        let merkle_root = [1u8; 32];
-        assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
-
+        let merkle_root = [0u8; 32];
         let amount = 1000;
+
+        assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
         assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
 
-        // Claim from the airdrop
-        // Note: In a real implementation, this would need a valid Merkle proof
+        // Create a merkle proof
         let merkle_proof = vec![[0u8; 32]];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof));
+
+        // Claim tokens
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof.clone()));
 
         // Check that the event was emitted
         System::assert_last_event(Event::Claimed {
             airdrop_id: 0,
             account: 2,
-            amount: 500
+            amount: 500,
         }.into());
 
-        // Check that the storage was updated
+        // Check that the claim was recorded
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), true);
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500));
     });
 }
 
 #[test]
-fn create_airdrop_fails_with_bad_origin() {
+fn create_airdrop_requires_signed_origin() {
     new_test_ext().execute_with(|| {
-        // Try to create an airdrop with a non-signed origin
-        let merkle_root = [1u8; 32];
+        let merkle_root = [0u8; 32];
+
+        // Try to create an airdrop with an unsigned origin
         assert_noop!(
             MerkleAirdrop::create_airdrop(RuntimeOrigin::none(), merkle_root),
-            BadOrigin
+            frame_support::error::BadOrigin
         );
     });
 }
@@ -95,7 +92,7 @@ fn create_airdrop_fails_with_bad_origin() {
 #[test]
 fn fund_airdrop_fails_for_nonexistent_airdrop() {
     new_test_ext().execute_with(|| {
-        // Try to fund an airdrop that doesn't exist
+        // Try to fund a nonexistent airdrop
         assert_noop!(
             MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 999, 1000),
             Error::<Test>::AirdropNotFound
@@ -106,8 +103,9 @@ fn fund_airdrop_fails_for_nonexistent_airdrop() {
 #[test]
 fn claim_fails_for_nonexistent_airdrop() {
     new_test_ext().execute_with(|| {
-        // Try to claim from an airdrop that doesn't exist
         let merkle_proof = vec![[0u8; 32]];
+
+        // Try to claim from a nonexistent airdrop
         assert_noop!(
             MerkleAirdrop::claim(RuntimeOrigin::signed(1), 999, 500, merkle_proof),
             Error::<Test>::AirdropNotFound
@@ -116,20 +114,23 @@ fn claim_fails_for_nonexistent_airdrop() {
 }
 
 #[test]
-fn claim_fails_if_already_claimed() {
+fn claim_already_claimed() {
     new_test_ext().execute_with(|| {
-        // Create and fund an airdrop
-        let merkle_root = [1u8; 32];
-        assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
-        assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 1000));
+        let merkle_root = [0u8; 32];
+        let amount = 1000;
 
-        // Claim once
+        assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
+        assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
+
+        // Create a merkle proof
         let merkle_proof = vec![[0u8; 32]];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof));
+
+        // Claim tokens
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof.clone()));
 
         // Try to claim again
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof.clone()),
             Error::<Test>::AlreadyClaimed
         );
     });

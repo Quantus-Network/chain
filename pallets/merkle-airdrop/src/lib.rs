@@ -177,9 +177,38 @@ pub mod pallet {
             origin: OriginFor<T>,
             merkle_root: MerkleRoot,
         ) -> DispatchResult {
-            let _who = ensure_signed(origin)?;
+            let who = ensure_signed(origin)?;
 
-            // TODO
+            // Get the next available airdrop ID
+            let airdrop_id = Self::next_airdrop_id();
+
+            // Ensure we haven't reached the maximum number of airdrops
+            ensure!(
+                airdrop_id < T::MaxAirdrops::get(),
+                Error::<T>::TooManyAirdrops
+            );
+
+            // Ensure this airdrop doesn't already exist (should never happen with sequential IDs)
+            ensure!(
+                !AirdropMerkleRoots::<T>::contains_key(airdrop_id),
+                Error::<T>::AirdropAlreadyExists
+            );
+
+            // Store the Merkle root for this airdrop
+            AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
+
+            // Initialize the airdrop balance to zero with explicit type
+            let zero_balance: <<T as Config>::Currency as Currency<T::AccountId>>::Balance = 0u32.into();
+            AirdropBalances::<T>::insert(airdrop_id, zero_balance);
+            
+            // Increment the airdrop ID counter for next time
+            NextAirdropId::<T>::put(airdrop_id + 1);
+
+            // Emit an event
+            Self::deposit_event(Event::AirdropCreated {
+                airdrop_id,
+                merkle_root,
+            });
 
             Ok(())
         }
