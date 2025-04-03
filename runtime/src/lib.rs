@@ -27,6 +27,7 @@ pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_reversible_transfers as ReversibleTransfersCall;
 pub use pallet_timestamp::Call as TimestampCall;
+pub use pallet_merkle_airdrop;
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -266,4 +267,7 @@ mod runtime {
 
 	#[runtime::pallet_index(15)]
 	pub type Faucet = pallet_faucet;
+
+	#[runtime::pallet_index(16)]
+	pub type MerkleAirdrop = pallet_merkle_airdrop;
 }

@@ -43,6 +43,7 @@ use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
+
 // Local module imports
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
@@ -64,6 +65,8 @@ parameter_types! {
     );
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 42;
+	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
+	pub const MaxAirdrops: u32 = 1000;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -329,4 +332,11 @@ impl pallet_reversible_transfers::Config for Runtime {
     type Preimages = Preimage;
     type WeightInfo = pallet_reversible_transfers::weights::SubstrateWeight<Runtime>;
     type RuntimeHoldReason = RuntimeHoldReason;
+}
+
+impl pallet_merkle_airdrop::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type MaxAirdrops = MaxAirdrops;
+	type PalletId = MerkleAirdropPalletId;
 }

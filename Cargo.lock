@@ -6597,6 +6597,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-merkle-airdrop"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sha2 0.10.8",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -8508,6 +8526,7 @@ dependencies = [
  "pallet-balances",
  "pallet-conviction-voting",
  "pallet-faucet",
+ "pallet-merkle-airdrop",
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",
