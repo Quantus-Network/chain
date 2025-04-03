@@ -429,6 +429,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_matches"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+
+[[package]]
 name = "async-channel"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6077,6 +6083,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-conviction-voting"
+version = "39.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eef3dfc63a89280ca3836c756d1ac5c00fe6c74aef8b20b44f4dad00386d4c61"
+dependencies = [
+ "assert_matches",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -6131,6 +6154,25 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+]
+
+[[package]]
+name = "pallet-referenda"
+version = "39.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf7e29cbddff53bf7e6083be3bca25bd3ab7c36fcb3b49ac4aacd14c2d57b8aa"
+dependencies = [
+ "assert_matches",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-arithmetic",
+ "sp-io",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -7734,9 +7776,11 @@ dependencies = [
  "hdwallet",
  "log",
  "pallet-balances",
+ "pallet-conviction-voting",
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",
+ "pallet-referenda",
  "pallet-scheduler",
  "pallet-sudo",
  "pallet-timestamp",

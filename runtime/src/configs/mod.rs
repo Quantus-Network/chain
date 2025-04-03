@@ -33,14 +33,16 @@ use frame_support::{
 	},
 };
 use frame_support::traits::ConstU64;
+use frame_system::EnsureRoot;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
 use poseidon_resonance::PoseidonHasher;
-use crate::governance::PreimageDeposit;
+use crate::governance::{PreimageDeposit, TracksInfo};
+use pallet_referenda::impl_tracksinfo_get;
 // Local module imports
-use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
+use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -146,6 +148,23 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
+    pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
+    pub const MaxVotes: u32 = 512;
+    pub const MaxTurnout: Balance = 60 * UNIT;
+    pub const MinimumDeposit: Balance = 1 * UNIT;
+}
+
+impl pallet_conviction_voting::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_conviction_voting::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type VoteLockingPeriod = VoteLockingPeriod;
+	type MaxVotes = MaxVotes;
+	type MaxTurnout = MaxTurnout;
+	type Polls = Referenda;
+}
+
+parameter_types! {
     pub const PreimageBaseDeposit: Balance = 1 * UNIT;
     pub const PreimageByteDeposit: Balance = 1 * MICRO_UNIT;
 }
@@ -156,6 +175,43 @@ impl pallet_preimage::Config for Runtime {
 	type Currency = Balances;
 	type ManagerOrigin = frame_system::EnsureRoot<AccountId>;
 	type Consideration = PreimageDeposit;
+}
+
+impl_tracksinfo_get!(TracksInfo, Balance, BlockNumber);
+
+parameter_types! {
+    // Default voting period (28 days)
+    pub const ReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
+    // Minimum time before a successful referendum can be enacted (4 days)
+    pub const ReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
+    // Maximum number of active referenda
+    pub const ReferendumMaxProposals: u32 = 100;
+    // Submission deposit for referenda
+    pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
+    // Undeciding timeout (90 days)
+    pub const UndecidingTimeout: BlockNumber = 90 * DAYS;
+    pub const AlarmInterval: BlockNumber = 1;
+}
+
+impl pallet_referenda::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
+	type RuntimeCall = RuntimeCall;
+	type Scheduler = Scheduler;
+	type Currency = Balances;
+	type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
+	type CancelOrigin = EnsureRoot<AccountId>;
+	type KillOrigin = EnsureRoot<AccountId>;
+	// This would normally point to Treasury, but we can use a simpler approach for now
+	type Slash = (); // Will discard any slashed deposits
+	type Votes = u128; // This will be properly set when implementing ConvictionVoting
+	type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>; // This will be properly set when implementing ConvictionVoting
+	type SubmissionDeposit = ReferendumSubmissionDeposit;
+	type MaxQueued = ReferendumMaxProposals;
+	type UndecidingTimeout = UndecidingTimeout;
+	type AlarmInterval = AlarmInterval;
+	type Tracks = TracksInfo;
+	type Preimages = Preimage;
 }
 
 parameter_types! {

@@ -35,7 +35,9 @@ pallet-qpow = { path = "./pallets/qpow", default-features = false}
 pallet-mining-rewards = {path = "./pallets/mining-rewards", default-features = false}
 pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 pallet-balances = { path="./pallets/balances", default-features = false }
+pallet-conviction-voting = { version = "39.1.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
+pallet-referenda = { version = "39.1.0", default-features = false }
 pallet-scheduler = { version = "40.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 clap = { version = "4.5.13" }

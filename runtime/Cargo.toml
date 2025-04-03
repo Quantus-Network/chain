@@ -27,7 +27,9 @@ frame-try-runtime = { optional = true, workspace = true }
 frame-executive.workspace = true
 frame-metadata-hash-extension.workspace = true
 pallet-balances.workspace = true
+pallet-conviction-voting = { workspace = true, default-features = false }
 pallet-preimage = { workspace = true, default-features = false }
+pallet-referenda = {workspace = true, default-features = false }
 pallet-scheduler = { workspace = true, default-features = false }
 pallet-utility = { workspace = true, default-features = false }
 pallet-sudo.workspace = true
@@ -85,7 +87,9 @@ std = [
 	"frame-try-runtime?/std",
 	"pallet-balances/std",
 	"pallet-mining-rewards/std",
+	"pallet-conviction-voting/std",
 	"pallet-preimage/std",
+	"pallet-referenda/std",
 	"pallet-scheduler/std",
 	"pallet-sudo/std",
 	"pallet-utility/std",
@@ -123,7 +127,9 @@ runtime-benchmarks = [
 	"frame-system-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"pallet-conviction-voting/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
+	"pallet-referenda/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
