@@ -339,4 +339,5 @@ impl pallet_merkle_airdrop::Config for Runtime {
 	type Currency = Balances;
 	type MaxAirdrops = MaxAirdrops;
 	type PalletId = MerkleAirdropPalletId;
+	type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
 }

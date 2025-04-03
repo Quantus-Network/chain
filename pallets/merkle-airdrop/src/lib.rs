@@ -1,4 +1,29 @@
+//! # Merkle Airdrop Pallet
+//!
+//! A pallet for distributing tokens via Merkle proofs, allowing efficient token airdrops
+//! where recipients can claim their tokens by providing cryptographic proofs of eligibility.
+//!
+//! ## Overview
+//!
+//! This pallet provides functionality for:
+//! - Creating airdrops with a Merkle root representing all valid claims
+//! - Funding airdrops with tokens to be distributed
+//! - Allowing users to claim tokens by providing Merkle proofs
+//!
+//! The use of Merkle trees allows for gas-efficient verification of eligibility without
+//! storing the complete list of recipients on-chain.
+//!
+//! ## Interface
+//!
+//! ### Dispatchable Functions
+//!
+//! * `create_airdrop` - Create a new airdrop with a Merkle root
+//! * `fund_airdrop` - Fund an existing airdrop with tokens
+//! * `claim` - Claim tokens from an airdrop by providing a Merkle proof
+
 #![cfg_attr(not(feature = "std"), no_std)]
+
+pub use pallet::*;
 
 #[cfg(test)]
 mod mock;
@@ -8,26 +33,29 @@ mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod weights;
+pub use weights::*;
 
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use frame_support::traits::Currency;
     use sp_std::prelude::*;
+    use frame_support::traits::Currency;
+    use super::weights::WeightInfo;
 
     #[pallet::pallet]
-    #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
+    /// Configuration trait for the Merkle airdrop pallet.
     #[pallet::config]
     pub trait Config: frame_system::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-        
+
         /// The currency mechanism.
         type Currency: Currency<Self::AccountId>;
-        
+
         /// The maximum number of airdrops that can be active at once.
         #[pallet::constant]
         type MaxAirdrops: Get<u32>;
@@ -35,11 +63,14 @@ pub mod pallet {
         /// The pallet id, used for deriving its sovereign account ID.
         #[pallet::constant]
         type PalletId: Get<frame_support::PalletId>;
+
+        /// Weight information for the extrinsics in this pallet.
+        type WeightInfo: WeightInfo;
     }
 
     /// Type for storing a Merkle root hash
     pub type MerkleRoot = [u8; 32];
-    
+
     /// Airdrop ID type
     pub type AirdropId = u32;
 
@@ -52,9 +83,9 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn airdrop_balances)]
     pub type AirdropBalances<T: Config> = StorageMap<
-        _, 
-        Blake2_128Concat, 
-        AirdropId, 
+        _,
+        Blake2_128Concat,
+        AirdropId,
         <<T as Config>::Currency as Currency<T::AccountId>>::Balance
     >;
 
@@ -76,69 +107,131 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A new airdrop has been created
+        /// A new airdrop has been created.
+        ///
+        /// Parameters: [airdrop_id, merkle_root]
         AirdropCreated {
+            /// The ID of the created airdrop
             airdrop_id: AirdropId,
+            /// The Merkle root of the airdrop
             merkle_root: MerkleRoot,
         },
-        /// An airdrop has been funded
+        /// An airdrop has been funded with tokens.
+        ///
+        /// Parameters: [airdrop_id, amount]
         AirdropFunded {
+            /// The ID of the funded airdrop
             airdrop_id: AirdropId,
+            /// The amount of tokens added to the airdrop
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
         },
-        /// A claim has been processed
+        /// A user has claimed tokens from an airdrop.
+        ///
+        /// Parameters: [airdrop_id, account, amount]
         Claimed {
+            /// The ID of the airdrop claimed from
             airdrop_id: AirdropId,
+            /// The account that claimed the tokens
             account: T::AccountId,
+            /// The amount of tokens claimed
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
         },
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Airdrop already exists
+        /// The specified airdrop does not exist.
+        AirdropNotFound,
+        /// The airdrop with this ID already exists.
         AirdropAlreadyExists,
-        /// Insufficient funds in the airdrop
+        /// The maximum number of airdrops has been reached.
+        TooManyAirdrops,
+        /// The airdrop does not have sufficient balance for this operation.
         InsufficientAirdropBalance,
-        /// User has already claimed from this airdrop
+        /// The user has already claimed from this airdrop.
         AlreadyClaimed,
-        /// Invalid Merkle proof
+        /// The provided Merkle proof is invalid.
         InvalidProof,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Create a new airdrop with a Merkle root
+        /// Create a new airdrop with a Merkle root.
+        ///
+        /// The Merkle root is a cryptographic hash that represents all valid claims
+        /// for this airdrop. Users will later provide Merkle proofs to verify their
+        /// eligibility to claim tokens.
+        ///
+        /// # Parameters
+        ///
+        /// * `origin` - The origin of the call (must be signed)
+        /// * `merkle_root` - The Merkle root hash representing all valid claims
+        ///
+        /// # Errors
+        ///
+        /// * `TooManyAirdrops` - If the maximum number of airdrops has been reached
+        /// * `AirdropAlreadyExists` - If an airdrop with this ID already exists
         #[pallet::call_index(0)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(T::WeightInfo::create_airdrop())]
         pub fn create_airdrop(
             origin: OriginFor<T>,
             merkle_root: MerkleRoot,
         ) -> DispatchResult {
             let _who = ensure_signed(origin)?;
-            
+
             // TODO
-            
+
             Ok(())
         }
 
-        /// Fund an existing airdrop
+        /// Fund an existing airdrop with tokens.
+        ///
+        /// This function transfers tokens from the caller to the airdrop's account,
+        /// making them available for users to claim.
+        ///
+        /// # Parameters
+        ///
+        /// * `origin` - The origin of the call (must be signed)
+        /// * `airdrop_id` - The ID of the airdrop to fund
+        /// * `amount` - The amount of tokens to add to the airdrop
+        ///
+        /// # Errors
+        ///
+        /// * `AirdropNotFound` - If the specified airdrop does not exist
         #[pallet::call_index(1)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(T::WeightInfo::fund_airdrop())]
         pub fn fund_airdrop(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
         ) -> DispatchResult {
             let _who = ensure_signed(origin)?;
-            
+
             // TODO
+
             Ok(())
         }
 
-        /// Claim tokens from an airdrop
+        /// Claim tokens from an airdrop by providing a Merkle proof.
+        ///
+        /// Users can claim their tokens by providing a proof of their eligibility.
+        /// The proof is verified against the airdrop's Merkle root.
+        ///
+        /// # Parameters
+        ///
+        /// * `origin` - The origin of the call (must be signed)
+        /// * `airdrop_id` - The ID of the airdrop to claim from
+        /// * `amount` - The amount of tokens to claim
+        /// * `merkle_proof` - The Merkle proof verifying eligibility
+        ///
+        /// # Errors
+        ///
+        /// * `AirdropNotFound` - If the specified airdrop does not exist
+        /// * `AlreadyClaimed` - If the user has already claimed from this airdrop
+        /// * `InvalidProof` - If the provided Merkle proof is invalid
+        /// * `InsufficientAirdropBalance` - If the airdrop doesn't have enough tokens
         #[pallet::call_index(2)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(T::WeightInfo::claim())]
         pub fn claim(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
@@ -146,12 +239,10 @@ pub mod pallet {
             merkle_proof: Vec<[u8; 32]>,
         ) -> DispatchResult {
             let _who = ensure_signed(origin)?;
-            
+
             // TODO
-            
+
             Ok(())
         }
     }
 }
-
-pub use pallet::*; 
