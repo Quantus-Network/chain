@@ -1,8 +1,9 @@
 use frame_support::__private::sp_io;
-use frame_support::traits::Currency;
+use frame_support::assert_ok;
+use frame_support::traits::{Currency, Hooks};
 use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
-use resonance_runtime::{UNIT, Runtime, RuntimeOrigin, Balances};
+use resonance_runtime::{UNIT, Runtime, RuntimeOrigin, Balances, System, Scheduler, RuntimeCall, BlockNumber};
 
 #[cfg(test)]
 mod tests {
@@ -226,10 +227,70 @@ fn new_test_ext() -> sp_io::TestExternalities {
     ext
 }
 
+///Scheduler tests
+
+#[test]
+fn scheduler_works() {
+    new_test_ext().execute_with(|| {
+
+        let account = account_id(1);
+        let recipient = account_id(2);
+
+        // Check initial balances
+        let initial_balance = Balances::free_balance(&account);
+        let recipient_balance = Balances::free_balance(&recipient);
+
+        // Create a transfer call that should work with root origin
+        // We need a call that will transfer funds without needing a specific sender
+        // For example, we could use Balances::force_transfer which allows root to transfer between accounts
+        let transfer_call = RuntimeCall::Balances(
+            pallet_balances::Call::force_transfer {
+                source: account.clone().into(),
+                dest: recipient.clone().into(),
+                value: 50 * UNIT,
+            }
+        );
+
+        // Schedule the transfer at block 10
+        let when: BlockNumber = 10;
+        assert_ok!(Scheduler::schedule(
+            RuntimeOrigin::root(),
+            when,
+            None,
+            127,
+            Box::new(transfer_call),
+        ));
+
+        // Advance to block 9
+        run_to_block(9);
+        assert_eq!(Balances::free_balance(&account), initial_balance);
+        assert_eq!(Balances::free_balance(&recipient), recipient_balance);
+
+        // Advance to block 10
+        run_to_block(10);
+
+        // Verify the transfer occurred
+        assert_eq!(Balances::free_balance(&account), initial_balance - 50 * UNIT);
+        assert_eq!(Balances::free_balance(&recipient), recipient_balance + 50 * UNIT);
+    });
+}
+
+
 // Helper function to create AccountId32 from a simple index
 // (defined outside the mod tests to be used in new_test_ext)
 fn account_id(id: u8) -> AccountId32 {
     let mut bytes = [0u8; 32];
     bytes[0] = id;
     AccountId32::new(bytes)
+}
+
+fn run_to_block(n: u32) {
+    while System::block_number() < n {
+        let b = System::block_number();
+        Scheduler::on_finalize(b);
+        System::on_finalize(b);
+        System::set_block_number(b + 1);
+        System::on_initialize(b + 1);
+        Scheduler::on_initialize(b + 1);
+    }
 }

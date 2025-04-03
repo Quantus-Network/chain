@@ -242,4 +242,7 @@ mod runtime {
 
 	#[runtime::pallet_index(8)]
 	pub type Preimage = pallet_preimage;
+
+	#[runtime::pallet_index(9)]
+	pub type Scheduler = pallet_scheduler;
 }

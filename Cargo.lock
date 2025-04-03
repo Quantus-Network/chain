@@ -2817,9 +2817,9 @@ dependencies = [
 
 [[package]]
 name = "frame-support"
-version = "39.0.0"
+version = "39.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4547b03c9267b2d545ddddd8967d1d39277a090814da2466176dc65ff489d0a"
+checksum = "3aba77ba276576c4dbd1b2e5e3dc7d95346787cccee610c846dd0e5292add9e2"
 dependencies = [
  "aquamarine",
  "array-bytes",
@@ -2861,9 +2861,9 @@ dependencies = [
 
 [[package]]
 name = "frame-support-procedural"
-version = "31.0.1"
+version = "31.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e204cb5972b66489923ff201b11e0f605496dd5809bfee62258a42b6341e1c34"
+checksum = "4ad7560a3fb472e43f45e404af919c955badcc64269114de0ce22445ab043119"
 dependencies = [
  "Inflector",
  "cfg-expr",
@@ -6134,6 +6134,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-scheduler"
+version = "40.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6efb66648d83ce14caaa5cb062fa54021222e964dc58c7326aee44f27db96b46"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
+ "sp-weights",
+]
+
+[[package]]
 name = "pallet-sudo"
 version = "39.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7703,6 +7721,7 @@ dependencies = [
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",
+ "pallet-scheduler",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",

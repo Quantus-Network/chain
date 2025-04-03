@@ -28,6 +28,7 @@ frame-executive.workspace = true
 frame-metadata-hash-extension.workspace = true
 pallet-balances.workspace = true
 pallet-preimage = { workspace = true, default-features = false }
+pallet-scheduler = { workspace = true, default-features = false }
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
@@ -84,6 +85,7 @@ std = [
 	"pallet-balances/std",
 	"pallet-mining-rewards/std",
 	"pallet-preimage/std",
+	"pallet-scheduler/std",
 	"pallet-sudo/std",
 	"pallet-qpow/std",
 	"pallet-wormhole/std",

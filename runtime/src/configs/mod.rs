@@ -40,7 +40,7 @@ use sp_version::RuntimeVersion;
 use poseidon_resonance::PoseidonHasher;
 use crate::governance::PreimageDeposit;
 // Local module imports
-use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
+use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, System, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -158,6 +158,27 @@ impl pallet_preimage::Config for Runtime {
 	type Consideration = PreimageDeposit;
 }
 
+parameter_types! {
+    // Maximum weight for scheduled calls (80% of the block's maximum weight)
+    pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
+    // Maximum number of scheduled calls per block
+    pub const MaxScheduledPerBlock: u32 = 50;
+    // Optional postponement for calls without preimage
+    pub const NoPreimagePostponement: Option<u32> = Some(10);
+}
+
+impl pallet_scheduler::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeOrigin = RuntimeOrigin;
+	type PalletsOrigin = OriginCaller;
+	type RuntimeCall = RuntimeCall;
+	type MaximumWeight = MaximumSchedulerWeight;
+	type ScheduleOrigin = frame_system::EnsureRoot<AccountId>;
+	type MaxScheduledPerBlock = MaxScheduledPerBlock;
+	type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
+	type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
+	type Preimages = Preimage;
+}
 
 parameter_types! {
 	pub FeeMultiplier: Multiplier = Multiplier::one();
