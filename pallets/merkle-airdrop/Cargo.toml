@@ -25,6 +25,7 @@ sp-core.workspace = true
 sp-io.workspace = true
 log = { version = "0.4.22", default-features = false }
 sha2 = { version = "0.10", default-features = false }
+binary-merkle-tree = { version = "16.0.0", default-features = false }
 
 [dev-dependencies]
 sp-core = { default-features = true, workspace = true }
@@ -45,6 +46,7 @@ std = [
     "sp-io/std",
     "pallet-balances/std",
     "sha2/std",
+    "binary-merkle-tree/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
