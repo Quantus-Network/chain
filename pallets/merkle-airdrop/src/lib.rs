@@ -342,9 +342,62 @@ pub mod pallet {
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
             merkle_proof: Vec<[u8; 32]>,
         ) -> DispatchResult {
-            let _who = ensure_signed(origin)?;
+            let who = ensure_signed(origin)?;
 
-            // TODO
+            // Ensure the airdrop exists
+            ensure!(
+                AirdropMerkleRoots::<T>::contains_key(airdrop_id),
+                Error::<T>::AirdropNotFound
+            );
+
+            // Ensure the user hasn't already claimed
+            ensure!(
+                !Claimed::<T>::contains_key(airdrop_id, &who),
+                Error::<T>::AlreadyClaimed
+            );
+
+            // Get the Merkle root for this airdrop
+            let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id)
+                .ok_or(Error::<T>::AirdropNotFound)?;
+
+            // Verify the Merkle proof
+            ensure!(
+                Self::verify_merkle_proof(&who, amount, &merkle_root, &merkle_proof),
+                Error::<T>::InvalidProof
+            );
+
+            // Ensure the airdrop has sufficient balance
+            let airdrop_balance = AirdropBalances::<T>::get(airdrop_id)
+                .ok_or(Error::<T>::InsufficientAirdropBalance)?;
+            ensure!(
+                airdrop_balance >= amount,
+                Error::<T>::InsufficientAirdropBalance
+            );
+
+            // Mark as claimed before performing the transfer to prevent reentrancy attacks
+            Claimed::<T>::insert(airdrop_id, &who, true);
+
+            // Update the airdrop balance
+            AirdropBalances::<T>::mutate(airdrop_id, |balance| {
+                if let Some(current_balance) = balance {
+                    *current_balance = current_balance.saturating_sub(amount);
+                }
+            });
+
+            // Transfer tokens from the pallet account to the user
+            T::Currency::transfer(
+                &Self::account_id(),
+                &who,
+                amount,
+                frame_support::traits::ExistenceRequirement::KeepAlive
+            )?;
+
+            // Emit an event
+            Self::deposit_event(Event::Claimed {
+                airdrop_id,
+                account: who,
+                amount,
+            });
 
             Ok(())
         }
