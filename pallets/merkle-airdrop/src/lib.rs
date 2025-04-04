@@ -47,6 +47,7 @@ pub mod pallet {
     use frame_support::traits::Currency;
     use super::weights::WeightInfo;
     use sp_runtime::traits::AccountIdConversion;
+    use sp_runtime::traits::Saturating;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -281,9 +282,36 @@ pub mod pallet {
             airdrop_id: AirdropId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
         ) -> DispatchResult {
-            let _who = ensure_signed(origin)?;
+            let who = ensure_signed(origin)?;
 
-            // TODO
+            // Ensure the airdrop exists
+            ensure!(
+                AirdropMerkleRoots::<T>::contains_key(airdrop_id),
+                Error::<T>::AirdropNotFound
+            );
+
+            // Transfer tokens from the caller to the pallet account
+            T::Currency::transfer(
+                &who,
+                &Self::account_id(),
+                amount,
+                frame_support::traits::ExistenceRequirement::KeepAlive
+            )?;
+
+            // Update the airdrop balance
+            AirdropBalances::<T>::mutate(airdrop_id, |balance| {
+                if let Some(current_balance) = balance {
+                    *current_balance = current_balance.saturating_add(amount);
+                } else {
+                    *balance = Some(amount);
+                }
+            });
+
+            // Emit an event
+            Self::deposit_event(Event::AirdropFunded {
+                airdrop_id,
+                amount,
+            });
 
             Ok(())
         }

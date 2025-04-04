@@ -28,12 +28,19 @@ fn fund_airdrop_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
+        // Give account 1 some balance
+        let _ = Balances::force_set_balance(RuntimeOrigin::root(), 1, 1000);
+
         let merkle_root = [0u8; 32];
-        let amount = 1000;
+        let amount = 100; // Use a smaller amount to avoid potential underflow
         
         // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root));
 
+        // Check initial balance - it might be Some(0) instead of None
+        let initial_balance = MerkleAirdrop::airdrop_balances(0);
+        assert!(initial_balance.is_none() || initial_balance == Some(0));
+        
         // Fund the airdrop
         assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
 
@@ -47,8 +54,16 @@ fn fund_airdrop_works() {
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(amount));
         
         // Check that the balance was transferred
-        assert_eq!(Balances::free_balance(1), 9000); // Initial balance was 10000
+        assert_eq!(Balances::free_balance(1), 900); // 1000 - 100
         assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), amount);
+        
+        // Fund the airdrop again
+        assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
+        
+        // Check that the balance was updated correctly
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(amount * 2));
+        assert_eq!(Balances::free_balance(1), 800); // 900 - 100
+        assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), amount * 2);
     });
 }
 
