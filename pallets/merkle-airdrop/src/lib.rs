@@ -165,54 +165,39 @@ pub mod pallet {
         pub fn account_id() -> T::AccountId {
             T::PalletId::get().into_account_truncating()
         }
-        
-        /// Verifies a Merkle proof against a Merkle root to determine if the given account and amount
-        /// are part of the Merkle tree.
-        ///
-        /// # Parameters
-        ///
-        /// * `account` - The account ID to verify
-        /// * `amount` - The token amount to verify
-        /// * `merkle_root` - The Merkle root to verify against
-        /// * `merkle_proof` - The proof elements needed to reconstruct the path from leaf to root
-        ///
-        /// # Returns
-        ///
-        /// `true` if the proof is valid (the account and amount are part of the tree),
-        /// `false` otherwise.
+
+        /// Verifies a Merkle proof against a Merkle root.
         pub fn verify_merkle_proof(
-            account: &T::AccountId, 
+            account: &T::AccountId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
             merkle_root: &[u8; 32],
             merkle_proof: &Vec<[u8; 32]>
         ) -> bool {
-            // Create a leaf node by hashing the account and amount
-            let mut leaf = [0u8; 32];
+            // Create and hash the leaf data (account + amount)
             let account_bytes = account.encode();
             let amount_bytes = amount.encode();
+            let leaf_data = [&account_bytes[..], &amount_bytes[..]].concat();
+            let leaf_hash = sp_core::blake2_256(&leaf_data);
             
-            // Use Blake2 hash
-            let leaf_hash = sp_core::blake2_256(&[&account_bytes[..], &amount_bytes[..]].concat());
-            leaf.copy_from_slice(&leaf_hash);
+            // Start with the leaf hash
+            let mut current_hash = leaf_hash;
             
-            // Compute the Merkle root from the leaf and proof
-            let computed_root = merkle_proof.iter().fold(leaf, |acc, proof_element| {
+            // Apply each proof element
+            for proof_element in merkle_proof {
                 // Sort the hashes to ensure consistent ordering
-                let combined = if acc < *proof_element {
-                    [&acc[..], &proof_element[..]].concat()
+                // Compare arrays lexicographically
+                let combined = if current_hash.as_slice() < proof_element.as_slice() {
+                    [&current_hash[..], &proof_element[..]].concat()
                 } else {
-                    [&proof_element[..], &acc[..]].concat()
+                    [&proof_element[..], &current_hash[..]].concat()
                 };
                 
                 // Hash the combined value
-                let hash = sp_core::blake2_256(&combined);
-                let mut result = [0u8; 32];
-                result.copy_from_slice(&hash);
-                result
-            });
+                current_hash = sp_core::blake2_256(&combined);
+            }
             
             // Compare the computed root with the stored root
-            computed_root == *merkle_root
+            current_hash == *merkle_root
         }
     }
 
@@ -262,7 +247,7 @@ pub mod pallet {
             // Initialize the airdrop balance to zero with explicit type
             let zero_balance: <<T as Config>::Currency as Currency<T::AccountId>>::Balance = 0u32.into();
             AirdropBalances::<T>::insert(airdrop_id, zero_balance);
-            
+
             // Increment the airdrop ID counter for next time
             NextAirdropId::<T>::put(airdrop_id + 1);
 

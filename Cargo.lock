@@ -6600,6 +6600,7 @@ dependencies = [
 name = "pallet-merkle-airdrop"
 version = "0.1.0"
 dependencies = [
+ "binary-merkle-tree",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
