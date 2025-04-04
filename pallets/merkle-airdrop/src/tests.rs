@@ -3,6 +3,8 @@
 use crate::{mock::*, Error, Event};
 use frame_support::{assert_noop, assert_ok};
 use codec::Encode;
+use poseidon_resonance::PoseidonHasher;
+use sp_runtime::traits::Hash;
 
 #[test]
 fn create_airdrop_works() {
@@ -273,7 +275,13 @@ fn calculate_leaf_hash(account: &u64, amount: u64) -> [u8; 32] {
     let account_bytes = account.encode();
     let amount_bytes = amount.encode();
     let leaf_data = [&account_bytes[..], &amount_bytes[..]].concat();
-    sp_core::blake2_256(&leaf_data)
+
+    // Use PoseidonHasher
+    let mut output = [0u8; 32];
+    output.copy_from_slice(
+        &PoseidonHasher::hash(&leaf_data)[..]
+    );
+    output
 }
 
 // Helper function to calculate a parent hash for testing
@@ -283,7 +291,13 @@ fn calculate_parent_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     } else {
         [&right[..], &left[..]].concat()
     };
-    sp_core::blake2_256(&combined)
+
+    // Use PoseidonHasher
+    let mut output = [0u8; 32];
+    output.copy_from_slice(
+        &PoseidonHasher::hash(&combined)[..]
+    );
+    output
 }
 
 #[test]
