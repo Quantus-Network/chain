@@ -106,7 +106,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 pub fn initialize_balances() {
     // Give account 1 some balance
     let _ = Balances::force_set_balance(RuntimeOrigin::root(), 1, 10_000);
-    
+
     // Ensure the pallet account exists with some balance
     let pallet_account = MerkleAirdrop::account_id();
     let _ = Balances::force_set_balance(RuntimeOrigin::root(), pallet_account, 1);

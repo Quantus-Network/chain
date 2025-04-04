@@ -179,10 +179,10 @@ pub mod pallet {
             let amount_bytes = amount.encode();
             let leaf_data = [&account_bytes[..], &amount_bytes[..]].concat();
             let leaf_hash = sp_core::blake2_256(&leaf_data);
-            
+
             // Start with the leaf hash
             let mut current_hash = leaf_hash;
-            
+
             // Apply each proof element
             for proof_element in merkle_proof {
                 // Sort the hashes to ensure consistent ordering
@@ -192,11 +192,11 @@ pub mod pallet {
                 } else {
                     [&proof_element[..], &current_hash[..]].concat()
                 };
-                
+
                 // Hash the combined value
                 current_hash = sp_core::blake2_256(&combined);
             }
-            
+
             // Compare the computed root with the stored root
             current_hash == *merkle_root
         }
@@ -225,7 +225,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             merkle_root: MerkleRoot,
         ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
+            let _who = ensure_signed(origin)?;
 
             // Get the next available airdrop ID
             let airdrop_id = Self::next_airdrop_id();
