@@ -6087,6 +6087,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "parity-scale-codec",
+ "poseidon-resonance",
  "scale-info",
  "sha2 0.10.8",
  "sp-core",

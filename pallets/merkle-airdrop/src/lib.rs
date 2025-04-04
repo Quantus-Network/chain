@@ -36,18 +36,26 @@ mod benchmarking;
 pub mod weights;
 pub use weights::*;
 
+use frame_support::traits::Currency;
+use poseidon_resonance::PoseidonHasher;
+
+type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::BalanceOf;
+
     use frame_support::{
         pallet_prelude::*,
-        traits::{Get},
+        traits::{Currency, Get},
     };
     use frame_system::pallet_prelude::*;
     use sp_std::prelude::*;
-    use frame_support::traits::Currency;
-    use super::weights::WeightInfo;
+    use sp_runtime::traits::Hash;
+    use crate::PoseidonHasher;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Saturating;
+    use super::weights::WeightInfo;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -167,38 +175,121 @@ pub mod pallet {
             T::PalletId::get().into_account_truncating()
         }
 
-        /// Verifies a Merkle proof against a Merkle root.
+        /// Verifies a Merkle proof against a Merkle root using Poseidon hash.
+        ///
+        /// This function checks if an account is eligible to claim a specific amount from an airdrop
+        /// by verifying a Merkle proof against the stored Merkle root.
+        ///
+        /// # How Poseidon-based verification differs from standard approaches:
+        ///
+        /// 1. Hash Function: Uses Poseidon hash instead of traditional Keccak/SHA-256
+        ///    - Poseidon is optimized for zero-knowledge proofs and is more efficient in ZK circuits
+        ///    - It provides strong security while being more efficient for on-chain verification
+        ///    - Aligns with Resonance Network's use of Poseidon for block headers and storage roots
+        ///
+        /// 2. ZK-Friendly: Poseidon is specifically designed to be efficient in zero-knowledge proof systems
+        ///    - Fewer constraints in ZK circuits compared to SHA-256
+        ///    - Better performance for on-chain verification
+        ///    - Enables future integration with ZK-based privacy features
+        ///
+        /// 3. Quantum Resistance: While not fully quantum-resistant, Poseidon provides better
+        ///    resistance against quantum attacks than some traditional hash functions
+        ///
+        /// # Parameters
+        ///
+        /// * `account` - The account ID claiming tokens
+        /// * `amount` - The amount of tokens being claimed
+        /// * `merkle_root` - The Merkle root to verify against
+        /// * `merkle_proof` - The proof path from the leaf to the root
+        ///
+        /// # Returns
+        ///
+        /// `true` if the proof is valid, `false` otherwise
         pub fn verify_merkle_proof(
             account: &T::AccountId,
-            amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
-            merkle_root: &[u8; 32],
-            merkle_proof: &Vec<[u8; 32]>
+            amount: BalanceOf<T>,
+            merkle_root: &MerkleRoot,
+            merkle_proof: &Vec<[u8; 32]>,
         ) -> bool {
-            // Create and hash the leaf data (account + amount)
-            let account_bytes = account.encode();
-            let amount_bytes = amount.encode();
-            let leaf_data = [&account_bytes[..], &amount_bytes[..]].concat();
-            let leaf_hash = sp_core::blake2_256(&leaf_data);
+            // Create the leaf hash using Poseidon
+            let leaf = Self::calculate_leaf_hash_poseidon(account, amount);
 
-            // Start with the leaf hash
-            let mut current_hash = leaf_hash;
-
-            // Apply each proof element
+            // Verify the proof by walking up the tree
+            let mut computed_hash = leaf;
             for proof_element in merkle_proof {
-                // Sort the hashes to ensure consistent ordering
-                // Compare arrays lexicographically
-                let combined = if current_hash.as_slice() < proof_element.as_slice() {
-                    [&current_hash[..], &proof_element[..]].concat()
+                computed_hash = if computed_hash < *proof_element {
+                    Self::calculate_parent_hash_poseidon(&computed_hash, proof_element)
                 } else {
-                    [&proof_element[..], &current_hash[..]].concat()
+                    Self::calculate_parent_hash_poseidon(proof_element, &computed_hash)
                 };
-
-                // Hash the combined value
-                current_hash = sp_core::blake2_256(&combined);
             }
 
-            // Compare the computed root with the stored root
-            current_hash == *merkle_root
+            // The computed hash should match the Merkle root if the proof is valid
+            computed_hash == *merkle_root
+        }
+
+        /// Calculates the leaf hash for a Merkle tree using Poseidon.
+        ///
+        /// This function creates a leaf node hash from an account and amount using the
+        /// Poseidon hash function, which is optimized for zero-knowledge proofs.
+        ///
+        /// # Parameters
+        ///
+        /// * `account` - The account ID to include in the leaf
+        /// * `amount` - The token amount to include in the leaf
+        ///
+        /// # Returns
+        ///
+        /// A 32-byte array containing the Poseidon hash of the account and amount
+        fn calculate_leaf_hash_poseidon(
+            account: &T::AccountId,
+            amount: BalanceOf<T>,
+        ) -> [u8; 32] {
+            // Encode the account and amount to bytes
+            let account_bytes = account.encode();
+            let amount_bytes = amount.encode();
+
+            // Concatenate the bytes
+            let combined = [account_bytes.as_slice(), amount_bytes.as_slice()].concat();
+
+            // Use PoseidonHasher to hash the data
+            let mut output = [0u8; 32];
+            output.copy_from_slice(
+                &PoseidonHasher::hash(&combined)[..]
+            );
+            output
+        }
+
+        /// Calculates the parent hash in a Merkle tree using Poseidon.
+        ///
+        /// This function combines two child hashes to create their parent hash in the Merkle tree.
+        /// The children are ordered lexicographically before hashing to ensure consistency.
+        ///
+        /// # Parameters
+        ///
+        /// * `left` - The first child hash
+        /// * `right` - The second child hash
+        ///
+        /// # Returns
+        ///
+        /// A 32-byte array containing the Poseidon hash of the combined children
+        fn calculate_parent_hash_poseidon(
+            left: &[u8; 32],
+            right: &[u8; 32],
+        ) -> [u8; 32] {
+            // Ensure consistent ordering of inputs (important for verification)
+            let combined = if left < right {
+                [left.as_slice(), right.as_slice()].concat()
+            } else {
+                [right.as_slice(), left.as_slice()].concat()
+            };
+
+            // Use PoseidonHasher to hash the data
+            let mut output = [0u8; 32];
+            output.copy_from_slice(
+                &PoseidonHasher::hash(&combined)[..]
+            );
+            output
         }
     }
 
