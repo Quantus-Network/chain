@@ -38,11 +38,15 @@ pub use weights::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::pallet_prelude::*;
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{Get},
+    };
     use frame_system::pallet_prelude::*;
     use sp_std::prelude::*;
     use frame_support::traits::Currency;
     use super::weights::WeightInfo;
+    use sp_runtime::traits::AccountIdConversion;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -152,6 +156,64 @@ pub mod pallet {
         AlreadyClaimed,
         /// The provided Merkle proof is invalid.
         InvalidProof,
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Returns the account ID of the pallet.
+        ///
+        /// This account is used to hold the funds for all airdrops.
+        pub fn account_id() -> T::AccountId {
+            T::PalletId::get().into_account_truncating()
+        }
+        
+        /// Verifies a Merkle proof against a Merkle root to determine if the given account and amount
+        /// are part of the Merkle tree.
+        ///
+        /// # Parameters
+        ///
+        /// * `account` - The account ID to verify
+        /// * `amount` - The token amount to verify
+        /// * `merkle_root` - The Merkle root to verify against
+        /// * `merkle_proof` - The proof elements needed to reconstruct the path from leaf to root
+        ///
+        /// # Returns
+        ///
+        /// `true` if the proof is valid (the account and amount are part of the tree),
+        /// `false` otherwise.
+        pub fn verify_merkle_proof(
+            account: &T::AccountId, 
+            amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+            merkle_root: &[u8; 32],
+            merkle_proof: &Vec<[u8; 32]>
+        ) -> bool {
+            // Create a leaf node by hashing the account and amount
+            let mut leaf = [0u8; 32];
+            let account_bytes = account.encode();
+            let amount_bytes = amount.encode();
+            
+            // Use Blake2 hash
+            let leaf_hash = sp_core::blake2_256(&[&account_bytes[..], &amount_bytes[..]].concat());
+            leaf.copy_from_slice(&leaf_hash);
+            
+            // Compute the Merkle root from the leaf and proof
+            let computed_root = merkle_proof.iter().fold(leaf, |acc, proof_element| {
+                // Sort the hashes to ensure consistent ordering
+                let combined = if acc < *proof_element {
+                    [&acc[..], &proof_element[..]].concat()
+                } else {
+                    [&proof_element[..], &acc[..]].concat()
+                };
+                
+                // Hash the combined value
+                let hash = sp_core::blake2_256(&combined);
+                let mut result = [0u8; 32];
+                result.copy_from_slice(&hash);
+                result
+            });
+            
+            // Compare the computed root with the stored root
+            computed_root == *merkle_root
+        }
     }
 
     #[pallet::call]
