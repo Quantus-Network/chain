@@ -1,9 +1,14 @@
+use codec::Encode;
 use frame_support::__private::sp_io;
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, Hooks};
+use pallet_conviction_voting::AccountVote::Standard;
+use pallet_conviction_voting::Vote;
+use pallet_referenda::TracksInfo;
 use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
-use resonance_runtime::{UNIT, Runtime, RuntimeOrigin, Balances, System, Scheduler, RuntimeCall, BlockNumber};
+use sp_runtime::traits::Hash;
+use resonance_runtime::{UNIT, Runtime, RuntimeOrigin, Balances, System, Scheduler, RuntimeCall, BlockNumber, OriginCaller, Referenda, Preimage, ConvictionVoting};
 
 #[cfg(test)]
 mod tests {
@@ -220,8 +225,10 @@ fn new_test_ext() -> sp_io::TestExternalities {
 
     // Add balances in the ext
     ext.execute_with(|| {
-        Balances::make_free_balance_be(&account_id(1), 100 * UNIT);
-        Balances::make_free_balance_be(&account_id(2), 100 * UNIT);
+        Balances::make_free_balance_be(&account_id(1), 1000 * UNIT);
+        Balances::make_free_balance_be(&account_id(2), 1000 * UNIT);
+        Balances::make_free_balance_be(&account_id(3), 1000 * UNIT);
+        Balances::make_free_balance_be(&account_id(4), 1000 * UNIT);
     });
 
     ext
@@ -275,6 +282,280 @@ fn scheduler_works() {
     });
 }
 
+///Referenda tests
+
+#[test]
+fn referendum_submission_works() {
+    new_test_ext().execute_with(|| {
+        let proposer = account_id(1);
+        let initial_balance = Balances::free_balance(&proposer);
+
+        // Make sure we have sufficient funds
+        assert!(initial_balance >= 1000 * UNIT, "Test account should have at least 1000 UNIT of funds");
+
+        // Get deposit value from configuration
+        let submission_deposit = <Runtime as pallet_referenda::Config>::SubmissionDeposit::get();
+
+        // Prepare origin for the proposal
+        let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Root));
+
+        // Create a call for the proposal
+        let call = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
+            source: account_id(1).into(),
+            dest: account_id(42).into(),
+            value: 1,
+        });
+
+        // Encode the call
+        let encoded_call = call.encode();
+
+        // Calculate hash manually
+        let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+
+        // Store preimage before using the hash - remember balance before this operation
+        let balance_before_preimage = Balances::free_balance(&proposer);
+        assert_ok!(Preimage::note_preimage(
+            RuntimeOrigin::signed(proposer.clone()),
+            encoded_call.clone()
+        ));
+        let balance_after_preimage = Balances::free_balance(&proposer);
+
+        // Cost of storing the preimage
+        let preimage_cost = balance_before_preimage - balance_after_preimage;
+        println!("Cost of storing preimage: {}", preimage_cost);
+
+        // Create lookup for bounded call
+        let bounded_call = frame_support::traits::Bounded::Lookup {
+            hash: preimage_hash,
+            len: encoded_call.len() as u32
+        };
+
+        // Activation moment
+        let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+
+        // Submit referendum - remember balance before this operation
+        let balance_before_referendum = Balances::free_balance(&proposer);
+        assert_ok!(Referenda::submit(
+            RuntimeOrigin::signed(proposer.clone()),
+            proposal_origin,
+            bounded_call,
+            enactment_moment
+        ));
+        let balance_after_referendum = Balances::free_balance(&proposer);
+
+        // Cost of submitting referendum
+        let referendum_cost = balance_before_referendum - balance_after_referendum;
+        println!("Cost of submitting referendum: {}", referendum_cost);
+
+        // Check if the referendum was created
+        let referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(0);
+        assert!(referendum_info.is_some(), "Referendum should exist");
+
+        // Check if the total cost matches expectations
+        assert_eq!(
+            initial_balance - balance_after_referendum,
+            preimage_cost + referendum_cost,
+            "Total cost should be the sum of preimage and referendum costs"
+        );
+
+        // Check if referendum cost matches the deposit
+        assert_eq!(
+            referendum_cost,
+            submission_deposit,
+            "Referendum cost should equal the deposit amount"
+        );
+    });
+}
+
+#[test]
+fn referendum_cancel_by_root_works() {
+    new_test_ext().execute_with(|| {
+        let proposer = account_id(1);
+        let initial_balance = Balances::free_balance(&proposer);
+
+        // Prepare origin for the proposal
+        let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Root));
+
+        // Create a call for the proposal
+        let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+
+        // Encode the call
+        let encoded_call = call.encode();
+
+        // Calculate hash manually
+        let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+
+        // Store preimage before using the hash
+        assert_ok!(Preimage::note_preimage(
+            RuntimeOrigin::signed(proposer.clone()),
+            encoded_call.clone()
+        ));
+
+        // Create lookup for bounded call
+        let bounded_call = frame_support::traits::Bounded::Lookup {
+            hash: preimage_hash,
+            len: encoded_call.len() as u32
+        };
+
+        // Activation moment
+        let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+
+        // Submit referendum
+        assert_ok!(Referenda::submit(
+            RuntimeOrigin::signed(proposer.clone()),
+            proposal_origin,
+            bounded_call,
+            enactment_moment
+        ));
+
+        let referendum_index = 0;
+
+        // Cancel by root
+        assert_ok!(Referenda::cancel(
+            RuntimeOrigin::root(),
+            referendum_index
+        ));
+
+        // Check if referendum was cancelled (should no longer be in ongoing state)
+        let referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
+        assert!(referendum_info.is_some(), "Referendum should exist");
+
+        match referendum_info.unwrap() {
+            pallet_referenda::ReferendumInfo::Ongoing(_) => {
+                panic!("Referendum should not be in ongoing state after cancellation");
+            },
+            pallet_referenda::ReferendumInfo::Cancelled(_, _, _) => {
+                // Successfully cancelled
+            },
+            _ => {
+                panic!("Referendum should be in Cancelled state");
+            }
+        }
+
+        // Since we're using Slash = (), the deposit should be burned
+        // We need to account for both preimage costs and submission deposit
+        assert!(
+            Balances::free_balance(&proposer) < initial_balance,
+            "Balance should be reduced after cancellation"
+        );
+    });
+}
+
+#[test]
+fn referendum_voting_and_passing_works() {
+    new_test_ext().execute_with(|| {
+        let proposer = account_id(1);
+        let voter1 = account_id(2);
+        let voter2 = account_id(3);
+
+        // Ensure voters have enough balance
+        Balances::make_free_balance_be(&voter1, 1000 * UNIT);
+        Balances::make_free_balance_be(&voter2, 1000 * UNIT);
+
+        // Prepare origin for the proposal
+        let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Root));
+
+        // Create a call for the proposal
+        let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+
+        // Encode the call
+        let encoded_call = call.encode();
+
+        // Calculate hash manually
+        let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+
+        // Store preimage before using the hash
+        assert_ok!(Preimage::note_preimage(
+            RuntimeOrigin::signed(proposer.clone()),
+            encoded_call.clone()
+        ));
+
+        // Create lookup for bounded call
+        let bounded_call = frame_support::traits::Bounded::Lookup {
+            hash: preimage_hash,
+            len: encoded_call.len() as u32
+        };
+
+        // Activation moment
+        let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+
+        // Submit referendum
+        assert_ok!(Referenda::submit(
+            RuntimeOrigin::signed(proposer.clone()),
+            proposal_origin,
+            bounded_call,
+            enactment_moment
+        ));
+
+        let referendum_index = 0;
+
+        // Place decision deposit to start the deciding phase
+        assert_ok!(Referenda::place_decision_deposit(
+            RuntimeOrigin::signed(proposer.clone()),
+            referendum_index
+        ));
+
+        // Vote for the referendum with different vote amounts
+        assert_ok!(ConvictionVoting::vote(
+            RuntimeOrigin::signed(voter1.clone()),
+            referendum_index,
+            Standard {
+                vote: Vote{
+                    aye: true,
+                    conviction: pallet_conviction_voting::Conviction::None,
+                },
+                balance: 50 * UNIT
+            }
+        ));
+
+        assert_ok!(ConvictionVoting::vote(
+            RuntimeOrigin::signed(voter2.clone()),
+            referendum_index,
+            Standard {
+                vote: Vote{
+                    aye: true,
+                    conviction: pallet_conviction_voting::Conviction::None,
+                },
+                balance: 50 * UNIT
+            }
+        ));
+
+        // Advance blocks to get past preparation period
+        let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
+        let prepare_period = track_info.prepare_period;
+
+        run_to_block(prepare_period + 1);
+
+        // Check if referendum is in deciding phase
+        let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+        match info {
+            pallet_referenda::ReferendumInfo::Ongoing(details) => {
+                assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
+            },
+            _ => panic!("Referendum should be ongoing"),
+        }
+
+        // Advance to end of voting period
+        // Use the default voting period from config
+        let voting_period = <Runtime as pallet_referenda::Config>::Tracks::info(0)
+            .map(|info| info.decision_period)
+            .unwrap_or(30); // Fallback value if track info can't be retrieved
+
+        run_to_block(10 + voting_period);
+
+        // Now advance through confirmation period
+        run_to_block(10 + voting_period + 10); // Add some extra blocks for confirmation
+
+        // Check if referendum passed
+        let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+        match info {
+            pallet_referenda::ReferendumInfo::Approved(_, _, _) => {
+                // Successfully passed
+            },
+            other => panic!("Referendum should be approved, but is: {:?}", other),
+        }
+    });
+}
 
 // Helper function to create AccountId32 from a simple index
 // (defined outside the mod tests to be used in new_test_ext)

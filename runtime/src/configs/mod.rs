@@ -194,23 +194,44 @@ parameter_types! {
 }
 
 impl pallet_referenda::Config for Runtime {
+	/// The overarching event type for the runtime.
 	type RuntimeEvent = RuntimeEvent;
+	/// Provides weights for the pallet operations to properly charge transaction fees.
 	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
+	/// The type of call dispatched by referenda upon approval and execution.
 	type RuntimeCall = RuntimeCall;
+	/// The scheduler pallet used to delay execution of successful referenda.
 	type Scheduler = Scheduler;
+	/// The currency mechanism used for handling deposits and voting.
 	type Currency = Balances;
+	/// The origin allowed to submit referenda - in this case any signed account.
 	type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
+	/// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
 	type CancelOrigin = EnsureRoot<AccountId>;
+	/// The privileged origin allowed to kill a referendum that's not passing - only root can do this.
 	type KillOrigin = EnsureRoot<AccountId>;
-	// This would normally point to Treasury, but we can use a simpler approach for now
+	/// Destination for slashed deposits when a referendum is cancelled or killed.
+	/// Leaving () here, will burn all slashed deposits. It's possible to use here the same idea
+	/// as we have for TransactionFees (OnUnbalanced) - with this it should be possible to
+	/// do something more sophisticated with this.
 	type Slash = (); // Will discard any slashed deposits
-	type Votes = u128; // This will be properly set when implementing ConvictionVoting
-	type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>; // This will be properly set when implementing ConvictionVoting
+	/// The voting mechanism used to collect votes and determine how they're counted.
+	/// Connected to the conviction voting pallet to allow conviction-weighted votes.
+	type Votes = pallet_conviction_voting::VotesOf<Runtime>;
+	/// The method to tally votes and determine referendum outcome.
+	/// Uses conviction voting's tally system with a maximum turnout threshold.
+	type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>;
+	/// The deposit required to submit a referendum proposal.
 	type SubmissionDeposit = ReferendumSubmissionDeposit;
+	/// Maximum number of referenda that can be in the deciding phase simultaneously.
 	type MaxQueued = ReferendumMaxProposals;
+	/// Time period after which an undecided referendum will be automatically rejected.
 	type UndecidingTimeout = UndecidingTimeout;
+	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
 	type AlarmInterval = AlarmInterval;
+	/// Defines the different referendum tracks (categories with distinct parameters).
 	type Tracks = TracksInfo;
+	/// The pallet used to store preimages (detailed proposal content) for referenda.
 	type Preimages = Preimage;
 }
 

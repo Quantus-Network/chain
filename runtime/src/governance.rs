@@ -10,7 +10,6 @@ use alloc::vec::Vec;
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
 
-
 ///Preimage pallet fee model
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo, MaxEncodedLen, Debug)]
