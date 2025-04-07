@@ -180,21 +180,6 @@ pub mod pallet {
         /// This function checks if an account is eligible to claim a specific amount from an airdrop
         /// by verifying a Merkle proof against the stored Merkle root.
         ///
-        /// # How Poseidon-based verification differs from standard approaches:
-        ///
-        /// 1. Hash Function: Uses Poseidon hash instead of traditional Keccak/SHA-256
-        ///    - Poseidon is optimized for zero-knowledge proofs and is more efficient in ZK circuits
-        ///    - It provides strong security while being more efficient for on-chain verification
-        ///    - Aligns with Resonance Network's use of Poseidon for block headers and storage roots
-        ///
-        /// 2. ZK-Friendly: Poseidon is specifically designed to be efficient in zero-knowledge proof systems
-        ///    - Fewer constraints in ZK circuits compared to SHA-256
-        ///    - Better performance for on-chain verification
-        ///    - Enables future integration with ZK-based privacy features
-        ///
-        /// 3. Quantum Resistance: While not fully quantum-resistant, Poseidon provides better
-        ///    resistance against quantum attacks than some traditional hash functions
-        ///
         /// # Parameters
         ///
         /// * `account` - The account ID claiming tokens
@@ -316,15 +301,37 @@ pub mod pallet {
             origin: OriginFor<T>,
             merkle_root: MerkleRoot,
         ) -> DispatchResult {
-            let _who = ensure_signed(origin)?;
+            log::info!(
+                target: "merkle-airdrop",
+                "🌟 create_airdrop called with root: {:?}",
+                merkle_root
+            );
+
+            let who = ensure_signed(origin)?;
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ Caller: {:?}",
+                who
+            );
 
             // Get the next available airdrop ID
             let airdrop_id = Self::next_airdrop_id();
+            log::info!(
+                target: "merkle-airdrop",
+                "📊 Next airdrop ID: {:?}",
+                airdrop_id
+            );
 
             // Ensure we haven't reached the maximum number of airdrops
             ensure!(
                 airdrop_id < T::MaxAirdrops::get(),
                 Error::<T>::TooManyAirdrops
+            );
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ Max airdrops check passed: current={:?}, max={:?}",
+                airdrop_id,
+                T::MaxAirdrops::get()
             );
 
             // Ensure this airdrop doesn't already exist (should never happen with sequential IDs)
@@ -332,22 +339,50 @@ pub mod pallet {
                 !AirdropMerkleRoots::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropAlreadyExists
             );
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ Airdrop doesn't exist check passed"
+            );
 
             // Store the Merkle root for this airdrop
             AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ Merkle root stored for airdrop ID: {:?}",
+                airdrop_id
+            );
 
             // Initialize the airdrop balance to zero with explicit type
             let zero_balance: <<T as Config>::Currency as Currency<T::AccountId>>::Balance = 0u32.into();
             AirdropBalances::<T>::insert(airdrop_id, zero_balance);
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ Airdrop balance initialized to zero"
+            );
 
             // Increment the airdrop ID counter for next time
             NextAirdropId::<T>::put(airdrop_id + 1);
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ Next airdrop ID incremented to: {:?}",
+                airdrop_id + 1
+            );
 
             // Emit an event
             Self::deposit_event(Event::AirdropCreated {
                 airdrop_id,
                 merkle_root,
             });
+            log::info!(
+                target: "merkle-airdrop",
+                "✅ AirdropCreated event emitted for ID: {:?}",
+                airdrop_id
+            );
+
+            log::info!(
+                target: "merkle-airdrop",
+                "🎉 create_airdrop completed successfully"
+            );
 
             Ok(())
         }
