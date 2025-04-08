@@ -269,10 +269,10 @@ pub fn run() -> sc_cli::Result<()> {
 							resonance_runtime::opaque::Block,
 							<resonance_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 						>,
-					>(config, cli.rewards_address.clone())
+					>(config, cli.rewards_address.clone(), cli.external_miner_url.clone())
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p =>
-						service::new_full::<sc_network::Litep2pNetworkBackend>(config, cli.rewards_address.clone())
+						service::new_full::<sc_network::Litep2pNetworkBackend>(config, cli.rewards_address.clone(), cli.external_miner_url.clone())
 							.map_err(sc_cli::Error::Service),
 				}
 			})
