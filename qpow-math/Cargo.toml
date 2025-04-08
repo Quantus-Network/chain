@@ -1,5 +1,5 @@
 [package]
-name = "rsa-shortcut-math"
+name = "qpow-math"
 version = "0.1.0"
 license.workspace = true
 authors.workspace = true

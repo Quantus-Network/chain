@@ -8,7 +8,7 @@ use primitive_types::H256;
 use primitive_types::U512;
 use log::info;
 use codec::{Encode, Decode};
-use rsa_shortcut_math::RsaShortcutMath;
+use qpow_math::RsaShortcutMath;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct QPoWSeal {

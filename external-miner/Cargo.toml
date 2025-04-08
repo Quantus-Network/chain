@@ -18,4 +18,4 @@ codec = { version = "3.6.12", default-features = false, package = "parity-scale-
 num-bigint = { version = "0.4", features = ["rand"] }
 num-traits = "0.2"
 rand = { version = "0.8.5", default-features = false } 
-rsa-shortcut-math = { path = "../rsa-shortcut-math", default-features = false }
+qpow-math = { path = "../qpow-math", default-features = false }

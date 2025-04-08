@@ -20,8 +20,8 @@ pub mod pallet {
 	use frame_support::sp_runtime::traits::{One, Zero};
 	use sp_core::U512;
 use sp_std::prelude::*;
-	use rsa_shortcut_math::RsaShortcutMath;
-	use rsa_shortcut_math::MAX_DISTANCE;
+	use qpow_math::RsaShortcutMath;
+	use qpow_math::MAX_DISTANCE;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);

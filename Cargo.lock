@@ -6203,7 +6203,7 @@ dependencies = [
  "num-traits",
  "pallet-timestamp",
  "parity-scale-codec",
- "rsa-shortcut-math",
+ "qpow-math",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -7345,6 +7345,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qpow-math"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "primitive-types 0.13.1",
+ "sha2 0.10.8",
+ "sha3",
+]
+
+[[package]]
 name = "quanta"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7945,17 +7956,6 @@ dependencies = [
  "libc",
  "rtoolbox",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "rsa-shortcut-math"
-version = "0.1.0"
-dependencies = [
- "num-bigint",
- "num-traits",
- "primitive-types 0.13.1",
- "sha2 0.10.8",
- "sha3",
 ]
 
 [[package]]

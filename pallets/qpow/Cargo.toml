@@ -23,7 +23,7 @@ sp-runtime = { workspace=true, default-features = false }
 sp-core = { workspace=true, default-features = false }
 sp-io = { workspace=true, default-features = false }
 sp-std = {workspace = true, default-features = false}
-rsa-shortcut-math = { path = "../../rsa-shortcut-math", default-features = false }
+qpow-math = { path = "../../qpow-math", default-features = false }
 
 pallet-timestamp = {workspace = true, default-features = false}
 
