@@ -5,11 +5,10 @@ use warp::Filter;
 use serde::{Deserialize, Serialize};
 use hex;
 use primitive_types::H256;
-use sp_core::U512;
+use primitive_types::U512;
 use log::info;
 use codec::{Encode, Decode};
-use pallet_qpow::pallet::Pallet as QPoWPallet;
-use resonance_runtime::Runtime;
+use rsa_shortcut_math::RsaShortcutMath;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct QPoWSeal {
@@ -48,6 +47,7 @@ struct MiningState {
 struct MiningJob {
     header_hash: [u8; 32],  // Changed from mining_hash to header_hash
     difficulty: u64,
+    #[allow(dead_code)]
     nonce_start: U512,
     nonce_end: U512,
     current_nonce: U512,
@@ -190,8 +190,7 @@ async fn handle_result_request(
         let mut nonce = [0u8; 64];
         nonce.copy_from_slice(&nonce_bytes);
 
-        // Use the pallet's verification function with runtime config
-        if QPoWPallet::<Runtime>::is_valid_nonce(job.header_hash, nonce, job.difficulty) {
+        if RsaShortcutMath::is_valid_nonce(job.header_hash, nonce, job.difficulty) {
             let seal = QPoWSeal { nonce };
             
             return Ok(warp::reply::json(&MiningResult {
