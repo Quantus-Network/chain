@@ -189,7 +189,7 @@ parameter_types! {
     // Submission deposit for referenda
     pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
     // Undeciding timeout (90 days)
-    pub const UndecidingTimeout: BlockNumber = 90 * DAYS;
+    pub const UndecidingTimeout: BlockNumber = 45 * DAYS;
     pub const AlarmInterval: BlockNumber = 1;
 }
 
