@@ -50,9 +50,10 @@ mod benchmarks {
 
         // Mock proof - in a real benchmark this would need to be valid
         let merkle_proof = vec![[0u8; 32]];
+        let recipient = whitelisted_caller();
 
         #[extrinsic_call]
-        claim(RawOrigin::Signed(caller), airdrop_id, amount, merkle_proof);
+        claim(RawOrigin::None, airdrop_id, recipient, amount, merkle_proof);
     }
 
     impl_benchmark_test_suite!(MerkleAirdrop, crate::mock::new_test_ext(), crate::mock::Test);

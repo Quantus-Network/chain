@@ -98,7 +98,7 @@ fn claim_works() {
         let merkle_proof = vec![leaf2];
 
         // Claim tokens
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof.clone()));
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof.clone()));
 
         // Check that the event was emitted
         System::assert_last_event(Event::Claimed {
@@ -148,7 +148,7 @@ fn claim_fails_for_nonexistent_airdrop() {
 
         // Try to claim from a nonexistent airdrop
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::signed(1), 999, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 1, 500, merkle_proof),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -183,11 +183,11 @@ fn claim_already_claimed() {
         let merkle_proof = vec![leaf2];
 
         // Claim tokens
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof.clone()));
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof.clone()));
 
         // Try to claim again
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof.clone()),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof.clone()),
             Error::<Test>::AlreadyClaimed
         );
     });
@@ -323,7 +323,7 @@ fn claim_invalid_proof_fails() {
 
         // Attempt to claim with invalid proof
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, invalid_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, invalid_proof),
             Error::<Test>::InvalidProof
         );
     });
@@ -352,7 +352,7 @@ fn claim_insufficient_airdrop_balance_fails() {
 
         // Attempt to claim more than available
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof),
             Error::<Test>::InsufficientAirdropBalance
         );
     });
@@ -365,7 +365,7 @@ fn claim_nonexistent_airdrop_fails() {
 
         // Attempt to claim from a nonexistent airdrop
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::signed(2), 999, 500, vec![[0u8; 32]]),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 2, 500, vec![[0u8; 32]]),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -395,7 +395,7 @@ fn claim_updates_balances_correctly() {
 
         // Claim tokens
         let merkle_proof = vec![leaf2];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, merkle_proof));
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof));
 
         // Check balances after claim
         assert_eq!(Balances::free_balance(2), initial_account_balance + 500);
@@ -435,17 +435,17 @@ fn multiple_users_can_claim() {
 
         // User 1 claims
         let proof1 = vec![leaf2, leaf3];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(2), 0, 500, proof1));
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, proof1));
         assert_eq!(Balances::free_balance(2), 500);
 
         // User 2 claims
         let proof2 = vec![leaf1, leaf3];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(3), 0, 300, proof2));
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 3, 300, proof2));
         assert_eq!(Balances::free_balance(3), 300);
 
         // User 3 claims
         let proof3 = vec![parent1];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::signed(4), 0, 200, proof3));
+        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 4, 200, proof3));
         assert_eq!(Balances::free_balance(4), 200);
 
         // Check final airdrop balance
