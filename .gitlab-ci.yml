@@ -7,17 +7,18 @@
       apt-get install -yqq --no-install-recommends
       libclang-dev
       protobuf-compiler
-    - rustup toolchain install nightly
-    - rustup default nightly
     - rustup update
-    - rustup target add wasm32-unknown-unknown --toolchain nightly-x86_64-unknown-linux-gnu
-    - rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
+    - rustup toolchain install ${RUSTUP_TOOLCHAIN}
+    - rustup target add wasm32-unknown-unknown --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-unknown-linux-gnu
+    - rustup component add rust-src --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-unknown-linux-gnu
+    - rustup default ${RUSTUP_TOOLCHAIN}
     - rustup show
     - cargo --version
 
 variables:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Cdebug-assertions=y
+  RUSTUP_TOOLCHAIN: nightly-2024-12-14
 
 compile:
   stage: build
@@ -26,7 +27,8 @@ compile:
   before_script:
     - !reference [.common, before_script]
   script:
-    - cargo +nightly build --locked --release
+    - rustup override set ${RUSTUP_TOOLCHAIN}
+    - cargo build --locked --release
   after_script:
     - mv target/release/resonance-node ./resonance
     - sha256sum ./resonance | cut -d ' ' -f 1 | tee ./resonance.sha256
@@ -48,7 +50,8 @@ test:
   before_script:
     - !reference [.common, before_script]
   script:
-    - cargo +nightly test --locked --release --workspace
+    - rustup override set ${RUSTUP_TOOLCHAIN}
+    - cargo test --locked --release --workspace
 
 testnet:
   stage: deploy
