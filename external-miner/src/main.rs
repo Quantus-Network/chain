@@ -8,7 +8,7 @@ use primitive_types::H256;
 use primitive_types::U512;
 use log::info;
 use codec::{Encode, Decode};
-use qpow_math::RsaShortcutMath;
+use qpow_math::is_valid_nonce;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct QPoWSeal {
@@ -190,7 +190,7 @@ async fn handle_result_request(
         let mut nonce = [0u8; 64];
         nonce.copy_from_slice(&nonce_bytes);
 
-        if RsaShortcutMath::is_valid_nonce(job.header_hash, nonce, job.difficulty) {
+        if is_valid_nonce(job.header_hash, nonce, job.difficulty) {
             let seal = QPoWSeal { nonce };
             
             return Ok(warp::reply::json(&MiningResult {

@@ -19,9 +19,8 @@ pub mod pallet {
 	use num_traits::Float;
 	use frame_support::sp_runtime::traits::{One, Zero};
 	use sp_core::U512;
-use sp_std::prelude::*;
-	use qpow_math::RsaShortcutMath;
-	use qpow_math::MAX_DISTANCE;
+	use sp_std::prelude::*;
+	use qpow_math::{is_valid_nonce, get_nonce_distance, get_random_rsa, hash_to_group_bigint, MAX_DISTANCE};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -378,21 +377,21 @@ use sp_std::prelude::*;
 	impl<T: Config> Pallet<T> {
 
 		pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
-			return RsaShortcutMath::is_valid_nonce(header, nonce, difficulty);
+			return is_valid_nonce(header, nonce, difficulty);
 		}
 
 		pub fn get_nonce_distance(
 			header: [u8; 32], // 256-bit header
 			nonce: [u8; 64],  // 512-bit nonce
 		) -> u64 {
-			return RsaShortcutMath::get_nonce_distance(header, nonce);
+			return get_nonce_distance(header, nonce);
 		}
 		pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
-			return RsaShortcutMath::get_random_rsa(header);
+			return get_random_rsa(header);
 		}
 
 		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
-			return RsaShortcutMath::hash_to_group_bigint(h, m, n, solution);
+			return hash_to_group_bigint(h, m, n, solution);
 		}
 
 		// Function used during block import from the network
