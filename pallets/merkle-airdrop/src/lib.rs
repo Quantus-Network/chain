@@ -446,10 +446,11 @@ pub mod pallet {
         ///
         /// Users can claim their tokens by providing a proof of their eligibility.
         /// The proof is verified against the airdrop's Merkle root.
+        /// Anyone can trigger a claim for any eligible recipient.
         ///
         /// # Parameters
         ///
-        /// * `origin` - The origin of the call (must be signed)
+        /// * `origin` - The origin of the call
         /// * `airdrop_id` - The ID of the airdrop to claim from
         /// * `amount` - The amount of tokens to claim
         /// * `merkle_proof` - The Merkle proof verifying eligibility
@@ -457,7 +458,7 @@ pub mod pallet {
         /// # Errors
         ///
         /// * `AirdropNotFound` - If the specified airdrop does not exist
-        /// * `AlreadyClaimed` - If the user has already claimed from this airdrop
+        /// * `AlreadyClaimed` - If the recipient has already claimed from this airdrop
         /// * `InvalidProof` - If the provided Merkle proof is invalid
         /// * `InsufficientAirdropBalance` - If the airdrop doesn't have enough tokens
         #[pallet::call_index(2)]
@@ -465,10 +466,12 @@ pub mod pallet {
         pub fn claim(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
+            recipient: T::AccountId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
             merkle_proof: Vec<[u8; 32]>,
         ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
+            // Ensure the call has no origin (can be called by anyone)
+            ensure_none(origin)?;
 
             // Ensure the airdrop exists
             ensure!(
@@ -476,9 +479,9 @@ pub mod pallet {
                 Error::<T>::AirdropNotFound
             );
 
-            // Ensure the user hasn't already claimed
+            // Ensure the recipient hasn't already claimed
             ensure!(
-                !Claimed::<T>::contains_key(airdrop_id, &who),
+                !Claimed::<T>::contains_key(airdrop_id, &recipient),
                 Error::<T>::AlreadyClaimed
             );
 
@@ -488,7 +491,7 @@ pub mod pallet {
 
             // Verify the Merkle proof
             ensure!(
-                Self::verify_merkle_proof(&who, amount, &merkle_root, &merkle_proof),
+                Self::verify_merkle_proof(&recipient, amount, &merkle_root, &merkle_proof),
                 Error::<T>::InvalidProof
             );
 
@@ -501,7 +504,7 @@ pub mod pallet {
             );
 
             // Mark as claimed before performing the transfer to prevent reentrancy attacks
-            Claimed::<T>::insert(airdrop_id, &who, true);
+            Claimed::<T>::insert(airdrop_id, &recipient, true);
 
             // Update the airdrop balance
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
@@ -510,10 +513,10 @@ pub mod pallet {
                 }
             });
 
-            // Transfer tokens from the pallet account to the user
+            // Transfer tokens from the pallet account to the recipient
             T::Currency::transfer(
                 &Self::account_id(),
-                &who,
+                &recipient,
                 amount,
                 frame_support::traits::ExistenceRequirement::KeepAlive
             )?;
@@ -521,7 +524,7 @@ pub mod pallet {
             // Emit an event
             Self::deposit_event(Event::Claimed {
                 airdrop_id,
-                account: who,
+                account: recipient,
                 amount,
             });
 
