@@ -435,15 +435,10 @@ pub fn new_full<
                                 }
                             }
                         }
-
-                        continue;
-                    }
-
-                    // Otherwise use local mining
-                    let miner = QPoWMiner::new(client.clone());
-
-                    let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
+                    } else {
+                        // Local mining
+                        let miner = QPoWMiner::new(client.clone());
+                        let seal: QPoWSeal = match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
                             Ok(s) => {
                                 log::info!("valid nonce: {} ==> {:?}", nonce, s);
                                 s
@@ -454,16 +449,17 @@ pub fn new_full<
                             }
                         };
 
-                    log::info!("block found");
+                        log::info!("block found");
 
-                    let current_version = worker_handle.version();
-                    if current_version == version {
-                        if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                            log::info!("Successfully mined and submitted a new block");
-                            nonce = U512::zero();
-                        } else {
-                            log::warn!("Failed to submit mined block");
-                            nonce += U512::one();
+                        let current_version = worker_handle.version();
+                        if current_version == version {
+                            if futures::executor::block_on(worker_handle.submit(seal.encode())) {
+                                log::info!("Successfully mined and submitted a new block");
+                                nonce = U512::zero();
+                            } else {
+                                log::warn!("Failed to submit mined block");
+                                nonce += U512::one();
+                            }
                         }
                     }
                 }
