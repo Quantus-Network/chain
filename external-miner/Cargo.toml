@@ -1,0 +1,23 @@
+[package]
+name = "external-miner"
+version = "0.1.0"
+edition = "2021"
+authors = ["Resonance Network"]
+description = "External miner service for Resonance Network"
+
+[dependencies]
+tokio = { version = "1.36", features = ["full"] }
+warp = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.132", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+primitive-types = { version = "0.13.1", default-features = false }
+sp-core = { version = "35.0.0", default-features = false, features = ["std"] }
+sp-runtime = { version = "40.1.0", default-features = false, features = ["std"] }
+sp-consensus-qpow = { path = "../primitives/consensus/qpow", default-features = false, features = ["std"] }
+log = { version = "0.4.22", default-features = false }
+env_logger = "0.10"
+codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec", features = ["derive", "std"] }
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+rand = { version = "0.8.5", default-features = false } 
