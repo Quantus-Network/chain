@@ -8,6 +8,8 @@ use primitive_types::H256;
 use sp_core::U512;
 use log::info;
 use codec::{Encode, Decode};
+use pallet_qpow::pallet::Pallet as QPoWPallet;
+use resonance_runtime::Runtime;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct QPoWSeal {
@@ -17,7 +19,7 @@ pub struct QPoWSeal {
 #[derive(Serialize, Deserialize, Debug)]
 struct MiningRequest {
     job_id: String,
-    mining_hash: String,
+    mining_hash: String,  // This is the header hash
     difficulty: String,
     nonce_start: String,
     nonce_end: String,
@@ -44,7 +46,7 @@ struct MiningState {
 
 #[derive(Debug)]
 struct MiningJob {
-    mining_hash: H256,
+    header_hash: [u8; 32],  // Changed from mining_hash to header_hash
     difficulty: u64,
     nonce_start: U512,
     nonce_end: U512,
@@ -150,7 +152,7 @@ async fn handle_mine_request(
     };
 
     let job = MiningJob {
-        mining_hash,
+        header_hash: mining_hash.0,
         difficulty,
         nonce_start,
         nonce_end,
@@ -183,15 +185,14 @@ async fn handle_result_request(
             }));
         }
 
-        // Here you would implement the actual mining algorithm
-        // For now, we'll just increment the nonce
-        let current_nonce = job.current_nonce;
-        job.current_nonce += U512::one();
+        // Try the current nonce
+        let nonce_bytes = job.current_nonce.to_big_endian();
+        let mut nonce = [0u8; 64];
+        nonce.copy_from_slice(&nonce_bytes);
 
-        if current_nonce % U512::from(100) == U512::zero() {
-            // Simulate finding a valid nonce
-            let nonce_bytes = current_nonce.to_big_endian();
-            let seal = QPoWSeal { nonce: nonce_bytes };
+        // Use the pallet's verification function with runtime config
+        if QPoWPallet::<Runtime>::is_valid_nonce(job.header_hash, nonce, job.difficulty) {
+            let seal = QPoWSeal { nonce };
             
             return Ok(warp::reply::json(&MiningResult {
                 status: "found".to_string(),
@@ -200,6 +201,9 @@ async fn handle_result_request(
                 work: Some(format!("0x{}", hex::encode(seal.encode()))),
             }));
         }
+
+        // Increment nonce for next attempt
+        job.current_nonce += U512::one();
 
         Ok(warp::reply::json(&MiningResult {
             status: "working".to_string(),

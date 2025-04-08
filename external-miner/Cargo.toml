@@ -15,6 +15,8 @@ primitive-types = { version = "0.13.1", default-features = false }
 sp-core = { version = "35.0.0", default-features = false, features = ["std"] }
 sp-runtime = { version = "40.1.0", default-features = false, features = ["std"] }
 sp-consensus-qpow = { path = "../primitives/consensus/qpow", default-features = false, features = ["std"] }
+pallet-qpow = { path = "../pallets/qpow", default-features = false, features = ["std"] }
+resonance-runtime = { path = "../runtime", default-features = false, features = ["std"] }
 log = { version = "0.4.22", default-features = false }
 env_logger = "0.10"
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec", features = ["derive", "std"] }
