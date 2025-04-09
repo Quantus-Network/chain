@@ -196,20 +196,48 @@ pub mod pallet {
             merkle_root: &MerkleRoot,
             merkle_proof: &Vec<[u8; 32]>,
         ) -> bool {
+            // Log input parameters
+            log::info!(
+                target: "merkle-airdrop",
+                "Verifying proof with: \nAccount: {:?}\nAmount: {:?}\nMerkle Root: {:?}\nProof Length: {}",
+                account, amount, merkle_root, merkle_proof.len()
+            );
+
             // Create the leaf hash using Poseidon
             let leaf = Self::calculate_leaf_hash_poseidon(account, amount);
+            log::info!(
+                target: "merkle-airdrop",
+                "Calculated leaf hash: {:?}",
+                leaf
+            );
 
             // Verify the proof by walking up the tree
             let mut computed_hash = leaf;
-            for proof_element in merkle_proof {
+            for (i, proof_element) in merkle_proof.iter().enumerate() {
+                log::info!(
+                    target: "merkle-airdrop",
+                    "Proof step {}: Current hash: {:?}, Proof element: {:?}",
+                    i, computed_hash, proof_element
+                );
+
                 computed_hash = if computed_hash < *proof_element {
-                    Self::calculate_parent_hash_poseidon(&computed_hash, proof_element)
+                    let result = Self::calculate_parent_hash_poseidon(&computed_hash, proof_element);
+                    log::info!("Left child + Right child = {:?}", result);
+                    result
                 } else {
-                    Self::calculate_parent_hash_poseidon(proof_element, &computed_hash)
+                    let result = Self::calculate_parent_hash_poseidon(proof_element, &computed_hash);
+                    log::info!("Right child + Left child = {:?}", result);
+                    result
                 };
             }
 
-            // The computed hash should match the Merkle root if the proof is valid
+            // Log final comparison
+            log::info!(
+                target: "merkle-airdrop",
+                "Final comparison:\nComputed hash: {:?}\nMerkle root:   {:?}\nMatch: {}",
+                computed_hash, merkle_root, computed_hash == *merkle_root
+            );
+
             computed_hash == *merkle_root
         }
 
@@ -466,12 +494,10 @@ pub mod pallet {
         pub fn claim(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
-            recipient: T::AccountId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
             merkle_proof: Vec<[u8; 32]>,
         ) -> DispatchResult {
-            // Ensure the call has no origin (can be called by anyone)
-            ensure_none(origin)?;
+            let sender = ensure_signed(origin)?;
 
             // Ensure the airdrop exists
             ensure!(
@@ -479,9 +505,9 @@ pub mod pallet {
                 Error::<T>::AirdropNotFound
             );
 
-            // Ensure the recipient hasn't already claimed
+            // Ensure the sender hasn't already claimed
             ensure!(
-                !Claimed::<T>::contains_key(airdrop_id, &recipient),
+                !Claimed::<T>::contains_key(airdrop_id, &sender),
                 Error::<T>::AlreadyClaimed
             );
 
@@ -489,9 +515,9 @@ pub mod pallet {
             let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id)
                 .ok_or(Error::<T>::AirdropNotFound)?;
 
-            // Verify the Merkle proof
+            // Verify the Merkle proof using sender
             ensure!(
-                Self::verify_merkle_proof(&recipient, amount, &merkle_root, &merkle_proof),
+                Self::verify_merkle_proof(&sender, amount, &merkle_root, &merkle_proof),
                 Error::<T>::InvalidProof
             );
 
@@ -503,8 +529,8 @@ pub mod pallet {
                 Error::<T>::InsufficientAirdropBalance
             );
 
-            // Mark as claimed before performing the transfer to prevent reentrancy attacks
-            Claimed::<T>::insert(airdrop_id, &recipient, true);
+            // Mark as claimed before performing the transfer
+            Claimed::<T>::insert(airdrop_id, &sender, true);
 
             // Update the airdrop balance
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
@@ -513,18 +539,18 @@ pub mod pallet {
                 }
             });
 
-            // Transfer tokens from the pallet account to the recipient
+            // Transfer tokens from the pallet account to the sender
             T::Currency::transfer(
                 &Self::account_id(),
-                &recipient,
+                &sender,
                 amount,
                 frame_support::traits::ExistenceRequirement::KeepAlive
             )?;
 
-            // Emit an event
+            // Emit an event using sender
             Self::deposit_event(Event::Claimed {
                 airdrop_id,
-                account: recipient,
+                account: sender,
                 amount,
             });
 
