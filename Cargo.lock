@@ -6077,6 +6077,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-merkle-airdrop"
+version = "0.1.0"
+dependencies = [
+ "binary-merkle-tree",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "poseidon-resonance",
+ "scale-info",
+ "sha2 0.10.8",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -7701,6 +7721,7 @@ dependencies = [
  "hdwallet",
  "log",
  "pallet-balances",
+ "pallet-merkle-airdrop",
  "pallet-mining-rewards",
  "pallet-qpow",
  "pallet-sudo",

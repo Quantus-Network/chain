@@ -1,0 +1,61 @@
+[package]
+name = "pallet-merkle-airdrop"
+description = "A pallet for distributing tokens via Merkle proofs"
+version = "0.1.0"
+license = "MIT-0"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { workspace = true, default-features = false, features = ["derive"] }
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
+frame-benchmarking = { optional = true, workspace = true }
+frame-support.workspace = true
+frame-system.workspace = true
+pallet-balances.workspace = true
+sp-std.workspace = true
+sp-runtime.workspace = true
+sp-core.workspace = true
+sp-io.workspace = true
+log = { version = "0.4.22", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+binary-merkle-tree = { version = "16.0.0", default-features = false }
+poseidon-resonance = { workspace = true, default-features = false }
+
+[dev-dependencies]
+sp-core = { default-features = true, workspace = true }
+sp-io = { default-features = true, workspace = true }
+sp-runtime = { default-features = true, workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "sp-std/std",
+    "sp-runtime/std",
+    "sp-core/std",
+    "sp-io/std",
+    "pallet-balances/std",
+    "sha2/std",
+    "binary-merkle-tree/std",
+    "poseidon-resonance/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+] 

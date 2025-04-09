@@ -52,6 +52,7 @@ pallet-wormhole = { workspace = true, default-features = false}
 pallet-vesting = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false}
 log = { workspace = true }
+pallet-merkle-airdrop = { workspace = true, default-features = false }
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = {default-features=false, workspace = true}
@@ -90,6 +91,7 @@ std = [
 	"pallet-vesting/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
+	"pallet-merkle-airdrop/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
