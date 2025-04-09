@@ -47,8 +47,15 @@ INFO  external_miner > Starting external miner service...
 INFO  external_miner > Server starting on 0.0.0.0:9833 
 ```
 
-## API Endpoints
+## API Specification
 
-*   `POST /mine`: Submits a new mining job. Expects a JSON body with `MiningRequest` format.
+The detailed API specification is defined using OpenAPI 3.0 and can be found in the `api/openapi.yaml` file.
+
+This specification details all endpoints, request/response formats, and expected status codes.
+You can use tools like [Swagger Editor](https://editor.swagger.io/) or [Swagger UI](https://swagger.io/tools/swagger-ui/) to view and interact with the API definition.
+
+## API Endpoints (Summary)
+
+*   `POST /mine`: Submits a new mining job.
 *   `GET /result/{job_id}`: Retrieves the status and result of a specific mining job.
 *   `POST /cancel/{job_id}`: Cancels an ongoing mining job. 

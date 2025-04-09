@@ -1,0 +1,204 @@
+openapi: 3.0.0
+info:
+  title: External Miner API
+  version: 0.1.0
+  description: API for managing mining jobs for the Resonance Network external miner service.
+
+paths:
+  /mine:
+    post:
+      summary: Submit a new mining job
+      description: Accepts a mining job request and adds it to the queue if valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MiningRequest'
+      responses:
+        '200':
+          description: Job accepted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseAccepted'
+        '400':
+          description: Invalid request (e.g., missing fields, invalid format, duplicate job ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseError'
+
+  /result/{job_id}:
+    get:
+      summary: Get mining job status and result
+      description: Retrieves the current status and potentially the found nonce for a given job ID.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The ID of the mining job to retrieve.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResult'
+        '404':
+          description: Job ID not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResultNotFound'
+
+  /cancel/{job_id}:
+    post:
+      summary: Cancel a mining job
+      description: Attempts to cancel an ongoing mining job.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The ID of the mining job to cancel.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job cancelled successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseCancelled'
+        '404':
+          description: Job ID not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseNotFound'
+
+components:
+  schemas:
+    MiningRequest:
+      type: object
+      required:
+        - job_id
+        - mining_hash
+        - difficulty
+        - nonce_start
+        - nonce_end
+      properties:
+        job_id:
+          type: string
+          description: Unique identifier for the mining job.
+        mining_hash:
+          type: string
+          description: The header hash to mine on (hex encoded, 64 characters).
+          example: "a".repeat(64)
+          pattern: '^[a-fA-F0-9]{64}$'
+        difficulty:
+          type: string
+          description: Target difficulty for the mining job (string representation of a u64).
+          example: "1000"
+        nonce_start:
+          type: string
+          description: Starting nonce value (hex encoded, 128 characters).
+          example: "0".repeat(128)
+          pattern: '^[a-fA-F0-9]{128}$'
+        nonce_end:
+          type: string
+          description: Ending nonce value (hex encoded, 128 characters).
+          example: "f".repeat(128)
+          pattern: '^[a-fA-F0-9]{128}$'
+
+    MiningResponseAccepted:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Indicates the outcome of the request.
+          example: "accepted"
+        job_id:
+          type: string
+          description: The ID of the job that was accepted.
+          example: "test-job-123"
+
+    MiningResponseCancelled:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Indicates the outcome of the request.
+          example: "cancelled"
+        job_id:
+          type: string
+          description: The ID of the job that was cancelled.
+          example: "test-job-123"
+
+    MiningResponseError:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Describes the error that occurred.
+          example: "error: Job already exists"
+        job_id:
+          type: string
+          description: The ID of the job associated with the error (if applicable).
+          example: "test-job-123"
+
+    MiningResponseNotFound:
+        type: object
+        properties:
+          status:
+            type: string
+            description: Indicates the outcome of the request.
+            example: "not_found"
+          job_id:
+            type: string
+            description: The ID of the job that was not found.
+            example: "nonexistent-job"
+
+    MiningResult:
+      type: object
+      properties:
+        status:
+          type: string
+          description: The current status of the mining job (e.g., "running", "completed", "cancelled").
+          example: "running"
+        job_id:
+          type: string
+          description: The ID of the mining job.
+          example: "test-job-123"
+        nonce:
+          type: string
+          nullable: true
+          description: The found nonce if the job is completed (hex encoded).
+          example: "0000000000000abc" # Example, actual format from low_u64() hex
+        work:
+          type: string
+          nullable: true
+          description: The computed work value (currently unused/always null).
+          example: null
+
+    MiningResultNotFound:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Indicates the job was not found.
+          example: "not_found"
+        job_id:
+          type: string
+          description: The ID of the job that was not found.
+          example: "nonexistent-job"
+        nonce:
+          type: string
+          nullable: true
+          example: null
+        work:
+          type: string
+          nullable: true
+          example: null 
