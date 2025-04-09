@@ -2,6 +2,7 @@ use warp::Filter;
 use log::info;
 use external_miner::*; // Import everything from lib.rs
 use std::net::SocketAddr;
+use std::env;
 use env_logger;
 
 #[tokio::main]
@@ -37,7 +38,11 @@ async fn main() {
 
     let routes = mine_route.or(result_route).or(cancel_route);
 
-    let addr: SocketAddr = ([0, 0, 0, 0], 3000).into();
+    // Read port from environment variable MINER_PORT, default to 9833
+    let port_str = env::var("MINER_PORT").unwrap_or_else(|_| "9833".to_string());
+    let port = port_str.parse::<u16>().unwrap_or(9833);
+
+    let addr: SocketAddr = ([0, 0, 0, 0], port).into();
     info!("Server starting on {}", addr);
     warp::serve(routes).run(addr).await;
 }
