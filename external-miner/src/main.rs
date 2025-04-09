@@ -1,90 +1,34 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use warp::Filter;
-use serde::{Deserialize, Serialize};
-use hex;
-use primitive_types::H256;
-use primitive_types::U512;
 use log::info;
-use codec::{Encode, Decode};
-use qpow_math::is_valid_nonce;
-
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct QPoWSeal {
-    pub nonce: [u8; 64],
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct MiningRequest {
-    job_id: String,
-    mining_hash: String,  // This is the header hash
-    difficulty: String,
-    nonce_start: String,
-    nonce_end: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct MiningResponse {
-    status: String,
-    job_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct MiningResult {
-    status: String,
-    job_id: String,
-    nonce: Option<String>,
-    work: Option<String>,
-}
-
-#[derive(Clone)]
-struct MiningState {
-    jobs: Arc<Mutex<HashMap<String, MiningJob>>>,
-}
-
-#[derive(Debug)]
-struct MiningJob {
-    header_hash: [u8; 32],  // Changed from mining_hash to header_hash
-    difficulty: u64,
-    #[allow(dead_code)]
-    nonce_start: U512,
-    nonce_end: U512,
-    current_nonce: U512,
-    status: String,
-}
-
-impl MiningState {
-    fn new() -> Self {
-        Self {
-            jobs: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-}
+use external_miner::*; // Import everything from lib.rs
+use std::net::SocketAddr;
+use env_logger;
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
     info!("Starting external miner service...");
 
+    // Use MiningState from lib.rs
     let state = MiningState::new();
-    let state_filter = warp::any().map(move || state.clone());
+    let state_clone = state.clone(); // Clone state for the filter closure
+    let state_filter = warp::any().map(move || state_clone.clone());
 
-    // POST /mine - Submit a new mining job
+    // Use handle_mine_request from lib.rs
     let mine_route = warp::post()
         .and(warp::path("mine"))
-        .and(warp::body::json())
+        .and(warp::body::json()) // Expect MiningRequest from lib.rs
         .and(state_filter.clone())
         .and_then(handle_mine_request);
 
-    // GET /result/{job_id} - Check mining result
+    // Use handle_result_request from lib.rs
     let result_route = warp::get()
         .and(warp::path("result"))
         .and(warp::path::param())
         .and(state_filter.clone())
         .and_then(handle_result_request);
 
-    // POST /cancel/{job_id} - Cancel a mining job
+    // Use handle_cancel_request from lib.rs
     let cancel_route = warp::post()
         .and(warp::path("cancel"))
         .and(warp::path::param())
@@ -93,151 +37,7 @@ async fn main() {
 
     let routes = mine_route.or(result_route).or(cancel_route);
 
-    info!("External miner service listening on 127.0.0.1:3030");
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    let addr: SocketAddr = ([0, 0, 0, 0], 3000).into();
+    info!("Server starting on {}", addr);
+    warp::serve(routes).run(addr).await;
 }
-
-async fn handle_mine_request(
-    request: MiningRequest,
-    state: MiningState,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    let mining_hash = match hex::decode(&request.mining_hash[2..]) {
-        Ok(bytes) => {
-            if bytes.len() != 32 {
-                return Ok(warp::reply::json(&MiningResponse {
-                    status: "error".to_string(),
-                    job_id: request.job_id,
-                }));
-            }
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(&bytes);
-            H256(hash)
-        }
-        Err(_) => {
-            return Ok(warp::reply::json(&MiningResponse {
-                status: "error".to_string(),
-                job_id: request.job_id,
-            }));
-        }
-    };
-
-    let difficulty = match request.difficulty.parse::<u64>() {
-        Ok(d) => d,
-        Err(_) => {
-            return Ok(warp::reply::json(&MiningResponse {
-                status: "error".to_string(),
-                job_id: request.job_id,
-            }));
-        }
-    };
-
-    let nonce_start = match hex::decode(&request.nonce_start[2..]) {
-        Ok(bytes) => U512::from_big_endian(&bytes),
-        Err(_) => {
-            return Ok(warp::reply::json(&MiningResponse {
-                status: "error".to_string(),
-                job_id: request.job_id,
-            }));
-        }
-    };
-
-    let nonce_end = match hex::decode(&request.nonce_end[2..]) {
-        Ok(bytes) => U512::from_big_endian(&bytes),
-        Err(_) => {
-            return Ok(warp::reply::json(&MiningResponse {
-                status: "error".to_string(),
-                job_id: request.job_id,
-            }));
-        }
-    };
-
-    let job = MiningJob {
-        header_hash: mining_hash.0,
-        difficulty,
-        nonce_start,
-        nonce_end,
-        current_nonce: nonce_start,
-        status: "working".to_string(),
-    };
-
-    state.jobs.lock().await.insert(request.job_id.clone(), job);
-
-    Ok(warp::reply::json(&MiningResponse {
-        status: "accepted".to_string(),
-        job_id: request.job_id,
-    }))
-}
-
-async fn handle_result_request(
-    job_id: String,
-    state: MiningState,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    let mut jobs = state.jobs.lock().await;
-    
-    if let Some(job) = jobs.get_mut(&job_id) {
-        if job.current_nonce >= job.nonce_end {
-            job.status = "stale".to_string();
-            return Ok(warp::reply::json(&MiningResult {
-                status: "stale".to_string(),
-                job_id,
-                nonce: None,
-                work: None,
-            }));
-        }
-
-        // Try the current nonce
-        let nonce_bytes = job.current_nonce.to_big_endian();
-        let mut nonce = [0u8; 64];
-        nonce.copy_from_slice(&nonce_bytes);
-
-        if is_valid_nonce(job.header_hash, nonce, job.difficulty) {
-            let seal = QPoWSeal { nonce };
-            
-            return Ok(warp::reply::json(&MiningResult {
-                status: "found".to_string(),
-                job_id,
-                nonce: Some(format!("0x{}", hex::encode(nonce_bytes))),
-                work: Some(format!("0x{}", hex::encode(seal.encode()))),
-            }));
-        }
-
-        // Increment nonce for next attempt
-        job.current_nonce += U512::one();
-
-        Ok(warp::reply::json(&MiningResult {
-            status: "working".to_string(),
-            job_id,
-            nonce: None,
-            work: None,
-        }))
-    } else {
-        Ok(warp::reply::json(&MiningResult {
-            status: "not_found".to_string(),
-            job_id,
-            nonce: None,
-            work: None,
-        }))
-    }
-}
-
-async fn handle_cancel_request(
-    job_id: String,
-    state: MiningState,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    let mut jobs = state.jobs.lock().await;
-    
-    if let Some(job) = jobs.get_mut(&job_id) {
-        job.status = "cancelled".to_string();
-        jobs.remove(&job_id);
-        
-        Ok(warp::reply::json(&MiningResponse {
-            status: "cancelled".to_string(),
-            job_id,
-        }))
-    } else {
-        Ok(warp::reply::json(&MiningResponse {
-            status: "not_found".to_string(),
-            job_id,
-        }))
-    }
-} 
