@@ -1,8 +1,8 @@
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::TypeInfo;
-use frame_support::traits::{Consideration, Footprint, ReservableCurrency};
+use frame_support::traits::{CallerTrait, Consideration, Footprint, ReservableCurrency};
 use sp_runtime::{DispatchError, Perbill};
-use crate::{AccountId, Balance, Balances, BlockNumber, RuntimeOrigin, DAYS, MICRO_UNIT, UNIT};
+use crate::{AccountId, Balance, Balances, BlockNumber, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
 use alloc::vec::Vec;
 
 
@@ -74,40 +74,115 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
     type Id = u16;
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
-    // Create the tracks method directly - don't try to reference a trait constant
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
-        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = [(
-            0,
-            pallet_referenda::TrackInfo {
-                name: "root",
-                max_deciding: 1,
-                decision_deposit: 10 * UNIT,
-                prepare_period: 1 * DAYS,
-                decision_period: 14 * DAYS,
-                confirm_period: 1 * DAYS,
-                min_enactment_period: 1 * DAYS,
-                min_approval: pallet_referenda::Curve::LinearDecreasing {
-                    length: Perbill::from_percent(100),
-                    floor: Perbill::from_percent(50),
-                    ceil: Perbill::from_percent(100),
+        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 3] = [
+            // Track 0: Root Track (major system changes)
+            // - Highest privileges for critical protocol upgrades and parameter changes
+            (
+                0,
+                pallet_referenda::TrackInfo {
+                    name: "root",
+                    max_deciding: 1,                // Only 1 referendum can be in deciding phase at a time
+                    decision_deposit: 10 * UNIT,    // Highest deposit requirement to prevent spam
+                    prepare_period: 1 * DAYS,       // 1 day preparation before voting begins
+                    decision_period: 14 * DAYS,     // 2 weeks for community to vote
+                    confirm_period: 1 * DAYS,       // 1 day confirmation period once passing
+                    min_enactment_period: 1 * DAYS, // At least 1 day between approval and execution
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),    // Minimum 50% approval at end
+                        ceil: Perbill::from_percent(100),    // Requires 100% approval at start
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(10),    // At least 10% support at end
+                        ceil: Perbill::from_percent(50),     // 50% support required at start
+                    },
                 },
-                min_support: pallet_referenda::Curve::LinearDecreasing {
-                    length: Perbill::from_percent(100),
-                    floor: Perbill::from_percent(10),
-                    ceil: Perbill::from_percent(50),
+            ),
+
+            // Track 1: Signed Track (authenticated proposals)
+            // - For proposals from authenticated users that require privileges
+            // - Less stringent than root but still requires identity
+            (
+                1,
+                pallet_referenda::TrackInfo {
+                    name: "signed",
+                    max_deciding: 5,                // Allow several concurrent proposals
+                    decision_deposit: 5 * UNIT,     // Moderate deposit
+                    prepare_period: 12 * HOURS,     // Shorter preparation time
+                    decision_period: 7 * DAYS,      // 1 week voting period
+                    confirm_period: 12 * HOURS,     // 12 hours confirmation
+                    min_enactment_period: 12 * HOURS, // 12 hours until execution
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(55),    // Majority approval required
+                        ceil: Perbill::from_percent(70),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(5),
+                        ceil: Perbill::from_percent(25),
+                    },
                 },
-            },
-        )];
+            ),
+
+            // Track 2: Signaling Track (non-binding community opinions)
+            // - For community sentiment and direction gathering
+            (
+                2,
+                pallet_referenda::TrackInfo {
+                    name: "signaling",
+                    max_deciding: 20,               // High throughput for community proposals
+                    decision_deposit: 1 * UNIT,     // Low deposit requirement
+                    prepare_period: 6 * HOURS,      // Short preparation time
+                    decision_period: 5 * DAYS,      // Standard voting period
+                    confirm_period: 3 * HOURS,      // Minimal confirmation period
+                    min_enactment_period: 1,        // Immediate "execution" (just for record-keeping)
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),    // Simple majority approval
+                        ceil: Perbill::from_percent(60),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(1),     // Very low support threshold
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+        ];
         &TRACKS
     }
 
-    fn track_for(origin: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-        if origin.eq(&frame_support::dispatch::RawOrigin::Root.into()) {
-            Ok(0)
-        } else {
-            Err(())
+    // fn track_for(origin: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
+    //     if origin.eq(&frame_support::dispatch::RawOrigin::Root.into()) {
+    //         Ok(0)
+    //     } else {
+    //         Err(())
+    //     }
+    // }
+
+    fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
+        // Check for system origins first
+        if let Some(system_origin) = id.as_system_ref() {
+            match system_origin {
+                frame_system::RawOrigin::Root => return Ok(0),
+                frame_system::RawOrigin::None => return Ok(2),
+                _ => {}
+            }
         }
+
+        // Check for other custom origins
+        // This syntax depends on exactly how your custom origins are implemented
+        if let Some(_) = id.as_signed() {
+            return Ok(1);
+        }
+
+        // No match found
+        Err(())
     }
+
 
     fn info(id: Self::Id) -> Option<&'static pallet_referenda::TrackInfo<Balance, BlockNumber>> {
         Self::tracks()
