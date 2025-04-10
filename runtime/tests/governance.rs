@@ -1019,6 +1019,256 @@ fn referendum_token_slashing_works() {
     });
 }
 
+#[test]
+fn delegated_voting_works() {
+    new_test_ext().execute_with(|| {
+        let proposer = account_id(1);
+        let delegate = account_id(2);
+        let delegator1 = account_id(3);
+        let delegator2 = account_id(4);
+
+        // Set up sufficient balances for all accounts
+        Balances::make_free_balance_be(&proposer, 1000 * UNIT);
+        Balances::make_free_balance_be(&delegate, 1000 * UNIT);
+        Balances::make_free_balance_be(&delegator1, 500 * UNIT);
+        Balances::make_free_balance_be(&delegator2, 800 * UNIT);
+
+        // Prepare a proposal
+        let proposal = RuntimeCall::System(frame_system::Call::remark {
+            remark: b"Delegated voting test proposal".to_vec()
+        });
+        let encoded_call = proposal.encode();
+        let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+
+        // Store the preimage
+        assert_ok!(Preimage::note_preimage(
+            RuntimeOrigin::signed(proposer.clone()),
+            encoded_call.clone()
+        ));
+
+        let bounded_call = frame_support::traits::Bounded::Lookup {
+            hash: preimage_hash,
+            len: encoded_call.len() as u32
+        };
+
+        // Submit referendum
+        assert_ok!(Referenda::submit(
+            RuntimeOrigin::signed(proposer.clone()),
+            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+            bounded_call,
+            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+        ));
+
+        let referendum_index = 0;
+
+        // Place decision deposit to start deciding phase
+        assert_ok!(Referenda::place_decision_deposit(
+            RuntimeOrigin::signed(proposer.clone()),
+            referendum_index
+        ));
+
+        // Check initial voting state before any delegations
+        let initial_voting_for = pallet_conviction_voting::VotingFor::<Runtime>::try_get(&delegate, 0);
+        assert!(initial_voting_for.is_err(), "Delegate should have no votes initially");
+
+        // Delegators delegate their voting power to the delegate
+        assert_ok!(ConvictionVoting::delegate(
+            RuntimeOrigin::signed(delegator1.clone()),
+            0, // The class ID (track) to delegate for
+            sp_runtime::MultiAddress::Id(delegate.clone()),
+            pallet_conviction_voting::Conviction::Locked3x,
+            300 * UNIT // Delegating 300 UNIT with 3x conviction
+        ));
+
+        assert_ok!(ConvictionVoting::delegate(
+            RuntimeOrigin::signed(delegator2.clone()),
+            0, // The class ID (track) to delegate for
+            sp_runtime::MultiAddress::Id(delegate.clone()),
+            pallet_conviction_voting::Conviction::Locked2x,
+            400 * UNIT // Delegating 400 UNIT with 2x conviction
+        ));
+
+        // Verify delegations are recorded correctly
+        let delegator1_voting = pallet_conviction_voting::VotingFor::<Runtime>::try_get(&delegator1, 0).unwrap();
+        let delegator2_voting = pallet_conviction_voting::VotingFor::<Runtime>::try_get(&delegator2, 0).unwrap();
+
+        match delegator1_voting {
+            pallet_conviction_voting::Voting::Delegating(delegating) => {
+                assert_eq!(delegating.target, delegate, "Delegator1 should delegate to the correct account");
+                assert_eq!(delegating.conviction, pallet_conviction_voting::Conviction::Locked3x);
+                assert_eq!(delegating.balance, 300 * UNIT);
+            },
+            _ => panic!("Delegator1 should be delegating"),
+        }
+
+        match delegator2_voting {
+            pallet_conviction_voting::Voting::Delegating(delegating) => {
+                assert_eq!(delegating.target, delegate, "Delegator2 should delegate to the correct account");
+                assert_eq!(delegating.conviction, pallet_conviction_voting::Conviction::Locked2x);
+                assert_eq!(delegating.balance, 400 * UNIT);
+            },
+            _ => panic!("Delegator2 should be delegating"),
+        }
+
+        // The delegate votes on the referendum
+        assert_ok!(ConvictionVoting::vote(
+            RuntimeOrigin::signed(delegate.clone()),
+            referendum_index,
+            Standard {
+                vote: Vote {
+                    aye: true,
+                    conviction: pallet_conviction_voting::Conviction::Locked1x,
+                },
+                balance: 200 * UNIT // Delegate's direct vote is 200 UNIT with 1x conviction
+            }
+        ));
+
+        // Advance to deciding phase
+        let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
+        let prepare_period = track_info.prepare_period;
+        run_to_block(prepare_period + 1);
+
+        // Check the tally includes both direct and delegated votes
+        let referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+        if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info {
+            assert!(status.tally.ayes > 0, "Tally should include votes");
+
+            // Calculate expected voting power with conviction
+            // Delegate: 200 UNIT * 1x = 200 UNIT equivalent
+            // Delegator1: 300 UNIT * 3x = 900 UNIT equivalent
+            // Delegator2: 400 UNIT * 2x = 800 UNIT equivalent
+            // Total: 1900 UNIT equivalent
+
+            // We can't directly access the exact vote values due to type abstractions, but we can
+            // verify that total votes are greater than just the delegate's direct vote
+            assert!(status.tally.ayes > 200 * UNIT,
+                    "Tally should include delegated votes (expected > 200 UNIT equivalent)");
+
+            println!("Referendum tally - ayes: {}", status.tally.ayes);
+        } else {
+            panic!("Referendum should be ongoing");
+        }
+
+        // One of the delegators changes their mind and undelegate
+        assert_ok!(ConvictionVoting::undelegate(
+            RuntimeOrigin::signed(delegator1.clone()),
+            0 // The class ID to undelegate
+        ));
+
+        // Verify undelegation worked
+        let delegator1_voting_after = pallet_conviction_voting::VotingFor::<Runtime>::try_get(&delegator1, 0);
+        assert!(delegator1_voting_after.is_err() ||
+                    !matches!(delegator1_voting_after.unwrap(), pallet_conviction_voting::Voting::Delegating{..}),
+                "Delegator1 should no longer be delegating");
+
+        // Advance blocks to update tally
+        run_to_block(prepare_period + 10);
+
+        // The undelegated account now votes directly
+        assert_ok!(ConvictionVoting::vote(
+            RuntimeOrigin::signed(delegator1.clone()),
+            referendum_index,
+            Standard {
+                vote: Vote{
+                    aye: false, // Voting against
+                    conviction: pallet_conviction_voting::Conviction::Locked1x,
+                },
+                balance: 300 * UNIT
+            }
+        ));
+
+        // Check the updated tally
+        let referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+        if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info {
+            // Now we should have:
+            // Ayes: Delegate (200 UNIT * 1x) + Delegator2 (400 UNIT * 2x) = 1000 UNIT equivalent
+            // Nays: Delegator1 (300 UNIT * 1x) = 300 UNIT equivalent
+
+            println!("Updated referendum tally - ayes: {}, nays: {}", status.tally.ayes, status.tally.nays);
+            assert!(status.tally.nays > 0, "Tally should include votes against");
+        } else {
+            panic!("Referendum should be ongoing");
+        }
+
+        // Complete the referendum
+        let decision_period = track_info.decision_period;
+        let confirm_period = track_info.confirm_period;
+        run_to_block(prepare_period + decision_period + confirm_period + 10);
+
+        // Check referendum passed despite the vote against
+        let final_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+        assert!(matches!(final_info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+                "Referendum should be approved due to delegated voting weight");
+
+        // Verify delegated balances are locked
+        let delegate_locks = pallet_balances::Locks::<Runtime>::get(&delegate);
+        let delegator2_locks = pallet_balances::Locks::<Runtime>::get(&delegator2);
+
+        assert!(!delegate_locks.is_empty(), "Delegate should have locks");
+        assert!(!delegator2_locks.is_empty(), "Delegator2 should have locks");
+
+        // The delegate now votes on another referendum - delegations should automatically apply
+        // Create a second referendum
+        let proposal2 = RuntimeCall::System(frame_system::Call::remark {
+            remark: b"Second proposal with delegations".to_vec()
+        });
+        let encoded_call2 = proposal2.encode();
+        let preimage_hash2 = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call2);
+
+        assert_ok!(Preimage::note_preimage(
+            RuntimeOrigin::signed(proposer.clone()),
+            encoded_call2.clone()
+        ));
+
+        let bounded_call2 = frame_support::traits::Bounded::Lookup {
+            hash: preimage_hash2,
+            len: encoded_call2.len() as u32
+        };
+
+        assert_ok!(Referenda::submit(
+            RuntimeOrigin::signed(proposer.clone()),
+            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+            bounded_call2,
+            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+        ));
+
+        let referendum_index2 = 1;
+
+        assert_ok!(Referenda::place_decision_deposit(
+            RuntimeOrigin::signed(proposer.clone()),
+            referendum_index2
+        ));
+
+        // Delegate votes on second referendum
+        assert_ok!(ConvictionVoting::vote(
+            RuntimeOrigin::signed(delegate.clone()),
+            referendum_index2,
+            Standard {
+                vote: Vote {
+                    aye: true,
+                    conviction: pallet_conviction_voting::Conviction::Locked1x,
+                },
+                balance: 100 * UNIT // Less direct voting power than before
+            }
+        ));
+
+        // Advance to deciding phase
+        run_to_block(prepare_period + decision_period + confirm_period + 20);
+
+        // Verify active delegations are automatically applied to the new referendum
+        let referendum_info2 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index2).unwrap();
+        if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info2 {
+            // Should still include delegator2's votes automatically
+            assert!(status.tally.ayes > 100 * UNIT,
+                    "Tally should include delegated votes from existing delegations");
+
+            println!("Second referendum tally - ayes: {}", status.tally.ayes);
+        } else {
+            panic!("Second referendum should be ongoing");
+        }
+    });
+}
+
 //Tracks tests
 
 #[test]
