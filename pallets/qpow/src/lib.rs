@@ -11,8 +11,6 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
-
-
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{pallet_prelude::*, traits::BuildGenesisConfig, traits::Time};
@@ -23,7 +21,7 @@ pub mod pallet {
 	use sha3::Sha3_512;
 	use num_bigint::BigUint;
 	use num_traits::Float;
-	use frame_support::sp_runtime::traits::{Zero, One};
+	use frame_support::sp_runtime::traits::{One, Zero};
 	use sp_std::prelude::*;
 
 	pub const CHUNK_SIZE: usize = 32;

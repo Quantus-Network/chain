@@ -1,5 +1,22 @@
 # Resonance Network Node
 
+## Prerequisites
+
+Use nightly rust version 12-24 or newer. Rust stable channel will not work. 
+
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup toolchain install nightly
+rustup default nightly
+```
+
+Check your version to make sure
+```
+cargo --version
+cargo 1.85.0-nightly (769f622e1 2024-12-14)
+```
+
+
 ## CLI Resonance commands
 
 ### Standard address pair generation

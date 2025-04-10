@@ -15,7 +15,6 @@ pub use weights::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-	// Import various useful types required by all FRAME pallets.
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
@@ -129,11 +128,6 @@ pub mod pallet {
                 );
 			}
 		}
-	}
-
-	#[pallet::call]
-	impl<T: Config> Pallet<T> {
-		// You can add extrinsics here if needed
 	}
 
 	impl<T: Config> Pallet<T> {

@@ -241,19 +241,20 @@ mod runtime {
 	pub type MiningRewards = pallet_mining_rewards;
 
 	#[runtime::pallet_index(8)]
-	pub type Preimage = pallet_preimage;
+	pub type Vesting = pallet_vesting;
 
 	#[runtime::pallet_index(9)]
-	pub type Scheduler = pallet_scheduler;
+	pub type Preimage = pallet_preimage;
 
 	#[runtime::pallet_index(10)]
-	pub type Utility = pallet_utility;
+	pub type Scheduler = pallet_scheduler;
 
 	#[runtime::pallet_index(11)]
-	pub type Referenda = pallet_referenda;
+	pub type Utility = pallet_utility;
 
 	#[runtime::pallet_index(12)]
+	pub type Referenda = pallet_referenda;
+
+	#[runtime::pallet_index(13)]
 	pub type ConvictionVoting = pallet_conviction_voting;
-
-
 }
