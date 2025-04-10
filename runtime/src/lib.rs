@@ -30,6 +30,8 @@ pub use pallet_balances::Call as BalancesCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
+pub mod governance;
+
 use poseidon_resonance::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -97,18 +99,18 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 // 	/// slot_duration()`.
 // 	///
 // 	/// Change this to adjust the block time.
-// 	pub const MILLI_SECS_PER_BLOCK: u64 = 6000;
+pub const MILLI_SECS_PER_BLOCK: u64 = 1000;
 
 // 	// NOTE: Currently it is not possible to change the slot duration after the chain has started.
 // 	// Attempting to do so will brick block production.
-// 	pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
+pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
 // }
 // pub use block_times::*;
 
 // Time is measured by number of blocks.
-// pub const MINUTES: BlockNumber = 60_000 / (MILLI_SECS_PER_BLOCK as BlockNumber);
-// pub const HOURS: BlockNumber = MINUTES * 60;
-// pub const DAYS: BlockNumber = HOURS * 24;
+pub const MINUTES: BlockNumber = 60;
+pub const HOURS: BlockNumber = MINUTES * 60;
+pub const DAYS: BlockNumber = HOURS * 24;
 
 pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
 
@@ -240,4 +242,19 @@ mod runtime {
 
 	#[runtime::pallet_index(8)]
 	pub type Vesting = pallet_vesting;
+
+	#[runtime::pallet_index(9)]
+	pub type Preimage = pallet_preimage;
+
+	#[runtime::pallet_index(10)]
+	pub type Scheduler = pallet_scheduler;
+
+	#[runtime::pallet_index(11)]
+	pub type Utility = pallet_utility;
+
+	#[runtime::pallet_index(12)]
+	pub type Referenda = pallet_referenda;
+
+	#[runtime::pallet_index(13)]
+	pub type ConvictionVoting = pallet_conviction_voting;
 }

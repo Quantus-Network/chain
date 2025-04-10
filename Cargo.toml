@@ -37,6 +37,11 @@ pallet-mining-rewards = {path = "./pallets/mining-rewards", default-features = f
 pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 pallet-vesting = { path = "./pallets/vesting", default-features = false }
 pallet-balances = { path="./pallets/balances", default-features = false }
+pallet-conviction-voting = { version = "39.1.0", default-features = false }
+pallet-preimage = { version = "39.0.0", default-features = false }
+pallet-referenda = { version = "39.1.0", default-features = false }
+pallet-scheduler = { version = "40.1.0", default-features = false }
+pallet-utility = { version = "39.1.0", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
@@ -52,7 +57,7 @@ sc-consensus = { version = "0.47.0", default-features = false }
 sc-consensus-pow = { version = "0.47.0", default-features = false }
 sc-consensus-qpow = { path ="./client/consensus/qpow", default-features = false}
 sc-executor = { version = "0.41.0", default-features = false }
-sc-network = { version = "0.48.2", default-features = false }
+sc-network = { version = "=0.48.2", default-features = false }
 sc-offchain = { version = "43.0.0", default-features = false }
 sc-service = { version = "0.49.0", default-features = false }
 sc-telemetry = { version = "28.0.0", default-features = false }

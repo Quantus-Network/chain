@@ -1,6 +1,6 @@
 use frame_support::{assert_noop, assert_ok};
 use crate::{mock::*, VestingSchedule};
-use frame_support::traits::{Currency, ExistenceRequirement, Len};
+use frame_support::traits::{Currency, ExistenceRequirement};
 use frame_support::traits::ExistenceRequirement::AllowDeath;
 use sp_runtime::{DispatchError, TokenError};
 use super::*;
