@@ -44,9 +44,10 @@ async fn test_mine_endpoint() {
         .reply(&mine_route)
         .await;
 
-    assert_eq!(resp.status(), 400);
+    assert_eq!(resp.status(), 409); 
     let body: MiningResponse = serde_json::from_slice(resp.body()).unwrap();
     assert!(body.status.contains("error"));
+    assert!(body.status.contains("Job already exists")); // Be more specific if possible
 
     // Test invalid request
     let invalid_request = MiningRequest {
@@ -81,6 +82,8 @@ async fn test_result_endpoint() {
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
         status: "running".to_string(),
+        hash_count: 0,
+        start_time: std::time::Instant::now(),
     };
     state.add_job("test".to_string(), job).await.unwrap();
 
@@ -128,6 +131,8 @@ async fn test_cancel_endpoint() {
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
         status: "running".to_string(),
+        hash_count: 0,
+        start_time: std::time::Instant::now(),
     };
     state.add_job("test".to_string(), job).await.unwrap();
 
@@ -179,6 +184,8 @@ async fn test_concurrent_access() {
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),
                 status: "running".to_string(),
+                hash_count: 0,
+                start_time: std::time::Instant::now(),
             };
             state.add_job(format!("test{}", i), job).await
         });
@@ -222,4 +229,4 @@ async fn test_concurrent_access() {
         let body: MiningResult = serde_json::from_slice(resp.body()).unwrap();
         assert_eq!(body.status, "running");
     }
-} 
+}
