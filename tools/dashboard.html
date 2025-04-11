@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Node Dashboard</title>
+    <style>
+        body { font-family: sans-serif; padding: 1em; line-height: 1.5; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1, h2 { color: #555; border-bottom: 1px solid #eee; padding-bottom: 0.5em; }
+        label { display: block; margin-top: 1em; margin-bottom: 0.3em; font-weight: bold; }
+        input[type="text"] { width: calc(100% - 22px); padding: 10px; margin-bottom: 1em; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        button:hover { background-color: #0056b3; }
+        .status { margin-top: 1em; padding: 0.8em; border-radius: 4px; }
+        .status.connecting { background-color: #e6f7ff; border: 1px solid #91d5ff; color: #096dd9; }
+        .status.connected { background-color: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; }
+        .status.error { background-color: #fff1f0; border: 1px solid #ffa39e; color: #cf1322; }
+        #nodeInfo p, #networkInfo p, #balanceInfo p { margin: 0.5em 0; }
+        #balanceDisplay { font-weight: bold; font-size: 1.2em; color: #0056b3; }
+        code { background-color: #eee; padding: 2px 4px; border-radius: 3px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-left: 10px; vertical-align: middle; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .hidden { display: none; }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1em;
+            margin-top: 1em;
+        }
+        .metric-card {
+            background: #fff;
+            padding: 1em;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .metric-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+        .wallet-section {
+            background: #f8f9fa;
+            padding: 1em;
+            border-radius: 8px;
+            margin-bottom: 1em;
+            border: 1px solid #dee2e6;
+        }
+        .wallet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5em;
+        }
+        .wallet-address {
+            font-family: monospace;
+            word-break: break-all;
+            margin-bottom: 0.5em;
+        }
+        .wallet-balance {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #28a745;
+        }
+        .refresh-btn {
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .refresh-btn:hover {
+            background-color: #5a6268;
+        }
+    </style>
+    <!-- Include Polkadot-JS API -->
+    <script src="https://cdn.jsdelivr.net/npm/@polkadot/api@12/bundle.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Node Dashboard</h1>
+
+        <div id="walletSection" class="wallet-section hidden">
+            <div class="wallet-header">
+                <h2>Node Wallet</h2>
+                <button id="refreshBalanceBtn" class="refresh-btn">Refresh Balance</button>
+            </div>
+            <div class="wallet-address">
+                <strong>Author Address:</strong> <span id="authorAddress">...</span>
+            </div>
+            <div class="wallet-balance">
+                <span id="walletBalance">...</span>
+            </div>
+        </div>
+
+        <div id="connection">
+            <h2>Connection</h2>
+            <label for="nodeUrl">Node WebSocket URL:</label>
+            <input type="text" id="nodeUrl" value="ws://127.0.0.1:9944">
+            <button id="connectBtn">Connect</button>
+            <div id="connectionStatus" class="status">Not connected.</div>
+        </div>
+
+        <div id="nodeInfo" class="hidden">
+             <h2>Node Info</h2>
+             <p><strong>Chain:</strong> <span id="chainName">...</span></p>
+             <p><strong>Node Name:</strong> <span id="nodeName">...</span></p>
+             <p><strong>Version:</strong> <span id="nodeVersion">...</span></p>
+        </div>
+
+        <div id="networkInfo" class="hidden">
+            <h2>Network Activity</h2>
+            <p><strong>Latest Block:</strong> #<span id="latestBlock">...</span> <span id="blockLoader" class="loader"></span></p>
+        </div>
+
+        <div id="metricsInfo" class="hidden">
+            <h2>Node Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Block Height</div>
+                    <div class="metric-value" id="metricBlockHeight">...</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Finalized Block</div>
+                    <div class="metric-value" id="metricFinalizedBlock">...</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Ready Transactions</div>
+                    <div class="metric-value" id="metricReadyTx">...</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Connected Peers</div>
+                    <div class="metric-value" id="metricPeers">...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { ApiPromise, WsProvider } = polkadotApi;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const nodeUrlInput = document.getElementById('nodeUrl');
+        const connectionStatusDiv = document.getElementById('connectionStatus');
+        const nodeInfoDiv = document.getElementById('nodeInfo');
+        const networkInfoDiv = document.getElementById('networkInfo');
+        const chainNameSpan = document.getElementById('chainName');
+        const nodeNameSpan = document.getElementById('nodeName');
+        const nodeVersionSpan = document.getElementById('nodeVersion');
+        const latestBlockSpan = document.getElementById('latestBlock');
+        const blockLoaderSpan = document.getElementById('blockLoader');
+
+        let api = null;
+        let unsubscribeNewHeads = null;
+
+        function setStatus(message, type = 'connecting') {
+            connectionStatusDiv.textContent = message;
+            connectionStatusDiv.className = `status ${type}`; // Reset classes and add new type
+            console.log(`Status (${type}): ${message}`);
+        }
+
+        function showSections(connected = false) {
+             nodeInfoDiv.classList.toggle('hidden', !connected);
+             networkInfoDiv.classList.toggle('hidden', !connected);
+        }
+
+        async function connect() {
+            if (api) {
+                setStatus('Disconnecting previous connection...', 'connecting');
+                await api.disconnect();
+                api = null;
+                if (unsubscribeNewHeads) unsubscribeNewHeads();
+                unsubscribeNewHeads = null;
+                showSections(false); // Hide sections on disconnect
+            }
+
+            const providerUrl = nodeUrlInput.value.trim();
+            if (!providerUrl) {
+                setStatus('Please enter a WebSocket URL.', 'error');
+                return;
+            }
+            setStatus(`Connecting to ${providerUrl}...`, 'connecting');
+            connectBtn.disabled = true;
+
+            const provider = new WsProvider(providerUrl);
+            provider.on('error', () => {
+                 setStatus(`Error connecting to ${providerUrl}. Is the node running and accessible?`, 'error');
+                 connectBtn.disabled = false;
+                 showSections(false);
+            });
+             provider.on('disconnected', () => {
+                 setStatus(`Disconnected from ${providerUrl}. Attempting to reconnect...`, 'error');
+                 showSections(false);
+                 // Simple auto-reconnect attempt after delay
+                 setTimeout(connect, 5000);
+            });
+
+
+            try {
+                api = await ApiPromise.create({ provider });
+                setStatus(`Connected to ${providerUrl}`, 'connected');
+                connectBtn.disabled = false;
+                showSections(true);
+                fetchNodeInfo();
+                subscribeToBlocks();
+                startMetricsPolling();
+                startBalancePolling();
+            } catch (error) {
+                setStatus(`Failed to connect: ${error.message}`, 'error');
+                console.error("Connection Error:", error);
+                connectBtn.disabled = false;
+                 showSections(false);
+            }
+        }
+
+        async function fetchNodeInfo() {
+            if (!api) return;
+            try {
+                const [chain, nodeName, nodeVersion] = await Promise.all([
+                    api.rpc.system.chain(),
+                    api.rpc.system.name(),
+                    api.rpc.system.version()
+                ]);
+                chainNameSpan.textContent = chain;
+                nodeNameSpan.textContent = nodeName;
+                nodeVersionSpan.textContent = nodeVersion;
+            } catch (error) {
+                console.error("Error fetching node info:", error);
+                chainNameSpan.textContent = 'Error';
+                nodeNameSpan.textContent = 'Error';
+                nodeVersionSpan.textContent = 'Error';
+            }
+        }
+
+        async function subscribeToBlocks() {
+            if (!api || unsubscribeNewHeads) return; // Already subscribed
+            try {
+                blockLoaderSpan.classList.remove('hidden');
+                unsubscribeNewHeads = await api.rpc.chain.subscribeNewHeads((header) => {
+                    latestBlockSpan.textContent = header.number.toNumber();
+                    blockLoaderSpan.classList.add('hidden'); // Hide loader once first block arrives
+                });
+            } catch (error) {
+                 console.error("Error subscribing to blocks:", error);
+                 latestBlockSpan.textContent = 'Error';
+                 blockLoaderSpan.classList.add('hidden');
+            }
+        }
+
+        // Function to fetch the author address
+        async function fetchAuthorAddress() {
+            if (!api) return null;
+            try {
+                // This assumes your node exposes the author address via RPC.
+                // Adjust the RPC call based on your node's configuration.
+                const authorAddress = await api.rpc.author.rotateKeys();
+                return authorAddress.toString();
+            } catch (error) {
+                console.error("Error fetching author address:", error);
+                return null;
+            }
+        }
+
+        // Function to fetch and update the wallet balance
+        async function updateWalletBalance() {
+            const authorAddress = await fetchAuthorAddress();
+            const walletSection = document.getElementById('walletSection');
+            const authorAddressSpan = document.getElementById('authorAddress');
+            const walletBalanceSpan = document.getElementById('walletBalance');
+
+            if (!authorAddress) {
+                walletSection.classList.add('hidden');
+                return;
+            }
+
+            walletSection.classList.remove('hidden');
+            authorAddressSpan.textContent = authorAddress;
+
+            try {
+                const { data: { free: freeBalance } } = await api.query.system.account(authorAddress);
+                const properties = await api.chainProperties;
+                const tokenDecimals = properties.tokenDecimals.unwrapOr(api.registry.createType('u32', 12)).toNumber();
+                const tokenSymbol = properties.tokenSymbol.unwrapOr(api.registry.createType('Text', 'UNIT')).toString();
+                const formatted = polkadotUtil.formatBalance(freeBalance, { withSi: false, forceUnit: '-', decimals: tokenDecimals });
+                walletBalanceSpan.textContent = `${formatted} ${tokenSymbol}`;
+            } catch (error) {
+                console.error("Error fetching wallet balance:", error);
+                walletBalanceSpan.textContent = 'Error fetching balance';
+            }
+        }
+
+        // Function to start periodic balance updates
+        function startBalancePolling() {
+            updateWalletBalance(); // Initial update
+            setInterval(updateWalletBalance, 30000); // Update every 30 seconds
+        }
+
+        // Function to fetch and parse Prometheus metrics
+        async function fetchPrometheusMetrics() {
+            const metricsUrl = 'http://127.0.0.1:9615/metrics'; // Adjust if needed
+            try {
+                const response = await fetch(metricsUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const text = await response.text();
+                return parsePrometheusMetrics(text);
+            } catch (error) {
+                console.error('Error fetching Prometheus metrics:', error);
+                return null;
+            }
+        }
+
+        // Function to parse Prometheus metrics text into an object
+        function parsePrometheusMetrics(text) {
+            const lines = text.split('\n');
+            const metrics = {};
+            lines.forEach(line => {
+                if (line && !line.startsWith('#')) {
+                    const [name, value] = line.split(' ');
+                    if (name && value) {
+                        metrics[name] = parseFloat(value);
+                    }
+                }
+            });
+            return metrics;
+        }
+
+        // Function to update the metrics display
+        function updateMetricsDisplay(metrics) {
+            if (!metrics) return;
+
+            // Update each metric if it exists in the response
+            const metricElements = {
+                'substrate_block_height': 'metricBlockHeight',
+                'substrate_finalized_block': 'metricFinalizedBlock',
+                'substrate_ready_transactions_number': 'metricReadyTx',
+                'substrate_peers_count': 'metricPeers'
+            };
+
+            Object.entries(metricElements).forEach(([metricName, elementId]) => {
+                const value = metrics[metricName];
+                const element = document.getElementById(elementId);
+                if (element && typeof value === 'number') {
+                    element.textContent = value.toLocaleString();
+                }
+            });
+        }
+
+        // Function to periodically fetch and update metrics
+        async function startMetricsPolling() {
+            const metricsInfoDiv = document.getElementById('metricsInfo');
+            if (!metricsInfoDiv) return;
+
+            // Show metrics section when connected
+            metricsInfoDiv.classList.remove('hidden');
+
+            // Initial fetch
+            const metrics = await fetchPrometheusMetrics();
+            updateMetricsDisplay(metrics);
+
+            // Set up polling (every 5 seconds)
+            setInterval(async () => {
+                const metrics = await fetchPrometheusMetrics();
+                updateMetricsDisplay(metrics);
+            }, 5000);
+        }
+
+        // Event Listeners
+        connectBtn.addEventListener('click', connect);
+        document.getElementById('refreshBalanceBtn').addEventListener('click', updateWalletBalance);
+
+        // Attempt initial connection on load
+        connect();
+
+    </script>
+</body>
+</html>
