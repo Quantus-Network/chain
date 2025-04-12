@@ -6510,14 +6510,12 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "num-bigint",
  "num-traits",
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
+ "qpow-math",
  "scale-info",
- "sha2 0.10.8",
- "sha3",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -7764,6 +7762,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f58e5423e24c18cc840e1c98370b3993c6649cd1678b4d24318bcf0a083cbe88"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "qpow-math"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "primitive-types 0.13.1",
+ "sha2 0.10.8",
+ "sha3",
 ]
 
 [[package]]
