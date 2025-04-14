@@ -519,10 +519,10 @@ async fn submit_mining_job(
 ) -> Result<(), String> {
     let request = MiningRequest {
         job_id: job_id.to_string(),
-        mining_hash: format!("0x{}", hex::encode(mining_hash)),
+        mining_hash: hex::encode(mining_hash.as_bytes()),
         difficulty: difficulty.to_string(),
-        nonce_start: format!("0x{}", hex::encode(nonce_start.to_big_endian())),
-        nonce_end: format!("0x{}", hex::encode(nonce_end.to_big_endian())),
+        nonce_start: format!("{:0128x}", nonce_start),
+        nonce_end: format!("{:0128x}", nonce_end),
     };
 
     let response = client
