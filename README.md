@@ -42,6 +42,14 @@ If this address is not specified, rewards will not be minted.
 ./resonance-node --chain local --validator --rewards-address <NODE_OPERATOR_ADDRESS>
 ```
 
+## Local dev run
+
+1. Build the release binary
+
+2. Run the node with --dev flag
+```sh
+./target/release/resonance-node --dev
+```
 
 ## Multinode local run
 
@@ -82,16 +90,6 @@ Explanation of flags:
 - --ws-port 9945: The WebSocket port for this node.
 - --bootnodes: Connects this node to the first node using its identity (<LOCAL_NODE_ID>).
 - --base-path /tmp/node2: Sets a separate data directory for this node.
-
-
-## Local dev run
-
-1. Build the release binary
-
-2. Run the node with --dev flag
-```sh
-./target/release/resonance-node --dev
-```
 
 ### Build
 
