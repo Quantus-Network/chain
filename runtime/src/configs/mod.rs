@@ -24,23 +24,26 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use frame_support::{derive_impl, parameter_types, traits::{ConstU128, ConstU32, ConstU8, VariantCountOf}, weights::{
-	constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
-	IdentityFee, Weight,
-}};
+use frame_support::{
+	derive_impl, parameter_types,
+	traits::{ConstU128, ConstU32, ConstU8, VariantCountOf},
+	weights::{
+		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
+		IdentityFee, Weight,
+	},
+};
 use frame_support::traits::ConstU64;
+use frame_system::EnsureRoot;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
 use poseidon_resonance::PoseidonHasher;
 use pallet_vesting::VestingPalletId;
+use crate::governance::{PreimageDeposit, TracksInfo};
+use pallet_referenda::impl_tracksinfo_get;
 // Local module imports
-use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
-	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	System, EXISTENTIAL_DEPOSIT, VERSION,
-};
+use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -146,12 +149,121 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
+    pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
+    pub const MaxVotes: u32 = 512;
+    pub const MaxTurnout: Balance = 60 * UNIT;
+    pub const MinimumDeposit: Balance = 1 * UNIT;
+}
+
+impl pallet_conviction_voting::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_conviction_voting::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type VoteLockingPeriod = VoteLockingPeriod;
+	type MaxVotes = MaxVotes;
+	type MaxTurnout = MaxTurnout;
+	type Polls = Referenda;
+}
+
+parameter_types! {
+    pub const PreimageBaseDeposit: Balance = 1 * UNIT;
+    pub const PreimageByteDeposit: Balance = 1 * MICRO_UNIT;
+}
+
+impl pallet_preimage::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
+	type Currency = Balances;
+	type ManagerOrigin = frame_system::EnsureRoot<AccountId>;
+	type Consideration = PreimageDeposit;
+}
+
+impl_tracksinfo_get!(TracksInfo, Balance, BlockNumber);
+
+parameter_types! {
+    // Default voting period (28 days)
+    pub const ReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
+    // Minimum time before a successful referendum can be enacted (4 days)
+    pub const ReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
+    // Maximum number of active referenda
+    pub const ReferendumMaxProposals: u32 = 100;
+    // Submission deposit for referenda
+    pub const ReferendumSubmissionDeposit: Balance = 100 * UNIT;
+    // Undeciding timeout (90 days)
+    pub const UndecidingTimeout: BlockNumber = 45 * DAYS;
+    pub const AlarmInterval: BlockNumber = 1;
+}
+
+impl pallet_referenda::Config for Runtime {
+	/// The overarching event type for the runtime.
+	type RuntimeEvent = RuntimeEvent;
+	/// Provides weights for the pallet operations to properly charge transaction fees.
+	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
+	/// The type of call dispatched by referenda upon approval and execution.
+	type RuntimeCall = RuntimeCall;
+	/// The scheduler pallet used to delay execution of successful referenda.
+	type Scheduler = Scheduler;
+	/// The currency mechanism used for handling deposits and voting.
+	type Currency = Balances;
+	/// The origin allowed to submit referenda - in this case any signed account.
+	type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
+	/// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
+	type CancelOrigin = EnsureRoot<AccountId>;
+	/// The privileged origin allowed to kill a referendum that's not passing - only root can do this.
+	type KillOrigin = EnsureRoot<AccountId>;
+	/// Destination for slashed deposits when a referendum is cancelled or killed.
+	/// Leaving () here, will burn all slashed deposits. It's possible to use here the same idea
+	/// as we have for TransactionFees (OnUnbalanced) - with this it should be possible to
+	/// do something more sophisticated with this.
+	type Slash = (); // Will discard any slashed deposits
+	/// The voting mechanism used to collect votes and determine how they're counted.
+	/// Connected to the conviction voting pallet to allow conviction-weighted votes.
+	type Votes = pallet_conviction_voting::VotesOf<Runtime>;
+	/// The method to tally votes and determine referendum outcome.
+	/// Uses conviction voting's tally system with a maximum turnout threshold.
+	type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>;
+	/// The deposit required to submit a referendum proposal.
+	type SubmissionDeposit = ReferendumSubmissionDeposit;
+	/// Maximum number of referenda that can be in the deciding phase simultaneously.
+	type MaxQueued = ReferendumMaxProposals;
+	/// Time period after which an undecided referendum will be automatically rejected.
+	type UndecidingTimeout = UndecidingTimeout;
+	/// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
+	type AlarmInterval = AlarmInterval;
+	/// Defines the different referendum tracks (categories with distinct parameters).
+	type Tracks = TracksInfo;
+	/// The pallet used to store preimages (detailed proposal content) for referenda.
+	type Preimages = Preimage;
+}
+
+parameter_types! {
+    // Maximum weight for scheduled calls (80% of the block's maximum weight)
+    pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
+    // Maximum number of scheduled calls per block
+    pub const MaxScheduledPerBlock: u32 = 50;
+    // Optional postponement for calls without preimage
+    pub const NoPreimagePostponement: Option<u32> = Some(10);
+}
+
+impl pallet_scheduler::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeOrigin = RuntimeOrigin;
+	type PalletsOrigin = OriginCaller;
+	type RuntimeCall = RuntimeCall;
+	type MaximumWeight = MaximumSchedulerWeight;
+	type ScheduleOrigin = frame_system::EnsureRoot<AccountId>;
+	type MaxScheduledPerBlock = MaxScheduledPerBlock;
+	type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
+	type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
+	type Preimages = Preimage;
+}
+
+parameter_types! {
 	pub FeeMultiplier: Multiplier = Multiplier::one();
 }
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	//type OnChargeTransaction = FungibleAdapter<Balances, ()>;
 	type OnChargeTransaction = FungibleAdapter<
 		Balances,
 		pallet_mining_rewards::TransactionFeesCollector<Runtime>
@@ -173,4 +285,10 @@ impl pallet_vesting::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = VestingPalletId;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+}
+impl pallet_utility::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type PalletsOrigin = OriginCaller;
+	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
 }
