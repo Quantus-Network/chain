@@ -86,43 +86,14 @@ API classes are defined in the 'resonance-miner-api' crate.
 
 ## Multinode local run
 
-1. Build the release binary
+To run a local testnet with multiple validator nodes, use the provided script:
 
-Make sure your Substrate-based node is compiled in release mode:
-
-```sh
-cargo build --release
+```bash
+# From workspace root
+./scripts/run_local_nodes.sh
 ```
 
-2. Run the main node
-
-Run the first node as a validator. This node will act as the bootstrap node in the network.
-```shell
-./target/release/resonance-node --chain local --validator
-```
-
-3. Look in the logs for the message similar to: ("Local node identity is")
-
-```shell
-Local node identity is: <LOCAL_NODE_ID>
-```
-Copy the <LOCAL_NODE_ID> value for use in the next step
-
-4. Run the second node
-
-Start a second node and connect it to the first one using its identity and port.
-```shell
-./target/release/resonance-node --chain local --name "PoW Node 2" --port 30334 --rpc-port 9934 --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/<LOCAL_NODE_ID> --base-path /tmp/node2 --validator
-```
-Explanation of flags:
-
-- --chain local: Specifies the local testnet chain.
-- --name "PoW Node 2": Assigns a unique name to the second node.
-- --port 30334: The P2P port for this node (must be different from the first node).
-- --rpc-port 9934: The RPC port for this node.
-- --ws-port 9945: The WebSocket port for this node.
-- --bootnodes: Connects this node to the first node using its identity (<LOCAL_NODE_ID>).
-- --base-path /tmp/node2: Sets a separate data directory for this node.
+This script handles building the node and launching two validator nodes connected to each other. Refer to the script comments for configuration details.
 
 ### Build
 
