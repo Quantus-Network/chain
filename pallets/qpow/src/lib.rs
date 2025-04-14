@@ -433,6 +433,9 @@ pub mod pallet {
 			let valid = Self::is_valid_nonce(header, nonce, difficulty);
 
 			if valid {
+				// Manually format header hex
+				let header_hex = header.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+				log::info!("🟢 Valid nonce: {:#x} for header: 0x{} difficulty: {}", U512::from_big_endian(&nonce), header_hex, difficulty);
 				<LatestNonce<T>>::put(nonce);
 				Self::deposit_event(Event::ProofSubmitted { nonce });
 			}
