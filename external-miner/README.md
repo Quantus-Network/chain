@@ -35,8 +35,8 @@ After building the service, you can run it directly from the command line:
 # Ensure the MINER_PORT environment variable is set (optional)
 # export MINER_PORT=9833
 
-# Run the compiled binary
-./target/release/external-miner
+# Run the compiled binary in the workspace root target dir
+RUST_LOG=info ../target/release/external-miner
 ```
 
 The service will start and log messages to the console, indicating the port it's listening on.

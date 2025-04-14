@@ -12,6 +12,11 @@ async fn main() {
 
     // Use MiningState from lib.rs
     let state = MiningState::new();
+
+    // --- Start the mining loop --- 
+    state.start_mining_loop().await;
+
+    // --- Set up Warp filters --- 
     let state_clone = state.clone(); // Clone state for the filter closure
     let state_filter = warp::any().map(move || state_clone.clone());
 
