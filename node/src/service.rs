@@ -427,7 +427,7 @@ pub fn new_full<
                                     if worker_handle.metadata().map(|m| m.best_hash != metadata.best_hash).unwrap_or(false) {
                                         break;
                                     }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    tokio::time::sleep(Duration::from_millis(200)).await;
                                 }
                                 Err(e) => {
                                     log::warn!("Mining error: {}", e);
