@@ -30,6 +30,9 @@ pallet-timestamp = {workspace = true, default-features = false}
 num-traits = { version = "0.2", default-features = false, features = ["libm"]}
 log = { version = "0.4.22", default-features = false }
 
+[dev-dependencies]
+primitive-types = { version = "0.13.1", default-features = false }
+
 [features]
 default = ["std"]
 std = [

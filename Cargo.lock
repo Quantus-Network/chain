@@ -6706,6 +6706,7 @@ dependencies = [
  "num-traits",
  "pallet-timestamp",
  "parity-scale-codec",
+ "primitive-types 0.13.1",
  "qpow-math",
  "scale-info",
  "sp-core",
