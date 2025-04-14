@@ -20,11 +20,9 @@ use crate::prometheus::ResonanceBusinessMetrics;
 use sp_core::crypto::AccountId32;
 use reqwest::Client;
 use uuid::Uuid;
-use primitive_types::H256;
-use hex;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_qpow::QPoWApi;
-use resonance_miner_api::*; // Import the shared API types
+use crate::external_miner_client; 
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -370,7 +368,7 @@ pub fn new_full<
                     if let Some(miner_url) = &external_miner_url {
                         // Cancel previous job if metadata has changed
                         if let Some(job_id) = &current_job_id {
-                            if let Err(e) = cancel_mining_job(&http_client, miner_url, job_id).await {
+                            if let Err(e) = external_miner_client::cancel_mining_job(&http_client, miner_url, job_id).await {
                                 log::warn!("Failed to cancel previous mining job: {}", e);
                             }
                         }
@@ -390,14 +388,14 @@ pub fn new_full<
                         current_job_id = Some(job_id.clone());
 
                         // Submit new mining job
-                        if let Err(e) = submit_mining_job(
+                        if let Err(e) = external_miner_client::submit_mining_job(
                             &http_client,
                             miner_url,
                             &job_id,
                             &metadata.pre_hash,
                             difficulty,
                             nonce,
-                            nonce + U512::from(1000), // Try 1000 nonces at a time
+                            U512::max_value(),
                         )
                         .await
                         {
@@ -408,17 +406,19 @@ pub fn new_full<
 
                         // Poll for results
                         loop {
-                            match check_mining_result(&http_client, miner_url, &job_id).await {
+                            match external_miner_client::check_mining_result(&http_client, miner_url, &job_id).await {
                                 Ok(Some(seal)) => {
                                     let current_version = worker_handle.version();
                                     if current_version == version {
                                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                                            log::info!("Successfully mined and submitted a new block");
+                                            log::info!("Successfully mined and submitted a new block via external miner");
                                             nonce = U512::zero();
                                         } else {
-                                            log::warn!("Failed to submit mined block");
-                                            nonce += U512::one();
+                                            log::warn!("Failed to submit mined block from external miner");
+                                            nonce = nonce + U512::one();
                                         }
+                                    } else {
+                                        log::info!("Work from external miner is stale, discarding.");
                                     }
                                     break;
                                 }
@@ -427,10 +427,10 @@ pub fn new_full<
                                     if worker_handle.metadata().map(|m| m.best_hash != metadata.best_hash).unwrap_or(false) {
                                         break;
                                     }
-                                    tokio::time::sleep(Duration::from_millis(200)).await;
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
                                 Err(e) => {
-                                    log::warn!("Mining error: {}", e);
+                                    log::warn!("Polling external miner result failed: {}", e);
                                     break;
                                 }
                             }
@@ -483,107 +483,4 @@ pub fn new_full<
 
     network_starter.start_network();
     Ok(task_manager)
-}
-
-// Example usage in submit_mining_job
-async fn submit_mining_job(
-    client: &Client,
-    miner_url: &str,
-    job_id: &str,
-    mining_hash: &H256,
-    difficulty: u64,
-    nonce_start: U512,
-    nonce_end: U512,
-) -> Result<(), String> {
-    let request = MiningRequest {
-        job_id: job_id.to_string(),
-        mining_hash: hex::encode(mining_hash.as_bytes()),
-        difficulty: difficulty.to_string(),
-        nonce_start: format!("{:0128x}", nonce_start),
-        nonce_end: format!("{:0128x}", nonce_end),
-    };
-
-    let response = client
-        .post(format!("{}/mine", miner_url))
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to send mining request: {}", e))?;
-
-    let result: MiningResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse mining response: {}", e))?;
-
-    if result.status != ApiResponseStatus::Accepted {
-        return Err(format!("Mining job was not accepted: {:?}", result.status));
-    }
-
-    Ok(())
-}
-
-async fn check_mining_result(
-    client: &Client,
-    miner_url: &str,
-    job_id: &str,
-) -> Result<Option<QPoWSeal>, String> {
-    let response = client
-        .get(format!("{}/result/{}", miner_url, job_id))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to check mining result: {}", e))?;
-
-    // Deserializes into imported MiningResult
-    let result: MiningResult = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse mining result: {}", e))?;
-
-    // Compares against imported ApiResponseStatus
-    match result.status {
-        ApiResponseStatus::Completed => {
-            if let Some(work_hex) = result.work {
-                let nonce_bytes = hex::decode(&work_hex)
-                    .map_err(|e| format!("Failed to decode work hex '{}': {}", work_hex, e))?;
-                if nonce_bytes.len() == 64 {
-                    let mut nonce = [0u8; 64];
-                    nonce.copy_from_slice(&nonce_bytes);
-                    // Assuming QPoWSeal is defined within node/src/service.rs or imported elsewhere
-                    Ok(Some(QPoWSeal { nonce })) 
-                } else {
-                    Err(format!("Invalid decoded work length: {} bytes (expected 64)", nonce_bytes.len()))
-                }
-            } else {
-                Err("Missing 'work' field in completed mining result".to_string())
-            }
-        }
-        ApiResponseStatus::Running => Ok(None),
-        ApiResponseStatus::NotFound => Err("Mining job not found".to_string()),
-        ApiResponseStatus::Failed => Err("Mining job failed (miner reported)".to_string()),
-        ApiResponseStatus::Cancelled => Err("Mining job was cancelled (miner reported)".to_string()),
-        ApiResponseStatus::Error => Err("Miner reported an unspecified error".to_string()), 
-        ApiResponseStatus::Accepted => Err("Unexpected 'Accepted' status received from result endpoint".to_string()),
-    }
-}
-
-// Example usage in cancel_mining_job
-async fn cancel_mining_job(client: &Client, miner_url: &str, job_id: &str) -> Result<(), String> {
-    let response = client
-        .post(format!("{}/cancel/{}", miner_url, job_id))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to cancel mining job: {}", e))?;
-
-    // Deserializes into imported MiningResponse
-    let result: MiningResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse cancel response: {}", e))?;
-
-    // Compares against imported ApiResponseStatus
-    if result.status == ApiResponseStatus::Cancelled || result.status == ApiResponseStatus::NotFound {
-        Ok(())
-    } else {
-        Err(format!("Failed to cancel mining job (unexpected status): {:?}", result.status))
-    }
 }
