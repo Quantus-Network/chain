@@ -433,6 +433,8 @@ pub mod pallet {
 			let valid = Self::is_valid_nonce(header, nonce, difficulty);
 
 			if valid {
+				use scale_info::prelude::format;
+				use scale_info::prelude::string::String;
 				// Manually format header hex
 				let header_hex = header.iter().map(|b| format!("{:02x}", b)).collect::<String>();
 				log::info!("🟢 Valid nonce: {:#x} for header: 0x{} difficulty: {}", U512::from_big_endian(&nonce), header_hex, difficulty);
