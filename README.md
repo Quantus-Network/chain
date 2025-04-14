@@ -51,6 +51,39 @@ If this address is not specified, rewards will not be minted.
 ./target/release/resonance-node --dev
 ```
 
+## Run with External Miner
+
+This node supports offloading the QPoW mining process to a separate service, freeing up node resources.
+
+Any service that adheres to the API spec below can be used as miner by the node. We provide a sample implementation in the 'external-miner' crate.
+
+API classes are defined in the 'resonance-miner-api' crate.
+
+**API Spec:** [openapi.yaml](https://gitlab.com/resonance-network/backbone/-/blob/b37c4fcdb749ddddc747915b79149e29f537e92f/external-miner/api/openapi.yaml)
+
+1.  **Build Node & Miner:**
+    ```bash
+    # From workspace root
+    cargo build --release -p resonance-node
+    cargo build --release -p external-miner
+    ```
+
+2.  **Run External Miner:** (In a separate terminal)
+    ```bash
+    # From workspace root
+    RUST_LOG=info ./target/release/external-miner
+    ```
+    *(Listens on `http://127.0.0.1:9833` by default)*
+
+3.  **Run Node:** (In another terminal)
+    ```bash
+    # From workspace root (replace <YOUR_REWARDS_ADDRESS>)
+    RUST_LOG=info,sc_consensus_pow=debug ./target/release/resonance-node \
+     --dev \
+     --external-miner-url http://127.0.0.1:9833 \
+     --miner-address <YOUR_REWARDS_ADDRESS>
+    ```
+
 ## Multinode local run
 
 1. Build the release binary
