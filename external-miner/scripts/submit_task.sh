@@ -1,3 +1,5 @@
+echo "Submitting task to external miner service test..."
+
 curl -X POST http://127.0.0.1:9833/mine \
 -H 'Content-Type: application/json' \
 -d '{
