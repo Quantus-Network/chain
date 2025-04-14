@@ -1,4 +1,4 @@
-// node/src/external_miner_client.rs
+/// Functions to interact with the external miner service
 
 use reqwest::Client;
 use primitive_types::{H256, U512};
