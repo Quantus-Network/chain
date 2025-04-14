@@ -2,6 +2,8 @@ use external_miner::*;
 use warp::test::request;
 use warp::Filter;
 use primitive_types::U512;
+use std::time::Instant;
+use resonance_miner_api::*; // Import shared API types
 
 #[tokio::test]
 async fn test_mine_endpoint() {
@@ -33,7 +35,7 @@ async fn test_mine_endpoint() {
 
     assert_eq!(resp.status(), 200);
     let body: MiningResponse = serde_json::from_slice(resp.body()).unwrap();
-    assert_eq!(body.status, "accepted");
+    assert_eq!(body.status, ApiResponseStatus::Accepted);
     assert_eq!(body.job_id, "test");
 
     // Test duplicate job ID
@@ -46,8 +48,9 @@ async fn test_mine_endpoint() {
 
     assert_eq!(resp.status(), 409); 
     let body: MiningResponse = serde_json::from_slice(resp.body()).unwrap();
-    assert!(body.status.contains("error"));
-    assert!(body.status.contains("Job already exists")); // Be more specific if possible
+    assert_eq!(body.status, ApiResponseStatus::Error);
+    assert!(body.message.is_some());
+    assert!(body.message.unwrap().contains("Job already exists"));
 
     // Test invalid request
     let invalid_request = MiningRequest {
@@ -81,9 +84,9 @@ async fn test_result_endpoint() {
         nonce_start: U512::from(0),
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
-        status: "running".to_string(),
-        hash_count: 0,
-        start_time: std::time::Instant::now(),
+        status: JobStatus::Running, // Use enum variant
+        hash_count: 0, 
+        start_time: Instant::now(),
     };
     state.add_job("test".to_string(), job).await.unwrap();
 
@@ -102,7 +105,7 @@ async fn test_result_endpoint() {
 
     assert_eq!(resp.status(), 200);
     let body: MiningResult = serde_json::from_slice(resp.body()).unwrap();
-    assert_eq!(body.status, "running");
+    assert_eq!(body.status, ApiResponseStatus::Running);
     assert_eq!(body.job_id, "test");
 
     // Test non-existent job
@@ -114,7 +117,7 @@ async fn test_result_endpoint() {
 
     assert_eq!(resp.status(), 404);
     let body: MiningResult = serde_json::from_slice(resp.body()).unwrap();
-    assert_eq!(body.status, "not_found");
+    assert_eq!(body.status, ApiResponseStatus::NotFound);
 }
 
 #[tokio::test]
@@ -130,9 +133,9 @@ async fn test_cancel_endpoint() {
         nonce_start: U512::from(0),
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
-        status: "running".to_string(),
-        hash_count: 0,
-        start_time: std::time::Instant::now(),
+        status: JobStatus::Running, // Use enum variant
+        hash_count: 0, 
+        start_time: Instant::now(),
     };
     state.add_job("test".to_string(), job).await.unwrap();
 
@@ -151,7 +154,7 @@ async fn test_cancel_endpoint() {
 
     assert_eq!(resp.status(), 200);
     let body: MiningResponse = serde_json::from_slice(resp.body()).unwrap();
-    assert_eq!(body.status, "cancelled");
+    assert_eq!(body.status, ApiResponseStatus::Cancelled);
     assert_eq!(body.job_id, "test");
 
     // Test cancel non-existent job
@@ -163,7 +166,7 @@ async fn test_cancel_endpoint() {
 
     assert_eq!(resp.status(), 404);
     let body: MiningResponse = serde_json::from_slice(resp.body()).unwrap();
-    assert_eq!(body.status, "not_found");
+    assert_eq!(body.status, ApiResponseStatus::NotFound);
 }
 
 #[tokio::test]
@@ -183,9 +186,9 @@ async fn test_concurrent_access() {
                 nonce_start: U512::from(0),
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),
-                status: "running".to_string(),
-                hash_count: 0,
-                start_time: std::time::Instant::now(),
+                status: JobStatus::Running, // Use enum variant
+                hash_count: 0, 
+                start_time: Instant::now(),
             };
             state.add_job(format!("test{}", i), job).await
         });
@@ -227,6 +230,6 @@ async fn test_concurrent_access() {
         let resp = handle.await.unwrap();
         assert_eq!(resp.status(), 200);
         let body: MiningResult = serde_json::from_slice(resp.body()).unwrap();
-        assert_eq!(body.status, "running");
+        assert_eq!(body.status, ApiResponseStatus::Running);
     }
 }

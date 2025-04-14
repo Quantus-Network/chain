@@ -517,7 +517,7 @@ mod tests {
         // It could be "completed" or "failed"
         assert!(job.status == JobStatus::Completed || job.status == JobStatus::Failed, "Job status should be completed or failed");
         assert!(job.hash_count > 0, "Should have attempted at least one hash");
-        println!("Mining loop test final status: {}, hash_count: {}", job.status, job.hash_count);
+        println!("Mining loop test final status: {:?}, hash_count: {}", job.status, job.hash_count);
     }
 
     // Keep concurrent mining test, focusing on adding jobs and seeing status change
@@ -567,7 +567,7 @@ mod tests {
              assert!(job.status == JobStatus::Completed || job.status == JobStatus::Failed, "Job {} status invalid", job_id);
               if job.status == JobStatus::Completed { completed_count += 1; }
               if job.status == JobStatus::Failed { failed_count += 1; }
-             println!("Concurrent test - Job {}: Status={}, Hashes={}", job_id, job.status, job.hash_count);
+             println!("Concurrent test - Job {}: Status={:?}, Hashes={}", job_id, job.status, job.hash_count);
          }
          println!("Concurrent test results: Completed={}, Failed={}", completed_count, failed_count);
          assert_eq!(completed_count + failed_count, num_jobs, "All jobs should be either completed or failed");
@@ -619,7 +619,7 @@ mod tests {
 
         // It's possible it fails if no nonce works, but we hope for completed
         if result_job.status != JobStatus::Completed {
-             println!("WARN: test_mining_job_completes did not complete, ended as {}. This might be due to qpow_math complexity.", result_job.status);
+             println!("WARN: test_mining_job_completes did not complete, ended as {:?}. This might be due to qpow_math complexity.", result_job.status);
         }
         assert_ne!(result_job.status, JobStatus::Running);
         assert!(result_job.hash_count > 0);
@@ -684,7 +684,7 @@ mod tests {
             assert_eq!(expected_nonce_hex, Some(format!("{:x}", final_job_state.current_nonce)), "Nonce field should contain the U512 hex");
             assert_eq!(expected_hash_count, final_job_state.hash_count);
         } else {
-            println!("WARN: test_mining_job_result_work_field did not complete, ended as {}.", final_job_state.status);
+            println!("WARN: test_mining_job_result_work_field did not complete, ended as {:?}.", final_job_state.status);
             assert_ne!(expected_status, JobStatus::Running);
             assert!(expected_work_hex.is_none(), "Work field should be None for non-completed job");
             assert_eq!(expected_nonce_hex, Some(format!("{:x}", final_job_state.current_nonce)), "Nonce field should contain the U512 hex even if failed");
@@ -768,7 +768,7 @@ mod tests {
             if result_job_c.status == JobStatus::Completed {
                  println!("Single nonce test completed successfully.");
              } else {
-                 println!("WARN: Single nonce test failed (status={}). qpow_math might not accept nonce {}.", result_job_c.status, nonce_value);
+                 println!("WARN: Single nonce test failed (status={:?}). qpow_math might not accept nonce {}.", result_job_c.status, nonce_value);
              }
 
     }
