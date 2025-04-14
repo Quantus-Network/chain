@@ -28,15 +28,36 @@ pub struct MiningRequest {
     pub nonce_end: String, // Hex encoded end nonce (64 bytes -> 128 chars)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobStatus {
+    Running,
+    Completed,
+    Failed, // e.g., reached nonce_end without success
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")] // Use snake_case for JSON representation
+pub enum ApiResponseStatus {
+    Accepted,   // Job submitted successfully
+    Running,    // Job is currently being processed
+    Completed,  // Job finished successfully (found nonce)
+    Failed,     // Job finished unsuccessfully (e.g., nonce range exhausted)
+    Cancelled,  // Job was cancelled via API
+    NotFound,   // Job ID doesn't exist
+    Error,      // Request failed (validation, duplicate job, etc.)
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MiningResponse {
-    pub status: String,
+    pub status: ApiResponseStatus,
     pub job_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MiningResult {
-    pub status: String,
+    pub status: ApiResponseStatus,
     pub job_id: String,
     pub nonce: Option<String>, // Hex encoded U512 representation of the final/winning nonce
     pub work: Option<String>, // Hex encoded [u8; 64] representation of the winning nonce
@@ -56,7 +77,7 @@ pub struct MiningJob {
     pub nonce_start: U512,
     pub nonce_end: U512,
     pub current_nonce: U512,
-    pub status: String,
+    pub status: JobStatus,
     pub hash_count: u64,
     pub start_time: Instant,
 }
@@ -74,7 +95,7 @@ impl MiningJob {
             nonce_start,
             nonce_end,
             current_nonce: nonce_start,
-            status: "running".to_string(),
+            status: JobStatus::Running,
             hash_count: 0,
             start_time: Instant::now(),
         }
@@ -118,7 +139,7 @@ impl MiningState {
             loop {
                 let mut jobs_guard = jobs.lock().await;
                 for (job_id, job) in jobs_guard.iter_mut() {
-                    if job.status == "running" {
+                    if job.status == JobStatus::Running {
                         // Increment nonce first for the next potential check
                         // (unless it's the very first hash attempt)
                         if job.hash_count > 0 {
@@ -127,7 +148,7 @@ impl MiningState {
 
                         // Check if the *new* current_nonce has exceeded the range *before* hashing
                         if job.current_nonce > job.nonce_end { // Use > comparison now
-                            job.status = "failed".to_string();
+                            job.status = JobStatus::Failed;
                             log::info!(
                                 "Job {} failed (exceeded nonce_end {}). Hashes: {}, Time: {:?}",
                                 job_id,
@@ -145,9 +166,9 @@ impl MiningState {
 
                         // Call the verification function from qpow-math
                         if is_valid_nonce(job.header_hash, nonce_bytes, job.difficulty) {
-                            job.status = "completed".to_string();
+                            job.status = JobStatus::Completed;
                             log::info!(
-                                "Job {} COMPLETED! Nonce: {} (0x{}), Hashes: {}, Time: {:?}",
+                                "Job {} COMPLETED! Nonce: {} ({}), Hashes: {}, Time: {:?}",
                                 job_id,
                                 job.current_nonce,
                                 hex::encode(nonce_bytes),
@@ -156,7 +177,7 @@ impl MiningState {
                             );
                         } else if job.current_nonce == job.nonce_end { 
                             // If it wasn't valid and we are at the end, mark as failed
-                            job.status = "failed".to_string();
+                            job.status = JobStatus::Failed;
                             log::info!(
                                 "Job {} failed (checked up to nonce_end {}). Hashes: {}, Time: {:?}",
                                 job_id,
@@ -208,8 +229,9 @@ pub async fn handle_mine_request(
          log::warn!("Invalid mine request ({}): {}", request.job_id, e);
         return Ok(warp::reply::with_status(
             warp::reply::json(&MiningResponse {
-                status: format!("error: {}", e),
+                status: ApiResponseStatus::Error,
                 job_id: request.job_id,
+                message: Some(e),
             }),
             warp::http::StatusCode::BAD_REQUEST,
         ));
@@ -236,8 +258,9 @@ pub async fn handle_mine_request(
              log::info!("Accepted mine request for job ID: {}", request.job_id);
             Ok(warp::reply::with_status(
                 warp::reply::json(&MiningResponse {
-                    status: "accepted".to_string(),
+                    status: ApiResponseStatus::Accepted,
                     job_id: request.job_id,
+                    message: None,
                 }),
                 warp::http::StatusCode::OK,
             ))
@@ -246,8 +269,9 @@ pub async fn handle_mine_request(
              log::error!("Failed to add job {}: {}", request.job_id, e);
             Ok(warp::reply::with_status(
                 warp::reply::json(&MiningResponse {
-                    status: format!("error: {}", e), // e.g., "Job already exists"
+                    status: ApiResponseStatus::Error,
                     job_id: request.job_id,
+                    message: Some(e),
                 }),
                 // Use CONFLICT (409) if job already exists? Or stick to BAD_REQUEST?
                 warp::http::StatusCode::CONFLICT,
@@ -262,11 +286,18 @@ pub async fn handle_result_request(
 ) -> Result<impl Reply, Rejection> {
      log::debug!("Received result request for job ID: {}", job_id);
     if let Some(job) = state.get_job(&job_id).await {
-        // Provide the U512 nonce as a hex string
-        let nonce_hex = format!("{:#x}", job.current_nonce);
+        // Map internal JobStatus to ApiResponseStatus
+        let api_status = match job.status {
+            JobStatus::Running => ApiResponseStatus::Running,
+            JobStatus::Completed => ApiResponseStatus::Completed,
+            JobStatus::Failed => ApiResponseStatus::Failed,
+        };
 
-        // Optionally include the 'work' if the job is completed
-        let work_hex = if job.status == "completed" {
+        // Provide the U512 nonce as a plain hex string (no 0x)
+        let nonce_hex = format!("{:x}", job.current_nonce);
+
+        // Work field is already plain hex
+        let work_hex = if job.status == JobStatus::Completed {
             Some(hex::encode(job.current_nonce.to_big_endian()))
         } else {
             None
@@ -274,7 +305,7 @@ pub async fn handle_result_request(
 
         Ok(warp::reply::with_status(
             warp::reply::json(&MiningResult {
-                status: job.status.clone(),
+                status: api_status,
                 job_id,
                 nonce: Some(nonce_hex),
                 work: work_hex,
@@ -287,7 +318,7 @@ pub async fn handle_result_request(
         log::warn!("Result requested for unknown job ID: {}", job_id);
         Ok(warp::reply::with_status(
             warp::reply::json(&MiningResult {
-                status: "not_found".to_string(),
+                status: ApiResponseStatus::NotFound,
                 job_id,
                 nonce: None,
                 work: None,
@@ -309,8 +340,9 @@ pub async fn handle_cancel_request(
          log::info!("Cancelled job ID: {}", job_id);
         Ok(warp::reply::with_status(
             warp::reply::json(&MiningResponse {
-                status: "cancelled".to_string(),
+                status: ApiResponseStatus::Cancelled,
                 job_id,
+                message: None,
             }),
             warp::http::StatusCode::OK,
         ))
@@ -318,8 +350,9 @@ pub async fn handle_cancel_request(
         log::warn!("Cancel requested for unknown job ID: {}", job_id);
         Ok(warp::reply::with_status(
             warp::reply::json(&MiningResponse {
-                status: "not_found".to_string(),
+                status: ApiResponseStatus::NotFound,
                 job_id,
+                message: None,
             }),
             warp::http::StatusCode::NOT_FOUND,
         ))
@@ -400,7 +433,7 @@ mod tests {
             nonce_start: U512::from(0),
             nonce_end: U512::from(1000),
             current_nonce: U512::from(0),
-            status: "running".to_string(),
+            status: JobStatus::Running,
             hash_count: 0,
             start_time: std::time::Instant::now(),
         };
@@ -439,7 +472,7 @@ mod tests {
                 nonce_start: U512::from(0),
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),
-                status: "running".to_string(),
+                status: JobStatus::Running,
                 hash_count: 0,
                 start_time: std::time::Instant::now(),
             };
@@ -470,7 +503,7 @@ mod tests {
             nonce_start: U512::from(0),
             nonce_end: U512::from(1000),
             current_nonce: U512::from(0),
-            status: "running".to_string(),
+            status: JobStatus::Running,
             hash_count: 0,
             start_time: std::time::Instant::now(),
         };
@@ -481,13 +514,13 @@ mod tests {
         // Get and update job status directly for testing
         let mut jobs = state.jobs.lock().await;
         if let Some(job) = jobs.get_mut("test") {
-            job.status = "completed".to_string();
+            job.status = JobStatus::Completed;
         }
         drop(jobs);
 
         // Verify status update
         let updated_job = state.get_job("test").await;
-        assert_eq!(updated_job.unwrap().status, "completed");
+        assert_eq!(updated_job.unwrap().status, JobStatus::Completed);
     }
 
     // --- Tests potentially needing adjustment or removal ---
@@ -511,7 +544,7 @@ mod tests {
             // Small nonce range to ensure it finishes if no solution found
             nonce_end: U512::from(500),
             current_nonce: U512::from(0),
-            status: "running".to_string(),
+            status: JobStatus::Running,
             hash_count: 0,
             start_time: Instant::now(),
         };
@@ -526,9 +559,9 @@ mod tests {
         let job = updated_job.unwrap();
 
         // Check that the status is no longer "running"
-        assert_ne!(job.status, "running", "Job status should have changed from running");
+        assert_ne!(job.status, JobStatus::Running, "Job status should have changed from running");
         // It could be "completed" or "failed"
-        assert!(job.status == "completed" || job.status == "failed", "Job status should be completed or failed");
+        assert!(job.status == JobStatus::Completed || job.status == JobStatus::Failed, "Job status should be completed or failed");
         assert!(job.hash_count > 0, "Should have attempted at least one hash");
         println!("Mining loop test final status: {}, hash_count: {}", job.status, job.hash_count);
     }
@@ -550,7 +583,7 @@ mod tests {
                  nonce_start: U512::from(0),
                  nonce_end: U512::from(500), // Small range
                  current_nonce: U512::from(0),
-                 status: "running".to_string(),
+                 status: JobStatus::Running,
                  hash_count: 0,
                  start_time: Instant::now(),
              };
@@ -576,10 +609,10 @@ mod tests {
              let job_opt = state.get_job(&job_id).await;
              assert!(job_opt.is_some(), "Job {} should exist", job_id);
              let job = job_opt.unwrap();
-             assert_ne!(job.status, "running", "Job {} status should have changed", job_id);
-             assert!(job.status == "completed" || job.status == "failed", "Job {} status invalid", job_id);
-              if job.status == "completed" { completed_count += 1; }
-              if job.status == "failed" { failed_count += 1; }
+             assert_ne!(job.status, JobStatus::Running, "Job {} status should have changed", job_id);
+             assert!(job.status == JobStatus::Completed || job.status == JobStatus::Failed, "Job {} status invalid", job_id);
+              if job.status == JobStatus::Completed { completed_count += 1; }
+              if job.status == JobStatus::Failed { failed_count += 1; }
              println!("Concurrent test - Job {}: Status={}, Hashes={}", job_id, job.status, job.hash_count);
          }
          println!("Concurrent test results: Completed={}, Failed={}", completed_count, failed_count);
@@ -605,7 +638,7 @@ mod tests {
             nonce_start: U512::from(nonce_start),
             nonce_end: U512::from(nonce_end),
             current_nonce: U512::from(nonce_start),
-            status: "running".to_string(),
+            status: JobStatus::Running,
             hash_count: 0,
             start_time: Instant::now(),
         };
@@ -631,10 +664,10 @@ mod tests {
         let result_job = state.get_job(&job_id).await.unwrap();
 
         // It's possible it fails if no nonce works, but we hope for completed
-        if result_job.status != "completed" {
+        if result_job.status != JobStatus::Completed {
              println!("WARN: test_mining_job_completes did not complete, ended as {}. This might be due to qpow_math complexity.", result_job.status);
         }
-        assert_ne!(result_job.status, "running");
+        assert_ne!(result_job.status, JobStatus::Running);
         assert!(result_job.hash_count > 0);
     }
 
@@ -656,7 +689,7 @@ mod tests {
         sleep(Duration::from_millis(250)).await; // Increased sleep time
 
         let result_job = state.get_job(&job_id).await.unwrap();
-        assert_eq!(result_job.status, "failed", "Job should have failed by reaching nonce_end");
+        assert_eq!(result_job.status, JobStatus::Failed, "Job should have failed by reaching nonce_end");
         assert_eq!(result_job.current_nonce, U512::from(end_nonce), "Current nonce should be at nonce_end");
         // Expect hash count to be exactly (end_nonce - start_nonce + 1) nonces checked
         assert_eq!(result_job.hash_count, (end_nonce - start_nonce + 1), "Hash count should match the range size");
@@ -681,26 +714,26 @@ mod tests {
 
         // Construct the expected result based on final job state
         let expected_status = final_job_state.status.clone();
-        let expected_nonce_hex = Some(format!("{:#x}", final_job_state.current_nonce));
-        let expected_work_hex = if final_job_state.status == "completed" {
+        let expected_nonce_hex = Some(format!("{:x}", final_job_state.current_nonce));
+        let expected_work_hex = if final_job_state.status == JobStatus::Completed {
             Some(hex::encode(final_job_state.current_nonce.to_big_endian()))
         } else {
             None
         };
         let expected_hash_count = final_job_state.hash_count;
 
-        if final_job_state.status == "completed" {
-            assert_eq!(expected_status, "completed");
+        if final_job_state.status == JobStatus::Completed {
+            assert_eq!(expected_status, JobStatus::Completed);
             assert!(expected_work_hex.is_some(), "Work field should be present for completed job");
             let expected_nonce_bytes = final_job_state.current_nonce.to_big_endian();
             assert_eq!(expected_work_hex, Some(hex::encode(expected_nonce_bytes)), "Work field should contain the hex of the winning nonce bytes");
-            assert_eq!(expected_nonce_hex, Some(format!("{:#x}", final_job_state.current_nonce)), "Nonce field should contain the U512 hex");
+            assert_eq!(expected_nonce_hex, Some(format!("{:x}", final_job_state.current_nonce)), "Nonce field should contain the U512 hex");
             assert_eq!(expected_hash_count, final_job_state.hash_count);
         } else {
             println!("WARN: test_mining_job_result_work_field did not complete, ended as {}.", final_job_state.status);
-            assert_ne!(expected_status, "running");
+            assert_ne!(expected_status, JobStatus::Running);
             assert!(expected_work_hex.is_none(), "Work field should be None for non-completed job");
-            assert_eq!(expected_nonce_hex, Some(format!("{:#x}", final_job_state.current_nonce)), "Nonce field should contain the U512 hex even if failed");
+            assert_eq!(expected_nonce_hex, Some(format!("{:x}", final_job_state.current_nonce)), "Nonce field should contain the U512 hex even if failed");
         }
     }
 
@@ -759,7 +792,7 @@ mod tests {
         let result_job = state.get_job(&job_id).await.unwrap();
 
         // Since difficulty is impossible, it must fail
-        assert_eq!(result_job.status, "failed", "Job should fail as the single nonce is invalid");
+        assert_eq!(result_job.status, JobStatus::Failed, "Job should fail as the single nonce is invalid");
         // Hash count should be exactly 1 because only one nonce was checked
         assert_eq!(result_job.hash_count, 1, "Should have checked exactly one nonce");
         assert_eq!(result_job.current_nonce, U512::from(nonce_value));
@@ -775,10 +808,10 @@ mod tests {
           let result_job_c = state_complete.get_job(&job_id_c).await.unwrap();
 
           // It should be completed or failed, status should not be running
-           assert_ne!(result_job_c.status, "running");
+           assert_ne!(result_job_c.status, JobStatus::Running);
            assert_eq!(result_job_c.hash_count, 1, "Should have checked exactly one nonce");
            assert_eq!(result_job_c.current_nonce, U512::from(nonce_value));
-            if result_job_c.status == "completed" {
+            if result_job_c.status == JobStatus::Completed {
                  println!("Single nonce test completed successfully.");
              } else {
                  println!("WARN: Single nonce test failed (status={}). qpow_math might not accept nonce {}.", result_job_c.status, nonce_value);

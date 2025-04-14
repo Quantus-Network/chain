@@ -271,7 +271,7 @@ pub fn new_full<
     log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
 
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
-        network: Arc::new(network.clone()),
+        network: network.clone(),
         client: client.clone(),
         keystore: keystore_container.keystore(),
         task_manager: &mut task_manager,
@@ -485,7 +485,21 @@ pub fn new_full<
     Ok(task_manager)
 }
 
-#[derive(Serialize, Deserialize)]
+// Define the expected status enum from the external miner API
+#[derive(Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")] // Matches the external miner's serialization
+pub enum ApiResponseStatus {
+    Accepted,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    NotFound,
+    Error,
+}
+
+// Update MiningRequest to use the enum
+#[derive(Serialize, Deserialize)] // Keep Serialize for the request struct
 struct MiningRequest {
     job_id: String,
     mining_hash: String,
@@ -494,18 +508,26 @@ struct MiningRequest {
     nonce_end: String,
 }
 
-#[derive(Serialize, Deserialize)]
+// Update MiningResponse to use the enum and add optional message
+#[derive(Deserialize, Debug)] // Only need Deserialize here
+#[allow(dead_code)] // Suppress warnings for unused fields (job_id, message)
 struct MiningResponse {
-    status: String,
+    status: ApiResponseStatus, // Use the enum
     job_id: String,
+    message: Option<String>, // Add optional message for errors
 }
 
-#[derive(Serialize, Deserialize)]
+// Update MiningResult to use the enum
+#[derive(Deserialize, Debug)] // Only need Deserialize here
+#[allow(dead_code)] // Suppress warnings for unused fields (job_id, hash_count, elapsed_time)
 struct MiningResult {
-    status: String,
+    status: ApiResponseStatus, // Use the enum
     job_id: String,
     nonce: Option<String>,
     work: Option<String>,
+    // Add fields expected from miner (hash_count, elapsed_time), though not strictly needed for current logic
+    hash_count: Option<u64>,
+    elapsed_time: Option<f64>,
 }
 
 async fn submit_mining_job(
@@ -537,8 +559,8 @@ async fn submit_mining_job(
         .await
         .map_err(|e| format!("Failed to parse mining response: {}", e))?;
 
-    if result.status != "accepted" {
-        return Err(format!("Mining job was not accepted: {}", result.status));
+    if result.status != ApiResponseStatus::Accepted {
+        return Err(format!("Mining job was not accepted: {:?}", result.status));
     }
 
     Ok(())
@@ -560,25 +582,29 @@ async fn check_mining_result(
         .await
         .map_err(|e| format!("Failed to parse mining result: {}", e))?;
 
-    match result.status.as_str() {
-        "found" => {
-            if let (Some(nonce_hex), Some(_work_hex)) = (result.nonce, result.work) {
-                let nonce_bytes = hex::decode(&nonce_hex[2..])
-                    .map_err(|e| format!("Failed to decode nonce: {}", e))?;
-                if nonce_bytes.len() != 64 {
-                    return Err("Invalid nonce length".to_string());
+    match result.status {
+        ApiResponseStatus::Completed => {
+            if let Some(work_hex) = result.work {
+                let nonce_bytes = hex::decode(&work_hex)
+                    .map_err(|e| format!("Failed to decode work hex '{}': {}", work_hex, e))?;
+                
+                if nonce_bytes.len() == 64 {
+                    let mut nonce = [0u8; 64];
+                    nonce.copy_from_slice(&nonce_bytes);
+                    Ok(Some(QPoWSeal { nonce }))
+                } else {
+                    Err(format!("Invalid decoded work length: {} bytes (expected 64)", nonce_bytes.len()))
                 }
-                let mut nonce = [0u8; 64];
-                nonce.copy_from_slice(&nonce_bytes);
-                Ok(Some(QPoWSeal { nonce }))
             } else {
-                Err("Missing nonce or work in mining result".to_string())
+                Err("Missing 'work' field in completed mining result".to_string())
             }
         }
-        "working" => Ok(None),
-        "stale" => Err("Mining job is stale".to_string()),
-        "not_found" => Err("Mining job not found".to_string()),
-        _ => Err(format!("Unexpected mining status: {}", result.status)),
+        ApiResponseStatus::Running => Ok(None),
+        ApiResponseStatus::NotFound => Err("Mining job not found".to_string()),
+        ApiResponseStatus::Failed => Err("Mining job failed (miner reported)".to_string()),
+        ApiResponseStatus::Cancelled => Err("Mining job was cancelled (miner reported)".to_string()),
+        ApiResponseStatus::Error => Err("Miner reported an unspecified error".to_string()), 
+        ApiResponseStatus::Accepted => Err("Unexpected 'Accepted' status received from result endpoint".to_string()),
     }
 }
 
@@ -594,9 +620,9 @@ async fn cancel_mining_job(client: &Client, miner_url: &str, job_id: &str) -> Re
         .await
         .map_err(|e| format!("Failed to parse cancel response: {}", e))?;
 
-    if result.status != "cancelled" {
-        return Err(format!("Failed to cancel mining job: {}", result.status));
+    if result.status == ApiResponseStatus::Cancelled || result.status == ApiResponseStatus::NotFound {
+        Ok(())
+    } else {
+        Err(format!("Failed to cancel mining job (unexpected status): {:?}", result.status))
     }
-
-    Ok(())
 }
