@@ -20,7 +20,8 @@ members = [
     "dilithium-crypto/sign",
     "pallets/balances",
     "pallets/vesting",
-    "external-miner",
+    "external-miner", 
+    "resonance-miner-api",
 ]
 resolver = "2"
 

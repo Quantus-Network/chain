@@ -92,6 +92,7 @@ uuid = { version = "1.7.0", features = ["v4", "serde"] }
 primitive-types = { version = "0.13.1", default-features = false }
 
 prometheus = {version="0.13.4", default-features = false}
+resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true

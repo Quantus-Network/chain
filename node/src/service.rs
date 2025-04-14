@@ -19,12 +19,12 @@ use sp_runtime::traits::Header;
 use crate::prometheus::ResonanceBusinessMetrics;
 use sp_core::crypto::AccountId32;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use primitive_types::H256;
 use hex;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_qpow::QPoWApi;
+use resonance_miner_api::*; // Import the shared API types
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -485,51 +485,7 @@ pub fn new_full<
     Ok(task_manager)
 }
 
-// Define the expected status enum from the external miner API
-#[derive(Deserialize, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")] // Matches the external miner's serialization
-pub enum ApiResponseStatus {
-    Accepted,
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-    NotFound,
-    Error,
-}
-
-// Update MiningRequest to use the enum
-#[derive(Serialize, Deserialize)] // Keep Serialize for the request struct
-struct MiningRequest {
-    job_id: String,
-    mining_hash: String,
-    difficulty: String,
-    nonce_start: String,
-    nonce_end: String,
-}
-
-// Update MiningResponse to use the enum and add optional message
-#[derive(Deserialize, Debug)] // Only need Deserialize here
-#[allow(dead_code)] // Suppress warnings for unused fields (job_id, message)
-struct MiningResponse {
-    status: ApiResponseStatus, // Use the enum
-    job_id: String,
-    message: Option<String>, // Add optional message for errors
-}
-
-// Update MiningResult to use the enum
-#[derive(Deserialize, Debug)] // Only need Deserialize here
-#[allow(dead_code)] // Suppress warnings for unused fields (job_id, hash_count, elapsed_time)
-struct MiningResult {
-    status: ApiResponseStatus, // Use the enum
-    job_id: String,
-    nonce: Option<String>,
-    work: Option<String>,
-    // Add fields expected from miner (hash_count, elapsed_time), though not strictly needed for current logic
-    hash_count: Option<u64>,
-    elapsed_time: Option<f64>,
-}
-
+// Example usage in submit_mining_job
 async fn submit_mining_job(
     client: &Client,
     miner_url: &str,
@@ -577,21 +533,23 @@ async fn check_mining_result(
         .await
         .map_err(|e| format!("Failed to check mining result: {}", e))?;
 
+    // Deserializes into imported MiningResult
     let result: MiningResult = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse mining result: {}", e))?;
 
+    // Compares against imported ApiResponseStatus
     match result.status {
         ApiResponseStatus::Completed => {
             if let Some(work_hex) = result.work {
                 let nonce_bytes = hex::decode(&work_hex)
                     .map_err(|e| format!("Failed to decode work hex '{}': {}", work_hex, e))?;
-                
                 if nonce_bytes.len() == 64 {
                     let mut nonce = [0u8; 64];
                     nonce.copy_from_slice(&nonce_bytes);
-                    Ok(Some(QPoWSeal { nonce }))
+                    // Assuming QPoWSeal is defined within node/src/service.rs or imported elsewhere
+                    Ok(Some(QPoWSeal { nonce })) 
                 } else {
                     Err(format!("Invalid decoded work length: {} bytes (expected 64)", nonce_bytes.len()))
                 }
@@ -608,6 +566,7 @@ async fn check_mining_result(
     }
 }
 
+// Example usage in cancel_mining_job
 async fn cancel_mining_job(client: &Client, miner_url: &str, job_id: &str) -> Result<(), String> {
     let response = client
         .post(format!("{}/cancel/{}", miner_url, job_id))
@@ -615,11 +574,13 @@ async fn cancel_mining_job(client: &Client, miner_url: &str, job_id: &str) -> Re
         .await
         .map_err(|e| format!("Failed to cancel mining job: {}", e))?;
 
+    // Deserializes into imported MiningResponse
     let result: MiningResponse = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse cancel response: {}", e))?;
 
+    // Compares against imported ApiResponseStatus
     if result.status == ApiResponseStatus::Cancelled || result.status == ApiResponseStatus::NotFound {
         Ok(())
     } else {

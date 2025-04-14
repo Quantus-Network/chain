@@ -3,29 +3,18 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde::{Deserialize, Serialize};
 use hex;
 use primitive_types::U512;
 use codec::{Encode, Decode};
 use warp::{Rejection, Reply};
-// Import the specific function needed
 use qpow_math::is_valid_nonce;
 use log;
-use std::time::Instant; // Ensure Instant is imported
+use std::time::Instant;
+use resonance_miner_api::*;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct QPoWSeal {
-    // Nonce size should match what is_valid_nonce expects
     pub nonce: [u8; 64],
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct MiningRequest {
-    pub job_id: String,
-    pub mining_hash: String, // Hex encoded header hash (32 bytes -> 64 chars)
-    pub difficulty: String,
-    pub nonce_start: String, // Hex encoded start nonce (64 bytes -> 128 chars)
-    pub nonce_end: String, // Hex encoded end nonce (64 bytes -> 128 chars)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,36 +22,6 @@ pub enum JobStatus {
     Running,
     Completed,
     Failed, // e.g., reached nonce_end without success
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")] // Use snake_case for JSON representation
-pub enum ApiResponseStatus {
-    Accepted,   // Job submitted successfully
-    Running,    // Job is currently being processed
-    Completed,  // Job finished successfully (found nonce)
-    Failed,     // Job finished unsuccessfully (e.g., nonce range exhausted)
-    Cancelled,  // Job was cancelled via API
-    NotFound,   // Job ID doesn't exist
-    Error,      // Request failed (validation, duplicate job, etc.)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MiningResponse {
-    pub status: ApiResponseStatus,
-    pub job_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MiningResult {
-    pub status: ApiResponseStatus,
-    pub job_id: String,
-    pub nonce: Option<String>, // Hex encoded U512 representation of the final/winning nonce
-    pub work: Option<String>, // Hex encoded [u8; 64] representation of the winning nonce
-    pub hash_count: u64,
-    pub elapsed_time: f64,
 }
 
 #[derive(Clone)]
@@ -286,17 +245,12 @@ pub async fn handle_result_request(
 ) -> Result<impl Reply, Rejection> {
      log::debug!("Received result request for job ID: {}", job_id);
     if let Some(job) = state.get_job(&job_id).await {
-        // Map internal JobStatus to ApiResponseStatus
         let api_status = match job.status {
             JobStatus::Running => ApiResponseStatus::Running,
             JobStatus::Completed => ApiResponseStatus::Completed,
             JobStatus::Failed => ApiResponseStatus::Failed,
         };
-
-        // Provide the U512 nonce as a plain hex string (no 0x)
         let nonce_hex = format!("{:x}", job.current_nonce);
-
-        // Work field is already plain hex
         let work_hex = if job.status == JobStatus::Completed {
             Some(hex::encode(job.current_nonce.to_big_endian()))
         } else {

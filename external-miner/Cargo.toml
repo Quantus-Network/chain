@@ -19,6 +19,7 @@ num-bigint = { version = "0.4", features = ["rand"] }
 num-traits = "0.2"
 rand = { version = "0.8.5", default-features = false } 
 qpow-math = { path = "../qpow-math", default-features = false }
+resonance-miner-api = { path = "../resonance-miner-api" }
 
 [dev-dependencies]
 tokio-test = "0.4"

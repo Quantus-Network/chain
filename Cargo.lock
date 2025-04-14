@@ -2541,6 +2541,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "qpow-math",
  "rand 0.8.5",
+ "resonance-miner-api",
  "serde",
  "serde_json",
  "test-log",
@@ -8473,6 +8474,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "resonance-miner-api"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "resonance-node"
 version = "0.1.0"
 dependencies = [
@@ -8493,6 +8501,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "reqwest",
+ "resonance-miner-api",
  "resonance-runtime",
  "sc-basic-authorship",
  "sc-cli",
