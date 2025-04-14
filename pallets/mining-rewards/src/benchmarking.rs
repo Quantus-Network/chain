@@ -1,35 +1,57 @@
-//! Benchmarking setup for pallet-template
+//! Benchmarking setup for pallet-mining-rewards
 
 use super::*;
+use crate::Pallet as MiningRewards;
+use frame_support::traits::Currency;
+use sp_consensus_pow::POW_ENGINE_ID;
+use sp_runtime::generic::DigestItem;
 
-#[allow(unused)]
-use crate::Pallet as Template;
-use frame_benchmarking::v2::*;
-use frame_system::RawOrigin;
-
-#[benchmarks]
+#[cfg(feature = "runtime-benchmarks")]
 mod benchmarks {
-	use super::*;
+    use codec::Encode;
+    use super::*;
+    use frame_support::traits::{Get, OnFinalize, OnInitialize, OnUnbalanced};
+    use frame_benchmarking::{account, benchmarks, whitelisted_caller, impl_benchmark_test_suite};
+    use sp_runtime::Saturating;
 
-	#[benchmark]
-	fn do_something() {
-		let value = 100u32;
-		let caller: T::AccountId = whitelisted_caller();
-		#[extrinsic_call]
-		do_something(RawOrigin::Signed(caller), value);
+    type CurrencyOf<T> = <T as Config>::Currency;
+    type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-		assert_eq!(Something::<T>::get(), Some(value));
-	}
+    benchmarks! {
+        on_initialize {
+        }: {
+            MiningRewards::<T>::on_initialize(frame_system::Pallet::<T>::block_number())
+        }
 
-	#[benchmark]
-	fn cause_error() {
-		Something::<T>::put(100u32);
-		let caller: T::AccountId = whitelisted_caller();
-		#[extrinsic_call]
-		cause_error(RawOrigin::Signed(caller));
+        collect_transaction_fees {
+            let fee_amount: BalanceOf<T> = 100u32.into();
+        }: {
+            MiningRewards::<T>::collect_transaction_fees(fee_amount)
+        } verify {
+            assert_eq!(MiningRewards::<T>::collected_fees(), fee_amount);
+        }
 
-		assert_eq!(Something::<T>::get(), Some(101u32));
-	}
+        on_finalize {
+            let miner: T::AccountId = whitelisted_caller();
+            let miner_encoded = miner.encode();
 
-	impl_benchmark_test_suite!(Template, crate::mock::new_test_ext(), crate::mock::Test);
+            let digest_item = DigestItem::PreRuntime(POW_ENGINE_ID, miner_encoded);
+            frame_system::Pallet::<T>::deposit_log(digest_item);
+
+            let fee_amount: BalanceOf<T> = 100u32.into();
+            MiningRewards::<T>::collect_transaction_fees(fee_amount);
+
+            let initial_balance = CurrencyOf::<T>::free_balance(&miner);
+            let block_number = frame_system::Pallet::<T>::block_number();
+        }: {
+            MiningRewards::<T>::on_finalize(block_number)
+        } verify {
+            let expected_reward = T::BlockReward::get().saturating_add(fee_amount);
+            let final_balance = CurrencyOf::<T>::free_balance(&miner);
+            assert!(final_balance > initial_balance);
+            assert_eq!(final_balance, initial_balance.saturating_add(expected_reward));
+        }
+    }
+
+    impl_benchmark_test_suite!(MiningRewards, crate::mock::new_test_ext(), crate::mock::Test);
 }
