@@ -2,8 +2,9 @@ use frame_support::pallet_prelude::TypedGet;
 use frame_support::traits::Hooks;
 use crate::mock::*;
 use primitive_types::U512;
-use crate::{BlockTimeHistory, HistoryIndex, HistorySize, MAX_DISTANCE};
+use crate::{BlockTimeHistory, HistoryIndex, HistorySize};
 use crate::Config;
+use qpow_math::{hash_to_group_bigint_split, mod_pow, split_chunks, is_coprime, is_prime, get_random_rsa, MAX_DISTANCE};
 
 #[test]
 fn test_submit_valid_proof() {
@@ -433,12 +434,12 @@ fn test_compute_pow_valid_nonce() {
         // Compute the result and the truncated result based on difficulty
         let hash = hash_to_group(&h, &m, &n, &nonce);
 
-        let manual_mod = QPow::mod_pow(
+        let manual_mod = mod_pow(
             &U512::from_big_endian(&m),
             &(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
             &U512::from_big_endian(&n)
         );
-        let manual_chunks = QPow::split_chunks(&manual_mod);
+        let manual_chunks = split_chunks(&manual_mod);
 
         // Check if the result is computed correctly
         assert_eq!(hash, manual_chunks);
@@ -462,12 +463,12 @@ fn test_compute_pow_overflow_check() {
         // Compute the result and the truncated result based on difficulty
         let hash = hash_to_group(&h, &m, &n, &nonce);
 
-        let manual_mod = QPow::mod_pow(
+        let manual_mod = mod_pow(
             &U512::from_big_endian(&m),
             &(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
             &U512::from_big_endian(&n)
         );
-        let manual_chunks = QPow::split_chunks(&manual_mod);
+        let manual_chunks = split_chunks(&manual_mod);
 
         // Check if the result is computed correctly
         assert_eq!(hash, manual_chunks);
@@ -478,16 +479,16 @@ fn test_compute_pow_overflow_check() {
 fn test_get_random_rsa() {
     new_test_ext().execute_with(|| {
         let header = [1u8; 32];
-        let (m, n) = QPow::get_random_rsa(&header);
+        let (m, n) = get_random_rsa(&header);
 
         // Check that n > m
         assert!(U512::from(m) < n);
 
         // Check that numbers are coprime
-        assert!(QPow::is_coprime(&m, &n));
+        assert!(is_coprime(&m, &n));
 
         // Test determinism - same header should give same numbers
-        let (m2, n2) = QPow::get_random_rsa(&header);
+        let (m2, n2) = get_random_rsa(&header);
         assert_eq!(m, m2);
         assert_eq!(n, n2);
     });
@@ -497,36 +498,36 @@ fn test_get_random_rsa() {
 fn test_primality_check() {
     new_test_ext().execute_with(|| {
         // Test some known primes
-        assert!(QPow::is_prime(&U512::from(2u32)));
-        assert!(QPow::is_prime(&U512::from(3u32)));
-        assert!(QPow::is_prime(&U512::from(5u32)));
-        assert!(QPow::is_prime(&U512::from(7u32)));
-        assert!(QPow::is_prime(&U512::from(11u32)));
-        assert!(QPow::is_prime(&U512::from(104729u32)));
-        assert!(QPow::is_prime(&U512::from(1299709u32)));
-        assert!(QPow::is_prime(&U512::from(15485863u32)));
-        assert!(QPow::is_prime(&U512::from(982451653u32)));
-        assert!(QPow::is_prime(&U512::from(32416190071u64)));
-        assert!(QPow::is_prime(&U512::from(2305843009213693951u64)));
-        assert!(QPow::is_prime(&U512::from(162259276829213363391578010288127u128)));
+        assert!(is_prime(&U512::from(2u32)));
+        assert!(is_prime(&U512::from(3u32)));
+        assert!(is_prime(&U512::from(5u32)));
+        assert!(is_prime(&U512::from(7u32)));
+        assert!(is_prime(&U512::from(11u32)));
+        assert!(is_prime(&U512::from(104729u32)));
+        assert!(is_prime(&U512::from(1299709u32)));
+        assert!(is_prime(&U512::from(15485863u32)));
+        assert!(is_prime(&U512::from(982451653u32)));
+        assert!(is_prime(&U512::from(32416190071u64)));
+        assert!(is_prime(&U512::from(2305843009213693951u64)));
+        assert!(is_prime(&U512::from(162259276829213363391578010288127u128)));
 
         // Test some known composites
-        assert!(!QPow::is_prime(&U512::from(4u32)));
-        assert!(!QPow::is_prime(&U512::from(6u32)));
-        assert!(!QPow::is_prime(&U512::from(8u32)));
-        assert!(!QPow::is_prime(&U512::from(9u32)));
-        assert!(!QPow::is_prime(&U512::from(10u32)));
-        assert!(!QPow::is_prime(&U512::from(561u32)));
-        assert!(!QPow::is_prime(&U512::from(1105u32)));
-        assert!(!QPow::is_prime(&U512::from(1729u32)));
-        assert!(!QPow::is_prime(&U512::from(2465u32)));
-        assert!(!QPow::is_prime(&U512::from(15841u32)));
-        assert!(!QPow::is_prime(&U512::from(29341u32)));
-        assert!(!QPow::is_prime(&U512::from(41041u32)));
-        assert!(!QPow::is_prime(&U512::from(52633u32)));
-        assert!(!QPow::is_prime(&U512::from(291311u32)));
-        assert!(!QPow::is_prime(&U512::from(9999999600000123u64)));
-        assert!(!QPow::is_prime(&U512::from(1000000016000000063u64)));
+        assert!(!is_prime(&U512::from(4u32)));
+        assert!(!is_prime(&U512::from(6u32)));
+        assert!(!is_prime(&U512::from(8u32)));
+        assert!(!is_prime(&U512::from(9u32)));
+        assert!(!is_prime(&U512::from(10u32)));
+        assert!(!is_prime(&U512::from(561u32)));
+        assert!(!is_prime(&U512::from(1105u32)));
+        assert!(!is_prime(&U512::from(1729u32)));
+        assert!(!is_prime(&U512::from(2465u32)));
+        assert!(!is_prime(&U512::from(15841u32)));
+        assert!(!is_prime(&U512::from(29341u32)));
+        assert!(!is_prime(&U512::from(41041u32)));
+        assert!(!is_prime(&U512::from(52633u32)));
+        assert!(!is_prime(&U512::from(291311u32)));
+        assert!(!is_prime(&U512::from(9999999600000123u64)));
+        assert!(!is_prime(&U512::from(1000000016000000063u64)));
     });
 }
 /// Difficulty adjustment
@@ -1003,7 +1004,7 @@ pub fn hash_to_group(
     let m = U512::from_big_endian(m);
     let n = U512::from_big_endian(n);
     let nonce_u = U512::from_big_endian(nonce);
-    QPow::hash_to_group_bigint_split(&h, &m, &n, &nonce_u)
+    hash_to_group_bigint_split(&h, &m, &n, &nonce_u)
 }
 
 fn run_to_block(n: u32) {
