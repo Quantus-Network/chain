@@ -93,7 +93,7 @@ To run a local testnet with multiple validator nodes, use the provided script:
 ./scripts/run_local_nodes.sh
 ```
 
-This script handles building the node and launching two validator nodes connected to each other. Refer to the script comments for configuration details.
+This script handles building the node and launching two validator nodes and a listener node connected to each other. Refer to the script comments for configuration details.
 
 ### Build
 
