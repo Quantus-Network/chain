@@ -8,7 +8,7 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
 use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration, time::Instant};
 use codec::Encode;
 use jsonrpsee::tokio;
 use sp_api::__private::BlockT;
@@ -369,21 +369,33 @@ pub fn new_full<
 
                     let miner = QPoWMiner::new(client.clone());
 
-                    let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
+                    let mut found_seal: Option<QPoWSeal> = None;
+
+                    for i in 0..100 { // Inner loop to try 100 nonces
+                        let start_time = Instant::now();
+                        let result = miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian());
+
+                        match result {
                             Ok(s) => {
-                                log::info!("valid nonce: {} ==> {:?}", nonce, s);
-                                s
-                            }
+                                let elapsed = start_time.elapsed();
+
+                                log::info!("Timing: Nonce {} with {} iterations took: {:?}", nonce, i, elapsed); // Print time for each nonce
+        
+                                log::info!("valid nonce found: {} ==> {:?}", nonce, s);
+                                found_seal = Some(s);
+                                break; // Found a seal, exit inner loop
+                            },
                             Err(_) => {
                                 nonce += U512::one();
-                                continue;
+                                // Continue to next iteration of the inner loop
                             }
                         };
+                    }
 
-                    log::info!("block found");
-
-                    let current_version = worker_handle.version();
+                    // Check if a seal was found within the 100 attempts
+                    if let Some(seal) = found_seal {
+                       log::info!("block found after trying up to 100 nonces");
+                       let current_version = worker_handle.version();
                     if current_version == version {
                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
                             log::info!("Successfully mined and submitted a new block");
@@ -392,6 +404,10 @@ pub fn new_full<
                             log::warn!("Failed to submit mined block");
                             nonce += U512::one();
                         }
+                    }
+                    } else {
+                        // 100 nonces tried, no seal found. Continue outer loop to get new metadata.
+                        log::debug!("Tried 100 nonces, no seal found. Fetching new metadata.");
                     }
                 }
             },
