@@ -20,6 +20,8 @@ members = [
     "dilithium-crypto/sign",
     "pallets/balances",
     "pallets/vesting",
+    "external-miner", 
+    "resonance-miner-api",
 ]
 resolver = "2"
 
@@ -50,6 +52,7 @@ futures = { version = "0.3.31" }
 jsonrpsee = { version = "0.24.3" }
 pallet-transaction-payment = { version = "39.1.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "42.0.0", default-features = false }
+reqwest = { version = "0.11.24", default-features = false, features = ["json"] }
 sc-basic-authorship = { version = "0.48.0", default-features = false }
 sc-cli = { version = "0.50.1", default-features = false }
 sc-client-api = { version = "38.0.0", default-features = false }

@@ -18,6 +18,11 @@ use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResul
 use sp_runtime::traits::Header;
 use crate::prometheus::ResonanceBusinessMetrics;
 use sp_core::crypto::AccountId32;
+use reqwest::Client;
+use uuid::Uuid;
+use sp_api::ProvideRuntimeApi;
+use sp_consensus_qpow::QPoWApi;
+use crate::external_miner_client; 
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -188,6 +193,7 @@ pub fn new_full<
 >(
     config: Configuration,
     rewards_address: Option<String>,
+    external_miner_url: Option<String>,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -263,7 +269,7 @@ pub fn new_full<
     log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
 
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
-        network: Arc::new(network.clone()),
+        network: network.clone(),
         client: client.clone(),
         keystore: keystore_container.keystore(),
         task_manager: &mut task_manager,
@@ -278,7 +284,6 @@ pub fn new_full<
     })?;
 
     if role.is_authority() {
-
         let proposer = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
             client.clone(),
@@ -288,11 +293,6 @@ pub fn new_full<
         );
 
         let inherent_data_providers = build_inherent_data_providers()?;
-
-        // Parameter details:
-        //   https://substrate.dev/rustdocs/v3.0.0/sc_consensus_pow/fn.start_mining_worker.html
-        // Also refer to kulupu config:
-        //   https://github.com/kulupu/kulupu/blob/master/src/service.rs
 
         let pow_algorithm = QPowAlgorithm {
             client: client.clone(),
@@ -310,25 +310,21 @@ pub fn new_full<
                     None
                 }
             }
-        }else {
-          None
+        } else {
+            None
         };
 
-
         let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
-            //block_import: BoxBlockImport<Block>,
             Box::new(pow_block_import),
             client.clone(),
             select_chain.clone(),
             pow_algorithm,
-            proposer, // Env E == proposer! TODO
-            /*sync_oracle:*/ sync_service.clone(),
-            /*justification_sync_link:*/ sync_service.clone(),
-            encoded_miner, //pre_runtime as Option<Vec<u8>>
+            proposer,
+            sync_service.clone(),
+            sync_service.clone(),
+            encoded_miner,
             inherent_data_providers,
-            // time to wait for a new block before starting to mine a new one
             Duration::from_secs(10),
-            // how long to take to actually build the block (i.e. executing extrinsics)
             Duration::from_secs(10),
         );
 
@@ -343,8 +339,8 @@ pub fn new_full<
         );
 
         ChainManagement::spawn_finalization_task(
-            Arc::new(select_chain.clone())
-            , &task_manager
+            Arc::new(select_chain.clone()),
+            &task_manager
         );
 
         task_manager.spawn_essential_handle().spawn(
@@ -353,6 +349,9 @@ pub fn new_full<
             async move {
                 log::info!("⚙️  QPoW Mining task spawned");
                 let mut nonce: U512 = U512::zero();
+                let http_client = Client::new();
+                let mut current_job_id: Option<String> = None;
+
                 loop {
                     // Get mining metadata
                     let metadata = match worker_handle.metadata() {
@@ -365,12 +364,81 @@ pub fn new_full<
                     };
                     let version = worker_handle.version();
 
-                    // Mine the block
+                    // If external miner URL is provided, use external mining
+                    if let Some(miner_url) = &external_miner_url {
+                        // Cancel previous job if metadata has changed
+                        if let Some(job_id) = &current_job_id {
+                            if let Err(e) = external_miner_client::cancel_mining_job(&http_client, miner_url, job_id).await {
+                                log::warn!("Failed to cancel previous mining job: {}", e);
+                            }
+                        }
 
-                    let miner = QPoWMiner::new(client.clone());
+                        // Get current difficulty from runtime
+                        let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                log::warn!("Failed to get difficulty: {:?}", e);
+                                tokio::time::sleep(Duration::from_millis(250)).await;
+                                continue;
+                            }
+                        };
 
-                    let seal: QPoWSeal =
-                        match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
+                        // Generate new job ID
+                        let job_id = Uuid::new_v4().to_string();
+                        current_job_id = Some(job_id.clone());
+
+                        // Submit new mining job
+                        if let Err(e) = external_miner_client::submit_mining_job(
+                            &http_client,
+                            miner_url,
+                            &job_id,
+                            &metadata.pre_hash,
+                            difficulty,
+                            nonce,
+                            U512::max_value(),
+                        )
+                        .await
+                        {
+                            log::warn!("Failed to submit mining job: {}", e);
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                            continue;
+                        }
+
+                        // Poll for results
+                        loop {
+                            match external_miner_client::check_mining_result(&http_client, miner_url, &job_id).await {
+                                Ok(Some(seal)) => {
+                                    let current_version = worker_handle.version();
+                                    if current_version == version {
+                                        if futures::executor::block_on(worker_handle.submit(seal.encode())) {
+                                            log::info!("Successfully mined and submitted a new block via external miner");
+                                            nonce = U512::zero();
+                                        } else {
+                                            log::warn!("Failed to submit mined block from external miner");
+                                            nonce = nonce + U512::one();
+                                        }
+                                    } else {
+                                        log::info!("Work from external miner is stale, discarding.");
+                                    }
+                                    break;
+                                }
+                                Ok(None) => {
+                                    // Still working, check if metadata has changed
+                                    if worker_handle.metadata().map(|m| m.best_hash != metadata.best_hash).unwrap_or(false) {
+                                        break;
+                                    }
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                }
+                                Err(e) => {
+                                    log::warn!("Polling external miner result failed: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        // Local mining
+                        let miner = QPoWMiner::new(client.clone());
+                        let seal: QPoWSeal = match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
                             Ok(s) => {
                                 log::info!("valid nonce: {} ==> {:?}", nonce, s);
                                 s
@@ -381,16 +449,17 @@ pub fn new_full<
                             }
                         };
 
-                    log::info!("block found");
+                        log::info!("block found");
 
-                    let current_version = worker_handle.version();
-                    if current_version == version {
-                        if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                            log::info!("Successfully mined and submitted a new block");
-                            nonce = U512::zero();
-                        } else {
-                            log::warn!("Failed to submit mined block");
-                            nonce += U512::one();
+                        let current_version = worker_handle.version();
+                        if current_version == version {
+                            if futures::executor::block_on(worker_handle.submit(seal.encode())) {
+                                log::info!("Successfully mined and submitted a new block");
+                                nonce = U512::zero();
+                            } else {
+                                log::warn!("Failed to submit mined block");
+                                nonce += U512::one();
+                            }
                         }
                     }
                 }
@@ -403,8 +472,6 @@ pub fn new_full<
                     log::info!("New transaction: Hash = {:?}", tx_hash);
                     let extrinsic = tx.data();
                     log::info!("Payload: {:?}", extrinsic);
-                    // log::info!("Signature: {:?}", tx.data());
-                    // log::info!("Signer: {:?}", tx.);
                 } else {
                     log::warn!("Transaction {:?} not found in pool", tx_hash);
                 }
@@ -413,7 +480,6 @@ pub fn new_full<
 
         log::info!("⛏️  Pow miner spawned");
     }
-
 
     network_starter.start_network();
     Ok(task_manager)

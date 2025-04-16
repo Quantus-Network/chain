@@ -1,0 +1,242 @@
+openapi: 3.0.0
+info:
+  title: Resonance External Miner API
+  version: 0.1.0
+  description: API for managing QPoW mining jobs for the Resonance Network external miner service.
+
+paths:
+  /mine:
+    post:
+      summary: Submit a new mining job
+      description: Accepts a mining job request and adds it to the queue if valid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MiningRequest'
+      responses:
+        '200':
+          description: Job accepted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseAccepted'
+        '400':
+          description: Invalid request (e.g., missing fields, invalid format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseError'
+        '409':
+          description: Conflict (e.g., duplicate job ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseError'
+
+  /result/{job_id}:
+    get:
+      summary: Get mining job status and result
+      description: Retrieves the current status and potentially the found nonce for a given job ID.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The ID of the mining job to retrieve.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job status retrieved successfully (could be running, completed, or failed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResult'
+        '404':
+          description: Job ID not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResultNotFound'
+
+  /cancel/{job_id}:
+    post:
+      summary: Cancel a mining job
+      description: Attempts to cancel an ongoing mining job.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The ID of the mining job to cancel.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job cancelled successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseCancelled'
+        '404':
+          description: Job ID not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiningResponseNotFound'
+
+components:
+  schemas:
+    ApiResponseStatus:
+      type: string
+      description: Status code indicating the result of an API call or the state of a mining job.
+      enum:
+        - accepted
+        - running
+        - completed
+        - failed
+        - cancelled
+        - not_found
+        - error
+      example: running
+
+    MiningRequest:
+      type: object
+      required:
+        - job_id
+        - mining_hash
+        - difficulty
+        - nonce_start
+        - nonce_end
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the mining job (UUID format recommended).
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        mining_hash:
+          type: string
+          description: The header hash to mine on (hex encoded, 64 characters, no 0x).
+          example: "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0"
+          pattern: '^[a-fA-F0-9]{64}$'
+        difficulty:
+          type: string
+          description: Target difficulty for the mining job (string representation of a u64).
+          example: "10000000000"
+        nonce_start:
+          type: string
+          description: Starting nonce value (hex encoded, 128 characters, no 0x).
+          example: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          pattern: '^[a-fA-F0-9]{128}$'
+        nonce_end:
+          type: string
+          description: Ending nonce value (hex encoded, 128 characters, no 0x).
+          example: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          pattern: '^[a-fA-F0-9]{128}$'
+
+    MiningResponseBase:
+      type: object
+      required:
+        - status
+        - job_id
+      properties:
+        status:
+          $ref: '#/components/schemas/ApiResponseStatus'
+        job_id:
+          type: string
+          format: uuid
+          description: The ID of the job associated with the response.
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
+    MiningResponseAccepted:
+      allOf:
+        - $ref: '#/components/schemas/MiningResponseBase'
+        - type: object
+          properties:
+            status:
+              example: accepted
+
+    MiningResponseCancelled:
+      allOf:
+        - $ref: '#/components/schemas/MiningResponseBase'
+        - type: object
+          properties:
+            status:
+              example: cancelled
+
+    MiningResponseError:
+      allOf:
+        - $ref: '#/components/schemas/MiningResponseBase'
+        - type: object
+          properties:
+            status:
+              example: error
+            message:
+              type: string
+              description: Details about the error that occurred.
+              example: "Job already exists"
+
+    MiningResponseNotFound:
+      allOf:
+        - $ref: '#/components/schemas/MiningResponseBase'
+        - type: object
+          properties:
+            status:
+              example: not_found
+
+    MiningResult:
+      allOf:
+        - $ref: '#/components/schemas/MiningResponseBase'
+        - type: object
+          required:
+            - hash_count
+            - elapsed_time
+          properties:
+            nonce:
+              type: string
+              nullable: true
+              description: The current or winning nonce (U512 hex, no 0x).
+              example: "1a2b3c"
+              pattern: '^[a-fA-F0-9]+$'
+            work:
+              type: string
+              nullable: true
+              description: The winning nonce ([u8; 64] hex, 128 chars, no 0x). Only present if status is 'completed'.
+              example: "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a2b3c"
+              pattern: '^[a-fA-F0-9]{128}$'
+            hash_count:
+              type: integer
+              format: uint64
+              description: Number of nonces checked so far for this job.
+              example: 123456
+            elapsed_time:
+              type: number
+              format: double
+              description: Time elapsed (in seconds) since the job started.
+              example: 15.732
+
+    MiningResultNotFound:
+      allOf:
+        - $ref: '#/components/schemas/MiningResponseBase'
+        - type: object
+          properties:
+            status:
+              example: not_found
+            nonce:
+              type: string
+              nullable: true
+              example: null
+            work:
+              type: string
+              nullable: true
+              example: null
+            hash_count:
+              type: integer
+              format: uint64
+              example: 0
+            elapsed_time:
+              type: number
+              format: double
+              example: 0.0 

@@ -8,6 +8,7 @@ homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 publish = false
+default-run = "resonance-node"
 
 build = "build.rs"
 
@@ -84,8 +85,14 @@ resonance-runtime.workspace = true
 sp-wormhole = {workspace = true,default-features = false}
 hex = {workspace = true,default-features = false}
 rand = {workspace = true, default-features = false, features = ["alloc","getrandom"]}
+reqwest = { workspace = true, default-features = false, features = ["json"] }
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = { version = "1.0.107", features = ["alloc"] }
+uuid = { version = "1.7.0", features = ["v4", "serde"] }
+primitive-types = { version = "0.13.1", default-features = false }
 
 prometheus = {version="0.13.4", default-features = false}
+resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true
