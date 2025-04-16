@@ -13,6 +13,7 @@ sha3 = { version = "0.10", default-features = false }
 [dev-dependencies]
 rand = "0.8"
 hex = "0.4"
+rayon = "1.10"
 
 [features]
 default = ["std"]
