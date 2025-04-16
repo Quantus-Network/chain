@@ -116,7 +116,7 @@ try:
     valid_hash_rates = df['AggHashRate'].replace([np.inf, -np.inf], np.nan).dropna()
     overall_avg_hash_rate = valid_hash_rates.mean() if not valid_hash_rates.empty else 0
 
-    print(f"\nOverall Average Aggregate Hash Rate: {overall_avg_hash_rate:.2f} H/s (Approx)")
+    print(f"\nOverall Average Aggregate Hash Rate: {overall_avg_hash_rate:.2f} Nonces/s (Approx)")
     print(f"Detected CPU/System: {cpu_info}") # Print detected info
 
     # --- Create Two Plots ---
