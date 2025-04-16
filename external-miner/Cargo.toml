@@ -20,6 +20,7 @@ num-traits = "0.2"
 rand = { version = "0.8.5", default-features = false } 
 qpow-math = { path = "../qpow-math", default-features = false }
 resonance-miner-api = { path = "../resonance-miner-api" }
+clap = { version = "4.5", features = ["derive", "env"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -2,12 +2,22 @@ use warp::Filter;
 use log::info;
 use external_miner::*; // Import everything from lib.rs
 use std::net::SocketAddr;
-use std::env;
+use clap::Parser;
 use env_logger;
+
+/// Resonance External Miner Service
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Port number to listen on
+    #[arg(short, long, env = "MINER_PORT", default_value_t = 9833)]
+    port: u16,
+}
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let args = Args::parse(); // Parse args - this handles --help and --version
+    env_logger::init(); // Initialize logger after parsing args
     info!("Starting external miner service...");
 
     // Use MiningState from lib.rs
@@ -43,11 +53,8 @@ async fn main() {
 
     let routes = mine_route.or(result_route).or(cancel_route);
 
-    // Read port from environment variable MINER_PORT, default to 9833
-    let port_str = env::var("MINER_PORT").unwrap_or_else(|_| "9833".to_string());
-    let port = port_str.parse::<u16>().unwrap_or(9833);
-
-    let addr: SocketAddr = ([0, 0, 0, 0], port).into();
+    // Use the port from parsed arguments
+    let addr: SocketAddr = ([0, 0, 0, 0], args.port).into();
     info!("Server starting on {}", addr);
     warp::serve(routes).run(addr).await;
 }

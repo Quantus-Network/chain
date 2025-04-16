@@ -15,16 +15,24 @@ This will compile the binary and place it in the `target/release/` directory.
 
 ## Configuration
 
-The HTTP server port can be configured using the `MINER_PORT` environment variable. If this variable is not set, the service will default to port **9833**.
+The HTTP server port can be configured using command-line arguments or an environment variable. The order of precedence is:
+
+1.  Command-line argument: `-p <PORT>` or `--port <PORT>`
+2.  Environment variable: `MINER_PORT=<PORT>`
+3.  Default value: **9833**
 
 Example:
 
 ```bash
 # Run on the default port 9833
-export MINER_PORT=9833 
+../target/release/external-miner
 
 # Run on a custom port
-export MINER_PORT=8000 
+../target/release/external-miner --port 8000
+
+# Equivalent using the environment variable
+export MINER_PORT=8000
+../target/release/external-miner
 ```
 
 ## Running
@@ -32,11 +40,11 @@ export MINER_PORT=8000
 After building the service, you can run it directly from the command line:
 
 ```bash
-# Ensure the MINER_PORT environment variable is set (optional)
-# export MINER_PORT=9833
-
-# Run the compiled binary in the workspace root target dir
+# Run with default port (9833)
 RUST_LOG=info ../target/release/external-miner
+
+# Run with a specific port
+RUST_LOG=info ../target/release/external-miner --port 12345
 ```
 
 The service will start and log messages to the console, indicating the port it's listening on.
