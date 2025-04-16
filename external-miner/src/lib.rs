@@ -3,12 +3,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use hex;
 use primitive_types::U512;
 use codec::{Encode, Decode};
 use warp::{Rejection, Reply};
 use qpow_math::is_valid_nonce;
-use log;
 use std::time::Instant;
 use resonance_miner_api::*;
 

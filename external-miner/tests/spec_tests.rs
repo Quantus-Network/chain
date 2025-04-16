@@ -6,7 +6,6 @@ use warp::test::request;
 use warp::Filter;
 use resonance_miner_api::*; // Use the shared API types
 use primitive_types::U512;
-use std::time::Instant;
 use serde_json::json; // For sending custom/invalid JSON
 
 // Helper function to setup the routes with a fresh state for each test
