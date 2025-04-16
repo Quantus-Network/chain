@@ -121,7 +121,7 @@ try:
 
     # --- Create Two Plots ---
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True) # Back to 2 rows, shared x-axis
-    fig.suptitle(f'Mining Metrics vs. Difficulty on {cpu_info}\n(Overall Avg. Aggregate Hash Rate: {overall_avg_hash_rate:.2f} H/s)')
+    fig.suptitle(f'Mining Metrics vs. Difficulty on {cpu_info}\n(Overall Avg. Aggregate Hash Rate: {overall_avg_hash_rate:.2f} Nonces/s)')
 
     # Plot 1: Difficulty vs Average Nonce Count
     ax1.scatter(df["DifficultyMillions"], df["AvgNonceCount"], label="Measured Data")
