@@ -81,7 +81,7 @@ API classes are defined in the 'resonance-miner-api' crate.
     RUST_LOG=info,sc_consensus_pow=debug ./target/release/resonance-node \
      --dev \
      --external-miner-url http://127.0.0.1:9833 \
-     --miner-address <YOUR_REWARDS_ADDRESS>
+     --rewards-address <YOUR_REWARDS_ADDRESS>
     ```
 
 ## Multinode local run
