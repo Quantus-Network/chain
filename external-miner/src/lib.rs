@@ -100,7 +100,7 @@ impl MiningState {
                         // Increment nonce first for the next potential check
                         // (unless it's the very first hash attempt)
                         if job.hash_count > 0 {
-                            job.current_nonce = job.current_nonce + U512::from(1);
+                            job.current_nonce = job.current_nonce + U512::one();
                         }
 
                         // Check if the *new* current_nonce has exceeded the range *before* hashing
