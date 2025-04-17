@@ -1,14 +1,26 @@
 //! Benchmarking setup for pallet_pow
 
 use super::*;
-use frame_benchmarking::{benchmarks, whitelisted_caller};
-use frame_system::RawOrigin;
+use frame_benchmarking::v2::benchmarks;
+use frame_benchmarking::BenchmarkError;
 
-benchmarks! {
-    submit_solution {
-        let caller: T::AccountId = whitelisted_caller();
-        let nonce: u32 = 42;
-    }: _(RawOrigin::Signed(caller), nonce)
+#[benchmarks]
+mod benchmarks {
+    use super::*;
 
-    impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(), crate::mock::Test);
+    #[benchmark]
+    fn submit_nonce() -> Result<(), BenchmarkError> {
+        let valid_nonce = [0u8; 64];
+
+        #[block]
+        {
+            let header = [1u8; 32];
+
+            let _ = crate::Pallet::<T>::submit_nonce(header, valid_nonce.clone());
+        }
+
+        assert_eq!(LatestNonce::<T>::get(), Some(valid_nonce));
+
+        Ok(())
+    }
 }

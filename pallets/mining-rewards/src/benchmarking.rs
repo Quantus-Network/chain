@@ -8,14 +8,15 @@ use sp_runtime::generic::DigestItem;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarks {
-    use codec::Encode;
     use super::*;
-    use frame_support::traits::{Get, OnFinalize, OnInitialize, OnUnbalanced};
-    use frame_benchmarking::{account, benchmarks, whitelisted_caller, impl_benchmark_test_suite};
+    use codec::Encode;
+    use frame_benchmarking::{benchmarks, impl_benchmark_test_suite, whitelisted_caller};
+    use frame_support::traits::{Get, OnFinalize, OnInitialize};
     use sp_runtime::Saturating;
 
     type CurrencyOf<T> = <T as Config>::Currency;
-    type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+    type BalanceOf<T> =
+        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
     benchmarks! {
         on_initialize {
@@ -53,5 +54,9 @@ mod benchmarks {
         }
     }
 
-    impl_benchmark_test_suite!(MiningRewards, crate::mock::new_test_ext(), crate::mock::Test);
+    impl_benchmark_test_suite!(
+        MiningRewards,
+        crate::mock::new_test_ext(),
+        crate::mock::Test
+    );
 }
