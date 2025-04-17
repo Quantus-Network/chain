@@ -5,12 +5,14 @@ mod benchmarking;
 mod chain_spec;
 mod cli;
 mod command;
-mod rpc;
-mod service;
-mod prometheus;
 mod external_miner_client;
 mod faucet;
+mod prometheus;
+mod rpc;
+mod service;
+#[cfg(test)]
+mod tests;
 
 fn main() -> sc_cli::Result<()> {
-	command::run()
+    command::run()
 }
