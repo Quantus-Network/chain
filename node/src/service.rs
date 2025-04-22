@@ -22,7 +22,7 @@ use reqwest::Client;
 use uuid::Uuid;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_qpow::QPoWApi;
-use crate::external_miner_client; 
+use crate::external_miner_client;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -116,6 +116,9 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
             Ok((worker, telemetry))
         })
         .transpose()?;
+
+//    let mut config = config.clone();
+//    config.state_pruning = Option::Some(PruningMode::ArchiveCanonical);
 
     let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
     let (client, backend, keystore_container, task_manager) =
@@ -267,6 +270,7 @@ pub fn new_full<
     };
 
     log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
+    log::info!("📦 State pruning mode: {:?}", config.state_pruning);
 
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network: network.clone(),
