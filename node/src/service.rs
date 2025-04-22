@@ -117,9 +117,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         })
         .transpose()?;
 
-//    let mut config = config.clone();
-//    config.state_pruning = Option::Some(PruningMode::ArchiveCanonical);
-
     let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<Block, RuntimeApi, _>(

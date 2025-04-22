@@ -23,7 +23,6 @@ where
     backend: Arc<BE>,
     client: Arc<C>,
     algorithm: QPowAlgorithm<B, C>,
-    //max_reorg_depth: u32,
     _phantom: PhantomData<B>,
 }
 
@@ -38,7 +37,6 @@ where
             backend: Arc::clone(&self.backend),
             client: Arc::clone(&self.client),
             algorithm: self.algorithm.clone(),
-            //max_reorg_depth: self.max_reorg_depth,
             _phantom: PhantomData,
         }
     }
@@ -53,17 +51,10 @@ where
 {
     pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>) -> Self {
 
-        // let genesis_hash = client.hash(Zero::zero())
-        //     .expect("Failed to get gehesis hash")
-        //     .expect("Genesis block must exist");
-        // let max_reorg_depth = client.runtime_api().get_max_reorg_depth(genesis_hash)
-        //     .expect("Failed to get max reorg depth");
-
         Self {
             backend,
             client,
             algorithm,
-            //max_reorg_depth,
             _phantom: PhantomData
         }
     }
