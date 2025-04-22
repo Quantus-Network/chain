@@ -23,7 +23,6 @@ where
     backend: Arc<BE>,
     client: Arc<C>,
     algorithm: QPowAlgorithm<B, C>,
-    max_reorg_depth: u32,
     _phantom: PhantomData<B>,
 }
 
@@ -38,7 +37,6 @@ where
             backend: Arc::clone(&self.backend),
             client: Arc::clone(&self.client),
             algorithm: self.algorithm.clone(),
-            max_reorg_depth: self.max_reorg_depth,
             _phantom: PhantomData,
         }
     }
@@ -53,17 +51,10 @@ where
 {
     pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>) -> Self {
 
-        let genesis_hash = client.hash(Zero::zero())
-            .expect("Failed to get gehesis hash")
-            .expect("Genesis block must exist");
-        let max_reorg_depth = client.runtime_api().get_max_reorg_depth(genesis_hash)
-            .expect("Failed to get max reorg depth");
-
         Self {
             backend,
             client,
             algorithm,
-            max_reorg_depth,
             _phantom: PhantomData
         }
     }
@@ -85,8 +76,10 @@ where
 
         let best_number = *best_header.number();
 
+        let max_reorg_depth = self.client.runtime_api().get_max_reorg_depth(best_hash)
+            .expect("Failed to get max reorg depth");
         // Calculate how far back to finalize
-        let finalize_depth = self.max_reorg_depth.saturating_sub(1);
+        let finalize_depth = max_reorg_depth.saturating_sub(1);
 
         // Only finalize if we have enough blocks
         if best_number <= finalize_depth.into() {
@@ -351,11 +344,14 @@ where
 
             let chain_work = self.calculate_chain_difficulty(&header)?;
 
+            let max_reorg_depth = self.client.runtime_api().get_max_reorg_depth(best_header.hash())
+                .expect("Failed to get max reorg depth");
+
             if chain_work >= best_work {
                 // This chain has more work, but we need to check reorg depth
                 let (_, reorg_depth) = self.find_common_ancestor_and_depth(&current_best, &header)?;
 
-                if reorg_depth <= self.max_reorg_depth {
+                if reorg_depth <= max_reorg_depth {
                     // Switch to this chain as it's within the reorg limit
                     log::info!(
                         "Found better chain: {:?} with work: {:?}, reorg depth: {}",
@@ -384,7 +380,7 @@ where
                         header.hash(),
                         chain_work,
                         reorg_depth,
-                        self.max_reorg_depth
+                        max_reorg_depth
                     );
                 }
             }
@@ -392,14 +388,14 @@ where
                 // This chain has less work - check if it should be ignored
                 let (_, reorg_depth) = self.find_common_ancestor_and_depth(&current_best, &header)?;
 
-                if reorg_depth > self.max_reorg_depth {
+                if reorg_depth > max_reorg_depth {
                     self.add_ignored_chain(leaf_hash)?;
                     log::warn!(
                         "Permanently ignoring chain with less work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
                         leaf_hash,
                         chain_work,
                         reorg_depth,
-                        self.max_reorg_depth
+                        max_reorg_depth
                     );
                 }
             }
