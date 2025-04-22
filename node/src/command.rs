@@ -268,7 +268,7 @@ pub fn run() -> sc_cli::Result<()> {
 
 				//Obligatory configuration for all node holders
 				config.blocks_pruning = BlocksPruning::KeepFinalized;
-				config.state_pruning = Option::Some(PruningMode::ArchiveCanonical);
+				config.state_pruning = Some(PruningMode::ArchiveCanonical);
 
 				match config.network.network_backend.unwrap_or_default() {
 					sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
