@@ -19,9 +19,13 @@ use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
 use dilithium_crypto::pair::{crystal_alice, dilithium_bob, crystal_charlie};
 use serde_json::Value;
+use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::AccountKeyring;
 use sp_runtime::traits::IdentifyAccount;
+
+/// Identifier for the live testnet runtime preset.
+pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
 
 // Returns the genesis config presets populated with given parameters.
 fn testnet_genesis(
@@ -73,10 +77,27 @@ pub fn development_config_genesis() -> Value {
 	// dilithium_bob: 274c9a7ecffb52c25173be718b5fcf2d383bf6e465d63a34cbc26de56efa24f0 (5CxEUqBN...)    
 	// crystal_charlie: a1fc398e6f48f42c820cb3dcc3da40758a57f1a3243674ffe81832cd051c094c (5Fj6VYnJ...)    
 
+
     testnet_genesis(
         endowed_accounts,
         AccountKeyring::Alice.to_account_id(), // Keep Alice as sudo
     )
+}
+
+/// Return the live testnet genesis config.
+///
+/// Endows only the specified test account and sets it as Sudo.
+pub fn live_testnet_config_genesis() -> Value {
+    let test_account_id = AccountId::from_ss58check("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
+        .expect("Failed to decode testnet account ID");
+
+    let endowed_accounts = vec![test_account_id.clone()];
+	log::info!("endowed account: {:?}", test_account_id.to_ss58check());
+
+    testnet_genesis(
+        endowed_accounts,
+        test_account_id, // Set the test account as sudo for this testnet
+	)
 }
 
 /// Return the local genesis config preset.
@@ -95,6 +116,7 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
 		sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => local_config_genesis(),
+        LIVE_TESTNET_RUNTIME_PRESET => live_testnet_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -109,5 +131,6 @@ pub fn preset_names() -> Vec<PresetId> {
 	vec![
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
 		PresetId::from(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET),
+        PresetId::from(LIVE_TESTNET_RUNTIME_PRESET),
 	]
 }
