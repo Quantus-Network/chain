@@ -25,7 +25,6 @@
     - pip install yq
   deploy_network_script:
     - |
-      target_ips=($(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | .node[].ip' .ci/networks.yml))
       for ip in ${target_ips}; do
         ${ssh_command} resonance@${ip} '
           if systemctl is-active --quiet resonance-node.service; then
@@ -49,8 +48,6 @@
         ' || true
       done
     - |
-      target_ips=($(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | .node[].ip' .ci/networks.yml))
-      reset_on_deploy=$(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | ."reset-on-deploy"' .ci/networks.yml)
       if [ "${reset_on_deploy}" = "true" ]; then
       for ip in ${target_ips}; do
         ${ssh_command} resonance@${ip} '
@@ -66,7 +63,6 @@
         ' || true
       done
     - |
-      target_ips=($(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | .node[].ip' .ci/networks.yml))
       for ip in ${target_ips}; do
         if rsync --archive --compress --rsync-path='sudo rsync' --rsh "${ssh_command}" ./resonance-miner resonance@${ip}:/usr/local/bin/resonance-miner; then
           echo "resonance-miner deployed to ${ip}"
@@ -90,7 +86,6 @@
         ' || true
       done
     - |
-      target_ips=($(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | .node[].ip' .ci/networks.yml))
       for ip in ${target_ips}; do
         ${ssh_command} resonance@${ip} '
           while ! journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance-node.service) -g "2 peers" -n 1 --no-pager > /dev/null; do
@@ -105,6 +100,9 @@ variables:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Cdebug-assertions=y
   RUSTUP_TOOLCHAIN: nightly-2024-12-14
+  ssh_command: ssh -o IdentityFile=/root/.ssh/id_ed25519 -o IdentitiesOnly=yes
+  PIP_ROOT_USER_ACTION: ignore
+  FF_SCRIPT_SECTIONS: "true"
 
 compile:
   stage: build
@@ -153,7 +151,8 @@ deploy-integration-testnet:
   image: fedora:latest
   variables:
     network: integration-testnet
-    ssh_command: ssh -o IdentityFile=/root/.ssh/id_ed25519 -o IdentitiesOnly=yes
+    reset_on_deploy: "true"
+    target_ips: 10.9.1.104 10.9.1.105 10.9.1.215
   before_script:
     - !reference [.common, deploy_network_before_script]
   script:
@@ -169,7 +168,8 @@ deploy-live-testnet:
   image: fedora:latest
   variables:
     network: live-testnet
-    ssh_command: ssh -o IdentityFile=/root/.ssh/id_ed25519 -o IdentitiesOnly=yes
+    reset_on_deploy: "false"
+    target_ips: 10.9.1.201 10.9.1.202 10.9.1.203
   before_script:
     - !reference [.common, deploy_network_before_script]
   script:
