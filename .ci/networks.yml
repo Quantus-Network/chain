@@ -1,0 +1,29 @@
+---
+-
+  network: integration-testnet
+  reset-on-deploy: true
+  node:
+    -
+      ip: 10.9.1.104
+      hostname: allitnils
+      
+    -
+      ip: 10.9.1.105
+      hostname: colin
+    -
+      ip: 10.9.1.215
+      hostname: rai
+
+-
+  network: live-testnet
+  reset-on-deploy: false
+  node:
+    -
+      ip: 10.9.1.201
+      hostname: bob
+    -
+      ip: 10.9.1.202
+      hostname: frootmig
+    -
+      ip: 10.9.1.203
+      hostname: effrafax
