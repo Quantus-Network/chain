@@ -16,7 +16,12 @@
     - cargo --version
   deploy_network_before_script:
     - dnf update --assumeyes --quiet
-    - dnf install --assumeyes --quiet python3-pip rsync ssh
+    - >
+      dnf install --assumeyes --quiet
+      jq
+      python3-pip
+      rsync
+      ssh
     - pip install yq
   deploy_network_script:
     - |

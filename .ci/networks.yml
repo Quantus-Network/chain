@@ -6,14 +6,12 @@
     -
       ip: 10.9.1.104
       hostname: allitnils
-      
     -
       ip: 10.9.1.105
       hostname: colin
     -
       ip: 10.9.1.215
       hostname: rai
-
 -
   network: live-testnet
   reset-on-deploy: false
