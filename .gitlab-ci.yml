@@ -25,6 +25,9 @@
     - pip install yq
   deploy_network_script:
     - |
+      export target_ips=($(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | .node[].ip' .ci/networks.yml))
+      export reset_on_deploy=$(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | ."reset-on-deploy"' .ci/networks.yml)
+    - |
       for ip in ${target_ips}; do
         ${ssh_command} resonance@${ip} '
           if systemctl is-active --quiet resonance-node.service; then
@@ -49,19 +52,22 @@
       done
     - |
       if [ "${reset_on_deploy}" = "true" ]; then
-      for ip in ${target_ips}; do
-        ${ssh_command} resonance@${ip} '
-          if sudo test -d /var/lib/resonance/chains; then
-            if sudo rm -rf /var/lib/resonance/chains; then
-              echo "/var/lib/resonance/chains deleted on $(hostname -s)";
+        for ip in ${target_ips}; do
+          ${ssh_command} resonance@${ip} '
+            if sudo test -d /var/lib/resonance/chains; then
+              if sudo rm -rf /var/lib/resonance/chains; then
+                echo "/var/lib/resonance/chains deleted on $(hostname -s)";
+              else
+                echo "failed to delete /var/lib/resonance/chains on $(hostname -s)";
+              fi;
             else
-              echo "failed to delete /var/lib/resonance/chains on $(hostname -s)";
+              echo "deleted /var/lib/resonance/chains observed on $(hostname -s)";
             fi;
-          else
-            echo "deleted /var/lib/resonance/chains observed on $(hostname -s)";
-          fi;
-        ' || true
-      done
+          ' || true
+        done
+      else
+        echo "reset_on_deploy: ${reset_on_deploy}, chain db reset skipped.";
+      fi
     - |
       for ip in ${target_ips}; do
         if rsync --archive --compress --rsync-path='sudo rsync' --rsh "${ssh_command}" ./resonance-miner resonance@${ip}:/usr/local/bin/resonance-miner; then
@@ -151,8 +157,6 @@ deploy-integration-testnet:
   image: fedora:latest
   variables:
     network: integration-testnet
-    reset_on_deploy: "true"
-    target_ips: 10.9.1.104 10.9.1.105 10.9.1.215
   before_script:
     - !reference [.common, deploy_network_before_script]
   script:
@@ -168,8 +172,6 @@ deploy-live-testnet:
   image: fedora:latest
   variables:
     network: live-testnet
-    reset_on_deploy: "false"
-    target_ips: 10.9.1.201 10.9.1.202 10.9.1.203
   before_script:
     - !reference [.common, deploy_network_before_script]
   script:
