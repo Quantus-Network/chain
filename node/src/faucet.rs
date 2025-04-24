@@ -47,6 +47,46 @@ impl<C, P> Faucet<C, P> {
             pool,
         }
     }
+
+    fn parse_address(address: String) -> Result<AccountId, jsonrpsee::types::error::ErrorObject<'static>> {
+        if address.starts_with("0x") {
+            // Format hex
+            let hex_str = &address[2..];
+            match hex::decode(hex_str) {
+                Ok(bytes) => {
+                    if bytes.len() != 32 {
+                        return Err(jsonrpsee::types::error::ErrorObject::owned(
+                            4001,
+                            "Invalid hex address length, expected 32 bytes",
+                            None::<()>
+                        ));
+                    }
+                    let mut array = [0u8; 32];
+                    array.copy_from_slice(&bytes);
+                    Ok(AccountId::from(array))
+                },
+                Err(_) => {
+                    Err(jsonrpsee::types::error::ErrorObject::owned(
+                        4001,
+                        "Invalid hex address format",
+                        None::<()>
+                    ))
+                }
+            }
+        } else {
+            // Format SS58
+            match resonance_runtime::AccountId::from_string(&address) {
+                Ok(account) => Ok(account),
+                Err(_) => {
+                    Err(jsonrpsee::types::error::ErrorObject::owned(
+                        4001,
+                        "Invalid address format, expected 0x-prefixed hex or valid SS58",
+                        None::<()>
+                    ))
+                }
+            }
+        }
+    }
 }
 
 impl<C, P> FaucetApiServer<<Block as BlockT>::Hash> for Faucet<C, P>
@@ -61,53 +101,9 @@ where
     P: TransactionPool<Block = Block> + 'static,
 {
     fn get_account_info(&self, address: String, at: Option<<Block as BlockT>::Hash>) -> RpcResult<AccountInfo> {
-
-        log::info!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Requested account info for address: {}", address);
-
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-
-        // Try to convert the address to the AccountId type
-        let account_id = if address.starts_with("0x") {
-            // Hex format starting with 0x
-            let hex_str = &address[2..];
-            match hex::decode(hex_str) {
-                Ok(bytes) => {
-                    if bytes.len() != 32 {
-                        log::error!("Invalid hex address length: {}", bytes.len());
-                        return Err(jsonrpsee::types::error::ErrorObject::owned(
-                            4001,
-                            "Invalid hex address length, expected 32 bytes",
-                            None::<()>
-                        ));
-                    }
-                    let mut array = [0u8; 32];
-                    array.copy_from_slice(&bytes);
-                    AccountId::from(array)
-                },
-                Err(e) => {
-                    log::error!("Invalid hex address: {}, error: {:?}", address, e);
-                    return Err(jsonrpsee::types::error::ErrorObject::owned(
-                        4001,
-                        "Invalid hex address format",
-                        None::<()>
-                    ));
-                }
-            }
-        } else {
-            match resonance_runtime::AccountId::from_string(&address) {
-                Ok(account) => account,
-                Err(_) => {
-                    log::error!("Invalid SS58 address format: {}", address);
-                    return Err(jsonrpsee::types::error::ErrorObject::owned(
-                        4001,
-                        "Invalid address format, expected 0x-prefixed hex or valid SS58",
-                        None::<()>
-                    ));
-                }
-            }
-        };
-
-        log::info!("Converted address to account ID: {:?}", account_id);
+        
+        let account_id = Self::parse_address(address)?;
 
         let (free_balance, reserved_balance) = match self.client.runtime_api().account_balance(at, account_id.clone()) {
             Ok((free, reserved)) => {
@@ -121,57 +117,15 @@ where
         };
 
         Ok(AccountInfo {
-            free_balance, // 1000 tokens with 12 decimal places
+            free_balance,
             reserved_balance,
         })
-
     }
 
     fn request_tokens(&self, address: String, at: Option<<Block as BlockT>::Hash>) -> RpcResult<bool> {
-        log::info!("Requested tokens for address: {}", address);
-
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
 
-        let account_id = if address.starts_with("0x") {
-            // Format hex
-            let hex_str = &address[2..];
-            match hex::decode(hex_str) {
-                Ok(bytes) => {
-                    if bytes.len() != 32 {
-                        log::error!("Invalid hex address length: {}", bytes.len());
-                        return Err(jsonrpsee::types::error::ErrorObject::owned(
-                            4001,
-                            "Invalid hex address length, expected 32 bytes",
-                            None::<()>
-                        ));
-                    }
-                    let mut array = [0u8; 32];
-                    array.copy_from_slice(&bytes);
-                    AccountId::from(array)
-                },
-                Err(e) => {
-                    log::error!("Invalid hex address: {}, error: {:?}", address, e);
-                    return Err(jsonrpsee::types::error::ErrorObject::owned(
-                        4001,
-                        "Invalid hex address format",
-                        None::<()>
-                    ));
-                }
-            }
-        } else {
-            // Format SS58
-            match resonance_runtime::AccountId::from_string(&address) {
-                Ok(account) => account,
-                Err(_) => {
-                    log::error!("Invalid SS58 address format: {}", address);
-                    return Err(jsonrpsee::types::error::ErrorObject::owned(
-                        4001,
-                        "Invalid address format",
-                        None::<()>
-                    ));
-                }
-            }
-        };
+        let account_id = Self::parse_address(address)?;
 
         let call = RuntimeCall::Faucet(pallet_faucet::Call::mint_new_tokens {
             dest: MultiAddress::Id(account_id.clone()),
