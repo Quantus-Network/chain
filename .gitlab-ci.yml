@@ -25,7 +25,7 @@
     - pip install yq
   deploy_network_script:
     - |
-      export target_ips=($(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | .node[].ip' .ci/networks.yml))
+      #export target_ips=( $(yq --raw-output --arg network ${network} '[.[] | select(.network == $network) | .node[].ip] | join(" ")' .ci/networks.yml) )
       export reset_on_deploy=$(yq --raw-output --arg network ${network} '.[] | select(.network == $network) | ."reset-on-deploy"' .ci/networks.yml)
     - |
       for ip in ${target_ips}; do
@@ -157,6 +157,7 @@ deploy-integration-testnet:
   image: fedora:latest
   variables:
     network: integration-testnet
+    target_ips: 10.9.1.104 10.9.1.105 10.9.1.215
   before_script:
     - !reference [.common, deploy_network_before_script]
   script:
@@ -172,6 +173,7 @@ deploy-live-testnet:
   image: fedora:latest
   variables:
     network: live-testnet
+    target_ips: 10.9.1.201 10.9.1.202 10.9.1.203
   before_script:
     - !reference [.common, deploy_network_before_script]
   script:
