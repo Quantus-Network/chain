@@ -8455,6 +8455,7 @@ dependencies = [
  "sp-blockchain",
  "sp-consensus-qpow",
  "sp-core",
+ "sp-faucet",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-io",
@@ -8507,6 +8508,7 @@ dependencies = [
  "sp-block-builder",
  "sp-consensus-qpow",
  "sp-core",
+ "sp-faucet",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-keyring",
@@ -10957,6 +10959,14 @@ dependencies = [
  "environmental",
  "parity-scale-codec",
  "sp-storage",
+]
+
+[[package]]
+name = "sp-faucet"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "sp-api",
 ]
 
 [[package]]

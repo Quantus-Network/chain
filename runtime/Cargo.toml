@@ -57,6 +57,7 @@ pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = { workspace = true, default-features = false}
 pallet-vesting = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false}
+sp-faucet = {workspace = true, default-features = false}
 log = { workspace = true }
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
@@ -106,6 +107,7 @@ std = [
 	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
+	"sp-faucet/std",
 	"sp-consensus-qpow/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",

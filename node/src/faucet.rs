@@ -14,8 +14,8 @@ use sp_runtime::traits::Block as BlockT;
 use sp_runtime::transaction_validity::TransactionSource;
 use substrate_frame_rpc_system::AccountNonceApi;
 use resonance_runtime::{AccountId, Balance, Nonce, RuntimeCall, UncheckedExtrinsic};
-use resonance_runtime::faucet_runtime_api::FaucetApi;
 use resonance_runtime::opaque::Block;
+use sp_faucet::FaucetApi;
 
 #[rpc(client,server)]
 pub trait FaucetApi<BlockHash> {
@@ -24,7 +24,7 @@ pub trait FaucetApi<BlockHash> {
     fn get_account_info(&self, address: String, at: Option<BlockHash>) -> RpcResult<AccountInfo>;
 
     #[method(name = "faucet_requestTokens")]
-    fn request_tokens(&self, address: String, amount: u128, at: Option<BlockHash>) -> RpcResult<bool>;
+    fn request_tokens(&self, address: String, at: Option<BlockHash>) -> RpcResult<bool>;
 }
 
 #[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize)]
@@ -49,40 +49,16 @@ impl<C, P> Faucet<C, P> {
     }
 }
 
-impl<C, P> FaucetApiServer<<resonance_runtime::opaque::Block as BlockT>::Hash> for Faucet<C, P>
+impl<C, P> FaucetApiServer<<Block as BlockT>::Hash> for Faucet<C, P>
 where
-    // Block: BlockT<Extrinsic = sp_runtime::generic::UncheckedExtrinsic<
-    //     MultiAddress<AccountId32, ()>,
-    //     RuntimeCall,
-    //     ResonanceSignatureScheme,
-    //     (
-    //         frame_system::CheckNonZeroSender<Runtime>,
-    //         frame_system::CheckSpecVersion<Runtime>,
-    //         frame_system::CheckTxVersion<Runtime>,
-    //         frame_system::CheckGenesis<Runtime>,
-    //         frame_system::CheckEra<Runtime>,
-    //         frame_system::CheckNonce<Runtime>,
-    //         frame_system::CheckWeight<Runtime>,
-    //         pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
-    //         frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
-    //     )
-    // >>,
-    //Block: BlockT,
-    //C: Send + Sync + 'static,
-    //C: HeaderBackend<Block>,
-    C: ProvideRuntimeApi<resonance_runtime::opaque::Block>
-    + HeaderBackend<resonance_runtime::opaque::Block>
+    C: ProvideRuntimeApi<Block>
+    + HeaderBackend<Block>
     + Send
     + Sync
     + 'static,
-    C::Api: AccountNonceApi<resonance_runtime::opaque::Block, AccountId, Nonce>,
-    C::Api: FaucetApi<resonance_runtime::opaque::Block, AccountId, Balance, Nonce>,
-    P: TransactionPool<Block = resonance_runtime::opaque::Block> + 'static,
-
-    //C: ProvideRuntimeApi<Block>,
-    //C::Api: AccountNonceApi<Block, AccountId, resonance_runtime::Nonce>,
-    //C::Api: FaucetApi<Block, AccountId, resonance_runtime::Balance, resonance_runtime::Nonce>,
-    //P: TransactionPool<Block = Block> + 'static,
+    C::Api: AccountNonceApi<Block, AccountId, Nonce>,
+    C::Api: FaucetApi<Block, AccountId, Balance, Nonce>,
+    P: TransactionPool<Block = Block> + 'static,
 {
     fn get_account_info(&self, address: String, at: Option<<Block as BlockT>::Hash>) -> RpcResult<AccountInfo> {
 
@@ -93,7 +69,7 @@ where
         // Try to convert the address to the AccountId type
         let account_id = if address.starts_with("0x") {
             // Hex format starting with 0x
-            let hex_str = &address[2..]; // Usuń prefix 0x
+            let hex_str = &address[2..];
             match hex::decode(hex_str) {
                 Ok(bytes) => {
                     if bytes.len() != 32 {
@@ -151,12 +127,11 @@ where
 
     }
 
-    fn request_tokens(&self, address: String, amount: u128, at: Option<<Block as BlockT>::Hash>) -> RpcResult<bool> {
-        log::info!("Requested {} tokens for address: {}", amount, address);
+    fn request_tokens(&self, address: String, at: Option<<Block as BlockT>::Hash>) -> RpcResult<bool> {
+        log::info!("Requested tokens for address: {}", address);
 
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
 
-        // Konwersja adresu - podobnie jak w get_account_info
         let account_id = if address.starts_with("0x") {
             // Format hex
             let hex_str = &address[2..];
@@ -198,24 +173,12 @@ where
             }
         };
 
-        //let faucet_account = AccountKeyring::Alice.to_account_id();
-        // let nonce = self.client.runtime_api()
-        //     .account_nonce(at, faucet_account.clone())
-        //     .map_err(|e| jsonrpsee::types::error::ErrorObject::owned(
-        //         4001,
-        //         format!("Failed to get faucet nonce: {:?}", e),
-        //         None::<()>
-        //     ))?;
-
-        let call = RuntimeCall::Faucet(pallet_faucet::Call::transfer {
+        let call = RuntimeCall::Faucet(pallet_faucet::Call::mint_new_tokens {
             dest: MultiAddress::Id(account_id.clone()),
-            value: amount,
         });
 
         let extrinsic = UncheckedExtrinsic::new_bare(call);
 
-
-        // // Wyślij transakcję do puli
         match futures::executor::block_on(self.pool.submit_one(
             at,
             TransactionSource::Local,
@@ -230,41 +193,5 @@ where
                 Ok(false)
             }
         }
-
-        //Ok(false)
-        //let origin = RawOrigin::None.into();
-
-        // let extrinsic = UncheckedExtrinsic::new_signed(
-        //     call,
-        //     Address::Id(account_id),
-        //     ResonanceSignatureScheme::Resonance(sig, pk_bytes),
-        //     signed_extra,
-        // );
-
-
-
-        // match call.dispatch(origin) {
-        //     Ok(_) => {
-        //         log::info!("💸 Transfer from faucet succeeded");
-        //         Ok(true)
-        //     },
-        //     Err(e) => {
-        //         log::error!("🚨 Faucet dispatch failed: {:?}", e);
-        //         Ok(false)
-        //     }
-        // }
-
-
-        // Wywołaj funkcję transferu z API fauceta
-/*        match self.client.runtime_api().request_tokens(at, account_id, amount) {
-            Ok(_) => {
-                log::info!("Successfully sent {} tokens to {}", amount, address);
-                Ok(true)
-            },
-            Err(err) => {
-                log::error!("Failed to send tokens: {:?}", err);
-                Ok(false) // Zwracamy false zamiast błędu, aby klient mógł obsłużyć błąd
-            }
-        }*/
     }
 }

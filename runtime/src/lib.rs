@@ -31,7 +31,7 @@ pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
 pub mod governance;
-pub mod faucet_runtime_api;
+//pub mod faucet_runtime_api;
 
 use poseidon_resonance::PoseidonHasher;
 

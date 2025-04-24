@@ -42,7 +42,6 @@ use poseidon_resonance::PoseidonHasher;
 use pallet_vesting::VestingPalletId;
 use crate::governance::{PreimageDeposit, TracksInfo};
 use pallet_referenda::impl_tracksinfo_get;
-use sp_core::crypto::Ss58Codec;
 // Local module imports
 use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
@@ -96,14 +95,16 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-    pub FaucetAccount: AccountId = AccountId::from_ss58check("5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq")
-        .expect("Invalid faucet account address");
+
+	pub const MaxTokenAmount: Balance = 1000 * UNIT;
+	pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
 impl pallet_faucet::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
-	type FaucetAccount = FaucetAccount;
+	type MaxTokenAmount = MaxTokenAmount;
+	type DefaultMintAmount = DefaultMintAmount;
 }
 
 impl pallet_mining_rewards::Config for Runtime {

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 use codec::Codec;
 use sp_api::decl_runtime_apis;
 
@@ -9,7 +10,5 @@ decl_runtime_apis! {
         Nonce: Codec,
     {
         fn account_balance(account: AccountId) -> (Balance, Balance);
-        //fn request_tokens(to: AccountId, amount: Balance) -> Result<(), DispatchError>;
-        //fn transfer_proof_exists(nonce: Nonce, from: AccountId, to: AccountId, amount: Balance) -> bool;
     }
 }
