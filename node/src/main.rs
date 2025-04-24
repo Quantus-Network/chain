@@ -9,6 +9,7 @@ mod rpc;
 mod service;
 mod prometheus;
 mod external_miner_client;
+mod faucet;
 
 fn main() -> sc_cli::Result<()> {
 	command::run()

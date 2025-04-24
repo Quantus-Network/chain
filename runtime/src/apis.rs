@@ -39,13 +39,20 @@ use sp_runtime::{
 };
 use sp_version::RuntimeVersion;
 // Local module imports
-use super::{
-	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
-	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
-};
+use super::{faucet_runtime_api, AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION};
 use log;
 
 impl_runtime_apis! {
+
+	impl faucet_runtime_api::FaucetApi<Block, AccountId, Balance, Nonce> for Runtime {
+        fn account_balance(account: AccountId) -> (Balance, Balance) {
+            let free = pallet_balances::Pallet::<Runtime>::free_balance(&account);
+            let reserved = pallet_balances::Pallet::<Runtime>::reserved_balance(&account);
+            (free, reserved)
+        }
+    }
+
+
 	impl sp_api::Core<Block> for Runtime {
 		fn version() -> RuntimeVersion {
 			VERSION

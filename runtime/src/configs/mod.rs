@@ -42,6 +42,7 @@ use poseidon_resonance::PoseidonHasher;
 use pallet_vesting::VestingPalletId;
 use crate::governance::{PreimageDeposit, TracksInfo};
 use pallet_referenda::impl_tracksinfo_get;
+use sp_core::crypto::Ss58Codec;
 // Local module imports
 use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
@@ -92,6 +93,17 @@ impl frame_system::Config for Runtime {
 	/// This is used as an identifier of the chain. 42 is the generic substrate prefix.
 	type SS58Prefix = SS58Prefix;
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
+}
+
+parameter_types! {
+    pub FaucetAccount: AccountId = AccountId::from_ss58check("5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq")
+        .expect("Invalid faucet account address");
+}
+
+impl pallet_faucet::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type FaucetAccount = FaucetAccount;
 }
 
 impl pallet_mining_rewards::Config for Runtime {

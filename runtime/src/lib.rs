@@ -31,6 +31,7 @@ pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
 pub mod governance;
+pub mod faucet_runtime_api;
 
 use poseidon_resonance::PoseidonHasher;
 
@@ -59,7 +60,7 @@ pub mod opaque {
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 	// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
-	
+
 	// Opaque block hash type.
 	pub type Hash = <PoseidonHasher as HashT>::Output;
 
@@ -257,4 +258,7 @@ mod runtime {
 
 	#[runtime::pallet_index(13)]
 	pub type ConvictionVoting = pallet_conviction_voting;
+
+	#[runtime::pallet_index(14)]
+	pub type Faucet = pallet_faucet;
 }
