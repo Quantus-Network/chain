@@ -92,15 +92,21 @@
         ' || true
       done
     - |
+      sleep 30
+      unset all_nodes_found_peers
       for ip in ${target_ips}; do
-        ${ssh_command} resonance@${ip} '
-          while ! journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance-node.service) -g "2 peers" -n 1 --no-pager > /dev/null; do
-            echo "awaiting peer discovery on $(hostname -s)";
-            sleep 1;
-          done;
-          journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show --value -p InvocationID resonance-node.service) && systemctl status --no-pager resonance-node.service;
-        ' || true
+        health_response=$(curl --silent --url http://${ip}:9944/health 2> /dev/null)
+        peer_count=$(echo ${health_response} | jq -r .peers 2> /dev/null)
+        if [[ ${health_response} =~ "peers" ]] && (( peer_count > 0 )); then
+          echo "node at ${ip} has: ${peer_count} peer(s)";
+        else
+          all_nodes_found_peers="false"
+          echo "node at ${ip} has health response: ${health_response}";
+        fi
       done
+      if [ "${all_nodes_found_peers}" = "false" ]; then
+        exit 1
+      fi
 
 variables:
   CARGO_TERM_COLOR: always
