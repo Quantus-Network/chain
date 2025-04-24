@@ -94,6 +94,19 @@ impl frame_system::Config for Runtime {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+parameter_types! {
+
+	pub const MaxTokenAmount: Balance = 1000 * UNIT;
+	pub const DefaultMintAmount: Balance = 10 * UNIT;
+}
+
+impl pallet_faucet::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type MaxTokenAmount = MaxTokenAmount;
+	type DefaultMintAmount = DefaultMintAmount;
+}
+
 impl pallet_mining_rewards::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;

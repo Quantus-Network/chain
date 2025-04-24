@@ -6580,6 +6580,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-faucet"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "hex",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-keyring",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -8408,6 +8425,7 @@ dependencies = [
  "hex",
  "jsonrpsee 0.24.9",
  "log",
+ "pallet-faucet",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
@@ -8437,6 +8455,7 @@ dependencies = [
  "sp-blockchain",
  "sp-consensus-qpow",
  "sp-core",
+ "sp-faucet",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-io",
@@ -8467,6 +8486,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "pallet-conviction-voting",
+ "pallet-faucet",
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",
@@ -8488,6 +8508,7 @@ dependencies = [
  "sp-block-builder",
  "sp-consensus-qpow",
  "sp-core",
+ "sp-faucet",
  "sp-genesis-builder",
  "sp-inherents",
  "sp-keyring",
@@ -10938,6 +10959,14 @@ dependencies = [
  "environmental",
  "parity-scale-codec",
  "sp-storage",
+]
+
+[[package]]
+name = "sp-faucet"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "sp-api",
 ]
 
 [[package]]

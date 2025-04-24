@@ -51,11 +51,13 @@ frame-system-rpc-runtime-api.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { optional = true, workspace = true }
+pallet-faucet = {workspace = true, default-features = false}
 pallet-mining-rewards = {workspace = true, default-features = false}
 pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = { workspace = true, default-features = false}
 pallet-vesting = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false}
+sp-faucet = {workspace = true, default-features = false}
 log = { workspace = true }
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
@@ -87,6 +89,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"pallet-balances/std",
+	"pallet-faucet/std",
 	"pallet-mining-rewards/std",
 	"pallet-conviction-voting/std",
 	"pallet-preimage/std",
@@ -104,6 +107,7 @@ std = [
 	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
+	"sp-faucet/std",
 	"sp-consensus-qpow/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",

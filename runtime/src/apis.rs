@@ -39,13 +39,11 @@ use sp_runtime::{
 };
 use sp_version::RuntimeVersion;
 // Local module imports
-use super::{
-	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
-	RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
-};
+use super::{AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION};
 use log;
 
 impl_runtime_apis! {
+
 	impl sp_api::Core<Block> for Runtime {
 		fn version() -> RuntimeVersion {
 			VERSION
@@ -193,6 +191,14 @@ impl_runtime_apis! {
 		) -> u64 {
 			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
 		}
+	}
+
+	impl sp_faucet::FaucetApi<Block, AccountId, Balance, Nonce> for Runtime {
+        fn account_balance(account: AccountId) -> (Balance, Balance) {
+            let free = pallet_balances::Pallet::<Runtime>::free_balance(&account);
+            let reserved = pallet_balances::Pallet::<Runtime>::reserved_balance(&account);
+            (free, reserved)
+        }
 	}
 
 	impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce> for Runtime {
