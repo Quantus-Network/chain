@@ -92,10 +92,6 @@ pub mod pallet {
 		pub _phantom: PhantomData<T>,
 	}
 
-	pub fn get_initial_distance_threshold<T: Config>() -> U512 {
-		U512::from(T::InitialDistanceThreshold::get()).shl(380)
-	}
-
 	//#[cfg(feature = "std")]
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
@@ -157,6 +153,10 @@ pub mod pallet {
 	pub enum Error<T> {
 		InvalidSolution,
 		ArithmeticOverflow
+	}
+
+	pub fn get_initial_distance_threshold<T: Config>() -> U512 {
+		U512::from(T::InitialDistanceThreshold::get()).shl(380)
 	}
 
 	#[pallet::hooks]
@@ -279,12 +279,9 @@ pub mod pallet {
 		}
 
 		fn percentage_change(a: U512, b: U512) -> (U512, bool) {
-			let a = a.shr(10);
-			let b = b.shr(10);
 			let (larger, smaller) = if a > b { (a, b) } else { (b, a) };
 			let abs_diff = larger - smaller;
-
-			let change = (abs_diff * U512::from(100u64)) / a;
+			let change = (abs_diff / a).saturating_mul(U512::from(100u64));
 
 			(change, b > a)
 		}
@@ -300,9 +297,11 @@ pub mod pallet {
 			// Store distance_threshold for block
 			<BlockDistanceThresholds<T>>::insert(current_block_number, current_distance_threshold);
 
-			let total_distance_threshold = <TotalWork<T>>::get();
-			let new_total_distance_threshold = total_distance_threshold.saturating_add(current_distance_threshold);
-			<TotalWork<T>>::put(new_total_distance_threshold);
+			// Update TotalWork
+			// TODO: put this in its own function for clarity
+			let total_work = <TotalWork<T>>::get();
+			let current_work = Self::get_max_distance() - current_distance_threshold;
+			<TotalWork<T>>::put(total_work + current_work);
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks.saturating_add(1));
@@ -380,16 +379,14 @@ pub mod pallet {
 			target_block_time: u64,
 		) -> U512 {
 			log::info!("📊 Calculating new distance_threshold ---------------------------------------------");
-
 			// Calculate ratio using FixedU128
 			let ratio = FixedU128::from_rational(observed_block_time as u128, target_block_time as u128);
 			let one = FixedU128::from_rational(1u128, 1u128);
 
 			log::info!("💧 Ratio as FixedU128: {} ", ratio);
 
-
 			// Calculate adjusted distance_threshold
-			let adjusted = if ratio == one {
+			let mut adjusted = if ratio == one {
 				current_distance_threshold
 			} else {
 				let ratio_512 = U512::from(ratio.into_inner());
@@ -404,6 +401,16 @@ pub mod pallet {
 					}
 				}
 			};
+
+			let min_distance = Self::get_min_distance();
+			if adjusted < min_distance {
+                adjusted = min_distance;
+            } else {
+				let max_distance = Self::get_max_distance();
+				if adjusted > max_distance {
+					adjusted = max_distance;
+				}
+			}
 
 			log::info!("🟢 Current Distance Threshold: {}", current_distance_threshold);
 			log::info!("🕒 Median Block Time: {}ms", observed_block_time);
@@ -489,6 +496,10 @@ pub mod pallet {
 			stored
 		}
 
+		pub fn get_min_distance() -> U512 {
+			U512::one()
+		}
+
 		pub fn get_max_distance() -> U512 {
 			get_initial_distance_threshold::<T>().shl(1)
 		}
@@ -510,5 +521,6 @@ pub mod pallet {
 		}
 
 		pub fn get_max_reorg_depth() -> u32 { T::MaxReorgDepth::get() }
+
 	}
 }

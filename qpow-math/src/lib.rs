@@ -192,7 +192,7 @@ pub fn is_prime(n: &U512) -> bool {
 }
 
 /// Generate a permutation of byte indices [0, 1, ..., 63] using the hash of h
-fn sha3_512(input: U512) -> U512 {
+pub fn sha3_512(input: U512) -> U512 {
     let mut sha3 = Sha3_512::new();
     let bytes = input.to_big_endian();
     sha3.update(&bytes);

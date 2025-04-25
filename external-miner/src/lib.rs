@@ -491,7 +491,7 @@ mod tests {
 
         let job = MiningJob {
             header_hash: [1; 32], // Use a non-zero hash
-            distance_threshold: U512::from(1), // Very low difficulty
+            distance_threshold: U512::MAX, // Very low difficulty
             nonce_start: U512::from(0),
             // Small nonce range to ensure it finishes if no solution found
             nonce_end: U512::from(500),
@@ -531,7 +531,7 @@ mod tests {
              let state = state.clone();
              let job = MiningJob {
                  header_hash: [i as u8; 32], // Different hash per job
-                 distance_threshold: U512::from(1), // Low difficulty
+                 distance_threshold: U512::MAX, // Low difficulty
                  nonce_start: U512::from(0),
                  nonce_end: U512::from(500), // Small range
                  current_nonce: U512::from(0),
@@ -580,7 +580,7 @@ mod tests {
     // Helper to create a basic job for testing
     fn create_test_job(
         job_id: &str,
-        difficulty: U512,
+        distance_threshold: U512,
         nonce_start: u64,
         nonce_end: u64,
     ) -> (String, MiningJob) {
@@ -606,8 +606,8 @@ mod tests {
         let state = MiningState::new();
         state.start_mining_loop().await;
 
-        // Use difficulty 1, hoping *some* nonce in the small range satisfies the L1 distance.
-        let (job_id, job) = create_test_job("complete_test", U512::one(), 0, 100);
+        // Use distance max
+        let (job_id, job) = create_test_job("complete_test", U512::MAX, 0, 100);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait for the loop to potentially find the nonce
@@ -628,13 +628,13 @@ mod tests {
         // Use a difficulty that is *guaranteed* to fail for all nonces in the range.
         // MAX_DISTANCE is large, so difficulty = MAX_DISTANCE should always fail unless nonce is 0.
         // A difficulty slightly less than MAX_DISTANCE is safer.
-        let impossible_difficulty = qpow_math::MAX_DISTANCE - 1; // Should make distance check fail unless distance is 0
+        let impossible_distance = U512::one(); // Should make distance check fail unless distance is 0
         let state = MiningState::new();
         state.start_mining_loop().await;
 
         let start_nonce = 10; // Start above 0 to avoid the nonce==0 edge case in is_valid_nonce
         let end_nonce = 20;
-        let (job_id, job) = create_test_job("fail_test", impossible_difficulty, start_nonce, end_nonce);
+        let (job_id, job) = create_test_job("fail_test", impossible_distance, start_nonce, end_nonce);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait long enough for the loop to iterate through the small range
@@ -653,7 +653,7 @@ mod tests {
         let state = MiningState::new();
         state.start_mining_loop().await;
 
-        let (job_id, job) = create_test_job("work_field_test", U512::one(), 0, 100);
+        let (job_id, job) = create_test_job("work_field_test", U512::MAX, 0, 100);
         // let job_clone = job.clone(); // No longer needed
         state.add_job(job_id.clone(), job).await.unwrap();
 
@@ -733,9 +733,9 @@ mod tests {
         state.start_mining_loop().await;
 
         let nonce_value = 50;
-        let difficulty = qpow_math::MAX_DISTANCE -1; // Use impossible difficulty
+        let distance = U512::one(); // Use impossible difficulty
 
-        let (job_id, job) = create_test_job("single_nonce_test", difficulty, nonce_value, nonce_value);
+        let (job_id, job) = create_test_job("single_nonce_test", distance, nonce_value, nonce_value);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait just long enough for one check

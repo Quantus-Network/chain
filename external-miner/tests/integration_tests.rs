@@ -80,7 +80,7 @@ async fn test_result_endpoint() {
     // First create a job
     let job = MiningJob {
         header_hash: [0; 32],
-        difficulty: 1000,
+        distance_threshold: U512::from(1000),
         nonce_start: U512::from(0),
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
@@ -129,7 +129,7 @@ async fn test_cancel_endpoint() {
     // First create a job
     let job = MiningJob {
         header_hash: [0; 32],
-        difficulty: 1000,
+        distance_threshold: U512::from(1000),
         nonce_start: U512::from(0),
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
@@ -182,7 +182,7 @@ async fn test_concurrent_access() {
         let handle = tokio::spawn(async move {
             let job = MiningJob {
                 header_hash: [0; 32],
-                difficulty: 1000,
+                distance_threshold: U512::from(1000),
                 nonce_start: U512::from(0),
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),

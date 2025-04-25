@@ -169,7 +169,7 @@ async fn spec_result_job_running() {
     // Add a job
     let job = MiningJob::new(
         [1u8; 32],
-        1000,
+        U512::from(1000),
         U512::from(0),
         U512::from(1000),
     );
@@ -226,7 +226,7 @@ async fn spec_cancel_existing_job() {
     let (state, routes) = setup_routes();
     let job_id = "job-cancel-1".to_string();
     // Add a job
-    let job = MiningJob::new([2u8; 32], 2000, U512::from(0), U512::from(500));
+    let job = MiningJob::new([2u8; 32], U512::from(2000), U512::from(0), U512::from(500));
     state.add_job(job_id.clone(), job).await.unwrap();
 
     let resp = request()
