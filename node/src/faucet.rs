@@ -102,7 +102,7 @@ where
 {
     fn get_account_info(&self, address: String, at: Option<<Block as BlockT>::Hash>) -> RpcResult<AccountInfo> {
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-        
+
         let account_id = Self::parse_address(address)?;
 
         let (free_balance, reserved_balance) = match self.client.runtime_api().account_balance(at, account_id.clone()) {
@@ -127,8 +127,11 @@ where
 
         let account_id = Self::parse_address(address)?;
 
+        let seed = rand::random::<u64>();
+
         let call = RuntimeCall::Faucet(pallet_faucet::Call::mint_new_tokens {
             dest: MultiAddress::Id(account_id.clone()),
+            seed
         });
 
         let extrinsic = UncheckedExtrinsic::new_bare(call);
