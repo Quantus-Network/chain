@@ -118,7 +118,7 @@ pub mod pallet {
 			<BlockDistanceThresholds<T>>::insert(genesis_block_number, initial_distance_threshold);
 
 			// Initialize the total distance_threshold with the genesis block's distance_threshold
-			<TotalWork<T>>::put(initial_distance_threshold);
+			<TotalWork<T>>::put(U512::one());
 		}
 	}
 
@@ -299,9 +299,17 @@ pub mod pallet {
 
 			// Update TotalWork
 			// TODO: put this in its own function for clarity
-			let total_work = <TotalWork<T>>::get();
-			let current_work = Self::get_max_distance() - current_distance_threshold;
-			<TotalWork<T>>::put(total_work + current_work);
+			let old_total_work = <TotalWork<T>>::get();
+			let current_work = Self::get_max_distance() / current_distance_threshold;
+			let new_total_work = old_total_work.saturating_add(current_work);
+			<TotalWork<T>>::put(new_total_work);
+			log::info!(
+					"Total work: now={}, last_time={}, diff={}",
+					new_total_work,
+					old_total_work,
+					new_total_work - old_total_work
+				);
+
 
 			// Increment number of blocks in period
 			<BlocksInPeriod<T>>::put(blocks.saturating_add(1));

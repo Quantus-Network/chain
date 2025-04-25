@@ -270,16 +270,11 @@ fn test_total_distance_threshold_accumulation() {
         let mut expected_total = U512::zero();
         let max_distance = QPow::get_max_distance();
         for i in 0..=10 {
-            println!("wow : {}", i);
             run_to_block(i);
-            println!("wowie : {}", i);
             let block_distance_threshold = QPow::get_distance_threshold_at_block(i as u64);
-            println!("huh : {}", i);
-            expected_total += max_distance - block_distance_threshold;
-            println!("uhhuh : {}", i);
+            expected_total = expected_total.saturating_add(max_distance - block_distance_threshold);
 
             let stored_total = QPow::get_total_work();
-            println!("mm : {}", i);
             assert_eq!(stored_total, expected_total,
                        "TotalDifficulty after block {} should be the sum of all blocks' difficulties", i);
         }
