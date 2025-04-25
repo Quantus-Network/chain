@@ -9,7 +9,7 @@ pub type ChainSpec = sc_service::GenericChainSpec;
 pub fn development_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
-	properties.insert("tokenDecimals".into(), json!("9"));
+	properties.insert("tokenDecimals".into(), json!(9));
 	properties.insert("tokenSymbol".into(), json!("REZ"));
 
 	Ok(ChainSpec::builder(
@@ -28,7 +28,7 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 pub fn local_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
-	properties.insert("tokenDecimals".into(), json!("9"));
+	properties.insert("tokenDecimals".into(), json!(9));
 	properties.insert("tokenSymbol".into(), json!("REZ"));
 
 	Ok(ChainSpec::builder(
