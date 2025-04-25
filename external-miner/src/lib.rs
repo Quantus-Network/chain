@@ -30,7 +30,7 @@ pub struct MiningState {
 #[derive(Debug, Clone)]
 pub struct MiningJob {
     pub header_hash: [u8; 32],
-    pub difficulty: u64,
+    pub distance_threshold: U512,
     pub nonce_start: U512,
     pub nonce_end: U512,
     pub current_nonce: U512,
@@ -42,13 +42,13 @@ pub struct MiningJob {
 impl MiningJob {
     pub fn new(
         header_hash: [u8; 32],
-        difficulty: u64,
+        distance_threshold: U512,
         nonce_start: U512,
         nonce_end: U512,
     ) -> Self {
         MiningJob {
             header_hash,
-            difficulty,
+            distance_threshold,
             nonce_start,
             nonce_end,
             current_nonce: nonce_start,
@@ -122,7 +122,7 @@ impl MiningState {
                         job.hash_count += 1;
 
                         // Call the verification function from qpow-math
-                        if is_valid_nonce(job.header_hash, nonce_bytes, job.difficulty) {
+                        if is_valid_nonce(job.header_hash, nonce_bytes, job.distance_threshold) {
                             job.status = JobStatus::Completed;
                             log::info!(
                                 "Job {} COMPLETED! Nonce: {} ({}), Hashes: {}, Time: {:?}",
@@ -381,7 +381,7 @@ mod tests {
          let state = MiningState::new();
         let job = MiningJob {
             header_hash: [0; 32],
-            difficulty: 1000,
+            distance_threshold: U512::from(1000),
             nonce_start: U512::from(0),
             nonce_end: U512::from(1000),
             current_nonce: U512::from(0),
@@ -399,7 +399,7 @@ mod tests {
         // Test getting a job
         let retrieved_job = state.get_job("test").await;
         assert!(retrieved_job.is_some());
-        assert_eq!(retrieved_job.unwrap().difficulty, 1000);
+        assert_eq!(retrieved_job.unwrap().distance_threshold, U512::from(1000));
 
         // Test removing a job
         let removed_job = state.remove_job("test").await;
@@ -420,7 +420,7 @@ mod tests {
             let state = state.clone();
             let job = MiningJob {
                 header_hash: [0; 32],
-                difficulty: 1000,
+                distance_threshold: U512::from(1000),
                 nonce_start: U512::from(0),
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),
@@ -451,7 +451,7 @@ mod tests {
          let state = MiningState::new();
         let job = MiningJob {
             header_hash: [0; 32],
-            difficulty: 1000,
+            distance_threshold: U512::from(1000),
             nonce_start: U512::from(0),
             nonce_end: U512::from(1000),
             current_nonce: U512::from(0),
@@ -491,7 +491,7 @@ mod tests {
 
         let job = MiningJob {
             header_hash: [1; 32], // Use a non-zero hash
-            difficulty: 1, // Very low difficulty
+            distance_threshold: U512::from(1), // Very low difficulty
             nonce_start: U512::from(0),
             // Small nonce range to ensure it finishes if no solution found
             nonce_end: U512::from(500),
@@ -531,7 +531,7 @@ mod tests {
              let state = state.clone();
              let job = MiningJob {
                  header_hash: [i as u8; 32], // Different hash per job
-                 difficulty: 1, // Low difficulty
+                 distance_threshold: U512::from(1), // Low difficulty
                  nonce_start: U512::from(0),
                  nonce_end: U512::from(500), // Small range
                  current_nonce: U512::from(0),
@@ -580,13 +580,13 @@ mod tests {
     // Helper to create a basic job for testing
     fn create_test_job(
         job_id: &str,
-        difficulty: u64,
+        difficulty: U512,
         nonce_start: u64,
         nonce_end: u64,
     ) -> (String, MiningJob) {
         let job = MiningJob {
             header_hash: [job_id.len() as u8; 32], // Simple deterministic hash
-            difficulty,
+            distance_threshold,
             nonce_start: U512::from(nonce_start),
             nonce_end: U512::from(nonce_end),
             current_nonce: U512::from(nonce_start),
@@ -607,7 +607,7 @@ mod tests {
         state.start_mining_loop().await;
 
         // Use difficulty 1, hoping *some* nonce in the small range satisfies the L1 distance.
-        let (job_id, job) = create_test_job("complete_test", 1, 0, 100);
+        let (job_id, job) = create_test_job("complete_test", U512::one(), 0, 100);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait for the loop to potentially find the nonce
@@ -653,7 +653,7 @@ mod tests {
         let state = MiningState::new();
         state.start_mining_loop().await;
 
-        let (job_id, job) = create_test_job("work_field_test", 1, 0, 100);
+        let (job_id, job) = create_test_job("work_field_test", U512::one(), 0, 100);
         // let job_clone = job.clone(); // No longer needed
         state.add_job(job_id.clone(), job).await.unwrap();
 
@@ -695,7 +695,7 @@ mod tests {
         state.start_mining_loop().await;
 
         // Job with a large range that won't finish quickly
-        let (job_id, job) = create_test_job("cancel_test", 10000, 0, 1_000_000);
+        let (job_id, job) = create_test_job("cancel_test", U512::from(10000), 0, 1_000_000);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Let it run for a very short time
@@ -752,7 +752,7 @@ mod tests {
          // --- Test completion case for single nonce ---
          let state_complete = MiningState::new();
          state_complete.start_mining_loop().await;
-         let difficulty_easy = 1; // Easy difficulty
+         let difficulty_easy = U512::one(); // Easy difficulty
          let (job_id_c, job_c) = create_test_job("single_nonce_complete", difficulty_easy, nonce_value, nonce_value);
          state_complete.add_job(job_id_c.clone(), job_c).await.unwrap();
 

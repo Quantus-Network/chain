@@ -13,7 +13,7 @@ fn test_submit_valid_proof() {
         let header = [1u8; 32];
 
         // Get current difficulty
-        let difficulty = QPow::get_difficulty();
+        let difficulty = QPow::get_distance_threshold();
         println!("Current difficulty: {}", difficulty);
 
         // We need to find valid and invalid nonces for our test
@@ -94,7 +94,7 @@ fn test_verify_for_import() {
         let header = [1u8; 32];
 
         // Get current difficulty to understand what we need to target
-        let difficulty = QPow::get_difficulty();
+        let difficulty = QPow::get_distance_threshold();
         println!("Current difficulty: {}", difficulty);
 
         // Find a nonce that will be valid for the current difficulty
@@ -386,7 +386,7 @@ fn test_integrated_verification_flow() {
         let header = [1u8; 32];
 
         // Get the current difficulty
-        let difficulty = QPow::get_difficulty();
+        let difficulty = QPow::get_distance_threshold();
         println!("Current difficulty: {}", difficulty);
 
         // Use a nonce that we know works for our tests

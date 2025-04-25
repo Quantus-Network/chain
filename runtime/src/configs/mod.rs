@@ -104,12 +104,12 @@ impl pallet_mining_rewards::Config for Runtime {
 impl pallet_qpow::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_qpow::DefaultWeightInfo;
-	type InitialDifficulty = ConstU64<5500000000>; //Min + 5
-	type MinDifficulty = ConstU64<50000000000>;
-	type TargetBlockTime = ConstU64<5000>;
+	// NOTE: InitialDistance will be shifted left by 380 bits
+	type InitialDistanceThreshold = ConstU128<340282366920938463463374607431768211455>; // 2<<128-1
+	type TargetBlockTime = ConstU64<3000>;
 	type AdjustmentPeriod = ConstU32<10>;
-	type DampeningFactor = ConstU64<8>;
-	type BlockTimeHistorySize = ConstU32<60>;
+	type DampeningFactor = ConstU64<72>;
+	type BlockTimeHistorySize = ConstU32<500>;
 	type MaxReorgDepth = ConstU32<10>;
 }
 

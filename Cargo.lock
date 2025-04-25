@@ -7881,6 +7881,7 @@ dependencies = [
 name = "qpow-math"
 version = "0.1.0"
 dependencies = [
+ "log",
  "num-bigint",
  "num-traits",
  "primitive-types 0.13.1",
