@@ -248,17 +248,17 @@ fn test_distance_threshold_storage_and_retrieval() {
 fn test_total_distance_threshold_initialization() {
     new_test_ext().execute_with(|| {
         // Initially, total distance_threshold should be as genesis distance_threshold
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
-        assert_eq!(QPow::get_total_work(), initial_distance_threshold.into(),
+        let initial_work = U512::one();
+        assert_eq!(QPow::get_total_work(), initial_work.into(),
                    "Initial TotalWork should be 0");
 
-        // After the first block, TotalWork should equal block 1's distance_threshold
+        // After the first btest_total_distance_threshold_increases_with_each_blocklock, TotalWork should equal block 1's distance_threshold
         run_to_block(1);
         let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
         let max_distance = QPow::get_max_distance();
-        let current_work = max_distance - block_1_distance_threshold;
+        let current_work = max_distance / block_1_distance_threshold;
         let total_work = QPow::get_total_work();
-        assert_eq!(total_work, initial_distance_threshold + current_work,
+        assert_eq!(total_work, initial_work + current_work,
                    "TotalWork after block 1 should equal block 1's distance_threshold");
     });
 }
@@ -267,12 +267,12 @@ fn test_total_distance_threshold_initialization() {
 fn test_total_distance_threshold_accumulation() {
     new_test_ext().execute_with(|| {
         // Generate consecutive blocks and check distance_threshold accumulation
-        let mut expected_total = U512::zero();
+        let mut expected_total = U512::one();
         let max_distance = QPow::get_max_distance();
-        for i in 0..=10 {
+        for i in 1..=10 {
             run_to_block(i);
             let block_distance_threshold = QPow::get_distance_threshold_at_block(i as u64);
-            expected_total = expected_total.saturating_add(max_distance - block_distance_threshold);
+            expected_total = expected_total.saturating_add(max_distance / block_distance_threshold);
 
             let stored_total = QPow::get_total_work();
             assert_eq!(stored_total, expected_total,
@@ -287,7 +287,7 @@ fn test_total_distance_threshold_after_adjustment() {
         // Advance to the point where distance_threshold gets adjusted
         let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
         run_to_block(adjustment_period + 1);
-
+        let max_distance = QPow::get_max_distance();
         // Check if distance_threshold has changed
         let initial_distance_threshold = <Test as Config>::InitialDistanceThreshold::get();
         let new_distance_threshold = QPow::get_distance_threshold_at_block((adjustment_period + 1) as u64);
@@ -296,10 +296,10 @@ fn test_total_distance_threshold_after_adjustment() {
         println!("Initial distance_threshold: {}, New distance_threshold: {}", initial_distance_threshold, new_distance_threshold);
 
         // Calculate expected cumulative distance_threshold
-        let mut expected_total = U512::zero();
-        for i in 0..=(adjustment_period + 1) {
+        let mut expected_total = U512::one();
+        for i in 1..=(adjustment_period + 1) {
             let block_diff = QPow::get_distance_threshold_at_block(i as u64);
-            expected_total += block_diff;
+            expected_total += max_distance / block_diff;
         }
 
         // Compare with stored value
@@ -326,10 +326,10 @@ fn test_total_distance_threshold_increases_with_each_block() {
         let total_after_block_2 = QPow::get_total_work();
         assert!(total_after_block_2 > total_after_block_1,
                 "TotalDifficulty should increase after each new block");
-
+        let max_distance = QPow::get_max_distance();
         // Verify that the increase matches the distance_threshold of block 2
         let block_2_diff = total_after_block_2 - total_after_block_1;
-        assert_eq!(block_2_diff, QPow::get_distance_threshold_at_block(2),
+        assert_eq!(block_2_diff, max_distance / QPow::get_distance_threshold_at_block(2),
                    "TotalDifficulty increase should match the distance_threshold of the new block");
     });
 }
