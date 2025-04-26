@@ -20,7 +20,7 @@ pub mod pallet {
 	use frame_support::sp_runtime::Saturating;
 	use frame_support::sp_runtime::traits::{One, Zero};
 	use sp_core::U512;
-	use core::ops::{Shl, Shr};
+	use core::ops::Shl;
 	use sp_std::prelude::*;
 	use qpow_math::{is_valid_nonce, get_nonce_distance, get_random_rsa, hash_to_group_bigint};
 
