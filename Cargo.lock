@@ -7881,6 +7881,7 @@ dependencies = [
 name = "qpow-math"
 version = "0.1.0"
 dependencies = [
+ "log",
  "num-bigint",
  "num-traits",
  "primitive-types 0.13.1",
@@ -9171,8 +9172,6 @@ dependencies = [
 [[package]]
 name = "sc-consensus-pow"
 version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8101d7cc16e3825424e48c71b585283ec78212236a4f2ddfcb51929487ba33d4"
 dependencies = [
  "async-trait",
  "futures",
@@ -10805,8 +10804,6 @@ dependencies = [
 [[package]]
 name = "sp-consensus-pow"
 version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e6c87b5b8c2f96eb095b179681f18f0751e89339bdb2ba89e8779198f1f341"
 dependencies = [
  "parity-scale-codec",
  "sp-api",

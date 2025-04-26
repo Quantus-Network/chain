@@ -33,22 +33,25 @@ sp_api::decl_runtime_apis! {
         fn get_nonce_distance(
             header: [u8; 32],  // 256-bit header
 			nonce: [u8; 64], // 512-bit nonce
-		) -> u64;
+		) -> U512;
 
         /// Get the max possible reorg depth
         fn get_max_reorg_depth() -> u32;
 
-        /// Get the max possible difficulty for work calculation
-        fn get_max_distance() -> u64;
+        /// Get the max possible distance_threshold for work calculation
+        fn get_max_distance() -> U512;
 
-        /// Get the current difficulty target for proof generation
-        fn get_difficulty() -> u64;
+        /// Get the current distance_threshold target for proof generation
+        fn get_distance_threshold() -> U512;
 
-        /// Get difficulty at block
-        fn get_difficulty_at_block(block_number: u32) -> u64;
+        /// Get distance_threshold at block
+        fn get_distance_threshold_at_block(block_number: u32) -> U512;
 
-        /// Get total difficulty
-        fn get_total_difficulty() -> u128;
+        /// Get total work
+        fn get_total_work() -> U512;
+
+        /// Get sum of block times in rolling history
+        fn get_block_time_sum() -> u64;
 
         /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;

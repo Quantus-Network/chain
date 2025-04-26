@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 use futures::StreamExt;
-use primitive_types::{H256, U256};
+use primitive_types::{H256, U512};
 use sc_client_api::{AuxStore, BlockBackend, BlockchainEvents, Finalizer};
 use sc_service::TaskManager;
 use sp_api::__private::BlockT;
@@ -54,7 +54,7 @@ where
     pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B,C>) -> Self {
 
         let genesis_hash = client.hash(Zero::zero())
-            .expect("Failed to get gehesis hash")
+            .expect("Failed to get genesis hash")
             .expect("Genesis block must exist");
         let max_reorg_depth = client.runtime_api().get_max_reorg_depth(genesis_hash)
             .expect("Failed to get max reorg depth");
@@ -110,7 +110,7 @@ where
         Ok(())
     }
 
-    pub fn calculate_block_difficulty(&self, chain_head: &B::Header) -> Result<U256, sp_consensus::Error> {
+    pub fn calculate_block_work(&self, chain_head: &B::Header) -> Result<U512, sp_consensus::Error> {
         let current_hash = chain_head.hash();
 
         let header = self.client.header(current_hash)
@@ -119,10 +119,10 @@ where
 
         // Stop at genesis block
         if header.number().is_zero() {
-            let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
-                .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
+            let genesis_work = self.client.runtime_api().get_distance_threshold(current_hash.clone())
+                .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis distance_threshold {:?}", e).into()))?;
 
-            return Ok(U256::from(genesis_difficulty));
+            return Ok(genesis_work);
         }
 
         let seal_log = header.digest().logs().iter().find(|item|
@@ -150,57 +150,54 @@ where
         let actual_distance = self.client.runtime_api().get_nonce_distance(current_hash.clone(), header_bytes, nonce)
             .map_err(|e| sp_consensus::Error::Other(format!("Failed to get nonce distance: {:?}", e).into()))?;
 
-        let block_difficulty = U256::from(max_distance.saturating_sub(actual_distance));
+        let block_work = max_distance.saturating_sub(actual_distance);
 
-        return Ok(block_difficulty);
-
+        Ok(block_work)
     }
 
-    fn calculate_chain_difficulty(&self, chain_head: &B::Header) -> Result<U256, sp_consensus::Error> {
-        // calculate cumulative difficulty of a chain
+    fn calculate_chain_work(&self, chain_head: &B::Header) -> Result<U512, sp_consensus::Error> {
+        // calculate cumulative work of a chain
 
         let current_hash = chain_head.hash();
 
 
         log::info!(
-            "Calculating difficulty for chain with head: {:?} (#{:?})",
+            "Calculating work for chain with head: {:?} (#{:?})",
             current_hash,
             chain_head.number()
         );
 
         if chain_head.number().is_zero() {
             // Genesis block
-            let genesis_difficulty = self.client.runtime_api().get_difficulty(current_hash.clone())
+            let genesis_work = self.client.runtime_api().get_distance_threshold(current_hash.clone())
                 .map_err(|e| sp_consensus::Error::Other(format!("Failed to get genesis difficulty {:?}", e).into()))?;
-            log::info!("Calculating difficulty for genesis block: {} ",genesis_difficulty);
-            return Ok(U256::from(genesis_difficulty));
+            log::info!("Calculating difficulty for genesis block: {} ", genesis_work);
+            return Ok(genesis_work);
         }
 
-        let cumulative_difficulty = self.client.runtime_api().get_total_difficulty(current_hash.clone())
+        let total_work = self.client.runtime_api().get_total_work(current_hash.clone())
             .map_err(|e| sp_consensus::Error::Other(format!("Failed to get total difficulty {:?}", e).into()))?;
 
-        let total_difficulty = U256::from(cumulative_difficulty);
-
         log::info!(
-            "Total chain difficulty: {:?} for chain with head at #{:?}",
-            total_difficulty,
+            "Total chain work: {:?} for chain with head at #{:?}",
+            total_work,
             chain_head.number()
         );
 
-        Ok(total_difficulty)
+        Ok(total_work)
     }
 
     /// Method to find best chain when there's no current best header
     async fn find_best_chain(&self, leaves: Vec<B::Hash>) -> Result<B::Header, sp_consensus::Error> {
         let mut best_header = None;
-        let mut best_work = U256::zero();
+        let mut best_work = U512::zero();
 
         for leaf_hash in leaves {
             let header = self.client.header(leaf_hash)
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into()))?;
 
-            let chain_work = self.calculate_chain_difficulty(&header)?;
+            let chain_work = self.calculate_chain_work(&header)?;
 
             if chain_work > best_work {
                 best_work = chain_work;
@@ -332,7 +329,7 @@ where
         };
 
         let mut best_header = current_best.clone();
-        let mut best_work = self.calculate_chain_difficulty(&current_best)?;
+        let mut best_work = self.calculate_chain_work(&current_best)?;
         log::info!("Current best chain: {:?} with work: {:?}", best_header.hash(), best_work);
 
         // Get access to the ignored chains
@@ -349,7 +346,7 @@ where
                 .map_err(|e| sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into()))?
                 .ok_or_else(|| sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into()))?;
 
-            let chain_work = self.calculate_chain_difficulty(&header)?;
+            let chain_work = self.calculate_chain_work(&header)?;
 
             if chain_work >= best_work {
                 // This chain has more work, but we need to check reorg depth
