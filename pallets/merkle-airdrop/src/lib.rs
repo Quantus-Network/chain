@@ -37,7 +37,6 @@ pub mod weights;
 pub use weights::*;
 
 use frame_support::traits::Currency;
-use poseidon_resonance::PoseidonHasher;
 
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -51,8 +50,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use sp_std::prelude::*;
-    use sp_runtime::traits::Hash;
-    use crate::PoseidonHasher;
+    use sp_io::hashing::blake2_256;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Saturating;
     use super::weights::WeightInfo;
@@ -175,7 +173,7 @@ pub mod pallet {
             T::PalletId::get().into_account_truncating()
         }
 
-        /// Verifies a Merkle proof against a Merkle root using Poseidon hash.
+        /// Verifies a Merkle proof against a Merkle root using Blake2 hash.
         ///
         /// This function checks if an account is eligible to claim a specific amount from an airdrop
         /// by verifying a Merkle proof against the stored Merkle root.
@@ -203,8 +201,8 @@ pub mod pallet {
                 account, amount, merkle_root, merkle_proof.len()
             );
 
-            // Create the leaf hash using Poseidon
-            let leaf = Self::calculate_leaf_hash_poseidon(account, amount);
+            // Create the leaf hash using Blake2
+            let leaf = Self::calculate_leaf_hash_blake2(account, amount);
             log::info!(
                 target: "merkle-airdrop",
                 "Calculated leaf hash: {:?}",
@@ -221,11 +219,11 @@ pub mod pallet {
                 );
 
                 computed_hash = if computed_hash < *proof_element {
-                    let result = Self::calculate_parent_hash_poseidon(&computed_hash, proof_element);
+                    let result = Self::calculate_parent_hash_blake2(&computed_hash, proof_element);
                     log::info!("Left child + Right child = {:?}", result);
                     result
                 } else {
-                    let result = Self::calculate_parent_hash_poseidon(proof_element, &computed_hash);
+                    let result = Self::calculate_parent_hash_blake2(proof_element, &computed_hash);
                     log::info!("Right child + Left child = {:?}", result);
                     result
                 };
@@ -241,10 +239,10 @@ pub mod pallet {
             computed_hash == *merkle_root
         }
 
-        /// Calculates the leaf hash for a Merkle tree using Poseidon.
+        /// Calculates the leaf hash for a Merkle tree using Blake2.
         ///
         /// This function creates a leaf node hash from an account and amount using the
-        /// Poseidon hash function, which is optimized for zero-knowledge proofs.
+        /// Blake2 hash function, which is optimized for zero-knowledge proofs.
         ///
         /// # Parameters
         ///
@@ -253,8 +251,8 @@ pub mod pallet {
         ///
         /// # Returns
         ///
-        /// A 32-byte array containing the Poseidon hash of the account and amount
-        fn calculate_leaf_hash_poseidon(
+        /// A 32-byte array containing the Blake2 hash of the account and amount
+        pub fn calculate_leaf_hash_blake2(
             account: &T::AccountId,
             amount: BalanceOf<T>,
         ) -> [u8; 32] {
@@ -265,15 +263,10 @@ pub mod pallet {
             // Concatenate the bytes
             let combined = [account_bytes.as_slice(), amount_bytes.as_slice()].concat();
 
-            // Use PoseidonHasher to hash the data
-            let mut output = [0u8; 32];
-            output.copy_from_slice(
-                &PoseidonHasher::hash(&combined)[..]
-            );
-            output
+            blake2_256(&combined)
         }
 
-        /// Calculates the parent hash in a Merkle tree using Poseidon.
+        /// Calculates the parent hash in a Merkle tree using Blake2.
         ///
         /// This function combines two child hashes to create their parent hash in the Merkle tree.
         /// The children are ordered lexicographically before hashing to ensure consistency.
@@ -285,8 +278,8 @@ pub mod pallet {
         ///
         /// # Returns
         ///
-        /// A 32-byte array containing the Poseidon hash of the combined children
-        fn calculate_parent_hash_poseidon(
+        /// A 32-byte array containing the Blake2 hash of the combined children
+        fn calculate_parent_hash_blake2(
             left: &[u8; 32],
             right: &[u8; 32],
         ) -> [u8; 32] {
@@ -297,12 +290,7 @@ pub mod pallet {
                 [right.as_slice(), left.as_slice()].concat()
             };
 
-            // Use PoseidonHasher to hash the data
-            let mut output = [0u8; 32];
-            output.copy_from_slice(
-                &PoseidonHasher::hash(&combined)[..]
-            );
-            output
+            blake2_256(&combined)
         }
     }
 
