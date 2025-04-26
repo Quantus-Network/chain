@@ -6671,6 +6671,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-reversible-transfers"
+version = "40.0.1"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-preimage",
+ "pallet-scheduler",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-scheduler"
 version = "40.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8491,6 +8510,7 @@ dependencies = [
  "pallet-preimage",
  "pallet-qpow",
  "pallet-referenda",
+ "pallet-reversible-transfers",
  "pallet-scheduler",
  "pallet-sudo",
  "pallet-timestamp",
@@ -8511,6 +8531,7 @@ dependencies = [
  "sp-faucet",
  "sp-genesis-builder",
  "sp-inherents",
+ "sp-io",
  "sp-keyring",
  "sp-offchain",
  "sp-runtime",

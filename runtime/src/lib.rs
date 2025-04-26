@@ -8,30 +8,32 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
-pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonancePublic;
+pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonanceSignatureScheme;
 
 extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
-	generic, impl_opaque_keys,
-	traits::{IdentifyAccount, Verify},
-	MultiAddress,
+    generic, impl_opaque_keys,
+    traits::{IdentifyAccount, Verify},
+    MultiAddress,
 };
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
 pub use frame_system::Call as SystemCall;
-pub use pallet_timestamp::Call as TimestampCall;
 pub use pallet_balances::Call as BalancesCall;
+pub use pallet_reversible_transfers as ReversibleTransfersCall;
+pub use pallet_timestamp::Call as TimestampCall;
+
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
 pub mod governance;
-//pub mod faucet_runtime_api;
+pub mod transaction_extensions;
 
 use poseidon_resonance::PoseidonHasher;
 
@@ -40,56 +42,52 @@ use poseidon_resonance::PoseidonHasher;
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
 /// to even the core data structures.
 pub mod opaque {
-	use super::*;
-	use sp_runtime::{
-		generic,
-		traits::{Hash as HashT},
-	};
+    use super::*;
+    use sp_runtime::{generic, traits::Hash as HashT};
 
-	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
+    pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
-	// For whatever reason, changing this causes the block hash and
-	// the storage root to be computed with poseidon, but not the extrinsics root.
-	// For the wormhole proofs, we only need the storage root to be calculated with poseidon.
-	// However, some internal checks in dev build expect extrinsics_root to be computed with same
-	// Hash function, so we change the configs/mod.rs Hashing type as well
-	// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+    // For whatever reason, changing this causes the block hash and
+    // the storage root to be computed with poseidon, but not the extrinsics root.
+    // For the wormhole proofs, we only need the storage root to be calculated with poseidon.
+    // However, some internal checks in dev build expect extrinsics_root to be computed with same
+    // Hash function, so we change the configs/mod.rs Hashing type as well
+    // Opaque block header type.
+    pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 
-	// Opaque block type.
-	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
-	// Opaque block identifier type.
-	pub type BlockId = generic::BlockId<Block>;
+    // Opaque block type.
+    pub type Block = generic::Block<Header, UncheckedExtrinsic>;
+    // Opaque block identifier type.
+    pub type BlockId = generic::BlockId<Block>;
 
-	// Opaque block hash type.
-	pub type Hash = <PoseidonHasher as HashT>::Output;
-
+    // Opaque block hash type.
+    pub type Hash = <PoseidonHasher as HashT>::Output;
 }
 
 impl_opaque_keys! {
-	pub struct SessionKeys {
-		// pub a*ura: A*ura,
-		// pub g*randpa: G*randpa,
-	}
+    pub struct SessionKeys {
+        // pub a*ura: A*ura,
+        // pub g*randpa: G*randpa,
+    }
 }
 
 // To learn more about runtime versioning, see:
 // https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: alloc::borrow::Cow::Borrowed("resonance-runtime"),
-	impl_name: alloc::borrow::Cow::Borrowed("resonance-runtime"),
-	authoring_version: 1,
-	// The version of the runtime specification. A full node will not attempt to use its native
-	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
-	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
-	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
-	//   the compatible custom types.
-	spec_version: 100,
-	impl_version: 1,
-	apis: apis::RUNTIME_API_VERSIONS,
-	transaction_version: 1,
-	system_version: 1,
+    spec_name: alloc::borrow::Cow::Borrowed("resonance-runtime"),
+    impl_name: alloc::borrow::Cow::Borrowed("resonance-runtime"),
+    authoring_version: 1,
+    // The version of the runtime specification. A full node will not attempt to use its native
+    //   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
+    //   `spec_version`, and `authoring_version` are the same between Wasm and native.
+    // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
+    //   the compatible custom types.
+    spec_version: 100,
+    impl_version: 1,
+    apis: apis::RUNTIME_API_VERSIONS,
+    transaction_version: 1,
+    system_version: 1,
 };
 
 // this seems to be aura related??
@@ -126,7 +124,10 @@ pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
-	NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
+    NativeVersion {
+        runtime_version: VERSION,
+        can_author_with: Default::default(),
+    }
 }
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
@@ -166,20 +167,21 @@ pub type BlockId = generic::BlockId<Block>;
 
 /// The SignedExtension to the basic transaction logic.
 pub type TxExtension = (
-	frame_system::CheckNonZeroSender<Runtime>,
-	frame_system::CheckSpecVersion<Runtime>,
-	frame_system::CheckTxVersion<Runtime>,
-	frame_system::CheckGenesis<Runtime>,
-	frame_system::CheckEra<Runtime>,
-	frame_system::CheckNonce<Runtime>,
-	frame_system::CheckWeight<Runtime>,
-	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
-	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+    frame_system::CheckNonZeroSender<Runtime>,
+    frame_system::CheckSpecVersion<Runtime>,
+    frame_system::CheckTxVersion<Runtime>,
+    frame_system::CheckGenesis<Runtime>,
+    frame_system::CheckEra<Runtime>,
+    frame_system::CheckNonce<Runtime>,
+    frame_system::CheckWeight<Runtime>,
+    pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+    transaction_extensions::ReversibleTransactionExtension<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+    generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
 
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
@@ -192,73 +194,76 @@ type Migrations = ();
 
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
-	Runtime,
-	Block,
-	frame_system::ChainContext<Runtime>,
-	Runtime,
-	AllPalletsWithSystem,
-	Migrations,
+    Runtime,
+    Block,
+    frame_system::ChainContext<Runtime>,
+    Runtime,
+    AllPalletsWithSystem,
+    Migrations,
 >;
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
-	#[runtime::runtime]
-	#[runtime::derive(
-		RuntimeCall,
-		RuntimeEvent,
-		RuntimeError,
-		RuntimeOrigin,
-		RuntimeFreezeReason,
-		RuntimeHoldReason,
-		RuntimeSlashReason,
-		RuntimeLockId,
-		RuntimeTask
-	)]
-	pub struct Runtime;
+    #[runtime::runtime]
+    #[runtime::derive(
+        RuntimeCall,
+        RuntimeEvent,
+        RuntimeError,
+        RuntimeOrigin,
+        RuntimeFreezeReason,
+        RuntimeHoldReason,
+        RuntimeSlashReason,
+        RuntimeLockId,
+        RuntimeTask
+    )]
+    pub struct Runtime;
 
-	#[runtime::pallet_index(0)]
-	pub type System = frame_system;
+    #[runtime::pallet_index(0)]
+    pub type System = frame_system;
 
-	#[runtime::pallet_index(1)]
-	pub type Timestamp = pallet_timestamp;
+    #[runtime::pallet_index(1)]
+    pub type Timestamp = pallet_timestamp;
 
-	#[runtime::pallet_index(2)]
-	pub type Balances = pallet_balances;
+    #[runtime::pallet_index(2)]
+    pub type Balances = pallet_balances;
 
-	#[runtime::pallet_index(3)]
-	pub type TransactionPayment = pallet_transaction_payment;
+    #[runtime::pallet_index(3)]
+    pub type TransactionPayment = pallet_transaction_payment;
 
-	#[runtime::pallet_index(4)]
-	pub type Sudo = pallet_sudo;
+    #[runtime::pallet_index(4)]
+    pub type Sudo = pallet_sudo;
 
-	#[runtime::pallet_index(5)]
-	pub type QPoW = pallet_qpow;
+    #[runtime::pallet_index(5)]
+    pub type QPoW = pallet_qpow;
 
-	#[runtime::pallet_index(6)]
-	pub type Wormhole = pallet_wormhole;
+    #[runtime::pallet_index(6)]
+    pub type Wormhole = pallet_wormhole;
 
-	#[runtime::pallet_index(7)]
-	pub type MiningRewards = pallet_mining_rewards;
+    #[runtime::pallet_index(7)]
+    pub type MiningRewards = pallet_mining_rewards;
 
-	#[runtime::pallet_index(8)]
-	pub type Vesting = pallet_vesting;
+    #[runtime::pallet_index(8)]
+    pub type Vesting = pallet_vesting;
 
-	#[runtime::pallet_index(9)]
-	pub type Preimage = pallet_preimage;
+    #[runtime::pallet_index(9)]
+    pub type Preimage = pallet_preimage;
 
-	#[runtime::pallet_index(10)]
-	pub type Scheduler = pallet_scheduler;
+    #[runtime::pallet_index(10)]
+    pub type Scheduler = pallet_scheduler;
 
-	#[runtime::pallet_index(11)]
-	pub type Utility = pallet_utility;
+    #[runtime::pallet_index(11)]
+    pub type Utility = pallet_utility;
 
-	#[runtime::pallet_index(12)]
-	pub type Referenda = pallet_referenda;
+    #[runtime::pallet_index(12)]
+    pub type Referenda = pallet_referenda;
 
-	#[runtime::pallet_index(13)]
-	pub type ConvictionVoting = pallet_conviction_voting;
+    #[runtime::pallet_index(13)]
+    pub type ReversibleTransfers = pallet_reversible_transfers;
 
 	#[runtime::pallet_index(14)]
+	pub type ConvictionVoting = pallet_conviction_voting;
+
+	#[runtime::pallet_index(15)]
 	pub type Faucet = pallet_faucet;
 }
