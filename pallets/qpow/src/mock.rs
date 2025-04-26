@@ -2,7 +2,7 @@ use std::ops::Shl;
 use crate as pallet_qpow;
 use frame_support::{parameter_types, traits::Everything};
 use frame_support::pallet_prelude::{ConstU32, TypedGet};
-use frame_support::traits::{ConstU64, ConstU128};
+use frame_support::traits::ConstU64;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 };
@@ -74,10 +74,9 @@ impl pallet_timestamp::Config for Test {
 impl pallet_qpow::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = DefaultWeightInfo;
-	type InitialDistanceThreshold = ConstU128<340282366920938463463374607431768211455>; // 2<<128-1
+	type InitialDistanceThresholdExponent = ConstU32<508>;
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<1>;
-	type DampeningFactor = ConstU64<3>;
 	type BlockTimeHistorySize = ConstU32<5>;
 	type MaxReorgDepth = ConstU32<10>;
 }
@@ -91,7 +90,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	// Add QPow genesis configuration
 	pallet_qpow::GenesisConfig::<Test> {
-		initial_distance: U512::from(<Test as pallet_qpow::Config>::InitialDistanceThreshold::get()).shl(380),
+		initial_distance: U512::one().shl(<Test as pallet_qpow::Config>::InitialDistanceThresholdExponent::get()),
 		_phantom: Default::default(),
 	}
 		.assimilate_storage(&mut t)

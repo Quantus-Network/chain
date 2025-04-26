@@ -161,6 +161,10 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_total_work()
 		}
 
+		fn get_block_time_sum() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_block_time_sum()
+		}
+
 		fn get_median_block_time() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_median_block_time()
 		}

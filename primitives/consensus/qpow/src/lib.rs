@@ -50,6 +50,9 @@ sp_api::decl_runtime_apis! {
         /// Get total work
         fn get_total_work() -> U512;
 
+        /// Get sum of block times in rolling history
+        fn get_block_time_sum() -> u64;
+
         /// Get median block time for preconfigured list of elements
         fn get_median_block_time() -> u64;
 

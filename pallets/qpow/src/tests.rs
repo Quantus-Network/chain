@@ -213,7 +213,8 @@ fn test_distance_threshold_storage_and_retrieval() {
     new_test_ext().execute_with(|| {
         // 1. Test genesis block distance_threshold
         let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
-        let initial_distance_threshold = U512::from(<Test as Config>::InitialDistanceThreshold::get()).shl(380);
+        let initial_distance_threshold = U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
+
         assert_eq!(genesis_distance_threshold, initial_distance_threshold,
                    "Genesis block should have initial distance_threshold");
 
@@ -289,7 +290,7 @@ fn test_total_distance_threshold_after_adjustment() {
         run_to_block(adjustment_period + 1);
         let max_distance = QPow::get_max_distance();
         // Check if distance_threshold has changed
-        let initial_distance_threshold = <Test as Config>::InitialDistanceThreshold::get();
+        let initial_distance_threshold = U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
         let new_distance_threshold = QPow::get_distance_threshold_at_block((adjustment_period + 1) as u64);
 
         // We assume distance_threshold may have changed
@@ -606,7 +607,7 @@ fn test_calculate_distance_threshold_normal_adjustment() {
         // Start with a medium distance_threshold
         let current_distance_threshold = QPow::get_distance_threshold_at_block(0);
         let target_time = 1000; // 1000ms target
-        println!("wow");
+
         // Test slight deviation (10% slower)
         let block_time_slower = 1100; // 1.1x target
         let new_distance_threshold_slower = QPow::calculate_distance_threshold(
@@ -614,13 +615,11 @@ fn test_calculate_distance_threshold_normal_adjustment() {
             block_time_slower,
             target_time
         );
-        println!("wow");
 
         // Difficulty should decrease slightly but not drastically
         assert!(new_distance_threshold_slower > current_distance_threshold, "Distance threshold should decrease when blocks are slower");
         let decrease_percentage = pack_u512_to_f64(new_distance_threshold_slower - current_distance_threshold) / pack_u512_to_f64(current_distance_threshold) * 100.0;
-        assert_eq!(decrease_percentage, 10.0, "For 10% slower blocks, distance_threshold should decrease by 10%, but decreased by {:.2}%", decrease_percentage);
-        println!("wow");
+        assert_eq!(decrease_percentage.round(), 10f64, "For 10% slower blocks, distance_threshold should decrease by 10%, but decreased by {:.2}%", decrease_percentage);
 
         // Test slight deviation (10% faster)
         let block_time_faster = 900; // 0.9x target
@@ -629,12 +628,11 @@ fn test_calculate_distance_threshold_normal_adjustment() {
             block_time_faster,
             target_time
         );
-        println!("wow");
 
         // Difficulty should increase slightly but not drastically
         assert!(new_distance_threshold_faster < current_distance_threshold, "Distance threshold should increase when blocks are faster");
         let increase_percentage = pack_u512_to_f64(current_distance_threshold - new_distance_threshold_faster) / pack_u512_to_f64(current_distance_threshold) * 100.0;
-        assert_eq!(increase_percentage, 10.0, "For 10% faster blocks, distance_threshold should increase by 10%, but increased by {:.2}%", increase_percentage);
+        assert_eq!(increase_percentage.round(), 10f64, "For 10% faster blocks, distance_threshold should increase by 10%, but increased by {:.2}%", increase_percentage);
     });
 }
 
@@ -908,7 +906,7 @@ fn test_block_distance_threshold_storage_and_retrieval() {
     new_test_ext().execute_with(|| {
         // 1. Test that genesis block distance_threshold is properly set
         let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
-        let initial_distance_threshold = U512::from(<Test as Config>::InitialDistanceThreshold::get()).shl(380);
+        let initial_distance_threshold = U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
         assert_eq!(genesis_distance_threshold, initial_distance_threshold,
                    "Genesis block should have initial distance_threshold");
 

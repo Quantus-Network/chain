@@ -67,16 +67,13 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 
 		#[pallet::constant]
-		type InitialDistanceThreshold: Get<u128>;
+		type InitialDistanceThresholdExponent: Get<u32>;
 
 		#[pallet::constant]
 		type TargetBlockTime: Get<u64>;
 
 		#[pallet::constant]
 		type AdjustmentPeriod: Get<u32>;
-
-		#[pallet::constant]
-		type DampeningFactor: Get<u64>;
 
 		#[pallet::constant]
 		type BlockTimeHistorySize: Get<u32>;
@@ -96,7 +93,7 @@ pub mod pallet {
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self {
-				initial_distance: T::InitialDistanceThreshold::get().into(),
+				initial_distance: U512::one().shl(T::InitialDistanceThresholdExponent::get()),
 				_phantom: PhantomData,
 			}
 		}
@@ -156,7 +153,7 @@ pub mod pallet {
 	}
 
 	pub fn get_initial_distance_threshold<T: Config>() -> U512 {
-		U512::from(T::InitialDistanceThreshold::get()).shl(380)
+		U512::one().shl(T::InitialDistanceThresholdExponent::get())
 	}
 
 	#[pallet::hooks]
@@ -220,7 +217,7 @@ pub mod pallet {
 		}
 
 		// Sum of block times
-		pub fn get_total_period_time() -> u64 {
+		pub fn get_block_time_sum() -> u64 {
 			let size = <HistorySize<T>>::get();
 
 			if size == 0 {
@@ -339,8 +336,7 @@ pub mod pallet {
 			if blocks >= T::AdjustmentPeriod::get() {
 				let history_size = <HistorySize<T>>::get();
 				if history_size > 0 {
-					let observed_block_time = Self::get_total_period_time();
-					// let median_block_time = Self::get_median_block_time();
+					let observed_block_time = Self::get_block_time_sum();
 					let target_time = T::TargetBlockTime::get().saturating_mul(history_size as u64);
 
 					let new_distance_threshold = Self::calculate_distance_threshold(
@@ -421,8 +417,8 @@ pub mod pallet {
 			}
 
 			log::info!("🟢 Current Distance Threshold: {}", current_distance_threshold);
-			log::info!("🕒 Median Block Time: {}ms", observed_block_time);
-			log::info!("🎯 Target Block Time: {}ms", target_block_time);
+			log::info!("🕒 Observed Block Time Sum: {}ms", observed_block_time);
+			log::info!("🎯 Target Block Time Sum: {}ms", target_block_time);
 			log::info!("🟢 Next Distance Threshold: {}", adjusted);
 
 			adjusted
