@@ -46,6 +46,17 @@ pub enum DelayPolicy {
     Intercept,
 }
 
+/// Reversible account details
+#[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
+pub struct ReversibleAccountData<AccountId, BlockNumber> {
+    /// The account that can reverse the transaction. `None` means the account itself.
+    pub explicit_reverser: Option<AccountId>,
+    /// The delay period for the account
+    pub delay: BlockNumber,
+    /// The policy for the account
+    pub policy: DelayPolicy,
+}
+
 /// Pending transfer details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub struct PendingTransfer<AccountId, Balance, Call> {
@@ -142,7 +153,7 @@ pub mod pallet {
         _,
         Blake2_128Concat,
         T::AccountId,
-        (BlockNumberFor<T>, DelayPolicy),
+        ReversibleAccountData<T::AccountId, BlockNumberFor<T>>,
         OptionQuery,
     >;
 
@@ -172,8 +183,7 @@ pub mod pallet {
         /// [who, maybe_delay: None means disabled]
         ReversibilitySet {
             who: T::AccountId,
-            delay: BlockNumberFor<T>,
-            policy: DelayPolicy,
+            data: ReversibleAccountData<T::AccountId, BlockNumberFor<T>>,
         },
         /// A transaction has been intercepted and scheduled for delayed execution.
         /// [who, tx_id, execute_at_moment]
@@ -199,6 +209,8 @@ pub mod pallet {
         AccountAlreadyReversible,
         /// The account attempting the action is not marked as reversible.
         AccountNotReversible,
+        /// Reverser can not be the account itself, because it is redundant.
+        ExplicitReverserCanNotBeSelf,
         /// The specified pending transaction ID was not found.
         PendingTxNotFound,
         /// The caller is not the original submitter of the transaction they are trying to cancel.
@@ -217,6 +229,8 @@ pub mod pallet {
         InvalidCall,
         /// Invalid scheduler origin
         InvalidSchedulerOrigin,
+        /// Reverser is invalid
+        InvalidReverser,
     }
 
     #[pallet::call]
@@ -235,6 +249,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             delay: Option<BlockNumberFor<T>>,
             policy: DelayPolicy,
+            reverser: Option<T::AccountId>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -246,8 +261,17 @@ pub mod pallet {
 
             ensure!(delay >= T::MinDelayPeriod::get(), Error::<T>::DelayTooShort);
 
-            ReversibleAccounts::<T>::insert(&who, (delay, policy.clone()));
-            Self::deposit_event(Event::ReversibilitySet { who, delay, policy });
+            let reversible_account_data = ReversibleAccountData {
+                explicit_reverser: reverser,
+                delay,
+                policy: policy.clone(),
+            };
+
+            ReversibleAccounts::<T>::insert(&who, reversible_account_data.clone());
+            Self::deposit_event(Event::ReversibilitySet {
+                who,
+                data: reversible_account_data,
+            });
 
             Ok(())
         }
@@ -320,7 +344,9 @@ pub mod pallet {
         T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
     {
         /// Check if an account has reversibility enabled and return its delay.
-        pub fn is_reversible(who: &T::AccountId) -> Option<(BlockNumberFor<T>, DelayPolicy)> {
+        pub fn is_reversible(
+            who: &T::AccountId,
+        ) -> Option<ReversibleAccountData<T::AccountId, BlockNumberFor<T>>> {
             ReversibleAccounts::<T>::get(who)
         }
 
@@ -398,8 +424,18 @@ pub mod pallet {
             amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let (delay, _) =
-                Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
+            let ReversibleAccountData {
+                delay,
+                explicit_reverser,
+                policy: _,
+            } = Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
+
+            match explicit_reverser {
+                Some(reverser) => {
+                    ensure!(who != reverser, Error::<T>::InvalidReverser);
+                }
+                None => {}
+            };
 
             let transfer_call: T::RuntimeCall = pallet_balances::Call::<T>::transfer_keep_alive {
                 dest: dest.clone(),
@@ -483,7 +519,15 @@ pub mod pallet {
             let pending =
                 PendingTransfers::<T>::get(&tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
-            ensure!(&pending.who == who, Error::<T>::NotOwner);
+            let reversible_account_data = ReversibleAccounts::<T>::get(&pending.who)
+                .ok_or(Error::<T>::AccountNotReversible)?;
+
+            if let Some(explicit_reverser) = reversible_account_data.explicit_reverser {
+                // If the reverser is set, ensure the caller is the reverser
+                ensure!(who == &explicit_reverser, Error::<T>::InvalidReverser);
+            } else {
+                ensure!(&pending.who == who, Error::<T>::NotOwner);
+            }
 
             // Remove from main storage
             PendingTransfers::<T>::mutate(&tx_id, |pending_opt| {
@@ -538,7 +582,14 @@ pub mod pallet {
             for (who, delay) in &self.initial_reversible_accounts {
                 // Basic validation, ensure delay is reasonable if needed
                 if *delay >= T::MinDelayPeriod::get() {
-                    ReversibleAccounts::<T>::insert(who, (delay, DelayPolicy::Explicit));
+                    ReversibleAccounts::<T>::insert(
+                        who,
+                        ReversibleAccountData {
+                            explicit_reverser: None,
+                            delay: *delay,
+                            policy: DelayPolicy::Explicit,
+                        },
+                    );
                 } else {
                     // Optionally log a warning during genesis build
                     log::warn!(
