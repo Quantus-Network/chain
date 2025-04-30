@@ -181,6 +181,9 @@ fn schedule_transfer_works() {
         let user = 1; // Reversible from genesis
         let dest_user = 2;
         let amount = 100;
+        let dest_user_balance = Balances::free_balance(dest_user);
+        let user_balance = Balances::free_balance(user);
+
         let call = transfer_call(dest_user, amount);
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData {
@@ -191,7 +194,6 @@ fn schedule_transfer_works() {
 
         assert!(Agenda::<Test>::get(expected_block).len() == 0);
 
-        // Simulate call from SignedExtension
         assert_ok!(ReversibleTransfers::schedule_transfer(
             RuntimeOrigin::signed(user),
             dest_user,
@@ -212,6 +214,16 @@ fn schedule_transfer_works() {
 
         // Check scheduler
         assert!(Agenda::<Test>::get(expected_block).len() > 0);
+
+        // Skip to the delay block
+        run_to_block(expected_block);
+
+        // Check that the transfer is executed
+        assert_eq!(Balances::free_balance(user), user_balance - amount);
+        assert_eq!(
+            Balances::free_balance(dest_user),
+            dest_user_balance + amount
+        );
 
         // Use explicit reverser
         let reversible_account = 255;
@@ -239,12 +251,48 @@ fn schedule_transfer_works() {
             Error::<Test>::InvalidReverser
         );
 
+        let explicit_reverser_balance = Balances::free_balance(explicit_reverser);
+        let reversible_account_balance = Balances::free_balance(reversible_account);
+        let explicit_reverser_hold = Balances::balance_on_hold(
+            &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+            &explicit_reverser,
+        );
+        assert_eq!(explicit_reverser_hold, 0);
+
         // Try reversing with explicit reverser
         assert_ok!(ReversibleTransfers::cancel(
             RuntimeOrigin::signed(explicit_reverser),
             tx_id,
         ));
         assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+
+        // Funds should be release as free balance to `explicit_reverser`
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &reversible_account
+            ),
+            0
+        );
+
+        assert_eq!(
+            Balances::free_balance(explicit_reverser),
+            explicit_reverser_balance + amount
+        );
+
+        // Unchanged balance for `reversible_account`
+        assert_eq!(
+            Balances::free_balance(reversible_account),
+            reversible_account_balance
+        );
+
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &explicit_reverser,
+            ),
+            0
+        );
     });
 }
 

@@ -22,20 +22,21 @@ pub mod weights;
 pub use weights::WeightInfo;
 
 use alloc::vec::Vec;
+use frame_support::traits::tokens::{Fortitude, Restriction};
 use frame_support::{pallet_prelude::*, traits::schedule::DispatchTime};
 use frame_system::pallet_prelude::*;
 use sp_runtime::traits::StaticLookup;
 
 /// How to delay transactions
-/// - `Explicit`: Only delay transactions explicitly using `schedule_dispatch`.
+/// - `Explicit`: Only delay transactions explicitly using `schedule_transfer`.
 /// - `Intercept`: Intercept and delay transactions at the `TransactionExtension` level.
 ///
 /// For example, for a reversible account with `DelayPolicy::Intercept`, the transaction
-/// will be delayed even if the user doesn't explicitly call `schedule_dispatch`. And for `DelayPolicy::Explicit`,
-/// the transaction will be delayed only if the user explicitly calls this pallet's `schedule_dispatch` extrinsic.
+/// will be delayed even if the user doesn't explicitly call `schedule_transfer`. And for `DelayPolicy::Explicit`,
+/// the transaction will be delayed only if the user explicitly calls this pallet's `schedule_transfer` extrinsic.
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub enum DelayPolicy {
-    /// Only explicitly delay transactions using `schedule_dispatch` call
+    /// Only explicitly delay transactions using `schedule_transfer` call
     #[default]
     Explicit,
     /// Intercept and delay transactions at `TransactionExtension` level. This is not UX friendly
@@ -522,25 +523,28 @@ pub mod pallet {
             let reversible_account_data = ReversibleAccounts::<T>::get(&pending.who)
                 .ok_or(Error::<T>::AccountNotReversible)?;
 
-            if let Some(explicit_reverser) = reversible_account_data.explicit_reverser {
+            if let Some(explicit_reverser) = &reversible_account_data.explicit_reverser {
                 // If the reverser is set, ensure the caller is the reverser
-                ensure!(who == &explicit_reverser, Error::<T>::InvalidReverser);
+                ensure!(who == explicit_reverser, Error::<T>::InvalidReverser);
             } else {
                 ensure!(&pending.who == who, Error::<T>::NotOwner);
             }
 
-            // Remove from main storage
-            PendingTransfers::<T>::mutate(&tx_id, |pending_opt| {
-                if let Some(pending) = pending_opt {
-                    if pending.count > 1 {
-                        // If there are more than one identical transactions, decrement the count
-                        pending.count = pending.count.saturating_sub(1);
-                    } else {
-                        // Otherwise, remove the transaction from storage
-                        *pending_opt = None;
-                    }
-                }
-            });
+            if pending.count > 1 {
+                // If there are more than one identical transactions, decrement the count
+                PendingTransfers::<T>::insert(
+                    &tx_id,
+                    PendingTransfer {
+                        who: pending.who.clone(),
+                        call: pending.call,
+                        amount: pending.amount,
+                        count: pending.count.saturating_sub(1),
+                    },
+                );
+            } else {
+                // Otherwise, remove the transaction from storage
+                PendingTransfers::<T>::remove(&tx_id);
+            }
 
             // Decrement account index
             AccountPendingIndex::<T>::mutate(&pending.who, |current_count| {
@@ -553,14 +557,25 @@ pub mod pallet {
             // Cancel the scheduled task
             T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-            // Release the funds
-            pallet_balances::Pallet::<T>::release(
-                &HoldReason::ScheduledTransfer.into(),
-                &pending.who,
-                pending.amount,
-                Precision::Exact,
-            )?;
-
+            if let Some(reverser) = &reversible_account_data.explicit_reverser {
+                pallet_balances::Pallet::<T>::transfer_on_hold(
+                    &HoldReason::ScheduledTransfer.into(),
+                    &pending.who,
+                    reverser,
+                    pending.amount,
+                    Precision::Exact,
+                    Restriction::Free,
+                    Fortitude::Polite,
+                )?;
+            } else {
+                // Release the funds
+                pallet_balances::Pallet::<T>::release(
+                    &HoldReason::ScheduledTransfer.into(),
+                    &pending.who,
+                    pending.amount,
+                    Precision::Exact,
+                )?;
+            }
             Self::deposit_event(Event::TransactionCancelled {
                 who: who.clone(),
                 tx_id,
