@@ -77,8 +77,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
             )
         })?;
 
-        if let Some((_, policy)) = ReversibleTransfers::is_reversible(&who) {
-            match policy {
+        if let Some(data) = ReversibleTransfers::is_reversible(&who) {
+            match data.policy {
                 // If explicit, do not allow Transfer calls
                 DelayPolicy::Explicit => {
                     if matches!(
@@ -258,6 +258,7 @@ mod tests {
                 RuntimeOrigin::signed(charlie()),
                 None,
                 DelayPolicy::Intercept,
+                None,
             )
             .unwrap();
 
