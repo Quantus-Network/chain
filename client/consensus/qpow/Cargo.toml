@@ -33,4 +33,5 @@ std = [
     "primitive-types/std",
     "sha2/std",
     "sha3/std",
+    "sp-consensus-qpow/std",
 ]
