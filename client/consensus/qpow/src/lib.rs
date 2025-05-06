@@ -1,5 +1,6 @@
 mod miner;
 mod chain_management;
+#[cfg(test)] mod chain_management_tests;
 
 use std::marker::PhantomData;
 use std::sync::Arc;

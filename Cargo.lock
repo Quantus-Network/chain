@@ -9243,7 +9243,9 @@ dependencies = [
  "futures",
  "log",
  "parity-scale-codec",
+ "parking_lot 0.12.3",
  "primitive-types 0.13.1",
+ "prometheus",
  "sc-client-api",
  "sc-consensus-pow",
  "sc-service",
@@ -9255,7 +9257,10 @@ dependencies = [
  "sp-consensus",
  "sp-consensus-pow",
  "sp-consensus-qpow",
+ "sp-offchain",
  "sp-runtime",
+ "sp-state-machine",
+ "sp-version",
 ]
 
 [[package]]

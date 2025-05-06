@@ -202,7 +202,7 @@ where
     }
 
     /// Method to find Re-Org depth and fork-point
-    fn find_common_ancestor_and_depth(
+    pub fn find_common_ancestor_and_depth(
         &self,
         current_best: &B::Header,
         competing_header: &B::Header,

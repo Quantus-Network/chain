@@ -9,15 +9,15 @@ license = "Apache-2.0"
 async-trait = "0.1"
 codec = {workspace = true, default-features = false}
 scale-info = {workspace = true, default-features = false}
-sc-client-api = { workspace = true, default-features = false }
-sc-service = {workspace = true, default-features = false}
-sc-consensus-pow = {workspace = true, default-features = false}
-sp-consensus-pow = {workspace = true, default-features = false}
+sc-client-api = { version = "28.0.0", workspace = true, default-features = false }
+sc-service = { version = "0.35.0", workspace = true, default-features = false }
+sc-consensus-pow = { version = "0.33.0", workspace = true, default-features = false }
+sp-consensus-pow = { version = "0.32.0", workspace = true, default-features = false }
 sp-consensus-qpow = {workspace = true, default-features = false}
-sp-consensus = {workspace = true, default-features = false}
-sp-blockchain = {workspace = true, default-features = false}
-sp-runtime = {workspace = true, default-features = false}
-sp-api = {workspace = true, default-features = false}
+sp-consensus = { version = "0.32.0", workspace = true, default-features = false }
+sp-blockchain = { version = "28.0.0", workspace = true, default-features = false }
+sp-runtime = { version = "31.0.1", workspace = true, default-features = false }
+sp-api = { version = "26.0.0", workspace = true, default-features = false }
 primitive-types = {workspace = true, default-features = false}
 log = { workspace = true, default-features = false }
 futures = { features = ["thread-pool"], workspace = true }
@@ -34,4 +34,10 @@ std = [
     "sha2/std",
     "sha3/std",
     "sp-consensus-qpow/std",
+    "sp-api/std",
 ]
+
+[dev-dependencies]
+parking_lot = "0.12.1"
+# substrate-test-runtime-client = { version = "2.0.0", default-features = false, features = ["fast-runtime"] }
+substrate-test-runtime-client = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2412", default-features = false }
