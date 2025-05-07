@@ -145,6 +145,10 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_max_reorg_depth()
 		}
 
+		fn get_difficulty() -> U512 {
+			pallet_qpow::Pallet::<Self>::get_difficulty()
+		}
+
 		fn get_distance_threshold() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_distance_threshold()
 		}
@@ -177,6 +181,10 @@ impl_runtime_apis! {
 
 		fn get_latest_nonce() -> Option<[u8; 64]> {
 			<pallet_qpow::LatestNonce<Runtime>>::get()
+		}
+
+		fn get_chain_height() -> u32 {
+			frame_system::pallet::Pallet::<Self>::block_number()
 		}
 
 		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {

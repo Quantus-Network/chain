@@ -58,7 +58,7 @@ where
     fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
         self.client
             .runtime_api()
-            .get_distance_threshold(parent)
+            .get_difficulty(parent)
             .map(U512::from)
             .map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
     }

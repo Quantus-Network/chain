@@ -41,6 +41,9 @@ sp_api::decl_runtime_apis! {
         /// Get the max possible distance_threshold for work calculation
         fn get_max_distance() -> U512;
 
+        /// Get the current difficulty (max_distance / distance_threshold)
+        fn get_difficulty() -> U512;
+
         /// Get the current distance_threshold target for proof generation
         fn get_distance_threshold() -> U512;
 
@@ -64,6 +67,8 @@ sp_api::decl_runtime_apis! {
 
         /// Retrieve latest submitted proof
         fn get_latest_nonce() -> Option<[u8; 64]>;
+
+        fn get_chain_height() -> u32;
 
         fn get_random_rsa(header: &[u8; 32]) -> (U512, U512);
         fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;

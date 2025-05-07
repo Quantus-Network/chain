@@ -2,7 +2,7 @@ use std::ops::Shl;
 use crate as pallet_qpow;
 use frame_support::{parameter_types, traits::Everything};
 use frame_support::pallet_prelude::{ConstU32, TypedGet};
-use frame_support::traits::ConstU64;
+use frame_support::traits::{ConstU64, ConstU8};
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 };
@@ -75,6 +75,7 @@ impl pallet_qpow::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = DefaultWeightInfo;
 	type InitialDistanceThresholdExponent = ConstU32<508>;
+	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = ConstU64<1000>;
 	type AdjustmentPeriod = ConstU32<1>;
 	type BlockTimeHistorySize = ConstU32<5>;
