@@ -12,7 +12,7 @@ pub(crate) async fn submit_mining_job(
     miner_url: &str,
     job_id: &str,
     mining_hash: &H256,
-    difficulty: u64,
+    difficulty: U512,
     nonce_start: U512,
     nonce_end: U512,
 ) -> Result<(), String> {

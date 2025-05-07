@@ -375,7 +375,7 @@ pub fn new_full<
                         }
 
                         // Get current difficulty from runtime
-                        let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
+                        let difficulty = match client.runtime_api().get_distance_threshold(metadata.best_hash) {
                             Ok(d) => d,
                             Err(e) => {
                                 log::warn!("Failed to get difficulty: {:?}", e);

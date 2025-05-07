@@ -145,29 +145,33 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_max_reorg_depth()
 		}
 
-		fn get_difficulty() -> u64 {
-			pallet_qpow::Pallet::<Self>::get_difficulty()
+		fn get_distance_threshold() -> U512 {
+			pallet_qpow::Pallet::<Self>::get_distance_threshold()
 		}
 
-		fn get_difficulty_at_block(block_number: u32) -> u64 {
+		fn get_distance_threshold_at_block(block_number: u32) -> U512 {
 			// Convert u32 to the appropriate BlockNumber type used by your runtime
 			let block_number_param = block_number.into();
-			pallet_qpow::Pallet::<Self>::get_difficulty_at_block(block_number_param)
+			pallet_qpow::Pallet::<Self>::get_distance_threshold_at_block(block_number_param)
 		}
 
-		fn get_total_difficulty() -> u128{
-			pallet_qpow::Pallet::<Self>::get_total_difficulty()
+		fn get_total_work() -> U512 {
+			pallet_qpow::Pallet::<Self>::get_total_work()
 		}
 
-		fn get_median_block_time() -> u64{
+		fn get_block_time_sum() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_block_time_sum()
+		}
+
+		fn get_median_block_time() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_median_block_time()
 		}
 
-		fn get_last_block_time() -> u64{
+		fn get_last_block_time() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_last_block_time()
 		}
 
-		fn get_last_block_duration() -> u64{
+		fn get_last_block_duration() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_last_block_duration()
 		}
 
@@ -182,13 +186,13 @@ impl_runtime_apis! {
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
 			pallet_qpow::Pallet::<Self>::hash_to_group_bigint(h,m,n,solution)
 		}
-		fn get_max_distance() -> u64 {
+		fn get_max_distance() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_max_distance()
 		}
 		fn get_nonce_distance(
 			header: [u8; 32],
 			nonce: [u8; 64]
-		) -> u64 {
+		) -> U512 {
 			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
 		}
 	}
