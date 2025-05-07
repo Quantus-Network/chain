@@ -11,7 +11,7 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(9));
-	properties.insert("tokenSymbol".into(), json!("REZ"));
+	properties.insert("tokenSymbol".into(), json!("QUAN"));
 
 	Ok(ChainSpec::builder(
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
@@ -30,7 +30,7 @@ pub fn local_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(9));
-	properties.insert("tokenSymbol".into(), json!("REZ"));
+	properties.insert("tokenSymbol".into(), json!("QUAN"));
 
 	Ok(ChainSpec::builder(
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
@@ -50,7 +50,7 @@ pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(9));
-	properties.insert("tokenSymbol".into(), json!("REZ"));
+	properties.insert("tokenSymbol".into(), json!("QUAN"));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![
 		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0)
