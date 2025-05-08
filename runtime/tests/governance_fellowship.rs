@@ -4,11 +4,16 @@ mod common;
 #[cfg(test)]
 mod fellowship_tests {
     use crate::common::{account_id, new_test_ext};
-    use frame_support::{assert_ok, BoundedVec};
-    use frame_support::traits::{RankedMembers};
+    use frame_support::assert_ok;
+    use frame_support::traits::{Currency, RankedMembers};
     use sp_runtime::MultiAddress;
-    use resonance_runtime::{Runtime, RuntimeOrigin, System};
-    use resonance_runtime::fellowship::FellowshipEvidenceSize;
+    use resonance_runtime::{Balances, Runtime, RuntimeOrigin, System, TechFellowship};
+    use pallet_core_fellowship::{self};
+
+    // // Helper function to create evidence
+    // fn create_evidence(text: &[u8]) -> SpBoundedVec<u8, FellowshipEvidenceSize> {
+    //     text.to_vec().try_into().unwrap()
+    // }
 
     // Test adding a new member at rank 0
     #[test]
@@ -42,71 +47,31 @@ mod fellowship_tests {
         });
     }
 
-/*    #[test]
-    fn evidence_based_fellowship_works() {
+    #[test]
+    fn open_application_process_works() {
         new_test_ext().execute_with(|| {
-            let candidate = account_id(2);
-            let approver = account_id(1);
-            let evidence = b"Evidence of contributions: GitHub commits, documentation, community support".to_vec();
+            let applicant = account_id(2);
 
-            // Set up an approver with high rank
-            assert_ok!(
-            pallet_ranked_collective::Pallet::<Runtime>::add_member(
-                RuntimeOrigin::root(),
-                MultiAddress::from(approver.clone())
-            )
-        );
-            let member_record = pallet_ranked_collective::MemberRecord::new(3);
+            // Give the account some funds
+            Balances::make_free_balance_be(&applicant, 100_000_000_000_000);
 
-            // Insert the MemberRecord for the approver
-            pallet_ranked_collective::Members::<Runtime>::insert(&approver, member_record);
+            // Set block number
+            System::set_block_number(1);
 
-
-            // Step 1: Submit evidence with a wish for induction
-            // First, we need to create a bounded vector for the evidence
-            let bounded_evidence = BoundedVec::<u8, FellowshipEvidenceSize>::try_from(evidence.clone())
-                .expect("Evidence should fit within size limit");
-
-
+            // Self-induct directly
             assert_ok!(
                 pallet_core_fellowship::Pallet::<Runtime>::induct(
-                    RuntimeOrigin::root(),//RuntimeOrigin::signed(approver.clone()),
-                    candidate.clone()
+                    RuntimeOrigin::signed(applicant.clone()),
+                    applicant.clone()
                 )
             );
 
-            // Verify induction worked
+            // Verify the member was added with rank 0
             assert_eq!(
-                pallet_ranked_collective::Pallet::<Runtime>::rank_of(&candidate),
+                TechFellowship::rank_of(&applicant),
                 Some(0)
             );
-
-            // Step 3: Member submits evidence with a wish for promotion
-            let bounded_evidence = BoundedVec::<u8, FellowshipEvidenceSize>::try_from(evidence.clone())
-                .expect("Evidence should fit within size limit");
-
-            assert_ok!(
-            pallet_core_fellowship::Pallet::<Runtime>::submit_evidence(
-                RuntimeOrigin::signed(candidate.clone()),
-                pallet_core_fellowship::Wish::Promotion, // Request promotion to next rank
-                bounded_evidence
-            )
-        );
-
-            // Step 4: Approver promotes the member
-            assert_ok!(
-            pallet_core_fellowship::Pallet::<Runtime>::promote(
-                RuntimeOrigin::root(),//RuntimeOrigin::signed(approver.clone()),
-                candidate.clone(),
-                 1// No specific rank - advance by 1
-            )
-        );
-
-            // Verify promotion worked
-            assert_eq!(
-                pallet_ranked_collective::Pallet::<Runtime>::rank_of(&candidate),
-                Some(1)
-            );
         });
-    }*/
+    }
+
 }

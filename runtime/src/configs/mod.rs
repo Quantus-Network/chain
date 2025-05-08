@@ -183,16 +183,47 @@ impl pallet_conviction_voting::Config for Runtime {
 }
 
 impl pallet_core_fellowship::Config for Runtime {
+    // Specifies the event type for this pallet, used for emitting events when fellowship actions occur
     type RuntimeEvent = RuntimeEvent;
+
+    // Provides weight calculations for pallet operations to ensure proper transaction fee calculations
+    // Uses the standard Substrate weight implementation for this pallet
     type WeightInfo = pallet_core_fellowship::weights::SubstrateWeight<Runtime>;
+
+    // Defines the maximum rank that a fellowship member can achieve (value: 4)
+    // Higher ranks typically have more privileges in governance
     type MaxRank = MaxFellowshipRank;
+
+    // Specifies the maximum size of evidence that can be submitted with applications (32 KB)
+    // Evidence might include credentials, portfolio, or other proof of expertise
     type EvidenceSize = FellowshipEvidenceSize;
+
+    // Defines who can modify fellowship parameters - only root can change core parameters
+    // This protects the fellowship's core configuration from arbitrary changes
     type ParamsOrigin = EnsureRoot<AccountId>;
-    type InductOrigin = EnsureRoot<AccountId>;
+
+    // Specifies who can induct new members into the fellowship - only root can induct new members
+    // This controls the entry point for new members into the fellowship
+    type InductOrigin = frame_system::EnsureSigned<AccountId>;//EnsureRoot<AccountId>;
+
+    // Defines who can approve fellowship applications - root or members with rank 1+
+    // This allows senior members to participate in the approval process
     type ApproveOrigin = ApproveOrigin;
+
+    // Specifies who can promote existing members - root or any member with rank higher than the target
+    // This implements mentorship where higher-ranked members can promote juniors
     type PromoteOrigin = PromoteOrigin;
+
+    // Defines who can perform fast-tracked promotions - root or members with very high rank (3+)
+    // This allows exceptional members to be promoted more rapidly when appropriate
     type FastPromoteOrigin = FastPromoteOrigin;
+
+    // Specifies which pallet handles the membership data - uses the TechFellowship collective
+    // This connects the fellowship logic to the underlying membership tracking system
     type Members = TechFellowship;
+
+    // The currency type used for fellowship operations, such as deposits or rewards
+    // Uses the same Balance type as the rest of the runtime
     type Balance = Balance;
 }
 

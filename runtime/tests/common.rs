@@ -31,6 +31,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 // Helper function to run blocks
+#[allow(dead_code)]
 pub fn run_to_block(n: u32) {
     while System::block_number() < n {
         let b = System::block_number();
