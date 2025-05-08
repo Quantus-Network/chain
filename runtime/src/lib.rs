@@ -34,6 +34,7 @@ pub use sp_runtime::BuildStorage;
 pub mod genesis_config_presets;
 pub mod governance;
 pub mod transaction_extensions;
+pub mod fellowship;
 
 use poseidon_resonance::PoseidonHasher;
 
@@ -273,6 +274,9 @@ mod runtime {
     #[runtime::pallet_index(16)]
     pub type TechReferenda = pallet_referenda::Pallet<Runtime,Instance1>;
 
-	#[runtime::pallet_index(17)]
+    #[runtime::pallet_index(17)]
+    pub type CoreFellowship = pallet_core_fellowship::Pallet<Runtime>;
+
+	#[runtime::pallet_index(18)]
 	pub type Faucet = pallet_faucet;
 }

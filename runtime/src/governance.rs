@@ -345,7 +345,6 @@ impl TechTracksInfo {
         }
     }
 }
-type Class = <<Runtime as pallet_referenda::Config>::Tracks as pallet_referenda::TracksInfo<Balance, BlockNumber>>::Id;
 pub struct MinRankOfClassConverter<Delta>(PhantomData<Delta>);
 impl<Delta: Get<u16>> Convert<u16, u16> for MinRankOfClassConverter<Delta> {
     fn convert(a: u16) -> u16 {

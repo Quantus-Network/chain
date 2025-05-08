@@ -45,8 +45,9 @@ use poseidon_resonance::PoseidonHasher;
 use sp_runtime::{traits::One, Perbill};
 use sp_runtime::traits::ConstU16;
 use sp_version::RuntimeVersion;
+use crate::fellowship::{ApproveOrigin, FastPromoteOrigin, FellowshipEvidenceSize, MaxFellowshipRank, PromoteOrigin};
 // Local module imports
-use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
+use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, TechFellowship, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -181,6 +182,20 @@ impl pallet_conviction_voting::Config for Runtime {
     type Polls = Referenda;
 }
 
+impl pallet_core_fellowship::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_core_fellowship::weights::SubstrateWeight<Runtime>;
+    type MaxRank = MaxFellowshipRank;
+    type EvidenceSize = FellowshipEvidenceSize;
+    type ParamsOrigin = EnsureRoot<AccountId>;
+    type InductOrigin = EnsureRoot<AccountId>;
+    type ApproveOrigin = ApproveOrigin;
+    type PromoteOrigin = PromoteOrigin;
+    type FastPromoteOrigin = FastPromoteOrigin;
+    type Members = TechFellowship;
+    type Balance = Balance;
+}
+
 parameter_types! {
     pub const MinRankOfClassDelta: u16 = 0;
 }
@@ -194,7 +209,7 @@ impl pallet_ranked_collective::Config for Runtime {
     type ExchangeOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
     type Polls = pallet_referenda::Pallet<Runtime, TechReferendaInstance>;
     type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
-    type MemberSwappedHandler = ();
+    type MemberSwappedHandler = pallet_core_fellowship::Pallet<Runtime>;
     type VoteWeight = Geometric;
     type MaxMemberCount = ();
 
@@ -202,6 +217,25 @@ impl pallet_ranked_collective::Config for Runtime {
     type BenchmarkSetup = ();
 }
 
+/*impl pallet_ranked_collective::Config for Runtime {
+    type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
+    type RuntimeEvent = RuntimeEvent;
+    // Use our custom origins
+    type AddOrigin = FellowshipAdminOrigin;
+    type RemoveOrigin = FellowshipAdminOrigin;
+    type PromoteOrigin = PromotionOrigin;
+    type DemoteOrigin = PromotionOrigin;
+    type ExchangeOrigin = FellowshipAdminOrigin;
+    type Polls = TechReferenda;
+    type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
+    type MemberSwappedHandler = pallet_core_fellowship::Pallet<Runtime>;
+    // For the vote weight, use Geometric
+    type VoteWeight = Geometric;
+    type MaxMemberCount = ConstU32<1000>; // Maximum number of members
+
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkSetup = pallet_core_fellowship::Pallet<Runtime>;
+}*/
 
 parameter_types! {
     pub const PreimageBaseDeposit: Balance = 1 * UNIT;
