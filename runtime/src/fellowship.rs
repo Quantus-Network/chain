@@ -21,7 +21,7 @@ for ApproveOriginImpl<T, I>
         // First check if it's root
         let root_check = frame_system::EnsureRoot::<T::AccountId>::try_origin(o.clone());
         if root_check.is_ok() {
-            return Ok(1u16); // Return rank 1 for root
+            return Ok(2u16); // Return rank 1 for root
         }
 
         // Otherwise check if it's a signed origin with rank 1+
@@ -40,7 +40,7 @@ for ApproveOriginImpl<T, I>
 
     #[cfg(feature = "runtime-benchmarks")]
     fn try_successful_origin() -> Result<T::RuntimeOrigin, ()> {
-        Ok(frame_system::RawOrigin::Root::<T::AccountId>::into())
+        Ok(frame_system::RawOrigin::<T::AccountId>::Root.into())
     }
 }
 
@@ -75,7 +75,7 @@ for PromoteOriginImpl<T, I>
 
     #[cfg(feature = "runtime-benchmarks")]
     fn try_successful_origin() -> Result<T::RuntimeOrigin, ()> {
-        Ok(frame_system::RawOrigin::Root::<T::AccountId>::into())
+        Ok(frame_system::RawOrigin::<T::AccountId>::Root.into())
     }
 }
 
@@ -110,7 +110,7 @@ for FastPromoteOriginImpl<T, I>
 
     #[cfg(feature = "runtime-benchmarks")]
     fn try_successful_origin() -> Result<T::RuntimeOrigin, ()> {
-        Ok(frame_system::RawOrigin::Root::<T::AccountId>::into())
+        Ok(frame_system::RawOrigin::<T::AccountId>::Root.into())
     }
 }
 

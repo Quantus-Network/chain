@@ -5,19 +5,14 @@ mod common;
 mod fellowship_tests {
     use crate::common::{account_id, new_test_ext};
     use frame_support::assert_ok;
-    use frame_support::traits::{Currency, RankedMembers};
+    use frame_support::traits::RankedMembers;
     use sp_runtime::MultiAddress;
-    use resonance_runtime::{Balances, Runtime, RuntimeOrigin, System, TechFellowship};
+    use resonance_runtime::{Runtime, RuntimeOrigin, System, TechFellowship};
     use pallet_core_fellowship::{self};
-
-    // // Helper function to create evidence
-    // fn create_evidence(text: &[u8]) -> SpBoundedVec<u8, FellowshipEvidenceSize> {
-    //     text.to_vec().try_into().unwrap()
-    // }
 
     // Test adding a new member at rank 0
     #[test]
-    fn add_member_works() {
+    fn add_member_as_root_works() {
         new_test_ext().execute_with(|| {
             //let admin = account_id(1);
             let new_member = account_id(2);
@@ -52,9 +47,6 @@ mod fellowship_tests {
         new_test_ext().execute_with(|| {
             let applicant = account_id(2);
 
-            // Give the account some funds
-            Balances::make_free_balance_be(&applicant, 100_000_000_000_000);
-
             // Set block number
             System::set_block_number(1);
 
@@ -71,6 +63,103 @@ mod fellowship_tests {
                 TechFellowship::rank_of(&applicant),
                 Some(0)
             );
+        });
+    }
+
+    #[test]
+    fn fellowship_fast_promotion_works() {
+        new_test_ext().execute_with(|| {
+            // Create accounts for testing
+            let high_rank_member = account_id(1);
+            let regular_member = account_id(2);
+            let candidate = account_id(3);
+
+            // Idea here is that
+            // root will promote high_rank_member,
+            // next he will promote regular_member, and regular member will promote candidate.
+
+
+            System::set_block_number(1);
+
+            // First add members to the collective
+            assert_ok!(
+                pallet_ranked_collective::Pallet::<Runtime>::add_member(
+                    RuntimeOrigin::root(),
+                    MultiAddress::from(high_rank_member.clone())
+                )
+            );
+            assert_ok!(
+                pallet_ranked_collective::Pallet::<Runtime>::add_member(
+                    RuntimeOrigin::root(),
+                    MultiAddress::from(regular_member.clone())
+                )
+            );
+
+            // Verify they are in the collective by checking their rank
+            assert_eq!(TechFellowship::rank_of(&high_rank_member), Some(0));
+            assert_eq!(TechFellowship::rank_of(&regular_member), Some(0));
+
+            // Now import them into the fellowship
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::import(
+                    RuntimeOrigin::signed(high_rank_member.clone())
+                )
+            );
+
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::import(
+                    RuntimeOrigin::signed(regular_member.clone())
+                )
+            );
+
+            // Promote high_rank_member to rank 3
+            for i in 1..=3 {
+                assert_ok!(
+                    pallet_core_fellowship::Pallet::<Runtime>::promote_fast(
+                        RuntimeOrigin::root(),
+                        high_rank_member.clone(),
+                        i
+                    )
+                );
+            }
+
+            // Promote regular_member to rank 2
+            for i in 1..=2 {
+                assert_ok!(
+                    pallet_core_fellowship::Pallet::<Runtime>::promote_fast(
+                        RuntimeOrigin::signed(high_rank_member.clone()),
+                        regular_member.clone(),
+                        i
+                    )
+                );
+            }
+
+            // Verify initial ranks
+            assert_eq!(TechFellowship::rank_of(&high_rank_member), Some(3));
+            assert_eq!(TechFellowship::rank_of(&regular_member), Some(2));
+
+            // Create a new candidate via self-induction
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::induct(
+                    RuntimeOrigin::signed(candidate.clone()),
+                    candidate.clone()
+                )
+            );
+
+            // Verify candidate's initial rank
+            assert_eq!(TechFellowship::rank_of(&candidate), Some(0));
+
+            // Test promotion using high_rank_member (rank 3) to promote to rank 1
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::promote_fast(
+                    RuntimeOrigin::signed(regular_member.clone()), // Using regular_member
+                    candidate.clone(),
+                    1
+                )
+            );
+
+            // Verify the promotion was successful
+            assert_eq!(TechFellowship::rank_of(&candidate), Some(1));
         });
     }
 
