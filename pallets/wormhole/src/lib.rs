@@ -14,11 +14,12 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
     use codec::{Encode, Decode};
+    // use wormhole_verifier::{WormholeVerifier, ProofWithPublicInputs, CircuitInputs};
     use plonky2::{
         plonk::{
             config::{GenericConfig, PoseidonGoldilocksConfig},
-            proof::ProofWithPublicInputs,
             circuit_data::{VerifierCircuitData, CommonCircuitData},
+            proof::ProofWithPublicInputs
         },
         field::{goldilocks_field::GoldilocksField, types::PrimeField64},
         util::serialization::DefaultGateSerializer
@@ -119,6 +120,7 @@ pub mod pallet {
             VerifierCircuitData::from_bytes(bytes.to_vec(), &DefaultGateSerializer)
                 .expect("Failed to parse verifier data")
         };
+        // static ref VERIFIER: WormholeVerifier = WormholeVerifier::new();
     }
 
     #[pallet::storage]
