@@ -24,6 +24,7 @@ for ApproveOriginImpl<T, I>
             return Ok(2u16); // Return rank 1 for root
         }
 
+
         // Otherwise check if it's a signed origin with rank 1+
         o.clone().into().and_then(|o| match o.clone() {
             frame_system::RawOrigin::Signed(who) => {

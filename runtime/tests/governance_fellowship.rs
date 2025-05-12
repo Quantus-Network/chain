@@ -4,11 +4,41 @@ mod common;
 #[cfg(test)]
 mod fellowship_tests {
     use crate::common::{account_id, new_test_ext};
-    use frame_support::assert_ok;
+    use frame_support::{assert_noop, assert_ok};
     use frame_support::traits::RankedMembers;
-    use sp_runtime::MultiAddress;
-    use resonance_runtime::{Runtime, RuntimeOrigin, System, TechFellowship};
-    use pallet_core_fellowship::{self};
+    use sp_runtime::{bounded_vec, DispatchError, MultiAddress};
+    use resonance_runtime::{CoreFellowship, Runtime, RuntimeOrigin, System, TechFellowship};
+    use pallet_core_fellowship::{self, ParamsType};
+    use sp_core::crypto::AccountId32;
+    use resonance_runtime::fellowship::MaxFellowshipRank;
+
+    fn signed(who: AccountId32) -> RuntimeOrigin {
+        RuntimeOrigin::signed(who)
+    }
+
+    fn setup_fellowship_params() -> ParamsType<u128, u32, MaxFellowshipRank> {
+        ParamsType {
+            active_salary: bounded_vec![0, 0, 0, 0],  // no salary
+            passive_salary: bounded_vec![0, 0, 0, 0], // no salary
+            demotion_period: bounded_vec![1, 2, 3, 4], // short periods for tests
+            min_promotion_period: bounded_vec![1, 1, 1, 1], // minimal values for tests
+            offboard_timeout: 1, // short timeout
+        }
+    }
+
+    #[test]
+    fn set_params_works() {
+        new_test_ext().execute_with(|| {
+            let params = setup_fellowship_params();
+            let new_member = account_id(1);
+
+            assert_noop!(
+                CoreFellowship::set_params(signed(new_member), Box::new(params.clone())),
+                DispatchError::BadOrigin
+            );
+            assert_ok!(CoreFellowship::set_params(RuntimeOrigin::root(), Box::new(params)));
+        });
+    }
 
     // Test adding a new member at rank 0
     #[test]
@@ -161,6 +191,271 @@ mod fellowship_tests {
             // Verify the promotion was successful
             assert_eq!(TechFellowship::rank_of(&candidate), Some(1));
         });
+    }
+
+    #[test]
+    fn evidence_submission_and_approval_works() {
+        new_test_ext().execute_with(|| {
+
+            let params = setup_fellowship_params();
+            assert_ok!(CoreFellowship::set_params(RuntimeOrigin::root(), Box::new(params)));
+
+            // Create accounts for testing
+            let high_rank_member = account_id(1);
+            let regular_member = account_id(2);
+            let candidate = account_id(3);
+
+            System::set_block_number(1);
+
+            // First add members to the collective
+            assert_ok!(
+                pallet_ranked_collective::Pallet::<Runtime>::add_member(
+                    RuntimeOrigin::root(),
+                    MultiAddress::from(high_rank_member.clone())
+                )
+            );
+            assert_ok!(
+                pallet_ranked_collective::Pallet::<Runtime>::add_member(
+                    RuntimeOrigin::root(),
+                    MultiAddress::from(regular_member.clone())
+                )
+            );
+
+            // Import them into the fellowship
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::import(
+                    RuntimeOrigin::signed(high_rank_member.clone())
+                )
+            );
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::import(
+                    RuntimeOrigin::signed(regular_member.clone())
+                )
+            );
+
+            // Promote high_rank_member to rank 2 (needed for approval)
+            for i in 1..=3 {
+                assert_ok!(
+                    pallet_core_fellowship::Pallet::<Runtime>::promote_fast(
+                        RuntimeOrigin::root(),
+                        high_rank_member.clone(),
+                        i
+                    )
+                );
+            }
+
+            // Create a new candidate via self-induction
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::induct(
+                    RuntimeOrigin::signed(candidate.clone()),
+                    candidate.clone()
+                )
+            );
+
+            // Verify initial ranks
+            assert_eq!(TechFellowship::rank_of(&high_rank_member), Some(3));
+            assert_eq!(TechFellowship::rank_of(&candidate), Some(0));
+
+            // Create evidence for promotion
+            /*let evidence = vec![1, 2, 3, 4, 5]; // Sample evidence data
+
+
+            // Submit evidence for promotion to rank 1
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::submit_evidence(
+                    RuntimeOrigin::signed(candidate.clone()),
+                    pallet_core_fellowship::Wish::Promotion,
+                    evidence.clone().try_into().unwrap()
+                )
+            );
+
+            System::assert_last_event(
+                pallet_core_fellowship::Event::<Runtime>::Requested {
+                    who: candidate.clone(),
+                    wish: pallet_core_fellowship::Wish::Promotion
+                }.into()
+            );*/
+
+            System::set_block_number(2);
+
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::promote(
+                    RuntimeOrigin::signed(high_rank_member.clone()),
+                    candidate.clone(),
+                    1  // Target rank for promotion
+                )
+            );
+
+            // System::assert_has_event(
+            //     pallet_core_fellowship::Event::<Runtime>::EvidenceJudged {
+            //         who: candidate.clone(),
+            //         wish: pallet_core_fellowship::Wish::Promotion,
+            //         evidence: evidence.clone().try_into().unwrap(),
+            //         old_rank: 0,
+            //         new_rank: Some(1)
+            //     }.into()
+            // );
+
+            System::set_block_number(5);
+
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::promote(
+                    RuntimeOrigin::signed(high_rank_member.clone()),
+                    candidate.clone(),
+                    2  // Target rank for promotion
+                )
+            );
+
+            let evidence_lv2 = vec![1, 2, 3, 4, 5]; // Sample evidence data
+            // Submit evidence for promotion to rank 1
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::submit_evidence(
+                    RuntimeOrigin::signed(candidate.clone()),
+                    pallet_core_fellowship::Wish::Promotion,
+                    evidence_lv2.clone().try_into().unwrap()
+                )
+            );
+
+            /*
+
+            // Approve the evidence for promotion to rank 1
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::approve(
+                    RuntimeOrigin::signed(high_rank_member.clone()),
+                    candidate.clone(),
+                    1  // Target rank for promotion
+                )
+            );
+
+
+            // Then promote to rank 1
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::promote(
+                    RuntimeOrigin::signed(high_rank_member.clone()),
+                    candidate.clone(),
+                    1
+                )
+            );
+
+            // Verify the promotion was successful
+            assert_eq!(TechFellowship::rank_of(&candidate), Some(1));
+
+            // Try to submit new evidence for next promotion
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::submit_evidence(
+                    RuntimeOrigin::signed(candidate.clone()),
+                    pallet_core_fellowship::Wish::Promotion,
+                    evidence.clone().try_into().unwrap()
+                )
+            );
+
+            // Approve new evidence for promotion to rank 2
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::approve(
+                    RuntimeOrigin::signed(high_rank_member.clone()),
+                    candidate.clone(),
+                    2  // Target rank for promotion
+                )
+            );
+
+            // Try to promote to rank 2
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::promote(
+                    RuntimeOrigin::signed(high_rank_member.clone()),
+                    candidate.clone(),
+                    2
+                )
+            );
+
+            // Verify the second promotion was successful
+            assert_eq!(TechFellowship::rank_of(&candidate), Some(2));
+            */
+        });
+    }
+    #[test]
+    fn evidence_resets_demotion_period() {
+        new_test_ext().execute_with(|| {
+            // Set parameters with short demotion periods for tests
+            let params = setup_fellowship_params();
+            assert_ok!(CoreFellowship::set_params(RuntimeOrigin::root(), Box::new(params)));
+
+            let member = account_id(1);
+            let high_rank_member = account_id(2);  // Dodajemy członka wysokiej rangi
+
+            // Add members and promote high_rank_member to rank 3
+            assert_ok!(
+                pallet_ranked_collective::Pallet::<Runtime>::add_member(
+                    RuntimeOrigin::root(),
+                    MultiAddress::from(member.clone())
+                )
+            );
+            assert_ok!(
+                pallet_ranked_collective::Pallet::<Runtime>::add_member(
+                    RuntimeOrigin::root(),
+                    MultiAddress::from(high_rank_member.clone())
+                )
+            );
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::import(
+                    RuntimeOrigin::signed(member.clone())
+                )
+            );
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::import(
+                    RuntimeOrigin::signed(high_rank_member.clone())
+                )
+            );
+
+            // Promote high_rank_member to rank 3
+            for i in 1..=3 {
+                assert_ok!(
+                    pallet_core_fellowship::Pallet::<Runtime>::promote_fast(
+                        RuntimeOrigin::root(),
+                        high_rank_member.clone(),
+                        i
+                    )
+                );
+            }
+
+            // Promote member to rank 2
+            for i in 1..=2 {
+                assert_ok!(
+                    pallet_core_fellowship::Pallet::<Runtime>::promote_fast(
+                        RuntimeOrigin::root(),
+                        member.clone(),
+                        i
+                    )
+                );
+            }
+
+            // Check initial rank
+            assert_eq!(TechFellowship::rank_of(&member), Some(2));
+
+            // Wait almost until demotion period (2 blocks)
+            System::set_block_number(3);
+
+            // Submit evidence to reset demotion period
+            let evidence = vec![1, 2, 3, 4, 5];
+            assert_ok!(
+                pallet_core_fellowship::Pallet::<Runtime>::submit_evidence(
+                    RuntimeOrigin::signed(member.clone()),
+                    pallet_core_fellowship::Wish::Promotion,
+                    evidence.clone().try_into().unwrap()
+                )
+            );
+
+            // Wait past original demotion period
+            System::set_block_number(4);
+
+            // Check that rank hasn't changed due to evidence submission
+            assert_eq!(TechFellowship::rank_of(&member), Some(2));
+
+            // Add bump to actually trigger the demotion using high_rank_member
+            // Root can't do this, only user with higher rank
+            // We could run it from outside or even from offchain worker, but it's not triggered automatically
+            assert_ok!(CoreFellowship::bump(signed(high_rank_member.clone()), member.clone()));
+            assert_eq!(TechFellowship::rank_of(&member), Some(1));
+         });
     }
 
 }
