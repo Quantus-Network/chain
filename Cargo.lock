@@ -6580,6 +6580,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-core-fellowship"
+version = "23.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bd7209d4c2632f5df7f9c80b84d195f02bd2508e3c2e590e6e3c4672fcb8b25"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-ranked-collective",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-faucet"
 version = "0.1.0"
 dependencies = [
@@ -6650,6 +6669,25 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+]
+
+[[package]]
+name = "pallet-ranked-collective"
+version = "39.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6d4acea40defbd7b79e75939e158fb3b70ef60d5d53b269999c1470156d2b69"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -8507,10 +8545,12 @@ dependencies = [
  "log",
  "pallet-balances",
  "pallet-conviction-voting",
+ "pallet-core-fellowship",
  "pallet-faucet",
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",
+ "pallet-ranked-collective",
  "pallet-referenda",
  "pallet-reversible-transfers",
  "pallet-scheduler",

@@ -24,7 +24,7 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use crate::governance::{PreimageDeposit, TracksInfo};
+use crate::governance::{MinRankOfClassConverter, PreimageDeposit, TracksInfo};
 use frame_support::traits::ConstU64;
 use frame_support::PalletId;
 use frame_support::{
@@ -36,20 +36,18 @@ use frame_support::{
     },
 };
 use frame_system::limits::{BlockLength, BlockWeights};
-use frame_system::EnsureRoot;
+use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use pallet_ranked_collective::{self, Geometric};
 use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
 use sp_runtime::{traits::One, Perbill};
+use sp_runtime::traits::ConstU16;
 use sp_version::RuntimeVersion;
+use crate::fellowship::{ApproveOrigin, FastPromoteOrigin, FellowshipEvidenceSize, MaxFellowshipRank, PromoteOrigin};
 // Local module imports
-use super::{
-    AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
-    Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT,
-    MICRO_UNIT, UNIT, VERSION,
-};
+use super::{AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, TechFellowship, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -184,6 +182,92 @@ impl pallet_conviction_voting::Config for Runtime {
     type Polls = Referenda;
 }
 
+impl pallet_core_fellowship::Config for Runtime {
+    // Specifies the event type for this pallet, used for emitting events when fellowship actions occur
+    type RuntimeEvent = RuntimeEvent;
+
+    // Provides weight calculations for pallet operations to ensure proper transaction fee calculations
+    // Uses the standard Substrate weight implementation for this pallet
+    type WeightInfo = pallet_core_fellowship::weights::SubstrateWeight<Runtime>;
+
+    // Defines the maximum rank that a fellowship member can achieve (value: 4)
+    // Higher ranks typically have more privileges in governance
+    type MaxRank = MaxFellowshipRank;
+
+    // Specifies the maximum size of evidence that can be submitted with applications (32 KB)
+    // Evidence might include credentials, portfolio, or other proof of expertise
+    type EvidenceSize = FellowshipEvidenceSize;
+
+    // Defines who can modify fellowship parameters - only root can change core parameters
+    // This protects the fellowship's core configuration from arbitrary changes
+    type ParamsOrigin = EnsureRoot<AccountId>;
+
+    // Specifies who can induct new members into the fellowship - only root can induct new members
+    // This controls the entry point for new members into the fellowship
+    type InductOrigin = frame_system::EnsureSigned<AccountId>;//EnsureRoot<AccountId>;
+
+    // Defines who can approve fellowship applications - root or members with rank 1+
+    // This allows senior members to participate in the approval process
+    type ApproveOrigin = ApproveOrigin;
+
+    // Specifies who can promote existing members - root or any member with rank higher than the target
+    // This implements mentorship where higher-ranked members can promote juniors
+    type PromoteOrigin = PromoteOrigin;
+
+    // Defines who can perform fast-tracked promotions - root or members with very high rank (3+)
+    // This allows exceptional members to be promoted more rapidly when appropriate
+    type FastPromoteOrigin = FastPromoteOrigin;
+
+    // Specifies which pallet handles the membership data - uses the TechFellowship collective
+    // This connects the fellowship logic to the underlying membership tracking system
+    type Members = TechFellowship;
+
+    // The currency type used for fellowship operations, such as deposits or rewards
+    // Uses the same Balance type as the rest of the runtime
+    type Balance = Balance;
+}
+
+parameter_types! {
+    pub const MinRankOfClassDelta: u16 = 0;
+}
+impl pallet_ranked_collective::Config for Runtime {
+    type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
+    type RuntimeEvent = RuntimeEvent;
+    type AddOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+    type RemoveOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+    type PromoteOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+    type DemoteOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+    type ExchangeOrigin = EnsureRootWithSuccess<AccountId, ConstU16<0>>;
+    type Polls = pallet_referenda::Pallet<Runtime, TechReferendaInstance>;
+    type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
+    type MemberSwappedHandler = pallet_core_fellowship::Pallet<Runtime>;
+    type VoteWeight = Geometric;
+    type MaxMemberCount = ();
+
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkSetup = ();
+}
+
+/*impl pallet_ranked_collective::Config for Runtime {
+    type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
+    type RuntimeEvent = RuntimeEvent;
+    // Use our custom origins
+    type AddOrigin = FellowshipAdminOrigin;
+    type RemoveOrigin = FellowshipAdminOrigin;
+    type PromoteOrigin = PromotionOrigin;
+    type DemoteOrigin = PromotionOrigin;
+    type ExchangeOrigin = FellowshipAdminOrigin;
+    type Polls = TechReferenda;
+    type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
+    type MemberSwappedHandler = pallet_core_fellowship::Pallet<Runtime>;
+    // For the vote weight, use Geometric
+    type VoteWeight = Geometric;
+    type MaxMemberCount = ConstU32<1000>; // Maximum number of members
+
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkSetup = pallet_core_fellowship::Pallet<Runtime>;
+}*/
+
 parameter_types! {
     pub const PreimageBaseDeposit: Balance = 1 * UNIT;
     pub const PreimageByteDeposit: Balance = 1 * MICRO_UNIT;
@@ -241,6 +325,72 @@ impl pallet_referenda::Config for Runtime {
     /// The method to tally votes and determine referendum outcome.
     /// Uses conviction voting's tally system with a maximum turnout threshold.
     type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>;
+    /// The deposit required to submit a referendum proposal.
+    type SubmissionDeposit = ReferendumSubmissionDeposit;
+    /// Maximum number of referenda that can be in the deciding phase simultaneously.
+    type MaxQueued = ReferendumMaxProposals;
+    /// Time period after which an undecided referendum will be automatically rejected.
+    type UndecidingTimeout = UndecidingTimeout;
+    /// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
+    type AlarmInterval = AlarmInterval;
+    /// Defines the different referendum tracks (categories with distinct parameters).
+    type Tracks = TracksInfo;
+    /// The pallet used to store preimages (detailed proposal content) for referenda.
+    type Preimages = Preimage;
+}
+
+//impl_tracksinfo_get!(TracksInfo, Balance, BlockNumber);
+
+parameter_types! {
+    // Default voting period (28 days)
+    pub const TechReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
+    // Minimum time before a successful referendum can be enacted (4 days)
+    pub const TechReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
+    // Maximum number of active referenda
+    pub const TechReferendumMaxProposals: u32 = 100;
+    // Submission deposit for referenda
+    pub const TechReferendumSubmissionDeposit: Balance = 100 * UNIT;
+    // Undeciding timeout (90 days)
+    pub const TechUndecidingTimeout: BlockNumber = 45 * DAYS;
+    pub const TechAlarmInterval: BlockNumber = 1;
+}
+
+// pub struct TechReferendaInstance;
+// impl frame_support::traits::Instance for TechReferendaInstance {
+//     const PREFIX: &'static str = "TechReferenda";
+//     const INDEX: u8 = 0;
+// }
+
+pub type TechReferendaInstance = pallet_referenda::Instance1;
+
+impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
+    /// The type of call dispatched by referenda upon approval and execution.
+    type RuntimeCall = RuntimeCall;
+    /// The overarching event type for the runtime.
+    type RuntimeEvent = RuntimeEvent;
+    /// Provides weights for the pallet operations to properly charge transaction fees.
+    type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
+    /// The scheduler pallet used to delay execution of successful referenda.
+    type Scheduler = Scheduler;
+    /// The currency mechanism used for handling deposits and voting.
+    type Currency = Balances;
+    /// The origin allowed to submit referenda - in this case any signed account.
+    type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
+    /// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
+    type CancelOrigin = EnsureRoot<AccountId>;
+    /// The privileged origin allowed to kill a referendum that's not passing - only root can do this.
+    type KillOrigin = EnsureRoot<AccountId>;
+    /// Destination for slashed deposits when a referendum is cancelled or killed.
+    /// Leaving () here, will burn all slashed deposits. It's possible to use here the same idea
+    /// as we have for TransactionFees (OnUnbalanced) - with this it should be possible to
+    /// do something more sophisticated with this.
+    type Slash = (); // Will discard any slashed deposits
+    /// The voting mechanism used to collect votes and determine how they're counted.
+    /// Connected to the conviction voting pallet to allow conviction-weighted votes.
+    type Votes = pallet_ranked_collective::Votes;
+    /// The method to tally votes and determine referendum outcome.
+    /// Uses conviction voting's tally system with a maximum turnout threshold.
+    type Tally = pallet_ranked_collective::TallyOf<Runtime>;
     /// The deposit required to submit a referendum proposal.
     type SubmissionDeposit = ReferendumSubmissionDeposit;
     /// Maximum number of referenda that can be in the deciding phase simultaneously.
