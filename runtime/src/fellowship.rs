@@ -11,6 +11,29 @@ parameter_types! {
     pub const FellowshipEvidenceSize: u32 = 32 * 1024; // 32 KB
 }
 
+/// Core Fellowship configuration
+/// 
+/// Current parameters:
+/// - Maximum rank: 4
+/// - Evidence size limit: 32 KB
+/// - Approval rights:
+///   - Root can approve any rank up to 2
+///   - Members can approve if their rank is >= 1
+/// - Promotion rights:  
+///   - Root can promote up to rank 2
+///   - Members can promote if their rank is higher than target rank
+/// 
+/// Note: Other parameters like demotion periods, promotion periods, salaries etc.
+/// are configurable via runtime and need to be set via governance.
+/// See `pallet_core_fellowship::ParamsType` for the full parameter set.
+/// 
+/// For now this is overcomplicated, but it's here for future reference.
+/// Based on this we could build automatic demotions based on evidence.
+/// To do this we would need to add new pallet to trigger demotions
+
+
+
+
 pub struct ApproveOriginImpl<T, I>(PhantomData<(T, I)>);
 impl<T: pallet_ranked_collective::Config<I>, I: 'static> EnsureOrigin<T::RuntimeOrigin>
 for ApproveOriginImpl<T, I>
