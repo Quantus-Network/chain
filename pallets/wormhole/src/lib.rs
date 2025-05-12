@@ -15,6 +15,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use lazy_static::lazy_static;
     use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
+    // use wormhole_verifier::{WormholeVerifier, ProofWithPublicInputs, CircuitInputs};
     use plonky2::{
         field::{goldilocks_field::GoldilocksField, types::PrimeField64},
         plonk::{
@@ -123,6 +124,7 @@ pub mod pallet {
             VerifierCircuitData::from_bytes(bytes.to_vec(), &DefaultGateSerializer)
                 .expect("Failed to parse verifier data")
         };
+        // static ref VERIFIER: WormholeVerifier = WormholeVerifier::new();
     }
 
     #[pallet::storage]
