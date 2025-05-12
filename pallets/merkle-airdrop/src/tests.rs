@@ -3,11 +3,7 @@
 use crate::{mock::*, Error, Event};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok};
-use poseidon_resonance::PoseidonHasher;
 use sp_core::blake2_256;
-use sp_core::crypto::AccountId32;
-use sp_core::crypto::Ss58Codec;
-use sp_runtime::traits::Hash;
 
 #[test]
 fn create_airdrop_works() {
@@ -131,6 +127,7 @@ fn claim_works() {
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
+            2,
             500,
             merkle_proof.clone()
         ));
@@ -186,7 +183,7 @@ fn claim_fails_for_nonexistent_airdrop() {
 
         // Try to claim from a nonexistent airdrop
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 1, 500, merkle_proof),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -231,13 +228,14 @@ fn claim_already_claimed() {
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
+            2,
             500,
             merkle_proof.clone()
         ));
 
         // Try to claim again
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 500, merkle_proof.clone()),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof.clone()),
             Error::<Test>::AlreadyClaimed
         );
     });
@@ -315,182 +313,6 @@ fn verify_merkle_proof_works() {
     });
 }
 
-// Helper function to convert hex string to bytes
-fn hex_to_bytes(hex: &str) -> Vec<u8> {
-    let hex = hex.trim_start_matches("0x");
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for i in (0..hex.len()).step_by(2) {
-        let byte = u8::from_str_radix(&hex[i..i + 2], 16).expect("Invalid hex string");
-        bytes.push(byte);
-    }
-    bytes
-}
-
-// #[test]
-// fn verify_merkle_proof_consistency() {
-//     new_test_ext().execute_with(|| {
-//         // Create test accounts and amounts from sample-claims.json
-//         let account1 = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
-//         let amount1 = 1000000000000u64;
-//         let account2 = "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y";
-//         let amount2 = 2000000000000u64;
-//         let account3 = "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy";
-//         let amount3 = 3000000000000u64;
-//
-//         // Convert SS58 addresses to AccountId32 - this is how the CLI does it
-//         let account_id1 = AccountId32::from_ss58check(account1).expect("Invalid SS58 address");
-//         let account_id2 = AccountId32::from_ss58check(account2).expect("Invalid SS58 address");
-//         let account_id3 = AccountId32::from_ss58check(account3).expect("Invalid SS58 address");
-//
-//         // Calculate leaf hashes
-//         let leaf1 = MerkleAirdrop::calculate_leaf_hash_blake2(&account_id1, amount1);
-//         let leaf2 = MerkleAirdrop::calculate_leaf_hash_blake2(&account_id2, amount2);
-//         let leaf3 = MerkleAirdrop::calculate_leaf_hash_blake2(&account_id3, amount3);
-//
-//         // Build the tree as per the provided structure
-//         // First level: leaf1 + leaf2, leaf3
-//         let parent1 = calculate_parent_hash(&leaf1, &leaf2);
-//
-//         // Second level: parent1 + leaf3
-//         let merkle_root = calculate_parent_hash(&parent1, &leaf3);
-//
-//         // Create proofs for each account
-//         let proof1 = vec![leaf2, leaf3];
-//         let proof2 = vec![leaf1, leaf3];
-//         let proof3 = vec![parent1];
-//
-//         // Verify the proofs multiple times to ensure consistency
-//         for i in 0..3 {
-//             // Verify proof for account1
-//             let is_valid1 = MerkleAirdrop::verify_merkle_proof(
-//                 &account_id1,
-//                 amount1,
-//                 &merkle_root,
-//                 &proof1
-//             );
-//
-//             assert!(
-//                 is_valid1,
-//                 "Proof verification for account1 failed on attempt {}",
-//                 i + 1
-//             );
-//
-//             // Verify proof for account2
-//             let is_valid2 = MerkleAirdrop::verify_merkle_proof(
-//                 &account2,
-//                 amount2,
-//                 &merkle_root,
-//                 &proof2
-//             );
-//
-//             assert!(
-//                 is_valid2,
-//                 "Proof verification for account2 failed on attempt {}",
-//                 i + 1
-//             );
-//
-//             // Verify proof for account3
-//             let is_valid3 = MerkleAirdrop::verify_merkle_proof(
-//                 &account3,
-//                 amount3,
-//                 &merkle_root,
-//                 &proof3
-//             );
-//
-//             assert!(
-//                 is_valid3,
-//                 "Proof verification for account3 failed on attempt {}",
-//                 i + 1
-//             );
-//         }
-//
-//         // Print debug information
-//         println!("Account1: {}", account1);
-//         println!("Amount1: {}", amount1);
-//         println!("Leaf1: {:?}", leaf1);
-//         println!("Proof1: {:?}", proof1);
-//
-//         println!("Account2: {}", account2);
-//         println!("Amount2: {}", amount2);
-//         println!("Leaf2: {:?}", leaf2);
-//         println!("Proof2: {:?}", proof2);
-//
-//         println!("Account3: {}", account3);
-//         println!("Amount3: {}", amount3);
-//         println!("Leaf3: {:?}", leaf3);
-//         println!("Proof3: {:?}", proof3);
-//
-//         println!("Merkle Root: {:?}", merkle_root);
-//
-//         // Compare with the provided Merkle root
-//         let expected_root_hex = "0xd58b0382abf7d9c776870327a4ef5a1121c9f11aaab98a35ea290e273f484975";
-//         let expected_root_bytes = hex_to_bytes(expected_root_hex);
-//         let expected_root: [u8; 32] = expected_root_bytes.try_into().expect("Invalid length");
-//
-//         println!("Expected Root: {:?}", expected_root);
-//         println!("Calculated Root: {:?}", merkle_root);
-//
-//         // Compare the calculated root with the expected root
-//         assert_eq!(
-//             merkle_root, expected_root,
-//             "Calculated Merkle root does not match the expected root"
-//         );
-//
-//         // Compare the calculated proofs with the provided proofs
-//         let expected_proof1_hex = [
-//             "0xc4c6de5a4da087ed4788df7c75be26be1773623f3ab04c9a7a64abf7286fcf0a",
-//             "0x124e7cbacdc1247065d1046a6d1457372b7598977d62117bdf67672af4393926"
-//         ];
-//         let expected_proof2_hex = [
-//             "0x3fdd468bf65171b1dd76c288b44bce6bcab66fcd70bac797d0c78f43b140750d",
-//             "0x124e7cbacdc1247065d1046a6d1457372b7598977d62117bdf67672af4393926"
-//         ];
-//         let expected_proof3_hex = [
-//             "0x3c8a274edb57c2a2588abf2543786f8f16f3d6171a997fd0b797748d67dfa1fc"
-//         ];
-//
-//         let expected_proof1: Vec<[u8; 32]> = expected_proof1_hex.iter().map(|hex| {
-//             let bytes = hex_to_bytes(hex);
-//             bytes.try_into().expect("Invalid length")
-//         }).collect();
-//
-//         let expected_proof2: Vec<[u8; 32]> = expected_proof2_hex.iter().map(|hex| {
-//             let bytes = hex_to_bytes(hex);
-//             bytes.try_into().expect("Invalid length")
-//         }).collect();
-//
-//         let expected_proof3: Vec<[u8; 32]> = expected_proof3_hex.iter().map(|hex| {
-//             let bytes = hex_to_bytes(hex);
-//             bytes.try_into().expect("Invalid length")
-//         }).collect();
-//
-//         println!("Expected Proof1: {:?}", expected_proof1);
-//         println!("Calculated Proof1: {:?}", proof1);
-//
-//         println!("Expected Proof2: {:?}", expected_proof2);
-//         println!("Calculated Proof2: {:?}", proof2);
-//
-//         println!("Expected Proof3: {:?}", expected_proof3);
-//         println!("Calculated Proof3: {:?}", proof3);
-//
-//         // Compare the calculated proofs with the expected proofs
-//         assert_eq!(
-//             proof1, expected_proof1,
-//             "Calculated proof1 does not match the expected proof1"
-//         );
-//
-//         assert_eq!(
-//             proof2, expected_proof2,
-//             "Calculated proof2 does not match the expected proof2"
-//         );
-//
-//         assert_eq!(
-//             proof3, expected_proof3,
-//             "Calculated proof3 does not match the expected proof3"
-//         );
-//     });
-// }
-
 // Helper function to calculate a leaf hash for testing
 fn calculate_leaf_hash(account: &u64, amount: u64) -> [u8; 32] {
     let account_bytes = account.encode();
@@ -508,10 +330,7 @@ fn calculate_parent_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
         [&right[..], &left[..]].concat()
     };
 
-    // Use PoseidonHasher
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&PoseidonHasher::hash(&combined)[..]);
-    output
+    blake2_256(&combined)
 }
 
 #[test]
@@ -544,7 +363,7 @@ fn claim_invalid_proof_fails() {
 
         // Attempt to claim with invalid proof
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 500, invalid_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, invalid_proof),
             Error::<Test>::InvalidProof
         );
     });
@@ -580,7 +399,7 @@ fn claim_insufficient_airdrop_balance_fails() {
 
         // Attempt to claim more than available
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof),
             Error::<Test>::InsufficientAirdropBalance
         );
     });
@@ -593,7 +412,7 @@ fn claim_nonexistent_airdrop_fails() {
 
         // Attempt to claim from a nonexistent airdrop
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 500, vec![[0u8; 32]]),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 2, 500, vec![[0u8; 32]]),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -633,6 +452,7 @@ fn claim_updates_balances_correctly() {
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
+            2,
             500,
             merkle_proof
         ));
@@ -685,25 +505,43 @@ fn multiple_users_can_claim() {
 
         // User 1 claims
         let proof1 = vec![leaf2, leaf3];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 500, proof1));
+        assert_ok!(MerkleAirdrop::claim(
+            RuntimeOrigin::none(),
+            0,
+            2,
+            500,
+            proof1
+        ));
         assert_eq!(Balances::free_balance(2), 500);
 
         // User 2 claims
         let proof2 = vec![leaf1, leaf3];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 300, proof2));
+        assert_ok!(MerkleAirdrop::claim(
+            RuntimeOrigin::none(),
+            0,
+            3,
+            300,
+            proof2
+        ));
         assert_eq!(Balances::free_balance(3), 300);
 
         // User 3 claims
         let proof3 = vec![parent1];
-        assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 200, proof3));
+        assert_ok!(MerkleAirdrop::claim(
+            RuntimeOrigin::none(),
+            0,
+            4,
+            200,
+            proof3
+        ));
         assert_eq!(Balances::free_balance(4), 200);
 
         // Check final airdrop balance
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(0)); // 1000 - 500 - 300 - 200
 
         // Check all claims are recorded
-        assert_eq!(MerkleAirdrop::is_claimed(0, 2), true);
-        assert_eq!(MerkleAirdrop::is_claimed(0, 3), true);
-        assert_eq!(MerkleAirdrop::is_claimed(0, 4), true);
+        assert!(MerkleAirdrop::is_claimed(0, 2));
+        assert!(MerkleAirdrop::is_claimed(0, 3));
+        assert!(MerkleAirdrop::is_claimed(0, 4));
     });
 }

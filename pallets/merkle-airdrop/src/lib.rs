@@ -283,7 +283,7 @@ pub mod pallet {
         /// # Returns
         ///
         /// A 32-byte array containing the Blake2 hash of the combined children
-        fn calculate_parent_hash_blake2(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+        pub fn calculate_parent_hash_blake2(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
             // Ensure consistent ordering of inputs (important for verification)
             let combined = if left < right {
                 [left.as_slice(), right.as_slice()].concat()
@@ -478,10 +478,12 @@ pub mod pallet {
         pub fn claim(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
+            recipient: T::AccountId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
             merkle_proof: Vec<[u8; 32]>,
         ) -> DispatchResult {
-            let sender = ensure_signed(origin)?;
+            // Ensure the call has no origin (can be called by anyone)
+            ensure_none(origin)?;
 
             // Ensure the airdrop exists
             ensure!(
@@ -489,9 +491,9 @@ pub mod pallet {
                 Error::<T>::AirdropNotFound
             );
 
-            // Ensure the sender hasn't already claimed
+            // Ensure the recipient hasn't already claimed
             ensure!(
-                !Claimed::<T>::contains_key(airdrop_id, &sender),
+                !Claimed::<T>::contains_key(airdrop_id, &recipient),
                 Error::<T>::AlreadyClaimed
             );
 
@@ -501,7 +503,7 @@ pub mod pallet {
 
             // Verify the Merkle proof using sender
             ensure!(
-                Self::verify_merkle_proof(&sender, amount, &merkle_root, &merkle_proof),
+                Self::verify_merkle_proof(&recipient, amount, &merkle_root, &merkle_proof),
                 Error::<T>::InvalidProof
             );
 
@@ -514,7 +516,7 @@ pub mod pallet {
             );
 
             // Mark as claimed before performing the transfer
-            Claimed::<T>::insert(airdrop_id, &sender, true);
+            Claimed::<T>::insert(airdrop_id, &recipient, true);
 
             // Update the airdrop balance
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
@@ -523,18 +525,18 @@ pub mod pallet {
                 }
             });
 
-            // Transfer tokens from the pallet account to the sender
+            // Transfer tokens from the pallet account to the recipient
             T::Currency::transfer(
                 &Self::account_id(),
-                &sender,
+                &recipient,
                 amount,
                 frame_support::traits::ExistenceRequirement::KeepAlive,
             )?;
 
-            // Emit an event using sender
+            // Emit an event using recipient
             Self::deposit_event(Event::Claimed {
                 airdrop_id,
-                account: sender,
+                account: recipient,
                 amount,
             });
 
