@@ -38,22 +38,23 @@ pub use weights::*;
 
 use frame_support::traits::Currency;
 
-type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+type BalanceOf<T> =
+    <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
 #[frame_support::pallet]
 pub mod pallet {
     use crate::BalanceOf;
 
+    use super::weights::WeightInfo;
     use frame_support::{
         pallet_prelude::*,
         traits::{Currency, Get},
     };
     use frame_system::pallet_prelude::*;
-    use sp_std::prelude::*;
     use sp_io::hashing::blake2_256;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Saturating;
-    use super::weights::WeightInfo;
+    use sp_std::prelude::*;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -97,7 +98,7 @@ pub mod pallet {
         _,
         Blake2_128Concat,
         AirdropId,
-        <<T as Config>::Currency as Currency<T::AccountId>>::Balance
+        <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
     >;
 
     /// Storage for claimed status
@@ -105,9 +106,12 @@ pub mod pallet {
     #[pallet::getter(fn is_claimed)]
     pub type Claimed<T: Config> = StorageDoubleMap<
         _,
-        Blake2_128Concat, AirdropId,
-        Blake2_128Concat, T::AccountId,
-        bool, ValueQuery
+        Blake2_128Concat,
+        AirdropId,
+        Blake2_128Concat,
+        T::AccountId,
+        bool,
+        ValueQuery,
     >;
 
     /// Counter for airdrop IDs
@@ -279,10 +283,7 @@ pub mod pallet {
         /// # Returns
         ///
         /// A 32-byte array containing the Blake2 hash of the combined children
-        fn calculate_parent_hash_blake2(
-            left: &[u8; 32],
-            right: &[u8; 32],
-        ) -> [u8; 32] {
+        fn calculate_parent_hash_blake2(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
             // Ensure consistent ordering of inputs (important for verification)
             let combined = if left < right {
                 [left.as_slice(), right.as_slice()].concat()
@@ -313,10 +314,7 @@ pub mod pallet {
         /// * `AirdropAlreadyExists` - If an airdrop with this ID already exists
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::create_airdrop())]
-        pub fn create_airdrop(
-            origin: OriginFor<T>,
-            merkle_root: MerkleRoot,
-        ) -> DispatchResult {
+        pub fn create_airdrop(origin: OriginFor<T>, merkle_root: MerkleRoot) -> DispatchResult {
             log::info!(
                 target: "merkle-airdrop",
                 "🌟 create_airdrop called with root: {:?}",
@@ -369,7 +367,8 @@ pub mod pallet {
             );
 
             // Initialize the airdrop balance to zero with explicit type
-            let zero_balance: <<T as Config>::Currency as Currency<T::AccountId>>::Balance = 0u32.into();
+            let zero_balance: <<T as Config>::Currency as Currency<T::AccountId>>::Balance =
+                0u32.into();
             AirdropBalances::<T>::insert(airdrop_id, zero_balance);
             log::info!(
                 target: "merkle-airdrop",
@@ -437,7 +436,7 @@ pub mod pallet {
                 &who,
                 &Self::account_id(),
                 amount,
-                frame_support::traits::ExistenceRequirement::KeepAlive
+                frame_support::traits::ExistenceRequirement::KeepAlive,
             )?;
 
             // Update the airdrop balance
@@ -450,10 +449,7 @@ pub mod pallet {
             });
 
             // Emit an event
-            Self::deposit_event(Event::AirdropFunded {
-                airdrop_id,
-                amount,
-            });
+            Self::deposit_event(Event::AirdropFunded { airdrop_id, amount });
 
             Ok(())
         }
@@ -500,8 +496,8 @@ pub mod pallet {
             );
 
             // Get the Merkle root for this airdrop
-            let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id)
-                .ok_or(Error::<T>::AirdropNotFound)?;
+            let merkle_root =
+                AirdropMerkleRoots::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
 
             // Verify the Merkle proof using sender
             ensure!(
@@ -532,7 +528,7 @@ pub mod pallet {
                 &Self::account_id(),
                 &sender,
                 amount,
-                frame_support::traits::ExistenceRequirement::KeepAlive
+                frame_support::traits::ExistenceRequirement::KeepAlive,
             )?;
 
             // Emit an event using sender

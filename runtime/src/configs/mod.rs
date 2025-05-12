@@ -65,8 +65,8 @@ parameter_types! {
     );
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 42;
-	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-	pub const MaxAirdrops: u32 = 1000;
+    pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
+    pub const MaxAirdrops: u32 = 1000;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -105,15 +105,15 @@ impl frame_system::Config for Runtime {
 
 parameter_types! {
 
-	pub const MaxTokenAmount: Balance = 1000 * UNIT;
-	pub const DefaultMintAmount: Balance = 10 * UNIT;
+    pub const MaxTokenAmount: Balance = 1000 * UNIT;
+    pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
 impl pallet_faucet::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type MaxTokenAmount = MaxTokenAmount;
-	type DefaultMintAmount = DefaultMintAmount;
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MaxTokenAmount = MaxTokenAmount;
+    type DefaultMintAmount = DefaultMintAmount;
 }
 
 impl pallet_mining_rewards::Config for Runtime {
@@ -124,15 +124,15 @@ impl pallet_mining_rewards::Config for Runtime {
 }
 
 impl pallet_qpow::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_qpow::DefaultWeightInfo;
-	// NOTE: InitialDistance will be shifted left by this amount: higher is easier
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_qpow::DefaultWeightInfo;
+    // NOTE: InitialDistance will be shifted left by this amount: higher is easier
     type InitialDistanceThresholdExponent = ConstU32<502>;
     type DifficultyAdjustPercentClamp = ConstU8<10>;
-	type TargetBlockTime = ConstU64<10000>;
-	type AdjustmentPeriod = ConstU32<1>;
-	type BlockTimeHistorySize = ConstU32<10>;
-	type MaxReorgDepth = ConstU32<10>;
+    type TargetBlockTime = ConstU64<10000>;
+    type AdjustmentPeriod = ConstU32<1>;
+    type BlockTimeHistorySize = ConstU32<10>;
+    type MaxReorgDepth = ConstU32<10>;
 }
 
 impl pallet_wormhole::Config for Runtime {
@@ -335,9 +335,9 @@ impl pallet_reversible_transfers::Config for Runtime {
 }
 
 impl pallet_merkle_airdrop::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type MaxAirdrops = MaxAirdrops;
-	type PalletId = MerkleAirdropPalletId;
-	type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MaxAirdrops = MaxAirdrops;
+    type PalletId = MerkleAirdropPalletId;
+    type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
 }

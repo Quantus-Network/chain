@@ -56,5 +56,9 @@ mod benchmarks {
         claim(RawOrigin::None, airdrop_id, recipient, amount, merkle_proof);
     }
 
-    impl_benchmark_test_suite!(MerkleAirdrop, crate::mock::new_test_ext(), crate::mock::Test);
+    impl_benchmark_test_suite!(
+        MerkleAirdrop,
+        crate::mock::new_test_ext(),
+        crate::mock::Test
+    );
 }
