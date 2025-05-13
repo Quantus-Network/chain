@@ -1230,11 +1230,11 @@ pub mod pallet {
 			match prev_frozen.cmp(&after_frozen) {
 				cmp::Ordering::Greater => {
 					let amount = prev_frozen.saturating_sub(after_frozen);
-					Self::deposit_event(Event::Unlocked { who: who.clone(), amount });
+					Self::deposit_event(Event::Thawed { who: who.clone(), amount });
 				},
 				cmp::Ordering::Less => {
 					let amount = after_frozen.saturating_sub(prev_frozen);
-					Self::deposit_event(Event::Locked { who: who.clone(), amount });
+					Self::deposit_event(Event::Frozen { who: who.clone(), amount });
 				},
 				cmp::Ordering::Equal => {},
 			}

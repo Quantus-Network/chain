@@ -1,7 +1,7 @@
 //! Custom signed extensions for the runtime.
 use crate::*;
 use codec::{Decode, Encode};
-use core::{marker::PhantomData, u8};
+use core::{marker::PhantomData};
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 use frame_support::traits::fungible::Inspect;
 use frame_support::traits::tokens::Preservation;
