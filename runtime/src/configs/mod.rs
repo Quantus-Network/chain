@@ -66,7 +66,6 @@ parameter_types! {
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 42;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-    pub const MaxAirdrops: u32 = 1000;
     pub const MaxProofs: u32 = 100;
 }
 
@@ -338,7 +337,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 impl pallet_merkle_airdrop::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type MaxAirdrops = MaxAirdrops;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;

@@ -83,7 +83,6 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-    pub const MaxAirdrops: u32 = 100;
     pub const MaxProofs: u32 = 100;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
 }
@@ -91,7 +90,6 @@ parameter_types! {
 impl pallet_merkle_airdrop::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type MaxAirdrops = MaxAirdrops;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = ();

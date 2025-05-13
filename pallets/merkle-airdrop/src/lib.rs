@@ -74,10 +74,6 @@ pub mod pallet {
         /// The currency mechanism.
         type Currency: Currency<Self::AccountId>;
 
-        /// The maximum number of airdrops that can be active at once.
-        #[pallet::constant]
-        type MaxAirdrops: Get<u32>;
-
         /// The maximum number of proof elements allowed in a Merkle proof.
         #[pallet::constant]
         type MaxProofs: Get<u32>;
@@ -173,8 +169,6 @@ pub mod pallet {
         AirdropNotFound,
         /// The airdrop with this ID already exists.
         AirdropAlreadyExists,
-        /// The maximum number of airdrops has been reached.
-        TooManyAirdrops,
         /// The airdrop does not have sufficient balance for this operation.
         InsufficientAirdropBalance,
         /// The user has already claimed from this airdrop.
@@ -288,7 +282,6 @@ pub mod pallet {
         ///
         /// # Errors
         ///
-        /// * `TooManyAirdrops` - If the maximum number of airdrops has been reached
         /// * `AirdropAlreadyExists` - If an airdrop with this ID already exists
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::create_airdrop())]
@@ -297,12 +290,6 @@ pub mod pallet {
 
             // Get the next available airdrop ID
             let airdrop_id = Self::next_airdrop_id();
-
-            // Ensure we haven't reached the maximum number of airdrops
-            ensure!(
-                airdrop_id < T::MaxAirdrops::get(),
-                Error::<T>::TooManyAirdrops
-            );
 
             // Ensure this airdrop doesn't already exist (should never happen with sequential IDs)
             ensure!(
