@@ -68,12 +68,12 @@
 //! - [`Currency`]: Functions for dealing with a fungible assets system.
 //! - [`ReservableCurrency`]
 //! - [`NamedReservableCurrency`](frame_support::traits::NamedReservableCurrency):
-//! Functions for dealing with assets that can be reserved from an account.
+//!   Functions for dealing with assets that can be reserved from an account.
 //! - [`LockableCurrency`](frame_support::traits::LockableCurrency): Functions for
-//! dealing with accounts that allow liquidity restrictions.
+//!   dealing with accounts that allow liquidity restrictions.
 //! - [`Imbalance`](frame_support::traits::Imbalance): Functions for handling
-//! imbalances between total issuance in the system and account balances. Must be used when a
-//! function creates new funds (e.g. a reward) or destroys some funds (e.g. a system fee).
+//!   imbalances between total issuance in the system and account balances. Must be used when a
+//!   function creates new funds (e.g. a reward) or destroys some funds (e.g. a system fee).
 //!
 //! ## Usage
 //!
@@ -790,10 +790,14 @@ pub mod pallet {
 
 			// This will adjust the total issuance, which was not done by the `mutate_account`
 			// above.
-			if new_free > old_free {
-				mem::drop(PositiveImbalance::<T, I>::new(new_free - old_free));
-			} else if new_free < old_free {
-				mem::drop(NegativeImbalance::<T, I>::new(old_free - new_free));
+			match new_free.cmp(&old_free) {
+				cmp::Ordering::Greater => {
+					mem::drop(PositiveImbalance::<T, I>::new(new_free - old_free));
+				}
+				cmp::Ordering::Less => {
+					mem::drop(NegativeImbalance::<T, I>::new(old_free - new_free));
+				}
+				cmp::Ordering::Equal => {}
 			}
 
 			Self::deposit_event(Event::BalanceSet { who, free: new_free });
@@ -1186,12 +1190,16 @@ pub mod pallet {
 				false => Locks::<T, I>::insert(who, bounded_locks),
 			}
 
-			if prev_frozen > after_frozen {
-				let amount = prev_frozen.saturating_sub(after_frozen);
-				Self::deposit_event(Event::Unlocked { who: who.clone(), amount });
-			} else if after_frozen > prev_frozen {
-				let amount = after_frozen.saturating_sub(prev_frozen);
-				Self::deposit_event(Event::Locked { who: who.clone(), amount });
+			match prev_frozen.cmp(&after_frozen) {
+				cmp::Ordering::Greater => {
+					let amount = prev_frozen.saturating_sub(after_frozen);
+					Self::deposit_event(Event::Unlocked { who: who.clone(), amount });
+				},
+				cmp::Ordering::Less => {
+					let amount = after_frozen.saturating_sub(prev_frozen);
+					Self::deposit_event(Event::Locked { who: who.clone(), amount });
+				},
+				cmp::Ordering::Equal => {},
 			}
 		}
 
@@ -1219,12 +1227,16 @@ pub mod pallet {
 			} else {
 				Freezes::<T, I>::insert(who, freezes);
 			}
-			if prev_frozen > after_frozen {
-				let amount = prev_frozen.saturating_sub(after_frozen);
-				Self::deposit_event(Event::Thawed { who: who.clone(), amount });
-			} else if after_frozen > prev_frozen {
-				let amount = after_frozen.saturating_sub(prev_frozen);
-				Self::deposit_event(Event::Frozen { who: who.clone(), amount });
+			match prev_frozen.cmp(&after_frozen) {
+				cmp::Ordering::Greater => {
+					let amount = prev_frozen.saturating_sub(after_frozen);
+					Self::deposit_event(Event::Unlocked { who: who.clone(), amount });
+				},
+				cmp::Ordering::Less => {
+					let amount = after_frozen.saturating_sub(prev_frozen);
+					Self::deposit_event(Event::Locked { who: who.clone(), amount });
+				},
+				cmp::Ordering::Equal => {},
 			}
 			Ok(())
 		}

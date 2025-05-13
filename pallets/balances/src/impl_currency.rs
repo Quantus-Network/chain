@@ -35,6 +35,7 @@ use frame_support::{
 use frame_system::pallet_prelude::BlockNumberFor;
 pub use imbalances::{NegativeImbalance, PositiveImbalance};
 use sp_runtime::traits::Bounded;
+use core::cmp::Ordering;
 
 // wrapping these imbalances in a private module is necessary to ensure absolute privacy
 // of the inner member.
@@ -120,12 +121,10 @@ mod imbalances {
 			let (a, b) = (self.0, other.0);
 			mem::forget((self, other));
 
-			if a > b {
-				SameOrOther::Same(Self(a - b))
-			} else if b > a {
-				SameOrOther::Other(NegativeImbalance::new(b - a))
-			} else {
-				SameOrOther::None
+			match a.cmp(&b) {
+				Ordering::Greater => SameOrOther::Same(Self(a - b)),
+				Ordering::Less => SameOrOther::Other(NegativeImbalance::new(b - a)),
+				Ordering::Equal => SameOrOther::None,
 			}
 		}
 		fn peek(&self) -> T::Balance {
@@ -190,12 +189,10 @@ mod imbalances {
 			let (a, b) = (self.0, other.0);
 			mem::forget((self, other));
 
-			if a > b {
-				SameOrOther::Same(Self(a - b))
-			} else if b > a {
-				SameOrOther::Other(PositiveImbalance::new(b - a))
-			} else {
-				SameOrOther::None
+			match a.cmp(&b) {
+				Ordering::Greater => SameOrOther::Same(Self(a - b)),
+				Ordering::Less => SameOrOther::Other(PositiveImbalance::new(b - a)),
+				Ordering::Equal => SameOrOther::None,
 			}
 		}
 		fn peek(&self) -> T::Balance {
