@@ -70,24 +70,29 @@ pub fn development_config_genesis() -> Value {
     ];
     endowed_accounts.extend(dilithium_accounts);
 
-	//use sp_core::crypto::ByteArray;
+    let root = AccountKeyring::Alice.to_account_id();
+    let config = RuntimeGenesisConfig {
+        balances: BalancesConfig {
+            balances: endowed_accounts
+                .iter()
+                .cloned()
+                .map(|k| (k, 1u128 << 60))
+                .collect::<Vec<_>>(),
+        },
+        sudo: SudoConfig {
+            key: Some(root.clone())
+        },
+        membership: MembershipConfig {
+            members: BoundedVec::try_from(vec![
+                root, // Root account (Alice) as the first member
+                AccountKeyring::Bob.to_account_id(), // Alice as the second member
+            ]).expect("Initial members count is within bounds"),
+            phantom: Default::default(),
+        },
+        ..Default::default()
+    };
 
-	//log::info!("crystal_alice: {:?}", crystal_alice().public().into_account());
-	//log::info!("dilithium_bob: {:?}", dilithium_bob().public().as_slice());
-	//log::info!("crystal_charlie: {:?}", crystal_charlie().public().as_slice());
-
-	// crystal_alice: 5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq
-	// dilithium_bob: 5CxEUqBNycBAW5VvTaRXgkr4uK5HpMuS921gaTLVV9b3QYJx
-	// crystal_charlie: 5Fj6VYnJGMeAPg9y5oWzEyXakZbJMGSy9VdbehdE5suDvB4t
-	// crystal_alice: 553ffb66c8f627b6b6bd982ef564e144e779fc745f24241fdedac7e43f3ea486 (5DzUw8DM...)
-	// dilithium_bob: 274c9a7ecffb52c25173be718b5fcf2d383bf6e465d63a34cbc26de56efa24f0 (5CxEUqBN...)
-	// crystal_charlie: a1fc398e6f48f42c820cb3dcc3da40758a57f1a3243674ffe81832cd051c094c (5Fj6VYnJ...)
-
-
-    testnet_genesis(
-        endowed_accounts,
-        AccountKeyring::Alice.to_account_id(), // Keep Alice as sudo
-    )
+    serde_json::to_value(config).expect("Could not build genesis config.")
 }
 
 /// Return the live testnet genesis config.
