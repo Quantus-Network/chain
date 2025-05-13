@@ -1,8 +1,8 @@
 use frame_support::__private::sp_io;
+use frame_support::traits::{Currency, Hooks};
+use resonance_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
-use resonance_runtime::{Runtime, Balances, System, UNIT};
-use frame_support::traits::{Currency, Hooks};
 
 // Helper function to create AccountId32 from a simple index
 pub fn account_id(id: u8) -> AccountId32 {

@@ -265,7 +265,7 @@ mod runtime {
 	pub type ConvictionVoting = pallet_conviction_voting;
 
     #[runtime::pallet_index(15)]
-    pub type Membership = pallet_membership;
+    pub type TechCommunity = pallet_membership;
 
 	#[runtime::pallet_index(16)]
 	pub type Faucet = pallet_faucet;

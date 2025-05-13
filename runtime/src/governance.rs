@@ -1,8 +1,8 @@
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::TypeInfo;
-use frame_support::traits::{CallerTrait, Consideration, Footprint, ReservableCurrency};
+use frame_support::traits::{CallerTrait, Consideration, Contains, Footprint, ReservableCurrency};
 use sp_runtime::{DispatchError, Perbill};
-use crate::{AccountId, Balance, Balances, BlockNumber, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
+use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
 use alloc::vec::Vec;
 
 
@@ -155,31 +155,27 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
         &TRACKS
     }
 
-    // fn track_for(origin: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-    //     if origin.eq(&frame_support::dispatch::RawOrigin::Root.into()) {
-    //         Ok(0)
-    //     } else {
-    //         Err(())
-    //     }
-    // }
 
     fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
         // Check for system origins first
         if let Some(system_origin) = id.as_system_ref() {
             match system_origin {
-                frame_system::RawOrigin::Root => return Ok(0),
-                frame_system::RawOrigin::None => return Ok(2),
+                frame_system::RawOrigin::Root => return Ok(0), // Root can use track 0
+                frame_system::RawOrigin::None => return Ok(2), // None origin uses track 2
                 _ => {}
             }
         }
 
-        // Check for other custom origins
-        // This syntax depends on exactly how your custom origins are implemented
-        if let Some(_) = id.as_signed() {
-            return Ok(1);
+        // Check for signed origins
+        if let Some(signer) = id.as_signed() {
+            // Check if the signer is a member of the membership pallet
+            if pallet_membership::Pallet::<Runtime>::contains(signer) {
+                return Ok(0);
+            }
+            else{
+                return Ok(1);
+            }
         }
-
-        // No match found
         Err(())
     }
 
