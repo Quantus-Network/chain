@@ -67,6 +67,7 @@ parameter_types! {
     pub const SS58Prefix: u8 = 42;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
     pub const MaxAirdrops: u32 = 1000;
+    pub const MaxProofs: u32 = 100;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -338,6 +339,7 @@ impl pallet_merkle_airdrop::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type MaxAirdrops = MaxAirdrops;
+    type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
 }

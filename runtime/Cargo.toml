@@ -147,6 +147,7 @@ runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
+	"pallet-merkle-airdrop/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
 	"pallet-reversible-transfers/runtime-benchmarks",
 ]

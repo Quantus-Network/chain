@@ -59,7 +59,8 @@ pub mod pallet {
         InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
         ValidTransaction,
     };
-    use sp_std::prelude::*;
+    extern crate alloc;
+    use alloc::vec;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -77,6 +78,10 @@ pub mod pallet {
         #[pallet::constant]
         type MaxAirdrops: Get<u32>;
 
+        /// The maximum number of proof elements allowed in a Merkle proof.
+        #[pallet::constant]
+        type MaxProofs: Get<u32>;
+
         /// The pallet id, used for deriving its sovereign account ID.
         #[pallet::constant]
         type PalletId: Get<frame_support::PalletId>;
@@ -87,6 +92,9 @@ pub mod pallet {
 
     /// Type for storing a Merkle root hash
     pub type MerkleRoot = [u8; 32];
+
+    /// Type for Merkle hash values
+    pub type MerkleHash = [u8; 32];
 
     /// Airdrop ID type
     pub type AirdropId = u32;
@@ -115,7 +123,7 @@ pub mod pallet {
         AirdropId,
         Blake2_128Concat,
         T::AccountId,
-        bool,
+        (),
         ValueQuery,
     >;
 
@@ -202,50 +210,20 @@ pub mod pallet {
             account: &T::AccountId,
             amount: BalanceOf<T>,
             merkle_root: &MerkleRoot,
-            merkle_proof: &Vec<[u8; 32]>,
+            merkle_proof: &[MerkleHash],
         ) -> bool {
-            // Log input parameters
-            log::info!(
-                target: "merkle-airdrop",
-                "Verifying proof with: \nAccount: {:?}\nAmount: {:?}\nMerkle Root: {:?}\nProof Length: {}",
-                account, amount, merkle_root, merkle_proof.len()
-            );
-
             // Create the leaf hash using Blake2
             let leaf = Self::calculate_leaf_hash_blake2(account, amount);
-            log::info!(
-                target: "merkle-airdrop",
-                "Calculated leaf hash: {:?}",
-                leaf
-            );
 
             // Verify the proof by walking up the tree
             let mut computed_hash = leaf;
-            for (i, proof_element) in merkle_proof.iter().enumerate() {
-                log::info!(
-                    target: "merkle-airdrop",
-                    "Proof step {}: Current hash: {:?}, Proof element: {:?}",
-                    i, computed_hash, proof_element
-                );
-
+            for proof_element in merkle_proof.iter() {
                 computed_hash = if computed_hash < *proof_element {
-                    let result = Self::calculate_parent_hash_blake2(&computed_hash, proof_element);
-                    log::info!("Left child + Right child = {:?}", result);
-                    result
+                    Self::calculate_parent_hash_blake2(&computed_hash, proof_element)
                 } else {
-                    let result = Self::calculate_parent_hash_blake2(proof_element, &computed_hash);
-                    log::info!("Right child + Left child = {:?}", result);
-                    result
+                    Self::calculate_parent_hash_blake2(proof_element, &computed_hash)
                 };
             }
-
-            // Log final comparison
-            log::info!(
-                target: "merkle-airdrop",
-                "Final comparison:\nComputed hash: {:?}\nMerkle root:   {:?}\nMatch: {}",
-                computed_hash, merkle_root, computed_hash == *merkle_root
-            );
-
             computed_hash == *merkle_root
         }
 
@@ -265,15 +243,9 @@ pub mod pallet {
         pub fn calculate_leaf_hash_blake2(
             account: &T::AccountId,
             amount: BalanceOf<T>,
-        ) -> [u8; 32] {
-            // Encode the account and amount to bytes
-            let account_bytes = account.encode();
-            let amount_bytes = amount.encode();
-
-            // Concatenate the bytes
-            let combined = [account_bytes.as_slice(), amount_bytes.as_slice()].concat();
-
-            blake2_256(&combined)
+        ) -> MerkleHash {
+            let bytes = (account, amount).encode();
+            blake2_256(&bytes)
         }
 
         /// Calculates the parent hash in a Merkle tree using Blake2.
@@ -289,7 +261,7 @@ pub mod pallet {
         /// # Returns
         ///
         /// A 32-byte array containing the Blake2 hash of the combined children
-        pub fn calculate_parent_hash_blake2(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+        pub fn calculate_parent_hash_blake2(left: &MerkleHash, right: &MerkleHash) -> MerkleHash {
             // Ensure consistent ordering of inputs (important for verification)
             let combined = if left < right {
                 [left.as_slice(), right.as_slice()].concat()
@@ -321,37 +293,15 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::create_airdrop())]
         pub fn create_airdrop(origin: OriginFor<T>, merkle_root: MerkleRoot) -> DispatchResult {
-            log::info!(
-                target: "merkle-airdrop",
-                "🌟 create_airdrop called with root: {:?}",
-                merkle_root
-            );
-
-            let who = ensure_signed(origin)?;
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ Caller: {:?}",
-                who
-            );
+            let _who = ensure_signed(origin)?;
 
             // Get the next available airdrop ID
             let airdrop_id = Self::next_airdrop_id();
-            log::info!(
-                target: "merkle-airdrop",
-                "📊 Next airdrop ID: {:?}",
-                airdrop_id
-            );
 
             // Ensure we haven't reached the maximum number of airdrops
             ensure!(
                 airdrop_id < T::MaxAirdrops::get(),
                 Error::<T>::TooManyAirdrops
-            );
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ Max airdrops check passed: current={:?}, max={:?}",
-                airdrop_id,
-                T::MaxAirdrops::get()
             );
 
             // Ensure this airdrop doesn't already exist (should never happen with sequential IDs)
@@ -359,51 +309,22 @@ pub mod pallet {
                 !AirdropMerkleRoots::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropAlreadyExists
             );
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ Airdrop doesn't exist check passed"
-            );
 
             // Store the Merkle root for this airdrop
             AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ Merkle root stored for airdrop ID: {:?}",
-                airdrop_id
-            );
 
             // Initialize the airdrop balance to zero with explicit type
-            let zero_balance: <<T as Config>::Currency as Currency<T::AccountId>>::Balance =
-                0u32.into();
+            let zero_balance = <BalanceOf<T> as Zero>::zero();
             AirdropBalances::<T>::insert(airdrop_id, zero_balance);
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ Airdrop balance initialized to zero"
-            );
 
             // Increment the airdrop ID counter for next time
-            NextAirdropId::<T>::put(airdrop_id + 1);
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ Next airdrop ID incremented to: {:?}",
-                airdrop_id + 1
-            );
+            NextAirdropId::<T>::put(airdrop_id.saturating_add(1));
 
             // Emit an event
             Self::deposit_event(Event::AirdropCreated {
                 airdrop_id,
                 merkle_root,
             });
-            log::info!(
-                target: "merkle-airdrop",
-                "✅ AirdropCreated event emitted for ID: {:?}",
-                airdrop_id
-            );
-
-            log::info!(
-                target: "merkle-airdrop",
-                "🎉 create_airdrop completed successfully"
-            );
 
             Ok(())
         }
@@ -486,7 +407,7 @@ pub mod pallet {
             airdrop_id: AirdropId,
             recipient: T::AccountId,
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
-            merkle_proof: Vec<[u8; 32]>,
+            merkle_proof: BoundedVec<MerkleHash, T::MaxProofs>,
         ) -> DispatchResult {
             // Ensure the call has no origin (can be called by anyone)
             ensure_none(origin)?;
@@ -522,7 +443,7 @@ pub mod pallet {
             );
 
             // Mark as claimed before performing the transfer
-            Claimed::<T>::insert(airdrop_id, &recipient, true);
+            Claimed::<T>::insert(airdrop_id, &recipient, ());
 
             // Update the airdrop balance
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
@@ -565,11 +486,6 @@ pub mod pallet {
                 // 1. Check if airdrop exists
                 let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id)
                     .ok_or(InvalidTransaction::Custom(1))?;
-                log::info!(
-                    target: "merkle-airdrop",
-                    "ValidateUnsigned: Airdrop {:?} exists with root {:?}",
-                    airdrop_id, merkle_root
-                );
 
                 // 2. Check if already claimed
                 if Claimed::<T>::contains_key(airdrop_id, recipient) {
@@ -580,11 +496,6 @@ pub mod pallet {
                     );
                     return InvalidTransaction::Custom(2).into();
                 }
-                log::info!(
-                    target: "merkle-airdrop",
-                    "ValidateUnsigned: Airdrop {:?}, Recipient {:?} - Not yet claimed",
-                    airdrop_id, recipient
-                );
 
                 // 3. Verify Merkle Proof
                 if !Self::verify_merkle_proof(recipient, *amount, &merkle_root, merkle_proof) {
@@ -595,17 +506,12 @@ pub mod pallet {
                     );
                     return InvalidTransaction::Custom(3).into();
                 }
-                log::info!(
-                    target: "merkle-airdrop",
-                    "ValidateUnsigned: Airdrop {:?}, Recipient {:?}, Amount {:?} - Proof VERIFIED",
-                    airdrop_id, recipient, amount
-                );
 
                 Ok(ValidTransaction {
                     priority: 100,
                     requires: vec![],
                     provides: vec![(airdrop_id, recipient, amount).encode()],
-                    longevity: TransactionLongevity::max_value(),
+                    longevity: TransactionLongevity::MAX,
                     propagate: true,
                 })
             } else {

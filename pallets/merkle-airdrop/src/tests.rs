@@ -3,7 +3,13 @@
 use crate::{mock::*, Error, Event};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok};
+use frame_support::BoundedVec;
 use sp_core::blake2_256;
+
+// Helper function to convert a Vec<[u8; 32]> to BoundedVec<[u8; 32], MaxProofs>
+fn bounded_proof(proof: Vec<[u8; 32]>) -> BoundedVec<[u8; 32], MaxProofs> {
+    proof.try_into().expect("Proof exceeds maximum size")
+}
 
 #[test]
 fn create_airdrop_works() {
@@ -120,8 +126,8 @@ fn claim_works() {
             1000
         ));
 
-        // Create proof for account1
-        let merkle_proof = vec![leaf2];
+        // Create proof for account1d
+        let merkle_proof = bounded_proof(vec![leaf2]);
 
         // Claim tokens
         assert_ok!(MerkleAirdrop::claim(
@@ -143,7 +149,7 @@ fn claim_works() {
         );
 
         // Check that the claim was recorded
-        assert_eq!(MerkleAirdrop::is_claimed(0, 2), true);
+        assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500)); // 1000 - 500
 
         // Check balances
@@ -179,7 +185,7 @@ fn fund_airdrop_fails_for_nonexistent_airdrop() {
 #[test]
 fn claim_fails_for_nonexistent_airdrop() {
     new_test_ext().execute_with(|| {
-        let merkle_proof = vec![[0u8; 32]];
+        let merkle_proof = bounded_proof(vec![[0u8; 32]]);
 
         // Try to claim from a nonexistent airdrop
         assert_noop!(
@@ -222,7 +228,7 @@ fn claim_already_claimed() {
         ));
 
         // Create proof for account1
-        let merkle_proof = vec![leaf2];
+        let merkle_proof = bounded_proof(vec![leaf2]);
 
         // Claim tokens
         assert_ok!(MerkleAirdrop::claim(
@@ -359,7 +365,7 @@ fn claim_invalid_proof_fails() {
         ));
 
         // Create an invalid proof
-        let invalid_proof = vec![[1u8; 32]]; // Different from the actual leaf2
+        let invalid_proof = bounded_proof(vec![[1u8; 32]]); // Different from the actual leaf2
 
         // Attempt to claim with invalid proof
         assert_noop!(
@@ -395,7 +401,7 @@ fn claim_insufficient_airdrop_balance_fails() {
         )); // Fund less than claim amount
 
         // Create a valid proof
-        let merkle_proof = vec![leaf2];
+        let merkle_proof = bounded_proof(vec![leaf2]);
 
         // Attempt to claim more than available
         assert_noop!(
@@ -412,7 +418,7 @@ fn claim_nonexistent_airdrop_fails() {
 
         // Attempt to claim from a nonexistent airdrop
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 2, 500, vec![[0u8; 32]]),
+            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 2, 500, bounded_proof(vec![[0u8; 32]])),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -448,13 +454,12 @@ fn claim_updates_balances_correctly() {
         let initial_pallet_balance = Balances::free_balance(MerkleAirdrop::account_id());
 
         // Claim tokens
-        let merkle_proof = vec![leaf2];
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
             2,
             500,
-            merkle_proof
+            bounded_proof(vec![leaf2])
         ));
 
         // Check balances after claim
@@ -468,7 +473,7 @@ fn claim_updates_balances_correctly() {
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500)); // 1000 - 500
 
         // Check claim is recorded
-        assert_eq!(MerkleAirdrop::is_claimed(0, 2), true);
+        assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
     });
 }
 
@@ -504,7 +509,7 @@ fn multiple_users_can_claim() {
         ));
 
         // User 1 claims
-        let proof1 = vec![leaf2, leaf3];
+        let proof1 = bounded_proof(vec![leaf2, leaf3]);
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -515,7 +520,7 @@ fn multiple_users_can_claim() {
         assert_eq!(Balances::free_balance(2), 500);
 
         // User 2 claims
-        let proof2 = vec![leaf1, leaf3];
+        let proof2 = bounded_proof(vec![leaf1, leaf3]);
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -526,7 +531,7 @@ fn multiple_users_can_claim() {
         assert_eq!(Balances::free_balance(3), 300);
 
         // User 3 claims
-        let proof3 = vec![parent1];
+        let proof3 = bounded_proof(vec![parent1]);
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -540,8 +545,8 @@ fn multiple_users_can_claim() {
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(0)); // 1000 - 500 - 300 - 200
 
         // Check all claims are recorded
-        assert!(MerkleAirdrop::is_claimed(0, 2));
-        assert!(MerkleAirdrop::is_claimed(0, 3));
-        assert!(MerkleAirdrop::is_claimed(0, 4));
+        assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
+        assert_eq!(MerkleAirdrop::is_claimed(0, 3), ());
+        assert_eq!(MerkleAirdrop::is_claimed(0, 4), ());
     });
 }
