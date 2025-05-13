@@ -12,6 +12,7 @@ pub trait WeightInfo {
     fn create_airdrop() -> Weight;
     fn fund_airdrop() -> Weight;
     fn claim() -> Weight;
+    fn delete_airdrop() -> Weight;
 }
 
 /// Weights for pallet_merkle_airdrop using the Substrate node and recommended hardware.
@@ -36,6 +37,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().reads(3_u64))
             .saturating_add(T::DbWeight::get().writes(2_u64))
     }
+    
+    // Default weight for delete_airdrop
+    fn delete_airdrop() -> Weight {
+        Weight::from_parts(10_000_000, 0)
+            .saturating_add(T::DbWeight::get().reads(2_u64))
+            .saturating_add(T::DbWeight::get().writes(2_u64))
+    }
 }
 
 // For backwards compatibility and tests
@@ -54,6 +62,12 @@ impl WeightInfo for () {
     fn claim() -> Weight {
         Weight::from_parts(25_000_000, 0)
             .saturating_add(RocksDbWeight::get().reads(3_u64))
+            .saturating_add(RocksDbWeight::get().writes(2_u64))
+    }
+    
+    fn delete_airdrop() -> Weight {
+        Weight::from_parts(10_000_000, 0)
+            .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().writes(2_u64))
     }
 }

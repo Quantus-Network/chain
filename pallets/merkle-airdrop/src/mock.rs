@@ -1,10 +1,10 @@
 use crate as pallet_merkle_airdrop;
 use frame_support::{
     parameter_types,
-    traits::{ConstU32, Everything},
+    traits::{ConstU32, Everything, SortedMembers},
     PalletId,
 };
-use frame_system as system;
+use frame_system::{self as system, EnsureSignedBy};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -88,6 +88,17 @@ parameter_types! {
     pub const UnsignedClaimPriority: u32 = 100;
 }
 
+// Define some user accounts for testing different origins
+pub const ADMIN_ACCOUNT: u64 = 10;
+
+// Custom type that implements SortedMembers
+pub struct Admin;
+impl SortedMembers<u64> for Admin {
+    fn sorted_members() -> Vec<u64> {
+        vec![ADMIN_ACCOUNT]
+    }
+}
+
 impl pallet_merkle_airdrop::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
@@ -95,6 +106,7 @@ impl pallet_merkle_airdrop::Config for Test {
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = ();
     type UnsignedClaimPriority = UnsignedClaimPriority;
+    type DeleteAirdropOrigin = EnsureSignedBy<Admin, u64>;
 }
 
 // Build genesis storage according to the mock runtime.

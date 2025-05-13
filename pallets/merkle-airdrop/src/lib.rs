@@ -9,6 +9,7 @@
 //! - Creating airdrops with a Merkle root representing all valid claims
 //! - Funding airdrops with tokens to be distributed
 //! - Allowing users to claim tokens by providing Merkle proofs
+//! - Deleting airdrops that have a zero balance (fully claimed or unfunded)
 //!
 //! The use of Merkle trees allows for gas-efficient verification of eligibility without
 //! storing the complete list of recipients on-chain.
@@ -20,6 +21,7 @@
 //! * `create_airdrop` - Create a new airdrop with a Merkle root
 //! * `fund_airdrop` - Fund an existing airdrop with tokens
 //! * `claim` - Claim tokens from an airdrop by providing a Merkle proof
+//! * `delete_airdrop` - Delete an airdrop if its balance is zero
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -46,6 +48,7 @@ pub mod pallet {
     use crate::BalanceOf;
 
     use super::weights::WeightInfo;
+    use frame_support::traits::EnsureOrigin;
     use frame_support::{
         pallet_prelude::*,
         traits::{Currency, Get},
@@ -88,6 +91,15 @@ pub mod pallet {
         /// The priority for unsigned claim transactions
         #[pallet::constant]
         type UnsignedClaimPriority: Get<TransactionPriority>;
+
+        /// The origin that is allowed to delete airdrops.
+        ///
+        /// This is typically set to:
+        /// - `frame_system::EnsureRoot<Self::AccountId>` for sudo/governance control
+        /// - `frame_system::EnsureSignedBy<AdminsStorage, Self::AccountId>` for specific admin accounts
+        /// - `frame_system::EnsureSigned<Self::AccountId>` to allow any signed account
+        /// - or any custom origin
+        type DeleteAirdropOrigin: EnsureOrigin<Self::RuntimeOrigin>;
     }
 
     /// Type for storing a Merkle root hash
@@ -164,6 +176,13 @@ pub mod pallet {
             /// The amount of tokens claimed
             amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
         },
+        /// An airdrop has been deleted.
+        ///
+        /// Parameters: [airdrop_id]
+        AirdropDeleted {
+            /// The ID of the deleted airdrop
+            airdrop_id: AirdropId,
+        },
     }
 
     #[pallet::error]
@@ -179,6 +198,10 @@ pub mod pallet {
         AlreadyClaimed,
         /// The provided Merkle proof is invalid.
         InvalidProof,
+        /// The airdrop cannot be deleted because it still has a non-zero balance.
+        NonZeroBalance,
+        /// The origin is not allowed to delete airdrops.
+        NotAllowedToDelete,
     }
 
     impl<T: Config> Pallet<T> {
@@ -457,6 +480,52 @@ pub mod pallet {
                 account: recipient,
                 amount,
             });
+
+            Ok(())
+        }
+
+        /// Delete an airdrop if its balance is zero.
+        ///
+        /// This function allows cleaning up airdrops that have been fully claimed
+        /// or have never been funded.
+        ///
+        /// # Parameters
+        ///
+        /// * `origin` - The origin of the call (must be an authorized origin)
+        /// * `airdrop_id` - The ID of the airdrop to delete
+        ///
+        /// # Errors
+        ///
+        /// * `AirdropNotFound` - If the specified airdrop does not exist
+        /// * `NonZeroBalance` - If the airdrop still has a non-zero balance
+        /// * `NotAllowedToDelete` - If the origin is not allowed to delete airdrops
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::delete_airdrop())]
+        pub fn delete_airdrop(origin: OriginFor<T>, airdrop_id: AirdropId) -> DispatchResult {
+            // Check that the caller has the required permissions
+            T::DeleteAirdropOrigin::ensure_origin(origin.clone())
+                .map_err(|_| Error::<T>::NotAllowedToDelete)?;
+
+            // Ensure the airdrop exists
+            ensure!(
+                AirdropMerkleRoots::<T>::contains_key(airdrop_id),
+                Error::<T>::AirdropNotFound
+            );
+
+            // Check if the airdrop has zero balance
+            let balance =
+                AirdropBalances::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
+            ensure!(balance.is_zero(), Error::<T>::NonZeroBalance);
+
+            // Remove the airdrop data from storage
+            AirdropMerkleRoots::<T>::remove(airdrop_id);
+            AirdropBalances::<T>::remove(airdrop_id);
+
+            // We don't need to remove individual claim records as they'll be orphaned
+            // and irrelevant once the airdrop is deleted
+
+            // Emit an event
+            Self::deposit_event(Event::AirdropDeleted { airdrop_id });
 
             Ok(())
         }
