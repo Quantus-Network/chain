@@ -84,6 +84,10 @@ pub mod pallet {
 
         /// Weight information for the extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+
+        /// The priority for unsigned claim transactions
+        #[pallet::constant]
+        type UnsignedClaimPriority: Get<TransactionPriority>;
     }
 
     /// Type for storing a Merkle root hash
@@ -495,7 +499,7 @@ pub mod pallet {
                 }
 
                 Ok(ValidTransaction {
-                    priority: 100,
+                    priority: T::UnsignedClaimPriority::get(),
                     requires: vec![],
                     provides: vec![(airdrop_id, recipient, amount).encode()],
                     longevity: TransactionLongevity::MAX,

@@ -85,6 +85,7 @@ impl pallet_balances::Config for Test {
 parameter_types! {
     pub const MaxProofs: u32 = 100;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
+    pub const UnsignedClaimPriority: u32 = 100;
 }
 
 impl pallet_merkle_airdrop::Config for Test {
@@ -93,6 +94,7 @@ impl pallet_merkle_airdrop::Config for Test {
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = ();
+    type UnsignedClaimPriority = UnsignedClaimPriority;
 }
 
 // Build genesis storage according to the mock runtime.
