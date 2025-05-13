@@ -84,10 +84,10 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                     name: "root",
                     max_deciding: 1,                // Only 1 referendum can be in deciding phase at a time
                     decision_deposit: 10 * UNIT,    // Highest deposit requirement to prevent spam
-                    prepare_period: 1 * DAYS,       // 1 day preparation before voting begins
+                    prepare_period: DAYS,       // 1 day preparation before voting begins
                     decision_period: 14 * DAYS,     // 2 weeks for community to vote
-                    confirm_period: 1 * DAYS,       // 1 day confirmation period once passing
-                    min_enactment_period: 1 * DAYS, // At least 1 day between approval and execution
+                    confirm_period: DAYS,       // 1 day confirmation period once passing
+                    min_enactment_period: DAYS, // At least 1 day between approval and execution
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
                         floor: Perbill::from_percent(50),    // Minimum 50% approval at end
@@ -134,7 +134,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                 pallet_referenda::TrackInfo {
                     name: "signaling",
                     max_deciding: 20,               // High throughput for community proposals
-                    decision_deposit: 1 * UNIT,     // Low deposit requirement
+                    decision_deposit: UNIT,     // Low deposit requirement
                     prepare_period: 6 * HOURS,      // Short preparation time
                     decision_period: 5 * DAYS,      // Standard voting period
                     confirm_period: 3 * HOURS,      // Minimal confirmation period
@@ -175,7 +175,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
 
         // Check for other custom origins
         // This syntax depends on exactly how your custom origins are implemented
-        if let Some(_) = id.as_signed() {
+        if id.as_signed().is_some() {
             return Ok(1);
         }
 

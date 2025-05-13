@@ -118,7 +118,7 @@ fn account_should_be_reaped() {
 			assert_eq!(System::providers(&1), 0);
 			assert_eq!(System::consumers(&1), 0);
 			// Check that the account is dead.
-			assert!(!frame_system::Account::<Test>::contains_key(&1));
+			assert!(!frame_system::Account::<Test>::contains_key(1));
 		});
 }
 
@@ -365,10 +365,10 @@ fn lock_reasons_extension_should_work() {
 #[test]
 fn reserved_balance_should_prevent_reclaim_count() {
 	ExtBuilder::default()
-		.existential_deposit(256 * 1)
+		.existential_deposit(256)
 		.monied(true)
 		.build_and_execute_with(|| {
-			System::inc_account_nonce(&2);
+			System::inc_account_nonce(2);
 			assert_eq!(Balances::total_balance(&2), 256 * 20);
 			assert_eq!(System::providers(&2), 1);
 			System::inc_providers(&2);
@@ -378,11 +378,11 @@ fn reserved_balance_should_prevent_reclaim_count() {
 			assert_eq!(System::providers(&2), 1);
 			assert_eq!(Balances::free_balance(2), 255); // "free" account would be deleted.
 			assert_eq!(Balances::total_balance(&2), 256 * 20); // reserve still exists.
-			assert_eq!(System::account_nonce(&2), 1);
+			assert_eq!(System::account_nonce(2), 1);
 
 			// account 4 tries to take index 1 for account 5.
-			assert_ok!(Balances::transfer_allow_death(Some(4).into(), 5, 256 * 1 + 0x69));
-			assert_eq!(Balances::total_balance(&5), 256 * 1 + 0x69);
+			assert_ok!(Balances::transfer_allow_death(Some(4).into(), 5, 256 + 0x69));
+			assert_eq!(Balances::total_balance(&5), 256 + 0x69);
 
 			assert!(Balances::slash_reserved(&2, 256 * 19 + 1).1.is_zero()); // account 2 gets slashed
 
@@ -390,12 +390,12 @@ fn reserved_balance_should_prevent_reclaim_count() {
 			assert_ok!(System::dec_providers(&2));
 			assert_eq!(System::providers(&2), 0);
 			// account deleted
-			assert_eq!(System::account_nonce(&2), 0); // nonce zero
+			assert_eq!(System::account_nonce(2), 0); // nonce zero
 			assert_eq!(Balances::total_balance(&2), 0);
 
 			// account 4 tries to take index 1 again for account 6.
-			assert_ok!(Balances::transfer_allow_death(Some(4).into(), 6, 256 * 1 + 0x69));
-			assert_eq!(Balances::total_balance(&6), 256 * 1 + 0x69);
+			assert_ok!(Balances::transfer_allow_death(Some(4).into(), 6, 256 + 0x69));
+			assert_eq!(Balances::total_balance(&6), 256 + 0x69);
 		});
 }
 
@@ -721,7 +721,7 @@ fn burn_must_work() {
 fn cannot_set_genesis_value_below_ed() {
 	EXISTENTIAL_DEPOSIT.with(|v| *v.borrow_mut() = 11);
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let _ = crate::GenesisConfig::<Test> { balances: vec![(1, 10)] }
+	crate::GenesisConfig::<Test> { balances: vec![(1, 10)] }
 		.assimilate_storage(&mut t)
 		.unwrap();
 }
@@ -730,7 +730,7 @@ fn cannot_set_genesis_value_below_ed() {
 #[should_panic = "duplicate balances in genesis."]
 fn cannot_set_genesis_value_twice() {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let _ = crate::GenesisConfig::<Test> { balances: vec![(1, 10), (2, 20), (1, 15)] }
+	crate::GenesisConfig::<Test> { balances: vec![(1, 10), (2, 20), (1, 15)] }
 		.assimilate_storage(&mut t)
 		.unwrap();
 }
@@ -1009,7 +1009,7 @@ fn slash_does_not_take_from_reserve() {
 		assert_ok!(Balances::reserve(&1, 100));
 		// Slashed completed in full
 		assert_eq!(Balances::slash(&1, 900), (NegativeImbalance::new(800), 100));
-		assert_eq!(Balances::reserved_balance(&1), 100);
+		assert_eq!(Balances::reserved_balance(1), 100);
 		System::assert_has_event(RuntimeEvent::Balances(crate::Event::Slashed {
 			who: 1,
 			amount: 800,
@@ -1069,8 +1069,8 @@ fn slash_reserved_slash_partial_works() {
 		// Slashed completed in full
 		assert_eq!(Balances::slash_reserved(&1, 800), (NegativeImbalance::new(800), 0));
 		assert_eq!(System::consumers(&1), 1);
-		assert_eq!(Balances::reserved_balance(&1), 100);
-		assert_eq!(Balances::free_balance(&1), 100);
+		assert_eq!(Balances::reserved_balance(1), 100);
+		assert_eq!(Balances::free_balance(1), 100);
 	});
 }
 
@@ -1096,7 +1096,7 @@ fn slash_reserved_overslash_does_not_touch_free_balance() {
 		assert_ok!(Balances::reserve(&1, 800));
 		// Slashed done
 		assert_eq!(Balances::slash_reserved(&1, 900), (NegativeImbalance::new(800), 100));
-		assert_eq!(Balances::free_balance(&1), 200);
+		assert_eq!(Balances::free_balance(1), 200);
 	});
 }
 
@@ -1113,7 +1113,7 @@ fn operations_on_dead_account_should_not_change_state() {
 	// These functions all use `mutate_account` which may introduce a storage change when
 	// the account never existed to begin with, and shouldn't exist in the end.
 	ExtBuilder::default().existential_deposit(1).build_and_execute_with(|| {
-		assert!(!frame_system::Account::<Test>::contains_key(&1337));
+		assert!(!frame_system::Account::<Test>::contains_key(1337));
 
 		// Unreserve
 		assert_storage_noop!(assert_eq!(Balances::unreserve(&1337, 42), 42));
@@ -1235,30 +1235,30 @@ fn named_reserve_should_work() {
 
 		assert_eq!(Balances::reserved_balance_named(&id_2, &1), 5);
 		assert_eq!(Balances::reserved_balance_named(&id_2, &2), 10);
-		assert_eq!(Balances::reserved_balance(&2), 10);
+		assert_eq!(Balances::reserved_balance(2), 10);
 
 		assert_eq!(Balances::repatriate_reserved_named(&id_2, &2, &1, 11, Reserved).unwrap(), 1);
 
 		assert_eq!(Balances::reserved_balance_named(&id_2, &1), 15);
 		assert_eq!(Balances::reserved_balance_named(&id_2, &2), 0);
-		assert_eq!(Balances::reserved_balance(&2), 0);
+		assert_eq!(Balances::reserved_balance(2), 0);
 
 		assert_eq!(Balances::repatriate_reserved_named(&id_2, &1, &2, 10, Free).unwrap(), 0);
 		assert_eq!(Balances::reserved_balance_named(&id_2, &1), 5);
 		assert_eq!(Balances::reserved_balance_named(&id_2, &2), 0);
-		assert_eq!(Balances::free_balance(&2), 110);
+		assert_eq!(Balances::free_balance(2), 110);
 
 		// repatriate_reserved_named to self
 
 		assert_eq!(Balances::repatriate_reserved_named(&id_2, &1, &1, 10, Reserved).unwrap(), 5);
 		assert_eq!(Balances::reserved_balance_named(&id_2, &1), 5);
 
-		assert_eq!(Balances::free_balance(&1), 47);
+		assert_eq!(Balances::free_balance(1), 47);
 
 		assert_eq!(Balances::repatriate_reserved_named(&id_2, &1, &1, 15, Free).unwrap(), 10);
 		assert_eq!(Balances::reserved_balance_named(&id_2, &1), 0);
 
-		assert_eq!(Balances::free_balance(&1), 52);
+		assert_eq!(Balances::free_balance(1), 52);
 	});
 }
 
@@ -1320,7 +1320,7 @@ fn unreserve_all_named_should_work() {
 
 		assert_eq!(Balances::unreserve_all_named(&id, &1), 15);
 		assert_eq!(Balances::reserved_balance_named(&id, &1), 0);
-		assert_eq!(Balances::free_balance(&1), 111);
+		assert_eq!(Balances::free_balance(1), 111);
 
 		assert_eq!(Balances::unreserve_all_named(&id, &1), 0);
 	});
@@ -1337,7 +1337,7 @@ fn slash_all_reserved_named_should_work() {
 
 		assert_eq!(Balances::slash_all_reserved_named(&id, &1).peek(), 15);
 		assert_eq!(Balances::reserved_balance_named(&id, &1), 0);
-		assert_eq!(Balances::free_balance(&1), 96);
+		assert_eq!(Balances::free_balance(1), 96);
 
 		assert_eq!(Balances::slash_all_reserved_named(&id, &1).peek(), 0);
 	});
@@ -1360,7 +1360,7 @@ fn repatriate_all_reserved_named_should_work() {
 
 		assert_ok!(Balances::repatriate_all_reserved_named(&id, &2, &3, Free));
 		assert_eq!(Balances::reserved_balance_named(&id, &2), 0);
-		assert_eq!(Balances::free_balance(&3), 25);
+		assert_eq!(Balances::free_balance(3), 25);
 	});
 }
 

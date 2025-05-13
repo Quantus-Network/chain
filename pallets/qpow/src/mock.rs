@@ -7,7 +7,6 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 };
 use sp_core::{H256};
-use frame_system;
 use primitive_types::U512;
 use crate::DefaultWeightInfo;
 use sp_runtime::BuildStorage;

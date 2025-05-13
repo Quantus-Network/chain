@@ -123,7 +123,7 @@ impl ResonanceBusinessMetrics {
         // Get or create the gauge vector from the registry
         let prometheus_gauge_vec = prometheus_registry
             .as_ref()
-            .map(|registry| Self::register_gauge_vec(registry));
+            .map(Self::register_gauge_vec);
 
         // Spawn the monitoring task
         task_manager.spawn_essential_handle().spawn(

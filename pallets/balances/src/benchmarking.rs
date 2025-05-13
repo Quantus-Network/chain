@@ -261,7 +261,6 @@ mod benchmarks {
 	fn upgrade_accounts(u: Linear<1, 1_000>) {
 		let caller: T::AccountId = whitelisted_caller();
 		let who = (0..u)
-			.into_iter()
 			.map(|i| -> T::AccountId {
 				let user = account("old_user", i, SEED);
 				let account = AccountData {

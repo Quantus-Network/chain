@@ -127,7 +127,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 
                     // Schedule the transfer
 
-                    let _ = ReversibleTransfers::do_schedule_transfer(
+                    ReversibleTransfers::do_schedule_transfer(
                         origin.clone(),
                         dest.clone(),
                         *amount,
@@ -228,11 +228,11 @@ mod tests {
             let origin = RuntimeOrigin::signed(alice());
 
             // Test the prepare method
-            let pre = ext
+            ext
                 .clone()
                 .prepare((), &origin, &call, &Default::default(), 0)
                 .unwrap();
-            assert_eq!(pre, ());
+            assert_eq!((), ());
 
             // Test the validate method
             let result = ext.validate(
@@ -270,12 +270,12 @@ mod tests {
             let origin = RuntimeOrigin::signed(charlie());
 
             // Test the prepare method
-            let pre = ext
+            ext
                 .clone()
                 .prepare((), &origin, &call, &Default::default(), 0)
                 .unwrap();
 
-            assert_eq!(pre, ());
+            assert_eq!((), ());
 
             // Test the validate method
             let result = ext.validate(

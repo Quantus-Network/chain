@@ -149,7 +149,7 @@ where
         let current_hash = chain_head.hash();
         let current_number = *chain_head.number();
 
-        let total_work = self.client.runtime_api().get_total_work(current_hash.clone())
+        let total_work = self.client.runtime_api().get_total_work(current_hash)
             .map_err(|e| {
                 log::error!("Failed to get total work for chain with head #{}: {:?}", current_number, e);
                 sp_consensus::Error::Other(format!("Failed to get total difficulty {:?}", e).into())
@@ -280,7 +280,7 @@ where
                 reorg_depth
             );
 
-            current_best_hash = self.client.header(current_best_hash)
+            current_best_hash = *self.client.header(current_best_hash)
                 .map_err(|e| {
                     log::error!("Blockchain error when getting header for #{}: {:?}", current_height, e);
                     sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
@@ -289,7 +289,7 @@ where
                     log::error!("Missing header at #{} ({:?})", current_height, current_best_hash);
                     sp_consensus::Error::Other("Missing header".into())
                 })?
-                .parent_hash().clone();
+                .parent_hash();
 
             current_height -= One::one();
             reorg_depth += 1;
@@ -314,7 +314,7 @@ where
                 competing_hash
             );
 
-            competing_hash = self.client.header(competing_hash)
+            competing_hash = *self.client.header(competing_hash)
                 .map_err(|e| {
                     log::error!("Blockchain error when getting header for competing chain #{}: {:?}",
                         competing_height, e);
@@ -325,7 +325,7 @@ where
                         competing_height, competing_hash);
                     sp_consensus::Error::Other("Missing header".into())
                 })?
-                .parent_hash().clone();
+                .parent_hash();
 
             competing_height -= One::one();
 
@@ -355,7 +355,7 @@ where
             );
 
             // Move down one block in the current best chain
-            current_best_hash = self.client.header(current_best_hash)
+            current_best_hash = *self.client.header(current_best_hash)
                 .map_err(|e| {
                     log::error!("Blockchain error when getting parent at #{}: {:?}", current_height, e);
                     sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
@@ -364,10 +364,10 @@ where
                     log::error!("Missing header for parent at #{} ({:?})", current_height, current_best_hash);
                     sp_consensus::Error::Other("Missing header".into())
                 })?
-                .parent_hash().clone();
+                .parent_hash();
 
             // Move down one block in the competing chain
-            competing_hash = self.client.header(competing_hash)
+            competing_hash = *self.client.header(competing_hash)
                 .map_err(|e| {
                     log::error!("Blockchain error when getting parent for competing chain at #{}: {:?}",
                         current_height, e);
@@ -378,7 +378,7 @@ where
                         current_height, competing_hash);
                     sp_consensus::Error::Other("Missing header".into())
                 })?
-                .parent_hash().clone();
+                .parent_hash();
 
             // Both chains are now one block lower
             current_height -= One::one();

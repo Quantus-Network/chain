@@ -73,8 +73,8 @@ impl_runtime_apis! {
 
 	impl sp_block_builder::BlockBuilder<Block> for Runtime {
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
-			let result = Executive::apply_extrinsic(extrinsic);
-			result
+			
+			Executive::apply_extrinsic(extrinsic)
 		}
 
 		fn finalize_block() -> <Block as BlockT>::Header {
@@ -130,7 +130,7 @@ impl_runtime_apis! {
 
 		fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: u32) -> bool {
 			// Convert u32 to the appropriate BlockNumber type used by your runtime
-			let block_number_param = block_number.into();
+			let block_number_param = block_number;
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
@@ -152,7 +152,7 @@ impl_runtime_apis! {
 
 		fn get_distance_threshold_at_block(block_number: u32) -> U512 {
 			// Convert u32 to the appropriate BlockNumber type used by your runtime
-			let block_number_param = block_number.into();
+			let block_number_param = block_number;
 			pallet_qpow::Pallet::<Self>::get_distance_threshold_at_block(block_number_param)
 		}
 

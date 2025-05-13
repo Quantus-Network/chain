@@ -934,7 +934,7 @@ pub mod pallet {
 				Ok(())
 			});
 			Self::deposit_event(Event::Upgraded { who: who.clone() });
-			return true
+			true
 		}
 
 		/// Get the free balance of an account.
@@ -1098,7 +1098,7 @@ pub mod pallet {
 							let _ = frame_system::Pallet::<T>::inc_consumers(who).defensive();
 						}
 						if !did_consume && does_consume {
-							let _ = frame_system::Pallet::<T>::dec_consumers(who);
+							frame_system::Pallet::<T>::dec_consumers(who);
 						}
 					})?;
 				}

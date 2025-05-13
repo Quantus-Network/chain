@@ -299,7 +299,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum - remember balance before this operation
             let balance_before_referendum = Balances::free_balance(&proposer);
@@ -366,7 +366,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
@@ -445,7 +445,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
@@ -562,7 +562,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
             bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             let referendum_index = 0;
@@ -735,7 +735,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
             bounded_call2,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             let referendum_index2 = 1;

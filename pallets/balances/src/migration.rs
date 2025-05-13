@@ -27,7 +27,7 @@ fn migrate_v0_to_v1<T: Config<I>, I: 'static>(accounts: &[T::AccountId]) -> Weig
 	if on_chain_version == 0 {
 		let total = accounts
 			.iter()
-			.map(|a| Pallet::<T, I>::total_balance(a))
+			.map(Pallet::<T, I>::total_balance)
 			.fold(T::Balance::zero(), |a, e| a.saturating_add(e));
 		Pallet::<T, I>::deactivate(total);
 

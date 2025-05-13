@@ -50,7 +50,7 @@ fn regression_historic_acc_does_not_evaporate_reserve() {
 		System::dec_consumers(&alice);
 
 		assert_eq!(
-			System::account(&alice),
+			System::account(alice),
 			AccountInfo {
 				data: AccountData {
 					free: 90,

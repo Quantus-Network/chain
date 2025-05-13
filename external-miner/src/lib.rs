@@ -59,6 +59,12 @@ impl MiningJob {
     }
 }
 
+impl Default for MiningState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MiningState {
     pub fn new() -> Self {
         MiningState {
@@ -100,7 +106,7 @@ impl MiningState {
                         // Increment nonce first for the next potential check
                         // (unless it's the very first hash attempt)
                         if job.hash_count > 0 {
-                            job.current_nonce = job.current_nonce + U512::one();
+                            job.current_nonce += U512::one();
                         }
 
                         // Check if the *new* current_nonce has exceeded the range *before* hashing

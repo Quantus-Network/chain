@@ -46,7 +46,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
@@ -171,7 +171,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
             bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             let referendum_index = 0;
@@ -264,7 +264,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
@@ -345,7 +345,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
             bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             let referendum_index = 0;
@@ -398,7 +398,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
             bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             let referendum_index = 0;
@@ -510,7 +510,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
             bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             // Check referendum is using track 0
@@ -542,9 +542,9 @@ mod tests {
         ));
 
             // Progress through phases
-            let prepare_period = 1 * DAYS;
+            let prepare_period = DAYS;
             let decision_period = 14 * DAYS;
-            let confirm_period = 1 * DAYS;
+            let confirm_period = DAYS;
 
             // Advance to deciding phase
             run_to_block(prepare_period + 1);
@@ -603,7 +603,7 @@ mod tests {
             RuntimeOrigin::signed(proposer.clone()),
             Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
             bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             // Check referendum is using track 2
@@ -734,7 +734,7 @@ mod tests {
                 hash: root_hash,
                 len: root_encoded.len() as u32
             },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             // Signed track (1)
@@ -745,7 +745,7 @@ mod tests {
                 hash: signed_hash,
                 len: signed_encoded.len() as u32
             },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             // Signaling track (2)
@@ -756,7 +756,7 @@ mod tests {
                 hash: signal_hash,
                 len: signal_encoded.len() as u32
             },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
 
             // Check each referendum is on the correct track
@@ -843,7 +843,7 @@ mod tests {
         ));
 
             // Get the prepare periods for each track
-            let root_prepare = 1 * DAYS;
+            let root_prepare = DAYS;
             let signed_prepare = 12 * HOURS;
             let signal_prepare = 6 * HOURS;
 
@@ -893,7 +893,7 @@ mod tests {
             }
 
             // Advance through all decision periods to confirm all pass
-            let longest_process = root_prepare + 14 * DAYS + 1 * DAYS + 5; // Root track has longest periods
+            let longest_process = root_prepare + 14 * DAYS + DAYS + 5; // Root track has longest periods
             run_to_block(longest_process);
 
             // Verify all referenda passed
@@ -947,7 +947,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
                 // Place decision deposit

@@ -103,7 +103,7 @@ mod imbalances {
 		}
 		fn extract(&mut self, amount: T::Balance) -> Self {
 			let new = self.0.min(amount);
-			self.0 = self.0 - new;
+			self.0 -= new;
 			Self(new)
 		}
 		fn merge(mut self, other: Self) -> Self {
@@ -173,7 +173,7 @@ mod imbalances {
 		}
 		fn extract(&mut self, amount: T::Balance) -> Self {
 			let new = self.0.min(amount);
-			self.0 = self.0 - new;
+			self.0 -= new;
 			Self(new)
 		}
 		fn merge(mut self, other: Self) -> Self {
@@ -361,7 +361,8 @@ where
 			return (NegativeImbalance::zero(), value)
 		}
 
-		let result = match Self::try_mutate_account_handling_dust(
+		
+		match Self::try_mutate_account_handling_dust(
 			who,
 			|account, _is_new| -> Result<(Self::NegativeImbalance, Self::Balance), DispatchError> {
 				// Best value is the most amount we can slash following liveness rules.
@@ -383,8 +384,7 @@ where
 				(imbalance, remaining)
 			},
 			Err(_) => (Self::NegativeImbalance::zero(), value),
-		};
-		result
+		}
 	}
 
 	/// Deposit some `value` into the free balance of an existing target account `who`.
@@ -523,7 +523,7 @@ where
 		if value.is_zero() {
 			return true
 		}
-		Self::account(who).free.checked_sub(&value).map_or(false, |new_balance| {
+		Self::account(who).free.checked_sub(&value).is_some_and(|new_balance| {
 			new_balance >= T::ExistentialDeposit::get() &&
 				Self::ensure_can_withdraw(who, value, WithdrawReasons::RESERVE, new_balance)
 					.is_ok()
@@ -547,7 +547,7 @@ where
 				account.free.checked_sub(&value).ok_or(Error::<T, I>::InsufficientBalance)?;
 			account.reserved =
 				account.reserved.checked_add(&value).ok_or(ArithmeticError::Overflow)?;
-			Self::ensure_can_withdraw(&who, value, WithdrawReasons::RESERVE, account.free)
+			Self::ensure_can_withdraw(who, value, WithdrawReasons::RESERVE, account.free)
 		})?;
 
 		Self::deposit_event(Event::Reserved { who: who.clone(), amount: value });

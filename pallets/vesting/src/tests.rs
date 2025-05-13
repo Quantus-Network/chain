@@ -12,7 +12,7 @@ fn create_vesting_schedule<Moment: From<u64>>(start: u64, end: u64, amount: Bala
         beneficiary: 2,
         start: start.into(),
         end: end.into(),
-        amount: amount.into(),
+        amount,
         claimed: 0,
         id: 1
     }
@@ -407,12 +407,12 @@ fn vesting_near_max_timestamp() {
 
         run_to_block(2, max - 250); // Halfway
         assert_ok!(Vesting::claim(RuntimeOrigin::signed(2), 1));
-        let schedule = VestingSchedules::<Test>::get(&1).expect("Schedule should exist");
+        let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
         assert_eq!(schedule.claimed, 250); // 50% vested
 
         run_to_block(3, max);
         assert_ok!(Vesting::claim(RuntimeOrigin::signed(2), 1));
-        let schedule = VestingSchedules::<Test>::get(&1).expect("Schedule should exist");
+        let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
         assert_eq!(schedule.claimed, 500);
     });
 }
@@ -445,7 +445,7 @@ fn creator_insufficient_funds_fails() {
         );
 
         // Ensure no schedule was created
-        let schedule = VestingSchedules::<Test>::get(&1);
+        let schedule = VestingSchedules::<Test>::get(1);
         assert_eq!(schedule, None);
 
         // Check balances
@@ -507,7 +507,7 @@ fn non_creator_cannot_cancel() {
         );
 
         // Schedule still exists
-        let schedule = VestingSchedules::<Test>::get(&1).expect("Schedule should exist");
+        let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
         let num_schedules = ScheduleCounter::<Test>::get();
         assert_eq!(num_schedules, 1);
         assert_eq!(schedule.creator, 1);

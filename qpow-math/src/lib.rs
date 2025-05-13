@@ -38,8 +38,8 @@ pub fn get_nonce_distance(
 
     // Compare PoW results
     let nonce_element = hash_to_group_bigint_sha(&header_int, &m, &n, &nonce_int);
-    let distance = target.bitxor(nonce_element);
-    distance
+    
+    target.bitxor(nonce_element)
 }
 
 /// Generates a pair of RSA-style numbers (m,n) deterministically from input header
@@ -55,7 +55,7 @@ pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
     let mut n = U512::from_big_endian(sha3.finalize().as_slice());
 
     // Keep hashing until we find composite coprime n > m
-    while n.clone() % 2u32 == U512::zero() || n <= m || !is_coprime(&m, &n) || is_prime(&n) {
+    while n % 2u32 == U512::zero() || n <= m || !is_coprime(&m, &n) || is_prime(&n) {
         n = sha3_512(n);
     }
 
@@ -89,9 +89,9 @@ pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U5
     //log::info!("ComputePoW: h={:?}, m={:?}, n={:?}, solution={:?}, sum={:?}", h, m, n, solution, sum);
 
     // Compute m^sum mod n using modular exponentiation
-    let result = mod_pow(&m, &sum, n);
+    
 
-    result
+    mod_pow(m, &sum, n)
 }
 
 /// Modular exponentiation using Substrate's BigUint
@@ -136,7 +136,7 @@ pub fn is_prime(n: &U512) -> bool {
     let mut d = *n - U512::one();
     let mut r = 0u32;
     while d % U512::from(2u32) == U512::zero() {
-        d = d / U512::from(2u32);
+        d /= U512::from(2u32);
         r += 1;
     }
 
@@ -157,7 +157,7 @@ pub fn is_prime(n: &U512) -> bool {
         bytes[..64].copy_from_slice(&n_bytes);
         bytes[64..128].copy_from_slice(&counter_bytes);
 
-        sha3.update(&bytes);
+        sha3.update(bytes);
 
         // Use the hash to generate a base between 2 and n-2
         let hash = U512::from_big_endian(sha3.finalize_reset().as_slice());
@@ -165,11 +165,11 @@ pub fn is_prime(n: &U512) -> bool {
         bases[base_count] = base;
         base_count += 1;
 
-        counter = counter + U512::one();
+        counter += U512::one();
     }
 
     'witness: for base in bases {
-        let mut x = mod_pow(&U512::from(base), &d, n);
+        let mut x = mod_pow(&base, &d, n);
 
         if x == U512::one() || x == *n - U512::one() {
             continue 'witness;
@@ -195,7 +195,7 @@ pub fn is_prime(n: &U512) -> bool {
 pub fn sha3_512(input: U512) -> U512 {
     let mut sha3 = Sha3_512::new();
     let bytes = input.to_big_endian();
-    sha3.update(&bytes);
+    sha3.update(bytes);
     let output = U512::from_big_endian(sha3.finalize().as_slice());
     output
 }

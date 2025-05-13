@@ -113,7 +113,7 @@ impl ExtraFlags {
 		Self(0)
 	}
 	pub fn set_new_logic(&mut self) {
-		self.0 = self.0 | IS_NEW_LOGIC
+		self.0 |= IS_NEW_LOGIC
 	}
 	pub fn is_new_logic(&self) -> bool {
 		(self.0 & IS_NEW_LOGIC) == IS_NEW_LOGIC

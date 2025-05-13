@@ -50,14 +50,14 @@ fn dust_account_removal_should_work() {
 		.existential_deposit(100)
 		.monied(true)
 		.build_and_execute_with(|| {
-			System::inc_account_nonce(&2);
-			assert_eq!(System::account_nonce(&2), 1);
+			System::inc_account_nonce(2);
+			assert_eq!(System::account_nonce(2), 1);
 			assert_eq!(Balances::total_balance(&2), 2000);
 			// index 1 (account 2) becomes zombie
 			assert_ok!(Balances::transfer_allow_death(Some(2).into(), 5, 1901));
 			assert_eq!(Balances::total_balance(&2), 0);
 			assert_eq!(Balances::total_balance(&5), 1901);
-			assert_eq!(System::account_nonce(&2), 0);
+			assert_eq!(System::account_nonce(2), 0);
 		});
 }
 
@@ -191,7 +191,7 @@ fn set_balance_handles_total_issuance() {
 		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 69));
 		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), old_total_issuance + 69);
 		assert_eq!(Balances::total_balance(&1337), 69);
-		assert_eq!(Balances::free_balance(&1337), 69);
+		assert_eq!(Balances::free_balance(1337), 69);
 	});
 }
 

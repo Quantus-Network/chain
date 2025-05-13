@@ -353,7 +353,7 @@ pub mod pallet {
 					// Propagate new Event
 					Self::deposit_event(Event::DistanceThresholdAdjusted {
 						old_distance_threshold: current_distance_threshold,
-						new_distance_threshold: new_distance_threshold,
+						new_distance_threshold,
 						observed_block_time,
 					});
 
