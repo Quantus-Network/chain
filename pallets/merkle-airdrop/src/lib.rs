@@ -38,10 +38,10 @@ mod benchmarking;
 pub mod weights;
 pub use weights::*;
 
-use frame_support::traits::Currency;
+use frame_support::traits::fungible::Inspect;
 
 type BalanceOf<T> =
-    <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+    <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -51,7 +51,10 @@ pub mod pallet {
     use frame_support::traits::EnsureOrigin;
     use frame_support::{
         pallet_prelude::*,
-        traits::{Currency, Get},
+        traits::{
+            fungible::{Inspect, Mutate},
+            Get,
+        },
         unsigned::ValidateUnsigned,
     };
     use frame_system::pallet_prelude::*;
@@ -75,7 +78,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The currency mechanism.
-        type Currency: Currency<Self::AccountId>;
+        type Currency: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
 
         /// The maximum number of proof elements allowed in a Merkle proof.
         #[pallet::constant]
@@ -123,7 +126,7 @@ pub mod pallet {
         _,
         Blake2_128Concat,
         AirdropId,
-        <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+        <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
     >;
 
     /// Storage for claimed status
@@ -163,7 +166,7 @@ pub mod pallet {
             /// The ID of the funded airdrop
             airdrop_id: AirdropId,
             /// The amount of tokens added to the airdrop
-            amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
         },
         /// A user has claimed tokens from an airdrop.
         ///
@@ -174,7 +177,7 @@ pub mod pallet {
             /// The account that claimed the tokens
             account: T::AccountId,
             /// The amount of tokens claimed
-            amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
         },
         /// An airdrop has been deleted.
         ///
@@ -362,7 +365,7 @@ pub mod pallet {
         pub fn fund_airdrop(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
-            amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -373,11 +376,11 @@ pub mod pallet {
             );
 
             // Transfer tokens from the caller to the pallet account
-            T::Currency::transfer(
+            <T::Currency as Mutate<T::AccountId>>::transfer(
                 &who,
                 &Self::account_id(),
                 amount,
-                frame_support::traits::ExistenceRequirement::KeepAlive,
+                frame_support::traits::tokens::Preservation::Preserve,
             )?;
 
             // Update the airdrop balance
@@ -420,7 +423,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
             recipient: T::AccountId,
-            amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
             merkle_proof: BoundedVec<MerkleHash, T::MaxProofs>,
         ) -> DispatchResult {
             // Ensure the call has no origin (can be called by anyone)
@@ -467,11 +470,11 @@ pub mod pallet {
             });
 
             // Transfer tokens from the pallet account to the recipient
-            T::Currency::transfer(
+            <T::Currency as Mutate<T::AccountId>>::transfer(
                 &Self::account_id(),
                 &recipient,
                 amount,
-                frame_support::traits::ExistenceRequirement::KeepAlive,
+                frame_support::traits::tokens::Preservation::Preserve,
             )?;
 
             // Emit an event using recipient
