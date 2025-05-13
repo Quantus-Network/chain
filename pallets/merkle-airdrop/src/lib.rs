@@ -49,11 +49,16 @@ pub mod pallet {
     use frame_support::{
         pallet_prelude::*,
         traits::{Currency, Get},
+        unsigned::ValidateUnsigned,
     };
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_256;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Saturating;
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
+        ValidTransaction,
+    };
     use sp_std::prelude::*;
 
     #[pallet::pallet]
@@ -154,6 +159,7 @@ pub mod pallet {
     }
 
     #[pallet::error]
+    #[repr(u8)]
     pub enum Error<T> {
         /// The specified airdrop does not exist.
         AirdropNotFound,
@@ -541,6 +547,71 @@ pub mod pallet {
             });
 
             Ok(())
+        }
+    }
+
+    #[pallet::validate_unsigned]
+    impl<T: Config> ValidateUnsigned for Pallet<T> {
+        type Call = Call<T>;
+
+        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            if let Call::claim {
+                airdrop_id,
+                recipient,
+                amount,
+                merkle_proof,
+            } = call
+            {
+                // 1. Check if airdrop exists
+                let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id)
+                    .ok_or(InvalidTransaction::Custom(1))?;
+                log::info!(
+                    target: "merkle-airdrop",
+                    "ValidateUnsigned: Airdrop {:?} exists with root {:?}",
+                    airdrop_id, merkle_root
+                );
+
+                // 2. Check if already claimed
+                if Claimed::<T>::contains_key(airdrop_id, recipient) {
+                    log::warn!(
+                        target: "merkle-airdrop",
+                        "ValidateUnsigned: Airdrop {:?}, Recipient {:?} - Already claimed",
+                        airdrop_id, recipient
+                    );
+                    return InvalidTransaction::Custom(2).into();
+                }
+                log::info!(
+                    target: "merkle-airdrop",
+                    "ValidateUnsigned: Airdrop {:?}, Recipient {:?} - Not yet claimed",
+                    airdrop_id, recipient
+                );
+
+                // 3. Verify Merkle Proof
+                if !Self::verify_merkle_proof(recipient, *amount, &merkle_root, merkle_proof) {
+                    log::warn!(
+                        target: "merkle-airdrop",
+                        "ValidateUnsigned: Airdrop {:?}, Recipient {:?}, Amount {:?} - Invalid proof",
+                        airdrop_id, recipient, amount
+                    );
+                    return InvalidTransaction::Custom(3).into();
+                }
+                log::info!(
+                    target: "merkle-airdrop",
+                    "ValidateUnsigned: Airdrop {:?}, Recipient {:?}, Amount {:?} - Proof VERIFIED",
+                    airdrop_id, recipient, amount
+                );
+
+                Ok(ValidTransaction {
+                    priority: 100,
+                    requires: vec![],
+                    provides: vec![(airdrop_id, recipient, amount).encode()],
+                    longevity: TransactionLongevity::max_value(),
+                    propagate: true,
+                })
+            } else {
+                log::error!(target: "merkle-airdrop", "ValidateUnsigned: Received non-claim transaction or unexpected call structure");
+                InvalidTransaction::Call.into()
+            }
         }
     }
 }
