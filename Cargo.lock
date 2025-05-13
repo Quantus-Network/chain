@@ -6597,6 +6597,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-membership"
+version = "39.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e780320e411960bc8784861099bf5d18a59162b3c8499bccb5814fd85c4790e1"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-mining-rewards"
 version = "0.1.0"
 dependencies = [
@@ -8508,6 +8525,7 @@ dependencies = [
  "pallet-balances",
  "pallet-conviction-voting",
  "pallet-faucet",
+ "pallet-membership",
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",

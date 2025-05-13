@@ -28,6 +28,7 @@ frame-executive.workspace = true
 frame-metadata-hash-extension.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting = { workspace = true, default-features = false }
+pallet-membership = {workspace = true, default-features = false}
 pallet-preimage = { workspace = true, default-features = false }
 pallet-referenda = {workspace = true, default-features = false }
 pallet-scheduler = { workspace = true, default-features = false }
@@ -94,6 +95,7 @@ std = [
 	"pallet-faucet/std",
 	"pallet-mining-rewards/std",
 	"pallet-conviction-voting/std",
+	"pallet-membership/std",
 	"pallet-preimage/std",
 	"pallet-referenda/std",
 	"pallet-scheduler/std",
@@ -137,6 +139,7 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
+	"pallet-membership/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-referenda/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
@@ -161,6 +164,7 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-vesting/try-runtime",
 	"pallet-transaction-payment/try-runtime",
+	"pallet-membership/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

@@ -15,8 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
+use crate::{AccountId, BalancesConfig, MembershipConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
+use frame_support::BoundedVec;
 use dilithium_crypto::pair::{crystal_alice, dilithium_bob, crystal_charlie};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
@@ -40,7 +41,12 @@ fn testnet_genesis(
 				.map(|k| (k, 1u128 << 60))
 				.collect::<Vec<_>>(),
 		},
-		sudo: SudoConfig { key: Some(root) },
+		sudo: SudoConfig { key: Some(root.clone()) },
+		membership: MembershipConfig {
+            members: BoundedVec::try_from(vec![root])
+                .expect("Initial members count is within bounds"),
+            phantom: Default::default(),
+        },
 		..Default::default()
 	};
 
@@ -73,9 +79,9 @@ pub fn development_config_genesis() -> Value {
 	// crystal_alice: 5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq
 	// dilithium_bob: 5CxEUqBNycBAW5VvTaRXgkr4uK5HpMuS921gaTLVV9b3QYJx
 	// crystal_charlie: 5Fj6VYnJGMeAPg9y5oWzEyXakZbJMGSy9VdbehdE5suDvB4t
-	// crystal_alice: 553ffb66c8f627b6b6bd982ef564e144e779fc745f24241fdedac7e43f3ea486 (5DzUw8DM...)    
-	// dilithium_bob: 274c9a7ecffb52c25173be718b5fcf2d383bf6e465d63a34cbc26de56efa24f0 (5CxEUqBN...)    
-	// crystal_charlie: a1fc398e6f48f42c820cb3dcc3da40758a57f1a3243674ffe81832cd051c094c (5Fj6VYnJ...)    
+	// crystal_alice: 553ffb66c8f627b6b6bd982ef564e144e779fc745f24241fdedac7e43f3ea486 (5DzUw8DM...)
+	// dilithium_bob: 274c9a7ecffb52c25173be718b5fcf2d383bf6e465d63a34cbc26de56efa24f0 (5CxEUqBN...)
+	// crystal_charlie: a1fc398e6f48f42c820cb3dcc3da40758a57f1a3243674ffe81832cd051c094c (5Fj6VYnJ...)
 
 
     testnet_genesis(
