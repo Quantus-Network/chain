@@ -94,9 +94,10 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                         ceil: Perbill::from_percent(100),    // Requires 100% approval at start
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
-                        length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(10),    // At least 10% support at end
-                        ceil: Perbill::from_percent(75),     // 50% support required at start
+                        length: Perbill::from_percent(0),
+                        //In this way support param is off.
+                        floor: Perbill::from_percent(0),
+                        ceil: Perbill::from_percent(0),
                     },
                 },
             ),
