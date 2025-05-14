@@ -177,7 +177,7 @@ pub type TxExtension = (
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
     transaction_extensions::ReversibleTransactionExtension<Runtime>,
-    transaction_extensions::TechCollectiveVoteExtension<Runtime>
+    transaction_extensions::TechCollectiveExtension<Runtime>
 );
 
 /// Unchecked extrinsic type as expected by this runtime.

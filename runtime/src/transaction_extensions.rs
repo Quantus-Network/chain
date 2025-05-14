@@ -7,6 +7,7 @@ use frame_support::traits::Contains;
 use frame_support::traits::fungible::Inspect;
 use frame_support::traits::tokens::Preservation;
 use frame_system::ensure_signed;
+use frame_system::ensure_root;
 use pallet_reversible_transfers::DelayPolicy;
 use pallet_reversible_transfers::WeightInfo;
 use scale_info::TypeInfo;
@@ -160,23 +161,23 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 /// the transaction will be rejected.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug)]
 #[scale_info(skip_type_params(T))]
-pub struct TechCollectiveVoteExtension<T: frame_system::Config>(PhantomData<T>);
+pub struct TechCollectiveExtension<T: frame_system::Config>(PhantomData<T>);
 
-impl<T: frame_system::Config> TechCollectiveVoteExtension<T> {
-    /// Creates a new `TechCollectiveVoteExtension`.
+impl<T: frame_system::Config> TechCollectiveExtension<T> {
+    /// Creates a new `TechCollectiveExtension`.
     pub fn new() -> Self {
         Self(core::marker::PhantomData)
     }
 }
 
 impl<T: frame_system::Config + Send + Sync + alloc::fmt::Debug>
-TransactionExtension<RuntimeCall> for TechCollectiveVoteExtension<T>
+TransactionExtension<RuntimeCall> for TechCollectiveExtension<T>
 {
     type Pre = ();
     type Val = ();
     type Implicit = ();
 
-    const IDENTIFIER: &'static str = "TechCollectiveVoteExtension";
+    const IDENTIFIER: &'static str = "TechCollectiveExtension";
 
     fn weight(&self, call: &RuntimeCall) -> Weight {
         match call {
@@ -210,40 +211,67 @@ TransactionExtension<RuntimeCall> for TechCollectiveVoteExtension<T>
         _inherited_implication: &impl sp_runtime::traits::Implication,
         _source: frame_support::pallet_prelude::TransactionSource,
     ) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
-        // Check if this is a voting transaction
-        if let RuntimeCall::ConvictionVoting(pallet_conviction_voting::Call::vote { poll_index, .. }) = call {
-            // Get the transaction sender
-            let who = ensure_signed(origin.clone()).map_err(|_| {
-                frame_support::pallet_prelude::TransactionValidityError::Invalid(
-                    InvalidTransaction::BadSigner,
-                )
-            })?;
-
-            // Get referendum information to check its track
-            if let Some(info) = pallet_referenda::ReferendumInfoFor::<Runtime>::get(poll_index) {
-                if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                    if status.track == 0 {
-                        // If it's track 0, check if the voter is a member of TechCollective
-                        if !pallet_membership::Pallet::<Runtime>::contains(&who) {
-                            // Use a unique error code different from existing extension
-                            return Err(
+        match call {
+            // Handle voting
+            RuntimeCall::ConvictionVoting(pallet_conviction_voting::Call::vote { poll_index, .. }) => {
+                if let Some(info) = pallet_referenda::ReferendumInfoFor::<Runtime>::get(poll_index) {
+                    if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
+                        if status.track == 0 {
+                            // For track 0, check if voter is either a member or root
+                            let who = ensure_signed(origin.clone()).map_err(|_| {
                                 frame_support::pallet_prelude::TransactionValidityError::Invalid(
-                                    InvalidTransaction::Custom(42),
-                                ),
-                            );
+                                    InvalidTransaction::BadSigner,
+                                )
+                            })?;
+                            if !pallet_membership::Pallet::<Runtime>::contains(&who) {
+                                return Err(
+                                    frame_support::pallet_prelude::TransactionValidityError::Invalid(
+                                        InvalidTransaction::Custom(42),
+                                    ),
+                                );
+                            }
                         }
                     }
                 }
-            }
+            },
+            // Handle referendum submission
+            RuntimeCall::Referenda(pallet_referenda::Call::submit { proposal_origin: origin_caller, .. }) => {
+                if let OriginCaller::system(frame_system::RawOrigin::Root) = **origin_caller {
+                    // For track 0, check if submitter is either a member or root
+                    match ensure_signed(origin.clone()) {
+                        Ok(who) => {
+                            // If signed, must be a member
+                            if !pallet_membership::Pallet::<Runtime>::contains(&who) {
+                                return Err(
+                                    frame_support::pallet_prelude::TransactionValidityError::Invalid(
+                                        InvalidTransaction::Custom(43),
+                                    ),
+                                );
+                            }
+                        },
+                        Err(_) => {
+                            // If not signed, must be root
+                            if ensure_root(origin.clone()).is_err() {
+                                return Err(
+                                    frame_support::pallet_prelude::TransactionValidityError::Invalid(
+                                        InvalidTransaction::Custom(43),
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+            },
+            _ => {}
         }
 
-        // For other transaction types or when conditions are met, continue normal processing
         Ok((ValidTransaction::default(), (), origin))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use frame_support::assert_ok;
     use frame_support::pallet_prelude::{TransactionValidityError, UnknownTransaction};
     use frame_support::traits::Currency;
     use pallet_reversible_transfers::PendingTransfers;
@@ -479,7 +507,7 @@ mod tests {
             let referendum_index = setup_referendum(0);
 
             // Create the extension
-            let ext = TechCollectiveVoteExtension::<Runtime>::new();
+            let ext = TechCollectiveExtension::<Runtime>::new();
 
             // Create a vote call
             let vote_call = RuntimeCall::ConvictionVoting(pallet_conviction_voting::Call::vote {
@@ -540,7 +568,7 @@ mod tests {
             let referendum_index = setup_referendum(1);
 
             // Create the extension
-            let ext = TechCollectiveVoteExtension::<Runtime>::new();
+            let ext = TechCollectiveExtension::<Runtime>::new();
 
             // Create a vote call
             let vote_call = RuntimeCall::ConvictionVoting(pallet_conviction_voting::Call::vote {
@@ -568,6 +596,130 @@ mod tests {
 
             // Bob's validation should pass for non-track-0
             assert!(bob_result.is_ok(), "Non-member should be allowed to vote on non-track-0");
+        });
+    }
+
+    #[test]
+    fn test_tech_collective_submit_referendum_extension_track_0() {
+        new_test_ext().execute_with(|| {
+            // Add charlie to TechCollective
+            TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::Id(charlie()),
+            ).unwrap();
+
+            // Ensure funds for the test accounts
+            Balances::make_free_balance_be(&alice(), 1000 * UNIT);
+            Balances::make_free_balance_be(&bob(), 1000 * UNIT);
+            Balances::make_free_balance_be(&charlie(), 1000 * UNIT);
+
+            // Create the extension
+            let ext = TechCollectiveExtension::<Runtime>::new();
+
+            // Prepare the proposal for referendum
+            let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+            let encoded_call = proposal.encode();
+            let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+
+            // Store the preimage
+            assert_ok!(Preimage::note_preimage(
+                RuntimeOrigin::signed(alice()), // Submitter of preimage doesn't matter for this test
+                encoded_call.clone()
+            ));
+
+            // Prepare bounded call for referendum
+            let bounded_call = frame_support::traits::Bounded::Lookup {
+                hash: preimage_hash,
+                len: encoded_call.len() as u32
+            };
+
+            // Define the submit call for track 0 (Root origin for the proposal)
+            let submit_call_track_0 = RuntimeCall::Referenda(pallet_referenda::Call::submit {
+                proposal_origin: Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                proposal: bounded_call.clone(),
+                enactment_moment: frame_support::traits::schedule::DispatchTime::After(10u32.into()), // Arbitrary future time
+            });
+
+            // Test validation for non-member (bob) trying to submit to track 0
+            let bob_origin = RuntimeOrigin::signed(bob());
+            let bob_result = ext.validate(
+                bob_origin.clone(),
+                &submit_call_track_0,
+                &Default::default(),
+                0,
+                (),
+                &TxBaseImplication::<()>(()),
+                frame_support::pallet_prelude::TransactionSource::External,
+            );
+
+            // Bob's validation should fail with custom error 43
+            assert!(bob_result.is_err(), "Non-member should not be allowed to submit to track 0");
+            if let Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(code))) = bob_result {
+                assert_eq!(code, 43, "Expected error code 43 for non-member submitting to track 0");
+            } else {
+                panic!("Expected InvalidTransaction::Custom(43), got: {:?}", bob_result);
+            }
+
+            // Test validation for member (charlie) trying to submit to track 0
+            let charlie_origin = RuntimeOrigin::signed(charlie());
+            let charlie_result = ext.validate(
+                charlie_origin.clone(),
+                &submit_call_track_0,
+                &Default::default(),
+                0,
+                (),
+                &TxBaseImplication::<()>(()),
+                frame_support::pallet_prelude::TransactionSource::External,
+            );
+
+            // Charlie's validation should pass
+            assert!(charlie_result.is_ok(), "Member should be allowed to submit to track 0");
+
+            // Test validation for Root origin trying to submit to track 0
+            let root_origin_tx = RuntimeOrigin::root(); // This is the origin of the transaction itself
+            let root_result = ext.validate(
+                root_origin_tx,
+                &submit_call_track_0,
+                &Default::default(),
+                0,
+                (),
+                &TxBaseImplication::<()>(()),
+                frame_support::pallet_prelude::TransactionSource::External,
+            );
+            // Root's validation should pass
+            assert!(root_result.is_ok(), "Root should be allowed to submit to track 0");
+
+
+            // Test that a member can submit a referendum for a non-Root proposal origin (e.g. track 1)
+            // This is to ensure the extension doesn't block valid submissions to other tracks.
+            let submit_call_track_1 = RuntimeCall::Referenda(pallet_referenda::Call::submit {
+                proposal_origin: Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(alice()))),
+                proposal: bounded_call.clone(),
+                enactment_moment: frame_support::traits::schedule::DispatchTime::After(10u32.into()),
+            });
+
+            let charlie_result_track_1 = ext.validate(
+                charlie_origin.clone(), // Charlie is a member
+                &submit_call_track_1,
+                &Default::default(),
+                0,
+                (),
+                &TxBaseImplication::<()>(()),
+                frame_support::pallet_prelude::TransactionSource::External,
+            );
+            assert!(charlie_result_track_1.is_ok(), "Member should be allowed to submit to track 1");
+
+            let bob_result_track_1 = ext.validate(
+                bob_origin.clone(), // Bob is not a member
+                &submit_call_track_1,
+                &Default::default(),
+                0,
+                (),
+                &TxBaseImplication::<()>(()),
+                frame_support::pallet_prelude::TransactionSource::External,
+            );
+            // This should also pass as the restriction is only for proposal_origin = Root
+            assert!(bob_result_track_1.is_ok(), "Non-member should be allowed to submit to track 1");
         });
     }
 }
