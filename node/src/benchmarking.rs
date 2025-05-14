@@ -137,7 +137,7 @@ pub fn create_benchmark_extrinsic(
             resonance_runtime::transaction_extensions::ReversibleTransactionExtension::<
                 runtime::Runtime,
             >::new(),
-            resonance_runtime::transaction_extensions::TechCollectiveVoteExtension::<
+            resonance_runtime::transaction_extensions::TechCollectiveExtension::<
                 runtime::Runtime>::new(),
         );
 
