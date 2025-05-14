@@ -342,6 +342,4 @@ impl pallet_merkle_airdrop::Config for Runtime {
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
     type UnsignedClaimPriority = UnsignedClaimPriority;
-    // TODO: Change to EnsureSignedBy<Admin list4>
-    type DeleteAirdropOrigin = frame_system::EnsureSigned<AccountId>;
 }

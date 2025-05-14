@@ -566,22 +566,23 @@ fn delete_airdrop_works() {
         initialize_balances();
 
         let merkle_root = [0u8; 32];
+        let creator = 1;
 
         // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
-            RuntimeOrigin::signed(1),
+            RuntimeOrigin::signed(creator),
             merkle_root
         ));
 
         // Check that the airdrop exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_some());
 
-        // Set up a balance for the admin account
-        let _ = Balances::force_set_balance(RuntimeOrigin::root(), ADMIN_ACCOUNT, 1000);
+        // Check that the creator is recorded correctly
+        assert_eq!(MerkleAirdrop::airdrop_creators(0), Some(creator));
 
         // Delete the airdrop (balance is zero)
         assert_ok!(MerkleAirdrop::delete_airdrop(
-            RuntimeOrigin::signed(ADMIN_ACCOUNT),
+            RuntimeOrigin::signed(creator),
             0
         ));
 
@@ -591,6 +592,7 @@ fn delete_airdrop_works() {
         // Check that the airdrop no longer exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
         assert!(MerkleAirdrop::airdrop_balances(0).is_none());
+        assert!(MerkleAirdrop::airdrop_creators(0).is_none());
     });
 }
 
@@ -603,33 +605,31 @@ fn delete_airdrop_non_zero_balance_fails() {
         initialize_balances();
 
         let merkle_root = [0u8; 32];
+        let creator = 1; // The account creating the airdrop
 
         // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
-            RuntimeOrigin::signed(1),
+            RuntimeOrigin::signed(creator),
             merkle_root
         ));
 
         // Fund the airdrop
         assert_ok!(MerkleAirdrop::fund_airdrop(
-            RuntimeOrigin::signed(1),
+            RuntimeOrigin::signed(creator),
             0,
             100
         ));
 
-        // Set up a balance for the admin account
-        let _ = Balances::force_set_balance(RuntimeOrigin::root(), ADMIN_ACCOUNT, 1000);
-
         // Try to delete the airdrop with non-zero balance
         assert_noop!(
-            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(ADMIN_ACCOUNT), 0),
+            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(creator), 0),
             Error::<Test>::NonZeroBalance
         );
     });
 }
 
 #[test]
-fn delete_airdrop_non_admin_fails() {
+fn delete_airdrop_non_creator_fails() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
@@ -637,17 +637,19 @@ fn delete_airdrop_non_admin_fails() {
         initialize_balances();
 
         let merkle_root = [0u8; 32];
+        let creator = 1; // The account creating the airdrop
+        let non_creator = 2; // A different account
 
         // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
-            RuntimeOrigin::signed(1),
+            RuntimeOrigin::signed(creator),
             merkle_root
         ));
 
-        // Try to delete the airdrop with a non-admin account
+        // Try to delete the airdrop with a non-creator account
         assert_noop!(
-            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(1), 0),
-            Error::<Test>::NotAllowedToDelete
+            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(non_creator), 0),
+            Error::<Test>::NotAirdropCreator
         );
     });
 }
@@ -657,12 +659,9 @@ fn delete_airdrop_nonexistent_fails() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Set up a balance for the admin account
-        let _ = Balances::force_set_balance(RuntimeOrigin::root(), ADMIN_ACCOUNT, 1000);
-
         // Try to delete a nonexistent airdrop
         assert_noop!(
-            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(ADMIN_ACCOUNT), 999),
+            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(1), 999),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -677,6 +676,7 @@ fn delete_airdrop_after_claims_works() {
         initialize_balances();
 
         // Create a test merkle tree with two accounts
+        let creator: u64 = 1; // Creator of the airdrop
         let account1: u64 = 2; // Account that will claim
         let amount1: u64 = 500;
         let account2: u64 = 3;
@@ -691,11 +691,11 @@ fn delete_airdrop_after_claims_works() {
 
         // Create and fund the airdrop
         assert_ok!(MerkleAirdrop::create_airdrop(
-            RuntimeOrigin::signed(1),
+            RuntimeOrigin::signed(creator),
             merkle_root
         ));
         assert_ok!(MerkleAirdrop::fund_airdrop(
-            RuntimeOrigin::signed(1),
+            RuntimeOrigin::signed(creator),
             0,
             1000
         ));
@@ -723,17 +723,15 @@ fn delete_airdrop_after_claims_works() {
         // Check that the balance is now zero
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(0));
 
-        // Set up a balance for the admin account
-        let _ = Balances::force_set_balance(RuntimeOrigin::root(), ADMIN_ACCOUNT, 1000);
-
-        // Now the admin should be able to delete the airdrop
+        // Now the creator should be able to delete the airdrop
         assert_ok!(MerkleAirdrop::delete_airdrop(
-            RuntimeOrigin::signed(ADMIN_ACCOUNT),
+            RuntimeOrigin::signed(creator),
             0
         ));
 
         // Check that the airdrop no longer exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
         assert!(MerkleAirdrop::airdrop_balances(0).is_none());
+        assert!(MerkleAirdrop::airdrop_creators(0).is_none());
     });
 }
