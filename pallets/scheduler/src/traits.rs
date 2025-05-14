@@ -19,7 +19,7 @@ pub trait ScheduleNamed<BlockNumber, Moment, Call, Origin> {
     fn schedule_named(
         id: TaskName,
         when: DispatchTime<BlockNumber, Moment>,
-        maybe_periodic: Option<schedule::Period<BlockNumber>>,
+        maybe_periodic: Option<crate::Period<BlockNumber, Moment>>,
         priority: schedule::Priority,
         origin: Origin,
         call: Bounded<Call, Self::Hasher>,
