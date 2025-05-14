@@ -61,6 +61,7 @@
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod impls;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -78,8 +79,8 @@ use frame_support::{
     ensure,
     traits::{
         schedule::{self, DispatchTime as DispatchBlock, MaybeHashed},
-        Bounded, CallerTrait, EnsureOrigin, Get, IsType, OriginTrait, PrivilegeCmp, QueryPreimage,
-        StorageVersion, StorePreimage, Time,
+        Bounded, CallerTrait, EnsureOrigin, Get, IsType, OnTimestampSet, OriginTrait, PrivilegeCmp,
+        QueryPreimage, StorageVersion, StorePreimage, Time,
     },
     weights::{Weight, WeightMeter},
 };
@@ -89,7 +90,7 @@ use frame_system::{
 };
 use scale_info::TypeInfo;
 use sp_runtime::{
-    traits::{BadOrigin, Block, CheckedDiv, Dispatchable, One, Saturating, Zero},
+    traits::{BadOrigin, CheckedDiv, Dispatchable, One, Saturating, Zero},
     BoundedVec, DispatchError, RuntimeDebug,
 };
 use traits::ScheduleNamed;
@@ -142,14 +143,6 @@ where
         match self {
             BlockNumberOrTimestamp::BlockNumber(x) => Some(*x),
             BlockNumberOrTimestamp::Timestamp(_) => None,
-        }
-    }
-
-    /// Returns the timestamp if it is a timestamp.
-    fn as_timestamp(&self) -> Option<Moment> {
-        match self {
-            BlockNumberOrTimestamp::BlockNumber(_) => None,
-            BlockNumberOrTimestamp::Timestamp(x) => Some(*x),
         }
     }
 
@@ -1489,13 +1482,13 @@ impl<T: Config>
 
     fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
         Lookup::<T>::get(id)
+            .ok_or(DispatchError::Unavailable)
             .and_then(|(when, index)| {
                 Agenda::<T>::get(when)
                     .get(index as usize)
-                    .map(|_| when.as_block_number())
-                    .and_then(|x| x.ok_or(DispatchError::Unavailable))
+                    .ok_or(DispatchError::Unavailable)
+                    .and_then(|_| when.as_block_number().ok_or(DispatchError::Unavailable))
             })
-            .ok_or(DispatchError::Unavailable)
     }
 }
 
