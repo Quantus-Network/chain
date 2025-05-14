@@ -22,7 +22,7 @@ pub struct Cli {
 pub enum Subcommand {
 	/// Key management cli utilities
 	#[command(subcommand)]
-	Key(ResonanceKeySubcommand),
+	Key(QuantusKeySubcommand),
 
 	/// Build a chain specification.
 	BuildSpec(sc_cli::BuildSpecCmd),
@@ -54,16 +54,16 @@ pub enum Subcommand {
 }
 
 #[derive(Debug, clap::Subcommand)]
-pub enum ResonanceKeySubcommand{
+pub enum QuantusKeySubcommand {
 
 	/// Standard key commands from sc_cli
 	#[command(flatten)]
 	Sc(sc_cli::KeySubcommand),
-	/// Generate a resonance address
-	Resonance {
+	/// Generate a quantus address
+	QUANTUS {
 		/// Type of the key
 		#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
-		scheme: Option<ResonanceAddressType>,
+		scheme: Option<QuantusAddressType>,
 
 		/// Optional parameter for "standard" address type, must be a 64-character hex string
 		#[arg(long, value_name = "seed")]
@@ -71,7 +71,7 @@ pub enum ResonanceKeySubcommand{
 	},
 }
 #[derive(Clone, Debug, clap::ValueEnum)]
-pub enum ResonanceAddressType {
+pub enum QuantusAddressType {
 	Wormhole,
 	Standard,
 }

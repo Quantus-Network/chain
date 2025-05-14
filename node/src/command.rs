@@ -9,11 +9,12 @@ use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
+use sp_core::crypto::Ss58Codec;
 use resonance_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use sp_keyring::Sr25519Keyring;
 use dilithium_crypto::ResonancePair;
 use sp_wormhole::WormholePair;
-use crate::cli::{ResonanceAddressType, ResonanceKeySubcommand};
+use crate::cli::{QuantusAddressType, QuantusKeySubcommand};
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
@@ -59,12 +60,12 @@ pub fn run() -> sc_cli::Result<()> {
 
 	match &cli.subcommand {
 		Some(Subcommand::Key(cmd)) => match cmd {
-			ResonanceKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
-			ResonanceKeySubcommand::Resonance { scheme, seed} => {
+			QuantusKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
+			QuantusKeySubcommand::QUANTUS { scheme, seed} => {
 
 
 			match scheme {
-				Some(ResonanceAddressType::Standard) => {
+				Some(QuantusAddressType::Standard) => {
 					println!("Generating quantus address...");
 
 					let seed = match seed {
@@ -112,7 +113,7 @@ pub fn run() -> sc_cli::Result<()> {
 					let account_id = AccountId32::from(resonance_pair.public());
 
 					println!("XXXXXXXXXXXXXXX Quantus Account Details XXXXXXXXXXXXXXXXX");
-					println!("Address: 0x{}", hex::encode(account_id));
+					println!("Address: {}", account_id.to_ss58check());
 					println!("Seed: {}", hex::encode(seed));
 					println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
 					println!("Secret: 0x{}", hex::encode(resonance_pair.secret));
@@ -120,7 +121,7 @@ pub fn run() -> sc_cli::Result<()> {
 					Ok(())
 
 				},
-				Some(ResonanceAddressType::Wormhole) => {
+				Some(QuantusAddressType::Wormhole) => {
 					println!("Generating wormhole address...");
 					println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
 
