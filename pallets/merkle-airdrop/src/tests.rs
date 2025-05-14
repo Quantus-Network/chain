@@ -597,7 +597,7 @@ fn delete_airdrop_works() {
 }
 
 #[test]
-fn delete_airdrop_non_zero_balance_fails() {
+fn delete_airdrop_with_balance_refunds_creator() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
@@ -605,7 +605,9 @@ fn delete_airdrop_non_zero_balance_fails() {
         initialize_balances();
 
         let merkle_root = [0u8; 32];
-        let creator = 1; // The account creating the airdrop
+        let creator = 1;
+        let initial_creator_balance = Balances::free_balance(creator);
+        let fund_amount = 100;
 
         // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
@@ -617,14 +619,31 @@ fn delete_airdrop_non_zero_balance_fails() {
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(creator),
             0,
-            100
+            fund_amount
         ));
 
-        // Try to delete the airdrop with non-zero balance
-        assert_noop!(
-            MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(creator), 0),
-            Error::<Test>::NonZeroBalance
+        // Creator's balance should be reduced by fund_amount
+        assert_eq!(
+            Balances::free_balance(creator),
+            initial_creator_balance - fund_amount
         );
+
+        // Now delete the airdrop with non-zero balance
+        assert_ok!(MerkleAirdrop::delete_airdrop(
+            RuntimeOrigin::signed(creator),
+            0
+        ));
+
+        // Check that the funds were returned to the creator
+        assert_eq!(Balances::free_balance(creator), initial_creator_balance);
+
+        // Check that the event was emitted
+        System::assert_last_event(Event::AirdropDeleted { airdrop_id: 0 }.into());
+
+        // Check that the airdrop no longer exists
+        assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
+        assert!(MerkleAirdrop::airdrop_balances(0).is_none());
+        assert!(MerkleAirdrop::airdrop_creators(0).is_none());
     });
 }
 
@@ -637,8 +656,8 @@ fn delete_airdrop_non_creator_fails() {
         initialize_balances();
 
         let merkle_root = [0u8; 32];
-        let creator = 1; // The account creating the airdrop
-        let non_creator = 2; // A different account
+        let creator = 1;
+        let non_creator = 2;
 
         // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
@@ -676,11 +695,13 @@ fn delete_airdrop_after_claims_works() {
         initialize_balances();
 
         // Create a test merkle tree with two accounts
-        let creator: u64 = 1; // Creator of the airdrop
-        let account1: u64 = 2; // Account that will claim
+        let creator: u64 = 1;
+        let initial_creator_balance = Balances::free_balance(creator);
+        let account1: u64 = 2;
         let amount1: u64 = 500;
         let account2: u64 = 3;
-        let amount2: u64 = 500;
+        let amount2: u64 = 300;
+        let total_fund = 1000;
 
         // Calculate leaf hashes
         let leaf1 = calculate_leaf_hash(&account1, amount1);
@@ -697,13 +718,11 @@ fn delete_airdrop_after_claims_works() {
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(creator),
             0,
-            1000
+            total_fund
         ));
 
-        // Let both accounts claim
+        // Let only one account claim (partial claiming)
         let proof1 = bounded_proof(vec![leaf2]);
-        let proof2 = bounded_proof(vec![leaf1]);
-
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -712,22 +731,23 @@ fn delete_airdrop_after_claims_works() {
             proof1
         ));
 
-        assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
-            0,
-            account2,
-            amount2,
-            proof2
-        ));
+        // Check that some balance remains
+        assert_eq!(
+            MerkleAirdrop::airdrop_balances(0),
+            Some(total_fund - amount1)
+        );
 
-        // Check that the balance is now zero
-        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(0));
-
-        // Now the creator should be able to delete the airdrop
+        // Now the creator deletes the airdrop with remaining balance
         assert_ok!(MerkleAirdrop::delete_airdrop(
             RuntimeOrigin::signed(creator),
             0
         ));
+
+        // Check creator was refunded the unclaimed amount
+        assert_eq!(
+            Balances::free_balance(creator),
+            initial_creator_balance - total_fund + (total_fund - amount1)
+        );
 
         // Check that the airdrop no longer exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());

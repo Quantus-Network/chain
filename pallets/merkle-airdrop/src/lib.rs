@@ -196,8 +196,6 @@ pub mod pallet {
         AlreadyClaimed,
         /// The provided Merkle proof is invalid.
         InvalidProof,
-        /// The airdrop cannot be deleted because it still has a non-zero balance.
-        NonZeroBalance,
         /// Only the creator of an airdrop can delete it.
         NotAirdropCreator,
     }
@@ -485,10 +483,10 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Delete an airdrop if its balance is zero.
+        /// Delete an airdrop and reclaim any remaining funds.
         ///
-        /// This function allows the creator of an airdrop to delete those that have been fully claimed
-        /// or have never been funded.
+        /// This function allows the creator of an airdrop to delete it and reclaim
+        /// any remaining tokens that haven't been claimed.
         ///
         /// # Parameters
         ///
@@ -498,7 +496,6 @@ pub mod pallet {
         /// # Errors
         ///
         /// * `AirdropNotFound` - If the specified airdrop does not exist
-        /// * `NonZeroBalance` - If the airdrop still has a non-zero balance
         /// * `NotAirdropCreator` - If the caller is not the creator of the airdrop
         #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::delete_airdrop())]
@@ -519,7 +516,16 @@ pub mod pallet {
             // Get the current balance of the airdrop
             let balance =
                 AirdropBalances::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
-            ensure!(balance.is_zero(), Error::<T>::NonZeroBalance);
+
+            // If there are remaining tokens, refund them to the creator
+            if !balance.is_zero() {
+                <T::Currency as Mutate<T::AccountId>>::transfer(
+                    &Self::account_id(),
+                    &creator,
+                    balance,
+                    frame_support::traits::tokens::Preservation::Preserve,
+                )?;
+            }
 
             // Remove the airdrop data from storage
             AirdropMerkleRoots::<T>::remove(airdrop_id);
