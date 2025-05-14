@@ -89,7 +89,7 @@ use frame_system::{
 };
 use scale_info::TypeInfo;
 use sp_runtime::{
-    traits::{BadOrigin, CheckedDiv, Dispatchable, One, Saturating, Zero},
+    traits::{BadOrigin, Block, CheckedDiv, Dispatchable, One, Saturating, Zero},
     BoundedVec, DispatchError, RuntimeDebug,
 };
 use traits::ScheduleNamed;
@@ -100,7 +100,9 @@ pub use weights::WeightInfo;
 /// Just a simple index for naming period tasks.
 pub type PeriodicIndex = u32;
 /// The location of a scheduled task that can be used to remove it.
-pub type TaskAddress<BlockNumber> = (BlockNumber, u32);
+pub type TaskAddress<BlockNumber, Moment> = (BlockNumberOrTimestamp<BlockNumber, Moment>, u32);
+/// Task address of Config.
+pub type TaskAddressOf<T> = TaskAddress<BlockNumberFor<T>, <T as Config>::Moment>;
 
 pub type CallOrHashOf<T> =
     MaybeHashed<<T as Config>::RuntimeCall, <T as frame_system::Config>::Hash>;
@@ -108,11 +110,72 @@ pub type CallOrHashOf<T> =
 pub type BoundedCallOf<T> =
     Bounded<<T as Config>::RuntimeCall, <T as frame_system::Config>::Hashing>;
 
+pub type BlockNumberOrTimestampOf<T> =
+    BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
+
 /// Block number or timestamp.
-#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+#[derive(
+    Encode,
+    Decode,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    RuntimeDebug,
+    TypeInfo,
+    MaxEncodedLen,
+    Ord,
+    PartialOrd,
+)]
 pub enum BlockNumberOrTimestamp<BlockNumber, Moment> {
     BlockNumber(BlockNumber),
     Timestamp(Moment),
+}
+
+impl<BlockNumber, Moment> BlockNumberOrTimestamp<BlockNumber, Moment>
+where
+    BlockNumber: Saturating + Copy + Parameter + One + Zero,
+    Moment: Saturating + Copy + Parameter + Zero,
+{
+    /// Returns the block number if it is a block number.
+    fn as_block_number(&self) -> Option<BlockNumber> {
+        match self {
+            BlockNumberOrTimestamp::BlockNumber(x) => Some(*x),
+            BlockNumberOrTimestamp::Timestamp(_) => None,
+        }
+    }
+
+    /// Returns the timestamp if it is a timestamp.
+    fn as_timestamp(&self) -> Option<Moment> {
+        match self {
+            BlockNumberOrTimestamp::BlockNumber(_) => None,
+            BlockNumberOrTimestamp::Timestamp(x) => Some(*x),
+        }
+    }
+
+    /// Is zero
+    fn is_zero(&self) -> bool {
+        match self {
+            BlockNumberOrTimestamp::BlockNumber(x) => x.is_zero(),
+            BlockNumberOrTimestamp::Timestamp(x) => x.is_zero(),
+        }
+    }
+
+    /// Saturating add two `BlockNumberOrTimestamp`.
+    fn saturating_add(
+        &self,
+        other: &BlockNumberOrTimestamp<BlockNumber, Moment>,
+    ) -> Option<BlockNumberOrTimestamp<BlockNumber, Moment>> {
+        match (self, other) {
+            (BlockNumberOrTimestamp::BlockNumber(x), BlockNumberOrTimestamp::BlockNumber(y)) => {
+                Some(BlockNumberOrTimestamp::BlockNumber(x.saturating_add(*y)))
+            }
+            (BlockNumberOrTimestamp::Timestamp(x), BlockNumberOrTimestamp::Timestamp(y)) => {
+                Some(BlockNumberOrTimestamp::Timestamp(x.saturating_add(*y)))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The dispatch time of a scheduled task.
@@ -148,10 +211,15 @@ pub struct RetryConfig<Period> {
     period: Period,
 }
 
+/// Information relating to the period of a scheduled task. First item is the length of the
+/// period and the second is the number of times it should be executed in total before the task
+/// is considered finished and removed.
+pub type Period<BlockNumber, Moment> = (BlockNumberOrTimestamp<BlockNumber, Moment>, u32);
+
 /// Information regarding an item to be executed in the future.
 #[cfg_attr(any(feature = "std", test), derive(PartialEq, Eq))]
 #[derive(Clone, RuntimeDebug, Encode, Decode, MaxEncodedLen, TypeInfo)]
-pub struct Scheduled<Name, Call, BlockNumber, PalletsOrigin, AccountId> {
+pub struct Scheduled<Name, Call, BlockNumber, PalletsOrigin, AccountId, Moment> {
     /// The unique identity for this task, if there is one.
     maybe_id: Option<Name>,
     /// This task's priority.
@@ -159,14 +227,14 @@ pub struct Scheduled<Name, Call, BlockNumber, PalletsOrigin, AccountId> {
     /// The call to be dispatched.
     call: Call,
     /// If the call is periodic, then this points to the information concerning that.
-    maybe_periodic: Option<schedule::Period<BlockNumber>>,
+    maybe_periodic: Option<Period<BlockNumber, Moment>>,
     /// The origin with which to dispatch the call.
     origin: PalletsOrigin,
     _phantom: PhantomData<AccountId>,
 }
 
-impl<Name, Call, BlockNumber, PalletsOrigin, AccountId>
-    Scheduled<Name, Call, BlockNumber, PalletsOrigin, AccountId>
+impl<Name, Call, BlockNumber, PalletsOrigin, AccountId, Moment>
+    Scheduled<Name, Call, BlockNumber, PalletsOrigin, AccountId, Moment>
 where
     Call: Clone,
     PalletsOrigin: Clone,
@@ -191,6 +259,7 @@ pub type ScheduledOf<T> = Scheduled<
     BlockNumberFor<T>,
     <T as Config>::PalletsOrigin,
     <T as frame_system::Config>::AccountId,
+    <T as Config>::Moment,
 >;
 
 pub(crate) trait MarginalWeightInfo: WeightInfo {
@@ -216,7 +285,7 @@ pub mod pallet {
     use super::*;
     use frame_support::{dispatch::PostDispatchInfo, pallet_prelude::*};
     use frame_system::pallet_prelude::*;
-    use sp_runtime::traits::{AtLeast32Bit, BlockNumber, Scale};
+    use sp_runtime::traits::{AtLeast32Bit, Scale};
 
     /// The in-code storage version.
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(4);
@@ -284,25 +353,28 @@ pub mod pallet {
             + Copy
             + Parameter
             + AtLeast32Bit
-            + Scale<BlockNumberFor<Self>, Output = Self::Moment>;
+            + Scale<BlockNumberFor<Self>, Output = Self::Moment>
+            + MaxEncodedLen;
 
         /// Time provider, usually timestamp pallet.
         type TimeProvider: Time<Moment = Self::Moment>;
 
-        /// Target block time in milliseconds.
+        /// Precision of the timestamp buckets.
+        ///
+        /// Timestamp based dispatches are rounded to the nearest bucket of this precision.
         #[pallet::constant]
-        type TargetBlockTime: Get<Self::Moment>;
+        type TimestampBucketSize: Get<Self::Moment>;
     }
 
     #[pallet::storage]
-    pub type IncompleteSince<T: Config> = StorageValue<_, BlockNumberFor<T>>;
+    pub type IncompleteSince<T: Config> = StorageValue<_, BlockNumberOrTimestampOf<T>>;
 
     /// Items to be executed, indexed by the block number that they should be executed on.
     #[pallet::storage]
     pub type Agenda<T: Config> = StorageMap<
         _,
         Twox64Concat,
-        BlockNumberFor<T>,
+        BlockNumberOrTimestampOf<T>,
         BoundedVec<Option<ScheduledOf<T>>, T::MaxScheduledPerBlock>,
         ValueQuery,
     >;
@@ -312,8 +384,8 @@ pub mod pallet {
     pub type Retries<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        TaskAddress<BlockNumberFor<T>>,
-        RetryConfig<BlockNumberFor<T>>,
+        TaskAddressOf<T>,
+        RetryConfig<BlockNumberOrTimestampOf<T>>,
         OptionQuery,
     >;
 
@@ -322,54 +394,59 @@ pub mod pallet {
     /// For v3 -> v4 the previously unbounded identities are Blake2-256 hashed to form the v4
     /// identities.
     #[pallet::storage]
-    pub(crate) type Lookup<T: Config> =
-        StorageMap<_, Twox64Concat, TaskName, TaskAddress<BlockNumberFor<T>>>;
+    pub(crate) type Lookup<T: Config> = StorageMap<_, Twox64Concat, TaskName, TaskAddressOf<T>>;
 
     /// Events type.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// Scheduled some task.
-        Scheduled { when: BlockNumberFor<T>, index: u32 },
+        Scheduled {
+            when: BlockNumberOrTimestampOf<T>,
+            index: u32,
+        },
         /// Canceled some task.
-        Canceled { when: BlockNumberFor<T>, index: u32 },
+        Canceled {
+            when: BlockNumberOrTimestampOf<T>,
+            index: u32,
+        },
         /// Dispatched some task.
         Dispatched {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
             result: DispatchResult,
         },
         /// Set a retry configuration for some task.
         RetrySet {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
-            period: BlockNumberFor<T>,
+            period: BlockNumberOrTimestampOf<T>,
             retries: u8,
         },
         /// Cancel a retry configuration for some task.
         RetryCancelled {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
         },
         /// The call for the provided hash was not found so the task has been aborted.
         CallUnavailable {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
         },
         /// The given task was unable to be renewed since the agenda is full at that block.
         PeriodicFailed {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
         },
         /// The given task was unable to be retried since the agenda is full at that block or there
         /// was not enough weight to reschedule it.
         RetryFailed {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
         },
         /// The given task can never be executed since it is overweight.
         PermanentlyOverweight {
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             id: Option<TaskName>,
         },
     }
@@ -382,6 +459,8 @@ pub mod pallet {
         NotFound,
         /// Given target block number is in the past.
         TargetBlockNumberInPast,
+        /// Given target timestamp is in the past.
+        TargetTimestampInPast,
         /// Reschedule failed because it does not change scheduled time.
         RescheduleNoChange,
         /// Attempt to use a non-named function on a named task.
@@ -393,7 +472,11 @@ pub mod pallet {
         /// Execute the scheduled calls
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
-            Self::service_agendas(&mut weight_counter, now, u32::max_value());
+            Self::service_agendas(
+                &mut weight_counter,
+                BlockNumberOrTimestamp::BlockNumber(now),
+                u32::max_value(),
+            );
             weight_counter.consumed()
         }
     }
@@ -406,7 +489,7 @@ pub mod pallet {
         pub fn schedule(
             origin: OriginFor<T>,
             when: BlockNumberFor<T>,
-            maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+            maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
             priority: schedule::Priority,
             call: Box<<T as Config>::RuntimeCall>,
         ) -> DispatchResult {
@@ -425,7 +508,11 @@ pub mod pallet {
         /// Cancel an anonymously scheduled task.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::cancel(T::MaxScheduledPerBlock::get()))]
-        pub fn cancel(origin: OriginFor<T>, when: BlockNumberFor<T>, index: u32) -> DispatchResult {
+        pub fn cancel(
+            origin: OriginFor<T>,
+            when: BlockNumberOrTimestampOf<T>,
+            index: u32,
+        ) -> DispatchResult {
             T::ScheduleOrigin::ensure_origin(origin.clone())?;
             let origin = <T as Config>::RuntimeOrigin::from(origin);
             Self::do_cancel(Some(origin.caller().clone()), (when, index))?;
@@ -439,7 +526,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             id: TaskName,
             when: BlockNumberFor<T>,
-            maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+            maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
             priority: schedule::Priority,
             call: Box<<T as Config>::RuntimeCall>,
         ) -> DispatchResult {
@@ -472,7 +559,7 @@ pub mod pallet {
         pub fn schedule_after(
             origin: OriginFor<T>,
             after: BlockNumberOrTimestamp<BlockNumberFor<T>, T::Moment>,
-            maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+            maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
             priority: schedule::Priority,
             call: Box<<T as Config>::RuntimeCall>,
         ) -> DispatchResult {
@@ -495,7 +582,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             id: TaskName,
             after: BlockNumberOrTimestamp<BlockNumberFor<T>, T::Moment>,
-            maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+            maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
             priority: schedule::Priority,
             call: Box<<T as Config>::RuntimeCall>,
         ) -> DispatchResult {
@@ -528,9 +615,9 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_retry())]
         pub fn set_retry(
             origin: OriginFor<T>,
-            task: TaskAddress<BlockNumberFor<T>>,
+            task: TaskAddressOf<T>,
             retries: u8,
-            period: BlockNumberFor<T>,
+            period: BlockNumberOrTimestampOf<T>,
         ) -> DispatchResult {
             T::ScheduleOrigin::ensure_origin(origin.clone())?;
             let origin = <T as Config>::RuntimeOrigin::from(origin);
@@ -576,7 +663,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             id: TaskName,
             retries: u8,
-            period: BlockNumberFor<T>,
+            period: BlockNumberOrTimestampOf<T>,
         ) -> DispatchResult {
             T::ScheduleOrigin::ensure_origin(origin.clone())?;
             let origin = <T as Config>::RuntimeOrigin::from(origin);
@@ -607,10 +694,7 @@ pub mod pallet {
         /// Removes the retry configuration of a task.
         #[pallet::call_index(8)]
         #[pallet::weight(<T as Config>::WeightInfo::cancel_retry())]
-        pub fn cancel_retry(
-            origin: OriginFor<T>,
-            task: TaskAddress<BlockNumberFor<T>>,
-        ) -> DispatchResult {
+        pub fn cancel_retry(origin: OriginFor<T>, task: TaskAddressOf<T>) -> DispatchResult {
             T::ScheduleOrigin::ensure_origin(origin.clone())?;
             let origin = <T as Config>::RuntimeOrigin::from(origin);
             Self::do_cancel_retry(origin.caller(), task)?;
@@ -635,50 +719,55 @@ pub mod pallet {
 impl<T: Config> Pallet<T> {
     fn resolve_time(
         when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-    ) -> Result<BlockNumberFor<T>, DispatchError> {
+    ) -> Result<BlockNumberOrTimestampOf<T>, DispatchError> {
         let current_block = frame_system::Pallet::<T>::block_number();
         let now = T::TimeProvider::now();
 
         let when = match when {
-            DispatchTime::At(x) => x,
+            DispatchTime::At(x) => BlockNumberOrTimestamp::BlockNumber(x),
             // The current block has already completed it's scheduled tasks, so
             // Schedule the task at lest one block after this current block.
             DispatchTime::After(x) => {
                 // get the median block time
-                let target_block_time = T::TargetBlockTime::get();
-                let target_block_number = match x {
-                    BlockNumberOrTimestamp::BlockNumber(x) => x.saturating_add(One::one()),
+                let res = match x {
+                    BlockNumberOrTimestamp::BlockNumber(x) => {
+                        BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()))
+                    }
                     BlockNumberOrTimestamp::Timestamp(x) => {
-                        let diff = x.saturating_sub(now);
-                        let target_block_number = current_block.saturating_add(
-                            diff.checked_div(&target_block_time)
-                                .unwrap_or(One::one())
-                                .into(),
-                        );
-                        // Ensure that the target block number is not in the past.
-                        ensure!(
-                            target_block_number > current_block,
-                            Error::<T>::TargetBlockNumberInPast
-                        );
+                        // Simply strip and round to the nearest bucket.
+                        let x = x
+                            .checked_div(&T::TimestampBucketSize::get())
+                            .unwrap_or(Zero::zero())
+                            .saturating_mul(T::TimestampBucketSize::get());
 
-                        target_block_number
+                        // Add the bucket size to the current time to ensure that we are
+                        // scheduling in the future.
+                        BlockNumberOrTimestamp::Timestamp(
+                            x.saturating_add(T::TimestampBucketSize::get()),
+                        )
                     }
                 };
-                target_block_number
+                res
             }
         };
 
-        if when <= now {
-            return Err(Error::<T>::TargetBlockNumberInPast.into());
-        }
+        match when {
+            BlockNumberOrTimestamp::BlockNumber(x) => {
+                ensure!(x > current_block, Error::<T>::TargetBlockNumberInPast);
+            }
+            BlockNumberOrTimestamp::Timestamp(x) => {
+                // Ensure that the timestamp is in the future.
+                ensure!(x > now, Error::<T>::TargetTimestampInPast);
+            }
+        };
 
         Ok(when)
     }
 
     fn place_task(
-        when: BlockNumberFor<T>,
+        when: BlockNumberOrTimestampOf<T>,
         what: ScheduledOf<T>,
-    ) -> Result<TaskAddress<BlockNumberFor<T>>, (DispatchError, ScheduledOf<T>)> {
+    ) -> Result<TaskAddressOf<T>, (DispatchError, ScheduledOf<T>)> {
         let maybe_name = what.maybe_id;
         let index = Self::push_to_agenda(when, what)?;
         let address = (when, index);
@@ -693,7 +782,7 @@ impl<T: Config> Pallet<T> {
     }
 
     fn push_to_agenda(
-        when: BlockNumberFor<T>,
+        when: BlockNumberOrTimestampOf<T>,
         what: ScheduledOf<T>,
     ) -> Result<u32, (DispatchError, ScheduledOf<T>)> {
         let mut agenda = Agenda::<T>::get(when);
@@ -715,7 +804,7 @@ impl<T: Config> Pallet<T> {
 
     /// Remove trailing `None` items of an agenda at `when`. If all items are `None` remove the
     /// agenda record entirely.
-    fn cleanup_agenda(when: BlockNumberFor<T>) {
+    fn cleanup_agenda(when: BlockNumberOrTimestampOf<T>) {
         let mut agenda = Agenda::<T>::get(when);
         match agenda.iter().rposition(|i| i.is_some()) {
             Some(i) if agenda.len() > i + 1 => {
@@ -731,11 +820,11 @@ impl<T: Config> Pallet<T> {
 
     fn do_schedule(
         when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-        maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+        maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
         priority: schedule::Priority,
         origin: T::PalletsOrigin,
         call: BoundedCallOf<T>,
-    ) -> Result<TaskAddress<BlockNumberFor<T>>, DispatchError> {
+    ) -> Result<TaskAddressOf<T>, DispatchError> {
         let when = Self::resolve_time(when)?;
 
         let lookup_hash = call.lookup_hash();
@@ -765,12 +854,12 @@ impl<T: Config> Pallet<T> {
 
     fn do_cancel(
         origin: Option<T::PalletsOrigin>,
-        (when, index): TaskAddress<BlockNumberFor<T>>,
+        (when, index): TaskAddressOf<T>,
     ) -> Result<(), DispatchError> {
         let scheduled = Agenda::<T>::try_mutate(when, |agenda| {
             agenda.get_mut(index as usize).map_or(
                 Ok(None),
-                |s| -> Result<Option<Scheduled<_, _, _, _, _>>, DispatchError> {
+                |s| -> Result<Option<Scheduled<_, _, _, _, _, _>>, DispatchError> {
                     if let (Some(ref o), Some(ref s)) = (origin, s.borrow()) {
                         Self::ensure_privilege(o, &s.origin)?;
                     };
@@ -793,9 +882,9 @@ impl<T: Config> Pallet<T> {
     }
 
     fn do_reschedule(
-        (when, index): TaskAddress<BlockNumberFor<T>>,
+        (when, index): TaskAddressOf<T>,
         new_time: DispatchTime<BlockNumberFor<T>, T::Moment>,
-    ) -> Result<TaskAddress<BlockNumberFor<T>>, DispatchError> {
+    ) -> Result<TaskAddressOf<T>, DispatchError> {
         let new_time = Self::resolve_time(new_time)?;
 
         if new_time == when {
@@ -825,11 +914,11 @@ impl<T: Config> Pallet<T> {
     fn do_schedule_named(
         id: TaskName,
         when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-        maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+        maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
         priority: schedule::Priority,
         origin: T::PalletsOrigin,
         call: BoundedCallOf<T>,
-    ) -> Result<TaskAddress<BlockNumberFor<T>>, DispatchError> {
+    ) -> Result<TaskAddressOf<T>, DispatchError> {
         // ensure id it is unique
         if Lookup::<T>::contains_key(&id) {
             return Err(Error::<T>::FailedToSchedule.into());
@@ -890,7 +979,7 @@ impl<T: Config> Pallet<T> {
     fn do_reschedule_named(
         id: TaskName,
         new_time: DispatchTime<BlockNumberFor<T>, T::Moment>,
-    ) -> Result<TaskAddress<BlockNumberFor<T>>, DispatchError> {
+    ) -> Result<TaskAddressOf<T>, DispatchError> {
         let new_time = Self::resolve_time(new_time)?;
 
         let lookup = Lookup::<T>::get(id);
@@ -911,7 +1000,7 @@ impl<T: Config> Pallet<T> {
 
     fn do_cancel_retry(
         origin: &T::PalletsOrigin,
-        (when, index): TaskAddress<BlockNumberFor<T>>,
+        (when, index): TaskAddressOf<T>,
     ) -> Result<(), DispatchError> {
         let agenda = Agenda::<T>::get(when);
         let scheduled = agenda
@@ -934,7 +1023,7 @@ use ServiceTaskError::*;
 
 impl<T: Config> Pallet<T> {
     /// Service up to `max` agendas queue starting from earliest incompletely executed agenda.
-    fn service_agendas(weight: &mut WeightMeter, now: BlockNumberFor<T>, max: u32) {
+    fn service_agendas(weight: &mut WeightMeter, now: BlockNumberOrTimestampOf<T>, max: u32) {
         if weight
             .try_consume(T::WeightInfo::service_agendas_base())
             .is_err()
@@ -942,7 +1031,14 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let mut incomplete_since = now + One::one();
+        let mut incomplete_since = match now {
+            BlockNumberOrTimestamp::BlockNumber(x) => {
+                BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()))
+            }
+            BlockNumberOrTimestamp::Timestamp(x) => {
+                BlockNumberOrTimestamp::Timestamp(x.saturating_add(T::TimestampBucketSize::get()))
+            }
+        };
         let mut when = IncompleteSince::<T>::take().unwrap_or(now);
         let mut executed = 0;
 
@@ -953,7 +1049,16 @@ impl<T: Config> Pallet<T> {
             if !Self::service_agenda(weight, &mut executed, now, when, u32::max_value()) {
                 incomplete_since = incomplete_since.min(when);
             }
-            when.saturating_inc();
+            match when {
+                BlockNumberOrTimestamp::BlockNumber(x) => {
+                    when = BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()));
+                }
+                BlockNumberOrTimestamp::Timestamp(x) => {
+                    when = BlockNumberOrTimestamp::Timestamp(
+                        x.saturating_add(T::TimestampBucketSize::get()),
+                    );
+                }
+            };
             count_down.saturating_dec();
         }
         incomplete_since = incomplete_since.min(when);
@@ -967,8 +1072,8 @@ impl<T: Config> Pallet<T> {
     fn service_agenda(
         weight: &mut WeightMeter,
         executed: &mut u32,
-        now: BlockNumberFor<T>,
-        when: BlockNumberFor<T>,
+        now: BlockNumberOrTimestampOf<T>,
+        when: BlockNumberOrTimestampOf<T>,
         max: u32,
     ) -> bool {
         let mut agenda = Agenda::<T>::get(when);
@@ -1042,8 +1147,8 @@ impl<T: Config> Pallet<T> {
     /// - Rescheduling the task for execution in a later agenda if periodic.
     fn service_task(
         weight: &mut WeightMeter,
-        now: BlockNumberFor<T>,
-        when: BlockNumberFor<T>,
+        now: BlockNumberOrTimestampOf<T>,
+        when: BlockNumberOrTimestampOf<T>,
         agenda_index: u32,
         is_first: bool,
         mut task: ScheduledOf<T>,
@@ -1113,21 +1218,23 @@ impl<T: Config> Pallet<T> {
                     } else {
                         task.maybe_periodic = None;
                     }
-                    let wake = now.saturating_add(period);
-                    match Self::place_task(wake, task) {
-                        Ok(new_address) => {
-                            if let Some(retry_config) = maybe_retry_config {
-                                Retries::<T>::insert(new_address, retry_config);
+                    let wake = now.saturating_add(&period);
+                    if let Some(wake) = wake {
+                        match Self::place_task(wake, task) {
+                            Ok(new_address) => {
+                                if let Some(retry_config) = maybe_retry_config {
+                                    Retries::<T>::insert(new_address, retry_config);
+                                }
                             }
-                        }
-                        Err((_, task)) => {
-                            // TODO: Leave task in storage somewhere for it to be rescheduled
-                            // manually.
-                            T::Preimages::drop(&task.call);
-                            Self::deposit_event(Event::PeriodicFailed {
-                                task: (when, agenda_index),
-                                id: task.maybe_id,
-                            });
+                            Err((_, task)) => {
+                                // TODO: Leave task in storage somewhere for it to be rescheduled
+                                // manually.
+                                T::Preimages::drop(&task.call);
+                                Self::deposit_event(Event::PeriodicFailed {
+                                    task: (when, agenda_index),
+                                    id: task.maybe_id,
+                                });
+                            }
                         }
                     }
                 } else {
@@ -1186,11 +1293,11 @@ impl<T: Config> Pallet<T> {
     /// - the agenda was full.
     fn schedule_retry(
         weight: &mut WeightMeter,
-        now: BlockNumberFor<T>,
-        when: BlockNumberFor<T>,
+        now: BlockNumberOrTimestampOf<T>,
+        when: BlockNumberOrTimestampOf<T>,
         agenda_index: u32,
         task: &ScheduledOf<T>,
-        retry_config: RetryConfig<BlockNumberFor<T>>,
+        retry_config: RetryConfig<BlockNumberOrTimestampOf<T>>,
     ) {
         if weight
             .try_consume(T::WeightInfo::schedule_retry(T::MaxScheduledPerBlock::get()))
@@ -1212,28 +1319,30 @@ impl<T: Config> Pallet<T> {
             Some(n) => n,
             None => return,
         };
-        let wake = now.saturating_add(period);
-        match Self::place_task(wake, task.as_retry()) {
-            Ok(address) => {
-                // Reinsert the retry config to the new address of the task after it was
-                // placed.
-                Retries::<T>::insert(
-                    address,
-                    RetryConfig {
-                        total_retries,
-                        remaining,
-                        period,
-                    },
-                );
-            }
-            Err((_, task)) => {
-                // TODO: Leave task in storage somewhere for it to be
-                // rescheduled manually.
-                T::Preimages::drop(&task.call);
-                Self::deposit_event(Event::RetryFailed {
-                    task: (when, agenda_index),
-                    id: task.maybe_id,
-                });
+        let wake = now.saturating_add(&period);
+        if let Some(wake) = wake {
+            match Self::place_task(wake, task.as_retry()) {
+                Ok(address) => {
+                    // Reinsert the retry config to the new address of the task after it was
+                    // placed.
+                    Retries::<T>::insert(
+                        address,
+                        RetryConfig {
+                            total_retries,
+                            remaining,
+                            period,
+                        },
+                    );
+                }
+                Err((_, task)) => {
+                    // TODO: Leave task in storage somewhere for it to be
+                    // rescheduled manually.
+                    T::Preimages::drop(&task.call);
+                    Self::deposit_event(Event::RetryFailed {
+                        task: (when, agenda_index),
+                        id: task.maybe_id,
+                    });
+                }
             }
         }
     }
@@ -1258,7 +1367,7 @@ impl<T: Config> Pallet<T> {
 impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
     for Pallet<T>
 {
-    type Address = TaskAddress<BlockNumberFor<T>>;
+    type Address = TaskAddressOf<T>;
     type Hasher = T::Hashing;
 
     fn schedule(
@@ -1268,7 +1377,13 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
         origin: T::PalletsOrigin,
         call: BoundedCallOf<T>,
     ) -> Result<Self::Address, DispatchError> {
-        Self::do_schedule(when.into(), maybe_periodic, priority, origin, call)
+        let periodic = if let Some(periodic) = maybe_periodic {
+            Some((BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1))
+        } else {
+            None
+        };
+
+        Self::do_schedule(when.into(), periodic, priority, origin, call)
     }
 
     fn cancel((when, index): Self::Address) -> Result<(), DispatchError> {
@@ -1288,7 +1403,8 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
         Agenda::<T>::get(when)
             .get(index as usize)
             .ok_or(DispatchError::Unavailable)
-            .map(|_| when)
+            .map(|_| when.as_block_number())
+            .and_then(|x| x.ok_or(DispatchError::Unavailable))
     }
 }
 
@@ -1297,7 +1413,7 @@ use schedule::v3::TaskName;
 impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
     for Pallet<T>
 {
-    type Address = TaskAddress<BlockNumberFor<T>>;
+    type Address = TaskAddressOf<T>;
     type Hasher = T::Hashing;
 
     fn schedule_named(
@@ -1308,7 +1424,12 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
         origin: T::PalletsOrigin,
         call: BoundedCallOf<T>,
     ) -> Result<Self::Address, DispatchError> {
-        Self::do_schedule_named(id, when.into(), maybe_periodic, priority, origin, call)
+        let periodic = if let Some(periodic) = maybe_periodic {
+            Some((BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1))
+        } else {
+            None
+        };
+        Self::do_schedule_named(id, when.into(), periodic, priority, origin, call)
     }
 
     fn cancel_named(id: TaskName) -> Result<(), DispatchError> {
@@ -1324,8 +1445,13 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 
     fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
         Lookup::<T>::get(id)
-            .and_then(|(when, index)| Agenda::<T>::get(when).get(index as usize).map(|_| when))
+            .and_then(|(when, index)| {
+                Agenda::<T>::get(when)
+                    .get(index as usize)
+                    .map(|_| when.as_block_number())
+            })
             .ok_or(DispatchError::Unavailable)
+            .and_then(|x| x.ok_or(DispatchError::Unavailable))
     }
 }
 
@@ -1337,12 +1463,12 @@ impl<T: Config>
         T::PalletsOrigin,
     > for Pallet<T>
 {
-    type Address = TaskAddress<BlockNumberFor<T>>;
+    type Address = TaskAddressOf<T>;
     type Hasher = T::Hashing;
     fn schedule_named(
         id: TaskName,
         when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-        maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+        maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
         priority: schedule::Priority,
         origin: T::PalletsOrigin,
         call: BoundedCallOf<T>,
@@ -1363,7 +1489,12 @@ impl<T: Config>
 
     fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
         Lookup::<T>::get(id)
-            .and_then(|(when, index)| Agenda::<T>::get(when).get(index as usize).map(|_| when))
+            .and_then(|(when, index)| {
+                Agenda::<T>::get(when)
+                    .get(index as usize)
+                    .map(|_| when.as_block_number())
+                    .and_then(|x| x.ok_or(DispatchError::Unavailable))
+            })
             .ok_or(DispatchError::Unavailable)
     }
 }
