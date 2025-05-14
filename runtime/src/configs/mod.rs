@@ -102,15 +102,15 @@ impl frame_system::Config for Runtime {
 
 parameter_types! {
 
-	pub const MaxTokenAmount: Balance = 1000 * UNIT;
-	pub const DefaultMintAmount: Balance = 10 * UNIT;
+    pub const MaxTokenAmount: Balance = 1000 * UNIT;
+    pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
 impl pallet_faucet::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type MaxTokenAmount = MaxTokenAmount;
-	type DefaultMintAmount = DefaultMintAmount;
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MaxTokenAmount = MaxTokenAmount;
+    type DefaultMintAmount = DefaultMintAmount;
 }
 
 impl pallet_mining_rewards::Config for Runtime {
@@ -143,7 +143,7 @@ parameter_types! {
 impl pallet_timestamp::Config for Runtime {
     /// A timestamp: milliseconds since the unix epoch.
     type Moment = u64;
-    type OnTimestampSet = ();
+    type OnTimestampSet = Scheduler;
     type MinimumPeriod = MinimumPeriod;
     type WeightInfo = ();
 }
