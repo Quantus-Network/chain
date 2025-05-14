@@ -60,7 +60,7 @@ pub enum QuantusKeySubcommand {
 	#[command(flatten)]
 	Sc(sc_cli::KeySubcommand),
 	/// Generate a quantus address
-	QUANTUS {
+	Quantus {
 		/// Type of the key
 		#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
 		scheme: Option<QuantusAddressType>,

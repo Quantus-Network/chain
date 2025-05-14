@@ -61,7 +61,7 @@ pub fn run() -> sc_cli::Result<()> {
 	match &cli.subcommand {
 		Some(Subcommand::Key(cmd)) => match cmd {
 			QuantusKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
-			QuantusKeySubcommand::QUANTUS { scheme, seed} => {
+			QuantusKeySubcommand::Quantus { scheme, seed} => {
 
 
 			match scheme {
