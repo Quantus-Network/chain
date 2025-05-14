@@ -6,7 +6,6 @@ use frame_support::BoundedVec;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::blake2_256;
 
-// Helper function to convert a Vec<[u8; 32]> to BoundedVec<[u8; 32], MaxProofs>
 fn bounded_proof(proof: Vec<[u8; 32]>) -> BoundedVec<[u8; 32], MaxProofs> {
     proof.try_into().expect("Proof exceeds maximum size")
 }
@@ -22,7 +21,6 @@ fn create_airdrop_works() {
             merkle_root
         ));
 
-        // Check that the event was emitted
         System::assert_last_event(
             Event::AirdropCreated {
                 airdrop_id: 0,
@@ -31,7 +29,6 @@ fn create_airdrop_works() {
             .into(),
         );
 
-        // Check that the airdrop was created
         assert_eq!(MerkleAirdrop::airdrop_merkle_roots(0), Some(merkle_root));
     });
 }
@@ -41,13 +38,11 @@ fn fund_airdrop_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Initialize balances
         initialize_balances();
 
         let merkle_root = [0u8; 32];
         let amount = 100;
 
-        // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(1),
             merkle_root
@@ -57,14 +52,12 @@ fn fund_airdrop_works() {
         let initial_balance = MerkleAirdrop::airdrop_balances(0);
         assert!(initial_balance.is_none() || initial_balance == Some(0));
 
-        // Fund the airdrop
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(1),
             0,
             amount
         ));
 
-        // Check that the event was emitted
         System::assert_last_event(
             Event::AirdropFunded {
                 airdrop_id: 0,
@@ -80,14 +73,12 @@ fn fund_airdrop_works() {
         assert_eq!(Balances::free_balance(1), 9900); // 10000 - 100
         assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 101); // 1 (initial) + 100 (funded)
 
-        // Fund the airdrop again
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(1),
             0,
             amount
         ));
 
-        // Check that the balance was updated correctly
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(amount * 2));
         assert_eq!(Balances::free_balance(1), 9800); // 9900 - 100
         assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 201); // 101 + 100
@@ -98,24 +89,17 @@ fn fund_airdrop_works() {
 fn claim_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
-
-        // Initialize balances
         initialize_balances();
 
-        // Create a test merkle tree with two accounts
         let account1: u64 = 2; // Account that will claim
         let amount1: u64 = 500;
         let account2: u64 = 3;
         let amount2: u64 = 300;
 
-        // Calculate leaf hashes
         let leaf1 = calculate_leaf_hash(&account1, amount1);
         let leaf2 = calculate_leaf_hash(&account2, amount2);
-
-        // Calculate the Merkle root (hash of the two leaves)
         let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
 
-        // Create the airdrop with our calculated root
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(1),
             merkle_root
@@ -129,7 +113,6 @@ fn claim_works() {
         // Create proof for account1d
         let merkle_proof = bounded_proof(vec![leaf2]);
 
-        // Claim tokens
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -138,7 +121,6 @@ fn claim_works() {
             merkle_proof.clone()
         ));
 
-        // Check that the event was emitted
         System::assert_last_event(
             Event::Claimed {
                 airdrop_id: 0,
@@ -148,11 +130,9 @@ fn claim_works() {
             .into(),
         );
 
-        // Check that the claim was recorded
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500)); // 1000 - 500
 
-        // Check balances
         assert_eq!(Balances::free_balance(2), 500);
         assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 501); // 1 (initial) + 1000 (funded) - 500 (claimed)
     });
@@ -163,7 +143,6 @@ fn create_airdrop_requires_signed_origin() {
     new_test_ext().execute_with(|| {
         let merkle_root = [0u8; 32];
 
-        // Try to create an airdrop with an unsigned origin
         assert_noop!(
             MerkleAirdrop::create_airdrop(RuntimeOrigin::none(), merkle_root),
             frame_support::error::BadOrigin
@@ -174,7 +153,6 @@ fn create_airdrop_requires_signed_origin() {
 #[test]
 fn fund_airdrop_fails_for_nonexistent_airdrop() {
     new_test_ext().execute_with(|| {
-        // Try to fund a nonexistent airdrop
         assert_noop!(
             MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 999, 1000),
             Error::<Test>::AirdropNotFound
@@ -187,7 +165,6 @@ fn claim_fails_for_nonexistent_airdrop() {
     new_test_ext().execute_with(|| {
         let merkle_proof = bounded_proof(vec![[0u8; 32]]);
 
-        // Try to claim from a nonexistent airdrop
         assert_noop!(
             MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 1, 500, merkle_proof),
             Error::<Test>::AirdropNotFound
@@ -200,23 +177,17 @@ fn claim_already_claimed() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Initialize balances
         initialize_balances();
 
-        // Create a test merkle tree with two accounts
         let account1: u64 = 2; // Account that will claim
         let amount1: u64 = 500;
         let account2: u64 = 3;
         let amount2: u64 = 300;
 
-        // Calculate leaf hashes
         let leaf1 = calculate_leaf_hash(&account1, amount1);
         let leaf2 = calculate_leaf_hash(&account2, amount2);
-
-        // Calculate the Merkle root (hash of the two leaves)
         let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
 
-        // Create the airdrop with our calculated root
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(1),
             merkle_root
@@ -227,10 +198,8 @@ fn claim_already_claimed() {
             1000
         ));
 
-        // Create proof for account1
         let merkle_proof = bounded_proof(vec![leaf2]);
 
-        // Claim tokens
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -288,7 +257,6 @@ fn verify_merkle_proof_works() {
             "Proof for account2 should be valid"
         );
 
-        // Test with invalid amount
         assert!(
             !MerkleAirdrop::verify_merkle_proof(
                 &account1,
@@ -299,14 +267,12 @@ fn verify_merkle_proof_works() {
             "Proof with wrong amount should be invalid"
         );
 
-        // Test with invalid proof
         let wrong_proof = vec![[1u8; 32]];
         assert!(
             !MerkleAirdrop::verify_merkle_proof(&account1, amount1, &merkle_root, &wrong_proof),
             "Wrong proof should be invalid"
         );
 
-        // Test with wrong account
         assert!(
             !MerkleAirdrop::verify_merkle_proof(
                 &3, // Wrong account
@@ -344,7 +310,6 @@ fn claim_invalid_proof_fails() {
     new_test_ext().execute_with(|| {
         initialize_balances();
 
-        // Create a valid merkle tree
         let account1: u64 = 2;
         let amount1: u64 = 500;
         let account2: u64 = 3;
@@ -364,10 +329,8 @@ fn claim_invalid_proof_fails() {
             1000
         ));
 
-        // Create an invalid proof
         let invalid_proof = bounded_proof(vec![[1u8; 32]]); // Different from the actual leaf2
 
-        // Attempt to claim with invalid proof
         assert_noop!(
             MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, invalid_proof),
             Error::<Test>::InvalidProof
@@ -400,7 +363,6 @@ fn claim_insufficient_airdrop_balance_fails() {
             400
         )); // Fund less than claim amount
 
-        // Create a valid proof
         let merkle_proof = bounded_proof(vec![leaf2]);
 
         // Attempt to claim more than available
@@ -455,11 +417,9 @@ fn claim_updates_balances_correctly() {
             1000
         ));
 
-        // Initial balances
         let initial_account_balance = Balances::free_balance(2);
         let initial_pallet_balance = Balances::free_balance(MerkleAirdrop::account_id());
 
-        // Claim tokens
         assert_ok!(MerkleAirdrop::claim(
             RuntimeOrigin::none(),
             0,
@@ -468,17 +428,13 @@ fn claim_updates_balances_correctly() {
             bounded_proof(vec![leaf2])
         ));
 
-        // Check balances after claim
         assert_eq!(Balances::free_balance(2), initial_account_balance + 500);
         assert_eq!(
             Balances::free_balance(MerkleAirdrop::account_id()),
             initial_pallet_balance - 500
         );
 
-        // Check airdrop balance is updated
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500)); // 1000 - 500
-
-        // Check claim is recorded
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
     });
 }
@@ -488,7 +444,6 @@ fn multiple_users_can_claim() {
     new_test_ext().execute_with(|| {
         initialize_balances();
 
-        // Create a valid merkle tree with 3 users
         let account1: u64 = 2;
         let amount1: u64 = 500;
         let account2: u64 = 3;
@@ -499,8 +454,6 @@ fn multiple_users_can_claim() {
         let leaf1 = calculate_leaf_hash(&account1, amount1);
         let leaf2 = calculate_leaf_hash(&account2, amount2);
         let leaf3 = calculate_leaf_hash(&account3, amount3);
-
-        // Create a simple 3-leaf merkle tree
         let parent1 = calculate_parent_hash(&leaf1, &leaf2);
         let merkle_root = calculate_parent_hash(&parent1, &leaf3);
 
@@ -547,10 +500,8 @@ fn multiple_users_can_claim() {
         ));
         assert_eq!(Balances::free_balance(4), 200);
 
-        // Check final airdrop balance
         assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(0)); // 1000 - 500 - 300 - 200
 
-        // Check all claims are recorded
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
         assert_eq!(MerkleAirdrop::is_claimed(0, 3), ());
         assert_eq!(MerkleAirdrop::is_claimed(0, 4), ());
@@ -562,22 +513,17 @@ fn delete_airdrop_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Initialize balances
         initialize_balances();
 
         let merkle_root = [0u8; 32];
         let creator = 1;
 
-        // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(creator),
             merkle_root
         ));
 
-        // Check that the airdrop exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_some());
-
-        // Check that the creator is recorded correctly
         assert_eq!(MerkleAirdrop::airdrop_creators(0), Some(creator));
 
         // Delete the airdrop (balance is zero)
@@ -586,7 +532,6 @@ fn delete_airdrop_works() {
             0
         ));
 
-        // Check that the event was emitted
         System::assert_last_event(Event::AirdropDeleted { airdrop_id: 0 }.into());
 
         // Check that the airdrop no longer exists
@@ -601,7 +546,6 @@ fn delete_airdrop_with_balance_refunds_creator() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Initialize balances
         initialize_balances();
 
         let merkle_root = [0u8; 32];
@@ -609,13 +553,11 @@ fn delete_airdrop_with_balance_refunds_creator() {
         let initial_creator_balance = Balances::free_balance(creator);
         let fund_amount = 100;
 
-        // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(creator),
             merkle_root
         ));
 
-        // Fund the airdrop
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(creator),
             0,
@@ -628,7 +570,6 @@ fn delete_airdrop_with_balance_refunds_creator() {
             initial_creator_balance - fund_amount
         );
 
-        // Now delete the airdrop with non-zero balance
         assert_ok!(MerkleAirdrop::delete_airdrop(
             RuntimeOrigin::signed(creator),
             0
@@ -637,10 +578,8 @@ fn delete_airdrop_with_balance_refunds_creator() {
         // Check that the funds were returned to the creator
         assert_eq!(Balances::free_balance(creator), initial_creator_balance);
 
-        // Check that the event was emitted
         System::assert_last_event(Event::AirdropDeleted { airdrop_id: 0 }.into());
 
-        // Check that the airdrop no longer exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
         assert!(MerkleAirdrop::airdrop_balances(0).is_none());
         assert!(MerkleAirdrop::airdrop_creators(0).is_none());
@@ -652,20 +591,17 @@ fn delete_airdrop_non_creator_fails() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Initialize balances
         initialize_balances();
 
         let merkle_root = [0u8; 32];
         let creator = 1;
         let non_creator = 2;
 
-        // Create an airdrop first
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(creator),
             merkle_root
         ));
 
-        // Try to delete the airdrop with a non-creator account
         assert_noop!(
             MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(non_creator), 0),
             Error::<Test>::NotAirdropCreator
@@ -678,7 +614,6 @@ fn delete_airdrop_nonexistent_fails() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Try to delete a nonexistent airdrop
         assert_noop!(
             MerkleAirdrop::delete_airdrop(RuntimeOrigin::signed(1), 999),
             Error::<Test>::AirdropNotFound
@@ -691,10 +626,8 @@ fn delete_airdrop_after_claims_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        // Initialize balances
         initialize_balances();
 
-        // Create a test merkle tree with two accounts
         let creator: u64 = 1;
         let initial_creator_balance = Balances::free_balance(creator);
         let account1: u64 = 2;
@@ -703,14 +636,10 @@ fn delete_airdrop_after_claims_works() {
         let amount2: u64 = 300;
         let total_fund = 1000;
 
-        // Calculate leaf hashes
         let leaf1 = calculate_leaf_hash(&account1, amount1);
         let leaf2 = calculate_leaf_hash(&account2, amount2);
-
-        // Calculate the Merkle root
         let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
 
-        // Create and fund the airdrop
         assert_ok!(MerkleAirdrop::create_airdrop(
             RuntimeOrigin::signed(creator),
             merkle_root
@@ -749,7 +678,6 @@ fn delete_airdrop_after_claims_works() {
             initial_creator_balance - total_fund + (total_fund - amount1)
         );
 
-        // Check that the airdrop no longer exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
         assert!(MerkleAirdrop::airdrop_balances(0).is_none());
         assert!(MerkleAirdrop::airdrop_creators(0).is_none());

@@ -9,7 +9,7 @@
 //! - Creating airdrops with a Merkle root representing all valid claims
 //! - Funding airdrops with tokens to be distributed
 //! - Allowing users to claim tokens by providing Merkle proofs
-//! - Deleting airdrops that have a zero balance (fully claimed or unfunded)
+//! - Allowing creators to delete airdrops and reclaim any unclaimed tokens
 //!
 //! The use of Merkle trees allows for gas-efficient verification of eligibility without
 //! storing the complete list of recipients on-chain.
@@ -21,7 +21,7 @@
 //! * `create_airdrop` - Create a new airdrop with a Merkle root
 //! * `fund_airdrop` - Fund an existing airdrop with tokens
 //! * `claim` - Claim tokens from an airdrop by providing a Merkle proof
-//! * `delete_airdrop` - Delete an airdrop if its balance is zero
+//! * `delete_airdrop` - Delete an airdrop and reclaim any remaining tokens (creator only)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -229,7 +229,6 @@ pub mod pallet {
             merkle_root: &MerkleRoot,
             merkle_proof: &[MerkleHash],
         ) -> bool {
-            // Create the leaf hash using Blake2
             let leaf = Self::calculate_leaf_hash_blake2(account, amount);
 
             // Verify the proof by walking up the tree
@@ -311,29 +310,21 @@ pub mod pallet {
         pub fn create_airdrop(origin: OriginFor<T>, merkle_root: MerkleRoot) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            // Get the next available airdrop ID
             let airdrop_id = Self::next_airdrop_id();
 
-            // Ensure this airdrop doesn't already exist (should never happen with sequential IDs)
             ensure!(
                 !AirdropMerkleRoots::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropAlreadyExists
             );
 
-            // Store the Merkle root for this airdrop
             AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
-
-            // Store the creator of this airdrop
             AirdropCreators::<T>::insert(airdrop_id, who.clone());
 
-            // Initialize the airdrop balance to zero with explicit type
             let zero_balance = <BalanceOf<T> as Zero>::zero();
             AirdropBalances::<T>::insert(airdrop_id, zero_balance);
 
-            // Increment the airdrop ID counter for next time
             NextAirdropId::<T>::put(airdrop_id.saturating_add(1));
 
-            // Emit an event
             Self::deposit_event(Event::AirdropCreated {
                 airdrop_id,
                 merkle_root,
@@ -365,13 +356,11 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            // Ensure the airdrop exists
             ensure!(
                 AirdropMerkleRoots::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropNotFound
             );
 
-            // Transfer tokens from the caller to the pallet account
             <T::Currency as Mutate<T::AccountId>>::transfer(
                 &who,
                 &Self::account_id(),
@@ -379,7 +368,6 @@ pub mod pallet {
                 frame_support::traits::tokens::Preservation::Preserve,
             )?;
 
-            // Update the airdrop balance
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
                 if let Some(current_balance) = balance {
                     *current_balance = current_balance.saturating_add(amount);
@@ -422,32 +410,26 @@ pub mod pallet {
             amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
             merkle_proof: BoundedVec<MerkleHash, T::MaxProofs>,
         ) -> DispatchResult {
-            // Ensure the call has no origin (can be called by anyone)
             ensure_none(origin)?;
 
-            // Ensure the airdrop exists
             ensure!(
                 AirdropMerkleRoots::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropNotFound
             );
 
-            // Ensure the recipient hasn't already claimed
             ensure!(
                 !Claimed::<T>::contains_key(airdrop_id, &recipient),
                 Error::<T>::AlreadyClaimed
             );
 
-            // Get the Merkle root for this airdrop
             let merkle_root =
                 AirdropMerkleRoots::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
 
-            // Verify the Merkle proof using sender
             ensure!(
                 Self::verify_merkle_proof(&recipient, amount, &merkle_root, &merkle_proof),
                 Error::<T>::InvalidProof
             );
 
-            // Ensure the airdrop has sufficient balance
             let airdrop_balance = AirdropBalances::<T>::get(airdrop_id)
                 .ok_or(Error::<T>::InsufficientAirdropBalance)?;
             ensure!(
@@ -458,14 +440,12 @@ pub mod pallet {
             // Mark as claimed before performing the transfer
             Claimed::<T>::insert(airdrop_id, &recipient, ());
 
-            // Update the airdrop balance
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
                 if let Some(current_balance) = balance {
                     *current_balance = current_balance.saturating_sub(amount);
                 }
             });
 
-            // Transfer tokens from the pallet account to the recipient
             <T::Currency as Mutate<T::AccountId>>::transfer(
                 &Self::account_id(),
                 &recipient,
@@ -473,7 +453,6 @@ pub mod pallet {
                 frame_support::traits::tokens::Preservation::Preserve,
             )?;
 
-            // Emit an event using recipient
             Self::deposit_event(Event::Claimed {
                 airdrop_id,
                 account: recipient,
@@ -502,18 +481,15 @@ pub mod pallet {
         pub fn delete_airdrop(origin: OriginFor<T>, airdrop_id: AirdropId) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            // Ensure the airdrop exists
             ensure!(
                 AirdropMerkleRoots::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropNotFound
             );
 
-            // Check that the caller is the creator of the airdrop
             let creator =
                 AirdropCreators::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
             ensure!(who == creator, Error::<T>::NotAirdropCreator);
 
-            // Get the current balance of the airdrop
             let balance =
                 AirdropBalances::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
 
@@ -532,7 +508,6 @@ pub mod pallet {
             AirdropBalances::<T>::remove(airdrop_id);
             AirdropCreators::<T>::remove(airdrop_id);
 
-            // Emit an event
             Self::deposit_event(Event::AirdropDeleted { airdrop_id });
 
             Ok(())
