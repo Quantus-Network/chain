@@ -40,8 +40,16 @@ fn setup_reversible_account<T: Config>(
     who: T::AccountId,
     delay: BlockNumberFor<T>,
     policy: DelayPolicy,
+    reverser: Option<T::AccountId>,
 ) {
-    ReversibleAccounts::<T>::insert(who, (delay, policy));
+    ReversibleAccounts::<T>::insert(
+        who,
+        ReversibleAccountData {
+            delay,
+            policy,
+            explicit_reverser: reverser,
+        },
+    );
 }
 
 // Helper to fund an account (requires Balances pallet in mock runtime)
@@ -77,6 +85,7 @@ mod benchmarks {
     #[benchmark]
     fn set_reversibility() -> Result<(), BenchmarkError> {
         let caller: T::AccountId = whitelisted_caller();
+        let explicit_reverser: T::AccountId = benchmark_account("explicit_reverser", 0, SEED);
         let delay: BlockNumberFor<T> = T::DefaultDelay::get();
         let policy = DelayPolicy::Explicit;
 
@@ -85,9 +94,17 @@ mod benchmarks {
             RawOrigin::Signed(caller.clone()),
             Some(delay),
             policy.clone(),
+            Some(explicit_reverser.clone()),
         );
 
-        assert_eq!(ReversibleAccounts::<T>::get(&caller), Some((delay, policy)));
+        assert_eq!(
+            ReversibleAccounts::<T>::get(&caller),
+            Some(ReversibleAccountData {
+                delay,
+                policy,
+                explicit_reverser: Some(explicit_reverser),
+            })
+        );
 
         Ok(())
     }
@@ -102,7 +119,7 @@ mod benchmarks {
 
         // Setup caller as reversible
         let delay = T::DefaultDelay::get();
-        setup_reversible_account::<T>(caller.clone(), delay, DelayPolicy::Explicit);
+        setup_reversible_account::<T>(caller.clone(), delay, DelayPolicy::Explicit, None);
 
         let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
         let tx_id = T::Hashing::hash_of(&(caller.clone(), call).encode());
@@ -129,13 +146,22 @@ mod benchmarks {
     #[benchmark]
     fn cancel() -> Result<(), BenchmarkError> {
         let caller: T::AccountId = whitelisted_caller();
+        let reverser: T::AccountId = benchmark_account("reverser", 1, SEED);
+
         fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
+        fund_account::<T>(&reverser, BalanceOf::<T>::from(1000u128));
         let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
         let transfer_amount = 100u128;
 
         // Setup caller as reversible and schedule a task in setup
         let delay = T::DefaultDelay::get();
-        setup_reversible_account::<T>(caller.clone(), delay, DelayPolicy::Explicit);
+        // Worst case scenario: reverser is explicit
+        setup_reversible_account::<T>(
+            caller.clone(),
+            delay,
+            DelayPolicy::Explicit,
+            Some(reverser.clone()),
+        );
         let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
         // Use internal function directly in setup - requires RuntimeOrigin from Config
@@ -152,7 +178,7 @@ mod benchmarks {
 
         // Benchmark the cancel extrinsic
         #[extrinsic_call]
-        _(RawOrigin::Signed(caller.clone()), tx_id);
+        _(RawOrigin::Signed(reverser), tx_id);
 
         assert_eq!(AccountPendingIndex::<T>::get(&caller), 0);
         assert!(!PendingTransfers::<T>::contains_key(&tx_id));
@@ -173,7 +199,7 @@ mod benchmarks {
 
         // Setup owner as reversible and schedule a task in setup
         let delay = T::DefaultDelay::get();
-        setup_reversible_account::<T>(owner.clone(), delay, DelayPolicy::Explicit);
+        setup_reversible_account::<T>(owner.clone(), delay, DelayPolicy::Explicit, None);
         let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
         let owner_origin = RawOrigin::Signed(owner.clone()).into();
