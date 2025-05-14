@@ -1,8 +1,8 @@
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::pallet_prelude::TypeInfo;
-use frame_support::traits::{CallerTrait, Consideration, Contains, Footprint, ReservableCurrency};
+use frame_support::traits::{CallerTrait, Consideration, Footprint, ReservableCurrency};
 use sp_runtime::{DispatchError, Perbill};
-use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
+use crate::{AccountId, Balance, Balances, BlockNumber, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
 use alloc::vec::Vec;
 
 
@@ -85,18 +85,18 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                     max_deciding: 1,                // Only 1 referendum can be in deciding phase at a time
                     decision_deposit: 10 * UNIT,    // Highest deposit requirement to prevent spam
                     prepare_period: 1 * DAYS,       // 1 day preparation before voting begins
-                    decision_period: 14 * DAYS,     // 2 weeks for community to vote
+                    decision_period: 14 * DAYS,     // 2 weeks for community to vote - even if all members vote, we will wait for execution
                     confirm_period: 1 * DAYS,       // 1 day confirmation period once passing
                     min_enactment_period: 1 * DAYS, // At least 1 day between approval and execution
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(50),    // Minimum 50% approval at end
+                        floor: Perbill::from_percent(75),    // Minimum 75% approval at end
                         ceil: Perbill::from_percent(100),    // Requires 100% approval at start
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
                         floor: Perbill::from_percent(10),    // At least 10% support at end
-                        ceil: Perbill::from_percent(50),     // 50% support required at start
+                        ceil: Perbill::from_percent(75),     // 50% support required at start
                     },
                 },
             ),
@@ -166,15 +166,9 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
             }
         }
 
-        // Check for signed origins
-        if let Some(signer) = id.as_signed() {
-            // Check if the signer is a member of the membership pallet
-            if pallet_membership::Pallet::<Runtime>::contains(signer) {
-                return Ok(0);
-            }
-            else{
-                return Ok(1);
-            }
+        // Check for signed origins - simplified version
+        if let Some(_signer) = id.as_signed() {
+            return Ok(1);
         }
         Err(())
     }
@@ -198,3 +192,4 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
         Ok(())
     }
 }
+

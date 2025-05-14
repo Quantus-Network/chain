@@ -28,7 +28,7 @@ mod tests {
             Balances::make_free_balance_be(&voter, 1000 * UNIT);
 
             // Prepare the proposal
-            let call = RuntimeCall::TechCommunity(pallet_membership::Call::add_member {
+            let call = RuntimeCall::TechCollective(pallet_membership::Call::add_member {
                 who: MultiAddress::Id(new_member.clone()),
             });
 

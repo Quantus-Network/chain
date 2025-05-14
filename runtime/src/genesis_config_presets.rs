@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TechCommunityConfig};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TechCollectiveConfig};
 use alloc::{vec, vec::Vec};
 use frame_support::BoundedVec;
 use dilithium_crypto::pair::{crystal_alice, dilithium_bob, crystal_charlie};
@@ -42,7 +42,7 @@ fn testnet_genesis(
 				.collect::<Vec<_>>(),
 		},
 		sudo: SudoConfig { key: Some(root.clone()) },
-		tech_community: TechCommunityConfig {
+		tech_collective: TechCollectiveConfig {
             members: BoundedVec::try_from(vec![root])
                 .expect("Initial members count is within bounds"),
             phantom: Default::default(),
@@ -82,7 +82,7 @@ pub fn development_config_genesis() -> Value {
         sudo: SudoConfig {
             key: Some(root.clone())
         },
-        tech_community: TechCommunityConfig {
+        tech_collective: TechCollectiveConfig {
             members: BoundedVec::try_from(vec![
                 root, // Root account (Alice) as the first member
                 AccountKeyring::Bob.to_account_id(), // Alice as the second member

@@ -73,7 +73,7 @@ mod tests {
                     aye: true,
                     conviction: pallet_conviction_voting::Conviction::Locked6x,
                 },
-                balance: 40 * UNIT,
+                balance: 300 * UNIT,
             }
         ));
 
