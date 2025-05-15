@@ -48,9 +48,7 @@ fn fund_airdrop_works() {
             merkle_root
         ));
 
-        // Check initial balance - it might be Some(0) instead of None
-        let initial_balance = MerkleAirdrop::airdrop_balances(0);
-        assert!(initial_balance.is_none() || initial_balance == Some(0));
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 0);
 
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(1),
@@ -67,7 +65,7 @@ fn fund_airdrop_works() {
         );
 
         // Check that the airdrop balance was updated
-        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(amount));
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), amount);
 
         // Check that the balance was transferred
         assert_eq!(Balances::free_balance(1), 9900); // 10000 - 100
@@ -79,7 +77,7 @@ fn fund_airdrop_works() {
             amount
         ));
 
-        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(amount * 2));
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), amount * 2);
         assert_eq!(Balances::free_balance(1), 9800); // 9900 - 100
         assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 201); // 101 + 100
     });
@@ -114,7 +112,7 @@ fn claim_works() {
         let merkle_proof = bounded_proof(vec![leaf2]);
 
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             2,
             500,
@@ -131,7 +129,7 @@ fn claim_works() {
         );
 
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
-        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500)); // 1000 - 500
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 500); // 1000 - 500
 
         assert_eq!(Balances::free_balance(2), 500);
         assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 501); // 1 (initial) + 1000 (funded) - 500 (claimed)
@@ -166,7 +164,7 @@ fn claim_fails_for_nonexistent_airdrop() {
         let merkle_proof = bounded_proof(vec![[0u8; 32]]);
 
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 999, 1, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::signed(1), 999, 1, 500, merkle_proof),
             Error::<Test>::AirdropNotFound
         );
     });
@@ -201,7 +199,7 @@ fn claim_already_claimed() {
         let merkle_proof = bounded_proof(vec![leaf2]);
 
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             2,
             500,
@@ -210,7 +208,7 @@ fn claim_already_claimed() {
 
         // Try to claim again
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof.clone()),
+            MerkleAirdrop::claim(RuntimeOrigin::signed(1), 0, 2, 500, merkle_proof.clone()),
             Error::<Test>::AlreadyClaimed
         );
     });
@@ -332,7 +330,7 @@ fn claim_invalid_proof_fails() {
         let invalid_proof = bounded_proof(vec![[1u8; 32]]); // Different from the actual leaf2
 
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, invalid_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::signed(1), 0, 2, 500, invalid_proof),
             Error::<Test>::InvalidProof
         );
     });
@@ -367,7 +365,7 @@ fn claim_insufficient_airdrop_balance_fails() {
 
         // Attempt to claim more than available
         assert_noop!(
-            MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 500, merkle_proof),
+            MerkleAirdrop::claim(RuntimeOrigin::signed(1), 0, 2, 500, merkle_proof),
             Error::<Test>::InsufficientAirdropBalance
         );
     });
@@ -381,7 +379,7 @@ fn claim_nonexistent_airdrop_fails() {
         // Attempt to claim from a nonexistent airdrop
         assert_noop!(
             MerkleAirdrop::claim(
-                RuntimeOrigin::none(),
+                RuntimeOrigin::signed(1),
                 999,
                 2,
                 500,
@@ -421,7 +419,7 @@ fn claim_updates_balances_correctly() {
         let initial_pallet_balance = Balances::free_balance(MerkleAirdrop::account_id());
 
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             2,
             500,
@@ -434,7 +432,7 @@ fn claim_updates_balances_correctly() {
             initial_pallet_balance - 500
         );
 
-        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(500)); // 1000 - 500
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 500); // 1000 - 500
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
     });
 }
@@ -470,7 +468,7 @@ fn multiple_users_can_claim() {
         // User 1 claims
         let proof1 = bounded_proof(vec![leaf2, leaf3]);
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             2,
             500,
@@ -481,7 +479,7 @@ fn multiple_users_can_claim() {
         // User 2 claims
         let proof2 = bounded_proof(vec![leaf1, leaf3]);
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             3,
             300,
@@ -492,7 +490,7 @@ fn multiple_users_can_claim() {
         // User 3 claims
         let proof3 = bounded_proof(vec![parent1]);
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             4,
             200,
@@ -500,7 +498,7 @@ fn multiple_users_can_claim() {
         ));
         assert_eq!(Balances::free_balance(4), 200);
 
-        assert_eq!(MerkleAirdrop::airdrop_balances(0), Some(0)); // 1000 - 500 - 300 - 200
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 0); // 1000 - 500 - 300 - 200
 
         assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
         assert_eq!(MerkleAirdrop::is_claimed(0, 3), ());
@@ -536,7 +534,7 @@ fn delete_airdrop_works() {
 
         // Check that the airdrop no longer exists
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
-        assert!(MerkleAirdrop::airdrop_balances(0).is_none());
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 0); // Due to ValueQuery
         assert!(MerkleAirdrop::airdrop_creators(0).is_none());
     });
 }
@@ -581,7 +579,7 @@ fn delete_airdrop_with_balance_refunds_creator() {
         System::assert_last_event(Event::AirdropDeleted { airdrop_id: 0 }.into());
 
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
-        assert!(MerkleAirdrop::airdrop_balances(0).is_none());
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 0); // Due to ValueQuery
         assert!(MerkleAirdrop::airdrop_creators(0).is_none());
     });
 }
@@ -653,7 +651,7 @@ fn delete_airdrop_after_claims_works() {
         // Let only one account claim (partial claiming)
         let proof1 = bounded_proof(vec![leaf2]);
         assert_ok!(MerkleAirdrop::claim(
-            RuntimeOrigin::none(),
+            RuntimeOrigin::signed(1),
             0,
             account1,
             amount1,
@@ -661,10 +659,7 @@ fn delete_airdrop_after_claims_works() {
         ));
 
         // Check that some balance remains
-        assert_eq!(
-            MerkleAirdrop::airdrop_balances(0),
-            Some(total_fund - amount1)
-        );
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), total_fund - amount1);
 
         // Now the creator deletes the airdrop with remaining balance
         assert_ok!(MerkleAirdrop::delete_airdrop(
@@ -679,7 +674,27 @@ fn delete_airdrop_after_claims_works() {
         );
 
         assert!(MerkleAirdrop::airdrop_merkle_roots(0).is_none());
-        assert!(MerkleAirdrop::airdrop_balances(0).is_none());
+        assert_eq!(MerkleAirdrop::airdrop_balances(0), 0);
         assert!(MerkleAirdrop::airdrop_creators(0).is_none());
+    });
+}
+
+#[test]
+fn create_airdrop_already_exists_fails() {
+    new_test_ext().execute_with(|| {
+        let merkle_root = [0u8; 32];
+
+        assert_ok!(MerkleAirdrop::create_airdrop(
+            RuntimeOrigin::signed(1),
+            merkle_root
+        ));
+
+        // Force the airdrop ID counter to stay at 0 to simulate trying to create with same ID
+        crate::NextAirdropId::<Test>::put(0);
+
+        assert_noop!(
+            MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root),
+            Error::<Test>::AirdropAlreadyExists
+        );
     });
 }

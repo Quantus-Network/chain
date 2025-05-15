@@ -43,9 +43,18 @@ use frame_support::traits::fungible::Inspect;
 type BalanceOf<T> =
     <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
+/// Type for storing a Merkle root hash
+pub type MerkleRoot = [u8; 32];
+
+/// Type for Merkle hash values
+pub type MerkleHash = [u8; 32];
+
+/// Airdrop ID type
+pub type AirdropId = u32;
+
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::BalanceOf;
+    use crate::{AirdropId, BalanceOf, MerkleHash, MerkleRoot};
 
     use super::weights::WeightInfo;
     use frame_support::{
@@ -54,16 +63,11 @@ pub mod pallet {
             fungible::{Inspect, Mutate},
             Get,
         },
-        unsigned::ValidateUnsigned,
     };
     use frame_system::pallet_prelude::*;
     use sp_io::hashing::blake2_256;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Saturating;
-    use sp_runtime::transaction_validity::{
-        InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
-        ValidTransaction,
-    };
     extern crate alloc;
     use alloc::vec;
 
@@ -89,20 +93,7 @@ pub mod pallet {
 
         /// Weight information for the extrinsics in this pallet.
         type WeightInfo: WeightInfo;
-
-        /// The priority for unsigned claim transactions
-        #[pallet::constant]
-        type UnsignedClaimPriority: Get<TransactionPriority>;
     }
-
-    /// Type for storing a Merkle root hash
-    pub type MerkleRoot = [u8; 32];
-
-    /// Type for Merkle hash values
-    pub type MerkleHash = [u8; 32];
-
-    /// Airdrop ID type
-    pub type AirdropId = u32;
 
     /// Storage for Merkle roots of each airdrop
     #[pallet::storage]
@@ -122,6 +113,7 @@ pub mod pallet {
         Blake2_128Concat,
         AirdropId,
         <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
+        ValueQuery,
     >;
 
     /// Storage for claimed status
@@ -184,7 +176,6 @@ pub mod pallet {
     }
 
     #[pallet::error]
-    #[repr(u8)]
     pub enum Error<T> {
         /// The specified airdrop does not exist.
         AirdropNotFound,
@@ -320,9 +311,6 @@ pub mod pallet {
             AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
             AirdropCreators::<T>::insert(airdrop_id, who.clone());
 
-            let zero_balance = <BalanceOf<T> as Zero>::zero();
-            AirdropBalances::<T>::insert(airdrop_id, zero_balance);
-
             NextAirdropId::<T>::put(airdrop_id.saturating_add(1));
 
             Self::deposit_event(Event::AirdropCreated {
@@ -369,14 +357,9 @@ pub mod pallet {
             )?;
 
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
-                if let Some(current_balance) = balance {
-                    *current_balance = current_balance.saturating_add(amount);
-                } else {
-                    *balance = Some(amount);
-                }
+                *balance = balance.saturating_add(amount);
             });
 
-            // Emit an event
             Self::deposit_event(Event::AirdropFunded { airdrop_id, amount });
 
             Ok(())
@@ -410,7 +393,7 @@ pub mod pallet {
             amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
             merkle_proof: BoundedVec<MerkleHash, T::MaxProofs>,
         ) -> DispatchResult {
-            ensure_none(origin)?;
+            let _ = ensure_signed(origin)?;
 
             ensure!(
                 AirdropMerkleRoots::<T>::contains_key(airdrop_id),
@@ -430,8 +413,7 @@ pub mod pallet {
                 Error::<T>::InvalidProof
             );
 
-            let airdrop_balance = AirdropBalances::<T>::get(airdrop_id)
-                .ok_or(Error::<T>::InsufficientAirdropBalance)?;
+            let airdrop_balance = AirdropBalances::<T>::get(airdrop_id);
             ensure!(
                 airdrop_balance >= amount,
                 Error::<T>::InsufficientAirdropBalance
@@ -441,9 +423,7 @@ pub mod pallet {
             Claimed::<T>::insert(airdrop_id, &recipient, ());
 
             AirdropBalances::<T>::mutate(airdrop_id, |balance| {
-                if let Some(current_balance) = balance {
-                    *current_balance = current_balance.saturating_sub(amount);
-                }
+                *balance = balance.saturating_sub(amount);
             });
 
             <T::Currency as Mutate<T::AccountId>>::transfer(
@@ -490,10 +470,8 @@ pub mod pallet {
                 AirdropCreators::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
             ensure!(who == creator, Error::<T>::NotAirdropCreator);
 
-            let balance =
-                AirdropBalances::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
+            let balance = AirdropBalances::<T>::get(airdrop_id);
 
-            // If there are remaining tokens, refund them to the creator
             if !balance.is_zero() {
                 <T::Currency as Mutate<T::AccountId>>::transfer(
                     &Self::account_id(),
@@ -511,56 +489,6 @@ pub mod pallet {
             Self::deposit_event(Event::AirdropDeleted { airdrop_id });
 
             Ok(())
-        }
-    }
-
-    #[pallet::validate_unsigned]
-    impl<T: Config> ValidateUnsigned for Pallet<T> {
-        type Call = Call<T>;
-
-        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            if let Call::claim {
-                airdrop_id,
-                recipient,
-                amount,
-                merkle_proof,
-            } = call
-            {
-                // 1. Check if airdrop exists
-                let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id)
-                    .ok_or(InvalidTransaction::Custom(1))?;
-
-                // 2. Check if already claimed
-                if Claimed::<T>::contains_key(airdrop_id, recipient) {
-                    log::warn!(
-                        target: "merkle-airdrop",
-                        "ValidateUnsigned: Airdrop {:?}, Recipient {:?} - Already claimed",
-                        airdrop_id, recipient
-                    );
-                    return InvalidTransaction::Custom(2).into();
-                }
-
-                // 3. Verify Merkle Proof
-                if !Self::verify_merkle_proof(recipient, *amount, &merkle_root, merkle_proof) {
-                    log::warn!(
-                        target: "merkle-airdrop",
-                        "ValidateUnsigned: Airdrop {:?}, Recipient {:?}, Amount {:?} - Invalid proof",
-                        airdrop_id, recipient, amount
-                    );
-                    return InvalidTransaction::Custom(3).into();
-                }
-
-                Ok(ValidTransaction {
-                    priority: T::UnsignedClaimPriority::get(),
-                    requires: vec![],
-                    provides: vec![(airdrop_id, recipient, amount).encode()],
-                    longevity: TransactionLongevity::MAX,
-                    propagate: true,
-                })
-            } else {
-                log::error!(target: "merkle-airdrop", "ValidateUnsigned: Received non-claim transaction or unexpected call structure");
-                InvalidTransaction::Call.into()
-            }
         }
     }
 }
