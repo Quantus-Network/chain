@@ -83,11 +83,11 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                 pallet_referenda::TrackInfo {
                     name: "root",
                     max_deciding: 1,                // Only 1 referendum can be in deciding phase at a time
-                    decision_deposit: 10 * UNIT,    // Highest deposit requirement to prevent spam
+                    decision_deposit: 1000 * UNIT,    // Highest deposit requirement to prevent spam
                     prepare_period: 1 * DAYS,       // 1 day preparation before voting begins
-                    decision_period: 14 * DAYS,     // 2 weeks for community to vote - even if all members vote, we will wait for execution
-                    confirm_period: 1 * DAYS,       // 1 day confirmation period once passing
-                    min_enactment_period: 1 * DAYS, // At least 1 day between approval and execution
+                    decision_period: 5 * DAYS,     // 5 days for community to vote
+                    confirm_period: 2 * DAYS,       // 2 days confirmation period once passing
+                    min_enactment_period: 2 * DAYS, // 2 day between approval and execution
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
                         floor: Perbill::from_percent(75),    // Minimum 75% approval at end
@@ -110,11 +110,11 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                 pallet_referenda::TrackInfo {
                     name: "signed",
                     max_deciding: 5,                // Allow several concurrent proposals
-                    decision_deposit: 5 * UNIT,     // Moderate deposit
+                    decision_deposit: 500 * UNIT,     // Moderate deposit
                     prepare_period: 12 * HOURS,     // Shorter preparation time
                     decision_period: 7 * DAYS,      // 1 week voting period
                     confirm_period: 12 * HOURS,     // 12 hours confirmation
-                    min_enactment_period: 12 * HOURS, // 12 hours until execution
+                    min_enactment_period: 1 * DAYS, // 1 day until execution
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
                         floor: Perbill::from_percent(55),    // Majority approval required
@@ -135,11 +135,11 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
                 pallet_referenda::TrackInfo {
                     name: "signaling",
                     max_deciding: 20,               // High throughput for community proposals
-                    decision_deposit: 1 * UNIT,     // Low deposit requirement
+                    decision_deposit: 100 * UNIT,     // Low deposit requirement
                     prepare_period: 6 * HOURS,      // Short preparation time
                     decision_period: 5 * DAYS,      // Standard voting period
                     confirm_period: 3 * HOURS,      // Minimal confirmation period
-                    min_enactment_period: 1,        // Immediate "execution" (just for record-keeping)
+                    min_enactment_period: 1,        // 1 Block - immediate "execution" (just for record-keeping)
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
                         floor: Perbill::from_percent(50),    // Simple majority approval
