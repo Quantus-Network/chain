@@ -171,7 +171,7 @@ parameter_types! {
     pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
     pub const MaxVotes: u32 = 512;
     pub const MaxTurnout: Balance = 60 * UNIT;
-    pub const MinimumDeposit: Balance = 1 * UNIT;
+    pub const MinimumDeposit: Balance = UNIT;
 }
 
 impl pallet_conviction_voting::Config for Runtime {
@@ -185,8 +185,8 @@ impl pallet_conviction_voting::Config for Runtime {
 }
 
 parameter_types! {
-    pub const PreimageBaseDeposit: Balance = 1 * UNIT;
-    pub const PreimageByteDeposit: Balance = 1 * MICRO_UNIT;
+    pub const PreimageBaseDeposit: Balance = UNIT;
+    pub const PreimageByteDeposit: Balance = MICRO_UNIT;
 }
 
 impl pallet_preimage::Config for Runtime {

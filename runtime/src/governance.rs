@@ -193,4 +193,3 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
         Ok(())
     }
 }
-

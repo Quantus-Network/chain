@@ -3,7 +3,6 @@ use log::info;
 use external_miner::*; // Import everything from lib.rs
 use std::net::SocketAddr;
 use clap::Parser;
-use env_logger;
 
 /// Resonance External Miner Service
 #[derive(Parser, Debug)]

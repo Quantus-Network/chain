@@ -176,8 +176,7 @@ impl Verify for ResonanceSignatureScheme {
 
             Self::Ecdsa(sig) => {
                 let m = sp_io::hashing::blake2_256(msg.get());
-                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m)
-                    .map_or(false, |pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
+                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m).is_ok_and(|pubkey| sp_io::hashing::blake2_256(&pubkey) == <AccountId32 as AsRef<[u8]>>::as_ref(signer))
             },
             Self::Resonance(sig_public) => {
                 let account = sig_public.public().clone().into_account();
@@ -220,13 +219,13 @@ impl IdentifyAccount for ResonanceSigner {
 
 impl From<ResonancePublic> for AccountId32 {
     fn from(public: ResonancePublic) -> Self {
-        return public.into_account();
+        public.into_account()
     }
 }
 
 impl ResonancePair {
     pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
-        let keypair = hdwallet::generate(Some(&seed)).map_err(|_| Error::KeyGenerationFailed)?;
+        let keypair = hdwallet::generate(Some(seed)).map_err(|_| Error::KeyGenerationFailed)?;
         Ok(ResonancePair {
             secret: keypair.secret.to_bytes(),
             public: keypair.public.to_bytes()

@@ -7958,6 +7958,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "quantus-node"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "dilithium-crypto",
+ "frame-benchmarking-cli",
+ "frame-metadata-hash-extension",
+ "frame-system",
+ "futures",
+ "hex",
+ "jsonrpsee 0.24.9",
+ "log",
+ "pallet-faucet",
+ "pallet-transaction-payment",
+ "pallet-transaction-payment-rpc",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "prometheus",
+ "rand 0.8.5",
+ "reqwest",
+ "resonance-miner-api",
+ "resonance-runtime",
+ "sc-basic-authorship",
+ "sc-cli",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-pow",
+ "sc-consensus-qpow",
+ "sc-executor",
+ "sc-network",
+ "sc-offchain",
+ "sc-service",
+ "sc-telemetry",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus-qpow",
+ "sp-core",
+ "sp-faucet",
+ "sp-genesis-builder",
+ "sp-inherents",
+ "sp-io",
+ "sp-keyring",
+ "sp-runtime",
+ "sp-timestamp",
+ "sp-wormhole",
+ "substrate-build-script-utils",
+ "substrate-frame-rpc-system",
+ "uuid",
+]
+
+[[package]]
 name = "quick-protobuf"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8447,63 +8504,6 @@ name = "resonance-miner-api"
 version = "0.1.0"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "resonance-node"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "clap",
- "dilithium-crypto",
- "frame-benchmarking-cli",
- "frame-metadata-hash-extension",
- "frame-system",
- "futures",
- "hex",
- "jsonrpsee 0.24.9",
- "log",
- "pallet-faucet",
- "pallet-transaction-payment",
- "pallet-transaction-payment-rpc",
- "parity-scale-codec",
- "primitive-types 0.13.1",
- "prometheus",
- "rand 0.8.5",
- "reqwest",
- "resonance-miner-api",
- "resonance-runtime",
- "sc-basic-authorship",
- "sc-cli",
- "sc-client-api",
- "sc-consensus",
- "sc-consensus-pow",
- "sc-consensus-qpow",
- "sc-executor",
- "sc-network",
- "sc-offchain",
- "sc-service",
- "sc-telemetry",
- "sc-transaction-pool",
- "sc-transaction-pool-api",
- "serde",
- "serde_json",
- "sp-api",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus-qpow",
- "sp-core",
- "sp-faucet",
- "sp-genesis-builder",
- "sp-inherents",
- "sp-io",
- "sp-keyring",
- "sp-runtime",
- "sp-timestamp",
- "sp-wormhole",
- "substrate-build-script-utils",
- "substrate-frame-rpc-system",
- "uuid",
 ]
 
 [[package]]

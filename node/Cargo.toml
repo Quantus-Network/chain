@@ -1,5 +1,5 @@
 [package]
-name = "resonance-node"
+name = "quantus-node"
 description = "Resonance Runtime - Echo Chamber"
 version = "0.1.0"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 publish = false
-default-run = "resonance-node"
+default-run = "quantus-node"
 
 build = "build.rs"
 
@@ -17,8 +17,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 sc-consensus-pow = { workspace = true, default-features = false }
-sc-consensus-qpow = {workspace = true, default-features = false}
-sp-consensus-qpow = {workspace = true, default-features = false}
+sc-consensus-qpow = { workspace = true, default-features = false }
+sp-consensus-qpow = { workspace = true, default-features = false }
 log = { workspace = true }
 codec = { workspace = true }
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
@@ -84,17 +84,20 @@ frame-benchmarking-cli.workspace = true
 frame-benchmarking-cli.default-features = true
 resonance-runtime.workspace = true
 
-sp-faucet = {workspace = true, default-features = false}
-sp-wormhole = {workspace = true,default-features = false}
-hex = {workspace = true,default-features = false}
-rand = {workspace = true, default-features = false, features = ["alloc","getrandom"]}
+sp-faucet = { workspace = true, default-features = false }
+sp-wormhole = { workspace = true, default-features = false }
+hex = { workspace = true, default-features = false }
+rand = { workspace = true, default-features = false, features = [
+	"alloc",
+	"getrandom",
+] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.107", features = ["alloc"] }
 uuid = { version = "1.7.0", features = ["v4", "serde"] }
 primitive-types = { version = "0.13.1", default-features = false }
 
-prometheus = {version="0.13.4", default-features = false}
+prometheus = { version = "0.13.4", default-features = false }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
 
 [build-dependencies]
@@ -107,7 +110,7 @@ std = [
 	"resonance-runtime/std",
 	"dilithium-crypto/std",
 	"sp-wormhole/std",
-	"rand/std"
+	"rand/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [

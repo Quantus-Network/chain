@@ -1,7 +1,7 @@
 //! Custom signed extensions for the runtime.
 use crate::*;
 use codec::{Decode, Encode};
-use core::{marker::PhantomData, u8};
+use core::{marker::PhantomData};
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 use frame_support::traits::Contains;
 use frame_support::traits::fungible::Inspect;
@@ -129,7 +129,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 
                     // Schedule the transfer
 
-                    let _ = ReversibleTransfers::do_schedule_transfer(
+                    ReversibleTransfers::do_schedule_transfer(
                         origin.clone(),
                         dest.clone(),
                         *amount,
@@ -347,11 +347,11 @@ mod tests {
             let origin = RuntimeOrigin::signed(alice());
 
             // Test the prepare method
-            let pre = ext
+            ext
                 .clone()
                 .prepare((), &origin, &call, &Default::default(), 0)
                 .unwrap();
-            assert_eq!(pre, ());
+            assert_eq!((), ());
 
             // Test the validate method
             let result = ext.validate(
@@ -389,12 +389,12 @@ mod tests {
             let origin = RuntimeOrigin::signed(charlie());
 
             // Test the prepare method
-            let pre = ext
+            ext
                 .clone()
                 .prepare((), &origin, &call, &Default::default(), 0)
                 .unwrap();
 
-            assert_eq!(pre, ());
+            assert_eq!((), ());
 
             // Test the validate method
             let result = ext.validate(
@@ -444,9 +444,9 @@ mod tests {
         ).unwrap();
 
         // Ensure funds for the test accounts
-        Balances::make_free_balance_be(&alice(), 1000 * UNIT);
-        Balances::make_free_balance_be(&bob(), 1000 * UNIT);
-        Balances::make_free_balance_be(&charlie(), 1000 * UNIT);
+        Balances::make_free_balance_be(&alice(), 2000 * UNIT);
+        Balances::make_free_balance_be(&bob(), 2000 * UNIT);
+        Balances::make_free_balance_be(&charlie(), 2000 * UNIT);
 
         // Prepare the proposal
         let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });

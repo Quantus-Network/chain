@@ -136,14 +136,14 @@ pub mod pallet {
             schedule_id: u64
         ) -> DispatchResult {
 
-            let mut schedule = VestingSchedules::<T>::get(&schedule_id)
+            let mut schedule = VestingSchedules::<T>::get(schedule_id)
                 .ok_or(Error::<T>::NoVestingSchedule)?;
             let vested = Self::vested_amount(&schedule)?;
             let claimable = vested.saturating_sub(schedule.claimed);
 
             if claimable > T::Balance::zero() {
                 schedule.claimed += claimable;
-                VestingSchedules::<T>::insert(&schedule_id, &schedule);
+                VestingSchedules::<T>::insert(schedule_id, &schedule);
 
                 // Transfer claimable tokens
                 pallet_balances::Pallet::<T>::transfer(&Self::account_id(), &schedule.beneficiary, claimable, AllowDeath)?;
@@ -165,7 +165,7 @@ pub mod pallet {
             // Claim for beneficiary whatever they are currently owed
             Self::claim(origin, schedule_id)?;
 
-            let schedule = VestingSchedules::<T>::get(&schedule_id)
+            let schedule = VestingSchedules::<T>::get(schedule_id)
                 .ok_or(Error::<T>::ScheduleNotFound)?;
             ensure!(schedule.creator == who, Error::<T>::NotCreator);
 
@@ -180,7 +180,7 @@ pub mod pallet {
                 )?;
             }
 
-            VestingSchedules::<T>::remove(&schedule_id);
+            VestingSchedules::<T>::remove(schedule_id);
 
             // Emit event
             Self::deposit_event(Event::VestingScheduleCancelled(who, schedule_id));

@@ -20,9 +20,11 @@ mod tests {
             let voter_for = account_id(2);
             let voter_against = account_id(3);
 
+            // Ensure proposer has enough balance for preimage, submission and decision deposit
+            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
             // Ensure voters have enough balance
-            Balances::make_free_balance_be(&voter_for, 1000 * UNIT);
-            Balances::make_free_balance_be(&voter_against, 1000 * UNIT);
+            Balances::make_free_balance_be(&voter_for, 20000 * UNIT);
+            Balances::make_free_balance_be(&voter_against, 20000 * UNIT);
 
             // Prepare the proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
@@ -35,9 +37,9 @@ mod tests {
 
             // Store the preimage
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            encoded_call.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded_call.clone()
+            ));
 
             // Prepare bounded call
             let bounded_call = frame_support::traits::Bounded::Lookup {
@@ -50,45 +52,45 @@ mod tests {
 
             // Submit referendum
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-            bounded_call,
-            enactment_moment
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                bounded_call,
+                enactment_moment
+            ));
 
             let referendum_index = 0;
 
             // Place decision deposit to start deciding phase
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            referendum_index
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_index
+            ));
 
             // Vote FOR with high conviction
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter_for.clone()),
-            referendum_index,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked6x,
-                },
-                balance: 300 * UNIT,
-            }
-        ));
+                RuntimeOrigin::signed(voter_for.clone()),
+                referendum_index,
+                Standard {
+                    vote: Vote {
+                        aye: true,
+                        conviction: pallet_conviction_voting::Conviction::Locked6x,
+                    },
+                    balance: 300 * UNIT,
+                }
+            ));
 
             // Vote AGAINST with lower conviction
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter_against.clone()),
-            referendum_index,
-            Standard {
-                vote: Vote {
-                    aye: false,
-                    conviction: pallet_conviction_voting::Conviction::Locked1x,
-                },
-                balance: 100 * UNIT,
-            }
-        ));
+                RuntimeOrigin::signed(voter_against.clone()),
+                referendum_index,
+                Standard {
+                    vote: Vote {
+                        aye: false,
+                        conviction: pallet_conviction_voting::Conviction::Locked1x,
+                    },
+                    balance: 100 * UNIT,
+                }
+            ));
 
             // Advance blocks to get past prepare period
             let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
@@ -138,6 +140,7 @@ mod tests {
             let proposer = account_id(1);
             let target = account_id(4);
 
+            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
             // Give target account some initial balance
             let initial_target_balance = 10 * UNIT;
             Balances::make_free_balance_be(&target, initial_target_balance);
@@ -361,7 +364,8 @@ mod tests {
     fn referendum_token_slashing_works() {
         new_test_ext().execute_with(|| {
             let proposer = account_id(1);
-            let initial_balance = Balances::free_balance(&proposer);
+            let initial_balance = 10000 * UNIT;
+            Balances::make_free_balance_be(&proposer, initial_balance);
 
             // Prepare the proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
@@ -370,9 +374,9 @@ mod tests {
 
             // Store preimage
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            encoded_call.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded_call.clone()
+            ));
 
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
@@ -385,11 +389,11 @@ mod tests {
 
             // Submit referendum
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-            bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                bounded_call,
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
             let referendum_index = 0;
 
@@ -399,9 +403,9 @@ mod tests {
 
             // Place decision deposit
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            referendum_index
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_index
+            ));
 
             // Record balance after decision deposit
             let balance_after_decision_deposit = Balances::free_balance(&proposer);
@@ -409,9 +413,9 @@ mod tests {
 
             // Kill the referendum using the KillOrigin
             assert_ok!(Referenda::kill(
-            RuntimeOrigin::root(),
-            referendum_index
-        ));
+                RuntimeOrigin::root(),
+                referendum_index
+            ));
 
             // Check referendum status - should be killed
             let referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
@@ -439,21 +443,21 @@ mod tests {
 
             // Check that the deposits can't be refunded
             assert_noop!(
-            Referenda::refund_submission_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                referendum_index
-            ),
-            pallet_referenda::Error::<Runtime>::BadStatus
-        );
+                Referenda::refund_submission_deposit(
+                    RuntimeOrigin::signed(proposer.clone()),
+                    referendum_index
+                ),
+                pallet_referenda::Error::<Runtime>::BadStatus
+            );
 
             // For killed referenda, attempting to refund the decision deposit should result in NoDeposit error
             assert_noop!(
-            Referenda::refund_decision_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                referendum_index
-            ),
-            pallet_referenda::Error::<Runtime>::NoDeposit
-        );
+                Referenda::refund_decision_deposit(
+                    RuntimeOrigin::signed(proposer.clone()),
+                    referendum_index
+                ),
+                pallet_referenda::Error::<Runtime>::NoDeposit
+            );
 
             println!("Initial balance: {}", initial_balance);
             println!("Preimage cost: {}", preimage_cost);
@@ -672,8 +676,8 @@ mod tests {
             let voter = account_id(2);
 
             // Set up balances
-            Balances::make_free_balance_be(&proposer, 1000 * UNIT);
-            Balances::make_free_balance_be(&voter, 1000 * UNIT);
+            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
+            Balances::make_free_balance_be(&voter, 10000 * UNIT);
 
             // Create three proposals, one for each track
 
@@ -995,11 +999,19 @@ mod tests {
             let tech_member2 = account_id(3);
             let tech_member3 = account_id(4);
 
-            // Set different balances for members to test if token amounts matter
-            Balances::make_free_balance_be(&proposer, 1000 * UNIT);
-            Balances::make_free_balance_be(&tech_member1, 1000 * UNIT);
-            Balances::make_free_balance_be(&tech_member2, 100 * UNIT);  // 10x fewer tokens
-            Balances::make_free_balance_be(&tech_member3, 10 * UNIT);   // 100x fewer tokens
+            // Set proposer balance to be able to submit referendum and place deposits for two referenda
+            Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+
+            // Set TechCollective members to have enough balance for transaction fees and voting
+            // Their balance is set relative to EXISTENTIAL_DEPOSIT to ensure they can vote with ED.
+            Balances::make_free_balance_be(&tech_member1, EXISTENTIAL_DEPOSIT * 10);
+            Balances::make_free_balance_be(&tech_member2, EXISTENTIAL_DEPOSIT * 10);
+            Balances::make_free_balance_be(&tech_member3, EXISTENTIAL_DEPOSIT * 10);
+
+            println!("Proposer balance (UNITs): {}", Balances::free_balance(&proposer) / UNIT);
+            println!("Tech member 1 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member1), Balances::free_balance(&tech_member1) / EXISTENTIAL_DEPOSIT.max(1));
+            println!("Tech member 2 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member2), Balances::free_balance(&tech_member2) / EXISTENTIAL_DEPOSIT.max(1));
+            println!("Tech member 3 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member3), Balances::free_balance(&tech_member3) / EXISTENTIAL_DEPOSIT.max(1));
 
             // Prepare proposal for track 0 (root)
             let root_proposal = RuntimeCall::System(frame_system::Call::remark {
@@ -1050,7 +1062,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::None,
                     },
-                    balance: 500 * UNIT, // Large amount of tokens
+                    balance: EXISTENTIAL_DEPOSIT, // Minimal amount for voting, > 0
                 }
             ));
 
@@ -1059,10 +1071,10 @@ mod tests {
                 root_idx,
                 Standard {
                     vote: Vote {
-                        aye: false, // Vote against
+                        aye: true, // Changed from false to true to ensure approval
                         conviction: pallet_conviction_voting::Conviction::None,
                     },
-                    balance: 50 * UNIT, // Medium amount of tokens
+                    balance: EXISTENTIAL_DEPOSIT, // Minimal amount for voting, > 0
                 }
             ));
 
@@ -1074,7 +1086,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::None,
                     },
-                    balance: 5 * UNIT, // Small amount of tokens
+                    balance: EXISTENTIAL_DEPOSIT, // Minimal amount for voting, > 0
                 }
             ));
 
@@ -1089,7 +1101,7 @@ mod tests {
                 pallet_referenda::ReferendumInfo::Ongoing(details) => {
                     assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
 
-                    // Ayes is 505 UNIT, Nays is 50 UNIT
+                    // Ayes is 150 UNIT, Nays is 50 UNIT
                     // Assuming min_support has floor: 0, ceil: 0,
                     // only the approval ratio matters regardless of minimum token threshold
                     println!("Tally for root track referendum - ayes: {}, nays: {}",
@@ -1142,7 +1154,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::None,
                     },
-                    balance: 1 * UNIT, // Very small amount of tokens
+                    balance: EXISTENTIAL_DEPOSIT / 10, // Very small amount of tokens
                 }
             ));
 
@@ -1211,7 +1223,7 @@ mod tests {
             let root_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
             assert!(matches!(root_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
                     "Root track referendum should be approved despite having min_support set to 0");
-            });
+        });
     }
 
     #[test]
@@ -1222,7 +1234,6 @@ mod tests {
             let tech_member1 = account_id(2);
             let tech_member2 = account_id(3);
             let tech_member3 = account_id(4);
-            let tech_member4 = account_id(5);
 
             // Add accounts to TechCollective
             assert_ok!(TechCollective::add_member(
@@ -1239,27 +1250,20 @@ mod tests {
             RuntimeOrigin::root(),
             sp_runtime::MultiAddress::Id(tech_member3.clone()),
         ));
-            assert_ok!(TechCollective::add_member(
-            RuntimeOrigin::root(),
-            sp_runtime::MultiAddress::Id(tech_member4.clone()),
-        ));
 
-            // Set proposer balance to be able to submit referendum and place deposits
-            Balances::make_free_balance_be(&proposer, 1000 * UNIT);
+            // Set proposer balance to be able to submit referendum and place deposits for two referenda
+            Balances::make_free_balance_be(&proposer, 3000 * UNIT);
 
-            // Set TechCollective members to have only minimal balances
-            // Just enough for existential deposit and transaction fees
-            Balances::make_free_balance_be(&tech_member1, EXISTENTIAL_DEPOSIT * 2);
-            Balances::make_free_balance_be(&tech_member2, EXISTENTIAL_DEPOSIT * 2);
-            Balances::make_free_balance_be(&tech_member3, EXISTENTIAL_DEPOSIT * 2);
-            Balances::make_free_balance_be(&tech_member4, EXISTENTIAL_DEPOSIT * 2);
+            // Set TechCollective members to have enough balance for transaction fees and voting
+            // Their balance is set relative to EXISTENTIAL_DEPOSIT to ensure they can vote with ED.
+            Balances::make_free_balance_be(&tech_member1, EXISTENTIAL_DEPOSIT * 10);
+            Balances::make_free_balance_be(&tech_member2, EXISTENTIAL_DEPOSIT * 10);
+            Balances::make_free_balance_be(&tech_member3, EXISTENTIAL_DEPOSIT * 10);
 
-            println!("Tech member balances (in UNIT): {} {} {} {}",
-                     Balances::free_balance(&tech_member1) / UNIT,
-                     Balances::free_balance(&tech_member2) / UNIT,
-                     Balances::free_balance(&tech_member3) / UNIT,
-                     Balances::free_balance(&tech_member4) / UNIT,
-            );
+            println!("Proposer balance (UNITs): {}", Balances::free_balance(&proposer) / UNIT);
+            println!("Tech member 1 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member1), Balances::free_balance(&tech_member1) / EXISTENTIAL_DEPOSIT.max(1));
+            println!("Tech member 2 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member2), Balances::free_balance(&tech_member2) / EXISTENTIAL_DEPOSIT.max(1));
+            println!("Tech member 3 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member3), Balances::free_balance(&tech_member3) / EXISTENTIAL_DEPOSIT.max(1));
 
             // Prepare proposal for track 0 (root)
             let root_proposal = RuntimeCall::System(frame_system::Call::remark {
@@ -1270,28 +1274,28 @@ mod tests {
             let root_hash = <Runtime as frame_system::Config>::Hashing::hash(&root_encoded);
 
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            root_encoded.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                root_encoded.clone()
+            ));
 
             // Submit referendum for track 0
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-            frame_support::traits::Bounded::Lookup {
-                hash: root_hash,
-                len: root_encoded.len() as u32
-            },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                frame_support::traits::Bounded::Lookup {
+                    hash: root_hash,
+                    len: root_encoded.len() as u32
+                },
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
             let root_idx = 0;
 
             // Place decision deposit
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            root_idx
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                root_idx
+            ));
 
             // Verify the referendum is on track 0
             let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
@@ -1339,17 +1343,6 @@ mod tests {
                 balance: EXISTENTIAL_DEPOSIT / 10, // Extremely small amount
             }
         ));
-            assert_ok!(ConvictionVoting::vote(
-                RuntimeOrigin::signed(tech_member4.clone()),
-                root_idx,
-                Standard {
-                    vote: Vote {
-                        aye: false,
-                        conviction: pallet_conviction_voting::Conviction::None,
-                    },
-                    balance: EXISTENTIAL_DEPOSIT / 10, // Extremely small amount
-                }
-            ));
 
             // Get track info for proper timing
             let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();

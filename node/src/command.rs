@@ -103,7 +103,7 @@ pub fn run() -> sc_cli::Result<()> {
 							rng.fill(&mut random_seed);
 
 							println!("No seed provided. Using random seed:");
-							println!("Seed: {}", hex::encode(&random_seed));
+							println!("Seed: {}", hex::encode(random_seed));
 
 							random_seed
 						}
@@ -135,7 +135,7 @@ pub fn run() -> sc_cli::Result<()> {
 				},
 				_ => {
 					println!("Error: The scheme parameter is required");
-					return Err("Invalid address scheme".into());
+					Err("Invalid address scheme".into())
 				}
 			}
 

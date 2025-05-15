@@ -41,15 +41,15 @@ fn transfer_dust_removal_tst1_should_work() {
 			assert_ok!(Balances::transfer_allow_death(RawOrigin::Signed(2).into(), 3, 450));
 
 			// As expected dust balance is removed.
-			assert_eq!(Balances::free_balance(&2), 0);
+			assert_eq!(Balances::free_balance(2), 0);
 
 			// As expected beneficiary account 3
 			// received the transferred fund.
-			assert_eq!(Balances::free_balance(&3), 450);
+			assert_eq!(Balances::free_balance(3), 450);
 
 			// Dust balance is deposited to account 1
 			// during the process of dust removal.
-			assert_eq!(Balances::free_balance(&1), 1050);
+			assert_eq!(Balances::free_balance(1), 1050);
 
 			// Verify the events
 			assert_eq!(System::events().len(), 14);
@@ -86,11 +86,11 @@ fn transfer_dust_removal_tst2_should_work() {
 			assert_ok!(Balances::transfer_allow_death(RawOrigin::Signed(2).into(), 1, 450));
 
 			// As expected dust balance is removed.
-			assert_eq!(Balances::free_balance(&2), 0);
+			assert_eq!(Balances::free_balance(2), 0);
 
 			// Dust balance is deposited to account 1
 			// during the process of dust removal.
-			assert_eq!(Balances::free_balance(&1), 1500);
+			assert_eq!(Balances::free_balance(1), 1500);
 
 			// Verify the events
 			assert_eq!(System::events().len(), 12);

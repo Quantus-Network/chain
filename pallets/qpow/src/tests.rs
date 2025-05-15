@@ -248,7 +248,7 @@ fn test_total_distance_threshold_initialization() {
     new_test_ext().execute_with(|| {
         // Initially, total distance_threshold should be as genesis distance_threshold
         let initial_work = U512::one();
-        assert_eq!(QPow::get_total_work(), initial_work.into(),
+        assert_eq!(QPow::get_total_work(), initial_work,
                    "Initial TotalWork should be 0");
 
         // After the first btest_total_distance_threshold_increases_with_each_blocklock, TotalWork should equal block 1's distance_threshold
@@ -484,7 +484,7 @@ fn test_get_random_rsa() {
         let (m, n) = get_random_rsa(&header);
 
         // Check that n > m
-        assert!(U512::from(m) < n);
+        assert!(m < n);
 
         // Check that numbers are coprime
         assert!(is_coprime(&m, &n));
@@ -802,7 +802,7 @@ fn test_median_block_time_single_value() {
 fn test_median_block_time_odd_count() {
     new_test_ext().execute_with(|| {
         // Add odd number of entries
-        let block_times = vec![1000, 3000, 2000, 5000, 4000];
+        let block_times = [1000, 3000, 2000, 5000, 4000];
         let history_size = block_times.len() as u32;
 
         <HistorySize<Test>>::put(history_size);
@@ -823,7 +823,7 @@ fn test_median_block_time_odd_count() {
 fn test_median_block_time_even_count() {
     new_test_ext().execute_with(|| {
         // Add even number of entries
-        let block_times = vec![1000, 3000, 2000, 4000];
+        let block_times = [1000, 3000, 2000, 4000];
         let history_size = block_times.len() as u32;
 
         <HistorySize<Test>>::put(history_size);
@@ -844,7 +844,7 @@ fn test_median_block_time_even_count() {
 fn test_median_block_time_with_duplicates() {
     new_test_ext().execute_with(|| {
         // Add entries with duplicates
-        let block_times = vec![1000, 2000, 2000, 2000, 3000];
+        let block_times = [1000, 2000, 2000, 2000, 3000];
         let history_size = block_times.len() as u32;
 
         <HistorySize<Test>>::put(history_size);
@@ -868,7 +868,7 @@ fn test_median_block_time_ring_buffer() {
         // Assuming <Test as Config>::BlockTimeHistorySize::get() = 5
 
         // Add more entries than the maximum history size
-        let initial_times = vec![1000, 2000, 3000, 4000, 5000];
+        let initial_times = [1000, 2000, 3000, 4000, 5000];
 
         // Set initial history
         <HistoryIndex<Test>>::put(0);

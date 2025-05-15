@@ -171,7 +171,7 @@ pub mod pallet {
 
 
             // Verify nullifier hasn't been used
-            ensure!(!UsedNullifiers::<T>::contains_key(&public_inputs.nullifier), Error::<T>::NullifierAlreadyUsed);
+            ensure!(!UsedNullifiers::<T>::contains_key(public_inputs.nullifier), Error::<T>::NullifierAlreadyUsed);
 
             VERIFIER_DATA.verify(proof)
                 .map_err(|_e| {
@@ -180,7 +180,7 @@ pub mod pallet {
                 })?;
 
             // Mark nullifier as used
-            UsedNullifiers::<T>::insert(&public_inputs.nullifier, true);
+            UsedNullifiers::<T>::insert(public_inputs.nullifier, true);
 
             // let exit_balance: <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance
             let exit_balance: <T as BalancesConfig>::Balance

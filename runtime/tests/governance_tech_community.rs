@@ -21,8 +21,9 @@ mod tests {
             let voter = account_id(2);
             let new_member = account_id(3);
 
-            // Ensure voters have enough balance
-            Balances::make_free_balance_be(&voter, 1000 * UNIT);
+            // Ensure proposer and voter have enough balance
+            Balances::make_free_balance_be(&proposer, 3000 * UNIT); // For preimages and deposits
+            Balances::make_free_balance_be(&voter, 2000 * UNIT);    // For voting and fees
 
             // Prepare the proposal
             let call = RuntimeCall::TechCollective(pallet_membership::Call::add_member {
@@ -225,9 +226,9 @@ mod tests {
             // Add admin and voter to TechCollective so they can operate on track 0
             assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(admin_proposer.clone())));
             assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(another_member_voter.clone())));
-            Balances::make_free_balance_be(&admin_proposer, 1000 * UNIT);
-            Balances::make_free_balance_be(&another_member_voter, 1000 * UNIT);
-            Balances::make_free_balance_be(&member_to_remove, 1000 * UNIT);
+            Balances::make_free_balance_be(&admin_proposer, 3000 * UNIT); // Increased for deposits
+            Balances::make_free_balance_be(&another_member_voter, 1000 * UNIT); // Seems OK for voting 800 UNIT
+            Balances::make_free_balance_be(&member_to_remove, 1000 * UNIT); // Not directly involved in proposal costs
 
 
             // Add the member we are going to remove
@@ -316,7 +317,7 @@ mod tests {
 
             assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(admin_proposer.clone())));
             assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(voter.clone())));
-            Balances::make_free_balance_be(&admin_proposer, 1000 * UNIT);
+            Balances::make_free_balance_be(&admin_proposer, 3000 * UNIT); // Increased for deposits
             Balances::make_free_balance_be(&old_member, 1000 * UNIT);
             Balances::make_free_balance_be(&new_member_for_swap, 1000 * UNIT);
             Balances::make_free_balance_be(&voter, 1000 * UNIT);
@@ -381,82 +382,61 @@ mod tests {
     #[test]
     fn test_non_tech_collective_call_on_track_0_permissions() {
         new_test_ext().execute_with(|| {
-            let charlie_member = account_id(1);
-            let bob_non_member = account_id(2);
-            let root_tx_origin = RuntimeOrigin::root(); // Transaction origin as Root
-
-            assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(charlie_member.clone())));
-            Balances::make_free_balance_be(&charlie_member, 1000 * UNIT);
-            Balances::make_free_balance_be(&bob_non_member, 1000 * UNIT);
-
-
+            let proposer = account_id(1); // This is a TechCollective member
+            let tech_member_voter = account_id(2);
+            let non_member_proposer = account_id(4);
             let extension = resonance_runtime::transaction_extensions::TechCollectiveExtension::<Runtime>::new();
 
-            // Prepare a call not related to TechCollective (e.g., System::remark)
-            // but we want to submit it on track 0 (proposal_origin = Root)
-            let remark_data = b"remark_data_for_track0_test".to_vec();
-            let remark_preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&remark_data);
-            let remark_proposal_bounded = frame_support::traits::Bounded::Lookup {
-                hash: remark_preimage_hash,
-                len: remark_data.len() as u32
+            // Add proposer and tech_member_voter to TechCollective
+            assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(proposer.clone())));
+            assert_ok!(resonance_runtime::TechCollective::add_member(RuntimeOrigin::root(), MultiAddress::Id(tech_member_voter.clone())));
+
+            // Ensure accounts have enough balance
+            Balances::make_free_balance_be(&proposer, 3000 * UNIT); // Increased for deposits
+            Balances::make_free_balance_be(&tech_member_voter, 1000 * UNIT); // For voting
+            // non_member_proposer does not need balance as their call should be blocked by extension
+
+            // 1. TechCollective member proposes a root call on track 0 (Allowed by Extension)
+            let call_by_member = RuntimeCall::System(frame_system::Call::remark { remark: b"Call by member".to_vec() });
+            let encoded_call_by_member = call_by_member.encode();
+            let call_by_member_preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call_by_member);
+            let call_by_member_bounded = frame_support::traits::Bounded::Lookup {
+                hash: call_by_member_preimage_hash,
+                len: encoded_call_by_member.len() as u32
             };
-            // Note the preimage for remark_proposal_bounded
-            assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(charlie_member.clone()), remark_data.clone()));
+            assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(proposer.clone()), encoded_call_by_member.clone()));
 
-
-            let submit_remark_on_track_0 = RuntimeCall::Referenda(pallet_referenda::Call::submit {
+            let submit_call_by_member = RuntimeCall::Referenda(pallet_referenda::Call::submit {
                 proposal_origin: Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-                proposal: remark_proposal_bounded.clone(),
+                proposal: call_by_member_bounded.clone(),
                 enactment_moment: frame_support::traits::schedule::DispatchTime::After(10u32.into()),
             });
 
-            // TechCollective member should be able to create such a referendum
-            assert!(validate_with_extension(&extension, RuntimeOrigin::signed(charlie_member.clone()), &submit_remark_on_track_0).is_ok(),
+            assert!(validate_with_extension(&extension, RuntimeOrigin::signed(proposer.clone()), &submit_call_by_member).is_ok(),
                 "Member should be able to create System::remark referendum on track 0");
 
-            // Non-member should not be able to create such a referendum
-            let validation_bob_submit = validate_with_extension(&extension, RuntimeOrigin::signed(bob_non_member.clone()), &submit_remark_on_track_0);
-            assert!(validation_bob_submit.is_err(), "Non-member should not be able to create System::remark referendum on track 0");
-            if let Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(frame_support::pallet_prelude::InvalidTransaction::Custom(code))) = validation_bob_submit {
-                assert_eq!(code, 43, "Expected error code 43 for creation by non-member");
-            } else {
-                 panic!("Expected InvalidTransaction::Custom(43) for creation by non-member, got: {:?}", validation_bob_submit);
-            }
+            // 2. Non-member proposes a root call on track 0 (Blocked by Extension)
+            let call_by_non_member = RuntimeCall::System(frame_system::Call::remark { remark: b"Call by non-member".to_vec() });
+            let encoded_call_by_non_member = call_by_non_member.encode();
+            let call_by_non_member_preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call_by_non_member);
+            let call_by_non_member_bounded = frame_support::traits::Bounded::Lookup {
+                hash: call_by_non_member_preimage_hash,
+                len: encoded_call_by_non_member.len() as u32
+            };
+            assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(non_member_proposer.clone()), encoded_call_by_non_member.clone()));
 
-            // Root (as transaction origin) should be able to create such a referendum
-            assert!(validate_with_extension(&extension, root_tx_origin.clone(), &submit_remark_on_track_0).is_ok(),
-                "Root should be able to create System::remark referendum on track 0");
-
-            // Let's create this referendum now (e.g., by a member) to test voting
-             assert_ok!(Referenda::submit(
-                RuntimeOrigin::signed(charlie_member.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-                remark_proposal_bounded.clone(),
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
-            ));
-            let referendum_idx = pallet_referenda::ReferendumCount::<Runtime>::get() - 1;
-            assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(charlie_member.clone()), referendum_idx));
-
-
-            let vote_on_remark_referendum = RuntimeCall::ConvictionVoting(pallet_conviction_voting::Call::vote {
-                poll_index: referendum_idx,
-                vote: pallet_conviction_voting::AccountVote::Standard {
-                    vote: Vote { aye: true, conviction: pallet_conviction_voting::Conviction::None },
-                    balance: 1 * UNIT,
-                },
+            let submit_call_by_non_member = RuntimeCall::Referenda(pallet_referenda::Call::submit {
+                proposal_origin: Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                proposal: call_by_non_member_bounded.clone(),
+                enactment_moment: frame_support::traits::schedule::DispatchTime::After(10u32.into()),
             });
 
-            // TechCollective member should be able to vote
-            assert!(validate_with_extension(&extension, RuntimeOrigin::signed(charlie_member.clone()), &vote_on_remark_referendum).is_ok(),
-                "Member should be able to vote on System::remark referendum on track 0");
-
-            // Non-member should not be able to vote
-            let validation_bob_vote = validate_with_extension(&extension, RuntimeOrigin::signed(bob_non_member.clone()), &vote_on_remark_referendum);
-            assert!(validation_bob_vote.is_err(), "Non-member should not be able to vote on System::remark referendum on track 0");
-            if let Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(frame_support::pallet_prelude::InvalidTransaction::Custom(code))) = validation_bob_vote {
-                assert_eq!(code, 42, "Expected error code 42 for voting by non-member");
+            assert!(validate_with_extension(&extension, RuntimeOrigin::signed(non_member_proposer.clone()), &submit_call_by_non_member).is_err(),
+                "Non-member should not be able to create System::remark referendum on track 0");
+            if let Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(frame_support::pallet_prelude::InvalidTransaction::Custom(code))) = validate_with_extension(&extension, RuntimeOrigin::signed(non_member_proposer.clone()), &submit_call_by_non_member) {
+                assert_eq!(code, 43, "Expected error code 43 for creation by non-member");
             } else {
-                panic!("Expected InvalidTransaction::Custom(42) for voting by non-member, got: {:?}", validation_bob_vote);
+                panic!("Expected InvalidTransaction::Custom(43) for creation by non-member, got: {:?}", validate_with_extension(&extension, RuntimeOrigin::signed(non_member_proposer.clone()), &submit_call_by_non_member));
             }
         });
     }

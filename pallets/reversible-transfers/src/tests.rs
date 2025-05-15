@@ -405,7 +405,7 @@ fn full_flow_execute_works() {
         // Event should be emitted by execute_transfer called by scheduler
         let expected_event = Event::TransactionExecuted {
             tx_id,
-            result: Ok(().into()).into(),
+            result: Ok(().into()),
         };
         assert!(
             System::events()

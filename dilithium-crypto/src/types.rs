@@ -33,7 +33,7 @@ pub struct ResonancePair {
 impl Default for ResonancePair {
     fn default() -> Self {
         let seed = sp_std::vec![0u8; 32];
-        return ResonancePair::from_seed(&seed).expect("Failed to generate keypair");
+        ResonancePair::from_seed(&seed).expect("Failed to generate keypair")
     }
 }
 

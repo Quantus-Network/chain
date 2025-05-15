@@ -43,7 +43,7 @@ impl Pair for ResonancePair {
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-        Ok(ResonancePair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)?)
+        ResonancePair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
     }
 
     #[cfg(any(feature = "default", feature = "full_crypto"))]
@@ -59,9 +59,9 @@ impl Pair for ResonancePair {
             .expect("Signing should succeed");
 
         let signature = ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
-        let sig_with_public = ResonanceSignatureWithPublic::new(signature, self.public());
+        
 
-        sig_with_public
+        ResonanceSignatureWithPublic::new(signature, self.public())
     }
 
     fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignatureWithPublic, message: M, pubkey: &ResonancePublic) -> bool {
@@ -156,7 +156,7 @@ mod tests {
         if let Some(byte) = signature_bytes.get_mut(0) {
             *byte ^= 1;
         }
-        let false_signature = ResonanceSignatureWithPublic::from_slice(&signature_bytes).expect("Failed to create signature");
+        let false_signature = ResonanceSignatureWithPublic::from_slice(signature_bytes).expect("Failed to create signature");
         let public = pair.public();
         
         assert!(

@@ -4,7 +4,6 @@ use reqwest::Client;
 use primitive_types::{H256, U512};
 use resonance_miner_api::{MiningRequest, MiningResponse, MiningResult, ApiResponseStatus};
 use sc_consensus_qpow::QPoWSeal; // Assuming QPoWSeal is here
-use hex;
 
 // Make functions pub(crate) or pub as needed
 pub(crate) async fn submit_mining_job(

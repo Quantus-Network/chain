@@ -22,7 +22,7 @@ echo "✅ Bootnode ID: $BOOTNODE_ID"
 
 # Generate the initial chain spec
 echo "🔧 Generating chain spec..."
-./target/release/resonance-node build-spec --chain local > custom-spec.json
+./target/release/quantus-node build-spec --chain local > custom-spec.json
 
 # Update the chain spec to set the correct bootnode
 echo "🔧 Updating bootnode in chain spec..."
@@ -32,7 +32,7 @@ jq --arg BOOTNODE_ID "$BOOTNODE_ID" '
 
 # Use the updated chain spec to generate the raw version
 echo "🔧 Generating raw chain spec..."
-./target/release/resonance-node build-spec --chain custom-spec-updated.json --raw > custom-spec-raw.json
+./target/release/quantus-node build-spec --chain custom-spec-updated.json --raw > custom-spec-raw.json
 
 rm custom-spec-updated.json
 

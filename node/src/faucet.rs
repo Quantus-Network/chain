@@ -49,9 +49,7 @@ impl<C, P> Faucet<C, P> {
     }
 
     fn parse_address(address: String) -> Result<AccountId, jsonrpsee::types::error::ErrorObject<'static>> {
-        if address.starts_with("0x") {
-            // Format hex
-            let hex_str = &address[2..];
+        if let Some(hex_str) = address.strip_prefix("0x") {
             match hex::decode(hex_str) {
                 Ok(bytes) => {
                     if bytes.len() != 32 {
