@@ -678,23 +678,3 @@ fn delete_airdrop_after_claims_works() {
         assert!(MerkleAirdrop::airdrop_creators(0).is_none());
     });
 }
-
-#[test]
-fn create_airdrop_already_exists_fails() {
-    new_test_ext().execute_with(|| {
-        let merkle_root = [0u8; 32];
-
-        assert_ok!(MerkleAirdrop::create_airdrop(
-            RuntimeOrigin::signed(1),
-            merkle_root
-        ));
-
-        // Force the airdrop ID counter to stay at 0 to simulate trying to create with same ID
-        crate::NextAirdropId::<Test>::put(0);
-
-        assert_noop!(
-            MerkleAirdrop::create_airdrop(RuntimeOrigin::signed(1), merkle_root),
-            Error::<Test>::AirdropAlreadyExists
-        );
-    });
-}

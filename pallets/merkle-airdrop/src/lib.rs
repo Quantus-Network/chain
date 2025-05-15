@@ -179,8 +179,6 @@ pub mod pallet {
     pub enum Error<T> {
         /// The specified airdrop does not exist.
         AirdropNotFound,
-        /// The airdrop with this ID already exists.
-        AirdropAlreadyExists,
         /// The airdrop does not have sufficient balance for this operation.
         InsufficientAirdropBalance,
         /// The user has already claimed from this airdrop.
@@ -292,21 +290,12 @@ pub mod pallet {
         ///
         /// * `origin` - The origin of the call (must be signed)
         /// * `merkle_root` - The Merkle root hash representing all valid claims
-        ///
-        /// # Errors
-        ///
-        /// * `AirdropAlreadyExists` - If an airdrop with this ID already exists
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::create_airdrop())]
         pub fn create_airdrop(origin: OriginFor<T>, merkle_root: MerkleRoot) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             let airdrop_id = Self::next_airdrop_id();
-
-            ensure!(
-                !AirdropMerkleRoots::<T>::contains_key(airdrop_id),
-                Error::<T>::AirdropAlreadyExists
-            );
 
             AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
             AirdropCreators::<T>::insert(airdrop_id, who.clone());
