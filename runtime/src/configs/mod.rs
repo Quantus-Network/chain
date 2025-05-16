@@ -24,7 +24,7 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use crate::governance::{GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit, RootOrMemberOrigin, TracksInfo};
+use crate::governance::{RootOrMemberForTechReferendaOrigin, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit, RootOrMemberForCollectiveOrigin, CommunityTracksInfo, TechCollectiveTracksInfo};
 use frame_support::traits::{ConstU64, NeverEnsureOrigin};
 use frame_support::PalletId;
 use frame_support::{
@@ -199,7 +199,7 @@ impl pallet_preimage::Config for Runtime {
 }
 
 
-impl_tracksinfo_get!(TracksInfo, Balance, BlockNumber);
+impl_tracksinfo_get!(CommunityTracksInfo, Balance, BlockNumber);
 
 parameter_types! {
     // Default voting period (28 days)
@@ -252,7 +252,7 @@ impl pallet_referenda::Config for Runtime {
     /// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
     type AlarmInterval = AlarmInterval;
     /// Defines the different referendum tracks (categories with distinct parameters).
-    type Tracks = TracksInfo;
+    type Tracks = CommunityTracksInfo;
     /// The pallet used to store preimages (detailed proposal content) for referenda.
     type Preimages = Preimage;
 }
@@ -281,8 +281,8 @@ parameter_types! {
 impl pallet_ranked_collective::Config for Runtime {
     type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
     type RuntimeEvent = RuntimeEvent;
-    type AddOrigin = RootOrMemberOrigin;
-    type RemoveOrigin = RootOrMemberOrigin;
+    type AddOrigin = RootOrMemberForCollectiveOrigin;
+    type RemoveOrigin = RootOrMemberForCollectiveOrigin;
     type PromoteOrigin = NeverEnsureOrigin<u16>;
     type DemoteOrigin = NeverEnsureOrigin<u16>;
     type ExchangeOrigin = NeverEnsureOrigin<u16>;
@@ -324,7 +324,7 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
     /// The currency mechanism used for handling deposits and voting.
     type Currency = Balances;
     /// The origin allowed to submit referenda - in this case any signed account.
-    type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
+    type SubmitOrigin = RootOrMemberForTechReferendaOrigin;
     /// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
     type CancelOrigin = EnsureRoot<AccountId>;
     /// The privileged origin allowed to kill a referendum that's not passing - only root can do this.
@@ -349,7 +349,7 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
     /// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
     type AlarmInterval = AlarmInterval;
     /// Defines the different referendum tracks (categories with distinct parameters).
-    type Tracks = TracksInfo;
+    type Tracks = TechCollectiveTracksInfo;
     /// The pallet used to store preimages (detailed proposal content) for referenda.
     type Preimages = Preimage;
 }
