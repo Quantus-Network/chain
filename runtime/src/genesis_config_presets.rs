@@ -15,9 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TechCollectiveConfig};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
-use frame_support::BoundedVec;
 use dilithium_crypto::pair::{crystal_alice, dilithium_bob, crystal_charlie};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
@@ -31,12 +30,6 @@ pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
 fn test_root_account() -> AccountId {
 	account_from_ss58("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
 }
-fn tech_collective_members() -> Vec<AccountId> {
-	vec![
-		account_from_ss58("5G1BRLFXNQwePnJhMgjb1gXrhwPLn7QXmFw4f4J8ENsuuBBd"),
-		account_from_ss58("5Hpmk1NeonhmTTu1MvQ5hYwBTSkUjWAEuotcS93MQWaLA6oj"),
-	]
-}
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
@@ -48,7 +41,6 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	root: AccountId,
-	tech_collective_members: Vec<AccountId>
 ) -> Value {
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig {
@@ -59,11 +51,6 @@ fn genesis_template(
 				.collect::<Vec<_>>(),
 		},
 		sudo: SudoConfig { key: Some(root.clone()) },
-		tech_collective: TechCollectiveConfig {
-            members: BoundedVec::try_from(tech_collective_members)
-                .expect("Initial tech collective members are valid."),
-            phantom: Default::default(),
-        },
 		..Default::default()
 	};
 
@@ -73,13 +60,11 @@ fn genesis_template(
 /// Return the development genesis config.
 pub fn development_config_genesis() -> Value {
 	let mut endowed_accounts = vec![];
-	endowed_accounts.extend(tech_collective_members());
     endowed_accounts.extend(dilithium_default_accounts());
 
 	genesis_template(
 		endowed_accounts,
-		crystal_alice().into_account(),
-		tech_collective_members()
+		crystal_alice().into_account()
 	)
 }
 
@@ -87,14 +72,12 @@ pub fn development_config_genesis() -> Value {
 ///
 /// Endows only the specified test account and sets it as Sudo.
 pub fn live_testnet_config_genesis() -> Value {
-    let mut endowed_accounts = vec![test_root_account()];
-	endowed_accounts.extend(tech_collective_members());
+    let endowed_accounts = vec![test_root_account()];
 	log::info!("endowed account: {:?}", test_root_account().to_ss58check());
 
     genesis_template(
 		endowed_accounts,
-		test_root_account(),
-		tech_collective_members()
+		test_root_account()
 	)
 }
 
@@ -105,8 +88,7 @@ pub fn local_config_genesis() -> Value {
 			.filter(|v| v != &AccountKeyring::One && v != &AccountKeyring::Two)
 			.map(|v| v.to_account_id())
 			.collect::<Vec<_>>(),
-		test_root_account(),
-		tech_collective_members()
+		test_root_account()
 	)
 }
 

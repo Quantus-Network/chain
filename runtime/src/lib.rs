@@ -177,7 +177,6 @@ pub type TxExtension = (
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
     transaction_extensions::ReversibleTransactionExtension<Runtime>,
-    transaction_extensions::TechCollectiveExtension<Runtime>
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -266,14 +265,11 @@ mod runtime {
 	pub type ConvictionVoting = pallet_conviction_voting;
 
     #[runtime::pallet_index(15)]
-    pub type TechCollective = pallet_membership;
-
-    #[runtime::pallet_index(16)]
     pub type TechFellowship = pallet_ranked_collective;
 
-    #[runtime::pallet_index(17)]
+    #[runtime::pallet_index(16)]
     pub type TechReferenda = pallet_referenda::Pallet<Runtime,Instance1>;
 
-	#[runtime::pallet_index(18)]
+	#[runtime::pallet_index(17)]
 	pub type Faucet = pallet_faucet;
 }

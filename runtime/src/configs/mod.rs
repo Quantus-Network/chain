@@ -258,23 +258,6 @@ impl pallet_referenda::Config for Runtime {
 }
 
 parameter_types! {
-    pub const MaxMembers: u32 = 13; // Maximum number of members allowed
-}
-
-impl pallet_membership::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_membership::weights::SubstrateWeight<Runtime>;
-    type AddOrigin = frame_system::EnsureRoot<AccountId>;
-    type RemoveOrigin = frame_system::EnsureRoot<AccountId>;
-    type SwapOrigin = frame_system::EnsureRoot<AccountId>;
-    type ResetOrigin = frame_system::EnsureRoot<AccountId>;
-    type PrimeOrigin = frame_system::EnsureRoot<AccountId>;
-    type MembershipInitialized = ();
-    type MembershipChanged = ();
-    type MaxMembers = MaxMembers;
-}
-
-parameter_types! {
     pub const MinRankOfClassDelta: u16 = 0;
     pub const MaxMemberCount: u32 = 13;
 }
@@ -311,6 +294,8 @@ parameter_types! {
 }
 
 pub type TechReferendaInstance = pallet_referenda::Instance1;
+
+impl_tracksinfo_get!(TechCollectiveTracksInfo, Balance, BlockNumber);
 
 impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
     /// The type of call dispatched by referenda upon approval and execution.
