@@ -27,8 +27,18 @@ use sp_runtime::traits::IdentifyAccount;
 /// Identifier for the live testnet runtime preset.
 pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
 
+fn test_root_account() -> AccountId {
+	account_from_ss58("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
+}
+fn dilithium_default_accounts() -> Vec<AccountId> {
+	vec![
+		crystal_alice().into_account(),
+		dilithium_bob().into_account(),
+		crystal_charlie().into_account(),
+	]
+}
 // Returns the genesis config presets populated with given parameters.
-fn testnet_genesis(
+fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	root: AccountId,
 ) -> Value {
@@ -40,7 +50,7 @@ fn testnet_genesis(
 				.map(|k| (k, 1u128 << 60))
 				.collect::<Vec<_>>(),
 		},
-		sudo: SudoConfig { key: Some(root) },
+		sudo: SudoConfig { key: Some(root.clone()) },
 		..Default::default()
 	};
 
@@ -49,65 +59,36 @@ fn testnet_genesis(
 
 /// Return the development genesis config.
 pub fn development_config_genesis() -> Value {
-    let mut endowed_accounts = vec![
-        AccountKeyring::Alice.to_account_id(),
-        AccountKeyring::Bob.to_account_id(),
-        AccountKeyring::AliceStash.to_account_id(),
-        AccountKeyring::BobStash.to_account_id(),
-    ];
+	let mut endowed_accounts = vec![];
+    endowed_accounts.extend(dilithium_default_accounts());
 
-    // Add Dilithium-based accounts
-    let dilithium_accounts = vec![
-        crystal_alice().into_account(),
-        dilithium_bob().into_account(),
-        crystal_charlie().into_account(),
-    ];
-    endowed_accounts.extend(dilithium_accounts);
-
-	//use sp_core::crypto::ByteArray;
-
-	//log::info!("crystal_alice: {:?}", crystal_alice().public().into_account());
-	//log::info!("dilithium_bob: {:?}", dilithium_bob().public().as_slice());
-	//log::info!("crystal_charlie: {:?}", crystal_charlie().public().as_slice());
-
-	// crystal_alice: 5DzUw8DMrf54xf49UeARmYvcGxJFrupDCT1SYxB3w2RXF9Eq
-	// dilithium_bob: 5CxEUqBNycBAW5VvTaRXgkr4uK5HpMuS921gaTLVV9b3QYJx
-	// crystal_charlie: 5Fj6VYnJGMeAPg9y5oWzEyXakZbJMGSy9VdbehdE5suDvB4t
-	// crystal_alice: 553ffb66c8f627b6b6bd982ef564e144e779fc745f24241fdedac7e43f3ea486 (5DzUw8DM...)    
-	// dilithium_bob: 274c9a7ecffb52c25173be718b5fcf2d383bf6e465d63a34cbc26de56efa24f0 (5CxEUqBN...)    
-	// crystal_charlie: a1fc398e6f48f42c820cb3dcc3da40758a57f1a3243674ffe81832cd051c094c (5Fj6VYnJ...)    
-
-
-    testnet_genesis(
-        endowed_accounts,
-        AccountKeyring::Alice.to_account_id(), // Keep Alice as sudo
-    )
+	genesis_template(
+		endowed_accounts,
+		crystal_alice().into_account()
+	)
 }
 
 /// Return the live testnet genesis config.
 ///
 /// Endows only the specified test account and sets it as Sudo.
 pub fn live_testnet_config_genesis() -> Value {
-    let test_account_id = AccountId::from_ss58check("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
-        .expect("Failed to decode testnet account ID");
+    let endowed_accounts = vec![test_root_account()];
+	log::info!("endowed account: {:?}", test_root_account().to_ss58check());
 
-    let endowed_accounts = vec![test_account_id.clone()];
-	log::info!("endowed account: {:?}", test_account_id.to_ss58check());
-
-    testnet_genesis(
-        endowed_accounts,
-        test_account_id, // Set the test account as sudo for this testnet
+    genesis_template(
+		endowed_accounts,
+		test_root_account()
 	)
 }
 
 /// Return the local genesis config preset.
 pub fn local_config_genesis() -> Value {
-	testnet_genesis(
+	genesis_template(
 		AccountKeyring::iter()
 			.filter(|v| v != &AccountKeyring::One && v != &AccountKeyring::Two)
 			.map(|v| v.to_account_id())
 			.collect::<Vec<_>>(),
-		AccountKeyring::Alice.to_account_id(),
+		test_root_account()
 	)
 }
 
@@ -124,6 +105,9 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 			.expect("serialization to json is expected to work. qed.")
 			.into_bytes(),
 	)
+}
+fn account_from_ss58(ss58: &str) -> AccountId {
+	AccountId::from_ss58check(ss58).expect("Failed to decode SS58 address")
 }
 
 /// List of supported presets.

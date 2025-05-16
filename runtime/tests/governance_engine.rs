@@ -417,6 +417,7 @@ mod tests {
             let voter2 = account_id(3);
 
             // Ensure voters have enough balance
+            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
             Balances::make_free_balance_be(&voter1, 1000 * UNIT);
             Balances::make_free_balance_be(&voter2, 1000 * UNIT);
 
@@ -534,10 +535,10 @@ mod tests {
             let delegator2 = account_id(4);
 
             // Set up sufficient balances for all accounts
-            Balances::make_free_balance_be(&proposer, 1000 * UNIT);
-            Balances::make_free_balance_be(&delegate, 1000 * UNIT);
-            Balances::make_free_balance_be(&delegator1, 500 * UNIT);
-            Balances::make_free_balance_be(&delegator2, 800 * UNIT);
+            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
+            Balances::make_free_balance_be(&delegate, 10000 * UNIT);
+            Balances::make_free_balance_be(&delegator1, 5000 * UNIT);
+            Balances::make_free_balance_be(&delegator2, 8000 * UNIT);
 
             // Prepare a proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark {
