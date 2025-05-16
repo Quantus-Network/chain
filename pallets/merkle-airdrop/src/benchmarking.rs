@@ -80,13 +80,7 @@ mod benchmarks {
             .expect("Empty proof should fit in bound");
 
         #[extrinsic_call]
-        claim(
-            RawOrigin::Signed(caller),
-            airdrop_id,
-            recipient,
-            amount,
-            merkle_proof,
-        );
+        claim(RawOrigin::None, airdrop_id, recipient, amount, merkle_proof);
     }
 
     #[benchmark]

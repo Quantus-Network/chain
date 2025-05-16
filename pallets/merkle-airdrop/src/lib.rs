@@ -68,6 +68,10 @@ pub mod pallet {
     use sp_io::hashing::blake2_256;
     use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Saturating;
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
+        ValidTransaction,
+    };
     extern crate alloc;
     use alloc::vec;
 
@@ -90,6 +94,10 @@ pub mod pallet {
         /// The pallet id, used for deriving its sovereign account ID.
         #[pallet::constant]
         type PalletId: Get<frame_support::PalletId>;
+
+        /// Priority for unsigned claim transactions.
+        #[pallet::constant]
+        type UnsignedClaimPriority: Get<u64>;
 
         /// Weight information for the extrinsics in this pallet.
         type WeightInfo: WeightInfo;
@@ -176,6 +184,7 @@ pub mod pallet {
     }
 
     #[pallet::error]
+    #[repr(u8)]
     pub enum Error<T> {
         /// The specified airdrop does not exist.
         AirdropNotFound,
@@ -187,6 +196,20 @@ pub mod pallet {
         InvalidProof,
         /// Only the creator of an airdrop can delete it.
         NotAirdropCreator,
+    }
+
+    impl<T> Error<T> {
+        /// Convert the error to its underlying code
+        pub fn to_code(&self) -> u8 {
+            match self {
+                Error::<T>::AirdropNotFound => 1,
+                Error::<T>::InsufficientAirdropBalance => 2,
+                Error::<T>::AlreadyClaimed => 3,
+                Error::<T>::InvalidProof => 4,
+                Error::<T>::NotAirdropCreator => 5,
+                _ => 0,
+            }
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -382,7 +405,7 @@ pub mod pallet {
             amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
             merkle_proof: BoundedVec<MerkleHash, T::MaxProofs>,
         ) -> DispatchResult {
-            let _ = ensure_signed(origin)?;
+            ensure_none(origin)?;
 
             ensure!(
                 AirdropMerkleRoots::<T>::contains_key(airdrop_id),
@@ -478,6 +501,50 @@ pub mod pallet {
             Self::deposit_event(Event::AirdropDeleted { airdrop_id });
 
             Ok(())
+        }
+    }
+
+    #[pallet::validate_unsigned]
+    impl<T: Config> ValidateUnsigned for Pallet<T> {
+        type Call = Call<T>;
+
+        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            if let Call::claim {
+                airdrop_id,
+                recipient,
+                amount,
+                merkle_proof,
+            } = call
+            {
+                // 1. Check if airdrop exists
+                let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id).ok_or_else(|| {
+                    let error = Error::<T>::AirdropNotFound;
+                    InvalidTransaction::Custom(error.to_code())
+                })?;
+
+                // 2. Check if already claimed
+                if Claimed::<T>::contains_key(airdrop_id, recipient) {
+                    let error = Error::<T>::AlreadyClaimed;
+                    return InvalidTransaction::Custom(error.to_code()).into();
+                }
+
+                // 3. Verify Merkle Proof
+                if !Self::verify_merkle_proof(recipient, *amount, &merkle_root, merkle_proof) {
+                    let error = Error::<T>::InvalidProof;
+                    return InvalidTransaction::Custom(error.to_code()).into();
+                }
+
+                Ok(ValidTransaction {
+                    priority: T::UnsignedClaimPriority::get(),
+                    requires: vec![],
+                    provides: vec![(airdrop_id, recipient, amount).encode()],
+                    longevity: TransactionLongevity::MAX,
+                    propagate: true,
+                })
+            } else {
+                log::error!(target: "merkle-airdrop", "ValidateUnsigned: Received non-claim transaction or unexpected call structure");
+                InvalidTransaction::Call.into()
+            }
         }
     }
 }

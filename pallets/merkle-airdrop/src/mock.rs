@@ -85,6 +85,7 @@ impl pallet_balances::Config for Test {
 parameter_types! {
     pub const MaxProofs: u32 = 100;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
+    pub const UnsignedClaimPriority: u64 = 100;
 }
 
 impl pallet_merkle_airdrop::Config for Test {
@@ -92,6 +93,7 @@ impl pallet_merkle_airdrop::Config for Test {
     type Currency = Balances;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
+    type UnsignedClaimPriority = UnsignedClaimPriority;
     type WeightInfo = ();
 }
 
@@ -104,10 +106,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 pub fn initialize_balances() {
-    // Give account 1 some balance
     let _ = Balances::force_set_balance(RuntimeOrigin::root(), 1, 10_000);
 
-    // Ensure the pallet account exists with some balance
     let pallet_account = MerkleAirdrop::account_id();
     let _ = Balances::force_set_balance(RuntimeOrigin::root(), pallet_account, 1);
 }
