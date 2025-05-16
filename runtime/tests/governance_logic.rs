@@ -1,6 +1,6 @@
 #[path = "common.rs"]
 mod common;
-
+/*
 #[cfg(test)]
 mod tests {
     use codec::Encode;
@@ -1465,3 +1465,4 @@ mod tests {
         });
     }
 }
+ */

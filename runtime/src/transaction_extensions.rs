@@ -170,12 +170,9 @@ impl<T: frame_system::Config> TechCollectiveExtension<T> {
 
 #[cfg(test)]
 mod tests {
-    use frame_support::assert_ok;
     use frame_support::pallet_prelude::{TransactionValidityError, UnknownTransaction};
-    use frame_support::traits::Currency;
     use pallet_reversible_transfers::PendingTransfers;
     use sp_runtime::{traits::TxBaseImplication, AccountId32};
-    use sp_runtime::traits::Hash;
     use super::*;
     fn alice() -> AccountId {
         AccountId32::from([1; 32])

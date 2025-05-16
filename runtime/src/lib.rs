@@ -265,7 +265,7 @@ mod runtime {
 	pub type ConvictionVoting = pallet_conviction_voting;
 
     #[runtime::pallet_index(15)]
-    pub type TechFellowship = pallet_ranked_collective;
+    pub type TechCollective = pallet_ranked_collective;
 
     #[runtime::pallet_index(16)]
     pub type TechReferenda = pallet_referenda::Pallet<Runtime,Instance1>;
