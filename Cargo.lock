@@ -6670,6 +6670,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-ranked-collective"
+version = "39.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6d4acea40defbd7b79e75939e158fb3b70ef60d5d53b269999c1470156d2b69"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-referenda"
 version = "39.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8529,6 +8548,7 @@ dependencies = [
  "pallet-mining-rewards",
  "pallet-preimage",
  "pallet-qpow",
+ "pallet-ranked-collective",
  "pallet-referenda",
  "pallet-reversible-transfers",
  "pallet-scheduler",

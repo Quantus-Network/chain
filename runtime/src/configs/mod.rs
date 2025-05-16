@@ -24,8 +24,8 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use crate::governance::{PreimageDeposit, TracksInfo};
-use frame_support::traits::ConstU64;
+use crate::governance::{GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit, RootOrMemberOrigin, TracksInfo};
+use frame_support::traits::{ConstU64, NeverEnsureOrigin};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -37,6 +37,7 @@ use frame_support::{
 };
 use frame_system::limits::{BlockLength, BlockWeights};
 use frame_system::EnsureRoot;
+use pallet_ranked_collective::Geometric;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use pallet_vesting::VestingPalletId;
@@ -197,22 +198,6 @@ impl pallet_preimage::Config for Runtime {
     type Consideration = PreimageDeposit;
 }
 
-parameter_types! {
-    pub const MaxMembers: u32 = 13; // Maximum number of members allowed
-}
-
-impl pallet_membership::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_membership::weights::SubstrateWeight<Runtime>;
-    type AddOrigin = frame_system::EnsureRoot<AccountId>;
-    type RemoveOrigin = frame_system::EnsureRoot<AccountId>;
-    type SwapOrigin = frame_system::EnsureRoot<AccountId>;
-    type ResetOrigin = frame_system::EnsureRoot<AccountId>;
-    type PrimeOrigin = frame_system::EnsureRoot<AccountId>;
-    type MembershipInitialized = ();
-    type MembershipChanged = ();
-    type MaxMembers = MaxMembers;
-}
 
 impl_tracksinfo_get!(TracksInfo, Balance, BlockNumber);
 
@@ -258,6 +243,103 @@ impl pallet_referenda::Config for Runtime {
     /// The method to tally votes and determine referendum outcome.
     /// Uses conviction voting's tally system with a maximum turnout threshold.
     type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>;
+    /// The deposit required to submit a referendum proposal.
+    type SubmissionDeposit = ReferendumSubmissionDeposit;
+    /// Maximum number of referenda that can be in the deciding phase simultaneously.
+    type MaxQueued = ReferendumMaxProposals;
+    /// Time period after which an undecided referendum will be automatically rejected.
+    type UndecidingTimeout = UndecidingTimeout;
+    /// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
+    type AlarmInterval = AlarmInterval;
+    /// Defines the different referendum tracks (categories with distinct parameters).
+    type Tracks = TracksInfo;
+    /// The pallet used to store preimages (detailed proposal content) for referenda.
+    type Preimages = Preimage;
+}
+
+parameter_types! {
+    pub const MaxMembers: u32 = 13; // Maximum number of members allowed
+}
+
+impl pallet_membership::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_membership::weights::SubstrateWeight<Runtime>;
+    type AddOrigin = frame_system::EnsureRoot<AccountId>;
+    type RemoveOrigin = frame_system::EnsureRoot<AccountId>;
+    type SwapOrigin = frame_system::EnsureRoot<AccountId>;
+    type ResetOrigin = frame_system::EnsureRoot<AccountId>;
+    type PrimeOrigin = frame_system::EnsureRoot<AccountId>;
+    type MembershipInitialized = ();
+    type MembershipChanged = ();
+    type MaxMembers = MaxMembers;
+}
+
+parameter_types! {
+    pub const MinRankOfClassDelta: u16 = 0;
+    pub const MaxMemberCount: u32 = 13;
+}
+impl pallet_ranked_collective::Config for Runtime {
+    type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
+    type RuntimeEvent = RuntimeEvent;
+    type AddOrigin = RootOrMemberOrigin;
+    type RemoveOrigin = RootOrMemberOrigin;
+    type PromoteOrigin = NeverEnsureOrigin<u16>;
+    type DemoteOrigin = NeverEnsureOrigin<u16>;
+    type ExchangeOrigin = NeverEnsureOrigin<u16>;
+    type Polls = pallet_referenda::Pallet<Runtime, TechReferendaInstance>;
+    type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
+    type MemberSwappedHandler = ();
+    type VoteWeight = Geometric;
+    type MaxMemberCount = GlobalMaxMembers<MaxMemberCount>;
+
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkSetup = ();
+}
+
+parameter_types! {
+    // Default voting period (28 days)
+    pub const TechReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
+    // Minimum time before a successful referendum can be enacted (4 days)
+    pub const TechReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
+    // Maximum number of active referenda
+    pub const TechReferendumMaxProposals: u32 = 100;
+    // Submission deposit for referenda
+    pub const TechReferendumSubmissionDeposit: Balance = 100 * UNIT;
+    // Undeciding timeout (90 days)
+    pub const TechUndecidingTimeout: BlockNumber = 45 * DAYS;
+    pub const TechAlarmInterval: BlockNumber = 1;
+}
+
+pub type TechReferendaInstance = pallet_referenda::Instance1;
+
+impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
+    /// The type of call dispatched by referenda upon approval and execution.
+    type RuntimeCall = RuntimeCall;
+    /// The overarching event type for the runtime.
+    type RuntimeEvent = RuntimeEvent;
+    /// Provides weights for the pallet operations to properly charge transaction fees.
+    type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
+    /// The scheduler pallet used to delay execution of successful referenda.
+    type Scheduler = Scheduler;
+    /// The currency mechanism used for handling deposits and voting.
+    type Currency = Balances;
+    /// The origin allowed to submit referenda - in this case any signed account.
+    type SubmitOrigin = frame_system::EnsureSigned<AccountId>;
+    /// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
+    type CancelOrigin = EnsureRoot<AccountId>;
+    /// The privileged origin allowed to kill a referendum that's not passing - only root can do this.
+    type KillOrigin = EnsureRoot<AccountId>;
+    /// Destination for slashed deposits when a referendum is cancelled or killed.
+    /// Leaving () here, will burn all slashed deposits. It's possible to use here the same idea
+    /// as we have for TransactionFees (OnUnbalanced) - with this it should be possible to
+    /// do something more sophisticated with this.
+    type Slash = (); // Will discard any slashed deposits
+    /// The voting mechanism used to collect votes and determine how they're counted.
+    /// Connected to the conviction voting pallet to allow conviction-weighted votes.
+    type Votes = pallet_ranked_collective::Votes;
+    /// The method to tally votes and determine referendum outcome.
+    /// Uses conviction voting's tally system with a maximum turnout threshold.
+    type Tally = pallet_ranked_collective::TallyOf<Runtime>;
     /// The deposit required to submit a referendum proposal.
     type SubmissionDeposit = ReferendumSubmissionDeposit;
     /// Maximum number of referenda that can be in the deciding phase simultaneously.

@@ -268,6 +268,12 @@ mod runtime {
     #[runtime::pallet_index(15)]
     pub type TechCollective = pallet_membership;
 
-	#[runtime::pallet_index(16)]
+    #[runtime::pallet_index(16)]
+    pub type TechFellowship = pallet_ranked_collective;
+
+    #[runtime::pallet_index(17)]
+    pub type TechReferenda = pallet_referenda::Pallet<Runtime,Instance1>;
+
+	#[runtime::pallet_index(18)]
 	pub type Faucet = pallet_faucet;
 }

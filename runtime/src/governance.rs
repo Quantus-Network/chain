@@ -1,14 +1,15 @@
-use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::pallet_prelude::TypeInfo;
-use frame_support::traits::{CallerTrait, Consideration, Footprint, ReservableCurrency};
-use sp_runtime::{DispatchError, Perbill};
-use crate::{AccountId, Balance, Balances, BlockNumber, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
+use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
 use alloc::vec::Vec;
-
-
-
+use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
+use frame_support::pallet_prelude::TypeInfo;
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
+use frame_support::traits::{CallerTrait, Consideration, Footprint, ReservableCurrency, Get, EnsureOrigin, OriginTrait};
+use pallet_ranked_collective::Rank;
+use sp_core::crypto::AccountId32;
+use sp_runtime::traits::{Convert, MaybeConvert};
+use sp_runtime::{DispatchError, Perbill};
+use sp_std::marker::PhantomData;
 
 ///Preimage pallet fee model
 
@@ -193,3 +194,63 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
         Ok(())
     }
 }
+
+pub struct MinRankOfClassConverter<Delta>(PhantomData<Delta>);
+impl<Delta: Get<u16>> Convert<u16, u16> for MinRankOfClassConverter<Delta> {
+    fn convert(a: u16) -> u16 {
+        a.saturating_sub(Delta::get())
+    }
+}
+
+pub struct GlobalMaxMembers<MaxVal: Get<u32>>(PhantomData<MaxVal>);
+
+impl<MaxVal: Get<u32>> MaybeConvert<u16, u32> for GlobalMaxMembers<MaxVal> {
+    fn maybe_convert(_a: u16) -> Option<u32> {
+        Some(MaxVal::get())
+    }
+}
+
+pub struct RootOrMemberOriginImpl<Runtime, I>(PhantomData<(Runtime, I)>);
+
+impl<Runtime, I> EnsureOrigin<Runtime::RuntimeOrigin> for RootOrMemberOriginImpl<Runtime, I>
+where
+    Runtime: pallet_ranked_collective::Config<I> + frame_system::Config,
+    <Runtime as frame_system::Config>::RuntimeOrigin:
+        OriginTrait<PalletsOrigin = crate::OriginCaller>,
+    for<'a> &'a AccountId32: EncodeLike<<Runtime as frame_system::Config>::AccountId>,
+    I: 'static,
+{
+    type Success = Rank;
+
+    fn try_origin(o: Runtime::RuntimeOrigin) -> Result<Self::Success, Runtime::RuntimeOrigin> {
+        // Check for Root first
+        if <frame_system::EnsureRoot<Runtime::AccountId> as EnsureOrigin<
+            Runtime::RuntimeOrigin,
+        >>::try_origin(o.clone())
+        .is_ok()
+        {
+            return Ok(0);
+        }
+
+        let original_o_for_error = o.clone();
+        let pallets_origin = o.into_caller();
+
+        match pallets_origin {
+            crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) => {
+                if pallet_ranked_collective::Members::<Runtime, I>::contains_key(&who) {
+                    Ok(0)
+                } else {
+                    Err(original_o_for_error)
+                }
+            }
+            _ => Err(original_o_for_error),
+        }
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn try_successful_origin() -> Result<Runtime::RuntimeOrigin, ()> {
+        Ok(frame_system::RawOrigin::<Runtime::AccountId>::Root.into())
+    }
+}
+
+pub type RootOrMemberOrigin = RootOrMemberOriginImpl<Runtime, ()>;
