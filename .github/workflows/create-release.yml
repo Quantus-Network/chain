@@ -179,12 +179,6 @@ jobs:
           components: rustfmt, clippy, rust-src
           targets: wasm32-unknown-unknown, ${{ matrix.target }}
 
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          prefix-key: v0-rust-${{ matrix.os }}-${{ matrix.target }}
-
       - name: Build quantus-node binary (if not fast testing)
         if: github.event.inputs.fast_test_create_release_job == 'false'
         run: cargo build --locked --release --package quantus-node --target ${{ matrix.target }}
