@@ -926,4 +926,114 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn track0_ignores_token_support_threshold_when_min_support_is_zero() {
+        new_test_ext().execute_with(|| {
+            let proposer = account_id(1);
+            let voter1 = account_id(2);
+            let voter2 = account_id(3);
+
+            // Set up balances
+            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
+            Balances::make_free_balance_be(&voter1, 10 * UNIT);
+            Balances::make_free_balance_be(&voter2, 10 * UNIT);
+
+            // Add proposer and voters to TechCollective
+            assert_ok!(TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::from(proposer.clone())
+            ));
+            assert_ok!(TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::from(voter1.clone())
+            ));
+            assert_ok!(TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::from(voter2.clone())
+            ));
+
+            // Prepare proposal for track 0
+            let proposal = RuntimeCall::System(frame_system::Call::remark {
+                remark: b"Tech track proposal - token amount should not matter".to_vec()
+            });
+
+            let encoded = proposal.encode();
+            let hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded);
+
+            assert_ok!(Preimage::note_preimage(
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded.clone()
+            ));
+
+            // Submit referendum for track 0
+            assert_ok!(TechReferenda::submit(
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                frame_support::traits::Bounded::Lookup {
+                    hash,
+                    len: encoded.len() as u32
+                },
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
+
+            let referendum_idx = 0;
+
+            // Place decision deposit
+            assert_ok!(TechReferenda::place_decision_deposit(
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_idx
+            ));
+
+            // Verify the referendum is on track 0
+            let info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(referendum_idx).unwrap();
+            if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
+                assert_eq!(status.track, 0, "Referendum should be on track 0");
+            } else {
+                panic!("Referendum should be ongoing");
+            }
+
+            // Vote with minimal token amounts
+            assert_ok!(TechCollective::vote(
+                RuntimeOrigin::signed(voter1.clone()),
+                referendum_idx,
+                true // AYE vote
+            ));
+
+            assert_ok!(TechCollective::vote(
+                RuntimeOrigin::signed(voter2.clone()),
+                referendum_idx,
+                true // AYE vote
+            ));
+
+            // Get track info for proper timing
+            let track_info = <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(0).unwrap();
+            let prepare_period = track_info.prepare_period;
+            let decision_period = track_info.decision_period;
+            let confirm_period = track_info.confirm_period;
+
+            // Advance to deciding phase
+            run_to_block(prepare_period + 1);
+
+            // Check referendum state - should be in deciding phase
+            let info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(referendum_idx).unwrap();
+            match info {
+                pallet_referenda::ReferendumInfo::Ongoing(details) => {
+                    assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
+                },
+                _ => panic!("Referendum should be ongoing"),
+            }
+
+            // Advance through all required periods with extra buffer
+            let final_block = prepare_period + decision_period + confirm_period + 100;
+            run_to_block(final_block);
+
+            // Check final state of referendum - should be approved despite tiny token amounts
+            let final_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(referendum_idx).unwrap();
+            assert!(
+                matches!(final_info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+                "Track 0 referendum should be approved with minimal token amounts"
+            );
+        });
+    }
 }

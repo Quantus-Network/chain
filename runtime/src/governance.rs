@@ -136,10 +136,15 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
         // Check for system origins first
         if let Some(system_origin) = id.as_system_ref() {
             match system_origin {
-                frame_system::RawOrigin::Root => return Ok(0), // Root can use track 0
+                frame_system::RawOrigin::None => return Ok(1), // None origin uses track 1
                 _ => {}
             }
         }
+
+        if let Some(_signer) = id.as_signed() {
+            return Ok(0); // Signed users use track 0
+        }
+
         Err(())
     }
 

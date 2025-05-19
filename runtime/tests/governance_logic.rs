@@ -1,6 +1,6 @@
 #[path = "common.rs"]
 mod common;
-/*
+
 #[cfg(test)]
 mod tests {
     use codec::Encode;
@@ -10,7 +10,7 @@ mod tests {
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
     use sp_runtime::traits::Hash;
-    use resonance_runtime::{Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall, RuntimeOrigin, TechCollective, DAYS, EXISTENTIAL_DEPOSIT, HOURS, UNIT};
+    use resonance_runtime::{Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall, RuntimeOrigin, DAYS, HOURS, UNIT};
     use crate::common::{account_id, new_test_ext, run_to_block};
 
     #[test]
@@ -53,7 +53,7 @@ mod tests {
             // Submit referendum
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
                 bounded_call,
                 enactment_moment
             ));
@@ -134,6 +134,7 @@ mod tests {
         });
     }
 
+
     #[test]
     fn referendum_execution_with_scheduler_works() {
         new_test_ext().execute_with(|| {
@@ -147,9 +148,8 @@ mod tests {
 
             // Prepare the transfer proposal
             let transfer_amount = 5 * UNIT;
-            // Use force_transfer which works with root origin
-            let proposal = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
-                source: proposer.clone().into(),
+            // Use transfer_keep_alive which works with signed origin
+            let proposal = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
                 dest: target.clone().into(),
                 value: transfer_amount,
             });
@@ -169,10 +169,13 @@ mod tests {
                 len: encoded_call.len() as u32,
             };
 
+            // Prepare origin for the proposal
+            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone())));
+
             // Submit the referendum
             assert_ok!(Referenda::submit(
             RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+            proposal_origin,
             bounded_call,
             frame_support::traits::schedule::DispatchTime::After(0u32.into())
         ));
@@ -262,7 +265,7 @@ mod tests {
                 len: encoded_call.len() as u32
             };
 
-            // Submit referendum on track 1 (signed)
+            // Submit referendum on track 0 (signed)
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
@@ -292,7 +295,7 @@ mod tests {
             ));
 
             // Get track info
-            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap();
+            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
             let prepare_period = track_info.prepare_period;
             let decision_period = track_info.decision_period;
 
@@ -336,7 +339,7 @@ mod tests {
             // Submit referendum
             assert_ok!(Referenda::submit(
             RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+            Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
             bounded_call,
             frame_support::traits::schedule::DispatchTime::After(0u32.into())
         ));
@@ -390,7 +393,7 @@ mod tests {
             // Submit referendum
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
                 frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
@@ -471,97 +474,6 @@ mod tests {
     //Tracks tests
 
     #[test]
-    fn root_track_referendum_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let voter = account_id(2);
-
-            // Set up much larger balances to ensure sufficient funds
-            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            Balances::make_free_balance_be(&voter, 10000 * UNIT);
-
-            // Create a root proposal - system parameter change
-            let proposal = RuntimeCall::System(frame_system::Call::set_storage {
-                items: vec![(b"important_value".to_vec(), b"new_value".to_vec())]
-            });
-
-            // Create and submit referendum
-            let encoded_call = proposal.encode();
-            let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
-
-            assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            encoded_call.clone()
-        ));
-
-            let bounded_call = frame_support::traits::Bounded::Lookup {
-                hash: preimage_hash,
-                len: encoded_call.len() as u32
-            };
-
-            // Submit with Root origin
-            assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-            bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
-
-            // Check referendum is using track 0
-            let referendum_index = 0;
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
-            if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert_eq!(status.track, 0, "Referendum should be on root track (0)");
-            } else {
-                panic!("Referendum should be ongoing");
-            }
-
-            // Place decision deposit
-            assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            referendum_index
-        ));
-
-            // Cast vote with high conviction
-            assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter.clone()),
-            referendum_index,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked6x,
-                },
-                balance: 800 * UNIT, // Large stake to ensure passage
-            }
-        ));
-
-            // Progress through phases
-            let prepare_period = 1 * DAYS;
-            let decision_period = 14 * DAYS;
-            let confirm_period = 1 * DAYS;
-
-            // Advance to deciding phase
-            run_to_block(prepare_period + 1);
-
-            // Verify referendum is in deciding phase
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
-            if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert!(status.deciding.is_some(), "Referendum should be in deciding phase");
-            } else {
-                panic!("Referendum should be ongoing");
-            }
-
-            // Advance through decision and confirmation
-            run_to_block(prepare_period + decision_period + confirm_period + 2);
-
-            // Verify referendum passed
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
-            assert!(matches!(info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Referendum should be approved");
-        });
-    }
-
-    #[test]
     fn signaling_track_referendum_works() {
         new_test_ext().execute_with(|| {
             let proposer = account_id(1);
@@ -604,7 +516,7 @@ mod tests {
             let referendum_index = 0;
             let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert_eq!(status.track, 2, "Referendum should be on signaling track (2)");
+                assert_eq!(status.track, 1, "Referendum should be on signaling track (1)");
             } else {
                 panic!("Referendum should be ongoing");
             }
@@ -679,23 +591,16 @@ mod tests {
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
             Balances::make_free_balance_be(&voter, 10000 * UNIT);
 
-            // Create three proposals, one for each track
+            // Create two proposals, one for each track
 
-            // Root track proposal
-            let root_proposal = RuntimeCall::System(frame_system::Call::set_storage {
-                items: vec![(b"param".to_vec(), b"value".to_vec())]
-            });
-            let root_encoded = root_proposal.encode();
-            let root_hash = <Runtime as frame_system::Config>::Hashing::hash(&root_encoded);
-
-            // Signed track proposal
+            // Signed track proposal (track 0)
             let signed_proposal = RuntimeCall::System(frame_system::Call::remark {
                 remark: b"Signed track proposal".to_vec()
             });
             let signed_encoded = signed_proposal.encode();
             let signed_hash = <Runtime as frame_system::Config>::Hashing::hash(&signed_encoded);
 
-            // Signaling track proposal
+            // Signaling track proposal (track 1)
             let signal_proposal = RuntimeCall::System(frame_system::Call::remark {
                 remark: b"Signaling track proposal".to_vec()
             });
@@ -704,140 +609,97 @@ mod tests {
 
             // Store preimages
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            root_encoded.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                signed_encoded.clone()
+            ));
 
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            signed_encoded.clone()
-        ));
-
-            assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            signal_encoded.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                signal_encoded.clone()
+            ));
 
             // Submit referenda for each track
 
-            // Root track (0)
+            // Signed track (0)
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-            frame_support::traits::Bounded::Lookup {
-                hash: root_hash,
-                len: root_encoded.len() as u32
-            },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
+                frame_support::traits::Bounded::Lookup {
+                    hash: signed_hash,
+                    len: signed_encoded.len() as u32
+                },
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
-            // Signed track (1)
+            // Signaling track (1)
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
-            frame_support::traits::Bounded::Lookup {
-                hash: signed_hash,
-                len: signed_encoded.len() as u32
-            },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
-
-            // Signaling track (2)
-            assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
-            frame_support::traits::Bounded::Lookup {
-                hash: signal_hash,
-                len: signal_encoded.len() as u32
-            },
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+                frame_support::traits::Bounded::Lookup {
+                    hash: signal_hash,
+                    len: signal_encoded.len() as u32
+                },
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
             // Check each referendum is on the correct track
-            let root_idx = 0;
-            let signed_idx = 1;
-            let signal_idx = 2;
+            let signed_idx = 0;
+            let signal_idx = 1;
 
-            let root_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
             let signed_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
             let signal_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
 
-            match root_info {
-                pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert_eq!(status.track, 0, "Root referendum should be on track 0");
-                },
-                _ => panic!("Root referendum should be ongoing")
-            }
-
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert_eq!(status.track, 1, "Signed referendum should be on track 1");
+                    assert_eq!(status.track, 0, "Signed referendum should be on track 0");
                 },
                 _ => panic!("Signed referendum should be ongoing")
             }
 
             match signal_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert_eq!(status.track, 2, "Signaling referendum should be on track 2");
+                    assert_eq!(status.track, 1, "Signaling referendum should be on track 1");
                 },
                 _ => panic!("Signaling referendum should be ongoing")
             }
 
             // Place decision deposits for all
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            root_idx
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                signed_idx
+            ));
 
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            signed_idx
-        ));
-
-            assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            signal_idx
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                signal_idx
+            ));
 
             // Vote on all referenda
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter.clone()),
-            root_idx,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked6x,
-                },
-                balance: 300 * UNIT,
-            }
-        ));
+                RuntimeOrigin::signed(voter.clone()),
+                signed_idx,
+                Standard {
+                    vote: Vote {
+                        aye: true,
+                        conviction: pallet_conviction_voting::Conviction::Locked3x,
+                    },
+                    balance: 300 * UNIT,
+                }
+            ));
 
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter.clone()),
-            signed_idx,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked3x,
-                },
-                balance: 300 * UNIT,
-            }
-        ));
-
-            assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter.clone()),
-            signal_idx,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked1x,
-                },
-                balance: 300 * UNIT,
-            }
-        ));
+                RuntimeOrigin::signed(voter.clone()),
+                signal_idx,
+                Standard {
+                    vote: Vote {
+                        aye: true,
+                        conviction: pallet_conviction_voting::Conviction::Locked1x,
+                    },
+                    balance: 300 * UNIT,
+                }
+            ));
 
             // Get the prepare periods for each track
-            let root_prepare = 1 * DAYS;
             let signed_prepare = 12 * HOURS;
             let signal_prepare = 6 * HOURS;
 
@@ -874,36 +736,20 @@ mod tests {
                 _ => panic!("Signed referendum should be ongoing")
             }
 
-            // Advance to root prepare completion
-            run_to_block(root_prepare + 1);
-
-            // Check root referendum moved to deciding phase
-            let root_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-            match root_info {
-                pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert!(status.deciding.is_some(), "Root referendum should now be in deciding phase");
-                },
-                _ => panic!("Root referendum should be ongoing")
-            }
-
             // Advance through all decision periods to confirm all pass
-            let longest_process = root_prepare + 14 * DAYS + 1 * DAYS + 5; // Root track has longest periods
+            let longest_process = signed_prepare + 7 * DAYS + 12 * HOURS + 5; // Signed track has longest periods
             run_to_block(longest_process);
 
             // Verify all referenda passed
-            let root_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
             let signed_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
             let signal_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
 
-            assert!(matches!(root_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Root referendum should be approved");
             assert!(matches!(signed_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
                     "Signed referendum should be approved");
             assert!(matches!(signal_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
                     "Signal referendum should be approved");
         });
     }
-
     #[test]
     fn max_deciding_limit_works() {
         new_test_ext().execute_with(|| {
@@ -913,7 +759,7 @@ mod tests {
             Balances::make_free_balance_be(&proposer, 5000 * UNIT);
 
             // Get max_deciding for signaling track
-            let max_deciding = 20; // From your track configuration (track 2)
+            let max_deciding = 20; // From your track configuration (track 1)
 
             // Create max_deciding + 1 signaling referenda
             for i in 0..max_deciding + 1 {
@@ -970,499 +816,8 @@ mod tests {
                        "Only max_deciding referenda should be in deciding phase");
 
             // Check that one referendum is queued
-            let track_queue = pallet_referenda::TrackQueue::<Runtime>::get(2); // Track 2 = signaling
+            let track_queue = pallet_referenda::TrackQueue::<Runtime>::get(1); // Track 1 = signaling
             assert_eq!(track_queue.len(), 1, "One referendum should be queued");
         });
     }
-
-    #[test]
-    fn track0_ignores_token_support_threshold_when_min_support_is_zero() {
-        new_test_ext().execute_with(|| {
-            // Add several members to TechCollective
-            assert_ok!(TechCollective::add_member(
-                RuntimeOrigin::root(),
-                sp_runtime::MultiAddress::Id(account_id(2)),
-            ));
-
-            assert_ok!(TechCollective::add_member(
-                RuntimeOrigin::root(),
-                sp_runtime::MultiAddress::Id(account_id(3)),
-            ));
-
-            assert_ok!(TechCollective::add_member(
-                RuntimeOrigin::root(),
-                sp_runtime::MultiAddress::Id(account_id(4)),
-            ));
-
-            let proposer = account_id(1);
-            let tech_member1 = account_id(2);
-            let tech_member2 = account_id(3);
-            let tech_member3 = account_id(4);
-
-            // Set proposer balance to be able to submit referendum and place deposits for two referenda
-            Balances::make_free_balance_be(&proposer, 3000 * UNIT);
-
-            // Set TechCollective members to have enough balance for transaction fees and voting
-            // Their balance is set relative to EXISTENTIAL_DEPOSIT to ensure they can vote with ED.
-            Balances::make_free_balance_be(&tech_member1, EXISTENTIAL_DEPOSIT * 10);
-            Balances::make_free_balance_be(&tech_member2, EXISTENTIAL_DEPOSIT * 10);
-            Balances::make_free_balance_be(&tech_member3, EXISTENTIAL_DEPOSIT * 10);
-
-            println!("Proposer balance (UNITs): {}", Balances::free_balance(&proposer) / UNIT);
-            println!("Tech member 1 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member1), Balances::free_balance(&tech_member1) / EXISTENTIAL_DEPOSIT.max(1));
-            println!("Tech member 2 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member2), Balances::free_balance(&tech_member2) / EXISTENTIAL_DEPOSIT.max(1));
-            println!("Tech member 3 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member3), Balances::free_balance(&tech_member3) / EXISTENTIAL_DEPOSIT.max(1));
-
-            // Prepare proposal for track 0 (root)
-            let root_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Root track proposal - token amount should not matter".to_vec()
-            });
-
-            let root_encoded = root_proposal.encode();
-            let root_hash = <Runtime as frame_system::Config>::Hashing::hash(&root_encoded);
-
-            assert_ok!(Preimage::note_preimage(
-                RuntimeOrigin::signed(proposer.clone()),
-                root_encoded.clone()
-            ));
-
-            // Submit referendum for track 0
-            assert_ok!(Referenda::submit(
-                RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-                frame_support::traits::Bounded::Lookup {
-                    hash: root_hash,
-                    len: root_encoded.len() as u32
-                },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
-            ));
-
-            let root_idx = 0;
-
-            // Place decision deposit
-            assert_ok!(Referenda::place_decision_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                root_idx
-            ));
-
-            // Verify the referendum is on track 0
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-            if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert_eq!(status.track, 0, "Referendum should be on track 0");
-            } else {
-                panic!("Referendum should be ongoing");
-            }
-
-            // TechCollective members vote with different token amounts
-            assert_ok!(ConvictionVoting::vote(
-                RuntimeOrigin::signed(tech_member1.clone()),
-                root_idx,
-                Standard {
-                    vote: Vote {
-                        aye: true,
-                        conviction: pallet_conviction_voting::Conviction::None,
-                    },
-                    balance: EXISTENTIAL_DEPOSIT, // Minimal amount for voting, > 0
-                }
-            ));
-
-            assert_ok!(ConvictionVoting::vote(
-                RuntimeOrigin::signed(tech_member2.clone()),
-                root_idx,
-                Standard {
-                    vote: Vote {
-                        aye: true, // Changed from false to true to ensure approval
-                        conviction: pallet_conviction_voting::Conviction::None,
-                    },
-                    balance: EXISTENTIAL_DEPOSIT, // Minimal amount for voting, > 0
-                }
-            ));
-
-            assert_ok!(ConvictionVoting::vote(
-                RuntimeOrigin::signed(tech_member3.clone()),
-                root_idx,
-                Standard {
-                    vote: Vote {
-                        aye: true,
-                        conviction: pallet_conviction_voting::Conviction::None,
-                    },
-                    balance: EXISTENTIAL_DEPOSIT, // Minimal amount for voting, > 0
-                }
-            ));
-
-            // Advance past preparation phase
-            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
-            let prepare_period = track_info.prepare_period;
-            run_to_block(prepare_period + 1);
-
-            // Check referendum state - should be in deciding phase
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-            match info {
-                pallet_referenda::ReferendumInfo::Ongoing(details) => {
-                    assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
-
-                    // Ayes is 150 UNIT, Nays is 50 UNIT
-                    // Assuming min_support has floor: 0, ceil: 0,
-                    // only the approval ratio matters regardless of minimum token threshold
-                    println!("Tally for root track referendum - ayes: {}, nays: {}",
-                             details.tally.ayes, details.tally.nays);
-
-                    assert!(details.tally.ayes > details.tally.nays,
-                            "Ayes should be winning based on total tokens, despite fewer voters");
-                },
-                _ => panic!("Referendum should be ongoing"),
-            }
-
-            // Now prepare proposal for track 1 (signed) where token amounts still matter
-            let signed_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Signed track proposal - token amount should matter for support".to_vec()
-            });
-
-            let signed_encoded = signed_proposal.encode();
-            let signed_hash = <Runtime as frame_system::Config>::Hashing::hash(&signed_encoded);
-
-            assert_ok!(Preimage::note_preimage(
-                RuntimeOrigin::signed(proposer.clone()),
-                signed_encoded.clone()
-            ));
-
-            // Submit referendum for track 1
-            assert_ok!(Referenda::submit(
-                RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
-                frame_support::traits::Bounded::Lookup {
-                    hash: signed_hash,
-                    len: signed_encoded.len() as u32
-                },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
-            ));
-
-            let signed_idx = 1;
-
-            // Place decision deposit
-            assert_ok!(Referenda::place_decision_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                signed_idx
-            ));
-
-            // Vote with a very small token amount
-            assert_ok!(ConvictionVoting::vote(
-                RuntimeOrigin::signed(tech_member1.clone()),
-                signed_idx,
-                Standard {
-                    vote: Vote {
-                        aye: true,
-                        conviction: pallet_conviction_voting::Conviction::None,
-                    },
-                    balance: EXISTENTIAL_DEPOSIT / 10, // Very small amount of tokens
-                }
-            ));
-
-            // Advance past preparation phase for track 1
-            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap();
-            let prepare_period = track_info.prepare_period;
-            run_to_block(prepare_period + 10); // Additional blocks to ensure we're past preparation
-
-            // For track 1, check the referendum info
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-            match info {
-                pallet_referenda::ReferendumInfo::Ongoing(details) => {
-                    println!("Tally for signed track referendum - ayes: {}, support: {}",
-                             details.tally.ayes, details.tally.support);
-
-                    // This track has min_support > 0
-                    // Since we're at prepare_period + 10, the referendum might not have entered
-                    // the deciding phase yet if support is too low
-                    // So we check its status more carefully
-
-                    if details.deciding.is_some() {
-                        println!("Signed track referendum entered deciding phase despite low support");
-
-                        // Advance through the entire decision and confirmation period
-                        let decision_period = track_info.decision_period;
-                        let confirm_period = track_info.confirm_period;
-                        run_to_block(prepare_period + decision_period + confirm_period + 20);
-
-                        // Check final result - should be rejected due to low support even if it entered deciding
-                        let final_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-                        if let pallet_referenda::ReferendumInfo::Rejected(..) = final_info {
-                            println!("Signed track referendum correctly rejected despite entering deciding phase");
-                        } else {
-                            println!("Referendum final state: {:?}", final_info);
-                            // If support threshold is very low, it might still pass
-                            // In that case, this assertion might need adjustment
-                        }
-                    } else {
-                        println!("Signed track referendum did not enter deciding phase due to low support");
-
-                        // Advance to where timeout would happen
-                        let timeout = <Runtime as pallet_referenda::Config>::UndecidingTimeout::get();
-                        run_to_block(prepare_period + timeout + 20);
-
-                        // Check if it timed out as expected
-                        let final_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-                        if let pallet_referenda::ReferendumInfo::TimedOut(..) = final_info {
-                            println!("Signed track referendum correctly timed out");
-                        } else if let pallet_referenda::ReferendumInfo::Rejected(..) = final_info {
-                            println!("Signed track referendum was rejected as expected");
-                        } else {
-                            panic!("Referendum with low support should be timed out or rejected, but is: {:?}", final_info);
-                        }
-                    }
-                },
-                _ => panic!("Referendum should be ongoing"),
-            }
-
-            // Check final state of track 0 referendum - should be approved
-            // Advance through longer period (using track 0 periods)
-            let track0_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
-            let decision_period = track0_info.decision_period;
-            let confirm_period = track0_info.confirm_period;
-            run_to_block(prepare_period + decision_period + confirm_period + 30);
-
-            let root_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-            assert!(matches!(root_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Root track referendum should be approved despite having min_support set to 0");
-        });
-    }
-
-    #[test]
-    fn tech_collective_members_can_vote_on_track0_with_minimal_tokens() {
-        new_test_ext().execute_with(|| {
-            // Add several members to TechCollective with minimal token balances
-            let proposer = account_id(1);
-            let tech_member1 = account_id(2);
-            let tech_member2 = account_id(3);
-            let tech_member3 = account_id(4);
-
-            // Add accounts to TechCollective
-            assert_ok!(TechCollective::add_member(
-            RuntimeOrigin::root(),
-            sp_runtime::MultiAddress::Id(tech_member1.clone()),
-        ));
-
-            assert_ok!(TechCollective::add_member(
-            RuntimeOrigin::root(),
-            sp_runtime::MultiAddress::Id(tech_member2.clone()),
-        ));
-
-            assert_ok!(TechCollective::add_member(
-            RuntimeOrigin::root(),
-            sp_runtime::MultiAddress::Id(tech_member3.clone()),
-        ));
-
-            // Set proposer balance to be able to submit referendum and place deposits for two referenda
-            Balances::make_free_balance_be(&proposer, 3000 * UNIT);
-
-            // Set TechCollective members to have enough balance for transaction fees and voting
-            // Their balance is set relative to EXISTENTIAL_DEPOSIT to ensure they can vote with ED.
-            Balances::make_free_balance_be(&tech_member1, EXISTENTIAL_DEPOSIT * 10);
-            Balances::make_free_balance_be(&tech_member2, EXISTENTIAL_DEPOSIT * 10);
-            Balances::make_free_balance_be(&tech_member3, EXISTENTIAL_DEPOSIT * 10);
-
-            println!("Proposer balance (UNITs): {}", Balances::free_balance(&proposer) / UNIT);
-            println!("Tech member 1 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member1), Balances::free_balance(&tech_member1) / EXISTENTIAL_DEPOSIT.max(1));
-            println!("Tech member 2 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member2), Balances::free_balance(&tech_member2) / EXISTENTIAL_DEPOSIT.max(1));
-            println!("Tech member 3 balance (abs): {}, (ED multiples): {}", Balances::free_balance(&tech_member3), Balances::free_balance(&tech_member3) / EXISTENTIAL_DEPOSIT.max(1));
-
-            // Prepare proposal for track 0 (root)
-            let root_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"TechCollective governance proposal with minimal tokens".to_vec()
-            });
-
-            let root_encoded = root_proposal.encode();
-            let root_hash = <Runtime as frame_system::Config>::Hashing::hash(&root_encoded);
-
-            assert_ok!(Preimage::note_preimage(
-                RuntimeOrigin::signed(proposer.clone()),
-                root_encoded.clone()
-            ));
-
-            // Submit referendum for track 0
-            assert_ok!(Referenda::submit(
-                RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-                frame_support::traits::Bounded::Lookup {
-                    hash: root_hash,
-                    len: root_encoded.len() as u32
-                },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
-            ));
-
-            let root_idx = 0;
-
-            // Place decision deposit
-            assert_ok!(Referenda::place_decision_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                root_idx
-            ));
-
-            // Verify the referendum is on track 0
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-            if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert_eq!(status.track, 0, "Referendum should be on track 0");
-            } else {
-                panic!("Referendum should be ongoing");
-            }
-
-            // TechCollective members vote with minimal token amounts
-            // Each member votes with just 1/10 of their tiny balance
-            assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(tech_member1.clone()),
-            root_idx,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::None,
-                },
-                balance: EXISTENTIAL_DEPOSIT / 10, // Extremely small amount
-            }
-        ));
-
-            assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(tech_member2.clone()),
-            root_idx,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::None,
-                },
-                balance: EXISTENTIAL_DEPOSIT / 10, // Extremely small amount
-            }
-        ));
-
-            // One member votes against
-            assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(tech_member3.clone()),
-            root_idx,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::None,
-                },
-                balance: EXISTENTIAL_DEPOSIT / 10, // Extremely small amount
-            }
-        ));
-
-            // Get track info for proper timing
-            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
-            let prepare_period = track_info.prepare_period;
-            let decision_period = track_info.decision_period;
-            let confirm_period = track_info.confirm_period;
-
-            // Advance to deciding phase
-            run_to_block(prepare_period + 1);
-
-            // Check referendum state - should be in deciding phase
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-            match info {
-                pallet_referenda::ReferendumInfo::Ongoing(details) => {
-                    assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
-
-                    // With track 0 having min_support: 0, the referendum should progress based on approval alone
-                    assert!(details.tally.ayes > details.tally.nays,
-                            "Ayes should be winning despite extremely small token amounts");
-
-                    // The actual token amount is negligible compared to total supply
-                    let total_issuance = Balances::total_issuance();
-                    let percentage_voted = (details.tally.support as f64 / total_issuance as f64) * 100.0;
-
-                    // If min_support is 0, this extremely low support percentage should not matter
-                    assert!(percentage_voted < 0.1, "Percentage support should be negligible (<0.1%)");
-                },
-                _ => panic!("Referendum should be ongoing"),
-            }
-
-            // Advance through all required periods with extra buffer
-            // Adding a larger buffer to ensure the referendum has enough time to be fully processed
-            let final_block = prepare_period + decision_period + confirm_period + 100;
-            run_to_block(final_block);
-
-            // Check final state of referendum - should be approved despite tiny token amounts
-            let root_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(root_idx).unwrap();
-
-            assert!(
-                matches!(root_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                "Root track referendum should be approved with TechCollective votes despite minimal tokens"
-            );
-
-            // Now in a separate step, handle track 1 test
-            if matches!(root_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)) {
-
-                // Now attempt to submit a similar referendum for track 1 with the same members and token amounts
-                // This should fail or time out due to insufficient support
-                let signed_proposal = RuntimeCall::System(frame_system::Call::remark {
-                    remark: b"Signed track proposal - should fail with minimal token amounts".to_vec()
-                });
-
-                let signed_encoded = signed_proposal.encode();
-                let signed_hash = <Runtime as frame_system::Config>::Hashing::hash(&signed_encoded);
-
-                assert_ok!(Preimage::note_preimage(
-                RuntimeOrigin::signed(proposer.clone()),
-                signed_encoded.clone()
-            ));
-
-                // Submit referendum for track 1
-                assert_ok!(Referenda::submit(
-                RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
-                frame_support::traits::Bounded::Lookup {
-                    hash: signed_hash,
-                    len: signed_encoded.len() as u32
-                },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
-            ));
-
-                let signed_idx = 1;
-
-                // Place decision deposit
-                assert_ok!(Referenda::place_decision_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                signed_idx
-            ));
-
-                // Vote with the same small token amounts on track 1
-                for member in [&tech_member1, &tech_member2] {
-                    assert_ok!(ConvictionVoting::vote(
-                    RuntimeOrigin::signed(member.clone()),
-                    signed_idx,
-                    Standard {
-                        vote: Vote {
-                            aye: true,
-                            conviction: pallet_conviction_voting::Conviction::None,
-                        },
-                        balance: EXISTENTIAL_DEPOSIT / 10, // Extremely small amount
-                    }
-                ));
-                }
-
-                // Get track 1 timing parameters
-                let track1_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap();
-                let track1_prepare = track1_info.prepare_period;
-                let track1_decision = track1_info.decision_period;
-                let track1_confirm = track1_info.confirm_period;
-
-                // Advance past preparation phase for track 1
-                run_to_block(final_block + track1_prepare + 10);
-
-                // We need a large enough window to ensure the referendum completes
-                let track1_final_block = final_block + track1_prepare + track1_decision + track1_confirm +
-                    <Runtime as pallet_referenda::Config>::UndecidingTimeout::get() + 100;
-
-                run_to_block(track1_final_block);
-
-                // Check final state of track 1 referendum
-                let signed_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-
-                // The key assertion is that it should not be approved
-                assert!(
-                    !matches!(signed_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Track 1 referendum should NOT be approved with minimal tokens"
-                );
-
-            }
-        });
-    }
 }
- */

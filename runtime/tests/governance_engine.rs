@@ -265,7 +265,7 @@ mod tests {
             let submission_deposit = <Runtime as pallet_referenda::Config>::SubmissionDeposit::get();
 
             // Prepare origin for the proposal
-            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Root));
+            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone())));
 
             // Create a call for the proposal
             let call = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
@@ -342,7 +342,7 @@ mod tests {
             let initial_balance = Balances::free_balance(&proposer);
 
             // Prepare origin for the proposal
-            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Root));
+            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone())));
 
             // Create a call for the proposal
             let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
@@ -422,7 +422,7 @@ mod tests {
             Balances::make_free_balance_be(&voter2, 1000 * UNIT);
 
             // Prepare origin for the proposal
-            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Root));
+            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone())));
 
             // Create a call for the proposal
             let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
@@ -558,10 +558,13 @@ mod tests {
                 len: encoded_call.len() as u32
             };
 
+            // Prepare origin for the proposal
+            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone())));
+
             // Submit referendum
             assert_ok!(Referenda::submit(
             RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+            proposal_origin.clone(),
             bounded_call,
             frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
@@ -734,7 +737,7 @@ mod tests {
 
             assert_ok!(Referenda::submit(
             RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+            proposal_origin.clone(),
             bounded_call2,
             frame_support::traits::schedule::DispatchTime::After(0u32)
         ));
