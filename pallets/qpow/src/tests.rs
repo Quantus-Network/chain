@@ -333,55 +333,6 @@ fn test_total_distance_threshold_increases_with_each_block() {
     });
 }
 
-/*
-TODO - we should catch events in tests - this should be possible
-#[test]
-fn test_submit_nonce_emits_event() {
-    new_test_ext().execute_with(|| {
-        // Set up data
-        let header = [1u8; 32];
-
-        // Get the current distance_threshold so we know what we're targeting
-        let distance_threshold = QPow::get_distance_threshold();
-        println!("Current distance_threshold: {}", distance_threshold);
-
-        // Create a nonce that we know works
-        let mut nonce = [0u8; 64];
-        nonce[63] = 14;
-
-        // Calculate the distance for this nonce
-        let distance = QPow::get_nonce_distance(header, nonce);
-        let threshold = MAX_DISTANCE - distance_threshold;
-
-        println!("Nonce: {:?}, Distance: {}, Threshold: {}",
-                 &nonce[62..64], distance, threshold);
-
-        // Wyczyść zdarzenia systemu przed wysłaniem nonce
-        System::reset_events();
-
-        // Submit nonce (zakładamy, że jest prawidłowy)
-        assert!(QPow::submit_nonce(header, nonce));
-
-        // Sprawdź, czy zdarzenie zostało wyemitowane
-        let events = System::events();
-        println!("Events: {:?}", events);
-
-        // Sprawdź, czy istnieje zdarzenie ProofSubmitted
-        let proof_submitted_event_found = events.iter().any(|record| {
-            match &record.event {
-                RuntimeEvent::QPow(Event::ProofSubmitted { nonce: event_nonce }) => {
-                    // Sprawdź, czy nonce w zdarzeniu zgadza się z tym, który wysłaliśmy
-                    *event_nonce == nonce
-                },
-                _ => false,
-            }
-        });
-
-        assert!(proof_submitted_event_found, "ProofSubmitted event was not emitted or had incorrect data");
-    });
-}
-*/
-
 #[test]
 fn test_integrated_verification_flow() {
     new_test_ext().execute_with(|| {

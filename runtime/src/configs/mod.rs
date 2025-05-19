@@ -37,7 +37,7 @@ use frame_support::{
 };
 use frame_system::limits::{BlockLength, BlockWeights};
 use frame_system::EnsureRoot;
-use pallet_ranked_collective::Geometric;
+use pallet_ranked_collective::Linear;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use pallet_vesting::VestingPalletId;
@@ -272,7 +272,7 @@ impl pallet_ranked_collective::Config for Runtime {
     type Polls = pallet_referenda::Pallet<Runtime, TechReferendaInstance>;
     type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
     type MemberSwappedHandler = ();
-    type VoteWeight = Geometric;
+    type VoteWeight = Linear;
     type MaxMemberCount = GlobalMaxMembers<MaxMemberCount>;
 
     #[cfg(feature = "runtime-benchmarks")]
