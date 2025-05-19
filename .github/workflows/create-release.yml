@@ -149,15 +149,16 @@ jobs:
 
   build_and_package:
     needs: calculate_next_version
-    runs-on: ${{ matrix.os }} # Runs on the OS specified in the matrix
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # Define build targets and corresponding OS
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - target: aarch64-apple-darwin # Target for Apple Silicon Macs
-            os: macos-latest # macos-latest can cross-compile or run ARM via Rosetta
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     outputs:
       release_assets_json: ${{ steps.prepare_assets.outputs.release_assets_json }}
     steps:
@@ -172,51 +173,132 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: nightly-2024-12-24
-          components: rustfmt, clippy, rust-src
-          targets: wasm32-unknown-unknown, ${{ matrix.target }}
+      - name: Install protoc (protobuf-compiler) for Windows
+        if: runner.os == 'Windows'
+        run: choco install protoc --yes --no-progress
 
-      - name: Build quantus-node binary (if not fast testing)
+      - name: Install Rust toolchain
+        shell: bash
+        env:
+          # Ensure GITHUB_PATH is available for bash scripts
+          # RUSTUP_TOOLCHAIN_NAME: nightly-2024-12-24 # Directly use the string for simplicity in script
+          RUST_COMPONENTS: "rustfmt,clippy,rust-src"
+          RUST_TARGETS_ADDITIONAL: "wasm32-unknown-unknown"
+        run: |
+          set -e
+          TOOLCHAIN_NIGHTLY_VERSION="nightly-2024-12-24"
+          echo "Installing toolchain: $TOOLCHAIN_NIGHTLY_VERSION"
+          echo "With components: $RUST_COMPONENTS"
+          echo "With targets for matrix.target (${{ matrix.target }}): already included in install cmd."
+          echo "With additional targets: $RUST_TARGETS_ADDITIONAL"
+
+          # Commands to execute
+          CMD_TOOLCHAIN_INSTALL="rustup toolchain install $TOOLCHAIN_NIGHTLY_VERSION --profile minimal --no-self-update --target ${{ matrix.target }}"
+          CMD_COMPONENTS_ADD="rustup component add $(echo $RUST_COMPONENTS | sed 's/,/ /g') --toolchain $TOOLCHAIN_NIGHTLY_VERSION"
+          CMD_TARGET_ADD="rustup target add $RUST_TARGETS_ADDITIONAL --toolchain $TOOLCHAIN_NIGHTLY_VERSION"
+
+          FULL_COMMAND="$CMD_TOOLCHAIN_INSTALL && $CMD_COMPONENTS_ADD && $CMD_TARGET_ADD"
+
+          MAX_ATTEMPTS=3
+          ATTEMPT_NUM=1
+          SUCCESS=false
+          while [ $ATTEMPT_NUM -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $ATTEMPT_NUM/$MAX_ATTEMPTS: Running toolchain installation..."
+            # Using subshell for the command to avoid `set -e` exiting the whole script on first failure
+            if (eval "$FULL_COMMAND"); then
+              SUCCESS=true
+              echo "Toolchain installation successful."
+              break
+            fi
+            echo "Attempt $ATTEMPT_NUM failed."
+            ATTEMPT_NUM=$((ATTEMPT_NUM+1))
+            if [ $ATTEMPT_NUM -gt $MAX_ATTEMPTS ]; then
+              echo "All $MAX_ATTEMPTS attempts failed to install Rust toolchain."
+              exit 1
+            fi
+            echo "Retrying in 30 seconds..."
+            sleep 30
+          done
+
+          if [ "$SUCCESS" = false ]; then
+            # This state should ideally not be reached if loop exits with exit 1 above, but as a safeguard.
+            echo "Critical error: Toolchain installation marked as failed despite loop completion logic."
+            exit 1
+          fi
+
+          rustup default $TOOLCHAIN_NIGHTLY_VERSION
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN_NIGHTLY_VERSION" >> $GITHUB_ENV
+          echo "Installed Rust toolchain: $(rustc --version)"
+
+      - name: Build quantus-node binary
         if: github.event.inputs.fast_test_create_release_job == 'false'
         run: cargo build --locked --release --package quantus-node --target ${{ matrix.target }}
 
-      - name: Create dummy quantus-node binary (for fast test)
-        if: github.event.inputs.fast_test_create_release_job == 'true'
+      - name: Create dummy quantus-node binary (fast test mode)
+        if: github.event.inputs.fast_test_create_release_job == 'true' && (runner.os == 'Linux' || runner.os == 'macOS')
         run: |
           mkdir -p target/${{ matrix.target }}/release
           echo "This is a dummy quantus-node for fast testing (${{ matrix.target }}). Actual build skipped." > target/${{ matrix.target }}/release/quantus-node
           chmod +x target/${{ matrix.target }}/release/quantus-node
           echo "Dummy quantus-node created at target/${{ matrix.target }}/release/quantus-node"
 
+      - name: Create dummy quantus-node.exe binary (for fast test Windows)
+        if: github.event.inputs.fast_test_create_release_job == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dummy_dir = "target/${{ matrix.target }}/release"
+          New-Item -ItemType Directory -Path $dummy_dir -Force | Out-Null
+          Set-Content -Path "$dummy_dir/quantus-node.exe" -Value "This is a dummy quantus-node.exe for fast testing (${{ matrix.target }}). Actual build skipped."
+          Write-Host "Dummy quantus-node.exe created at $dummy_dir/quantus-node.exe"
+
       - name: Prepare Release Assets
         id: prepare_assets
         env:
           NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
           TARGET_ARCH: ${{ matrix.target }}
+        shell: bash 
         run: |
-          # Determine asset names based on version and target
-          NODE_BINARY_NAME="quantus-node"
-          asset_name="${NODE_BINARY_NAME}-${NEW_VERSION}-${TARGET_ARCH}.tar.gz"
-          checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
+          NODE_BASE_NAME="quantus-node"
+          
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            NODE_EXECUTABLE_NAME="${NODE_BASE_NAME}.exe"
+            ARCHIVE_EXTENSION="zip"
+            # These are defined for eval later
+            CHSUM_EXEC="powershell -Command \"(Get-FileHash -Algorithm SHA256 '\${asset_name}').Hash.ToLower() + ' *\${asset_name}' | Set-Content -Encoding ascii '\${checksum_file_name}'\""
+            ARCHIVE_EXEC="powershell -Command \"Compress-Archive -Path staging/\${NODE_EXECUTABLE_NAME} -DestinationPath \${asset_name}\""
+            
+            # asset_name and checksum_file_name will be defined globally below for Windows path
+            asset_name="${NODE_BASE_NAME}-${NEW_VERSION}-${TARGET_ARCH}.${ARCHIVE_EXTENSION}"
+            checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
 
-          # Create staging directory for assets
-          mkdir staging
-          # Copy from target-specific path
-          cp target/${TARGET_ARCH}/release/${NODE_BINARY_NAME} staging/
-          
-          # Create tarball
-          (cd staging && tar -czvf "../${asset_name}" ${NODE_BINARY_NAME})
-          
-          # Generate checksum for the tarball
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            shasum -a 256 "${asset_name}" > "${checksum_file_name}"
-          else
-            sha256sum "${asset_name}" > "${checksum_file_name}"
+            mkdir -p staging
+            cp "target/${TARGET_ARCH}/release/${NODE_EXECUTABLE_NAME}" "staging/"
+            
+            eval "$ARCHIVE_EXEC"
+            eval "$CHSUM_EXEC"
+
+          else # Linux or macOS
+            NODE_BINARY_NAME="quantus-node"
+            asset_name="${NODE_BINARY_NAME}-${NEW_VERSION}-${TARGET_ARCH}.tar.gz"
+            checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
+
+            # Create staging directory for assets
+            mkdir staging
+            # Copy from target-specific path
+            cp target/${TARGET_ARCH}/release/${NODE_BINARY_NAME} staging/
+            
+            # Create tarball
+            (cd staging && tar -czvf "../${asset_name}" ${NODE_BINARY_NAME})
+            
+            # Generate checksum for the tarball
+            if [[ "${{ runner.os }}" == "macOS" ]]; then
+              shasum -a 256 "${asset_name}" > "${checksum_file_name}"
+            else
+              sha256sum "${asset_name}" > "${checksum_file_name}"
+            fi          
           fi
-          
+
           echo "Created asset: ${asset_name}"
           echo "Created checksum file: ${checksum_file_name}"
 
@@ -227,13 +309,12 @@ jobs:
           # List files for verification
           ls -la
 
-
       - name: Upload Release Assets as Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-assets-${{ matrix.target }}
           path: | 
-            quantus-node-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.tar.gz
+            quantus-node-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
             sha256sums-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.txt
 
   create_github_release:
@@ -260,7 +341,7 @@ jobs:
           echo "--- Directory structure of downloaded-artifacts ---"
           ls -R downloaded-artifacts
           echo "--- Finding asset files ---"
-          bash -c 'find downloaded-artifacts -type f \( -name "*.tar.gz" -o -name "*.txt" \) -print0' > asset_files.txt
+          find downloaded-artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.txt" \) -print0 > asset_files.txt
           echo "--- Raw content of asset_files.txt (null characters will not be visible) ---"
           cat asset_files.txt 
           echo "--- Processed content of asset_files.txt (one file per line) ---"
