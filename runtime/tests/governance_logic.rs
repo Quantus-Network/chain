@@ -3,15 +3,18 @@ mod common;
 
 #[cfg(test)]
 mod tests {
+    use crate::common::{account_id, new_test_ext, run_to_block};
     use codec::Encode;
-    use frame_support::{assert_noop, assert_ok};
     use frame_support::traits::Currency;
+    use frame_support::{assert_noop, assert_ok};
     use pallet_conviction_voting::AccountVote::Standard;
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
+    use resonance_runtime::{
+        Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall,
+        RuntimeOrigin, DAYS, HOURS, UNIT,
+    };
     use sp_runtime::traits::Hash;
-    use resonance_runtime::{Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall, RuntimeOrigin, DAYS, HOURS, UNIT};
-    use crate::common::{account_id, new_test_ext, run_to_block};
 
     #[test]
     fn referendum_with_conviction_voting_works() {
@@ -27,7 +30,9 @@ mod tests {
             Balances::make_free_balance_be(&voter_against, 20000 * UNIT);
 
             // Prepare the proposal
-            let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+            let proposal = RuntimeCall::System(frame_system::Call::remark {
+                remark: vec![1, 2, 3],
+            });
 
             // Encode the proposal
             let encoded_call = proposal.encode();
@@ -44,16 +49,19 @@ mod tests {
             // Prepare bounded call
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
-                len: encoded_call.len() as u32
+                len: encoded_call.len() as u32,
             };
 
             // Activation moment
-            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment =
+                frame_support::traits::schedule::DispatchTime::After(0u32.into());
 
             // Submit referendum
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
+                    proposer.clone()
+                ))),
                 bounded_call,
                 enactment_moment
             ));
@@ -98,13 +106,20 @@ mod tests {
             run_to_block(prepare_period + 1);
 
             // Ensure referendum is in deciding phase
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+            let info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             match info {
                 pallet_referenda::ReferendumInfo::Ongoing(details) => {
-                    assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
+                    assert!(
+                        details.deciding.is_some(),
+                        "Referendum should be in deciding phase"
+                    );
                     // Check that Ayes > Nays considering conviction
-                    assert!(details.tally.ayes > details.tally.nays, "Ayes should outweigh Nays");
-                },
+                    assert!(
+                        details.tally.ayes > details.tally.nays,
+                        "Ayes should outweigh Nays"
+                    );
+                }
                 _ => panic!("Referendum should be ongoing"),
             }
 
@@ -117,11 +132,12 @@ mod tests {
             run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Check referendum outcome
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+            let info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             match info {
                 pallet_referenda::ReferendumInfo::Approved(_, _, _) => {
                     // Passed as expected
-                },
+                }
                 other => panic!("Referendum should be approved, but is: {:?}", other),
             }
 
@@ -133,7 +149,6 @@ mod tests {
             assert!(!locks_against.is_empty(), "Against-voter should have locks");
         });
     }
-
 
     #[test]
     fn referendum_execution_with_scheduler_works() {
@@ -159,9 +174,9 @@ mod tests {
             let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
 
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            encoded_call.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded_call.clone()
+            ));
 
             // Prepare bounded call
             let bounded_call = frame_support::traits::Bounded::Lookup {
@@ -170,36 +185,38 @@ mod tests {
             };
 
             // Prepare origin for the proposal
-            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone())));
+            let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
+                proposer.clone(),
+            )));
 
             // Submit the referendum
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            proposal_origin,
-            bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                proposal_origin,
+                bounded_call,
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
             let referendum_index = 0;
 
             // Place decision deposit to start deciding phase
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            referendum_index
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_index
+            ));
 
             // Vote enough to pass
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(proposer.clone()),
-            referendum_index,
-            pallet_conviction_voting::AccountVote::Standard {
-                vote: pallet_conviction_voting::Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked6x, // Use stronger conviction
-                },
-                balance: 100 * UNIT, // Vote with more balance
-            }
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_index,
+                pallet_conviction_voting::AccountVote::Standard {
+                    vote: pallet_conviction_voting::Vote {
+                        aye: true,
+                        conviction: pallet_conviction_voting::Conviction::Locked6x, // Use stronger conviction
+                    },
+                    balance: 100 * UNIT, // Vote with more balance
+                }
+            ));
 
             // Get track info
             let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
@@ -209,7 +226,8 @@ mod tests {
             let min_enactment_period = track_info.min_enactment_period;
 
             // Calculate the execution block more precisely
-            let execution_block = prepare_period + decision_period + confirm_period + min_enactment_period + 5; // Add buffer
+            let execution_block =
+                prepare_period + decision_period + confirm_period + min_enactment_period + 5; // Add buffer
 
             // Run through prepare period
             run_to_block(prepare_period + 1);
@@ -249,7 +267,9 @@ mod tests {
             Balances::make_free_balance_be(&voter, 1000 * UNIT);
 
             // Prepare the proposal
-            let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+            let proposal = RuntimeCall::System(frame_system::Call::remark {
+                remark: vec![1, 2, 3],
+            });
             let encoded_call = proposal.encode();
             let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
 
@@ -262,13 +282,15 @@ mod tests {
             // Prepare bounded call
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
-                len: encoded_call.len() as u32
+                len: encoded_call.len() as u32,
             };
 
             // Submit referendum on track 0 (signed)
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
+                    proposer.clone()
+                ))),
                 bounded_call,
                 frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
@@ -303,12 +325,16 @@ mod tests {
             run_to_block(prepare_period + decision_period + 1);
 
             // Check referendum outcome - should be rejected due to insufficient turnout
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+            let info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             match info {
                 pallet_referenda::ReferendumInfo::Rejected(_, _, _) => {
                     // Passed as expected
-                },
-                other => panic!("Referendum should be rejected due to insufficient turnout, but is: {:?}", other),
+                }
+                other => panic!(
+                    "Referendum should be rejected due to insufficient turnout, but is: {:?}",
+                    other
+                ),
             }
         });
     }
@@ -319,30 +345,32 @@ mod tests {
             let proposer = account_id(1);
 
             // Prepare the proposal
-            let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+            let proposal = RuntimeCall::System(frame_system::Call::remark {
+                remark: vec![1, 2, 3],
+            });
             let encoded_call = proposal.encode();
             let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
 
             // Store preimage
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            encoded_call.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded_call.clone()
+            ));
 
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
-                len: encoded_call.len() as u32
+                len: encoded_call.len() as u32,
             };
 
             println!("Starting test - submitting referendum");
 
             // Submit referendum
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
-            bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+                bounded_call,
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
             let referendum_index = 0;
 
@@ -356,7 +384,10 @@ mod tests {
             let timeout = <Runtime as pallet_referenda::Config>::UndecidingTimeout::get();
             println!("Current Undeciding Timeout is set to {} blocks", timeout);
 
-            println!("Test passing - the actual timeout would occur after {} blocks", timeout);
+            println!(
+                "Test passing - the actual timeout would occur after {} blocks",
+                timeout
+            );
 
             // For an actual integration test, a small hardcoded timeout would be needed
             // in the runtime configuration, but for unit testing, we've verified the logic
@@ -371,7 +402,9 @@ mod tests {
             Balances::make_free_balance_be(&proposer, initial_balance);
 
             // Prepare the proposal
-            let proposal = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+            let proposal = RuntimeCall::System(frame_system::Call::remark {
+                remark: vec![1, 2, 3],
+            });
             let encoded_call = proposal.encode();
             let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
 
@@ -383,7 +416,7 @@ mod tests {
 
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
-                len: encoded_call.len() as u32
+                len: encoded_call.len() as u32,
             };
 
             // Record balance after preimage storage
@@ -415,18 +448,16 @@ mod tests {
             let decision_deposit = balance_after_submission - balance_after_decision_deposit;
 
             // Kill the referendum using the KillOrigin
-            assert_ok!(Referenda::kill(
-                RuntimeOrigin::root(),
-                referendum_index
-            ));
+            assert_ok!(Referenda::kill(RuntimeOrigin::root(), referendum_index));
 
             // Check referendum status - should be killed
-            let referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
+            let referendum_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
             assert!(referendum_info.is_some(), "Referendum should exist");
             match referendum_info.unwrap() {
                 pallet_referenda::ReferendumInfo::Killed(_) => {
                     // Successfully killed
-                },
+                }
                 _ => panic!("Referendum should be in Killed state"),
             }
 
@@ -439,8 +470,7 @@ mod tests {
             // Verify balances
             let expected_final_balance = initial_balance - preimage_cost - total_deposit;
             assert_eq!(
-                final_balance,
-                expected_final_balance,
+                final_balance, expected_final_balance,
                 "Should have slashed both submission and decision deposits"
             );
 
@@ -487,7 +517,9 @@ mod tests {
 
             // Create a non-binding signaling proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Community signal: We support adding more educational resources for developers".to_vec()
+                remark:
+                    b"Community signal: We support adding more educational resources for developers"
+                        .to_vec(),
             });
 
             // Create and submit referendum
@@ -495,62 +527,66 @@ mod tests {
             let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
 
             assert_ok!(Preimage::note_preimage(
-            RuntimeOrigin::signed(proposer.clone()),
-            encoded_call.clone()
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded_call.clone()
+            ));
 
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
-                len: encoded_call.len() as u32
+                len: encoded_call.len() as u32,
             };
 
             // Use None origin for signaling
             assert_ok!(Referenda::submit(
-            RuntimeOrigin::signed(proposer.clone()),
-            Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
-            bounded_call,
-            frame_support::traits::schedule::DispatchTime::After(0u32.into())
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+                bounded_call,
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
 
             // Check referendum is using track 2
             let referendum_index = 0;
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+            let info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert_eq!(status.track, 1, "Referendum should be on signaling track (1)");
+                assert_eq!(
+                    status.track, 1,
+                    "Referendum should be on signaling track (1)"
+                );
             } else {
                 panic!("Referendum should be ongoing");
             }
 
             // Place decision deposit
             assert_ok!(Referenda::place_decision_deposit(
-            RuntimeOrigin::signed(proposer.clone()),
-            referendum_index
-        ));
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_index
+            ));
 
             // Cast votes from multiple parties
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter1.clone()),
-            referendum_index,
-            Standard {
-                vote: Vote {
-                    aye: true,
-                    conviction: pallet_conviction_voting::Conviction::Locked1x,
-                },
-                balance: 100 * UNIT,
-            }
-        ));
+                RuntimeOrigin::signed(voter1.clone()),
+                referendum_index,
+                Standard {
+                    vote: Vote {
+                        aye: true,
+                        conviction: pallet_conviction_voting::Conviction::Locked1x,
+                    },
+                    balance: 100 * UNIT,
+                }
+            ));
 
             assert_ok!(ConvictionVoting::vote(
-            RuntimeOrigin::signed(voter2.clone()),
-            referendum_index,
-            Standard {
-                vote: Vote {
-                    aye: false, // Someone votes against
-                    conviction: pallet_conviction_voting::Conviction::Locked1x,
-                },
-                balance: 50 * UNIT,
-            }
-        ));
+                RuntimeOrigin::signed(voter2.clone()),
+                referendum_index,
+                Standard {
+                    vote: Vote {
+                        aye: false, // Someone votes against
+                        conviction: pallet_conviction_voting::Conviction::Locked1x,
+                    },
+                    balance: 50 * UNIT,
+                }
+            ));
 
             // Progress through phases
             let prepare_period = 6 * HOURS;
@@ -561,12 +597,19 @@ mod tests {
             run_to_block(prepare_period + 1);
 
             // Verify referendum is in deciding phase
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+            let info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-                assert!(status.deciding.is_some(), "Referendum should be in deciding phase");
+                assert!(
+                    status.deciding.is_some(),
+                    "Referendum should be in deciding phase"
+                );
 
                 // Verify tally - "ayes" should be leading
-                assert!(status.tally.ayes > status.tally.nays, "Ayes should be winning");
+                assert!(
+                    status.tally.ayes > status.tally.nays,
+                    "Ayes should be winning"
+                );
             } else {
                 panic!("Referendum should be ongoing");
             }
@@ -575,9 +618,12 @@ mod tests {
             run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Verify referendum passed
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
-            assert!(matches!(info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Referendum should be approved");
+            let info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
+            assert!(
+                matches!(info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+                "Referendum should be approved"
+            );
         });
     }
 
@@ -595,14 +641,14 @@ mod tests {
 
             // Signed track proposal (track 0)
             let signed_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Signed track proposal".to_vec()
+                remark: b"Signed track proposal".to_vec(),
             });
             let signed_encoded = signed_proposal.encode();
             let signed_hash = <Runtime as frame_system::Config>::Hashing::hash(&signed_encoded);
 
             // Signaling track proposal (track 1)
             let signal_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Signaling track proposal".to_vec()
+                remark: b"Signaling track proposal".to_vec(),
             });
             let signal_encoded = signal_proposal.encode();
             let signal_hash = <Runtime as frame_system::Config>::Hashing::hash(&signal_encoded);
@@ -623,7 +669,9 @@ mod tests {
             // Signed track (0)
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
+                    proposer.clone()
+                ))),
                 frame_support::traits::Bounded::Lookup {
                     hash: signed_hash,
                     len: signed_encoded.len() as u32
@@ -646,21 +694,23 @@ mod tests {
             let signed_idx = 0;
             let signal_idx = 1;
 
-            let signed_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-            let signal_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
+            let signed_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+            let signal_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
 
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
                     assert_eq!(status.track, 0, "Signed referendum should be on track 0");
-                },
-                _ => panic!("Signed referendum should be ongoing")
+                }
+                _ => panic!("Signed referendum should be ongoing"),
             }
 
             match signal_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
                     assert_eq!(status.track, 1, "Signaling referendum should be on track 1");
-                },
-                _ => panic!("Signaling referendum should be ongoing")
+                }
+                _ => panic!("Signaling referendum should be ongoing"),
             }
 
             // Place decision deposits for all
@@ -707,33 +757,45 @@ mod tests {
             run_to_block(signal_prepare + 1);
 
             // Check signal referendum moved to deciding phase
-            let signal_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
+            let signal_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
             match signal_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert!(status.deciding.is_some(), "Signal referendum should be in deciding phase");
-                },
-                _ => panic!("Signal referendum should be ongoing")
+                    assert!(
+                        status.deciding.is_some(),
+                        "Signal referendum should be in deciding phase"
+                    );
+                }
+                _ => panic!("Signal referendum should be ongoing"),
             }
 
             // Check signed referendum not yet in deciding phase
-            let signed_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+            let signed_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert!(status.deciding.is_none(), "Signed referendum should not yet be in deciding phase");
-                },
-                _ => panic!("Signed referendum should be ongoing")
+                    assert!(
+                        status.deciding.is_none(),
+                        "Signed referendum should not yet be in deciding phase"
+                    );
+                }
+                _ => panic!("Signed referendum should be ongoing"),
             }
 
             // Advance to signed prepare completion
             run_to_block(signed_prepare + 1);
 
             // Check signed referendum moved to deciding phase
-            let signed_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+            let signed_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert!(status.deciding.is_some(), "Signed referendum should now be in deciding phase");
-                },
-                _ => panic!("Signed referendum should be ongoing")
+                    assert!(
+                        status.deciding.is_some(),
+                        "Signed referendum should now be in deciding phase"
+                    );
+                }
+                _ => panic!("Signed referendum should be ongoing"),
             }
 
             // Advance through all decision periods to confirm all pass
@@ -741,13 +803,25 @@ mod tests {
             run_to_block(longest_process);
 
             // Verify all referenda passed
-            let signed_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-            let signal_final = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
+            let signed_final =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+            let signal_final =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
 
-            assert!(matches!(signed_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Signed referendum should be approved");
-            assert!(matches!(signal_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-                    "Signal referendum should be approved");
+            assert!(
+                matches!(
+                    signed_final,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                ),
+                "Signed referendum should be approved"
+            );
+            assert!(
+                matches!(
+                    signal_final,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                ),
+                "Signal referendum should be approved"
+            );
         });
     }
     #[test]
@@ -765,7 +839,7 @@ mod tests {
             for i in 0..max_deciding + 1 {
                 // Create proposal
                 let proposal = RuntimeCall::System(frame_system::Call::remark {
-                    remark: format!("Signaling proposal {}", i).into_bytes()
+                    remark: format!("Signaling proposal {}", i).into_bytes(),
                 });
 
                 // Create and submit referendum
@@ -773,28 +847,28 @@ mod tests {
                 let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
 
                 assert_ok!(Preimage::note_preimage(
-                RuntimeOrigin::signed(proposer.clone()),
-                encoded_call.clone()
-            ));
+                    RuntimeOrigin::signed(proposer.clone()),
+                    encoded_call.clone()
+                ));
 
                 let bounded_call = frame_support::traits::Bounded::Lookup {
                     hash: preimage_hash,
-                    len: encoded_call.len() as u32
+                    len: encoded_call.len() as u32,
                 };
 
                 // Submit with None origin for signaling track
                 assert_ok!(Referenda::submit(
-                RuntimeOrigin::signed(proposer.clone()),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
-                bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
-            ));
+                    RuntimeOrigin::signed(proposer.clone()),
+                    Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+                    bounded_call,
+                    frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                ));
 
                 // Place decision deposit
                 assert_ok!(Referenda::place_decision_deposit(
-                RuntimeOrigin::signed(proposer.clone()),
-                i as u32
-            ));
+                    RuntimeOrigin::signed(proposer.clone()),
+                    i as u32
+                ));
             }
 
             // Advance past prepare period for signaling track
@@ -812,8 +886,10 @@ mod tests {
             }
 
             // Verify that only max_deciding referenda entered deciding phase
-            assert_eq!(deciding_count, max_deciding,
-                       "Only max_deciding referenda should be in deciding phase");
+            assert_eq!(
+                deciding_count, max_deciding,
+                "Only max_deciding referenda should be in deciding phase"
+            );
 
             // Check that one referendum is queued
             let track_queue = pallet_referenda::TrackQueue::<Runtime>::get(1); // Track 1 = signaling

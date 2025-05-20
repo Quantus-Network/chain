@@ -6,14 +6,14 @@ mod tests {
     use crate::common::{account_id, new_test_ext, run_to_block};
     use codec::Encode;
     use frame_support::assert_ok;
+    use frame_support::traits::Currency;
     use frame_system;
-    use frame_support::traits::{Currency};
     use pallet_referenda::TracksInfo;
-    use resonance_runtime::{
-        Balances, OriginCaller, Preimage, Runtime, RuntimeCall,
-        RuntimeOrigin, TechCollective, TechReferenda, UNIT,
-    };
     use resonance_runtime::configs::TechReferendaInstance;
+    use resonance_runtime::{
+        Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, TechCollective,
+        TechReferenda, UNIT,
+    };
     use sp_runtime::traits::Hash;
     use sp_runtime::MultiAddress;
 
@@ -186,7 +186,8 @@ mod tests {
                 TechCollective::add_member(
                     RuntimeOrigin::signed(non_member.clone()),
                     MultiAddress::from(non_member.clone())
-                ).is_err(),
+                )
+                .is_err(),
                 "Non-member should not be able to add themselves to collective"
             );
 
@@ -225,7 +226,8 @@ mod tests {
                     RuntimeOrigin::signed(non_member.clone()),
                     MultiAddress::from(existing_member.clone()),
                     0 // min_rank parameter
-                ).is_err(),
+                )
+                .is_err(),
                 "Non-member should not be able to remove members"
             );
 
@@ -255,20 +257,21 @@ mod tests {
 
             // Create unique proposals for testing (with different content for each)
             let root_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Test proposal for root".to_vec()
+                remark: b"Test proposal for root".to_vec(),
             });
 
             let member_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Test proposal for member".to_vec()
+                remark: b"Test proposal for member".to_vec(),
             });
 
             let non_member_proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Test proposal for non-member".to_vec()
+                remark: b"Test proposal for non-member".to_vec(),
             });
 
             // Store preimage for Root test
             let encoded_proposal_root = root_proposal.encode();
-            let preimage_hash_root = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_root);
+            let preimage_hash_root =
+                <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_root);
             assert_ok!(Preimage::note_preimage(
                 RuntimeOrigin::signed(collective_member.clone()),
                 encoded_proposal_root.clone()
@@ -276,7 +279,8 @@ mod tests {
 
             // Store preimage for Member test
             let encoded_proposal_member = member_proposal.encode();
-            let preimage_hash_member = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_member);
+            let preimage_hash_member =
+                <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_member);
             assert_ok!(Preimage::note_preimage(
                 RuntimeOrigin::signed(collective_member.clone()),
                 encoded_proposal_member.clone()
@@ -284,7 +288,8 @@ mod tests {
 
             // Store preimage for Non-Member test
             let encoded_proposal_non_member = non_member_proposal.encode();
-            let preimage_hash_non_member = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_non_member);
+            let preimage_hash_non_member =
+                <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_non_member);
             assert_ok!(Preimage::note_preimage(
                 RuntimeOrigin::signed(non_member.clone()),
                 encoded_proposal_non_member.clone()
@@ -293,7 +298,7 @@ mod tests {
             // VERIFY 1: Root can submit referendum (root origin from collective member)
             let bounded_call_root = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash_root,
-                len: encoded_proposal_root.len() as u32
+                len: encoded_proposal_root.len() as u32,
             };
 
             // Note that for a "root" submission, we need to have a valid member signature
@@ -309,7 +314,7 @@ mod tests {
             // VERIFY 2: TechCollective member can submit referendum
             let bounded_call_member = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash_member,
-                len: encoded_proposal_member.len() as u32
+                len: encoded_proposal_member.len() as u32,
             };
 
             // For a collective member, we submit with their origin but a regular None as the proposal origin
@@ -323,7 +328,7 @@ mod tests {
             // VERIFY 3: Non-member cannot submit referendum
             let bounded_call_non_member = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash_non_member,
-                len: encoded_proposal_non_member.len() as u32
+                len: encoded_proposal_non_member.len() as u32,
             };
 
             // Non-members should be rejected for any calls
@@ -333,13 +338,18 @@ mod tests {
                     Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                     bounded_call_non_member,
                     frame_support::traits::schedule::DispatchTime::After(0u32.into())
-                ).is_err(),
+                )
+                .is_err(),
                 "Non-member should not be able to submit referendum"
             );
 
             // Count the number of referenda to verify only 2 were created (Root and Member)
-            let referendum_count = pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get();
-            assert_eq!(referendum_count, 2, "Only 2 referenda should have been created (Root and Member)");
+            let referendum_count =
+                pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get();
+            assert_eq!(
+                referendum_count, 2,
+                "Only 2 referenda should have been created (Root and Member)"
+            );
         });
     }
 
@@ -369,23 +379,25 @@ mod tests {
 
             // Create two different proposals
             let proposal_one = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"First proposal".to_vec()
+                remark: b"First proposal".to_vec(),
             });
 
             let proposal_two = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Second proposal".to_vec()
+                remark: b"Second proposal".to_vec(),
             });
 
             // Store preimages
             let encoded_proposal_one = proposal_one.encode();
-            let preimage_hash_one = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_one);
+            let preimage_hash_one =
+                <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_one);
             assert_ok!(Preimage::note_preimage(
                 RuntimeOrigin::signed(member_one.clone()),
                 encoded_proposal_one.clone()
             ));
 
             let encoded_proposal_two = proposal_two.encode();
-            let preimage_hash_two = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_two);
+            let preimage_hash_two =
+                <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal_two);
             assert_ok!(Preimage::note_preimage(
                 RuntimeOrigin::signed(member_two.clone()),
                 encoded_proposal_two.clone()
@@ -394,7 +406,7 @@ mod tests {
             // Submit first referendum
             let bounded_call_one = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash_one,
-                len: encoded_proposal_one.len() as u32
+                len: encoded_proposal_one.len() as u32,
             };
 
             assert_ok!(TechReferenda::submit(
@@ -407,7 +419,7 @@ mod tests {
             // Submit second referendum
             let bounded_call_two = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash_two,
-                len: encoded_proposal_two.len() as u32
+                len: encoded_proposal_two.len() as u32,
             };
 
             assert_ok!(TechReferenda::submit(
@@ -433,23 +445,38 @@ mod tests {
             ));
 
             // Verify initial state - both should be submitted but not deciding yet
-            let first_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(first_referendum_index);
-            let second_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(second_referendum_index);
+            let first_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    first_referendum_index,
+                );
+            let second_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    second_referendum_index,
+                );
 
             assert!(first_info.is_some(), "First referendum should exist");
             assert!(second_info.is_some(), "Second referendum should exist");
 
             // Get info about track parameters
-            let track_info = <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(TRACK_ID)
+            let track_info =
+                <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(
+                    TRACK_ID,
+                )
                 .expect("Track info should exist for the given TRACK_ID");
 
             // Run to just after prepare period to trigger deciding phase for at least one referendum
             run_to_block(track_info.prepare_period + 1);
 
             // After prepare period, get updated status
-            let first_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(first_referendum_index)
+            let first_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    first_referendum_index,
+                )
                 .expect("First referendum should still exist");
-            let second_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(second_referendum_index)
+            let second_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    second_referendum_index,
+                )
                 .expect("Second referendum should still exist");
 
             // Check status of both referenda
@@ -474,21 +501,43 @@ mod tests {
 
             // Given max_deciding = 1, we should have exactly one referendum in deciding phase
             // and the other should be in preparation/queue
-            assert_eq!(deciding_count, 1, "Should have exactly one referendum in deciding phase");
-            assert_eq!(preparing_count, 1, "Should have exactly one referendum still waiting");
+            assert_eq!(
+                deciding_count, 1,
+                "Should have exactly one referendum in deciding phase"
+            );
+            assert_eq!(
+                preparing_count, 1,
+                "Should have exactly one referendum still waiting"
+            );
 
             // Complete the first referendum
-            run_to_block(track_info.prepare_period + track_info.decision_period + track_info.confirm_period + 5);
+            run_to_block(
+                track_info.prepare_period
+                    + track_info.decision_period
+                    + track_info.confirm_period
+                    + 5,
+            );
 
             // The first referendum should now be completed and the second one should move to deciding
-            run_to_block(track_info.prepare_period + track_info.decision_period + track_info.confirm_period + 5);
+            run_to_block(
+                track_info.prepare_period
+                    + track_info.decision_period
+                    + track_info.confirm_period
+                    + 5,
+            );
 
             // Check that the second referendum has moved to deciding after the first completed
-            let second_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(second_referendum_index)
+            let second_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    second_referendum_index,
+                )
                 .expect("Second referendum should still exist");
 
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = second_info {
-                assert!(status.deciding.is_some(), "Second referendum should now be in deciding phase");
+                assert!(
+                    status.deciding.is_some(),
+                    "Second referendum should now be in deciding phase"
+                );
             } else {
                 panic!("Second referendum should be ongoing");
             }
@@ -955,7 +1004,7 @@ mod tests {
 
             // Prepare proposal for track 0
             let proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"Tech track proposal - token amount should not matter".to_vec()
+                remark: b"Tech track proposal - token amount should not matter".to_vec(),
             });
 
             let encoded = proposal.encode();
@@ -986,7 +1035,10 @@ mod tests {
             ));
 
             // Verify the referendum is on track 0
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(referendum_idx).unwrap();
+            let info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                referendum_idx,
+            )
+            .unwrap();
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
                 assert_eq!(status.track, 0, "Referendum should be on track 0");
             } else {
@@ -1007,7 +1059,9 @@ mod tests {
             ));
 
             // Get track info for proper timing
-            let track_info = <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(0).unwrap();
+            let track_info =
+                <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(0)
+                    .unwrap();
             let prepare_period = track_info.prepare_period;
             let decision_period = track_info.decision_period;
             let confirm_period = track_info.confirm_period;
@@ -1016,11 +1070,17 @@ mod tests {
             run_to_block(prepare_period + 1);
 
             // Check referendum state - should be in deciding phase
-            let info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(referendum_idx).unwrap();
+            let info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                referendum_idx,
+            )
+            .unwrap();
             match info {
                 pallet_referenda::ReferendumInfo::Ongoing(details) => {
-                    assert!(details.deciding.is_some(), "Referendum should be in deciding phase");
-                },
+                    assert!(
+                        details.deciding.is_some(),
+                        "Referendum should be in deciding phase"
+                    );
+                }
                 _ => panic!("Referendum should be ongoing"),
             }
 
@@ -1029,9 +1089,16 @@ mod tests {
             run_to_block(final_block);
 
             // Check final state of referendum - should be approved despite tiny token amounts
-            let final_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(referendum_idx).unwrap();
+            let final_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    referendum_idx,
+                )
+                .unwrap();
             assert!(
-                matches!(final_info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+                matches!(
+                    final_info,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                ),
                 "Track 0 referendum should be approved with minimal token amounts"
             );
         });

@@ -246,7 +246,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 pub struct MinRankOfClassConverter<Delta>(PhantomData<Delta>);
 impl<Delta: Get<u16>> Convert<u16, u16> for MinRankOfClassConverter<Delta> {
     fn convert(a: u16) -> u16 {
-        a.saturating_sub(Delta::get())
+        a.min(Delta::get())
     }
 }
 
@@ -347,4 +347,4 @@ where
     }
 }
 
-pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime,()>;
+pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime, ()>;
