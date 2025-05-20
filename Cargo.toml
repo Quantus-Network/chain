@@ -13,6 +13,7 @@ members = [
     "pallets/faucet",
     "pallets/qpow",
     "pallets/wormhole",
+    "pallets/merkle-airdrop",
     "primitives/faucet",
     "primitives/consensus/qpow",
     "primitives/crypto/wormhole",
@@ -113,6 +114,7 @@ sp-storage = { version = "22.0.0", default-features = false }
 sp-transaction-pool = { version = "35.0.0", default-features = false }
 sp-version = { version = "38.0.0", default-features = false }
 substrate-wasm-builder = { version = "25.0.0", default-features = false }
+pallet-merkle-airdrop = { version = "0.1.0", path = "./pallets/merkle-airdrop", default-features = false }
 
 log = { version = "0.4.22", default-features = false }
 hex = {version = "0.4.3", default-features = false }
