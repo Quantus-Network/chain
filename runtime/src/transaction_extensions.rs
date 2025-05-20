@@ -152,22 +152,6 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
     }
 }
 
-/// Transaction extension for checking if a voter is a member of TechCollective for track 0.
-///
-/// This extension intercepts voting transactions on track 0 referenda
-/// and checks whether the sender is a member of TechCollective. If not,
-/// the transaction will be rejected.
-#[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug)]
-#[scale_info(skip_type_params(T))]
-pub struct TechCollectiveExtension<T: frame_system::Config>(PhantomData<T>);
-
-impl<T: frame_system::Config> TechCollectiveExtension<T> {
-    /// Creates a new `TechCollectiveExtension`.
-    pub fn new() -> Self {
-        Self(core::marker::PhantomData)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use frame_support::pallet_prelude::{TransactionValidityError, UnknownTransaction};
