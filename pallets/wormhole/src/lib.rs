@@ -14,6 +14,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
     use codec::{Encode, Decode};
+    // TODO: replace plonky2 imports with wormhole_verifier
     // use wormhole_verifier::{WormholeVerifier, ProofWithPublicInputs, CircuitInputs};
     use plonky2::{
         plonk::{
@@ -63,6 +64,8 @@ pub mod pallet {
     }
 
     impl<T: Config> WormholePublicInputs<T> {
+
+        // TODO: just delete this and use wormhole from_field_elements function
         // Convert from a vector of GoldilocksField elements
         pub fn from_fields(fields: &[GoldilocksField]) -> Result<Self, Error<T>> {
             if fields.len() < 16 { // Ensure we have enough fields
@@ -108,6 +111,7 @@ pub mod pallet {
         }
     }
 
+    // TODO: replace with wormhole-circuit struct containing these
     // Define the circuit data as a lazy static constant
     lazy_static! {
         static ref CIRCUIT_DATA: CommonCircuitData<F, D> = {
@@ -171,6 +175,7 @@ pub mod pallet {
             // log::error!("{:?}", public_inputs.storage_root);
             // log::error!("{:?}", public_inputs.fee_amount);
 
+            // TODO: check storage root is valid
 
             // Verify nullifier hasn't been used
             ensure!(!UsedNullifiers::<T>::contains_key(&public_inputs.nullifier), Error::<T>::NullifierAlreadyUsed);
@@ -190,13 +195,15 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| "Conversion from u64 to Balance failed")?;
 
+            // TODO: handle fee amount, should go to miner
+
             // Mint new tokens to the exit account
             let _ = BalancesPallet::<T>::deposit_creating(
                 &public_inputs.exit_account,
                 exit_balance
             );
 
-            // // Emit event
+            // Emit event
             Self::deposit_event(Event::ProofVerified {
                 exit_amount: exit_balance,
             });
