@@ -25,7 +25,7 @@
 
 // Substrate and Polkadot dependencies
 use crate::governance::{PreimageDeposit, TracksInfo};
-use frame_support::traits::ConstU64;
+use frame_support::traits::{ConstU64, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -39,8 +39,8 @@ use frame_system::limits::{BlockLength, BlockWeights};
 use frame_system::EnsureRoot;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
+use sp_runtime::traits::ConvertInto;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
 
@@ -302,11 +302,25 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+    pub const MinVestedTransfer: Balance = UNIT;
+    /// Unvested funds can be transferred and reserved for any other means (reserves overlap)
+    pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+    WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
 impl pallet_vesting::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type PalletId = VestingPalletId;
+    type Currency = Balances;
     type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+    type MinVestedTransfer = MinVestedTransfer;
+    type BlockNumberToBalance = ConvertInto;
+    type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+    type BlockNumberProvider = System;
+
+    const MAX_VESTING_SCHEDULES: u32 = 28;
 }
+
 impl pallet_utility::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeCall = RuntimeCall;

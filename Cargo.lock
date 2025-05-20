@@ -6828,20 +6828,17 @@ dependencies = [
 
 [[package]]
 name = "pallet-vesting"
-version = "0.1.0"
+version = "39.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57a93212a0d5c483389f8a7e40adcb2b27ebc261c489b721f85dc6e8b5e05d56"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances",
- "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
- "sp-arithmetic",
- "sp-consensus-pow",
  "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
