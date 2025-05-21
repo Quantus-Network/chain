@@ -28,7 +28,7 @@ use crate::governance::{
     CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
     RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
 };
-use frame_support::traits::{ConstU64, NeverEnsureOrigin};
+use frame_support::traits::{ConstU64, NeverEnsureOrigin, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -52,8 +52,8 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
     Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT,
-    MICRO_UNIT, UNIT, VERSION,
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Vesting, DAYS,
+    EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -438,8 +438,11 @@ impl pallet_reversible_transfers::Config for Runtime {
 impl pallet_merkle_airdrop::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
+    type Vesting = Vesting;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
     type UnsignedClaimPriority = UnsignedClaimPriority;
+    type BlockNumberProvider = System;
+    type BlockNumberToBalance = ConvertInto;
 }
