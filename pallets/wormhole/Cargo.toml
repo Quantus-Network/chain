@@ -12,7 +12,7 @@ codec = { workspace=true, default-features = false, features = ["derive"] }
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
 frame-support = { workspace = true, default-features = false }
 frame-system = { workspace = true, default-features = false }
-
+#wormhole-verifier = { workspace = true }
 sp-runtime = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }

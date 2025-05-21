@@ -12,6 +12,7 @@ publish = false
 sp-core = {workspace = true, default-features = false }
 poseidon-resonance = {workspace = true, default-features = false}
 rand = {workspace = true, default-features = false, features = ["alloc","getrandom"]}
+hex = "0.4.3"
 
 [dev-dependencies]
 hex-literal = { version="0.4.1" ,default-features = false }

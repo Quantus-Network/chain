@@ -123,7 +123,7 @@ pub fn run() -> sc_cli::Result<()> {
 				},
 				Some(QuantusAddressType::Wormhole) => {
 					println!("Generating wormhole address...");
-					println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
+					println!("XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX");
 
 					let wormhole_pair = WormholePair::generate_new().unwrap();
 
