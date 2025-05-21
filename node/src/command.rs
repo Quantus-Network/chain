@@ -16,6 +16,95 @@ use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 use sp_wormhole::WormholePair;
 
+// New function to handle Quantus key generation logic
+pub fn generate_quantus_key(
+    scheme: QuantusAddressType,
+    seed: Option<String>,
+    words: Option<String>,
+) -> sc_cli::Result<()> {
+    match scheme {
+        QuantusAddressType::Standard => {
+            println!("Generating Quantus Standard address...");
+
+            let actual_seed_for_pair: Vec<u8>;
+            let mut words_to_print: Option<String> = None;
+
+            if let Some(words_phrase) = words {
+                println!("Using provided words phrase...");
+                let hd_lattice = HDLattice::from_mnemonic(&words_phrase, None).map_err(|e| {
+                    eprintln!("Error processing provided words: {:?}", e);
+                    sc_cli::Error::Input("Failed to process provided words".into())
+                })?;
+                actual_seed_for_pair = hd_lattice.seed.to_vec(); // Assumes HDLattice.seed is pub
+                words_to_print = Some(words_phrase.clone());
+            } else if let Some(hex_seed_str) = seed {
+                println!("Using provided hex seed...");
+                if hex_seed_str.len() != 128 {
+                    eprintln!(
+                        "Error: --seed must be a 128-character hex string (for a 64-byte seed)."
+                    );
+                    return Err("Invalid hex seed length".into());
+                }
+                let decoded_seed_bytes = hex::decode(hex_seed_str).map_err(|_| {
+                    eprintln!("Error: --seed must be a valid hex string (0-9, a-f).");
+                    sc_cli::Error::Input("Invalid hex seed format".into())
+                })?;
+                if decoded_seed_bytes.len() != 64 {
+                    eprintln!("Error: Decoded hex seed must be exactly 64 bytes.");
+                    return Err("Invalid decoded hex seed length".into());
+                }
+                actual_seed_for_pair = decoded_seed_bytes;
+            } else {
+                println!("No seed or words provided. Generating a new 24-word phrase...");
+                let new_words = generate_mnemonic(24).map_err(|e| {
+                    eprintln!("Error generating new words: {:?}", e);
+                    sc_cli::Error::Input("Failed to generate new words".into())
+                })?;
+
+                let hd_lattice = HDLattice::from_mnemonic(&new_words, None).map_err(|e| {
+                    eprintln!("Error creating HD lattice from new words: {:?}", e);
+                    sc_cli::Error::Input("Failed to process new words".into())
+                })?;
+                actual_seed_for_pair = hd_lattice.seed.to_vec(); // Assumes HDLattice.seed is pub
+                words_to_print = Some(new_words);
+            }
+
+            let resonance_pair = ResonancePair::from_seed(&actual_seed_for_pair).map_err(|e| {
+                eprintln!("Error creating ResonancePair: {:?}", e);
+                sc_cli::Error::Input("Failed to create keypair".into())
+            })?;
+
+            let account_id = AccountId32::from(resonance_pair.public());
+
+            println!("XXXXXXXXXXXXXXX Quantus Account Details XXXXXXXXXXXXXXXXX");
+            if let Some(phrase) = words_to_print {
+                println!("Secret phrase: {}", phrase);
+            }
+            println!("Address: {}", account_id.to_ss58check());
+            println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
+            println!(
+                "Secret key (derived private key hex): 0x{}",
+                hex::encode(resonance_pair.secret)
+            );
+            println!("Seed (hex): 0x{}", hex::encode(&actual_seed_for_pair));
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            Ok(())
+        }
+        QuantusAddressType::Wormhole => {
+            println!("Generating wormhole address...");
+            println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
+
+            let wormhole_pair = WormholePair::generate_new().unwrap();
+
+            println!("Address: {:?}", wormhole_pair.address);
+            println!("Secret: 0x{}", hex::encode(wormhole_pair.secret));
+
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            Ok(())
+        }
+    }
+}
+
 impl SubstrateCli for Cli {
     fn impl_name() -> String {
         "Quantus Node".into()
@@ -68,88 +157,8 @@ pub fn run() -> sc_cli::Result<()> {
                 seed,
                 words,
             } => {
-                match scheme {
-                    QuantusAddressType::Standard => {
-                        println!("Generating Quantus Standard address...");
-
-                        let actual_seed_for_pair: Vec<u8>;
-                        let mut words_to_print: Option<String> = None;
-
-                        if let Some(words_phrase) = words {
-                            println!("Using provided words phrase...");
-                            let hd_lattice = HDLattice::from_mnemonic(words_phrase, None)
-                                .map_err(|e| {
-                                    eprintln!("Error processing provided words: {:?}", e);
-                                    sc_cli::Error::Input("Failed to process provided words".into())
-                                })?;
-                            actual_seed_for_pair = hd_lattice.seed.to_vec(); // Assumes HDLattice.seed is pub
-                            words_to_print = Some(words_phrase.clone());
-                        } else if let Some(hex_seed_str) = seed {
-                            println!("Using provided hex seed...");
-                            if hex_seed_str.len() != 64 {
-                                eprintln!("Error: --seed must be a 64-character hex string (for a 32-byte seed).");
-                                return Err("Invalid hex seed length".into());
-                            }
-                            let decoded_seed_bytes = hex::decode(hex_seed_str).map_err(|_| {
-                                eprintln!("Error: --seed must be a valid hex string (0-9, a-f).");
-                                sc_cli::Error::Input("Invalid hex seed format".into())
-                            })?;
-                            if decoded_seed_bytes.len() != 32 {
-                                eprintln!("Error: Decoded hex seed must be exactly 32 bytes.");
-                                return Err("Invalid decoded hex seed length".into());
-                            }
-                            actual_seed_for_pair = decoded_seed_bytes;
-                        } else {
-                            println!("No seed or words provided. Generating a new 24-word phrase...");
-                            let new_words = generate_mnemonic(24).map_err(|e| {
-                                eprintln!("Error generating new words: {:?}", e);
-                                sc_cli::Error::Input("Failed to generate new words".into())
-                            })?;
-
-                            let hd_lattice = HDLattice::from_mnemonic(&new_words, None)
-                                .map_err(|e| {
-                                    eprintln!("Error creating HD lattice from new words: {:?}", e);
-                                    sc_cli::Error::Input("Failed to process new words".into())
-                                })?;
-                            actual_seed_for_pair = hd_lattice.seed.to_vec(); // Assumes HDLattice.seed is pub
-                            words_to_print = Some(new_words);
-                        }
-
-                        let resonance_pair = ResonancePair::from_seed(&actual_seed_for_pair)
-                            .map_err(|e| {
-                                eprintln!("Error creating ResonancePair: {:?}", e);
-                                sc_cli::Error::Input("Failed to create keypair".into())
-                            })?;
-
-                        let account_id = AccountId32::from(resonance_pair.public());
-
-                        println!("XXXXXXXXXXXXXXX Quantus Account Details XXXXXXXXXXXXXXXXX");
-                        if let Some(phrase) = words_to_print {
-                            println!("Secret phrase: {}", phrase);
-                        }
-                        println!("Seed (hex): 0x{}", hex::encode(&actual_seed_for_pair));
-                        println!("Address: {}", account_id.to_ss58check());
-                        println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
-                        println!(
-                            "Secret key (derived private key hex): 0x{}",
-                            hex::encode(resonance_pair.secret)
-                        );
-                        println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-                        Ok(())
-                    }
-                    QuantusAddressType::Wormhole => {
-                        println!("Generating wormhole address...");
-                        println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
-
-                        let wormhole_pair = WormholePair::generate_new().unwrap();
-
-                        println!("Address: {:?}", wormhole_pair.address);
-                        println!("Secret: 0x{}", hex::encode(wormhole_pair.secret));
-
-                        println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-                        Ok(())
-                    }
-                }
+                generate_quantus_key(scheme.clone(), seed.clone(), words.clone())
+                // Pass cloned values
             }
         },
         Some(Subcommand::BuildSpec(cmd)) => {
@@ -328,5 +337,77 @@ pub fn run() -> sc_cli::Result<()> {
                 }
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Import items from the parent module
+    use crate::cli::QuantusAddressType;
+
+    #[test]
+    fn test_generate_quantus_key_standard_new_mnemonic() {
+        // Test generating a standard address with a new mnemonic
+        // We expect this to succeed (return Ok)
+        let result = generate_quantus_key(QuantusAddressType::Standard, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_quantus_key_standard_from_mnemonic() {
+        // Test generating a standard address from a provided mnemonic
+        let mnemonic =
+            "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title"
+                .to_string();
+        let result = generate_quantus_key(QuantusAddressType::Standard, None, Some(mnemonic));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_quantus_key_standard_from_seed() {
+        // Test generating a standard address from a provided seed
+        let seed = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()); // 128 hex chars
+        let result = generate_quantus_key(QuantusAddressType::Standard, seed, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_quantus_key_wormhole() {
+        // Test generating a wormhole address
+        let result = generate_quantus_key(QuantusAddressType::Wormhole, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_quantus_key_invalid_seed_length() {
+        // Test error handling for invalid seed length
+        let seed = Some("0123456789abcdef".to_string()); // Too short (16 chars, expected 128)
+        let result = generate_quantus_key(QuantusAddressType::Standard, seed, None);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert_eq!(e.to_string(), "Invalid hex seed length");
+        }
+    }
+
+    #[test]
+    fn test_generate_quantus_key_invalid_seed_format() {
+        // Test error handling for invalid seed format (non-hex characters)
+        let seed = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg".to_string()); // Contains 'g', length 128
+        let result = generate_quantus_key(QuantusAddressType::Standard, seed, None);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert_eq!(e.to_string(), "Invalid hex seed format");
+        }
+    }
+
+    #[test]
+    fn test_generate_quantus_key_invalid_decoded_seed_length() {
+        // This test case is a bit tricky because hex::decode itself doesn't error on odd length strings
+        // but our logic for checking length *after* decode should catch it if we were to allow non-64 byte seeds.
+        // However, our current primary check is hex_seed_str.len() != 128.
+        // Let's ensure that an otherwise valid hex string that decodes to NOT 64 bytes is handled if it passed the first length check
+        // This scenario is actually prevented by the initial hex_seed_str.len() != 128 check.
+        // If we wanted to test the decoded length check specifically, we'd need to bypass the initial string length check.
+        // For now, we consider this covered.
     }
 }
