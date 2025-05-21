@@ -61,17 +61,17 @@ pub enum QuantusKeySubcommand {
     /// Generate a quantus address
     Quantus {
         /// Type of the key
-        #[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
-        scheme: Option<QuantusAddressType>,
+        #[arg(long, value_name = "SCHEME", value_enum, default_value_t = QuantusAddressType::Standard, ignore_case = true)]
+        scheme: QuantusAddressType,
 
         /// Optional: Provide a 64-character hex string to be used as a 32-byte seed.
         /// This is mutually exclusive with --words.
-        #[arg(long, value_name = "HEX_SEED", conflicts_with = "words")]
-        seed_hex: Option<String>,
+        #[arg(long, value_name = "SEED", conflicts_with = "words")]
+        seed: Option<String>,
 
         /// Optional: Provide a BIP39 phrase (e.g., "word1 word2 ... word24").
-        /// This is mutually exclusive with --seed-hex.
-        #[arg(long, value_name = "WORDS_PHRASE", conflicts_with = "seed_hex")]
+        /// This is mutually exclusive with --seed.
+        #[arg(long, value_name = "WORDS_PHRASE", conflicts_with = "seed")]
         words: Option<String>,
     },
 }

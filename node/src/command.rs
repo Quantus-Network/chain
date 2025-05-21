@@ -65,11 +65,11 @@ pub fn run() -> sc_cli::Result<()> {
             QuantusKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
             QuantusKeySubcommand::Quantus {
                 scheme,
-                seed_hex,
+                seed,
                 words,
             } => {
                 match scheme {
-                    Some(QuantusAddressType::Standard) => {
+                    QuantusAddressType::Standard => {
                         println!("Generating Quantus Standard address...");
 
                         let actual_seed_for_pair: Vec<u8>;
@@ -84,14 +84,14 @@ pub fn run() -> sc_cli::Result<()> {
                                 })?;
                             actual_seed_for_pair = hd_lattice.seed.to_vec(); // Assumes HDLattice.seed is pub
                             words_to_print = Some(words_phrase.clone());
-                        } else if let Some(hex_seed_str) = seed_hex {
+                        } else if let Some(hex_seed_str) = seed {
                             println!("Using provided hex seed...");
                             if hex_seed_str.len() != 64 {
-                                eprintln!("Error: --seed-hex must be a 64-character hex string (for a 32-byte seed).");
+                                eprintln!("Error: --seed must be a 64-character hex string (for a 32-byte seed).");
                                 return Err("Invalid hex seed length".into());
                             }
                             let decoded_seed_bytes = hex::decode(hex_seed_str).map_err(|_| {
-                                eprintln!("Error: --seed-hex must be a valid hex string (0-9, a-f).");
+                                eprintln!("Error: --seed must be a valid hex string (0-9, a-f).");
                                 sc_cli::Error::Input("Invalid hex seed format".into())
                             })?;
                             if decoded_seed_bytes.len() != 32 {
@@ -105,7 +105,6 @@ pub fn run() -> sc_cli::Result<()> {
                                 eprintln!("Error generating new words: {:?}", e);
                                 sc_cli::Error::Input("Failed to generate new words".into())
                             })?;
-                            println!("Secret phrase: {}", new_words); // Print the new words
 
                             let hd_lattice = HDLattice::from_mnemonic(&new_words, None)
                                 .map_err(|e| {
@@ -128,6 +127,7 @@ pub fn run() -> sc_cli::Result<()> {
                         if let Some(phrase) = words_to_print {
                             println!("Secret phrase: {}", phrase);
                         }
+                        println!("Seed (hex): 0x{}", hex::encode(&actual_seed_for_pair));
                         println!("Address: {}", account_id.to_ss58check());
                         println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
                         println!(
@@ -137,7 +137,7 @@ pub fn run() -> sc_cli::Result<()> {
                         println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
                         Ok(())
                     }
-                    Some(QuantusAddressType::Wormhole) => {
+                    QuantusAddressType::Wormhole => {
                         println!("Generating wormhole address...");
                         println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
 
@@ -148,10 +148,6 @@ pub fn run() -> sc_cli::Result<()> {
 
                         println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
                         Ok(())
-                    }
-                    _ => {
-                        println!("Error: The scheme parameter is required for 'quantus key quantus'");
-                        Err("Invalid address scheme or scheme not provided".into())
                     }
                 }
             }
