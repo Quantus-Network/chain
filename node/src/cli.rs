@@ -55,15 +55,24 @@ pub enum Subcommand {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum QuantusKeySubcommand {
+    /// Standard key commands from sc_cli
+    #[command(flatten)]
+    Sc(sc_cli::KeySubcommand),
     /// Generate a quantus address
     Quantus {
         /// Type of the key
         #[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
         scheme: Option<QuantusAddressType>,
 
-        /// Optional parameter for "standard" address type, must be a 64-character hex string
-        #[arg(long, value_name = "seed")]
-        seed: Option<String>,
+        /// Optional: Provide a 64-character hex string to be used as a 32-byte seed.
+        /// This is mutually exclusive with --words.
+        #[arg(long, value_name = "HEX_SEED", conflicts_with = "words")]
+        seed_hex: Option<String>,
+
+        /// Optional: Provide a BIP39 phrase (e.g., "word1 word2 ... word24").
+        /// This is mutually exclusive with --seed-hex.
+        #[arg(long, value_name = "WORDS_PHRASE", conflicts_with = "seed_hex")]
+        words: Option<String>,
     },
 }
 
