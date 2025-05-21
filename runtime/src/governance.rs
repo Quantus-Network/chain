@@ -4,12 +4,14 @@ use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
 use frame_support::pallet_prelude::TypeInfo;
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
-use frame_support::traits::{CallerTrait, Consideration, Footprint, ReservableCurrency, Get, EnsureOrigin, OriginTrait, EnsureOriginWithArg};
+use frame_support::traits::{Consideration, Footprint, ReservableCurrency, Get, EnsureOrigin, OriginTrait, EnsureOriginWithArg, CallerTrait, Currency as CurrencyTrait};
+use frame_support::traits::tokens::{ConversionFromAssetBalance, Pay, PaymentStatus};
 use pallet_ranked_collective::Rank;
 use sp_core::crypto::AccountId32;
-use sp_runtime::traits::{Convert, MaybeConvert};
+use sp_runtime::traits::{Convert, MaybeConvert, AccountIdConversion};
 use sp_runtime::{DispatchError, Perbill};
 use sp_std::marker::PhantomData;
+use crate::configs::TreasuryPalletId;
 
 ///Preimage pallet fee model
 
@@ -359,3 +361,87 @@ where
 }
 
 pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime, ()>;
+
+
+// Helper structs for pallet_treasury::Config
+pub struct RuntimeNativeBalanceConverter;
+impl ConversionFromAssetBalance<Balance, (), Balance> for RuntimeNativeBalanceConverter {
+    type Error = sp_runtime::DispatchError;
+    fn from_asset_balance(balance: Balance, _asset_kind: ()) -> Result<Balance, sp_runtime::DispatchError> {
+        Ok(balance)
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn ensure_successful(
+        _asset_kind: (),
+    ) -> () {
+        // For an identity conversion with AssetKind = (), there are no
+        // external conditions to set up for the conversion itself to succeed.
+        // The from_asset_balance call is trivial.
+    }
+}
+
+pub struct RuntimeNativePaymaster;
+impl Pay for RuntimeNativePaymaster {
+    type AssetKind = ();
+    type Balance = crate::Balance;
+    type Beneficiary = crate::AccountId;
+    type Id = u32; // Simple payment ID
+    type Error = sp_runtime::DispatchError;
+
+    fn pay(
+        who: &Self::Beneficiary,
+        _asset_kind: Self::AssetKind,
+        amount: Self::Balance,
+    ) -> Result<Self::Id, sp_runtime::DispatchError> {
+        let treasury_account = TreasuryPalletId::get().into_account_truncating();
+        <crate::Balances as CurrencyTrait<crate::AccountId>>::transfer(&treasury_account, who, amount, frame_support::traits::ExistenceRequirement::AllowDeath)?;
+        Ok(0_u32) // Dummy ID
+    }
+
+    fn check_payment(id: Self::Id) -> PaymentStatus {
+        if id == 0_u32 {
+            PaymentStatus::Success
+        } else {
+            PaymentStatus::Unknown
+        }
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn ensure_successful(
+        _who: &Self::Beneficiary,
+        _asset_kind: Self::AssetKind,
+        amount: Self::Balance,
+    ) {
+        let treasury_account = TreasuryPalletId::get().into_account_truncating();
+        let current_balance = crate::Balances::free_balance(&treasury_account);
+        if current_balance < amount {
+            let missing = amount - current_balance;
+            // Assuming deposit_creating is infallible or panics on error internally, returning PositiveImbalance directly.
+            let _ = crate::Balances::deposit_creating(&treasury_account, missing);
+        }
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn ensure_concluded(_id: Self::Id) {
+        // For this synchronous paymaster, payment is concluded once pay returns.
+        // No further action needed for ensure_concluded.
+    }
+}
+
+/// Custom EnsureOrigin for Treasury SpendOrigin to allow Root to spend any amount.
+pub struct EnsureRootWithAnySpendPermission;
+impl frame_support::traits::EnsureOrigin<crate::RuntimeOrigin> for EnsureRootWithAnySpendPermission {
+    type Success = crate::Balance; // u128
+
+    fn try_origin(o: crate::RuntimeOrigin) -> Result<Self::Success, crate::RuntimeOrigin> {
+        <frame_system::EnsureRoot<crate::AccountId> as frame_support::traits::EnsureOrigin<crate::RuntimeOrigin>>::try_origin(o)
+            .map(|()| crate::Balance::max_value())
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn try_successful_origin() -> Result<crate::RuntimeOrigin, ()> {
+        // The successful origin for EnsureRoot is Root.
+        Ok(crate::RuntimeOrigin::root())
+    }
+}

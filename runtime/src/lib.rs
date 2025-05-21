@@ -272,8 +272,11 @@ mod runtime {
     pub type TechReferenda = pallet_referenda::Pallet<Runtime, Instance1>;
 
     #[runtime::pallet_index(17)]
-    pub type Faucet = pallet_faucet;
+    pub type MerkleAirdrop = pallet_merkle_airdrop;
 
     #[runtime::pallet_index(18)]
-    pub type MerkleAirdrop = pallet_merkle_airdrop;
+    pub type TreasuryPallet = pallet_treasury;
+
+    #[runtime::pallet_index(19)]
+    pub type Faucet = pallet_faucet;
 }
