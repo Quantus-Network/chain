@@ -7557,8 +7557,8 @@ dependencies = [
 
 [[package]]
 name = "poseidon-resonance"
-version = "0.4.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance#dea7b367eeaa4ca927b6f19e55176a43e1088836"
+version = "0.5.0"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#fba5320c8f22dd218a64b7a289e0b10e160055c8"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -11407,6 +11407,7 @@ dependencies = [
 name = "sp-wormhole"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "hex-literal",
  "poseidon-resonance",
  "rand 0.8.5",
