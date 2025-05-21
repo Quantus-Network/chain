@@ -6606,6 +6606,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-balances",
+ "pallet-vesting",
  "parity-scale-codec",
  "poseidon-resonance",
  "scale-info",
