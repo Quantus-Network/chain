@@ -243,10 +243,21 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
     }
 }
 
+
+/// Converts a track ID to a minimum required rank for voting.
+/// Currently, all tracks require rank 0 as the minimum rank.
+/// In the future, this could be extended to support multiple ranks
+/// where different tracks might require different minimum ranks.
+/// For example:
+/// - Track 1 might require rank 0
+/// - Track 2 might require rank 1
+/// - Track 3 might require rank 2
+/// This would allow for a hierarchical voting system where higher-ranked
+/// members can vote on more important proposals.
 pub struct MinRankOfClassConverter<Delta>(PhantomData<Delta>);
 impl<Delta: Get<u16>> Convert<u16, u16> for MinRankOfClassConverter<Delta> {
-    fn convert(a: u16) -> u16 {
-        a.min(Delta::get())
+    fn convert(_a: u16) -> u16 {
+        0  // Currently, all tracks require rank 0 as the minimum rank
     }
 }
 
