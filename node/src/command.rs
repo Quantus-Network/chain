@@ -398,7 +398,7 @@ pub fn run() -> sc_cli::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*; // Import items from the parent module
+    use super::*;
     use crate::cli::QuantusAddressType;
 
     #[test]
