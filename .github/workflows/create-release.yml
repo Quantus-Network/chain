@@ -67,13 +67,6 @@ jobs:
         run: |
           # Attempt to get the latest vX.Y.Z tag
           latest_semver_tag=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "v0.0.0")
-          if [[ "$latest_semver_tag" == "v0.0.0" ]]; then
-            # If no strict vX.Y.Z found, try to get any v* tag (e.g. v0.1.0-rc.1)
-            # and then strip potential pre-release to get a base for bumping,
-            # or fall back to v0.0.0 if still nothing.
-            # This is a fallback, the awk script was meant to handle this more gracefully.
-            latest_semver_tag=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null | sed 's/-\(alpha\|beta\|rc\)\(\.[0-9]*\)?$//' || echo "v0.0.0")
-          fi
           echo "latest_tag_found=$latest_semver_tag" >> $GITHUB_OUTPUT
           echo "Latest semantic version tag found: $latest_semver_tag"
 
