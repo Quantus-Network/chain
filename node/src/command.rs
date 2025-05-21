@@ -37,8 +37,12 @@ pub fn generate_quantus_key(
                 })?;
                 actual_seed_for_pair = hd_lattice.seed.to_vec(); // Assumes HDLattice.seed is pub
                 words_to_print = Some(words_phrase.clone());
-            } else if let Some(hex_seed_str) = seed {
+            } else if let Some(mut hex_seed_str) = seed {
                 println!("Using provided hex seed...");
+                if hex_seed_str.starts_with("0x") {
+                    hex_seed_str = hex_seed_str.trim_start_matches("0x").to_string();
+                }
+
                 if hex_seed_str.len() != 128 {
                     eprintln!(
                         "Error: --seed must be a 128-character hex string (for a 64-byte seed)."
@@ -82,11 +86,8 @@ pub fn generate_quantus_key(
             }
             println!("Address: {}", account_id.to_ss58check());
             println!("Pub key: 0x{}", hex::encode(resonance_pair.public()));
-            println!(
-                "Secret key (derived private key hex): 0x{}",
-                hex::encode(resonance_pair.secret)
-            );
-            println!("Seed (hex): 0x{}", hex::encode(&actual_seed_for_pair));
+            println!("Secret key: 0x{}", hex::encode(resonance_pair.secret));
+            println!("Seed: 0x{}", hex::encode(&actual_seed_for_pair));
             println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
             Ok(())
         }
@@ -132,15 +133,21 @@ impl SubstrateCli for Cli {
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
         Ok(match id {
-            "dev" => Box::new(chain_spec::development_chain_spec()?),
-            "live_resonance_local" => Box::new(chain_spec::live_testnet_chain_spec()?),
+            "dev" => {
+                Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+            }
+            "live_resonance_local" => {
+                Box::new(chain_spec::live_testnet_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+            }
             "live_resonance" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
                 "chain-specs/live-resonance.json"
-            ))?),
-            "" | "local" => Box::new(chain_spec::local_chain_spec()?),
+            ))?) as Box<dyn sc_service::ChainSpec>,
+            "" | "local" => {
+                Box::new(chain_spec::local_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+            }
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
-            )?),
+            )?) as Box<dyn sc_service::ChainSpec>,
         })
     }
 }
@@ -385,7 +392,7 @@ mod tests {
         let result = generate_quantus_key(QuantusAddressType::Standard, seed, None);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert_eq!(e.to_string(), "Invalid hex seed length");
+            assert_eq!(format!("{:?}", e), "Input(\"Invalid hex seed length\")");
         }
     }
 
@@ -396,7 +403,7 @@ mod tests {
         let result = generate_quantus_key(QuantusAddressType::Standard, seed, None);
         assert!(result.is_err());
         if let Err(e) = result {
-            assert_eq!(e.to_string(), "Invalid hex seed format");
+            assert_eq!(format!("{:?}", e), "Input(\"Invalid hex seed format\")");
         }
     }
 
