@@ -44,6 +44,7 @@ pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 pallet-balances = { path="./pallets/balances", default-features = false }
 pallet-reversible-transfers = { path="./pallets/reversible-transfers", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
+pallet-ranked-collective = { version = "39.0.0", default-features = false}
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-referenda = { version = "39.1.0", default-features = false }
 pallet-scheduler = { version = "40.1.0", default-features = false }

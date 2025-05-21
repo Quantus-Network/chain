@@ -262,12 +262,18 @@ mod runtime {
     #[runtime::pallet_index(13)]
     pub type ReversibleTransfers = pallet_reversible_transfers;
 
-	#[runtime::pallet_index(14)]
-	pub type ConvictionVoting = pallet_conviction_voting;
+    #[runtime::pallet_index(14)]
+    pub type ConvictionVoting = pallet_conviction_voting;
 
-	#[runtime::pallet_index(15)]
-	pub type Faucet = pallet_faucet;
+    #[runtime::pallet_index(15)]
+    pub type TechCollective = pallet_ranked_collective;
 
-	#[runtime::pallet_index(16)]
-	pub type MerkleAirdrop = pallet_merkle_airdrop;
+    #[runtime::pallet_index(16)]
+    pub type TechReferenda = pallet_referenda::Pallet<Runtime, Instance1>;
+
+    #[runtime::pallet_index(17)]
+    pub type Faucet = pallet_faucet;
+
+    #[runtime::pallet_index(18)]
+    pub type MerkleAirdrop = pallet_merkle_airdrop;
 }

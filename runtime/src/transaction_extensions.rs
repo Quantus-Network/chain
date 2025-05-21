@@ -157,7 +157,6 @@ mod tests {
     use frame_support::pallet_prelude::{TransactionValidityError, UnknownTransaction};
     use pallet_reversible_transfers::PendingTransfers;
     use sp_runtime::{traits::TxBaseImplication, AccountId32};
-
     use super::*;
     fn alice() -> AccountId {
         AccountId32::from([1; 32])
