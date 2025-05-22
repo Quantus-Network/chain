@@ -19,7 +19,8 @@ pub mod pallet {
     use wormhole_circuit::circuit::{C, D, F};
     use wormhole_circuit::codec::ByteCodec;
     use wormhole_circuit::inputs::PublicCircuitInputs;
-    use wormhole_verifier::WormholeVerifier;
+    use wormhole_verifier::ProofWithPublicInputs;
+    use wormhole_verifier::{WormholeVerifier};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
