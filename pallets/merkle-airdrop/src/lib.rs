@@ -6,7 +6,7 @@
 //! ## Overview
 //!
 //! This pallet provides functionality for:
-//! - Creating airdrops with a Merkle root representing all valid claims
+//! - Creating airdrops with a Merkle root representing all valid claims, and optional vesting parameters
 //! - Funding airdrops with tokens to be distributed
 //! - Allowing users to claim tokens by providing Merkle proofs
 //! - Allowing creators to delete airdrops and reclaim any unclaimed tokens
@@ -18,7 +18,7 @@
 //!
 //! ### Dispatchable Functions
 //!
-//! * `create_airdrop` - Create a new airdrop with a Merkle root
+//! * `create_airdrop` - Create a new airdrop with a Merkle root and vesting parameters
 //! * `fund_airdrop` - Fund an existing airdrop with tokens
 //! * `claim` - Claim tokens from an airdrop by providing a Merkle proof
 //! * `delete_airdrop` - Delete an airdrop and reclaim any remaining tokens (creator only)
@@ -343,6 +343,8 @@ pub mod pallet {
         ///
         /// * `origin` - The origin of the call (must be signed)
         /// * `merkle_root` - The Merkle root hash representing all valid claims
+        /// * `vesting_period` - Optional vesting period for the airdrop
+        /// * `vesting_delay` - Optional delay before vesting starts
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::create_airdrop())]
         pub fn create_airdrop(
@@ -364,6 +366,7 @@ pub mod pallet {
             };
 
             AirdropInfo::<T>::insert(airdrop_id, &airdrop_metadata);
+            NextAirdropId::<T>::put(airdrop_id.saturating_add(1));
 
             Self::deposit_event(Event::AirdropCreated {
                 airdrop_id,
@@ -396,7 +399,10 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let _ = AirdropInfo::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
+            ensure!(
+                AirdropInfo::<T>::contains_key(airdrop_id),
+                Error::<T>::AirdropNotFound
+            );
 
             T::Currency::transfer(
                 &who,
