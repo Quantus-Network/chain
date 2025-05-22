@@ -1,50 +1,69 @@
 #!/bin/bash
 #
-# start-quantus-node.sh: Starts the quantus-node with typical mining configurations.
+# start_quantus_node.sh: Starts the quantus-node, configured to join a specified chain.
 #
-# IMPORTANT:
-# 1. Ensure 'quantus-node' binary is in your PATH (installed via install-quantus-node.sh).
-# 2. Customize the parameters below to match your desired mining setup.
+# This script is designed to be configurable. Edit the variables in the
+# --- Configuration --- section below to suit your needs.
 #
 
 set -e # Exit immediately if a command exits with a non-zero status.
 set -u # Treat unset variables as an error when substituting.
 
 # --- Configuration ---
+# Directory for storing rewards address file and other local config
 CONFIG_DIR="$HOME/.quantus-node"
 REWARDS_ADDRESS_FILE="$CONFIG_DIR/rewards_address.txt"
-CREATE_ADDRESS_SCRIPT_PATH="$(dirname "$0")/create-quantus-address.sh"
+CREATE_ADDRESS_SCRIPT_PATH="$(dirname "$0")/create_quantus_address.sh"
 
-# Node Name (Optional, for identification in telemetry or UIs if supported)
-# NODE_NAME="MyQuantusMiner"
+# Node Binary: Assumes 'quantus-node' is in PATH.
+# You can set this to an absolute path, e.g., "$(dirname "$0")/../target/release/quantus-node"
+# if you want to run a specific build.
+NODE_BINARY="quantus-node"
 
-# Chain Specification (e.g., --chain mainnet, --chain testnet, or --dev for local development)
-# Using --dev as a placeholder. For actual mining, you'll likely specify a chain.
-CHAIN_FLAG="--dev"
+# Node Identity and Network
+NODE_NAME="MyLocalQuantusTestnetNode-$(LC_ALL=C head /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 | head -c 4)" # Unique default name
+CHAIN_SPEC_ID="live_resonance" # Chain spec to use (e.g., live_resonance, local, dev)
 
-# Rewards Address (Crucial for mining)
-# Replace <YOUR_REWARDS_ADDRESS> with your actual address.
-REWARDS_ADDRESS="" # Will be loaded from file or user input
+# Data Storage: Base path for node data.
+# Data for different chains will be stored in subdirectories.
+BASE_PATH_DIR_ROOT="$HOME/.quantus-node-data"
+BASE_PATH_DIR="$BASE_PATH_DIR_ROOT/$CHAIN_SPEC_ID" # Chain-specific data path
 
-# External Miner URL (If you're using an external miner service)
-# If not using an external miner, you might remove or comment out this flag.
-EXTERNAL_MINER_URL="http://127.0.0.1:9833" # Default from your README
+# Network Ports
+P2P_PORT="30334" # P2P listening port
+RPC_PORT="9945"    # RPC listening port
+# PROMETHEUS_PORT="9616" # Prometheus metrics port (Removed by user request)
 
-# Base Path for node data (Optional, defaults to a platform-specific directory)
-# BASE_PATH_FLAG="--base-path /path/to/my/quantus-data"
+# Logging: RUST_LOG can be set in the environment before running this script.
+# Example: export RUST_LOG="info,sync=debug,network=debug"
 
-# Logging Configuration (RUST_LOG environment variable)
-# Example: "info,sc_consensus_pow=debug" from your README
-export RUST_LOG="${RUST_LOG:-info,sc_consensus_pow=debug}" # Use existing RUST_LOG or default
+# Miner Configuration
+REWARDS_ADDRESS="" # Will be loaded from file or user input. Essential for mining/validation rewards.
+EXTERNAL_MINER_URL="" # Set to "http://127.0.0.1:9833" if using an external QPoW miner
 
-# Additional flags (Add any other flags required for your setup)
-# ADDITIONAL_FLAGS="--validator --rpc-port 9945"
+# Additional Node Arguments: Add other flags here
+# Example: "--unsafe-force-node-key-generation" (use with caution!)
+ADDITIONAL_NODE_ARGS=(
+    "--validator"
+    "--unsafe-force-node-key-generation"
+    # Removed by user request: "--prometheus-external"
+    # Removed by user request: "--rpc-methods" "auto"
+    # Removed by user request: "--unsafe-rpc-external"
+    # Removed by user request: "--rpc-cors" "all"
+    # Add other flags here, e.g.:
+    # "--no-telemetry"
+    # "--node-key-file" "$BASE_PATH_DIR/network/secret_key" # Example for specific key file
+)
 
 # --- Sanity Checks ---
-if ! command -v quantus-node &>/dev/null; then
-    echo -e "\033[1;31mERROR\033[0m: 'quantus-node' command not found. Please ensure it is installed and in your PATH."
+if ! command -v "$NODE_BINARY" &>/dev/null; then
+    echo -e "\033[1;31mERROR\033[0m: '$NODE_BINARY' command not found. Please ensure it is installed and in your PATH, or set NODE_BINARY variable correctly."
     exit 1
 fi
+
+# Ensure base path directory exists
+mkdir -p "$BASE_PATH_DIR"
+echo -e "\033[1;32mINFO\033[0m: Node data will be stored in: $BASE_PATH_DIR"
 
 # --- Load or Prompt for Rewards Address ---
 if [ -f "$REWARDS_ADDRESS_FILE" ]; then
@@ -54,20 +73,20 @@ fi
 
 if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>" ]; then
     echo -e "\033[1;33mWARN\033[0m: Rewards address is not set or is a placeholder."
-    echo "You need a Quantus address to receive mining rewards."
+    echo "A Quantus address is needed to receive mining/validation rewards."
     echo "Choose an option:"
     echo "  1. Enter your existing Quantus rewards address manually."
     echo "  2. Generate a new rewards address (runs '${CREATE_ADDRESS_SCRIPT_PATH##*/}')."
-    echo "  3. Exit to set it manually later (edit this script or $REWARDS_ADDRESS_FILE)."
-    
-    read -p "Enter your choice (1, 2, or 3): " choice
+    echo "  3. Continue without a rewards address (not recommended for a validator/miner)."
+    echo "  4. Exit to set it manually later (edit this script or $REWARDS_ADDRESS_FILE)."
+
+    read -r -p "Enter your choice (1, 2, 3, or 4): " choice
 
     case "$choice" in
         1)
-            read -p "Enter your Quantus SS58 rewards address: " manual_address
+            read -r -p "Enter your Quantus SS58 rewards address: " manual_address
             if [ -n "$manual_address" ]; then
                 REWARDS_ADDRESS="$manual_address"
-                # Optionally save it back to the file for next time
                 mkdir -p "$CONFIG_DIR"
                 echo "$REWARDS_ADDRESS" > "$REWARDS_ADDRESS_FILE"
                 echo -e "\033[1;32mINFO\033[0m: Rewards address set to: $REWARDS_ADDRESS (and saved to $REWARDS_ADDRESS_FILE)"
@@ -80,7 +99,6 @@ if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>"
             if [ -f "$CREATE_ADDRESS_SCRIPT_PATH" ]; then
                 echo "Running address generation script..."
                 bash "$CREATE_ADDRESS_SCRIPT_PATH"
-                # Try to load the address again from the file
                 if [ -f "$REWARDS_ADDRESS_FILE" ]; then
                     REWARDS_ADDRESS=$(cat "$REWARDS_ADDRESS_FILE")
                     echo -e "\033[1;32mINFO\033[0m: Loaded new rewards address from $REWARDS_ADDRESS_FILE: $REWARDS_ADDRESS"
@@ -94,6 +112,10 @@ if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>"
             fi
             ;;
         3)
+            echo -e "\033[1;33mWARN\033[0m: Continuing without a rewards address. This node may not receive rewards."
+            REWARDS_ADDRESS="" # Explicitly empty
+            ;;
+        4)
             echo "Exiting. Please set your REWARDS_ADDRESS in this script or create $REWARDS_ADDRESS_FILE."
             exit 0
             ;;
@@ -104,35 +126,62 @@ if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>"
     esac
 fi
 
-if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>" ]; then
-    echo -e "\033[1;31mERROR\033[0m: REWARDS_ADDRESS is still not properly set. Exiting."
+if [[ "${ADDITIONAL_NODE_ARGS[*]}" == *"--validator"* ]] && [[ -z "$REWARDS_ADDRESS" ]]; then
+    echo -e "\033[1;31mERROR\033[0m: Running as a validator requires a rewards address. Please set REWARDS_ADDRESS. Exiting."
     exit 1
 fi
 
 # --- Construct and Run Command ---
-CMD="quantus-node"
-CMD+=" $CHAIN_FLAG"
-CMD+=" --rewards-address $REWARDS_ADDRESS"
+# Start with the node binary
+CMD_ARRAY=("$NODE_BINARY")
 
-if [ -n "${EXTERNAL_MINER_URL-}" ]; then # Only add if EXTERNAL_MINER_URL is set and not empty
-    CMD+=" --external-miner-url $EXTERNAL_MINER_URL"
+# Add chain spec
+CMD_ARRAY+=("--chain" "$CHAIN_SPEC_ID")
+
+# Add base path
+CMD_ARRAY+=("--base-path" "$BASE_PATH_DIR")
+
+# Add node name
+CMD_ARRAY+=("--name" "$NODE_NAME")
+
+# Add P2P port
+CMD_ARRAY+=("--port" "$P2P_PORT")
+
+# Add RPC port
+CMD_ARRAY+=("--rpc-port" "$RPC_PORT")
+
+# Add Prometheus port (Removed by user request)
+# if [ -n "${PROMETHEUS_PORT-}" ]; then
+#     CMD_ARRAY+=("--prometheus-port" "$PROMETHEUS_PORT")
+# fi
+
+# Add rewards address if set
+if [ -n "$REWARDS_ADDRESS" ]; then
+    CMD_ARRAY+=("--rewards-address" "$REWARDS_ADDRESS")
 fi
 
-# if [ -n "${NODE_NAME-}" ]; then
-#     CMD+=" --name \"$NODE_NAME\"" # Ensure proper quoting if name has spaces
-# fi
+# Add external miner URL if set
+if [ -n "$EXTERNAL_MINER_URL" ]; then
+    CMD_ARRAY+=("--external-miner-url" "$EXTERNAL_MINER_URL")
+fi
 
-# if [ -n "${BASE_PATH_FLAG-}" ]; then
-#     CMD+=" $BASE_PATH_FLAG"
-# fi
+# Add any additional arguments from the array
+CMD_ARRAY+=("${ADDITIONAL_NODE_ARGS[@]}")
 
-# if [ -n "${ADDITIONAL_FLAGS-}" ]; then
-#     CMD+=" $ADDITIONAL_FLAGS"
-# fi
+# DO NOT add explicit --bootnodes here if relying on chain_spec.json
+# If you need to override bootnodes, add them to ADDITIONAL_NODE_ARGS:
+# ADDITIONAL_NODE_ARGS+=("--bootnodes" "/dns/example.com/..." "/dns/another.com/...")
 
-echo "Starting quantus-node with command:"
-echo "RUST_LOG="$RUST_LOG" $CMD"
+echo "Starting $NODE_BINARY with command:"
+# Properly quote arguments for display and execution
+# Using printf for safer command echoing
+printf "RUST_LOG=\"%s\" " "${RUST_LOG:-NOT SET}" # Print RUST_LOG if set, otherwise indicate it's not set
+printf "%q " "${CMD_ARRAY[@]}"
+echo # Newline
 echo "-----------------------------------------------------"
 
 # Execute the command
-eval "exec $CMD" 
+# 'exec' replaces the script process with the node process.
+# Set a default RUST_LOG if not already set in the environment
+export RUST_LOG="${RUST_LOG:-info,sync=debug,network=debug,libp2p_gossipsub=debug}"
+exec "${CMD_ARRAY[@]}" 
