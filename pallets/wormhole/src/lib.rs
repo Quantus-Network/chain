@@ -14,12 +14,12 @@ pub mod pallet {
     use frame_support::{pallet_prelude::*, traits::Currency};
     use frame_system::pallet_prelude::*;
     use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
-    use plonky2::plonk::proof::ProofWithPublicInputs;
     use sp_std::vec::Vec;
     use wormhole_circuit::circuit::{C, D, F};
     use wormhole_circuit::codec::ByteCodec;
     use wormhole_circuit::inputs::PublicCircuitInputs;
-    use wormhole_verifier::WormholeVerifier;
+    use wormhole_verifier::ProofWithPublicInputs;
+    use wormhole_verifier::{WormholeVerifier};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
