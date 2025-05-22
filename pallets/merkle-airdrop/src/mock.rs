@@ -1,13 +1,13 @@
 use crate as pallet_merkle_airdrop;
 use frame_support::{
     parameter_types,
-    traits::{ConstU32, Everything},
+    traits::{ConstU32, Everything, WithdrawReasons},
     PalletId,
 };
 use frame_system::{self as system};
 use sp_core::H256;
 use sp_runtime::{
-    traits::{BlakeTwo256, IdentityLookup},
+    traits::{BlakeTwo256, ConvertInto, IdentityLookup},
     BuildStorage,
 };
 
@@ -17,6 +17,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
+        Vesting: pallet_vesting,
         Balances: pallet_balances,
         MerkleAirdrop: pallet_merkle_airdrop,
     }
@@ -83,6 +84,24 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
+    pub const MinVestedTransfer: u64 = 1;
+    pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+    WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type WeightInfo = ();
+    type BlockNumberProvider = System;
+    type MinVestedTransfer = MinVestedTransfer;
+    type BlockNumberToBalance = ConvertInto;
+    type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+
+    const MAX_VESTING_SCHEDULES: u32 = 3;
+}
+
+parameter_types! {
     pub const MaxProofs: u32 = 100;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
     pub const UnsignedClaimPriority: u64 = 100;
@@ -91,23 +110,25 @@ parameter_types! {
 impl pallet_merkle_airdrop::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
+    type Vesting = Vesting;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type UnsignedClaimPriority = UnsignedClaimPriority;
     type WeightInfo = ();
+    type BlockNumberProvider = System;
+    type BlockNumberToBalance = ConvertInto;
 }
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    system::GenesisConfig::<Test>::default()
+    let mut t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
-        .unwrap()
-        .into()
-}
+        .unwrap();
+    pallet_balances::GenesisConfig::<Test> {
+        balances: vec![(1, 10_000_000), (MerkleAirdrop::account_id(), 1)],
+    }
+    .assimilate_storage(&mut t)
+    .unwrap();
 
-pub fn initialize_balances() {
-    let _ = Balances::force_set_balance(RuntimeOrigin::root(), 1, 10_000);
-
-    let pallet_account = MerkleAirdrop::account_id();
-    let _ = Balances::force_set_balance(RuntimeOrigin::root(), pallet_account, 1);
+    t.into()
 }
