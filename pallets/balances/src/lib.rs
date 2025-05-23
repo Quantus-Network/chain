@@ -193,21 +193,23 @@ const LOG_TARGET: &str = "runtime::balances";
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
-pub struct PoseidonHasher;
+pub struct PoseidonStorageHasher;
 
-impl StorageHasher for PoseidonHasher {
+impl StorageHasher for PoseidonStorageHasher {
 	// We are lying here, but maybe it's ok because it's just metadata
 	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
 	type Output = [u8; 32];
 
+
 	fn hash(x: &[u8]) -> Self::Output {
-		PoseidonCore::hash(x).0
+		PoseidonCore::hash_storage(x)
 	}
 
 	fn max_len<K: MaxEncodedLen>() -> usize {
 		32
 	}
 }
+
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -524,7 +526,7 @@ pub mod pallet {
 	#[pallet::getter(fn transfer_proof)]
 	pub type TransferProof<T: Config<I>, I: 'static = ()> = StorageMap<
 		_,
-		PoseidonHasher,
+		PoseidonStorageHasher,
 		(T::Nonce, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
 		bool,
 		OptionQuery, // Returns None if not present
