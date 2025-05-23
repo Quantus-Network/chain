@@ -13,7 +13,9 @@ set -u # Treat unset variables as an error when substituting.
 # Directory for storing rewards address file and other local config
 CONFIG_DIR="$HOME/.quantus-node"
 REWARDS_ADDRESS_FILE="$CONFIG_DIR/rewards_address.txt"
+NODE_KEY_FILE="$CONFIG_DIR/node_key.p2p" # File to store/read the node's libp2p private key
 CREATE_ADDRESS_SCRIPT_PATH="$(dirname "$0")/create_quantus_address.sh"
+CREATE_NODE_KEY_SCRIPT_PATH="$(dirname "$0")/create_node_identity.sh"
 
 # Node Binary: Assumes 'quantus-node' is in PATH.
 # You can set this to an absolute path, e.g., "$(dirname "$0")/../target/release/quantus-node"
@@ -42,17 +44,11 @@ REWARDS_ADDRESS="" # Will be loaded from file or user input. Essential for minin
 EXTERNAL_MINER_URL="" # Set to "http://127.0.0.1:9833" if using an external QPoW miner
 
 # Additional Node Arguments: Add other flags here
-# Example: "--unsafe-force-node-key-generation" (use with caution!)
+# Example: "--some-other-flag"
 ADDITIONAL_NODE_ARGS=(
     "--validator"
-    "--unsafe-force-node-key-generation"
-    # Removed by user request: "--prometheus-external"
-    # Removed by user request: "--rpc-methods" "auto"
-    # Removed by user request: "--unsafe-rpc-external"
-    # Removed by user request: "--rpc-cors" "all"
-    # Add other flags here, e.g.:
-    # "--no-telemetry"
-    # "--node-key-file" "$BASE_PATH_DIR/network/secret_key" # Example for specific key file
+    # "--unsafe-force-node-key-generation" # Removed: Node key should be pre-generated
+    # "--node-key-file" "$NODE_KEY_FILE" # This will be added conditionally later
 )
 
 # --- Sanity Checks ---
@@ -61,33 +57,63 @@ if ! command -v "$NODE_BINARY" &>/dev/null; then
     exit 1
 fi
 
+# Ensure config directory exists
+mkdir -p "$CONFIG_DIR"
+
 # Ensure base path directory exists
 mkdir -p "$BASE_PATH_DIR"
 echo -e "\033[1;32mINFO\033[0m: Node data will be stored in: $BASE_PATH_DIR"
 
+# --- Check for Node Key File ---
+if [ ! -f "$NODE_KEY_FILE" ]; then
+    echo -e "\033[1;31mERROR\033[0m: Node key file not found at $NODE_KEY_FILE."
+    echo "Please run the node identity creation script to generate it:"
+    echo "  ./${CREATE_NODE_KEY_SCRIPT_PATH##*/}"
+    echo "Alternatively, ensure your node key is correctly placed at $NODE_KEY_FILE."
+    if [ -z "${CI-}" ]; then # Only exit if not in CI, allow CI to potentially handle it differently or fail later
+      exit 1
+    else
+      echo -e "\033[1;33mWARN\033[0m: CI environment detected, proceeding without node key. Node might fail to start or generate one."
+    fi
+else
+    echo -e "\033[1;32mINFO\033[0m: Using node key from $NODE_KEY_FILE"
+    # Add node-key-file to ADDITIONAL_NODE_ARGS only if the file exists
+    ADDITIONAL_NODE_ARGS+=("--node-key-file" "$NODE_KEY_FILE")
+fi
+
 # --- Load or Prompt for Rewards Address ---
 if [ -f "$REWARDS_ADDRESS_FILE" ]; then
     REWARDS_ADDRESS=$(cat "$REWARDS_ADDRESS_FILE")
-    echo -e "\033[1;32mINFO\033[0m: Loaded rewards address from $REWARDS_ADDRESS_FILE: $REWARDS_ADDRESS"
+    # Simple validation: check if it looks like a placeholder or is empty
+    if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>" ]; then
+        echo -e "\033[1;33mWARN\033[0m: Rewards address file ($REWARDS_ADDRESS_FILE) is empty or contains a placeholder."
+        REWARDS_ADDRESS="" # Reset to trigger prompt if interactive
+    else
+        echo -e "\033[1;32mINFO\033[0m: Loaded rewards address from $REWARDS_ADDRESS_FILE: $REWARDS_ADDRESS"
+    fi
 fi
 
-if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>" ]; then
-    echo -e "\033[1;33mWARN\033[0m: Rewards address is not set or is a placeholder."
+if [ -z "${REWARDS_ADDRESS}" ]; then # If still empty after trying to load
+    if [ -n "${CI-}" ]; then # Non-interactive (e.g., CI environment)
+        echo -e "\033[1;31mERROR\033[0m: Rewards address is not set and running in non-interactive mode."
+        echo "Please create $REWARDS_ADDRESS_FILE with a valid address or set REWARDS_ADDRESS environment variable."
+        exit 1
+    fi
+
+    echo -e "\033[1;33mWARN\033[0m: Rewards address is not set."
     echo "A Quantus address is needed to receive mining/validation rewards."
     echo "Choose an option:"
     echo "  1. Enter your existing Quantus rewards address manually."
-    echo "  2. Generate a new rewards address (runs '${CREATE_ADDRESS_SCRIPT_PATH##*/}')."
-    echo "  3. Continue without a rewards address (not recommended for a validator/miner)."
-    echo "  4. Exit to set it manually later (edit this script or $REWARDS_ADDRESS_FILE)."
+    echo "  2. Generate a new rewards address (runs '${CREATE_ADDRESS_SCRIPT_PATH##*/}')"
+    echo "  3. Exit to set it manually later (edit $REWARDS_ADDRESS_FILE or this script)."
 
-    read -r -p "Enter your choice (1, 2, 3, or 4): " choice
+    read -r -p "Enter your choice (1, 2, or 3): " choice
 
     case "$choice" in
         1)
             read -r -p "Enter your Quantus SS58 rewards address: " manual_address
             if [ -n "$manual_address" ]; then
                 REWARDS_ADDRESS="$manual_address"
-                mkdir -p "$CONFIG_DIR"
                 echo "$REWARDS_ADDRESS" > "$REWARDS_ADDRESS_FILE"
                 echo -e "\033[1;32mINFO\033[0m: Rewards address set to: $REWARDS_ADDRESS (and saved to $REWARDS_ADDRESS_FILE)"
             else
@@ -101,6 +127,10 @@ if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>"
                 bash "$CREATE_ADDRESS_SCRIPT_PATH"
                 if [ -f "$REWARDS_ADDRESS_FILE" ]; then
                     REWARDS_ADDRESS=$(cat "$REWARDS_ADDRESS_FILE")
+                     if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>" ]; then
+                        echo -e "\033[1;31mERROR\033[0m: Address generation script ran, but $REWARDS_ADDRESS_FILE is still empty or placeholder. Exiting."
+                        exit 1
+                    fi
                     echo -e "\033[1;32mINFO\033[0m: Loaded new rewards address from $REWARDS_ADDRESS_FILE: $REWARDS_ADDRESS"
                 else
                      echo -e "\033[1;31mERROR\033[0m: Address file not found after running generation script. Exiting."
@@ -112,11 +142,7 @@ if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>"
             fi
             ;;
         3)
-            echo -e "\033[1;33mWARN\033[0m: Continuing without a rewards address. This node may not receive rewards."
-            REWARDS_ADDRESS="" # Explicitly empty
-            ;;
-        4)
-            echo "Exiting. Please set your REWARDS_ADDRESS in this script or create $REWARDS_ADDRESS_FILE."
+            echo "Exiting. Please set your REWARDS_ADDRESS by creating $REWARDS_ADDRESS_FILE or editing this script."
             exit 0
             ;;
         *)
@@ -126,8 +152,9 @@ if [ -z "$REWARDS_ADDRESS" ] || [ "$REWARDS_ADDRESS" == "<YOUR_REWARDS_ADDRESS>"
     esac
 fi
 
-if [[ "${ADDITIONAL_NODE_ARGS[*]}" == *"--validator"* ]] && [[ -z "$REWARDS_ADDRESS" ]]; then
-    echo -e "\033[1;31mERROR\033[0m: Running as a validator requires a rewards address. Please set REWARDS_ADDRESS. Exiting."
+if [[ " ${ADDITIONAL_NODE_ARGS[*]} " == *" --validator "* ]] && [[ -z "$REWARDS_ADDRESS" ]]; then
+    echo -e "\033[1;31mERROR\033[0m: Running as a validator requires a rewards address. Rewards address is currently empty."
+    echo "Please ensure $REWARDS_ADDRESS_FILE contains a valid address or provide it interactively."
     exit 1
 fi
 
