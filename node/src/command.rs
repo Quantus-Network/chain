@@ -25,17 +25,13 @@ pub struct QuantusKeyDetails {
     pub secret_phrase: Option<String>, // Mnemonic phrase
 }
 
-// Modified function to handle Quantus key generation logic
 pub fn generate_quantus_key(
     scheme: QuantusAddressType,
     seed: Option<String>,
     words: Option<String>,
 ) -> Result<QuantusKeyDetails, sc_cli::Error> {
-    // Changed return type
     match scheme {
         QuantusAddressType::Standard => {
-            // println!("Generating Quantus Standard address..."); // Will be printed by caller
-
             let actual_seed_for_pair: Vec<u8>;
             let mut words_to_print: Option<String> = None;
 
@@ -87,7 +83,6 @@ pub fn generate_quantus_key(
 
             let account_id = AccountId32::from(resonance_pair.public());
 
-            // Populate and return the struct instead of printing
             Ok(QuantusKeyDetails {
                 address: account_id.to_ss58check(),
                 public_key_hex: format!("0x{}", hex::encode(resonance_pair.public())),
@@ -174,13 +169,11 @@ pub fn run() -> sc_cli::Result<()> {
                     seed,
                     words,
                 } => {
-                    // generate_quantus_key now returns Result<QuantusKeyDetails, sc_cli::Error>
                     match generate_quantus_key(scheme.clone(), seed.clone(), words.clone()) {
                         Ok(details) => {
-                            // Print details based on the scheme used (which we know from `scheme`)
                             match scheme {
                                 QuantusAddressType::Standard => {
-                                    println!("Generating Quantus Standard address..."); // Print context
+                                    println!("Generating Quantus Standard address...");
                                     if seed.is_some() {
                                         println!("Using provided hex seed...");
                                     } else if words.is_some() {
@@ -202,7 +195,7 @@ pub fn run() -> sc_cli::Result<()> {
                                     println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
                                 }
                                 QuantusAddressType::Wormhole => {
-                                    println!("Generating wormhole address..."); // Print context
+                                    println!("Generating wormhole address...");
                                     println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
                                     println!("Address: {}", details.address); // This is 0x prefixed H256 hex
                                     println!("Secret: {}", details.secret_key_hex);
