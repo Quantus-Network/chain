@@ -6,6 +6,7 @@ use frame_support::traits::{InspectLockableCurrency, LockIdentifier};
 use frame_support::BoundedVec;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::blake2_256;
+use sp_runtime::TokenError;
 
 fn bounded_proof(proof: Vec<[u8; 32]>) -> BoundedVec<[u8; 32], MaxProofs> {
     proof.try_into().expect("Proof exceeds maximum size")
@@ -82,6 +83,12 @@ fn fund_airdrop_works() {
         ));
 
         assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 0);
+
+        // fund airdrop with insufficient balance should fail
+        assert_noop!(
+            MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(123456), 0, amount * 10000),
+            TokenError::FundsUnavailable,
+        );
 
         assert_ok!(MerkleAirdrop::fund_airdrop(
             RuntimeOrigin::signed(1),
