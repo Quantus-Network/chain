@@ -33,10 +33,12 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
-pub mod governance;
 pub mod transaction_extensions;
 
+pub mod governance;
+
 use poseidon_resonance::PoseidonHasher;
+use crate::governance::pallet_custom_origins;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -279,4 +281,7 @@ mod runtime {
 
     #[runtime::pallet_index(19)]
     pub type Faucet = pallet_faucet;
+
+    #[runtime::pallet_index(20)]
+    pub type Origins = pallet_custom_origins;
 }

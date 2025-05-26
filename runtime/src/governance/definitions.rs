@@ -12,6 +12,7 @@ use sp_runtime::traits::{Convert, MaybeConvert, AccountIdConversion};
 use sp_runtime::{DispatchError, Perbill};
 use sp_std::marker::PhantomData;
 use crate::configs::TreasuryPalletId;
+use crate::governance::origins::pallet_custom_origins;
 
 ///Preimage pallet fee model
 
@@ -429,19 +430,55 @@ impl Pay for RuntimeNativePaymaster {
     }
 }
 
-/// Custom EnsureOrigin for Treasury SpendOrigin to allow Root to spend any amount.
-pub struct EnsureRootWithAnySpendPermission;
-impl frame_support::traits::EnsureOrigin<crate::RuntimeOrigin> for EnsureRootWithAnySpendPermission {
-    type Success = crate::Balance; // u128
+// Custom EnsureOrigin for Treasury SpendOrigin to allow Root to spend any amount.
+// pub struct EnsureRootWithAnySpendPermission;
+// impl frame_support::traits::EnsureOrigin<crate::RuntimeOrigin> for EnsureRootWithAnySpendPermission {
+//     type Success = crate::Balance; // u128
 
-    fn try_origin(o: crate::RuntimeOrigin) -> Result<Self::Success, crate::RuntimeOrigin> {
-        <frame_system::EnsureRoot<crate::AccountId> as frame_support::traits::EnsureOrigin<crate::RuntimeOrigin>>::try_origin(o)
-            .map(|()| crate::Balance::max_value())
-    }
+//     fn try_origin(o: crate::RuntimeOrigin) -> Result<Self::Success, crate::RuntimeOrigin> {
+//         <frame_system::EnsureRoot<crate::AccountId> as frame_support::traits::EnsureOrigin<crate::RuntimeOrigin>>::try_origin(o)
+//             .map(|()| crate::Balance::max_value())
+//     }
 
-    #[cfg(feature = "runtime-benchmarks")]
-    fn try_successful_origin() -> Result<crate::RuntimeOrigin, ()> {
-        // The successful origin for EnsureRoot is Root.
-        Ok(crate::RuntimeOrigin::root())
-    }
-}
+//     #[cfg(feature = "runtime-benchmarks")]
+//     fn try_successful_origin() -> Result<crate::RuntimeOrigin, ()> {
+//         // The successful origin for EnsureRoot is Root.
+//         Ok(crate::RuntimeOrigin::root())
+//     }
+// }
+
+// pub struct EnsureRootOrSpender;
+
+// impl frame_support::traits::EnsureOrigin<crate::RuntimeOrigin> for EnsureRootOrSpender {
+//     type Success = crate::Balance;
+
+//     fn try_origin(o: crate::RuntimeOrigin) -> Result<Self::Success, crate::RuntimeOrigin> {
+//         // Check for Root first
+//         if let Ok(()) = <frame_system::EnsureRoot<crate::AccountId> as frame_support::traits::EnsureOrigin<crate::RuntimeOrigin>>::try_origin(o.clone()) {
+//             return Ok(crate::Balance::max_value());
+//         }
+//         else{
+//             Err(o)
+//         }
+
+//         // // Check for Spender origin by converting RuntimeOrigin to pallet_custom_origins::Origin
+//         // let pallets_origin = o.clone().into_caller();
+//         // if let crate::OriginCaller::pallet_custom_origins(origin) = pallets_origin {
+//         //     match origin {
+//         //         pallet_custom_origins::Origin::SmallTipper => Ok(250 * 3 * MICRO_UNIT),
+//         //         pallet_custom_origins::Origin::BigTipper => Ok(10 * UNIT),
+//         //         pallet_custom_origins::Origin::SmallSpender => Ok(100 * UNIT),
+//         //         pallet_custom_origins::Origin::MediumSpender => Ok(1_000 * UNIT),
+//         //         pallet_custom_origins::Origin::BigSpender => Ok(10_000 * UNIT),
+//         //         pallet_custom_origins::Origin::Treasurer => Ok(100_000 * UNIT),
+//         //     }
+//         // } else {
+//         //     Err(o)
+//         // }
+//     }
+
+//     #[cfg(feature = "runtime-benchmarks")]
+//     fn try_successful_origin() -> Result<crate::RuntimeOrigin, ()> {
+//         Ok(crate::RuntimeOrigin::root())
+//     }
+// }
