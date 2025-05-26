@@ -63,40 +63,37 @@ pub mod pallet_custom_origins {
     );
 
     macro_rules! decl_ensure {
-        (
-            $vis:vis type $name:ident: EnsureOrigin<Success = $success_type:ty> {
-                $( $item:ident = $success:expr, )*
-            }
-        ) => {
-            $vis struct $name;
-            impl<O: Into<Result<Origin, O>> + From<Origin>>
-                EnsureOrigin<O> for $name
-            {
-                type Success = $success_type;
-                fn try_origin(o: O) -> Result<Self::Success, O> {
-                    match o.into() {
-                        Ok(origin) => match origin {
-                            $(
-                                Origin::$item => Ok($success),
-                            )*
-                            _ => Err(O::from(origin)),
-                        },
-                        Err(e) => Err(e),
-                    }
-                }
-                #[cfg(feature = "runtime-benchmarks")]
-                fn try_successful_origin() -> Result<O, ()> {
-                    // By convention the more privileged origins go later, so for greatest chance
-                    // of success, we want the last one.
-                    let _result: Result<O, ()> = Err(());
-                    $(
-                        let _result: Result<O, ()> = Ok(O::from(Origin::$item));
-                    )*
-                    _result
-                }
-            }
-        }
-    }
+		(
+			$vis:vis type $name:ident: EnsureOrigin<Success = $success_type:ty> {
+				$( $item:ident = $success:expr, )*
+			}
+		) => {
+			$vis struct $name;
+			impl<O: Into<Result<Origin, O>> + From<Origin>>
+				EnsureOrigin<O> for $name
+			{
+				type Success = $success_type;
+				fn try_origin(o: O) -> Result<Self::Success, O> {
+					o.into().and_then(|o| match o {
+						$(
+							Origin::$item => Ok($success),
+						)*
+						//r => Err(O::from(r)),
+					})
+				}
+				#[cfg(feature = "runtime-benchmarks")]
+				fn try_successful_origin() -> Result<O, ()> {
+					// By convention the more privileged origins go later, so for greatest chance
+					// of success, we want the last one.
+					let _result: Result<O, ()> = Err(());
+					$(
+						let _result: Result<O, ()> = Ok(O::from(Origin::$item));
+					)*
+					_result
+				}
+			}
+		}
+	}
 
     decl_ensure! {
         pub type Spender: EnsureOrigin<Success = Balance> {

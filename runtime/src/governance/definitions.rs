@@ -12,7 +12,6 @@ use sp_runtime::traits::{Convert, MaybeConvert, AccountIdConversion};
 use sp_runtime::{DispatchError, Perbill};
 use sp_std::marker::PhantomData;
 use crate::configs::TreasuryPalletId;
-use crate::governance::origins::pallet_custom_origins;
 
 ///Preimage pallet fee model
 
