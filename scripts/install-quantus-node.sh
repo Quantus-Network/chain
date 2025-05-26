@@ -154,7 +154,7 @@ setup_node_identity() {
                     echo "Error: Node binary not found at $NODE_BINARY_PATH"
                     exit 1
                 fi
-                $NODE_BINARY_PATH key generate-node-key --file "$NODE_IDENTITY_PATH"
+                $NODE_BINARY_PATH key generate-node-identity --output "$NODE_IDENTITY_PATH"
                 echo "New node identity generated and saved to $NODE_IDENTITY_PATH"
                 ;;
             *)
@@ -190,7 +190,7 @@ setup_rewards_address() {
                     exit 1
                 fi
                 # Generate new address and capture all output
-                output=$($NODE_BINARY_PATH key quantus --scheme standard)
+                output=$($NODE_BINARY_PATH key generate --scheme standard)
                 
                 # Extract the address (assuming it's the last line)
                 address=$(echo "$output" | grep "Address:" | awk '{print $2}')
