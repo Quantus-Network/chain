@@ -82,7 +82,7 @@ pub mod pallet {
             //     // log::error!("Proof deserialization failed: {:?}", e.to_string());
             //     Error::<T>::ProofDeserializationFailed
             // })?;
-            let verifier = WormholeVerifier::new();
+            let verifier = WormholeVerifier::default();
             let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
                 proof_bytes,
                 &verifier.circuit_data.common,
@@ -117,7 +117,7 @@ pub mod pallet {
             UsedNullifiers::<T>::insert(&nullifier_bytes, true);
 
             let exit_balance: <T as BalancesConfig>::Balance = public_inputs
-                .exit_amount
+                .funding_amount
                 .try_into()
                 .map_err(|_| "Conversion from u64 to Balance failed")?;
 
