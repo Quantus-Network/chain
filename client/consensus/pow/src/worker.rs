@@ -151,16 +151,16 @@ where
                 Ok(true) => (),
                 Ok(false) => {
                     warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
-                    return false
-                },
+                    return false;
+                }
                 Err(err) => {
                     warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
-                    return false
-                },
+                    return false;
+                }
             }
         } else {
             warn!(target: LOG_TARGET, "Unable to import mined block: metadata does not exist",);
-            return false
+            return false;
         }
 
         let build = if let Some(build) = {
@@ -174,7 +174,7 @@ where
             build
         } else {
             warn!(target: LOG_TARGET, "Unable to import mined block: build does not exist",);
-            return false
+            return false;
         };
 
         let seal = DigestItem::Seal(POW_ENGINE_ID, seal);
@@ -203,15 +203,15 @@ where
                 );
 
                 info!(
-					target: LOG_TARGET,
-					"✅ Successfully mined block on top of: {}", build.metadata.best_hash
-				);
+                    target: LOG_TARGET,
+                    "✅ Successfully mined block on top of: {}", build.metadata.best_hash
+                );
                 true
-            },
+            }
             Err(err) => {
                 warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
                 false
-            },
+            }
         }
     }
 }
@@ -243,7 +243,11 @@ pub struct UntilImportedOrTimeout<Block: BlockT> {
 impl<Block: BlockT> UntilImportedOrTimeout<Block> {
     /// Create a new stream using the given import notification and timeout duration.
     pub fn new(import_notifications: ImportNotifications<Block>, timeout: Duration) -> Self {
-        Self { import_notifications, timeout, inner_delay: None }
+        Self {
+            import_notifications,
+            timeout,
+            inner_delay: None,
+        }
     }
 }
 
@@ -258,7 +262,7 @@ impl<Block: BlockT> Stream for UntilImportedOrTimeout<Block> {
                 Poll::Pending => break,
                 Poll::Ready(Some(_)) => {
                     fire = true;
-                },
+                }
                 Poll::Ready(None) => return Poll::Ready(None),
             }
         }
@@ -270,7 +274,7 @@ impl<Block: BlockT> Stream for UntilImportedOrTimeout<Block> {
             Poll::Pending => (),
             Poll::Ready(()) => {
                 fire = true;
-            },
+            }
         }
 
         if fire {

@@ -195,7 +195,9 @@ type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup
 
 pub struct PoseidonStorageHasher<T>(PhantomData<T>);
 
-impl<AccountId: Decode + Encode + MaxEncodedLen + 'static> StorageHasher for PoseidonStorageHasher<AccountId> {
+impl<AccountId: Decode + Encode + MaxEncodedLen + 'static> StorageHasher
+    for PoseidonStorageHasher<AccountId>
+{
     // We are lying here, but maybe it's ok because it's just metadata
     const METADATA: StorageHasherIR = StorageHasherIR::Identity;
     type Output = [u8; 32];

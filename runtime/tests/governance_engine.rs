@@ -6,17 +6,15 @@ mod tests {
     use crate::common::{account_id, new_test_ext, run_to_block};
     use codec::Encode;
     use frame_support::traits::{ConstU32, Currency, QueryPreimage};
-    use frame_support::{
-        assert_noop, assert_ok, traits::PreimageProvider, BoundedVec,
-    };
+    use frame_support::{assert_noop, assert_ok, traits::PreimageProvider, BoundedVec};
     use pallet_conviction_voting::AccountVote::Standard;
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
+    use poseidon_resonance::PoseidonHasher;
     use resonance_runtime::{
         Balances, BlockNumber, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime,
         RuntimeCall, RuntimeOrigin, Scheduler, UNIT,
     };
-    use poseidon_resonance::PoseidonHasher;
     use sp_runtime::traits::Hash;
 
     // Helper function to create simple test data

@@ -14,10 +14,7 @@ pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> boo
     }
 
     let distance = get_nonce_distance(header, nonce);
-    log::debug!("difficulty = {}, threshold = {}",
-        distance,
-        threshold
-    );
+    log::debug!("difficulty = {}, threshold = {}", distance, threshold);
     distance <= threshold
 }
 
@@ -38,7 +35,7 @@ pub fn get_nonce_distance(
 
     // Compare PoW results
     let nonce_element = hash_to_group_bigint_sha(&header_int, &m, &n, &nonce_int);
-    
+
     target.bitxor(nonce_element)
 }
 
@@ -81,7 +78,6 @@ pub fn hash_to_group_bigint_sha(h: &U512, m: &U512, n: &U512, solution: &U512) -
     sha3_512(result)
 }
 
-
 // no split chunks by Nik
 pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
     // Compute sum = h + solution
@@ -89,7 +85,6 @@ pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U5
     //log::info!("ComputePoW: h={:?}, m={:?}, n={:?}, solution={:?}, sum={:?}", h, m, n, solution, sum);
 
     // Compute m^sum mod n using modular exponentiation
-    
 
     mod_pow(m, &sum, n)
 }

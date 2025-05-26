@@ -1,8 +1,8 @@
-use warp::Filter;
-use log::info;
-use external_miner::*; // Import everything from lib.rs
-use std::net::SocketAddr;
 use clap::Parser;
+use external_miner::*; // Import everything from lib.rs
+use log::info;
+use std::net::SocketAddr;
+use warp::Filter;
 
 /// Resonance External Miner Service
 #[derive(Parser, Debug)]
@@ -22,10 +22,10 @@ async fn main() {
     // Use MiningState from lib.rs
     let state = MiningState::new();
 
-    // --- Start the mining loop --- 
+    // --- Start the mining loop ---
     state.start_mining_loop().await;
 
-    // --- Set up Warp filters --- 
+    // --- Set up Warp filters ---
     let state_clone = state.clone(); // Clone state for the filter closure
     let state_filter = warp::any().map(move || state_clone.clone());
 

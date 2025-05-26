@@ -46,7 +46,6 @@ use crate::worker::UntilImportedOrTimeout;
 use codec::{Decode, Encode};
 use futures::{Future, StreamExt};
 use log::*;
-use substrate_prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
 use sc_consensus::{
     BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
@@ -63,6 +62,7 @@ use sp_runtime::{
     traits::{Block as BlockT, Header as HeaderT},
 };
 use std::{cmp::Ordering, marker::PhantomData, sync::Arc, time::Duration};
+use substrate_prometheus_endpoint::Registry;
 
 const LOG_TARGET: &str = "pow";
 
@@ -130,7 +130,11 @@ pub const POW_AUX_PREFIX: [u8; 4] = *b"PoW:";
 
 /// Get the auxiliary storage key used by engine to store total difficulty.
 fn aux_key<T: AsRef<[u8]>>(hash: &T) -> Vec<u8> {
-    POW_AUX_PREFIX.iter().chain(hash.as_ref()).copied().collect()
+    POW_AUX_PREFIX
+        .iter()
+        .chain(hash.as_ref())
+        .copied()
+        .collect()
 }
 
 /// Intermediate value passed to block importer.
@@ -218,7 +222,7 @@ pub struct PowBlockImport<B: BlockT, I, C, S, Algorithm, CIDP> {
 }
 
 impl<B: BlockT, I: Clone, C, S: Clone, Algorithm: Clone, CIDP> Clone
-for PowBlockImport<B, I, C, S, Algorithm, CIDP>
+    for PowBlockImport<B, I, C, S, Algorithm, CIDP>
 {
     fn clone(&self) -> Self {
         Self {
@@ -268,7 +272,7 @@ where
         inherent_data_providers: CIDP::InherentDataProviders,
     ) -> Result<(), Error<B>> {
         if *block.header().number() < self.check_inherents_after {
-            return Ok(())
+            return Ok(());
         }
 
         let inherent_data = inherent_data_providers
@@ -284,7 +288,10 @@ where
 
         if !inherent_res.ok() {
             for (identifier, error) in inherent_res.into_errors() {
-                match inherent_data_providers.try_handle_error(&identifier, &error).await {
+                match inherent_data_providers
+                    .try_handle_error(&identifier, &error)
+                    .await
+                {
                     Some(res) => res.map_err(Error::CheckInherents)?,
                     None => return Err(Error::CheckInherentsUnknownError(identifier)),
                 }
@@ -341,7 +348,7 @@ where
                         .create_inherent_data_providers(parent_hash, ())
                         .await?,
                 )
-                    .await?;
+                .await?;
             }
 
             block.body = Some(check_block.deconstruct().1);
@@ -366,7 +373,7 @@ where
             &inner_seal,
             difficulty,
         )? {
-            return Err(Error::<B>::InvalidSeal.into())
+            return Err(Error::<B>::InvalidSeal.into());
         }
 
         aux.difficulty = difficulty;
@@ -384,7 +391,7 @@ where
                             fetch_seal::<B>(best_header.digest().logs.last(), best_hash)?;
 
                         self.algorithm.break_tie(&best_inner_seal, &inner_seal)
-                    },
+                    }
                 },
             ));
         }
@@ -401,7 +408,10 @@ pub struct PowVerifier<B: BlockT, Algorithm> {
 
 impl<B: BlockT, Algorithm> PowVerifier<B, Algorithm> {
     pub fn new(algorithm: Algorithm) -> Self {
-        Self { algorithm, _marker: PhantomData }
+        Self {
+            algorithm,
+            _marker: PhantomData,
+        }
     }
 
     fn check_header(&self, mut header: B::Header) -> Result<(B::Header, DigestItem), Error<B>>
@@ -411,19 +421,24 @@ impl<B: BlockT, Algorithm> PowVerifier<B, Algorithm> {
         let hash = header.hash();
 
         let (seal, inner_seal) = match header.digest_mut().pop() {
-            Some(DigestItem::Seal(id, seal)) =>
+            Some(DigestItem::Seal(id, seal)) => {
                 if id == POW_ENGINE_ID {
                     (DigestItem::Seal(id, seal.clone()), seal)
                 } else {
-                    return Err(Error::WrongEngine(id))
-                },
+                    return Err(Error::WrongEngine(id));
+                }
+            }
             _ => return Err(Error::HeaderUnsealed(hash)),
         };
 
         let pre_hash = header.hash();
 
-        if !self.algorithm.preliminary_verify(&pre_hash, &inner_seal)?.unwrap_or(true) {
-            return Err(Error::FailedPreliminaryVerify)
+        if !self
+            .algorithm
+            .preliminary_verify(&pre_hash, &inner_seal)?
+            .unwrap_or(true)
+        {
+            return Err(Error::FailedPreliminaryVerify);
         }
 
         Ok((header, seal))
@@ -471,7 +486,13 @@ where
 {
     let verifier = PowVerifier::new(algorithm);
 
-    Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
+    Ok(BasicQueue::new(
+        verifier,
+        block_import,
+        justification_import,
+        spawner,
+        registry,
+    ))
 }
 
 /// Start the mining worker for PoW. This function provides the necessary helper functions that can
@@ -519,31 +540,31 @@ where
     let task = async move {
         loop {
             if timer.next().await.is_none() {
-                break
+                break;
             }
 
             if sync_oracle.is_major_syncing() {
                 debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
                 worker.on_major_syncing();
-                continue
+                continue;
             }
 
             let best_header = match select_chain.best_chain().await {
                 Ok(x) => x,
                 Err(err) => {
                     warn!(
-						target: LOG_TARGET,
-						"Unable to pull new block for authoring. \
-						 Select best chain error: {}",
-						err
-					);
-                    continue
-                },
+                        target: LOG_TARGET,
+                        "Unable to pull new block for authoring. \
+                         Select best chain error: {}",
+                        err
+                    );
+                    continue;
+                }
             };
             let best_hash = best_header.hash();
 
             if worker.best_hash() == Some(best_hash) {
-                continue
+                continue;
             }
 
             // The worker is locked for the duration of the whole proposing period. Within this
@@ -553,13 +574,13 @@ where
                 Ok(x) => x,
                 Err(err) => {
                     warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Fetch difficulty failed: {}",
-						err,
-					);
-                    continue
-                },
+                        target: LOG_TARGET,
+                        "Unable to propose new block for authoring. \
+                         Fetch difficulty failed: {}",
+                        err,
+                    );
+                    continue;
+                }
             };
 
             let inherent_data_providers = match create_inherent_data_providers
@@ -569,26 +590,26 @@ where
                 Ok(x) => x,
                 Err(err) => {
                     warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Creating inherent data providers failed: {}",
-						err,
-					);
-                    continue
-                },
+                        target: LOG_TARGET,
+                        "Unable to propose new block for authoring. \
+                         Creating inherent data providers failed: {}",
+                        err,
+                    );
+                    continue;
+                }
             };
 
             let inherent_data = match inherent_data_providers.create_inherent_data().await {
                 Ok(r) => r,
                 Err(e) => {
                     warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Creating inherent data failed: {}",
-						e,
-					);
-                    continue
-                },
+                        target: LOG_TARGET,
+                        "Unable to propose new block for authoring. \
+                         Creating inherent data failed: {}",
+                        e,
+                    );
+                    continue;
+                }
             };
 
             let mut inherent_digest = Digest::default();
@@ -602,28 +623,30 @@ where
                 Ok(x) => x,
                 Err(err) => {
                     warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Creating proposer failed: {:?}",
-						err,
-					);
-                    continue
-                },
+                        target: LOG_TARGET,
+                        "Unable to propose new block for authoring. \
+                         Creating proposer failed: {:?}",
+                        err,
+                    );
+                    continue;
+                }
             };
 
-            let proposal =
-                match proposer.propose(inherent_data, inherent_digest, build_time, None).await {
-                    Ok(x) => x,
-                    Err(err) => {
-                        warn!(
-							target: LOG_TARGET,
-							"Unable to propose new block for authoring. \
-							 Creating proposal failed: {}",
-							err,
-						);
-                        continue
-                    },
-                };
+            let proposal = match proposer
+                .propose(inherent_data, inherent_digest, build_time, None)
+                .await
+            {
+                Ok(x) => x,
+                Err(err) => {
+                    warn!(
+                        target: LOG_TARGET,
+                        "Unable to propose new block for authoring. \
+                         Creating proposal failed: {}",
+                        err,
+                    );
+                    continue;
+                }
+            };
 
             let build = MiningBuild::<Block, Algorithm, _> {
                 metadata: MiningMetadata {
@@ -648,11 +671,12 @@ fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<Option<Vec<u8>>, Err
     for log in header.digest().logs() {
         trace!(target: LOG_TARGET, "Checking log {:?}, looking for pre runtime digest", log);
         match (log, pre_digest.is_some()) {
-            (DigestItem::PreRuntime(POW_ENGINE_ID, _), true) =>
-                return Err(Error::MultiplePreRuntimeDigests),
+            (DigestItem::PreRuntime(POW_ENGINE_ID, _), true) => {
+                return Err(Error::MultiplePreRuntimeDigests)
+            }
             (DigestItem::PreRuntime(POW_ENGINE_ID, v), false) => {
                 pre_digest = Some(v.clone());
-            },
+            }
             (_, _) => trace!(target: LOG_TARGET, "Ignoring digest not meant for us"),
         }
     }
@@ -663,12 +687,13 @@ fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<Option<Vec<u8>>, Err
 /// Fetch PoW seal.
 fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<Vec<u8>, Error<B>> {
     match digest {
-        Some(DigestItem::Seal(id, seal)) =>
+        Some(DigestItem::Seal(id, seal)) => {
             if id == &POW_ENGINE_ID {
                 Ok(seal.clone())
             } else {
                 Err(Error::<B>::WrongEngine(*id))
-            },
+            }
+        }
         _ => Err(Error::<B>::HeaderUnsealed(hash)),
     }
 }

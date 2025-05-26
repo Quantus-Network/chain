@@ -6,7 +6,6 @@
 //     use crate::{mock::*, Error, Event};
 //     use frame_support::{assert_noop, assert_ok};
 
-
 //     // Helper function to generate proof and inputs for a given n
 //     fn get_test_proof() -> Vec<u8> {
 //         include_bytes! ("../proof.hex").to_vec()

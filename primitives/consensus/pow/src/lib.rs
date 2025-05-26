@@ -44,7 +44,6 @@ impl TotalDifficulty for sp_core::U512 {
     }
 }
 
-
 impl TotalDifficulty for sp_core::U256 {
     fn increment(&mut self, other: Self) {
         let ret = self.saturating_add(other);
@@ -60,17 +59,17 @@ impl TotalDifficulty for u128 {
 }
 
 sp_api::decl_runtime_apis! {
-	/// API necessary for timestamp-based difficulty adjustment algorithms.
-	pub trait TimestampApi<Moment: Decode> {
-		/// Return the timestamp in the current block.
-		fn timestamp() -> Moment;
-	}
+    /// API necessary for timestamp-based difficulty adjustment algorithms.
+    pub trait TimestampApi<Moment: Decode> {
+        /// Return the timestamp in the current block.
+        fn timestamp() -> Moment;
+    }
 
-	/// API for those chains that put their difficulty adjustment algorithm directly
+    /// API for those chains that put their difficulty adjustment algorithm directly
     /// onto runtime. Note that while putting difficulty adjustment algorithm to
     /// runtime is safe, putting the PoW algorithm on runtime is not.
-	pub trait DifficultyApi<Difficulty: Decode> {
-		/// Return the target difficulty of the next block.
-		fn difficulty() -> Difficulty;
-	}
+    pub trait DifficultyApi<Difficulty: Decode> {
+        /// Return the target difficulty of the next block.
+        fn difficulty() -> Difficulty;
+    }
 }
