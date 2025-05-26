@@ -8,8 +8,11 @@ mod tests {
         AccountId, Balance, Balances, Runtime, RuntimeCall, RuntimeEvent, System,
         TreasuryPallet,
         UNIT, // Assuming UNIT is pub in resonance_runtime
+        MICRO_UNIT, // Added MICRO_UNIT
+        EXISTENTIAL_DEPOSIT, // Added EXISTENTIAL_DEPOSIT
     };
     use resonance_runtime::configs::{TreasuryPalletId, TreasuryPayoutPeriod}; // Added TreasuryPayoutPeriod
+    use resonance_runtime::governance::pallet_custom_origins; // Added pallet_custom_origins
 
     // Frame and Substrate imports
     use frame_support::{
@@ -28,6 +31,7 @@ mod tests {
 
     // Type aliases for testing clarity (mirroring runtime/src/lib.rs if possible)
     type TestRuntimeCall = RuntimeCall;     // Use the runtime's RuntimeCall
+    type TestRuntimeOrigin = <TestRuntimeCall as UnfilteredDispatchable>::RuntimeOrigin; // Added for custom origin
 
     // Test specific constants
     const BENEFICIARY_ACCOUNT_ID: AccountId = AccountId::new([1u8; 32]); // Example AccountId
@@ -154,6 +158,78 @@ mod tests {
                 System::assert_last_event(RuntimeEvent::TreasuryPallet(pallet_treasury::Event::SpendProcessed { index: spend_index }));
 
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none(), "Spend should be removed after check_status");
+        });
+    }
+
+    #[test]
+    fn propose_spend_as_custom_origin_works() {
+        ExtBuilder::default()
+            .with_balances(vec![(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT)]) // Pre-fund beneficiary
+            .build()
+            .execute_with(|| {
+                let beneficiary_lookup_source = <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+                let treasury_pot = treasury_account_id();
+                let small_tipper_origin: TestRuntimeOrigin = pallet_custom_origins::Origin::SmallTipper.into();
+
+                let initial_treasury_balance = 1000 * UNIT;
+                let _ = <Balances as Currency<AccountId>>::deposit_creating(&treasury_pot, initial_treasury_balance);
+                assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
+                let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
+                assert_eq!(initial_beneficiary_balance, EXISTENTIAL_DEPOSIT); // Verify pre-funding
+
+                // Scenario 1: Spend within SmallTipper limit
+                let spend_amount_within_limit = 250 * 3 * MICRO_UNIT;
+                let call_within_limit = TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+                    asset_kind: Box::new(()),
+                    amount: spend_amount_within_limit,
+                    beneficiary: Box::new(beneficiary_lookup_source.clone()),
+                    valid_from: None,
+                });
+
+                assert_ok!(call_within_limit.clone().dispatch_bypass_filter(small_tipper_origin.clone()));
+
+                let spend_index_within_limit = 0; // Assuming first spend
+                System::assert_last_event(RuntimeEvent::TreasuryPallet(pallet_treasury::Event::AssetSpendApproved {
+                    index: spend_index_within_limit,
+                    asset_kind: (),
+                    amount: spend_amount_within_limit,
+                    beneficiary: BENEFICIARY_ACCOUNT_ID,
+                    valid_from: System::block_number(),
+                    expire_at: System::block_number() + TreasuryPayoutPeriod::get(),
+                }));
+                assert!(pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit).is_some());
+
+                assert_ok!(TreasuryPallet::payout(RawOrigin::Signed(BENEFICIARY_ACCOUNT_ID).into(), spend_index_within_limit));
+                // Check for Paid event
+                System::assert_has_event(RuntimeEvent::TreasuryPallet(pallet_treasury::Event::Paid {
+                    index: spend_index_within_limit,
+                    payment_id: 0, // Assuming our RuntimeNativePaymaster uses ID 0
+                }));
+
+                assert_ok!(TreasuryPallet::check_status(RawOrigin::Signed(BENEFICIARY_ACCOUNT_ID).into(), spend_index_within_limit));
+                System::assert_last_event(RuntimeEvent::TreasuryPallet(pallet_treasury::Event::SpendProcessed { index: spend_index_within_limit }));
+                assert!(pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit).is_none());
+
+                // Check beneficiary balance after successful spend and cleanup
+                assert_eq!(Balances::free_balance(&BENEFICIARY_ACCOUNT_ID), initial_beneficiary_balance + spend_amount_within_limit);
+                // Check treasury balance
+                assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance - spend_amount_within_limit);
+
+                // Scenario 2: Attempt to spend above SmallTipper limit
+                let spend_amount_above_limit = (250 * 3 * MICRO_UNIT) + 1 * MICRO_UNIT; // 1 micro unit above
+                 let call_above_limit = TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+                    asset_kind: Box::new(()),
+                    amount: spend_amount_above_limit,
+                    beneficiary: Box::new(beneficiary_lookup_source.clone()),
+                    valid_from: None,
+                });
+
+                let dispatch_result_above_limit = call_above_limit.dispatch_bypass_filter(small_tipper_origin);
+                assert!(dispatch_result_above_limit.is_err(), "Dispatch should fail for amount above limit");
+                // Ensure the error is BadOrigin or similar, if possible to check more specifically.
+                // For now, checking .is_err() is sufficient to show it was rejected.
+
+                assert!(pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit + 1).is_none(), "No new spend should be created for the failed attempt");
         });
     }
 }
