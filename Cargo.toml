@@ -22,7 +22,6 @@ members = [
     "dilithium-crypto/verify",
     "dilithium-crypto/sign",
     "pallets/balances",
-    "pallets/vesting",
     "pallets/reversible-transfers",
     "external-miner",
     "resonance-miner-api",
@@ -48,7 +47,6 @@ pallet-faucet = { path = "./pallets/faucet", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
-pallet-vesting = { path = "./pallets/vesting", default-features = false }
 pallet-balances = { path = "./pallets/balances", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
@@ -58,6 +56,7 @@ pallet-referenda = { version = "39.1.0", default-features = false }
 pallet-scheduler = { version = "40.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 parking_lot = { version = "0.12.1", default-features = false }
+pallet-vesting = { version = "39.1.0", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.1.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
