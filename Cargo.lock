@@ -3498,7 +3498,6 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash",
  "allocator-api2",
- "rayon",
  "serde",
 ]
 
@@ -7151,7 +7150,6 @@ source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb8
 dependencies = [
  "ahash",
  "anyhow",
- "getrandom 0.2.16",
  "hashbrown 0.14.5",
  "itertools 0.11.0",
  "keccak-hash 0.8.0",
@@ -7161,11 +7159,9 @@ dependencies = [
  "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
  "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
  "rand 0.8.5",
- "rand_chacha 0.3.1",
  "serde",
  "static_assertions",
  "unroll",
- "web-time",
 ]
 
 [[package]]
@@ -7198,7 +7194,6 @@ dependencies = [
  "itertools 0.11.0",
  "num",
  "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
- "rand 0.8.5",
  "serde",
  "static_assertions",
  "unroll",
@@ -7222,9 +7217,6 @@ dependencies = [
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
 source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
-dependencies = [
- "rayon",
-]
 
 [[package]]
 name = "plonky2_maybe_rayon"
@@ -8593,6 +8585,7 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
+ "getrandom 0.2.16",
  "hdwallet",
  "log",
  "pallet-balances",
@@ -8636,6 +8629,8 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
+ "wormhole-circuit",
+ "wormhole-verifier",
 ]
 
 [[package]]
@@ -13926,20 +13921,23 @@ dependencies = [
 [[package]]
 name = "wormhole-circuit"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/wormhole-circuit.git#1a8392c92af0ead9f60603b2bc611633ab16b524"
+source = "git+https://github.com/Quantus-Network/wormhole-circuit.git?branch=vrom911%2Fno-std-compat#9fa4c9746e287664cee056e6f8296bed7d8a8a6a"
 dependencies = [
  "anyhow",
  "hex",
  "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
+ "rand 0.8.5",
 ]
 
 [[package]]
 name = "wormhole-verifier"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/wormhole-circuit.git#1a8392c92af0ead9f60603b2bc611633ab16b524"
+source = "git+https://github.com/Quantus-Network/wormhole-circuit.git?branch=vrom911%2Fno-std-compat#9fa4c9746e287664cee056e6f8296bed7d8a8a6a"
 dependencies = [
  "anyhow",
+ "hex",
  "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
+ "rand 0.8.5",
  "wormhole-circuit",
 ]
 

@@ -30,14 +30,12 @@ resolver = "2"
 
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
-wormhole-circuit = { git = "https://github.com/Quantus-Network/wormhole-circuit.git", package = "wormhole-circuit", default-features = false }
-# wormhole-circuit = { path = "../wormhole-circuit/circuit", package = "wormhole-circuit" }
-wormhole-verifier = { git = "https://github.com/Quantus-Network/wormhole-circuit.git", package = "wormhole-verifier", default-features = false }
-# wormhole-verifier = { path = "../wormhole-circuit/verifier", package = "wormhole-verifier" }
+wormhole-circuit = { git = "https://github.com/Quantus-Network/wormhole-circuit.git", package = "wormhole-circuit", branch = "vrom911/no-std-compat", default-features = false }
+# wormhole-circuit = { path = "../wormhole-circuit/circuit", package = "wormhole-circuit", default-features = false }
+wormhole-verifier = { git = "https://github.com/Quantus-Network/wormhole-circuit.git", package = "wormhole-verifier", branch = "vrom911/no-std-compat", default-features = false }
+# wormhole-verifier = { path = "../wormhole-circuit/verifier", package = "wormhole-verifier", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
-    "no_random",
-] }
+plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["std", "no_random"] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
 futures-timer = { version = "3.0.2" }
 docify = { version = "0.2.9", default-features = false }
@@ -122,6 +120,7 @@ substrate-wasm-builder = { version = "25.0.0", default-features = false }
 pallet-merkle-airdrop = { version = "0.1.0", path = "./pallets/merkle-airdrop", default-features = false }
 
 log = { version = "0.4.22", default-features = false }
-hex = { version = "0.4.3", default-features = false }
+hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 primitive-types = { version = "0.13.1", default-features = false }
-rand = { version = "0.8.5", default-features = false }
+rand = { version = "0.8.4", default-features = false, features = ["getrandom"] }
+getrandom = { version = "0.2", features = ["js"] }
