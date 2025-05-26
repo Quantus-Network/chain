@@ -1,1 +1,1 @@
-pkill -f resonance-node
+pkill -f quantus-node

@@ -25,7 +25,7 @@
 //! WASM-EXECUTION: `Compiled`, CHAIN: `Some("dev")`, DB CACHE: `1024`
 
 // Executed Command:
-// /Users/dastansamat/.cargo/target/release/resonance-node
+// /Users/dastansamat/.cargo/target/release/quantus-node
 // benchmark
 // pallet
 // --chain

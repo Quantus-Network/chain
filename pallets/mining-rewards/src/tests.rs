@@ -25,8 +25,9 @@ fn miner_reward_works() {
             Event::MinerRewarded {
                 block: 1,
                 miner: MINER,
-                reward: 50
-            }.into()
+                reward: 50,
+            }
+            .into(),
         );
     });
 }
@@ -49,7 +50,8 @@ fn miner_reward_with_transaction_fees_works() {
             Event::FeesCollected {
                 amount: 25,
                 total: 25,
-            }.into()
+            }
+            .into(),
         );
 
         // Run the on_finalize hook
@@ -66,8 +68,9 @@ fn miner_reward_with_transaction_fees_works() {
             Event::MinerRewarded {
                 block: 1,
                 miner: MINER,
-                reward: 75
-            }.into()
+                reward: 75,
+            }
+            .into(),
         );
     });
 }

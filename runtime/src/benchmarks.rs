@@ -30,4 +30,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_timestamp, Timestamp]
     [pallet_sudo, Sudo]
     [pallet_reversible_transfers, ReversibleTransfers]
+    [pallet_merkle_airdrop, MerkleAirdrop]
 );

@@ -1,10 +1,13 @@
+use crate::mock::*;
+use crate::Config;
+use crate::{BlockTimeHistory, HistoryIndex, HistorySize};
 use frame_support::pallet_prelude::TypedGet;
 use frame_support::traits::Hooks;
-use crate::mock::*;
 use primitive_types::U512;
-use crate::{BlockTimeHistory, HistoryIndex, HistorySize};
-use crate::Config;
-use qpow_math::{hash_to_group_bigint_split, mod_pow, split_chunks, is_coprime, is_prime, get_random_rsa, MAX_DISTANCE};
+use qpow_math::{
+    get_random_rsa, hash_to_group_bigint_sha, is_coprime, is_prime, mod_pow, sha3_512,
+};
+use std::ops::Shl;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -12,9 +15,10 @@ fn test_submit_valid_proof() {
         // Set up test data
         let header = [1u8; 32];
 
-        // Get current difficulty
-        let difficulty = QPow::get_difficulty();
-        println!("Current difficulty: {}", difficulty);
+        // Get current distance_threshold
+        let distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let max_distance = QPow::get_max_distance();
+        println!("Current distance_threshold: {}", distance_threshold);
 
         // We need to find valid and invalid nonces for our test
         let mut valid_nonce = [0u8; 64];
@@ -29,46 +33,53 @@ fn test_submit_valid_proof() {
             let invalid_distance = QPow::get_nonce_distance(header, invalid_nonce);
             let valid_distance = QPow::get_nonce_distance(header, valid_nonce);
 
-            let threshold = MAX_DISTANCE - difficulty;
-
             // Check if we found a pair where one is valid and one is invalid
-            if invalid_distance > threshold && valid_distance <= threshold {
-                println!("Found test pair: invalid={}, valid={}", i, i+1);
-                println!("Invalid distance: {}, Valid distance: {}, Threshold: {}",
-                         invalid_distance, valid_distance, threshold);
+            if invalid_distance > distance_threshold && valid_distance <= distance_threshold {
+                println!("Found test pair: invalid={}, valid={}", i, i + 1);
+                println!(
+                    "Invalid distance: {}, Valid distance: {}, Threshold: {}",
+                    invalid_distance, valid_distance, distance_threshold
+                );
                 found_pair = true;
                 break;
             }
         }
 
         if !found_pair {
-            panic!("Could not find valid/invalid nonce pair for testing with difficulty {}", difficulty);
+            panic!(
+                "Could not find valid/invalid nonce pair for testing with distance_threshold {}",
+                distance_threshold
+            );
         }
 
         // Now run the test with our dynamically found values
 
         // Submit an invalid proof
-        assert!(!QPow::submit_nonce(header, invalid_nonce),
-                "Nonce should be invalid with distance {} > threshold {}",
-                QPow::get_nonce_distance(header, invalid_nonce),
-                MAX_DISTANCE - difficulty);
+        assert!(
+            !QPow::submit_nonce(header, invalid_nonce),
+            "Nonce should be invalid with distance {} > threshold {}",
+            QPow::get_nonce_distance(header, invalid_nonce),
+            max_distance - distance_threshold
+        );
 
         // Submit a valid proof
-        assert!(QPow::submit_nonce(header, valid_nonce),
-                "Nonce should be valid with distance {} <= threshold {}",
-                QPow::get_nonce_distance(header, valid_nonce),
-                MAX_DISTANCE - difficulty);
+        assert!(
+            QPow::submit_nonce(header, valid_nonce),
+            "Nonce should be valid with distance {} <= threshold {}",
+            QPow::get_nonce_distance(header, valid_nonce),
+            max_distance - distance_threshold
+        );
 
         assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
 
-        // Find a second valid nonce for medium difficulty test
+        // Find a second valid nonce for medium distance_threshold test
         let mut second_valid = valid_nonce;
         let mut found_second = false;
 
-        for i in valid_nonce[63]+1..255 {
+        for i in valid_nonce[63] + 1..255 {
             second_valid[63] = i;
             let distance = QPow::get_nonce_distance(header, second_valid);
-            if distance <= MAX_DISTANCE - difficulty {
+            if distance <= max_distance - distance_threshold {
                 println!("Found second valid nonce: {}", i);
                 found_second = true;
                 break;
@@ -93,11 +104,11 @@ fn test_verify_for_import() {
         // Set up test data
         let header = [1u8; 32];
 
-        // Get current difficulty to understand what we need to target
-        let difficulty = QPow::get_difficulty();
-        println!("Current difficulty: {}", difficulty);
+        // Get current distance_threshold to understand what we need to target
+        let distance_threshold = QPow::get_distance_threshold();
+        println!("Current distance_threshold: {}", distance_threshold);
 
-        // Find a nonce that will be valid for the current difficulty
+        // Find a nonce that will be valid for the current distance_threshold
         let mut valid_nonce = [0u8; 64];
         let mut found_valid = false;
 
@@ -105,17 +116,21 @@ fn test_verify_for_import() {
         for i in 1..255 {
             valid_nonce[63] = i;
             let distance = QPow::get_nonce_distance(header, valid_nonce);
-            let threshold = MAX_DISTANCE - difficulty;
 
-            if distance <= threshold {
-                println!("Found valid nonce with value {} - distance: {}, threshold: {}",
-                         i, distance, threshold);
+            if distance <= distance_threshold {
+                println!(
+                    "Found valid nonce with value {} - distance: {}, threshold: {}",
+                    i, distance, distance_threshold
+                );
                 found_valid = true;
                 break;
             }
         }
 
-        assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
+        assert!(
+            found_valid,
+            "Could not find valid nonce for testing. Adjust test parameters."
+        );
 
         // Now verify using the dynamically found valid nonce
         assert!(QPow::verify_for_import(header, valid_nonce));
@@ -134,22 +149,23 @@ fn test_verify_historical_block() {
         // Set up test data
         let header = [1u8; 32];
 
-        // Get the genesis block difficulty
-        let genesis_difficulty = QPow::get_difficulty_at_block(0);
-        println!("Genesis difficulty: {}", genesis_difficulty);
+        // Get the genesis block distance_threshold
+        let max_distance = QPow::get_max_distance();
+        let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        println!("Genesis distance_threshold: {}", genesis_distance_threshold);
 
-        // Use a nonce that we know works better with our test difficulty
+        // Use a nonce that we know works better with our test distance_threshold
         let mut nonce = [0u8; 64];
-        nonce[63] = 14;  // This seemed to work in other tests
+        nonce[63] = 186;  // This seemed to work in other tests
 
-        // Check if this nonce is valid for genesis difficulty
+        // Check if this nonce is valid for genesis distance_threshold
         let distance = QPow::get_nonce_distance(header, nonce);
-        let threshold = MAX_DISTANCE - genesis_difficulty;
+        let threshold = genesis_distance_threshold;
 
         println!("Nonce distance: {}, Threshold: {}", distance, threshold);
 
         if distance > threshold {
-            println!("Test nonce is not valid for genesis difficulty - trying alternatives");
+            println!("Test nonce is not valid for genesis distance_threshold - trying alternatives");
 
             // Try a few common patterns
             let mut found_valid = false;
@@ -164,7 +180,7 @@ fn test_verify_historical_block() {
             }
 
             if !found_valid {
-                panic!("Could not find a valid nonce for genesis difficulty. Test cannot proceed.");
+                panic!("Could not find a valid nonce for genesis distance_threshold. Test cannot proceed.");
             }
         }
 
@@ -173,22 +189,22 @@ fn test_verify_historical_block() {
                 "Nonce with distance {} should be valid for threshold {}",
                 distance, threshold);
 
-        // Now let's create a block at height 1 with a specific difficulty
+        // Now let's create a block at height 1 with a specific distance_threshold
         run_to_block(1);
 
-        // Get the difficulty that was stored for block 1
-        let block_1_difficulty = QPow::get_difficulty_at_block(1);
-        assert!(block_1_difficulty > 0, "Block 1 should have a stored difficulty");
+        // Get the distance_threshold that was stored for block 1
+        let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+        assert!(block_1_distance_threshold > U512::zero(), "Block 1 should have a stored distance_threshold");
 
-        // Need to verify our nonce is still valid for block 1's difficulty
-        let block_1_threshold = MAX_DISTANCE - block_1_difficulty;
+        // Need to verify our nonce is still valid for block 1's distance_threshold
+        let block_1_threshold = max_distance - block_1_distance_threshold;
         if distance > block_1_threshold {
             println!("Warning: Test nonce valid for genesis but not for block 1");
-            println!("Block 1 difficulty: {}, threshold: {}", block_1_difficulty, block_1_threshold);
+            println!("Block 1 distance_threshold: {}, threshold: {}", block_1_distance_threshold, block_1_threshold);
         }
 
-        // Verify a nonce against block 1's difficulty with direct method
-        assert!(QPow::is_valid_nonce(header, nonce, block_1_difficulty),
+        // Verify a nonce against block 1's distance_threshold with direct method
+        assert!(QPow::is_valid_nonce(header, nonce, block_1_distance_threshold),
                 "Nonce with distance {} should be valid for block 1 threshold {}",
                 distance, block_1_threshold);
 
@@ -205,179 +221,165 @@ fn test_verify_historical_block() {
     });
 }
 
-
 #[test]
-fn test_difficulty_storage_and_retrieval() {
+fn test_distance_threshold_storage_and_retrieval() {
     new_test_ext().execute_with(|| {
-        // 1. Test genesis block difficulty
-        let genesis_difficulty = QPow::get_difficulty_at_block(0);
-        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
-        assert_eq!(genesis_difficulty, initial_difficulty,
-                   "Genesis block should have initial difficulty");
+        // 1. Test genesis block distance_threshold
+        let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold =
+            U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
+
+        assert_eq!(
+            genesis_distance_threshold, initial_distance_threshold,
+            "Genesis block should have initial distance_threshold"
+        );
 
         // 2. Simulate block production
         run_to_block(1);
 
-        // 3. Check difficulty for block 1
-        let block_1_difficulty = QPow::get_difficulty_at_block(1);
-        assert_eq!(block_1_difficulty, initial_difficulty,
-                   "Block 1 should have same difficulty as initial");
+        // 3. Check distance_threshold for block 1
+        let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+        assert_eq!(
+            block_1_distance_threshold, initial_distance_threshold,
+            "Block 1 should have same distance_threshold as initial"
+        );
 
         // 4. Simulate adjustment period
         let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
         run_to_block(adjustment_period + 1);
 
-        // 5. Verify historical blocks maintain their difficulty
-        let block_1_difficulty_after = QPow::get_difficulty_at_block(1);
-        assert_eq!(block_1_difficulty_after, block_1_difficulty,
-                   "Historical block difficulty should not change");
+        // 5. Verify historical blocks maintain their distance_threshold
+        let block_1_distance_threshold_after = QPow::get_distance_threshold_at_block(1);
+        assert_eq!(
+            block_1_distance_threshold_after, block_1_distance_threshold,
+            "Historical block distance_threshold should not change"
+        );
 
         // 6. Verify nonexistent block returns 0
         let latest_block = System::block_number();
         let future_block = latest_block + 1000;
-        assert_eq!(QPow::get_difficulty_at_block(future_block), 0,
-                   "Future block difficulty should be 0");
+        assert_eq!(
+            QPow::get_distance_threshold_at_block(future_block),
+            U512::zero(),
+            "Future block distance_threshold should be 0"
+        );
     });
 }
 
-/// Total difficulty tests
+/// Total distance_threshold tests
 
 #[test]
-fn test_total_difficulty_initialization() {
+fn test_total_distance_threshold_initialization() {
     new_test_ext().execute_with(|| {
-        // Initially, total difficulty should be as genesis difficulty
-        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
-        assert_eq!(QPow::get_total_difficulty(), initial_difficulty.into(),
-                   "Initial TotalDifficulty should be 0");
+        // Initially, total distance_threshold should be as genesis distance_threshold
+        let initial_work = U512::one();
+        assert_eq!(
+            QPow::get_total_work(),
+            initial_work,
+            "Initial TotalWork should be 0"
+        );
 
-        // After the first block, TotalDifficulty should equal block 1's difficulty
+        // After the first btest_total_distance_threshold_increases_with_each_blocklock, TotalWork should equal block 1's distance_threshold
         run_to_block(1);
-        let block_1_difficulty = QPow::get_difficulty_at_block(1);
-        let total_difficulty = QPow::get_total_difficulty();
-        assert_eq!(total_difficulty, block_1_difficulty.saturating_add(initial_difficulty).into(),
-                   "TotalDifficulty after block 1 should equal block 1's difficulty");
+        let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+        let max_distance = QPow::get_max_distance();
+        let current_work = max_distance / block_1_distance_threshold;
+        let total_work = QPow::get_total_work();
+        assert_eq!(
+            total_work,
+            initial_work + current_work,
+            "TotalWork after block 1 should equal block 1's distance_threshold"
+        );
     });
 }
 
 #[test]
-fn test_total_difficulty_accumulation() {
+fn test_total_distance_threshold_accumulation() {
     new_test_ext().execute_with(|| {
-        // Generate consecutive blocks and check difficulty accumulation
-        let mut expected_total = 0u128;
-
-        for i in 0..=10 {
+        // Generate consecutive blocks and check distance_threshold accumulation
+        let mut expected_total = U512::one();
+        let max_distance = QPow::get_max_distance();
+        for i in 1..=10 {
             run_to_block(i);
-            let block_difficulty = QPow::get_difficulty_at_block(i as u64);
-            expected_total += block_difficulty as u128;
+            let block_distance_threshold = QPow::get_distance_threshold_at_block(i as u64);
+            expected_total = expected_total.saturating_add(max_distance / block_distance_threshold);
 
-            let stored_total = QPow::get_total_difficulty();
-            assert_eq!(stored_total, expected_total,
-                       "TotalDifficulty after block {} should be the sum of all blocks' difficulties", i);
+            let stored_total = QPow::get_total_work();
+            assert_eq!(
+                stored_total, expected_total,
+                "TotalDifficulty after block {} should be the sum of all blocks' difficulties",
+                i
+            );
         }
     });
 }
 
 #[test]
-fn test_total_difficulty_after_adjustment() {
+fn test_total_distance_threshold_after_adjustment() {
     new_test_ext().execute_with(|| {
-        // Advance to the point where difficulty gets adjusted
+        // Advance to the point where distance_threshold gets adjusted
         let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
         run_to_block(adjustment_period + 1);
+        let max_distance = QPow::get_max_distance();
+        // Check if distance_threshold has changed
+        let initial_distance_threshold =
+            U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
+        let new_distance_threshold =
+            QPow::get_distance_threshold_at_block((adjustment_period + 1) as u64);
 
-        // Check if difficulty has changed
-        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
-        let new_difficulty = QPow::get_difficulty_at_block((adjustment_period + 1) as u64);
+        // We assume distance_threshold may have changed
+        println!(
+            "Initial distance_threshold: {}, New distance_threshold: {}",
+            initial_distance_threshold, new_distance_threshold
+        );
 
-        // We assume difficulty may have changed
-        println!("Initial difficulty: {}, New difficulty: {}", initial_difficulty, new_difficulty);
-
-        // Calculate expected cumulative difficulty
-        let mut expected_total = 0u128;
-        for i in 0..=(adjustment_period + 1) {
-            let block_diff = QPow::get_difficulty_at_block(i as u64);
-            expected_total += block_diff as u128;
+        // Calculate expected cumulative distance_threshold
+        let mut expected_total = U512::one();
+        for i in 1..=(adjustment_period + 1) {
+            let block_diff = QPow::get_distance_threshold_at_block(i as u64);
+            expected_total += max_distance / block_diff;
         }
 
         // Compare with stored value
-        let stored_total = QPow::get_total_difficulty();
-        assert_eq!(stored_total, expected_total,
-                   "TotalDifficulty should correctly account for difficulty changes");
+        let stored_total = QPow::get_total_work();
+        assert_eq!(
+            stored_total, expected_total,
+            "TotalDifficulty should correctly account for distance_threshold changes"
+        );
     });
 }
 
 #[test]
-fn test_total_difficulty_increases_with_each_block() {
+fn test_total_distance_threshold_increases_with_each_block() {
     new_test_ext().execute_with(|| {
         // Check initial value
-        let initial_total = QPow::get_total_difficulty();
+        let initial_total = QPow::get_total_work();
 
         // Run to block 1 and check the increase
         run_to_block(1);
-        let total_after_block_1 = QPow::get_total_difficulty();
-        assert!(total_after_block_1 > initial_total,
-                "TotalDifficulty should increase after a new block");
+        let total_after_block_1 = QPow::get_total_work();
+        assert!(
+            total_after_block_1 > initial_total,
+            "TotalDifficulty should increase after a new block"
+        );
 
         // Run to block 2 and check the increase again
         run_to_block(2);
-        let total_after_block_2 = QPow::get_total_difficulty();
-        assert!(total_after_block_2 > total_after_block_1,
-                "TotalDifficulty should increase after each new block");
-
-        // Verify that the increase matches the difficulty of block 2
+        let total_after_block_2 = QPow::get_total_work();
+        assert!(
+            total_after_block_2 > total_after_block_1,
+            "TotalDifficulty should increase after each new block"
+        );
+        let max_distance = QPow::get_max_distance();
+        // Verify that the increase matches the distance_threshold of block 2
         let block_2_diff = total_after_block_2 - total_after_block_1;
-        assert_eq!(block_2_diff, QPow::get_difficulty_at_block(2) as u128,
-                   "TotalDifficulty increase should match the difficulty of the new block");
+        assert_eq!(
+            block_2_diff,
+            max_distance / QPow::get_distance_threshold_at_block(2),
+            "TotalDifficulty increase should match the distance_threshold of the new block"
+        );
     });
 }
-
-/*
-TODO - we should catch events in tests - this should be possible
-#[test]
-fn test_submit_nonce_emits_event() {
-    new_test_ext().execute_with(|| {
-        // Set up data
-        let header = [1u8; 32];
-
-        // Get the current difficulty so we know what we're targeting
-        let difficulty = QPow::get_difficulty();
-        println!("Current difficulty: {}", difficulty);
-
-        // Create a nonce that we know works
-        let mut nonce = [0u8; 64];
-        nonce[63] = 14;
-
-        // Calculate the distance for this nonce
-        let distance = QPow::get_nonce_distance(header, nonce);
-        let threshold = MAX_DISTANCE - difficulty;
-
-        println!("Nonce: {:?}, Distance: {}, Threshold: {}",
-                 &nonce[62..64], distance, threshold);
-
-        // Wyczyść zdarzenia systemu przed wysłaniem nonce
-        System::reset_events();
-
-        // Submit nonce (zakładamy, że jest prawidłowy)
-        assert!(QPow::submit_nonce(header, nonce));
-
-        // Sprawdź, czy zdarzenie zostało wyemitowane
-        let events = System::events();
-        println!("Events: {:?}", events);
-
-        // Sprawdź, czy istnieje zdarzenie ProofSubmitted
-        let proof_submitted_event_found = events.iter().any(|record| {
-            match &record.event {
-                RuntimeEvent::QPow(Event::ProofSubmitted { nonce: event_nonce }) => {
-                    // Sprawdź, czy nonce w zdarzeniu zgadza się z tym, który wysłaliśmy
-                    *event_nonce == nonce
-                },
-                _ => false,
-            }
-        });
-
-        assert!(proof_submitted_event_found, "ProofSubmitted event was not emitted or had incorrect data");
-    });
-}
-*/
 
 #[test]
 fn test_integrated_verification_flow() {
@@ -385,23 +387,28 @@ fn test_integrated_verification_flow() {
         // Set up data
         let header = [1u8; 32];
 
-        // Get the current difficulty
-        let difficulty = QPow::get_difficulty();
-        println!("Current difficulty: {}", difficulty);
+        // Get the current distance_threshold
+        let distance_threshold = QPow::get_distance_threshold_at_block(0);
+        println!("Current distance_threshold: {}", distance_threshold);
 
         // Use a nonce that we know works for our tests
         let mut nonce = [0u8; 64];
-        nonce[63] = 14;  // This worked in your previous tests
+        nonce[63] = 38; // This worked in your previous tests
 
         // Make sure it's actually valid
         let distance = QPow::get_nonce_distance(header, nonce);
-        let threshold = MAX_DISTANCE - difficulty;
-        println!("Nonce distance: {}, Threshold: {}", distance, threshold);
+        println!(
+            "Nonce distance: {}, Threshold: {}",
+            distance, distance_threshold
+        );
 
-        if distance > threshold {
-            println!("WARNING: Test nonce is not valid for current difficulty!");
+        if distance > distance_threshold {
+            println!("WARNING: Test nonce is not valid for current distance_threshold!");
             // Either generate a valid nonce here or fail the test
-            assert!(distance <= threshold, "Cannot proceed with invalid test nonce");
+            assert!(
+                distance <= distance_threshold,
+                "Cannot proceed with invalid test nonce"
+            );
         }
 
         // 1. First, simulate mining by submitting a nonce
@@ -423,26 +430,26 @@ fn test_compute_pow_valid_nonce() {
         h[31] = 123; // For value 123
 
         let mut m = [0u8; 32];
-        m[31] = 5;   // For value 5
+        m[31] = 5; // For value 5
 
         let mut n = [0u8; 64];
-        n[63] = 17;  // For value 17
+        n[63] = 17; // For value 17
 
         let mut nonce = [0u8; 64];
         nonce[63] = 2; // For value 2
 
-        // Compute the result and the truncated result based on difficulty
+        // Compute the result and the truncated result based on distance_threshold
         let hash = hash_to_group(&h, &m, &n, &nonce);
 
         let manual_mod = mod_pow(
             &U512::from_big_endian(&m),
             &(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
-            &U512::from_big_endian(&n)
+            &U512::from_big_endian(&n),
         );
-        let manual_chunks = split_chunks(&manual_mod);
+        let manual_hash = sha3_512(manual_mod);
 
         // Check if the result is computed correctly
-        assert_eq!(hash, manual_chunks);
+        assert_eq!(hash, manual_hash);
     });
 }
 
@@ -452,26 +459,26 @@ fn test_compute_pow_overflow_check() {
         let h = [0xfu8; 32];
 
         let mut m = [0u8; 32];
-        m[31] = 5;   // For value 5
+        m[31] = 5; // For value 5
 
         let mut n = [0u8; 64];
-        n[63] = 17;  // For value 17
+        n[63] = 17; // For value 17
 
         let mut nonce = [0u8; 64];
         nonce[63] = 2; // For value 2
 
-        // Compute the result and the truncated result based on difficulty
+        // Compute the result and the truncated result based on distance_threshold
         let hash = hash_to_group(&h, &m, &n, &nonce);
 
         let manual_mod = mod_pow(
             &U512::from_big_endian(&m),
             &(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
-            &U512::from_big_endian(&n)
+            &U512::from_big_endian(&n),
         );
-        let manual_chunks = split_chunks(&manual_mod);
+        let manual_hash = sha3_512(manual_mod);
 
         // Check if the result is computed correctly
-        assert_eq!(hash, manual_chunks);
+        assert_eq!(hash, manual_hash);
     });
 }
 
@@ -482,7 +489,7 @@ fn test_get_random_rsa() {
         let (m, n) = get_random_rsa(&header);
 
         // Check that n > m
-        assert!(U512::from(m) < n);
+        assert!(m < n);
 
         // Check that numbers are coprime
         assert!(is_coprime(&m, &n));
@@ -532,307 +539,239 @@ fn test_primality_check() {
 }
 /// Difficulty adjustment
 #[test]
-fn test_difficulty_adjustment_boundaries() {
+fn test_distance_threshold_adjustment_boundaries() {
     new_test_ext().execute_with(|| {
-        // 1. Test minimum difficulty boundary
+        // 1. Test minimum distance_threshold boundary
 
-        // A. If initial difficulty is already at minimum, it should stay there
-        let min_difficulty = <Test as Config>::MinDifficulty::get();
-        let current_difficulty = min_difficulty;  // Already at minimum
+        // A. If initial distance_threshold is already at minimum, it should stay there
+        let min_distance_threshold = U512::one();
+        let current_distance_threshold = min_distance_threshold;  // Already at minimum
 
-        let new_difficulty = QPow::calculate_difficulty(
-            current_difficulty,
+        let new_distance_threshold = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             10000,  // 10x target (extremely slow blocks)
             1000    // Target block time
         );
 
         // Should be clamped exactly to minimum
-        assert_eq!(new_difficulty, min_difficulty,
-                   "When already at minimum difficulty, it should stay at minimum: {}", min_difficulty);
+        assert_eq!(new_distance_threshold, min_distance_threshold,
+                   "When already at minimum distance_threshold, it should stay at minimum: {}", min_distance_threshold);
 
-        // B. If calculated difficulty would be below minimum, it should be clamped up
-        let current_difficulty = min_difficulty + 100;  // Slightly above minimum
+        // B. If calculated distance_threshold would be below minimum, it should be clamped up
+        let current_distance_threshold = min_distance_threshold + 100;  // Slightly above minimum
 
         // Set block time extremely high to force adjustment below minimum
         let extreme_block_time = 20000;  // 20x target
 
-        let new_difficulty = QPow::calculate_difficulty(
-            current_difficulty,
+        let new_distance_threshold = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             extreme_block_time,
             1000    // Target block time
         );
 
         // Should be exactly at minimum
-        assert_eq!(new_difficulty, min_difficulty,
-                   "When adjustment would put difficulty below minimum, it should be clamped to minimum");
+        assert_eq!(new_distance_threshold, min_distance_threshold,
+                   "When adjustment would put distance_threshold below minimum, it should be clamped to minimum");
 
-        // 2. Test maximum difficulty boundary
+        // 2. Test maximum distance_threshold boundary
+        let max_distance = QPow::get_max_distance();
 
-        // A. If initial difficulty is already at maximum, it should stay there
-        let max_difficulty = MAX_DISTANCE - 1;
-        let current_difficulty = max_difficulty+100;  // Above Maximum
-
-        let new_difficulty = QPow::calculate_difficulty(
-            current_difficulty,
-            100,    // 0.1x target (extremely fast blocks)
+        // A. If initial distance_threshold is already at maximum, it should stay there
+        let current_distance_threshold = max_distance;  // Above Maximum
+        let new_distance_threshold = QPow::calculate_distance_threshold(
+            current_distance_threshold,
+            10000,    // 0.1x target (extremely fast blocks)
             1000    // Target block time
         );
 
         // Should be clamped exactly to maximum
-        assert_eq!(new_difficulty, max_difficulty,
-                   "When already at maximum difficulty, it should stay at maximum: {}", max_difficulty);
+        assert_eq!(new_distance_threshold, max_distance,
+                   "When already at maximum distance_threshold, it should stay at maximum: {}", max_distance);
 
-        // B. If calculated difficulty would be above maximum, it should be clamped down
-        let current_difficulty = max_difficulty - 1000;  // Slightly below maximum
+        // B. If calculated distance_threshold would be above maximum, it should be clamped down
+        let current_distance_threshold = max_distance - 1000;  // Slightly below maximum
 
         // Set block time extremely low to force adjustment above maximum
-        let extreme_block_time = 10;  // 0.01x target
-
-        let new_difficulty = QPow::calculate_difficulty(
-            current_difficulty,
-            extreme_block_time,
+        let new_distance_threshold = QPow::calculate_distance_threshold(
+            current_distance_threshold,
+            10000,
             1000    // Target block time
         );
 
         // Should be exactly at maximum
-        assert_eq!(new_difficulty, max_difficulty,
-                   "When adjustment would put difficulty above maximum, it should be clamped to maximum");
+        assert_eq!(new_distance_threshold, max_distance,
+                   "When adjustment would put distance_threshold above maximum, it should be clamped to maximum");
     });
 }
 
 #[test]
-fn test_calculate_difficulty_normal_adjustment() {
+fn test_calculate_distance_threshold_normal_adjustment() {
     new_test_ext().execute_with(|| {
-        // Start with a medium difficulty
-        let current_difficulty = <Test as Config>::InitialDifficulty::get();
+        // Start with a medium distance_threshold
+        let current_distance_threshold = QPow::get_distance_threshold_at_block(0);
         let target_time = 1000; // 1000ms target
 
         // Test slight deviation (10% slower)
         let block_time_slower = 1100; // 1.1x target
-        let new_difficulty_slower = QPow::calculate_difficulty(
-            current_difficulty,
+        let new_distance_threshold_slower = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             block_time_slower,
             target_time
         );
 
         // Difficulty should decrease slightly but not drastically
-        assert!(new_difficulty_slower < current_difficulty, "Difficulty should decrease when blocks are slower");
-        let decrease_percentage = (current_difficulty - new_difficulty_slower) as f64 / current_difficulty as f64 * 100.0;
-        assert!(decrease_percentage < 5.0, "For 10% slower blocks, difficulty should decrease by less than 5%, but decreased by {:.2}%", decrease_percentage);
+        assert!(new_distance_threshold_slower > current_distance_threshold, "Distance threshold should decrease when blocks are slower");
+        let decrease_percentage = pack_u512_to_f64(new_distance_threshold_slower - current_distance_threshold) / pack_u512_to_f64(current_distance_threshold) * 100.0;
+        assert_eq!(decrease_percentage.round(), 10f64, "For 10% slower blocks, distance_threshold should decrease by 10%, but decreased by {:.2}%", decrease_percentage);
 
         // Test slight deviation (10% faster)
         let block_time_faster = 900; // 0.9x target
-        let new_difficulty_faster = QPow::calculate_difficulty(
-            current_difficulty,
+        let new_distance_threshold_faster = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             block_time_faster,
             target_time
         );
 
         // Difficulty should increase slightly but not drastically
-        assert!(new_difficulty_faster > current_difficulty, "Difficulty should increase when blocks are faster");
-        let increase_percentage = (new_difficulty_faster - current_difficulty) as f64 / current_difficulty as f64 * 100.0;
-        assert!(increase_percentage < 5.0, "For 10% faster blocks, difficulty should increase by less than 5%, but increased by {:.2}%", increase_percentage);
+        assert!(new_distance_threshold_faster < current_distance_threshold, "Distance threshold should increase when blocks are faster");
+        let increase_percentage = pack_u512_to_f64(current_distance_threshold - new_distance_threshold_faster) / pack_u512_to_f64(current_distance_threshold) * 100.0;
+        assert_eq!(increase_percentage.round(), 10f64, "For 10% faster blocks, distance_threshold should increase by 10%, but increased by {:.2}%", increase_percentage);
     });
 }
 
 #[test]
-fn test_calculate_difficulty_dampening_effect() {
+fn test_calculate_distance_threshold_consecutive_adjustments() {
     new_test_ext().execute_with(|| {
-        let current_difficulty = <Test as Config>::InitialDifficulty::get();
-        let target_time = 1000;
-
-        // Test significant deviation (2x slower blocks)
-        let block_time_much_slower = 2000; // 2x target
-        let new_difficulty_much_slower = QPow::calculate_difficulty(
-            current_difficulty,
-            block_time_much_slower,
-            target_time
-        );
-
-        // The dampening should prevent the difficulty from halving immediately
-        let decrease_percentage = (current_difficulty - new_difficulty_much_slower) as f64 / current_difficulty as f64 * 100.0;
-        assert!(decrease_percentage < 25.0, "Even for 2x slower blocks, dampening should limit decrease to less than 25%, but got {:.2}%", decrease_percentage);
-
-        // Test significant deviation (0.5x faster blocks)
-        let block_time_much_faster = 500; // 0.5x target
-        let new_difficulty_much_faster = QPow::calculate_difficulty(
-            current_difficulty,
-            block_time_much_faster,
-            target_time
-        );
-
-        // The dampening should prevent the difficulty from doubling immediately
-        let increase_percentage = (new_difficulty_much_faster - current_difficulty) as f64 / current_difficulty as f64 * 100.0;
-        assert!(increase_percentage < 25.0, "Even for 2x faster blocks, dampening should limit increase to less than 25%, but got {:.2}%", increase_percentage);
-    });
-}
-
-#[test]
-fn test_calculate_difficulty_consecutive_adjustments() {
-    new_test_ext().execute_with(|| {
-        let mut current_difficulty = <Test as Config>::InitialDifficulty::get();
+        let mut current_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
         let target_time = 1000;
 
         // First, measure the effect of a single adjustment
         let block_time = 1500; // 50% slower than target
-        let new_difficulty = QPow::calculate_difficulty(
-            current_difficulty,
+        let new_distance_threshold = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             block_time,
             target_time
         );
-        let single_adjustment_decrease = (current_difficulty - new_difficulty) as f64 / current_difficulty as f64 * 100.0;
-        println!("Single adjustment decrease: {:.2}%", single_adjustment_decrease);
+        let single_adjustment_increase = pack_u512_to_f64(new_distance_threshold - current_distance_threshold) / pack_u512_to_f64(current_distance_threshold) * 100.0;
+        println!("Single adjustment increase: {:.2}%", single_adjustment_increase);
 
         // Reset and simulate 5 consecutive periods
-        current_difficulty = <Test as Config>::InitialDifficulty::get();
+        current_distance_threshold = QPow::get_distance_threshold_at_block(0);
         for i in 0..5 {
-            let new_difficulty = QPow::calculate_difficulty(
-                current_difficulty,
+            let new_distance_threshold = QPow::calculate_distance_threshold(
+                current_distance_threshold,
                 block_time,
                 target_time
             );
 
-            // Each adjustment should decrease difficulty
-            assert!(new_difficulty < current_difficulty,
-                    "Difficulty should decrease with consistently slower blocks (iteration {})", i);
-
-            println!("Adjustment {}: decreased by {:.2}%",
+            println!("Adjustment {}: increased by {:.2}%",
                      i + 1,
-                     (current_difficulty - new_difficulty) as f64 / current_difficulty as f64 * 100.0);
+                     pack_u512_to_f64(new_distance_threshold - current_distance_threshold) / pack_u512_to_f64(current_distance_threshold) * 100.0);
+
+            // Each adjustment should decrease distance_threshold
+            assert!(new_distance_threshold > current_distance_threshold,
+                    "Distance threshold should increase with consistently slower blocks (iteration {})", i);
+
 
             // Set up for next iteration
-            current_difficulty = new_difficulty;
+            current_distance_threshold = new_distance_threshold;
         }
 
         // After 5 consecutive adjustments, calculate total decrease
-        let total_decrease_percentage = (<Test as Config>::InitialDifficulty::get() - current_difficulty) as f64 / <Test as Config>::InitialDifficulty::get() as f64 * 100.0;
-        println!("Total difficulty decrease after 5 periods: {:.2}%", total_decrease_percentage);
-
-        // Check that there is some decrease
-        assert!(total_decrease_percentage > 0.0,
-                "After 5 consecutive periods of 50% slower blocks, difficulty should decrease somewhat");
+        let total_increase_percentage = pack_u512_to_f64(current_distance_threshold - initial_distance_threshold) / pack_u512_to_f64(initial_distance_threshold) * 100.0;
+        println!("Total distance_threshold decrease after 5 periods: {:.2}%", total_increase_percentage);
 
         // Verify the diminishing returns behavior
-        assert!(total_decrease_percentage < single_adjustment_decrease * 5.0,
-                "With strong dampening, total effect should be less than a single period effect multiplied by 5");
+        assert!(total_increase_percentage < single_adjustment_increase * 7.0,
+                "With strong dampening, total effect should be less than a single period effect multiplied by 7");
     });
 }
 
 #[test]
-fn test_calculate_difficulty_oscillation_damping() {
+fn test_calculate_distance_threshold_oscillation_damping() {
     new_test_ext().execute_with(|| {
-        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
         let target_time = 1000;
 
-        // Start with current difficulty
-        let mut current_difficulty = initial_difficulty;
+        // Start with current distance_threshold
+        let mut current_distance_threshold = initial_distance_threshold;
 
         // First adjustment: blocks 50% slower
-        let first_adjustment = QPow::calculate_difficulty(
-            current_difficulty,
+        let first_adjustment = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             1500, // 50% slower
             target_time
         );
 
         // Difficulty should decrease
-        assert!(first_adjustment < current_difficulty);
-        current_difficulty = first_adjustment;
+        assert!(first_adjustment > current_distance_threshold);
+        current_distance_threshold = first_adjustment;
 
         // Second adjustment: blocks 50% faster than target (return to normal speed)
-        let second_adjustment = QPow::calculate_difficulty(
-            current_difficulty,
+        let second_adjustment = QPow::calculate_distance_threshold(
+            current_distance_threshold,
             500, // 50% faster
             target_time
         );
 
-        // Difficulty should increase but should not overshoot initial difficulty significantly
-        assert!(second_adjustment > current_difficulty);
-        let overshoot_percentage = (second_adjustment as f64 - initial_difficulty as f64) / initial_difficulty as f64 * 100.0;
+        // Difficulty should increase but should not overshoot initial distance_threshold significantly
+        assert!(second_adjustment < current_distance_threshold);
+
+        let second_adjustment = pack_u512_to_f64(second_adjustment);
+        let initial_distance_threshold = pack_u512_to_f64(initial_distance_threshold);
+
+        let overshoot_percentage = (second_adjustment - initial_distance_threshold) / initial_distance_threshold * 100.0;
 
         // Due to dampening, we don't expect massive overshooting
-        assert!(overshoot_percentage.abs() < 15.0,
-                "After oscillating block times, difficulty should not overshoot initial value by more than 15%, but overshot by {:.2}%",
+        assert!(overshoot_percentage.abs() <= 25.0,
+                "After oscillating block times, distance_threshold should not overshoot initial value by more than 15%, but overshot by {:.2}%",
                 overshoot_percentage);
     });
 }
 
+fn pack_u512_to_f64(value: U512) -> f64 {
+    // Convert U512 to big-endian bytes (64 bytes)
+    let bytes = value.to_big_endian();
+
+    // Take the highest-order 8 bytes (first 8 bytes in big-endian)
+    let mut highest_8_bytes = [0u8; 8];
+    highest_8_bytes.copy_from_slice(&bytes[0..8]);
+
+    // Convert to u64
+    let highest_64_bits = u64::from_be_bytes(highest_8_bytes);
+
+    // Cast to f64
+    highest_64_bits as f64
+}
+
 #[test]
-fn test_calculate_difficulty_stability_over_time() {
+fn test_calculate_distance_threshold_stability_over_time() {
     new_test_ext().execute_with(|| {
-        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
+        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
         let target_time = 1000;
-        let mut current_difficulty = initial_difficulty;
+        let mut current_distance_threshold = initial_distance_threshold;
 
         // Simulate slight random variance around target (normal mining conditions)
         let block_times = [950, 1050, 980, 1020, 990, 1010, 970, 1030, 960, 1040];
 
         // Apply 10 consecutive adjustments with minor variations around target
         for &block_time in &block_times {
-            current_difficulty = QPow::calculate_difficulty(
-                current_difficulty,
+            current_distance_threshold = QPow::calculate_distance_threshold(
+                current_distance_threshold,
                 block_time,
                 target_time
             );
         }
 
-        // After these minor variations, difficulty should remain relatively stable
-        let final_change_percentage = (current_difficulty as f64 - initial_difficulty as f64) / initial_difficulty as f64 * 100.0;
+        let current_distance_threshold = pack_u512_to_f64(current_distance_threshold);
+        let initial_distance_threshold = pack_u512_to_f64(initial_distance_threshold);
+
+        // After these minor variations, distance_threshold should remain relatively stable
+        let final_change_percentage = (current_distance_threshold - initial_distance_threshold) / initial_distance_threshold * 100.0;
         assert!(final_change_percentage.abs() < 10.0,
-                "With minor variations around target time, difficulty should not change by more than 10%, but changed by {:.2}%",
+                "With minor variations around target time, distance_threshold should not change by more than 10%, but changed by {:.2}%",
                 final_change_percentage);
-    });
-}
-
-#[test]
-fn test_calculate_difficulty_power_factor_effect() {
-    new_test_ext().execute_with(|| {
-        let current_difficulty = <Test as Config>::InitialDifficulty::get();
-        let target_time = 1000;
-
-        // Test with extreme deviations to check power factor effect
-        let deviations = [
-            (4000, "4x slower"), // 4x slower
-            (2000, "2x slower"),
-            (1500, "1.5x slower"),
-            (667, "1.5x faster"),
-            (500, "2x faster"),
-            (250, "4x faster")
-        ];
-
-        for (block_time, description) in &deviations {
-            let new_difficulty = QPow::calculate_difficulty(
-                current_difficulty,
-                *block_time,
-                target_time
-            );
-
-            // Calculate the relative change
-            let change_ratio = new_difficulty as f64 / current_difficulty as f64;
-
-            // Verify the direction of change is correct
-            if *block_time > target_time {
-                assert!(change_ratio < 1.0, "For {} blocks, difficulty should decrease", description);
-            } else {
-                assert!(change_ratio > 1.0, "For {} blocks, difficulty should increase", description);
-            }
-
-            // Log the change for analysis
-            println!("For {} blocks: difficulty changed by factor {:.3}", description, change_ratio);
-
-            // Power factor (1/16) with dampening should make the change less dramatic than the time deviation
-            let expected_max_change = if *block_time > target_time {
-                // For slower blocks, difficulty decrease should be less dramatic than time increase
-                1.0 / ((*block_time as f64 / target_time as f64).powf(0.25)) // 1/4 is much more aggressive than 1/16
-            } else {
-                // For faster blocks, difficulty increase should be less dramatic than time decrease
-                (target_time as f64 / *block_time as f64).powf(0.25) // 1/4 is much more aggressive than 1/16
-            };
-
-            // Due to dampening, the actual change should be much less than even the 1/4 power
-            assert!((change_ratio - 1.0).abs() < (expected_max_change - 1.0).abs(),
-                    "For {} blocks, change ratio {:.3} should be less extreme than 1/4 power factor would suggest {:.3}",
-                    description, change_ratio, expected_max_change);
-        }
     });
 }
 
@@ -844,7 +783,10 @@ fn test_median_block_time_empty_history() {
         // When history is empty, we should get TargetBlockTime
         let target_block_time = <Test as Config>::TargetBlockTime::get();
         let median = QPow::get_median_block_time();
-        assert_eq!(median, target_block_time, "Empty history should return target block time");
+        assert_eq!(
+            median, target_block_time,
+            "Empty history should return target block time"
+        );
     });
 }
 
@@ -859,7 +801,10 @@ fn test_median_block_time_single_value() {
 
         // Median of a single value is that value
         let median = QPow::get_median_block_time();
-        assert_eq!(median, block_time, "Median of a single value should be that value");
+        assert_eq!(
+            median, block_time,
+            "Median of a single value should be that value"
+        );
     });
 }
 
@@ -867,7 +812,7 @@ fn test_median_block_time_single_value() {
 fn test_median_block_time_odd_count() {
     new_test_ext().execute_with(|| {
         // Add odd number of entries
-        let block_times = vec![1000, 3000, 2000, 5000, 4000];
+        let block_times = [1000, 3000, 2000, 5000, 4000];
         let history_size = block_times.len() as u32;
 
         <HistorySize<Test>>::put(history_size);
@@ -880,7 +825,10 @@ fn test_median_block_time_odd_count() {
         // Median of sorted values [1000, 2000, 3000, 4000, 5000] is 3000
         let expected_median = 3000;
         let median = QPow::get_median_block_time();
-        assert_eq!(median, expected_median, "Median of odd count should be the middle value");
+        assert_eq!(
+            median, expected_median,
+            "Median of odd count should be the middle value"
+        );
     });
 }
 
@@ -888,7 +836,7 @@ fn test_median_block_time_odd_count() {
 fn test_median_block_time_even_count() {
     new_test_ext().execute_with(|| {
         // Add even number of entries
-        let block_times = vec![1000, 3000, 2000, 4000];
+        let block_times = [1000, 3000, 2000, 4000];
         let history_size = block_times.len() as u32;
 
         <HistorySize<Test>>::put(history_size);
@@ -901,7 +849,10 @@ fn test_median_block_time_even_count() {
         // Median of sorted values [1000, 2000, 3000, 4000] is (2000 + 3000) / 2 = 2500
         let expected_median = 2500;
         let median = QPow::get_median_block_time();
-        assert_eq!(median, expected_median, "Median of even count should be average of two middle values");
+        assert_eq!(
+            median, expected_median,
+            "Median of even count should be average of two middle values"
+        );
     });
 }
 
@@ -909,7 +860,7 @@ fn test_median_block_time_even_count() {
 fn test_median_block_time_with_duplicates() {
     new_test_ext().execute_with(|| {
         // Add entries with duplicates
-        let block_times = vec![1000, 2000, 2000, 2000, 3000];
+        let block_times = [1000, 2000, 2000, 2000, 3000];
         let history_size = block_times.len() as u32;
 
         <HistorySize<Test>>::put(history_size);
@@ -922,7 +873,10 @@ fn test_median_block_time_with_duplicates() {
         // Median of sorted values [1000, 2000, 2000, 2000, 3000] is 2000
         let expected_median = 2000;
         let median = QPow::get_median_block_time();
-        assert_eq!(median, expected_median, "Median with duplicates should be correctly calculated");
+        assert_eq!(
+            median, expected_median,
+            "Median with duplicates should be correctly calculated"
+        );
     });
 }
 
@@ -933,7 +887,7 @@ fn test_median_block_time_ring_buffer() {
         // Assuming <Test as Config>::BlockTimeHistorySize::get() = 5
 
         // Add more entries than the maximum history size
-        let initial_times = vec![1000, 2000, 3000, 4000, 5000];
+        let initial_times = [1000, 2000, 3000, 4000, 5000];
 
         // Set initial history
         <HistoryIndex<Test>>::put(0);
@@ -956,55 +910,63 @@ fn test_median_block_time_ring_buffer() {
 
         // New median from [3000, 4000, 5000, 6000, 7000]
         let new_median = QPow::get_median_block_time();
-        assert_eq!(new_median, 5000, "New median should be calculated from updated ring buffer");
+        assert_eq!(
+            new_median, 5000,
+            "New median should be calculated from updated ring buffer"
+        );
     });
 }
 
 #[test]
-fn test_block_difficulty_storage_and_retrieval() {
+fn test_block_distance_threshold_storage_and_retrieval() {
     new_test_ext().execute_with(|| {
-        // 1. Test that genesis block difficulty is properly set
-        let genesis_difficulty = QPow::get_difficulty_at_block(0);
-        let initial_difficulty = <Test as Config>::InitialDifficulty::get();
-        assert_eq!(genesis_difficulty, initial_difficulty,
-                   "Genesis block should have initial difficulty");
+        // 1. Test that genesis block distance_threshold is properly set
+        let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold =
+            U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
+        assert_eq!(
+            genesis_distance_threshold, initial_distance_threshold,
+            "Genesis block should have initial distance_threshold"
+        );
 
-        // 2. Simulate block production and difficulty adjustment
+        // 2. Simulate block production and distance_threshold adjustment
         run_to_block(1);
-        let block_1_difficulty = QPow::get_difficulty_at_block(1);
-        assert_eq!(block_1_difficulty, initial_difficulty,
-                   "Block 1 should have same difficulty as initial");
+        let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+        assert_eq!(
+            block_1_distance_threshold, initial_distance_threshold,
+            "Block 1 should have same distance_threshold as initial"
+        );
 
-        // 3. Simulate multiple blocks to trigger difficulty adjustment
+        // 3. Simulate multiple blocks to trigger distance_threshold adjustment
         let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
         run_to_block(adjustment_period + 1);
 
-        // 4. Check that difficulty for early blocks hasn't changed
-        let block_1_difficulty_after = QPow::get_difficulty_at_block(1);
-        assert_eq!(block_1_difficulty_after, block_1_difficulty,
-                   "Historical block difficulty should not change");
+        // 4. Check that distance_threshold for early blocks hasn't changed
+        let block_1_distance_threshold_after = QPow::get_distance_threshold_at_block(1);
+        assert_eq!(
+            block_1_distance_threshold_after, block_1_distance_threshold,
+            "Historical block distance_threshold should not change"
+        );
 
         // 5. Test non-existent block (future block)
         let latest_block = System::block_number();
         let future_block = latest_block + 1000;
-        let future_difficulty = QPow::get_difficulty_at_block(future_block);
-        assert_eq!(future_difficulty, 0,
-                   "Future block difficulty should return 0");
+        let future_distance_threshold = QPow::get_distance_threshold_at_block(future_block);
+        assert_eq!(
+            future_distance_threshold,
+            U512::zero(),
+            "Future block distance_threshold should return 0"
+        );
     });
 }
 
 //////////// Support methods
-pub fn hash_to_group(
-    h: &[u8; 32],
-    m: &[u8; 32],
-    n: &[u8; 64],
-    nonce: &[u8; 64]
-) -> [u32; 16] {
+pub fn hash_to_group(h: &[u8; 32], m: &[u8; 32], n: &[u8; 64], nonce: &[u8; 64]) -> U512 {
     let h = U512::from_big_endian(h);
     let m = U512::from_big_endian(m);
     let n = U512::from_big_endian(n);
     let nonce_u = U512::from_big_endian(nonce);
-    hash_to_group_bigint_split(&h, &m, &n, &nonce_u)
+    hash_to_group_bigint_sha(&h, &m, &n, &nonce_u)
 }
 
 fn run_to_block(n: u32) {

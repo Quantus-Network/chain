@@ -20,7 +20,7 @@ sp-io.workspace = true
 sp-runtime.workspace = true
 sp-weights.workspace = true
 docify = { workspace = true }
-sp-common = { workspace = true, default-features = false }
+qp-common = { workspace = true, default-features = false }
 
 [dev-dependencies]
 pallet-preimage = { default-features = true, workspace = true }

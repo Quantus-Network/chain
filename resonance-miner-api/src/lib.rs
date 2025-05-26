@@ -19,8 +19,8 @@ pub struct MiningRequest {
     pub job_id: String,
     /// Hex encoded header hash (32 bytes -> 64 chars, no 0x prefix)
     pub mining_hash: String,
-    /// Difficulty (u64 as string)
-    pub difficulty: String,
+    /// Distance threshold (u64 as string)
+    pub distance_threshold: String,
     /// Hex encoded start nonce (U512 -> 128 chars, no 0x prefix)
     pub nonce_start: String,
     /// Hex encoded end nonce (U512 -> 128 chars, no 0x prefix)

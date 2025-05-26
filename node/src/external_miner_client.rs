@@ -1,10 +1,8 @@
-/// Functions to interact with the external miner service
-
-use reqwest::Client;
 use primitive_types::{H256, U512};
-use resonance_miner_api::{MiningRequest, MiningResponse, MiningResult, ApiResponseStatus};
+/// Functions to interact with the external miner service
+use reqwest::Client;
+use resonance_miner_api::{ApiResponseStatus, MiningRequest, MiningResponse, MiningResult};
 use sc_consensus_qpow::QPoWSeal; // Assuming QPoWSeal is here
-use hex;
 
 // Make functions pub(crate) or pub as needed
 pub(crate) async fn submit_mining_job(
@@ -12,14 +10,14 @@ pub(crate) async fn submit_mining_job(
     miner_url: &str,
     job_id: &str,
     mining_hash: &H256,
-    difficulty: u64,
+    distance_threshold: U512,
     nonce_start: U512,
     nonce_end: U512,
 ) -> Result<(), String> {
     let request = MiningRequest {
         job_id: job_id.to_string(),
         mining_hash: hex::encode(mining_hash.as_bytes()),
-        difficulty: difficulty.to_string(),
+        distance_threshold: distance_threshold.to_string(),
         nonce_start: format!("{:0128x}", nonce_start),
         nonce_end: format!("{:0128x}", nonce_end),
     };
@@ -67,9 +65,12 @@ pub(crate) async fn check_mining_result(
                 if nonce_bytes.len() == 64 {
                     let mut nonce = [0u8; 64];
                     nonce.copy_from_slice(&nonce_bytes);
-                    Ok(Some(QPoWSeal { nonce })) 
+                    Ok(Some(QPoWSeal { nonce }))
                 } else {
-                     Err(format!("Invalid decoded work length: {} bytes (expected 64)", nonce_bytes.len()))
+                    Err(format!(
+                        "Invalid decoded work length: {} bytes (expected 64)",
+                        nonce_bytes.len()
+                    ))
                 }
             } else {
                 Err("Missing 'work' field in completed mining result".to_string())
@@ -78,13 +79,21 @@ pub(crate) async fn check_mining_result(
         ApiResponseStatus::Running => Ok(None),
         ApiResponseStatus::NotFound => Err("Mining job not found".to_string()),
         ApiResponseStatus::Failed => Err("Mining job failed (miner reported)".to_string()),
-        ApiResponseStatus::Cancelled => Err("Mining job was cancelled (miner reported)".to_string()),
-        ApiResponseStatus::Error => Err("Miner reported an unspecified error".to_string()), 
-        ApiResponseStatus::Accepted => Err("Unexpected 'Accepted' status received from result endpoint".to_string()),
+        ApiResponseStatus::Cancelled => {
+            Err("Mining job was cancelled (miner reported)".to_string())
+        }
+        ApiResponseStatus::Error => Err("Miner reported an unspecified error".to_string()),
+        ApiResponseStatus::Accepted => {
+            Err("Unexpected 'Accepted' status received from result endpoint".to_string())
+        }
     }
 }
 
-pub(crate) async fn cancel_mining_job(client: &Client, miner_url: &str, job_id: &str) -> Result<(), String> {
+pub(crate) async fn cancel_mining_job(
+    client: &Client,
+    miner_url: &str,
+    job_id: &str,
+) -> Result<(), String> {
     let response = client
         .post(format!("{}/cancel/{}", miner_url, job_id))
         .send()
@@ -96,9 +105,13 @@ pub(crate) async fn cancel_mining_job(client: &Client, miner_url: &str, job_id: 
         .await
         .map_err(|e| format!("Failed to parse cancel response: {}", e))?;
 
-    if result.status == ApiResponseStatus::Cancelled || result.status == ApiResponseStatus::NotFound {
+    if result.status == ApiResponseStatus::Cancelled || result.status == ApiResponseStatus::NotFound
+    {
         Ok(())
     } else {
-        Err(format!("Failed to cancel mining job (unexpected status): {:?}", result.status))
+        Err(format!(
+            "Failed to cancel mining job (unexpected status): {:?}",
+            result.status
+        ))
     }
-} 
+}

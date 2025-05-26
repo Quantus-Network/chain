@@ -1,0 +1,67 @@
+---
+name: continuous integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: nightly-2024-12-14
+
+jobs:
+  quality-control:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+    steps:
+      -
+        uses: actions/checkout@v4
+      -
+        if: contains(matrix.os, 'ubuntu')
+        uses: ./.github/actions/disk
+      -
+        if: contains(matrix.os, 'ubuntu')
+        uses: ./.github/actions/ubuntu
+      -
+        if: contains(matrix.os, 'macos')
+        uses: ./.github/actions/macos
+      -
+        name: pin
+        run: rustup override set ${RUSTUP_TOOLCHAIN}
+      -
+        if: contains(matrix.os, 'macos')
+        name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      -
+        name: format
+        run: cargo fmt --all -- --check
+        timeout-minutes: 5
+      -
+        name: compile
+        run: cargo build --locked --workspace
+        timeout-minutes: 90
+      -
+        name: clippy
+        run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
+        timeout-minutes: 30
+      -
+        name: test
+        run: SKIP_WASM_BUILD=1 cargo test --locked --workspace
+        timeout-minutes: 15
+      -
+        name: doc
+        run: SKIP_WASM_BUILD=1 cargo doc --locked --workspace --no-deps
+        timeout-minutes: 15

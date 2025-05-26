@@ -13,7 +13,6 @@
 // use pallet_balances;
 // use pallet_balances::AccountData;
 
-
 // type Block = MockBlock<Test>;
 // type Balance = u64;
 
@@ -83,7 +82,6 @@
 //         Wormhole: pallet_wormhole,
 //     }
 // );
-
 
 // impl pallet_wormhole::Config for Test {
 //     type RuntimeEvent = RuntimeEvent;

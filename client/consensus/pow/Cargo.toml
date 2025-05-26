@@ -1,0 +1,44 @@
+[package]
+name = "sc-consensus-pow"
+version = "0.47.0"
+authors.workspace = true
+description = "PoW consensus algorithm for substrate"
+edition.workspace = true
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+homepage.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+async-trait = { workspace = true }
+codec = { features = ["derive"], workspace = true, default-features = true }
+futures = { workspace = true }
+futures-timer = { workspace = true }
+log = { workspace = true, default-features = true }
+parking_lot = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+substrate-prometheus-endpoint.workspace = true
+substrate-prometheus-endpoint.default-features = true
+sc-client-api.workspace = true
+sc-client-api.default-features = true
+sc-consensus.workspace = true
+sc-consensus.default-features = true
+sp-api.workspace = true
+sp-api.default-features = true
+sp-block-builder.workspace = true
+sp-block-builder.default-features = true
+sp-blockchain.workspace = true
+sp-blockchain.default-features = true
+sp-consensus.workspace = true
+sp-consensus.default-features = true
+sp-consensus-pow.workspace = true
+sp-consensus-pow.default-features = true
+sp-core.workspace = true
+sp-core.default-features = true
+sp-inherents.workspace = true
+sp-inherents.default-features = true
+sp-runtime.workspace = true
+sp-runtime.default-features = true
