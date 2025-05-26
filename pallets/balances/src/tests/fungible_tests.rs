@@ -421,7 +421,7 @@ fn sufficients_work_properly_with_reference_counting() {
 				System::inc_sufficients(&1);
 				// Spend the same balance multiple times
 				assert_ok!(<Balances as fungible::Mutate<_>>::transfer(&1, &1337, 100, Expendable));
-				assert_eq!(Balances::free_balance(&1), 0);
+				assert_eq!(Balances::free_balance(1), 0);
 				assert_noop!(
 					<Balances as fungible::Mutate<_>>::transfer(&1, &1337, 100, Expendable),
 					TokenError::FundsUnavailable
@@ -537,13 +537,13 @@ fn freeze_consideration_works() {
 
 			let ticket = ticket.update(&who, Footprint::from_parts(0, 0)).unwrap();
 			assert!(ticket.is_none());
-			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 0 + extend_freeze);
+			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), extend_freeze);
 
 			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 10 + extend_freeze);
 
-			let _ = ticket.drop(&who).unwrap();
-			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 0 + extend_freeze);
+			ticket.drop(&who).unwrap();
+			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), extend_freeze);
 		});
 }
 
@@ -583,13 +583,13 @@ fn hold_consideration_works() {
 
 			let ticket = ticket.update(&who, Footprint::from_parts(0, 0)).unwrap();
 			assert!(ticket.is_none());
-			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 0 + extend_hold);
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), extend_hold);
 
 			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 10 + extend_hold);
 
-			let _ = ticket.drop(&who).unwrap();
-			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 0 + extend_hold);
+			ticket.drop(&who).unwrap();
+			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), extend_hold);
 		});
 }
 
@@ -626,7 +626,7 @@ fn lone_freeze_consideration_works() {
 			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 10);
 
-			let _ = ticket.drop(&who).unwrap();
+			ticket.drop(&who).unwrap();
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &who), 0);
 		});
 }
@@ -664,7 +664,7 @@ fn lone_hold_consideration_works() {
 			let ticket = Consideration::new(&who, Footprint::from_parts(10, 1)).unwrap();
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 10);
 
-			let _ = ticket.drop(&who).unwrap();
+			ticket.drop(&who).unwrap();
 			assert_eq!(Balances::balance_on_hold(&TestId::Foo, &who), 0);
 		});
 }

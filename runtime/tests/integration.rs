@@ -2,7 +2,6 @@ use codec::{Decode, Encode};
 use dilithium_crypto::{
     ResonanceSignatureWithPublic, ResonanceSignatureScheme, PUB_KEY_BYTES,
 };
-use hdwallet;
 use sp_core::ByteArray;
 use sp_runtime::{
     generic::UncheckedExtrinsic,generic::Preamble,
@@ -51,7 +50,7 @@ mod tests {
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
         let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
-        let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
+        let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
         println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
 
@@ -66,7 +65,7 @@ mod tests {
             ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
         let bytes: &[u8] = signature.as_ref(); // or signature.as_slice()
-        println!("Gen Signature bytes: {:?}", format_hex_truncated(&bytes));
+        println!("Gen Signature bytes: {:?}", format_hex_truncated(bytes));
         println!("Gen Signature length: {:?}", bytes.len());
 
         // Step 3: Derive AccountId and create extrinsic
@@ -121,7 +120,7 @@ mod tests {
                         let sig = sig_public.signature();
                         let sig_bytes = sig.as_slice();
                         println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
-                        println!("Decoded Public Key: {:?}", format_hex_truncated(&sig_public.public().as_ref()));
+                        println!("Decoded Public Key: {:?}", format_hex_truncated(sig_public.public().as_ref()));
                     }
                     _ => println!("Decoded Signature: --"),
                 }
@@ -270,7 +269,7 @@ mod tests {
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
         let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
-        let pk_bytes: [u8; PUB_KEY_BYTES as usize] = keypair.public.to_bytes();
+        let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
         // Create and sign a payload
         let payload: RuntimeCall = 42;
@@ -381,7 +380,7 @@ mod tests {
                 match decoded_signature {
                     ResonanceSignatureScheme::Sr25519(ref sig) => {
                         let sig_bytes = sig.as_slice();
-                        println!("Decoded Signature: {:?}", format_hex_truncated(&sig_bytes));
+                        println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
                     }
                     _ => println!("Decoded Signature: --"),
                 }

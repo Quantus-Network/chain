@@ -35,7 +35,6 @@ use frame_system::{self as system, RawOrigin};
 use pallet_transaction_payment::{ChargeTransactionPayment, FungibleAdapter, Multiplier};
 use scale_info::TypeInfo;
 use sp_core::hexdisplay::HexDisplay;
-use sp_io;
 use sp_runtime::{
 	traits::{BadOrigin, Zero},
 	ArithmeticError, BuildStorage, DispatchError, DispatchResult, FixedPointNumber, RuntimeDebug,
@@ -180,9 +179,9 @@ impl ExtBuilder {
 	pub fn build_and_execute_with(self, f: impl Fn()) {
 		let other = self.clone();
 		UseSystem::set(false);
-		other.build().execute_with(|| f());
+		other.build().execute_with(&f);
 		UseSystem::set(true);
-		self.build().execute_with(|| f());
+		self.build().execute_with(f);
 	}
 }
 

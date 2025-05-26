@@ -11,15 +11,15 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(9));
-	properties.insert("tokenSymbol".into(), json!("REZ"));
+	properties.insert("tokenSymbol".into(), json!("DEV"));
 
 	Ok(ChainSpec::builder(
-		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
+		WASM_BINARY.ok_or_else(|| "Quantus DevNet wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Development")
+	.with_name("Quantus DevNet")
 	.with_id("dev")
-	.with_protocol_id("resonance-testnet")
+	.with_protocol_id("quantus-devnet")
 	.with_chain_type(ChainType::Development)
 	.with_genesis_config_preset_name(sp_genesis_builder::DEV_RUNTIME_PRESET)
 	.with_properties(properties)
@@ -30,15 +30,15 @@ pub fn local_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(9));
-	properties.insert("tokenSymbol".into(), json!("REZ"));
+	properties.insert("tokenSymbol".into(), json!("RESL"));
 
 	Ok(ChainSpec::builder(
-		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
+		WASM_BINARY.ok_or_else(|| "Local Resonance wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Local Testnet")
-	.with_id("local_testnet")
-	.with_protocol_id("resonance-testnet")
+	.with_name("Local Resonance")
+	.with_id("local_resonance")
+	.with_protocol_id("local-resonance")
 	.with_chain_type(ChainType::Local)
 	.with_genesis_config_preset_name(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET)
 		.with_properties(properties)
@@ -50,7 +50,7 @@ pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
 
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(9));
-	properties.insert("tokenSymbol".into(), json!("REZ"));
+	properties.insert("tokenSymbol".into(), json!("RES"));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![
 		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0)
@@ -63,12 +63,12 @@ pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
 	];
 
 	Ok(ChainSpec::builder(
-		WASM_BINARY.ok_or_else(|| "Live testnet wasm not available".to_string())?,
+		WASM_BINARY.ok_or_else(|| "Resonance wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Resonance Testnet")
-	.with_id("resonance_testnet")
-	.with_protocol_id("resonance-testnet")
+	.with_name("Resonance")
+	.with_id("resonance")
+	.with_protocol_id("resonance")
 	.with_boot_nodes(boot_nodes)
 	.with_telemetry_endpoints(telemetry_endpoints)
 	.with_chain_type(ChainType::Live)

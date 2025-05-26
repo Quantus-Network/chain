@@ -44,7 +44,7 @@ async fn spec_mine_valid_request() {
     let valid_req = MiningRequest {
         job_id: "job-valid-1".to_string(),
         mining_hash: "a".repeat(64),
-        difficulty: "12345".to_string(),
+        distance_threshold: "12345".to_string(),
         nonce_start: "0".repeat(128),
         nonce_end: "f".repeat(128),
     };
@@ -70,7 +70,7 @@ async fn spec_mine_duplicate_job_id() {
     let valid_req = MiningRequest {
         job_id: "job-duplicate-1".to_string(),
         mining_hash: "b".repeat(64),
-        difficulty: "54321".to_string(),
+        distance_threshold: "54321".to_string(),
         nonce_start: "1".repeat(128),
         nonce_end: "e".repeat(128),
     };
@@ -78,7 +78,7 @@ async fn spec_mine_duplicate_job_id() {
     // Add the job first
     let job = MiningJob::new(
         hex::decode(valid_req.mining_hash.clone()).unwrap().try_into().unwrap(),
-        valid_req.difficulty.parse().unwrap(),
+        U512::from_dec_str(&valid_req.distance_threshold).unwrap(),
         U512::from_str_radix(&valid_req.nonce_start, 16).unwrap(),
         U512::from_str_radix(&valid_req.nonce_end, 16).unwrap()
     );
@@ -109,7 +109,7 @@ async fn spec_mine_invalid_hash_format() {
     let invalid_req = json!({
         "job_id": "job-invalid-hash",
         "mining_hash": "a".repeat(63), // Too short
-        "difficulty": "1000",
+        "distance_threshold": "1000",
         "nonce_start": "0".repeat(128),
         "nonce_end": "f".repeat(128)
     });
@@ -169,7 +169,7 @@ async fn spec_result_job_running() {
     // Add a job
     let job = MiningJob::new(
         [1u8; 32],
-        1000,
+        U512::from(1000),
         U512::from(0),
         U512::from(1000),
     );
@@ -226,7 +226,7 @@ async fn spec_cancel_existing_job() {
     let (state, routes) = setup_routes();
     let job_id = "job-cancel-1".to_string();
     // Add a job
-    let job = MiningJob::new([2u8; 32], 2000, U512::from(0), U512::from(500));
+    let job = MiningJob::new([2u8; 32], U512::from(2000), U512::from(0), U512::from(500));
     state.add_job(job_id.clone(), job).await.unwrap();
 
     let resp = request()

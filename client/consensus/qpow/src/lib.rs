@@ -4,7 +4,7 @@ mod chain_management;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use codec::{Decode, Encode};
-use primitive_types::{H256, U256};
+use primitive_types::{H256, U512};
 use sc_consensus_pow::{Error, PowAlgorithm};
 use sp_consensus_pow::{Seal as RawSeal};
 use sp_api::__private::BlockT;
@@ -12,7 +12,6 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic::BlockId;
 use sp_consensus_qpow::QPoWApi;
 use sc_client_api::BlockBackend;
-
 pub use miner::QPoWMiner;
 pub use chain_management::HeaviestChain;
 pub use chain_management::ChainManagement;
@@ -54,13 +53,13 @@ where
     C::Api: QPoWApi<B>,
 {
 
-    type Difficulty = U256;
+    type Difficulty = U512;
 
     fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
         self.client
             .runtime_api()
             .get_difficulty(parent)
-            .map(U256::from)
+            .map(U512::from)
             .map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
     }
 

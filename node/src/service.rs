@@ -374,11 +374,11 @@ pub fn new_full<
                             }
                         }
 
-                        // Get current difficulty from runtime
-                        let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
+                        // Get current distance_threshold from runtime
+                        let distance_threshold = match client.runtime_api().get_distance_threshold(metadata.best_hash) {
                             Ok(d) => d,
                             Err(e) => {
-                                log::warn!("Failed to get difficulty: {:?}", e);
+                                log::warn!("Failed to get distance_threshold: {:?}", e);
                                 tokio::time::sleep(Duration::from_millis(250)).await;
                                 continue;
                             }
@@ -394,7 +394,7 @@ pub fn new_full<
                             miner_url,
                             &job_id,
                             &metadata.pre_hash,
-                            difficulty,
+                            distance_threshold,
                             nonce,
                             U512::max_value(),
                         )
@@ -416,7 +416,7 @@ pub fn new_full<
                                             nonce = U512::zero();
                                         } else {
                                             log::warn!("Failed to submit mined block from external miner");
-                                            nonce = nonce + U512::one();
+                                            nonce += U512::one();
                                         }
                                     } else {
                                         log::info!("Work from external miner is stale, discarding.");
@@ -449,8 +449,6 @@ pub fn new_full<
                                 continue;
                             }
                         };
-
-                        log::info!("block found");
 
                         let current_version = worker_handle.version();
                         if current_version == version {

@@ -121,9 +121,9 @@ pub mod pallet {
 					miner_balance);
 
 			} else {
-				log::warn!(
+				log::info!(
                     target: "mining-rewards",
-                    "Failed to identify miner for block {:?}",
+                    "No rewards address provided for block {:?}",
                     block_number
                 );
 			}

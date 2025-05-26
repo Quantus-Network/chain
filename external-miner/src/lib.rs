@@ -30,7 +30,7 @@ pub struct MiningState {
 #[derive(Debug, Clone)]
 pub struct MiningJob {
     pub header_hash: [u8; 32],
-    pub difficulty: u64,
+    pub distance_threshold: U512,
     pub nonce_start: U512,
     pub nonce_end: U512,
     pub current_nonce: U512,
@@ -42,13 +42,13 @@ pub struct MiningJob {
 impl MiningJob {
     pub fn new(
         header_hash: [u8; 32],
-        difficulty: u64,
+        distance_threshold: U512,
         nonce_start: U512,
         nonce_end: U512,
     ) -> Self {
         MiningJob {
             header_hash,
-            difficulty,
+            distance_threshold,
             nonce_start,
             nonce_end,
             current_nonce: nonce_start,
@@ -56,6 +56,12 @@ impl MiningJob {
             hash_count: 0,
             start_time: Instant::now(),
         }
+    }
+}
+
+impl Default for MiningState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -100,7 +106,7 @@ impl MiningState {
                         // Increment nonce first for the next potential check
                         // (unless it's the very first hash attempt)
                         if job.hash_count > 0 {
-                            job.current_nonce = job.current_nonce + U512::one();
+                            job.current_nonce += U512::one();
                         }
 
                         // Check if the *new* current_nonce has exceeded the range *before* hashing
@@ -122,7 +128,7 @@ impl MiningState {
                         job.hash_count += 1;
 
                         // Call the verification function from qpow-math
-                        if is_valid_nonce(job.header_hash, nonce_bytes, job.difficulty) {
+                        if is_valid_nonce(job.header_hash, nonce_bytes, job.distance_threshold) {
                             job.status = JobStatus::Completed;
                             log::info!(
                                 "Job {} COMPLETED! Nonce: {} ({}), Hashes: {}, Time: {:?}",
@@ -160,18 +166,18 @@ pub fn validate_mining_request(request: &MiningRequest) -> Result<(), String> {
     if request.mining_hash.len() != 64 || hex::decode(&request.mining_hash).is_err() {
         return Err("Invalid mining_hash (must be 64 hex characters)".to_string());
     }
-    if request.difficulty.parse::<u64>().is_err() {
-        return Err("Invalid difficulty (must be a valid u64)".to_string());
+    if U512::from_dec_str(&request.distance_threshold).is_err() {
+        return Err("Invalid distance_threshold (must be a valid U512)".to_string());
     }
     if request.nonce_start.len() != 128 || U512::from_str_radix(&request.nonce_start, 16).is_err() {
         return Err("Invalid nonce_start (must be 128 hex characters)".to_string());
     }
     if request.nonce_end.len() != 128 || U512::from_str_radix(&request.nonce_end, 16).is_err() {
-         return Err("Invalid nonce_end (must be 128 hex characters)".to_string());
+        return Err("Invalid nonce_end (must be 128 hex characters)".to_string());
     }
-     if U512::from_str_radix(&request.nonce_start, 16).unwrap() > U512::from_str_radix(&request.nonce_end, 16).unwrap() {
-         return Err("nonce_start cannot be greater than nonce_end".to_string());
-     }
+    if U512::from_str_radix(&request.nonce_start, 16).unwrap() > U512::from_str_radix(&request.nonce_end, 16).unwrap() {
+        return Err("nonce_start cannot be greater than nonce_end".to_string());
+    }
     Ok(())
 }
 
@@ -181,9 +187,9 @@ pub async fn handle_mine_request(
     request: MiningRequest,
     state: MiningState,
 ) -> Result<impl Reply, Rejection> {
-     log::debug!("Received mine request: {:?}", request);
+    log::debug!("Received mine request: {:?}", request);
     if let Err(e) = validate_mining_request(&request) {
-         log::warn!("Invalid mine request ({}): {}", request.job_id, e);
+        log::warn!("Invalid mine request ({}): {}", request.job_id, e);
         return Ok(warp::reply::with_status(
             warp::reply::json(&MiningResponse {
                 status: ApiResponseStatus::Error,
@@ -199,20 +205,20 @@ pub async fn handle_mine_request(
         .unwrap()
         .try_into()
         .expect("Validated hex string is 32 bytes");
-    let difficulty = request.difficulty.parse().unwrap();
+    let distance_threshold = U512::from_dec_str(&request.distance_threshold).unwrap();
     let nonce_start = U512::from_str_radix(&request.nonce_start, 16).unwrap();
     let nonce_end = U512::from_str_radix(&request.nonce_end, 16).unwrap();
 
     let job = MiningJob::new(
         header_hash,
-        difficulty,
+        distance_threshold,
         nonce_start,
         nonce_end,
     );
 
     match state.add_job(request.job_id.clone(), job).await {
         Ok(_) => {
-             log::info!("Accepted mine request for job ID: {}", request.job_id);
+            log::info!("Accepted mine request for job ID: {}", request.job_id);
             Ok(warp::reply::with_status(
                 warp::reply::json(&MiningResponse {
                     status: ApiResponseStatus::Accepted,
@@ -223,7 +229,7 @@ pub async fn handle_mine_request(
             ))
         }
         Err(e) => {
-             log::error!("Failed to add job {}: {}", request.job_id, e);
+            log::error!("Failed to add job {}: {}", request.job_id, e);
             Ok(warp::reply::with_status(
                 warp::reply::json(&MiningResponse {
                     status: ApiResponseStatus::Error,
@@ -323,12 +329,11 @@ mod tests {
     // --- Keep existing tests ---
     #[test]
     fn test_validate_mining_request() {
-        // (Keep the body of this test as it was)
         // Test valid request
         let valid_request = MiningRequest {
             job_id: "test_valid".to_string(),
             mining_hash: "a".repeat(64),
-            difficulty: "1000".to_string(),
+            distance_threshold: "1000".to_string(),
             nonce_start: "0".repeat(128),
             nonce_end: "f".repeat(128),
         };
@@ -348,9 +353,9 @@ mod tests {
         assert!(validate_mining_request(&invalid_request_hash_hex).is_err());
 
 
-        // Test invalid difficulty
+        // Test invalid distance_threshold
         let invalid_request_diff = MiningRequest {
-             difficulty: "not_a_number".to_string(), ..valid_request.clone() };
+            distance_threshold: "not_a_number".to_string(), ..valid_request.clone() };
         assert!(validate_mining_request(&invalid_request_diff).is_err());
 
         // Test invalid nonce length
@@ -377,11 +382,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mining_state() {
-        // (Keep the body of this test as it was)
-         let state = MiningState::new();
+        let state = MiningState::new();
         let job = MiningJob {
             header_hash: [0; 32],
-            difficulty: 1000,
+            distance_threshold: U512::from(1000),
             nonce_start: U512::from(0),
             nonce_end: U512::from(1000),
             current_nonce: U512::from(0),
@@ -399,7 +403,7 @@ mod tests {
         // Test getting a job
         let retrieved_job = state.get_job("test").await;
         assert!(retrieved_job.is_some());
-        assert_eq!(retrieved_job.unwrap().difficulty, 1000);
+        assert_eq!(retrieved_job.unwrap().distance_threshold, U512::from(1000));
 
         // Test removing a job
         let removed_job = state.remove_job("test").await;
@@ -411,8 +415,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_state_access() {
-        // (Keep the body of this test as it was)
-         let state = MiningState::new();
+        let state = MiningState::new();
         let mut handles = vec![];
 
         // Spawn multiple tasks to add jobs concurrently
@@ -420,7 +423,7 @@ mod tests {
             let state = state.clone();
             let job = MiningJob {
                 header_hash: [0; 32],
-                difficulty: 1000,
+                distance_threshold: U512::from(1000),
                 nonce_start: U512::from(0),
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),
@@ -447,11 +450,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_job_status_transitions() {
-        // (Keep the body of this test as it was)
-         let state = MiningState::new();
+        let state = MiningState::new();
         let job = MiningJob {
             header_hash: [0; 32],
-            difficulty: 1000,
+            distance_threshold: U512::from(1000),
             nonce_start: U512::from(0),
             nonce_end: U512::from(1000),
             current_nonce: U512::from(0),
@@ -491,7 +493,7 @@ mod tests {
 
         let job = MiningJob {
             header_hash: [1; 32], // Use a non-zero hash
-            difficulty: 1, // Very low difficulty
+            distance_threshold: U512::MAX, // Maximum threshold, which corresponds to the lowest mining difficulty
             nonce_start: U512::from(0),
             // Small nonce range to ensure it finishes if no solution found
             nonce_end: U512::from(500),
@@ -531,7 +533,7 @@ mod tests {
              let state = state.clone();
              let job = MiningJob {
                  header_hash: [i as u8; 32], // Different hash per job
-                 difficulty: 1, // Low difficulty
+                 distance_threshold: U512::MAX, // Low difficulty
                  nonce_start: U512::from(0),
                  nonce_end: U512::from(500), // Small range
                  current_nonce: U512::from(0),
@@ -580,13 +582,13 @@ mod tests {
     // Helper to create a basic job for testing
     fn create_test_job(
         job_id: &str,
-        difficulty: u64,
+        distance_threshold: U512,
         nonce_start: u64,
         nonce_end: u64,
     ) -> (String, MiningJob) {
         let job = MiningJob {
             header_hash: [job_id.len() as u8; 32], // Simple deterministic hash
-            difficulty,
+            distance_threshold,
             nonce_start: U512::from(nonce_start),
             nonce_end: U512::from(nonce_end),
             current_nonce: U512::from(nonce_start),
@@ -606,8 +608,8 @@ mod tests {
         let state = MiningState::new();
         state.start_mining_loop().await;
 
-        // Use difficulty 1, hoping *some* nonce in the small range satisfies the L1 distance.
-        let (job_id, job) = create_test_job("complete_test", 1, 0, 100);
+        // Use distance max
+        let (job_id, job) = create_test_job("complete_test", U512::MAX, 0, 100);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait for the loop to potentially find the nonce
@@ -628,13 +630,13 @@ mod tests {
         // Use a difficulty that is *guaranteed* to fail for all nonces in the range.
         // MAX_DISTANCE is large, so difficulty = MAX_DISTANCE should always fail unless nonce is 0.
         // A difficulty slightly less than MAX_DISTANCE is safer.
-        let impossible_difficulty = qpow_math::MAX_DISTANCE - 1; // Should make distance check fail unless distance is 0
+        let impossible_distance = U512::one(); // Should make distance check fail unless distance is 0
         let state = MiningState::new();
         state.start_mining_loop().await;
 
         let start_nonce = 10; // Start above 0 to avoid the nonce==0 edge case in is_valid_nonce
         let end_nonce = 20;
-        let (job_id, job) = create_test_job("fail_test", impossible_difficulty, start_nonce, end_nonce);
+        let (job_id, job) = create_test_job("fail_test", impossible_distance, start_nonce, end_nonce);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait long enough for the loop to iterate through the small range
@@ -653,7 +655,7 @@ mod tests {
         let state = MiningState::new();
         state.start_mining_loop().await;
 
-        let (job_id, job) = create_test_job("work_field_test", 1, 0, 100);
+        let (job_id, job) = create_test_job("work_field_test", U512::MAX, 0, 100);
         // let job_clone = job.clone(); // No longer needed
         state.add_job(job_id.clone(), job).await.unwrap();
 
@@ -695,7 +697,7 @@ mod tests {
         state.start_mining_loop().await;
 
         // Job with a large range that won't finish quickly
-        let (job_id, job) = create_test_job("cancel_test", 10000, 0, 1_000_000);
+        let (job_id, job) = create_test_job("cancel_test", U512::from(10000), 0, 1_000_000);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Let it run for a very short time
@@ -733,9 +735,9 @@ mod tests {
         state.start_mining_loop().await;
 
         let nonce_value = 50;
-        let difficulty = qpow_math::MAX_DISTANCE -1; // Use impossible difficulty
+        let distance = U512::one(); // Use impossible difficulty
 
-        let (job_id, job) = create_test_job("single_nonce_test", difficulty, nonce_value, nonce_value);
+        let (job_id, job) = create_test_job("single_nonce_test", distance, nonce_value, nonce_value);
         state.add_job(job_id.clone(), job).await.unwrap();
 
         // Wait just long enough for one check
@@ -752,7 +754,7 @@ mod tests {
          // --- Test completion case for single nonce ---
          let state_complete = MiningState::new();
          state_complete.start_mining_loop().await;
-         let difficulty_easy = 1; // Easy difficulty
+         let difficulty_easy = U512::one(); // Easy difficulty
          let (job_id_c, job_c) = create_test_job("single_nonce_complete", difficulty_easy, nonce_value, nonce_value);
          state_complete.add_job(job_id_c.clone(), job_c).await.unwrap();
 

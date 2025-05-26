@@ -45,14 +45,13 @@ where
         // Verify the nonce using runtime api
         match self.client.runtime_api().submit_nonce(parent_hash, block_hash, nonce) {
             Ok(true) => {
-                log::info!("good seal");
                 Ok(QPoWSeal { nonce })
             }
             Ok(false) => {
                 Err(())
             }
             Err(e) => {
-                log::info!("API error in verify_nonce: {:?}", e);
+                log::error!("API error in verify_nonce: {:?}", e);
                 Err(())
             }
         }
