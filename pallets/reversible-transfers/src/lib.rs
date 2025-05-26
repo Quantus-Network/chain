@@ -25,6 +25,7 @@ use alloc::vec::Vec;
 use frame_support::traits::tokens::{Fortitude, Restriction};
 use frame_support::{pallet_prelude::*, traits::schedule::DispatchTime};
 use frame_system::pallet_prelude::*;
+use sp_common::scheduler::ScheduleNamed;
 use sp_runtime::traits::StaticLookup;
 
 /// How to delay transactions
@@ -106,11 +107,11 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Scheduler for the runtime. We use the Named scheduler for cancellability.
-        type Scheduler: Named<
+        type Scheduler: ScheduleNamed<
             BlockNumberFor<Self>,
+            Self::Moment,
             Self::RuntimeCall,
-            Self::SchedulerOrigin,
-            Hasher = Self::Hashing,
+            <Self as frame_system::Config>::RuntimeOrigin,
         >;
 
         /// Scheduler origin
@@ -144,6 +145,14 @@ pub mod pallet {
 
         /// Hold reason for the reversible transactions.
         type RuntimeHoldReason: From<HoldReason>;
+
+        /// Moment type for scheduling.
+        type Moment: Saturating
+            + Copy
+            + Parameter
+            + AtLeast32Bit
+            + Scale<BlockNumberFor<Self>, Output = Self::Moment>
+            + MaxEncodedLen;
     }
 
     /// Maps accounts to their chosen reversibility delay period (in milliseconds).
