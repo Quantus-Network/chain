@@ -7608,8 +7608,8 @@ dependencies = [
 
 [[package]]
 name = "poseidon-resonance"
-version = "0.5.0"
-source = "git+https://github.com/Resonance-Network/poseidon-resonance#fba5320c8f22dd218a64b7a289e0b10e160055c8"
+version = "0.6.0"
+source = "git+https://github.com/Resonance-Network/poseidon-resonance#7260669286ac93086ef2796fa2c72c1ca2ac9a8b"
 dependencies = [
  "log",
  "parity-scale-codec",

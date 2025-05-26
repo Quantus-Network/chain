@@ -186,7 +186,6 @@ pub use types::{
 };
 pub use weights::WeightInfo;
 use poseidon_resonance::PoseidonHasher as PoseidonCore;
-use sp_runtime::traits::Hash;
 pub use pallet::*;
 
 const LOG_TARGET: &str = "runtime::balances";
