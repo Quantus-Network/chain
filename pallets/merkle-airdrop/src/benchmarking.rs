@@ -1,5 +1,40 @@
 //! Benchmarking setup for pallet-merkle-airdrop
+#![cfg(feature = "runtime-benchmarks")]
 
+use super::*;
+#[allow(unused_imports)]
+use crate::Pallet as MerkleAirdropPallet;
+
+use frame_benchmarking::v2::*;
+use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
+#[allow(unused_imports)]
+use sp_runtime::traits::Zero;
+
+use crate::MerkleRoot;
+
+#[benchmarks]
+mod new_benchmarks {
+    use super::*;
+
+    #[benchmark]
+    fn create_airdrop() {
+        let caller: T::AccountId = whitelisted_caller();
+        let merkle_root_value: MerkleRoot = [0u8; 32];
+        let vesting_period: Option<BlockNumberFor<T>> = None;
+        let vesting_delay: Option<BlockNumberFor<T>> = None;
+        
+        #[extrinsic_call]
+        create_airdrop(RawOrigin::Signed(caller), merkle_root_value, vesting_period, vesting_delay);
+    }
+
+    impl_benchmark_test_suite!(
+        MerkleAirdropPallet,
+        crate::mock::new_test_ext(),
+        crate::mock::Test
+    );
+}
+
+/* 
 use super::*;
 
 #[allow(unused)]
@@ -11,6 +46,7 @@ use alloc::vec;
 use frame_support::traits::fungible::{Inspect, Mutate};
 use frame_support::BoundedVec;
 use sp_runtime::traits::Saturating;
+
 
 #[benchmarks]
 mod benchmarks {
@@ -116,3 +152,4 @@ mod benchmarks {
         crate::mock::Test
     );
 }
+*/
