@@ -22,7 +22,6 @@ members = [
     "dilithium-crypto/verify",
     "dilithium-crypto/sign",
     "pallets/balances",
-    "pallets/vesting",
     "pallets/reversible-transfers",
     "external-miner",
     "resonance-miner-api",
@@ -58,6 +57,7 @@ pallet-referenda = { version = "39.1.0", default-features = false }
 pallet-scheduler = { version = "40.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 parking_lot = { version = "0.12.1", default-features = false }
+pallet-vesting = { version = "39.1.0", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.1.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
