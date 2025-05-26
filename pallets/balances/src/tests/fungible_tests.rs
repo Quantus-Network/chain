@@ -32,6 +32,7 @@ use fungible::{
 	LoneFreezeConsideration, LoneHoldConsideration, Mutate, MutateFreeze, MutateHold, Unbalanced,
 };
 use sp_core::ConstU64;
+use sp_core::ConstU128;
 
 #[test]
 fn inspect_trait_reducible_balance_basic_works() {
@@ -511,7 +512,7 @@ fn freeze_consideration_works() {
 				u64,
 				Balances,
 				FooReason,
-				LinearStoragePrice<ConstU64<0>, ConstU64<1>, Balance>,
+				LinearStoragePrice<ConstU128<0>, ConstU128<1>, Balance>,
 				Footprint,
 			>;
 
@@ -557,7 +558,7 @@ fn hold_consideration_works() {
 				u64,
 				Balances,
 				FooReason,
-				LinearStoragePrice<ConstU64<0>, ConstU64<1>, u64>,
+				LinearStoragePrice<ConstU128<0>, ConstU128<1>, Balance>,
 				Footprint,
 			>;
 
@@ -603,7 +604,7 @@ fn lone_freeze_consideration_works() {
 				u64,
 				Balances,
 				FooReason,
-				LinearStoragePrice<ConstU64<0>, ConstU64<1>, u64>,
+				LinearStoragePrice<ConstU128<0>, ConstU128<1>, Balance>,
 				Footprint,
 			>;
 
@@ -641,7 +642,7 @@ fn lone_hold_consideration_works() {
 				u64,
 				Balances,
 				FooReason,
-				LinearStoragePrice<ConstU64<0>, ConstU64<1>, u64>,
+				LinearStoragePrice<ConstU128<0>, ConstU128<1>, Balance>,
 				Footprint,
 			>;
 
