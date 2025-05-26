@@ -31,7 +31,6 @@ use fungible::{
 	FreezeConsideration, HoldConsideration, Inspect, InspectFreeze, InspectHold,
 	LoneFreezeConsideration, LoneHoldConsideration, Mutate, MutateFreeze, MutateHold, Unbalanced,
 };
-use sp_core::ConstU64;
 use sp_core::ConstU128;
 
 #[test]

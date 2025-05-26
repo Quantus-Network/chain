@@ -6823,7 +6823,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "parity-scale-codec",
- "plonky2",
+ "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -7145,6 +7145,27 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 [[package]]
 name = "plonky2"
 version = "1.0.2"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "hashbrown 0.14.5",
+ "itertools 0.11.0",
+ "keccak-hash 0.8.0",
+ "log",
+ "num",
+ "plonky2_field 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "rand 0.8.5",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
+name = "plonky2"
+version = "1.0.2"
 source = "git+https://github.com/Resonance-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
 dependencies = [
  "ahash",
@@ -7154,10 +7175,24 @@ dependencies = [
  "keccak-hash 0.8.0",
  "log",
  "num",
- "plonky2_field",
- "plonky2_maybe_rayon",
- "plonky2_util",
+ "plonky2_field 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
+ "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
+ "plonky2_util 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
  "rand 0.8.5",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
+name = "plonky2_field"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+dependencies = [
+ "anyhow",
+ "itertools 0.11.0",
+ "num",
+ "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
  "serde",
  "static_assertions",
  "unroll",
@@ -7171,7 +7206,7 @@ dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
- "plonky2_util",
+ "plonky2_util 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
  "serde",
  "static_assertions",
  "unroll",
@@ -7180,7 +7215,17 @@ dependencies = [
 [[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+
+[[package]]
+name = "plonky2_maybe_rayon"
+version = "1.0.0"
 source = "git+https://github.com/Resonance-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+
+[[package]]
+name = "plonky2_util"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
 
 [[package]]
 name = "plonky2_util"
@@ -7559,11 +7604,11 @@ dependencies = [
 [[package]]
 name = "poseidon-resonance"
 version = "0.6.0"
-source = "git+https://github.com/Resonance-Network/poseidon-resonance#7260669286ac93086ef2796fa2c72c1ca2ac9a8b"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#e39fff549e4bef8f97b1b96e0857c47a6a7eb5ab"
 dependencies = [
  "log",
  "parity-scale-codec",
- "plonky2",
+ "plonky2 1.0.2 (git+https://github.com/Resonance-Network/plonky2)",
  "scale-info",
  "serde",
  "sp-core",
