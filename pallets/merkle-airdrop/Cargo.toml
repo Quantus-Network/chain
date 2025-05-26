@@ -28,6 +28,7 @@ binary-merkle-tree = { version = "16.0.0", default-features = false }
 poseidon-resonance = { workspace = true, default-features = false }
 
 [dev-dependencies]
+pallet-vesting = { default-features = true, workspace = true }
 sp-core = { default-features = true, workspace = true }
 sp-io = { default-features = true, workspace = true }
 sp-runtime = { default-features = true, workspace = true }

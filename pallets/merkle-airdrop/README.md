@@ -1,6 +1,6 @@
 # Merkle Airdrop Pallet
 
-A Substrate pallet for distributing tokens via Merkle proofs.
+A Substrate pallet for distributing tokens via Merkle proofs with optional vesting of the airdropped tokens.
 
 ## Testing & Usage
 

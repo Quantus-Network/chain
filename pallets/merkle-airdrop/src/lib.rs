@@ -6,7 +6,7 @@
 //! ## Overview
 //!
 //! This pallet provides functionality for:
-//! - Creating airdrops with a Merkle root representing all valid claims
+//! - Creating airdrops with a Merkle root representing all valid claims, and optional vesting parameters
 //! - Funding airdrops with tokens to be distributed
 //! - Allowing users to claim tokens by providing Merkle proofs
 //! - Allowing creators to delete airdrops and reclaim any unclaimed tokens
@@ -18,13 +18,15 @@
 //!
 //! ### Dispatchable Functions
 //!
-//! * `create_airdrop` - Create a new airdrop with a Merkle root
+//! * `create_airdrop` - Create a new airdrop with a Merkle root and vesting parameters
 //! * `fund_airdrop` - Fund an existing airdrop with tokens
 //! * `claim` - Claim tokens from an airdrop by providing a Merkle proof
 //! * `delete_airdrop` - Delete an airdrop and reclaim any remaining tokens (creator only)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use codec::{Decode, Encode, MaxEncodedLen};
+use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
 
 #[cfg(test)]
@@ -36,12 +38,20 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod weights;
+use scale_info::TypeInfo;
+use sp_core::RuntimeDebug;
 pub use weights::*;
 
-use frame_support::traits::fungible::Inspect;
+use frame_support::traits::{Currency, VestedTransfer};
 
-type BalanceOf<T> =
-    <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
+/// NOTE: Vesting traits still use deprecated `Currency` trait.
+type BalanceOf<T> = <<<T as Config>::Vesting as VestedTransfer<
+    <T as frame_system::Config>::AccountId,
+>>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
+/// Type alias for airdrop info for this pallet
+type AirdropMetadataFor<T> =
+    AirdropMetadata<BlockNumberFor<T>, BalanceOf<T>, <T as frame_system::Config>::AccountId>;
 
 /// Type for storing a Merkle root hash
 pub type MerkleRoot = [u8; 32];
@@ -52,22 +62,35 @@ pub type MerkleHash = [u8; 32];
 /// Airdrop ID type
 pub type AirdropId = u32;
 
+#[derive(Encode, Decode, PartialEq, Eq, Clone, TypeInfo, RuntimeDebug, MaxEncodedLen)]
+pub struct AirdropMetadata<BlockNumber, Balance, AccountId> {
+    /// Merkle root of the airdrop
+    pub merkle_root: MerkleHash,
+    /// Creator of the airdrop
+    pub creator: AccountId,
+    /// Current airdrop balance
+    pub balance: Balance,
+    /// Vesting period for the airdrop. `None` for immediate release.
+    pub vesting_period: Option<BlockNumber>,
+    /// Vesting start delay. `None` for immediate start
+    pub vesting_delay: Option<BlockNumber>,
+}
+
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::{AirdropId, BalanceOf, MerkleHash, MerkleRoot};
+    use crate::{
+        AirdropId, AirdropMetadata, AirdropMetadataFor, BalanceOf, MerkleHash, MerkleRoot,
+    };
 
     use super::weights::WeightInfo;
     use frame_support::{
         pallet_prelude::*,
-        traits::{
-            fungible::{Inspect, Mutate},
-            Get,
-        },
+        traits::{Currency, Get, VestedTransfer, VestingSchedule},
     };
-    use frame_system::pallet_prelude::*;
+    use frame_system::pallet_prelude::{BlockNumberFor, *};
     use sp_io::hashing::blake2_256;
     use sp_runtime::traits::AccountIdConversion;
-    use sp_runtime::traits::Saturating;
+    use sp_runtime::traits::{BlockNumberProvider, Convert, Saturating};
     use sp_runtime::transaction_validity::{
         InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
         ValidTransaction,
@@ -84,8 +107,23 @@ pub mod pallet {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// The currency mechanism.
-        type Currency: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+        /// Currency type for the airdrop.
+        /// NOTE: using deprecated `Currency` trait to comply with vesting traits.
+        type Currency: Currency<Self::AccountId>;
+
+        /// The vesting mechanism.
+        type Vesting: VestedTransfer<
+                Self::AccountId,
+                Moment = BlockNumberFor<Self>,
+                Currency = Self::Currency,
+            > + VestingSchedule<
+                Self::AccountId,
+                Moment = BlockNumberFor<Self>,
+                Currency = Self::Currency,
+            >;
+
+        /// Convert the block number into a balance.
+        type BlockNumberToBalance: Convert<BlockNumberFor<Self>, BalanceOf<Self>>;
 
         /// The maximum number of proof elements allowed in a Merkle proof.
         #[pallet::constant]
@@ -101,27 +139,19 @@ pub mod pallet {
 
         /// Weight information for the extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+
+        /// Block number provider.
+        type BlockNumberProvider: BlockNumberProvider<BlockNumber = BlockNumberFor<Self>>;
     }
 
-    /// Storage for Merkle roots of each airdrop
+    /// Stores general info about an airdrop
     #[pallet::storage]
-    #[pallet::getter(fn airdrop_merkle_roots)]
-    pub type AirdropMerkleRoots<T> = StorageMap<_, Blake2_128Concat, AirdropId, MerkleRoot>;
-
-    /// Storage for airdrop creators
-    #[pallet::storage]
-    #[pallet::getter(fn airdrop_creators)]
-    pub type AirdropCreators<T: Config> = StorageMap<_, Blake2_128Concat, AirdropId, T::AccountId>;
-
-    /// Storage for airdrop balances
-    #[pallet::storage]
-    #[pallet::getter(fn airdrop_balances)]
-    pub type AirdropBalances<T: Config> = StorageMap<
+    #[pallet::getter(fn airdrop_info)]
+    pub type AirdropInfo<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         AirdropId,
-        <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
-        ValueQuery,
+        AirdropMetadata<BlockNumberFor<T>, BalanceOf<T>, T::AccountId>,
     >;
 
     /// Storage for claimed status
@@ -151,8 +181,8 @@ pub mod pallet {
         AirdropCreated {
             /// The ID of the created airdrop
             airdrop_id: AirdropId,
-            /// The Merkle root of the airdrop
-            merkle_root: MerkleRoot,
+            /// Airdrop metadata
+            airdrop_metadata: AirdropMetadataFor<T>,
         },
         /// An airdrop has been funded with tokens.
         ///
@@ -161,7 +191,7 @@ pub mod pallet {
             /// The ID of the funded airdrop
             airdrop_id: AirdropId,
             /// The amount of tokens added to the airdrop
-            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
+            amount: BalanceOf<T>,
         },
         /// A user has claimed tokens from an airdrop.
         ///
@@ -172,7 +202,7 @@ pub mod pallet {
             /// The account that claimed the tokens
             account: T::AccountId,
             /// The amount of tokens claimed
-            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
+            amount: BalanceOf<T>,
         },
         /// An airdrop has been deleted.
         ///
@@ -313,21 +343,34 @@ pub mod pallet {
         ///
         /// * `origin` - The origin of the call (must be signed)
         /// * `merkle_root` - The Merkle root hash representing all valid claims
+        /// * `vesting_period` - Optional vesting period for the airdrop
+        /// * `vesting_delay` - Optional delay before vesting starts
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::create_airdrop())]
-        pub fn create_airdrop(origin: OriginFor<T>, merkle_root: MerkleRoot) -> DispatchResult {
+        pub fn create_airdrop(
+            origin: OriginFor<T>,
+            merkle_root: MerkleRoot,
+            vesting_period: Option<BlockNumberFor<T>>,
+            vesting_delay: Option<BlockNumberFor<T>>,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             let airdrop_id = Self::next_airdrop_id();
 
-            AirdropMerkleRoots::<T>::insert(airdrop_id, merkle_root);
-            AirdropCreators::<T>::insert(airdrop_id, who.clone());
+            let airdrop_metadata = AirdropMetadata {
+                merkle_root,
+                creator: who.clone(),
+                balance: Zero::zero(),
+                vesting_period,
+                vesting_delay,
+            };
 
+            AirdropInfo::<T>::insert(airdrop_id, &airdrop_metadata);
             NextAirdropId::<T>::put(airdrop_id.saturating_add(1));
 
             Self::deposit_event(Event::AirdropCreated {
                 airdrop_id,
-                merkle_root,
+                airdrop_metadata,
             });
 
             Ok(())
@@ -352,24 +395,26 @@ pub mod pallet {
         pub fn fund_airdrop(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
-            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
+            amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             ensure!(
-                AirdropMerkleRoots::<T>::contains_key(airdrop_id),
+                AirdropInfo::<T>::contains_key(airdrop_id),
                 Error::<T>::AirdropNotFound
             );
 
-            <T::Currency as Mutate<T::AccountId>>::transfer(
+            T::Currency::transfer(
                 &who,
                 &Self::account_id(),
                 amount,
-                frame_support::traits::tokens::Preservation::Preserve,
+                frame_support::traits::ExistenceRequirement::KeepAlive,
             )?;
 
-            AirdropBalances::<T>::mutate(airdrop_id, |balance| {
-                *balance = balance.saturating_add(amount);
+            AirdropInfo::<T>::mutate(airdrop_id, |maybe_metadata| {
+                if let Some(metadata) = maybe_metadata {
+                    metadata.balance = metadata.balance.saturating_add(amount);
+                }
             });
 
             Self::deposit_event(Event::AirdropFunded { airdrop_id, amount });
@@ -402,47 +447,61 @@ pub mod pallet {
             origin: OriginFor<T>,
             airdrop_id: AirdropId,
             recipient: T::AccountId,
-            amount: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
+            amount: BalanceOf<T>,
             merkle_proof: BoundedVec<MerkleHash, T::MaxProofs>,
         ) -> DispatchResult {
             ensure_none(origin)?;
-
-            ensure!(
-                AirdropMerkleRoots::<T>::contains_key(airdrop_id),
-                Error::<T>::AirdropNotFound
-            );
 
             ensure!(
                 !Claimed::<T>::contains_key(airdrop_id, &recipient),
                 Error::<T>::AlreadyClaimed
             );
 
-            let merkle_root =
-                AirdropMerkleRoots::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
+            let airdrop_metadata =
+                AirdropInfo::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
 
             ensure!(
-                Self::verify_merkle_proof(&recipient, amount, &merkle_root, &merkle_proof),
+                Self::verify_merkle_proof(
+                    &recipient,
+                    amount,
+                    &airdrop_metadata.merkle_root,
+                    &merkle_proof
+                ),
                 Error::<T>::InvalidProof
             );
 
-            let airdrop_balance = AirdropBalances::<T>::get(airdrop_id);
             ensure!(
-                airdrop_balance >= amount,
+                airdrop_metadata.balance >= amount,
                 Error::<T>::InsufficientAirdropBalance
             );
 
             // Mark as claimed before performing the transfer
             Claimed::<T>::insert(airdrop_id, &recipient, ());
 
-            AirdropBalances::<T>::mutate(airdrop_id, |balance| {
-                *balance = balance.saturating_sub(amount);
+            AirdropInfo::<T>::mutate(airdrop_id, |maybe_metadata| {
+                if let Some(metadata) = maybe_metadata {
+                    metadata.balance = metadata.balance.saturating_sub(amount);
+                }
             });
 
-            <T::Currency as Mutate<T::AccountId>>::transfer(
+            let per_block = if let Some(vesting_period) = airdrop_metadata.vesting_period {
+                amount
+                    .checked_div(&T::BlockNumberToBalance::convert(vesting_period))
+                    .ok_or_else(|| Error::<T>::InsufficientAirdropBalance)?
+            } else {
+                amount
+            };
+
+            let current_block = T::BlockNumberProvider::current_block_number();
+            let vesting_start =
+                current_block.saturating_add(airdrop_metadata.vesting_delay.unwrap_or_default());
+
+            T::Vesting::vested_transfer(
                 &Self::account_id(),
                 &recipient,
                 amount,
-                frame_support::traits::tokens::Preservation::Preserve,
+                per_block,
+                vesting_start,
             )?;
 
             Self::deposit_event(Event::Claimed {
@@ -473,30 +532,20 @@ pub mod pallet {
         pub fn delete_airdrop(origin: OriginFor<T>, airdrop_id: AirdropId) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
+            let airdrop_metadata =
+                AirdropInfo::<T>::take(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
+
             ensure!(
-                AirdropMerkleRoots::<T>::contains_key(airdrop_id),
-                Error::<T>::AirdropNotFound
+                airdrop_metadata.creator == who,
+                Error::<T>::NotAirdropCreator
             );
 
-            let creator =
-                AirdropCreators::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
-            ensure!(who == creator, Error::<T>::NotAirdropCreator);
-
-            let balance = AirdropBalances::<T>::get(airdrop_id);
-
-            if !balance.is_zero() {
-                <T::Currency as Mutate<T::AccountId>>::transfer(
-                    &Self::account_id(),
-                    &creator,
-                    balance,
-                    frame_support::traits::tokens::Preservation::Preserve,
-                )?;
-            }
-
-            // Remove the airdrop data from storage
-            AirdropMerkleRoots::<T>::remove(airdrop_id);
-            AirdropBalances::<T>::remove(airdrop_id);
-            AirdropCreators::<T>::remove(airdrop_id);
+            T::Currency::transfer(
+                &Self::account_id(),
+                &airdrop_metadata.creator,
+                airdrop_metadata.balance,
+                frame_support::traits::ExistenceRequirement::KeepAlive,
+            )?;
 
             Self::deposit_event(Event::AirdropDeleted { airdrop_id });
 
@@ -517,7 +566,7 @@ pub mod pallet {
             } = call
             {
                 // 1. Check if airdrop exists
-                let merkle_root = AirdropMerkleRoots::<T>::get(airdrop_id).ok_or_else(|| {
+                let airdrop_metadata = AirdropInfo::<T>::get(airdrop_id).ok_or_else(|| {
                     let error = Error::<T>::AirdropNotFound;
                     InvalidTransaction::Custom(error.to_code())
                 })?;
@@ -529,7 +578,12 @@ pub mod pallet {
                 }
 
                 // 3. Verify Merkle Proof
-                if !Self::verify_merkle_proof(recipient, *amount, &merkle_root, merkle_proof) {
+                if !Self::verify_merkle_proof(
+                    recipient,
+                    *amount,
+                    &airdrop_metadata.merkle_root,
+                    merkle_proof,
+                ) {
                     let error = Error::<T>::InvalidProof;
                     return InvalidTransaction::Custom(error.to_code()).into();
                 }
