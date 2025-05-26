@@ -258,6 +258,11 @@ pub mod pallet {
                 !ReversibleAccounts::<T>::contains_key(&who),
                 Error::<T>::AccountAlreadyReversible
             );
+            ensure!(
+                reverser != Some(who.clone()),
+                Error::<T>::ExplicitReverserCanNotBeSelf
+            );
+
             let delay = delay.unwrap_or(T::DefaultDelay::get());
 
             ensure!(delay >= T::MinDelayPeriod::get(), Error::<T>::DelayTooShort);
