@@ -89,11 +89,11 @@ use frame_system::{
     {self as system},
 };
 use scale_info::TypeInfo;
+use sp_common::scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
 use sp_runtime::{
     traits::{BadOrigin, CheckedDiv, Dispatchable, One, Saturating, Zero},
     BoundedVec, DispatchError, RuntimeDebug,
 };
-use traits::ScheduleNamed;
 
 pub use pallet::*;
 pub use weights::WeightInfo;
@@ -114,85 +114,6 @@ pub type BoundedCallOf<T> =
 pub type BlockNumberOrTimestampOf<T> =
     BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
 
-/// Block number or timestamp.
-#[derive(
-    Encode,
-    Decode,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    RuntimeDebug,
-    TypeInfo,
-    MaxEncodedLen,
-    Ord,
-    PartialOrd,
-)]
-pub enum BlockNumberOrTimestamp<BlockNumber, Moment> {
-    BlockNumber(BlockNumber),
-    Timestamp(Moment),
-}
-
-impl<BlockNumber, Moment> BlockNumberOrTimestamp<BlockNumber, Moment>
-where
-    BlockNumber: Saturating + Copy + Parameter + One + Zero,
-    Moment: Saturating + Copy + Parameter + Zero,
-{
-    /// Returns the block number if it is a block number.
-    fn as_block_number(&self) -> Option<BlockNumber> {
-        match self {
-            BlockNumberOrTimestamp::BlockNumber(x) => Some(*x),
-            BlockNumberOrTimestamp::Timestamp(_) => None,
-        }
-    }
-
-    /// Is zero
-    fn is_zero(&self) -> bool {
-        match self {
-            BlockNumberOrTimestamp::BlockNumber(x) => x.is_zero(),
-            BlockNumberOrTimestamp::Timestamp(x) => x.is_zero(),
-        }
-    }
-
-    /// Saturating add two `BlockNumberOrTimestamp`.
-    fn saturating_add(
-        &self,
-        other: &BlockNumberOrTimestamp<BlockNumber, Moment>,
-    ) -> Option<BlockNumberOrTimestamp<BlockNumber, Moment>> {
-        match (self, other) {
-            (BlockNumberOrTimestamp::BlockNumber(x), BlockNumberOrTimestamp::BlockNumber(y)) => {
-                Some(BlockNumberOrTimestamp::BlockNumber(x.saturating_add(*y)))
-            }
-            (BlockNumberOrTimestamp::Timestamp(x), BlockNumberOrTimestamp::Timestamp(y)) => {
-                Some(BlockNumberOrTimestamp::Timestamp(x.saturating_add(*y)))
-            }
-            _ => None,
-        }
-    }
-}
-
-/// The dispatch time of a scheduled task.
-///
-/// This is an extended version of `frame_support::traits::schedule::DispatchTime` which allows
-/// for a task to be scheduled at or close to specific timestamps. This is useful for chains that
-/// does not have a fixed block time, such as PoW chains.
-#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub enum DispatchTime<BlockNumber, Moment> {
-    /// At specified block.
-    At(BlockNumber),
-    /// After specified number of blocks.
-    After(BlockNumberOrTimestamp<BlockNumber, Moment>),
-}
-
-impl<BlockNumber, Moment> From<DispatchBlock<BlockNumber>> for DispatchTime<BlockNumber, Moment> {
-    fn from(value: DispatchBlock<BlockNumber>) -> Self {
-        match value {
-            DispatchBlock::At(x) => DispatchTime::At(x),
-            DispatchBlock::After(x) => DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(x)),
-        }
-    }
-}
-
 /// The configuration of the retry mechanism for a given task along with its current state.
 #[derive(Clone, Copy, RuntimeDebug, PartialEq, Eq, Encode, Decode, MaxEncodedLen, TypeInfo)]
 pub struct RetryConfig<Period> {
@@ -203,11 +124,6 @@ pub struct RetryConfig<Period> {
     /// Period of time between retry attempts.
     period: Period,
 }
-
-/// Information relating to the period of a scheduled task. First item is the length of the
-/// period and the second is the number of times it should be executed in total before the task
-/// is considered finished and removed.
-pub type Period<BlockNumber, Moment> = (BlockNumberOrTimestamp<BlockNumber, Moment>, u32);
 
 /// Information regarding an item to be executed in the future.
 #[cfg_attr(any(feature = "std", test), derive(PartialEq, Eq))]
