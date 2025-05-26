@@ -206,7 +206,7 @@ fn unbalanced_trait_increase_balance_works() {
 	ExtBuilder::default().build_and_execute_with(|| {
 		assert_noop!(Balances::increase_balance(&1337, 0, Exact), TokenError::BelowMinimum);
 		assert_eq!(Balances::increase_balance(&1337, 1, Exact), Ok(1));
-		assert_noop!(Balances::increase_balance(&1337, u64::MAX, Exact), ArithmeticError::Overflow);
+		assert_noop!(Balances::increase_balance(&1337, Balance::MAX, Exact), ArithmeticError::Overflow);
 	});
 }
 
@@ -215,7 +215,7 @@ fn unbalanced_trait_increase_balance_at_most_works() {
 	ExtBuilder::default().build_and_execute_with(|| {
 		assert_eq!(Balances::increase_balance(&1337, 0, BestEffort), Ok(0));
 		assert_eq!(Balances::increase_balance(&1337, 1, BestEffort), Ok(1));
-		assert_eq!(Balances::increase_balance(&1337, u64::MAX, BestEffort), Ok(u64::MAX - 1));
+		assert_eq!(Balances::increase_balance(&1337, Balance::MAX, BestEffort), Ok(Balance::MAX - 1));
 	});
 }
 
@@ -301,7 +301,7 @@ fn thaw_should_work() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, u64::MAX));
+			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, Balance::MAX));
 			assert_ok!(Balances::thaw(&TestId::Foo, &1));
 			assert_eq!(System::consumers(&1), 0);
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &1), 0);
@@ -316,7 +316,7 @@ fn set_freeze_zero_should_work() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, u64::MAX));
+			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, Balance::MAX));
 			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, 0));
 			assert_eq!(System::consumers(&1), 0);
 			assert_eq!(Balances::balance_frozen(&TestId::Foo, &1), 0);
@@ -331,7 +331,7 @@ fn set_freeze_should_work() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, u64::MAX));
+			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, Balance::MAX));
 			assert_ok!(Balances::set_freeze(&TestId::Foo, &1, 5));
 			assert_ok!(<Balances as fungible::Mutate<_>>::transfer(&1, &2, 5, Expendable));
 			assert_noop!(
@@ -511,7 +511,7 @@ fn freeze_consideration_works() {
 				u64,
 				Balances,
 				FooReason,
-				LinearStoragePrice<ConstU64<0>, ConstU64<1>, u64>,
+				LinearStoragePrice<ConstU64<0>, ConstU64<1>, Balance>,
 				Footprint,
 			>;
 

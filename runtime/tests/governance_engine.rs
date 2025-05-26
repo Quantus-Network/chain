@@ -7,9 +7,8 @@ mod tests {
     use codec::Encode;
     use frame_support::traits::{ConstU32, Currency, QueryPreimage};
     use frame_support::{
-        assert_noop, assert_ok, traits::PreimageProvider, BoundedVec, StorageHasher,
+        assert_noop, assert_ok, traits::PreimageProvider, BoundedVec,
     };
-    use pallet_balances::PoseidonHasher;
     use pallet_conviction_voting::AccountVote::Standard;
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
@@ -17,6 +16,7 @@ mod tests {
         Balances, BlockNumber, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime,
         RuntimeCall, RuntimeOrigin, Scheduler, UNIT,
     };
+    use poseidon_resonance::PoseidonHasher;
     use sp_runtime::traits::Hash;
 
     // Helper function to create simple test data

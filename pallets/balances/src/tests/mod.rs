@@ -82,18 +82,21 @@ frame_support::construct_runtime!(
 	}
 );
 
+type Balance = u128;
+
 parameter_types! {
 	pub BlockWeights: frame_system::limits::BlockWeights =
 		frame_system::limits::BlockWeights::simple_max(
 			frame_support::weights::Weight::from_parts(1024, u64::MAX),
 		);
-	pub static ExistentialDeposit: u64 = 1;
+	pub static ExistentialDeposit: Balance = 1;
 }
+
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
 	type Block = Block;
-	type AccountData = super::AccountData<u64>;
+	type AccountData = super::AccountData<Balance>;
 }
 
 #[derive_impl(pallet_transaction_payment::config_preludes::TestDefaultConfig)]
@@ -101,16 +104,18 @@ impl pallet_transaction_payment::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type OnChargeTransaction = FungibleAdapter<Pallet<Test>, ()>;
 	type OperationalFeeMultiplier = ConstU8<5>;
-	type WeightToFee = IdentityFee<u64>;
-	type LengthToFee = IdentityFee<u64>;
+	type WeightToFee = IdentityFee<Balance>;
+	type LengthToFee = IdentityFee<Balance>;
 }
 
 parameter_types! {
 	pub FooReason: TestId = TestId::Foo;
 }
 
+
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl Config for Test {
+	type Balance = Balance;
 	type DustRemoval = DustTrap;
 	type ExistentialDeposit = ExistentialDeposit;
 	type AccountStore = TestAccountStore;
@@ -124,7 +129,7 @@ impl Config for Test {
 
 #[derive(Clone)]
 pub struct ExtBuilder {
-	existential_deposit: u64,
+	existential_deposit: Balance,
 	monied: bool,
 	dust_trap: Option<u64>,
 }
@@ -134,7 +139,7 @@ impl Default for ExtBuilder {
 	}
 }
 impl ExtBuilder {
-	pub fn existential_deposit(mut self, existential_deposit: u64) -> Self {
+	pub fn existential_deposit(mut self, existential_deposit: Balance) -> Self {
 		self.existential_deposit = existential_deposit;
 		self
 	}
@@ -207,12 +212,12 @@ parameter_types! {
 	pub static UseSystem: bool = false;
 }
 
-type BalancesAccountStore = StorageMapShim<super::Account<Test>, u64, super::AccountData<u64>>;
+type BalancesAccountStore = StorageMapShim<super::Account<Test>, u64, super::AccountData<Balance>>;
 type SystemAccountStore = frame_system::Pallet<Test>;
 
 pub struct TestAccountStore;
-impl StoredMap<u64, super::AccountData<u64>> for TestAccountStore {
-	fn get(k: &u64) -> super::AccountData<u64> {
+impl StoredMap<u64, super::AccountData<Balance>> for TestAccountStore {
+	fn get(k: &u64) -> super::AccountData<Balance> {
 		if UseSystem::get() {
 			<SystemAccountStore as StoredMap<_, _>>::get(k)
 		} else {
@@ -221,7 +226,7 @@ impl StoredMap<u64, super::AccountData<u64>> for TestAccountStore {
 	}
 	fn try_mutate_exists<R, E: From<DispatchError>>(
 		k: &u64,
-		f: impl FnOnce(&mut Option<super::AccountData<u64>>) -> Result<R, E>,
+		f: impl FnOnce(&mut Option<super::AccountData<Balance>>) -> Result<R, E>,
 	) -> Result<R, E> {
 		if UseSystem::get() {
 			<SystemAccountStore as StoredMap<_, _>>::try_mutate_exists(k, f)
@@ -231,7 +236,7 @@ impl StoredMap<u64, super::AccountData<u64>> for TestAccountStore {
 	}
 	fn mutate<R>(
 		k: &u64,
-		f: impl FnOnce(&mut super::AccountData<u64>) -> R,
+		f: impl FnOnce(&mut super::AccountData<Balance>) -> R,
 	) -> Result<R, DispatchError> {
 		if UseSystem::get() {
 			<SystemAccountStore as StoredMap<_, _>>::mutate(k, f)
@@ -241,7 +246,7 @@ impl StoredMap<u64, super::AccountData<u64>> for TestAccountStore {
 	}
 	fn mutate_exists<R>(
 		k: &u64,
-		f: impl FnOnce(&mut Option<super::AccountData<u64>>) -> R,
+		f: impl FnOnce(&mut Option<super::AccountData<Balance>>) -> R,
 	) -> Result<R, DispatchError> {
 		if UseSystem::get() {
 			<SystemAccountStore as StoredMap<_, _>>::mutate_exists(k, f)
@@ -249,7 +254,7 @@ impl StoredMap<u64, super::AccountData<u64>> for TestAccountStore {
 			<BalancesAccountStore as StoredMap<_, _>>::mutate_exists(k, f)
 		}
 	}
-	fn insert(k: &u64, t: super::AccountData<u64>) -> Result<(), DispatchError> {
+	fn insert(k: &u64, t: super::AccountData<Balance>) -> Result<(), DispatchError> {
 		if UseSystem::get() {
 			<SystemAccountStore as StoredMap<_, _>>::insert(k, t)
 		} else {

@@ -56,7 +56,7 @@ fn set_lock_with_amount_zero_removes_lock() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			Balances::set_lock(ID_1, &1, u64::MAX, WithdrawReasons::all());
+			Balances::set_lock(ID_1, &1, Balance::MAX, WithdrawReasons::all());
 			Balances::set_lock(ID_1, &1, 0, WithdrawReasons::all());
 			assert_ok!(<Balances as Currency<_>>::transfer(&1, &2, 1, AllowDeath));
 		});
@@ -68,8 +68,8 @@ fn set_lock_with_withdraw_reasons_empty_removes_lock() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			Balances::set_lock(ID_1, &1, u64::MAX, WithdrawReasons::all());
-			Balances::set_lock(ID_1, &1, u64::MAX, WithdrawReasons::empty());
+			Balances::set_lock(ID_1, &1, Balance::MAX, WithdrawReasons::all());
+			Balances::set_lock(ID_1, &1, Balance::MAX, WithdrawReasons::empty());
 			assert_ok!(<Balances as Currency<_>>::transfer(&1, &2, 1, AllowDeath));
 		});
 }
@@ -166,7 +166,7 @@ fn lock_removal_should_work() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			Balances::set_lock(ID_1, &1, u64::MAX, WithdrawReasons::all());
+			Balances::set_lock(ID_1, &1, Balance::MAX, WithdrawReasons::all());
 			assert_eq!(System::consumers(&1), 1);
 			Balances::remove_lock(ID_1, &1);
 			assert_eq!(System::consumers(&1), 0);
@@ -180,7 +180,7 @@ fn lock_replacement_should_work() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			Balances::set_lock(ID_1, &1, u64::MAX, WithdrawReasons::all());
+			Balances::set_lock(ID_1, &1, Balance::MAX, WithdrawReasons::all());
 			assert_eq!(System::consumers(&1), 1);
 			Balances::set_lock(ID_1, &1, 5, WithdrawReasons::all());
 			assert_eq!(System::consumers(&1), 1);
@@ -209,7 +209,7 @@ fn combination_locking_should_work() {
 		.monied(true)
 		.build_and_execute_with(|| {
 			assert_eq!(System::consumers(&1), 0);
-			Balances::set_lock(ID_1, &1, u64::MAX, WithdrawReasons::empty());
+			Balances::set_lock(ID_1, &1, Balance::MAX, WithdrawReasons::empty());
 			assert_eq!(System::consumers(&1), 0);
 			Balances::set_lock(ID_2, &1, 0, WithdrawReasons::all());
 			assert_eq!(System::consumers(&1), 0);
@@ -642,15 +642,15 @@ fn transferring_incomplete_reserved_balance_should_work() {
 #[test]
 fn transferring_too_high_value_should_not_panic() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		Balances::make_free_balance_be(&1, u64::MAX);
+		Balances::make_free_balance_be(&1, Balance::MAX);
 		Balances::make_free_balance_be(&2, 1);
 
 		assert_err!(
-			<Balances as Currency<_>>::transfer(&1, &2, u64::MAX, AllowDeath),
+			<Balances as Currency<_>>::transfer(&1, &2, Balance::MAX, AllowDeath),
 			ArithmeticError::Overflow,
 		);
 
-		assert_eq!(Balances::free_balance(1), u64::MAX);
+		assert_eq!(Balances::free_balance(1), Balance::MAX);
 		assert_eq!(Balances::free_balance(2), 1);
 	});
 }
