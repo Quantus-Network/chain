@@ -47,7 +47,6 @@ pallet-faucet = { path = "./pallets/faucet", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
-pallet-vesting = { path = "./pallets/vesting", default-features = false }
 pallet-balances = { path = "./pallets/balances", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
