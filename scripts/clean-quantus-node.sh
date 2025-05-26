@@ -3,20 +3,30 @@
 set -e
 
 # Configuration
-NODE_BINARY_PATH="/usr/local/bin/quantus-node"
+SYSTEM_BINARY_PATH="/usr/local/bin/quantus-node"
+USER_BINARY_PATH="$HOME/.local/bin/quantus-node"
 QUANTUS_HOME="$HOME/.quantus"
-NODE_IDENTITY_PATH="$HOME/.quantus/node-identity.json"
-REWARDS_ADDRESS_PATH="$HOME/.quantus/rewards-address.txt"
+NODE_IDENTITY_PATH="$QUANTUS_HOME/node-identity.json"
+REWARDS_ADDRESS_PATH="$QUANTUS_HOME/rewards-address.txt"
 
 echo "Starting Quantus node cleanup..."
 
-# Remove node binary
-if [ -f "$NODE_BINARY_PATH" ]; then
-    echo "Deleting node binary: $NODE_BINARY_PATH"
-    sudo rm -f "$NODE_BINARY_PATH"
-    echo "✓ Node binary deleted"
+# Remove system node binary
+if [ -f "$SYSTEM_BINARY_PATH" ]; then
+    echo "Deleting system node binary: $SYSTEM_BINARY_PATH"
+    sudo rm -f "$SYSTEM_BINARY_PATH"
+    echo "✓ System node binary deleted"
 else
-    echo "No node binary found at: $NODE_BINARY_PATH"
+    echo "No system node binary found at: $SYSTEM_BINARY_PATH"
+fi
+
+# Remove user node binary
+if [ -f "$USER_BINARY_PATH" ]; then
+    echo "Deleting user node binary: $USER_BINARY_PATH"
+    rm -f "$USER_BINARY_PATH"
+    echo "✓ User node binary deleted"
+else
+    echo "No user node binary found at: $USER_BINARY_PATH"
 fi
 
 # Remove node identity file

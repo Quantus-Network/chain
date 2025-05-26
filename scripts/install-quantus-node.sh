@@ -6,35 +6,123 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 # Configuration
-NODE_BINARY_URL="https://github.com/quantus-network/quantus-node/releases/latest/download/quantus-node"
-NODE_BINARY_PATH="/usr/local/bin/quantus-node"
-NODE_IDENTITY_PATH="$HOME/.quantus/node-identity.json"
-REWARDS_ADDRESS_PATH="$HOME/.quantus/rewards-address.txt"
+REPO_OWNER="Quantus-Network"
+REPO_NAME="chain"
+BINARY_NAME="quantus-node"
 QUANTUS_HOME="$HOME/.quantus"
+NODE_IDENTITY_PATH="$QUANTUS_HOME/node-identity.json"
+REWARDS_ADDRESS_PATH="$QUANTUS_HOME/rewards-address.txt"
 
-# Function to check if running as root
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "This script needs to be run as root to install the node binary in /usr/local/bin"
-        echo "Please run: sudo $0"
+# Detect OS and Architecture
+OS=""
+ARCH=""
+TARGET_ARCH_NAME=""
+
+case "$(uname -s)" in
+    Linux*)
+        OS="linux"
+        ;;
+    Darwin*)
+        OS="macos"
+        ;;
+    *)
+        echo "Unsupported operating system: $(uname -s)"
         exit 1
-    fi
-}
+        ;;
+esac
+
+case "$(uname -m)" in
+    x86_64|amd64)
+        ARCH="x86_64"
+        if [ "$OS" = "linux" ]; then
+            TARGET_ARCH_NAME="x86_64-unknown-linux-gnu"
+        elif [ "$OS" = "macos" ]; then
+            TARGET_ARCH_NAME="x86_64-apple-darwin"
+        fi
+        ;;
+    arm64|aarch64)
+        ARCH="arm64"
+        if [ "$OS" = "linux" ]; then
+            TARGET_ARCH_NAME="aarch64-unknown-linux-gnu"
+        elif [ "$OS" = "macos" ]; then
+            TARGET_ARCH_NAME="aarch64-apple-darwin"
+        fi
+        ;;
+    *)
+        echo "Unsupported architecture: $(uname -m)"
+        exit 1
+        ;;
+esac
+
+echo "Detected OS: $OS"
+echo "Detected Architecture: $ARCH (Target: $TARGET_ARCH_NAME)"
+
+# Determine installation path based on root status
+if [ "$EUID" -eq 0 ]; then
+    NODE_BINARY_PATH="/usr/local/bin/quantus-node"
+else
+    NODE_BINARY_PATH="$HOME/.local/bin/quantus-node"
+    # Create .local/bin if it doesn't exist
+    mkdir -p "$(dirname "$NODE_BINARY_PATH")"
+    echo "Installing node binary to user directory: $NODE_BINARY_PATH"
+    echo "Note: Make sure $HOME/.local/bin is in your PATH"
+    echo "You can add it by running:"
+    echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc  # for bash"
+    echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc   # for zsh"
+    echo "Then source your shell config file or open a new terminal"
+fi
 
 # Function to download and install the node binary
 install_node_binary() {
     echo "Downloading latest Quantus node binary..."
     # Create a temporary directory for the download
     TEMP_DIR=$(mktemp -d)
-    TEMP_BINARY="$TEMP_DIR/quantus-node"
+    trap 'rm -rf "$TEMP_DIR"' EXIT
+
+    # Get the latest release info
+    echo "Fetching latest release information..."
+    LATEST_RELEASE=$(curl -s https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest)
+    if [ -z "$LATEST_RELEASE" ]; then
+        echo "Error: Failed to fetch latest release information"
+        exit 1
+    fi
+
+    LATEST_TAG=$(echo "$LATEST_RELEASE" | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d'"' -f4)
+    if [ -z "$LATEST_TAG" ]; then
+        echo "Error: Could not find latest release tag"
+        exit 1
+    fi
+
+    echo "Latest release tag: $LATEST_TAG"
     
-    # Download to temporary location first
-    curl -L "$NODE_BINARY_URL" -o "$TEMP_BINARY"
-    chmod +x "$TEMP_BINARY"
+    # Construct the asset filename and URL
+    ASSET_FILENAME="${BINARY_NAME}-${LATEST_TAG}-${TARGET_ARCH_NAME}.tar.gz"
+    ASSET_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${LATEST_TAG}/${ASSET_FILENAME}"
+    
+    echo "Attempting to download asset: $ASSET_URL"
+    
+    # Download the asset
+    if ! curl -L "$ASSET_URL" -o "$TEMP_DIR/$ASSET_FILENAME"; then
+        echo "Error: Failed to download node binary"
+        exit 1
+    fi
+    
+    echo "Asset downloaded to $TEMP_DIR/$ASSET_FILENAME"
+    
+    # Extract the binary
+    echo "Extracting $BINARY_NAME from $TEMP_DIR/$ASSET_FILENAME..."
+    tar -xzf "$TEMP_DIR/$ASSET_FILENAME" -C "$TEMP_DIR"
+    
+    # Verify extracted binary
+    if [ ! -f "$TEMP_DIR/$BINARY_NAME" ]; then
+        echo "Error: Failed to extract $BINARY_NAME from the archive"
+        exit 1
+    fi
+    
+    chmod +x "$TEMP_DIR/$BINARY_NAME"
     
     # Move to final location
-    mv "$TEMP_BINARY" "$NODE_BINARY_PATH"
-    rm -rf "$TEMP_DIR"
+    mv "$TEMP_DIR/$BINARY_NAME" "$NODE_BINARY_PATH"
     
     echo "Node binary installed successfully at $NODE_BINARY_PATH"
 }
@@ -66,7 +154,7 @@ setup_node_identity() {
                     echo "Error: Node binary not found at $NODE_BINARY_PATH"
                     exit 1
                 fi
-                $NODE_BINARY_PATH key generate-node-identity --output "$NODE_IDENTITY_PATH"
+                $NODE_BINARY_PATH key generate-node-key --file "$NODE_IDENTITY_PATH"
                 echo "New node identity generated and saved to $NODE_IDENTITY_PATH"
                 ;;
             *)
@@ -102,7 +190,7 @@ setup_rewards_address() {
                     exit 1
                 fi
                 # Generate new address and capture all output
-                output=$($NODE_BINARY_PATH key generate --scheme standard)
+                output=$($NODE_BINARY_PATH key quantus --scheme standard)
                 
                 # Extract the address (assuming it's the last line)
                 address=$(echo "$output" | grep "Address:" | awk '{print $2}')
@@ -127,9 +215,6 @@ setup_rewards_address() {
 
 # Main installation process
 echo "Starting Quantus node installation..."
-
-# Check if running as root
-check_root
 
 # Create Quantus home directory if it doesn't exist
 echo "Creating Quantus home directory at $QUANTUS_HOME"
