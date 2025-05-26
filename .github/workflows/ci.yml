@@ -45,6 +45,10 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       -
+        name: format
+        run: cargo fmt --all -- --check
+        timeout-minutes: 5
+      -
         name: compile
         run: cargo build --locked --workspace
         timeout-minutes: 90
