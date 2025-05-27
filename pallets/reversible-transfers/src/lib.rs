@@ -270,6 +270,10 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
 
             ensure!(
+                reverser != Some(who.clone()),
+                Error::<T>::ExplicitReverserCanNotBeSelf
+            );
+            ensure!(
                 !ReversibleAccounts::<T>::contains_key(&who),
                 Error::<T>::AccountAlreadyReversible
             );
