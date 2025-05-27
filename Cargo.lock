@@ -6593,6 +6593,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-balances 40.0.1",
+ "pallet-treasury",
  "parity-scale-codec",
  "scale-info",
  "sp-consensus-pow",

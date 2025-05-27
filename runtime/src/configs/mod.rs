@@ -128,6 +128,7 @@ impl pallet_mining_rewards::Config for Runtime {
     type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
     type Currency = Balances;
     type BlockReward = ConstU128<1_000_000_000_000>; // 1 token
+    type TreasuryPalletId = TreasuryPalletId;
 }
 
 impl pallet_qpow::Config for Runtime {
@@ -454,7 +455,7 @@ parameter_types! {
     pub const ProposalBond: Permill = Permill::from_percent(5);
     pub const ProposalBondMinimum: Balance = 1 * UNIT;
     pub const ProposalBondMaximum: Option<Balance> = None;
-    pub const SpendPeriod: BlockNumber = 7 * DAYS;
+    pub const SpendPeriod: BlockNumber = 2 * DAYS;
     pub const Burn: Permill = Permill::from_percent(0);
     pub const MaxApprovals: u32 = 100;
     pub const TreasuryPayoutPeriod: BlockNumber = 14 * DAYS; // Added for PayoutPeriod
@@ -471,8 +472,6 @@ impl pallet_treasury::Config for Runtime {
     type SpendFunds = (); // No external pallets spending treasury funds directly through this hook
     type MaxApprovals = MaxApprovals; // For deprecated spend_local flow
     type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
-
-    // New configuration for the `spend` flow
     type SpendOrigin = TreasurySpender; // Changed to use the custom EnsureOrigin
     type AssetKind = (); // Using () to represent native currency for simplicity
     type Beneficiary = AccountId; // Spends are paid to AccountId

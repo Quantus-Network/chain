@@ -659,4 +659,50 @@ mod tests {
                 println!("[TREASURY_TEST_DEBUG] Final balances asserted. Test finished.");
             });
     }
+
+    #[test]
+    fn small_spender_cannot_spend_above_limit() {
+        ExtBuilder::default()
+            .with_balances(vec![
+                (BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
+            ])
+            .build()
+            .execute_with(|| {
+                let beneficiary_lookup = <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+                let treasury_pot = treasury_account_id();
+                let small_spender_origin: TestRuntimeOrigin = pallet_custom_origins::Origin::SmallSpender.into();
+
+                let initial_treasury_balance = 1000 * UNIT;
+                let _ = <Balances as Currency<AccountId>>::deposit_creating(&treasury_pot, initial_treasury_balance);
+                assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
+
+                // Try to spend more than SmallSpender's limit (100 * UNIT)
+                let spend_amount_above_limit = 101 * UNIT;
+                let call_above_limit = TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+                    asset_kind: Box::new(()),
+                    amount: spend_amount_above_limit,
+                    beneficiary: Box::new(beneficiary_lookup.clone()),
+                    valid_from: None,
+                });
+
+                let dispatch_result = call_above_limit.dispatch_bypass_filter(small_spender_origin);
+                assert!(dispatch_result.is_err(), "SmallSpender should not be able to spend more than their limit");
+
+                // Verify that no spend was created
+                assert!(pallet_treasury::Spends::<Runtime>::get(0).is_none(), "No spend should be created for the failed attempt");
+
+                // Verify that balances remain unchanged
+                assert_eq!(Balances::free_balance(&BENEFICIARY_ACCOUNT_ID), EXISTENTIAL_DEPOSIT);
+                assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
+
+                // Verify that no AssetSpendApproved event was emitted
+                let spend_approved_event_found = System::events().iter().any(|event_record| {
+                    matches!(
+                        event_record.event,
+                        RuntimeEvent::TreasuryPallet(pallet_treasury::Event::AssetSpendApproved { .. })
+                    )
+                });
+                assert!(!spend_approved_event_found, "No spend should have been approved");
+            });
+    }
 }

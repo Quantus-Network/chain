@@ -23,7 +23,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
-    use sp_runtime::traits::Saturating;
+    use sp_runtime::traits::{Saturating, AccountIdConversion};
 
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -54,6 +54,10 @@ pub mod pallet {
         /// The base block reward given to miners
         #[pallet::constant]
         type BlockReward: Get<BalanceOf<Self>>;
+
+        /// The treasury pallet ID
+        #[pallet::constant]
+        type TreasuryPalletId: Get<frame_support::PalletId>;
     }
 
     #[pallet::event]
@@ -74,6 +78,13 @@ pub mod pallet {
             amount: BalanceOf<T>,
             /// Total fees waiting for distribution
             total: BalanceOf<T>,
+        },
+        /// Rewards were sent to Treasury when no miner was specified
+        TreasuryRewarded {
+            /// Block number
+            block: BlockNumberFor<T>,
+            /// Total reward (base + fees)
+            reward: BalanceOf<T>,
         },
     }
 
@@ -111,18 +122,38 @@ pub mod pallet {
                 });
 
                 log::info!(
-					target: "mining-rewards",
-					"💰 Miner rewarded: {:?}",
-					total_reward);
+                    target: "mining-rewards",
+                    "💰 Miner rewarded: {:?}",
+                    total_reward);
                 let miner_balance = T::Currency::free_balance(&miner);
                 log::info!(target: "mining-rewards",
-					"🏦 Miner balance: {:?}",
-					miner_balance);
+                    "🏦 Miner balance: {:?}",
+                    miner_balance);
             } else {
+                // No miner specified, send rewards to Treasury
+                let base_reward = T::BlockReward::get();
+                let tx_fees = <CollectedFees<T>>::take();
+                let total_reward = base_reward.saturating_add(tx_fees);
+
+                // Get Treasury account
+                let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
+
+                // Create imbalance for block reward
+                let reward_imbalance = T::Currency::issue(total_reward);
+
+                // Send rewards to Treasury
+                T::Currency::resolve_creating(&treasury_account, reward_imbalance);
+
+                // Emit an event
+                Self::deposit_event(Event::TreasuryRewarded {
+                    block: block_number,
+                    reward: total_reward,
+                });
+
                 log::info!(
                     target: "mining-rewards",
-                    "No rewards address provided for block {:?}",
-                    block_number
+                    "💰 No miner specified, rewards sent to Treasury: {:?}",
+                    total_reward
                 );
             }
         }

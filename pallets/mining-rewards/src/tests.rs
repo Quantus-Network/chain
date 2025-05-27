@@ -1,6 +1,10 @@
 use crate::{mock::*, Event};
 use frame_support::traits::Hooks;
 use frame_support::weights::Weight;
+use sp_runtime::traits::AccountIdConversion;
+use frame_support::traits::Currency;
+
+const UNIT: u128 = 1_000_000_000_000;
 
 #[test]
 fn miner_reward_works() {
@@ -127,28 +131,6 @@ fn multiple_blocks_accumulate_rewards() {
 }
 
 #[test]
-fn no_miner_in_digest_skips_reward() {
-    new_test_ext().execute_with(|| {
-        // Remember initial balance (should be ExistentialDeposit value)
-        let initial_balance = Balances::free_balance(MINER);
-
-        // No miner digest set
-
-        // Add some transaction fees
-        MiningRewards::collect_transaction_fees(20);
-
-        // Run the on_finalize hook
-        MiningRewards::on_finalize(1);
-
-        // Check that no balance was issued - should remain initial balance
-        assert_eq!(Balances::free_balance(MINER), initial_balance);
-
-        // Transaction fees should remain for the next block
-        assert_eq!(MiningRewards::collected_fees(), 20);
-    });
-}
-
-#[test]
 fn different_miners_get_different_rewards() {
     new_test_ext().execute_with(|| {
         // Remember initial balances
@@ -259,5 +241,35 @@ fn test_run_to_block_helper() {
 
         // Verify we're at the expected block number
         assert_eq!(System::block_number(), 3);
+    });
+}
+
+#[test]
+fn rewards_go_to_treasury_when_no_miner() {
+    new_test_ext().execute_with(|| {
+        // Get Treasury account
+        let treasury_account = TreasuryPalletId::get().into_account_truncating();
+        let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+        // Fund Treasury
+        let treasury_funding = 1000 * UNIT;
+        let _ = Balances::deposit_creating(&treasury_account, treasury_funding);
+
+        // Create a block without a miner
+        System::set_block_number(1);
+        MiningRewards::on_finalize(System::block_number());
+
+        // Check that Treasury received the rewards
+        let expected_reward = BlockReward::get() + 0; // No tx fees in this test
+        assert_eq!(
+            Balances::free_balance(&treasury_account),
+            initial_treasury_balance + treasury_funding + expected_reward
+        );
+
+        // Check that the event was emitted
+        System::assert_has_event(Event::TreasuryRewarded {
+            block: 1,
+            reward: expected_reward,
+        }.into());
     });
 }
