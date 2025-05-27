@@ -45,6 +45,7 @@ use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_common::scheduler::BlockNumberOrTimestamp;
+use sp_runtime::traits::ConvertInto;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
 
@@ -52,7 +53,7 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
     Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, DAYS,
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
     EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
