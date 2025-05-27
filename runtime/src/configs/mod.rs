@@ -436,7 +436,7 @@ parameter_types! {
     pub const SpendPeriod: BlockNumber = 7 * DAYS;
     pub const Burn: Permill = Permill::from_percent(0);
     pub const MaxApprovals: u32 = 100;
-    pub const TreasuryPayoutPeriod: BlockNumber = 1 * DAYS; // Added for PayoutPeriod
+    pub const TreasuryPayoutPeriod: BlockNumber = 14 * DAYS; // Added for PayoutPeriod
 }
 
 impl pallet_treasury::Config for Runtime {

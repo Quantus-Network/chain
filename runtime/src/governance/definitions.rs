@@ -1,4 +1,5 @@
 use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
+use crate::governance::pallet_custom_origins;
 use alloc::vec::Vec;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
 use frame_support::pallet_prelude::TypeInfo;
@@ -78,10 +79,8 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
-        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 2] = [
+        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 3] = [
             // Track 0: Signed Track (authenticated proposals)
-            // - For proposals from authenticated users that require privileges
-            // - Less stringent than root but still requires identity
             (
                 0,
                 pallet_referenda::TrackInfo {
@@ -124,7 +123,31 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(1),     // Very low support threshold
+                        floor: Perbill::from_percent(1),
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+
+            // Track 2: Treasury Spender or Treasurer Track
+            (
+                2,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_spender_or_treasurer",
+                    max_deciding: 5,
+                    decision_deposit: 50 * UNIT,
+                    prepare_period: 6 * HOURS,
+                    decision_period: 3 * DAYS,
+                    confirm_period: 6 * HOURS,
+                    min_enactment_period: 12 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),
+                        ceil: Perbill::from_percent(50),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(1),
                         ceil: Perbill::from_percent(10),
                     },
                 },
@@ -133,23 +156,35 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
         &TRACKS
     }
 
-
     fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-        // Check for system origins first
+        // Check for specific custom origins first (Spender/Treasurer types)
+        if let crate::OriginCaller::Origins(custom_origin) = id {
+            match custom_origin {
+                pallet_custom_origins::Origin::SmallTipper |
+                pallet_custom_origins::Origin::BigTipper |
+                pallet_custom_origins::Origin::SmallSpender |
+                pallet_custom_origins::Origin::MediumSpender |
+                pallet_custom_origins::Origin::BigSpender |
+                pallet_custom_origins::Origin::Treasurer => return Ok(2),
+            }
+        }
+
+        // Check for system origins (like None for track 1, Root for track 0)
         if let Some(system_origin) = id.as_system_ref() {
             match system_origin {
-                frame_system::RawOrigin::None => return Ok(1), // None origin uses track 1
+                frame_system::RawOrigin::None => return Ok(1),
+                frame_system::RawOrigin::Root => return Ok(0),
                 _ => {}
             }
         }
 
+        // Fallback for general signed users (catches frame_system::RawOrigin::Signed too, if not Root)
         if let Some(_signer) = id.as_signed() {
-            return Ok(0); // Signed users use track 0
+            return Ok(0);
         }
 
         Err(())
     }
-
 
     fn info(id: Self::Id) -> Option<&'static pallet_referenda::TrackInfo<Balance, BlockNumber>> {
         Self::tracks()
@@ -169,7 +204,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
         Ok(())
     }
 }
-
 
 pub struct TechCollectiveTracksInfo;
 impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracksInfo {
