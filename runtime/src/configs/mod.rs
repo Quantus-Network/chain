@@ -24,6 +24,12 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
+use crate::governance::definitions::{
+    CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
+    RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
+    RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
+};
+use crate::governance::{pallet_custom_origins, Spender};
 use frame_support::traits::{ConstU64, EitherOf, NeverEnsureOrigin};
 use frame_support::PalletId;
 use frame_support::{
@@ -43,8 +49,6 @@ use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
 use sp_runtime::{traits::One, Perbill, Permill};
 use sp_version::RuntimeVersion;
-use crate::governance::definitions::{CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit, RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin, RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo};
-use crate::governance::{pallet_custom_origins, Spender};
 // Local module imports
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
@@ -201,7 +205,6 @@ impl pallet_preimage::Config for Runtime {
     type ManagerOrigin = frame_system::EnsureRoot<AccountId>;
     type Consideration = PreimageDeposit;
 }
-
 
 impl_tracksinfo_get!(CommunityTracksInfo, Balance, BlockNumber);
 
@@ -462,12 +465,10 @@ impl pallet_treasury::Config for Runtime {
     type BlockNumberProvider = System;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = (); // System pallet provides block number
-
-
 }
 
 parameter_types! {
-	pub const MaxBalance: Balance = Balance::max_value();
+    pub const MaxBalance: Balance = Balance::max_value();
 }
 
 pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;

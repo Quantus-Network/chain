@@ -1,18 +1,24 @@
-use crate::{AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT};
+use crate::configs::TreasuryPalletId;
 use crate::governance::pallet_custom_origins;
+use crate::{
+    AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT,
+    UNIT,
+};
 use alloc::vec::Vec;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
 use frame_support::pallet_prelude::TypeInfo;
+use frame_support::traits::tokens::{ConversionFromAssetBalance, Pay, PaymentStatus};
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
-use frame_support::traits::{Consideration, Footprint, ReservableCurrency, Get, EnsureOrigin, OriginTrait, EnsureOriginWithArg, CallerTrait, Currency as CurrencyTrait};
-use frame_support::traits::tokens::{ConversionFromAssetBalance, Pay, PaymentStatus};
+use frame_support::traits::{
+    CallerTrait, Consideration, Currency as CurrencyTrait, EnsureOrigin, EnsureOriginWithArg,
+    Footprint, Get, OriginTrait, ReservableCurrency,
+};
 use pallet_ranked_collective::Rank;
 use sp_core::crypto::AccountId32;
-use sp_runtime::traits::{Convert, MaybeConvert, AccountIdConversion};
+use sp_runtime::traits::{AccountIdConversion, Convert, MaybeConvert};
 use sp_runtime::{DispatchError, Perbill};
 use sp_std::marker::PhantomData;
-use crate::configs::TreasuryPalletId;
 
 ///Preimage pallet fee model
 
@@ -54,7 +60,6 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
         Ok(())
     }
 
-
     ///We will have to finally focus on fees, so weight and benchamrks will be important.
     /// For now, it's AI implementation
 
@@ -85,15 +90,15 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                 0,
                 pallet_referenda::TrackInfo {
                     name: "signed",
-                    max_deciding: 5,                // Allow several concurrent proposals
-                    decision_deposit: 500 * UNIT,     // Moderate deposit
-                    prepare_period: 12 * HOURS,     // Shorter preparation time
-                    decision_period: 7 * DAYS,      // 1 week voting period
-                    confirm_period: 12 * HOURS,     // 12 hours confirmation
+                    max_deciding: 5, // Allow several concurrent proposals
+                    decision_deposit: 500 * UNIT, // Moderate deposit
+                    prepare_period: 12 * HOURS, // Shorter preparation time
+                    decision_period: 7 * DAYS, // 1 week voting period
+                    confirm_period: 12 * HOURS, // 12 hours confirmation
                     min_enactment_period: 1 * DAYS, // 1 day until execution
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(55),    // Majority approval required
+                        floor: Perbill::from_percent(55), // Majority approval required
                         ceil: Perbill::from_percent(70),
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
@@ -103,22 +108,21 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                     },
                 },
             ),
-
             // Track 1: Signaling Track (non-binding community opinions)
             // - For community sentiment and direction gathering
             (
                 1,
                 pallet_referenda::TrackInfo {
                     name: "signaling",
-                    max_deciding: 20,               // High throughput for community proposals
-                    decision_deposit: 100 * UNIT,     // Low deposit requirement
-                    prepare_period: 6 * HOURS,      // Short preparation time
-                    decision_period: 5 * DAYS,      // Standard voting period
-                    confirm_period: 3 * HOURS,      // Minimal confirmation period
-                    min_enactment_period: 1,        // 1 Block - immediate "execution" (just for record-keeping)
+                    max_deciding: 20, // High throughput for community proposals
+                    decision_deposit: 100 * UNIT, // Low deposit requirement
+                    prepare_period: 6 * HOURS, // Short preparation time
+                    decision_period: 5 * DAYS, // Standard voting period
+                    confirm_period: 3 * HOURS, // Minimal confirmation period
+                    min_enactment_period: 1, // 1 Block - immediate "execution" (just for record-keeping)
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(50),    // Simple majority approval
+                        floor: Perbill::from_percent(50), // Simple majority approval
                         ceil: Perbill::from_percent(60),
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
@@ -128,7 +132,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                     },
                 },
             ),
-
             // Track 2: Treasury Spender or Treasurer Track
             (
                 2,
@@ -160,12 +163,12 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
         // Check for specific custom origins first (Spender/Treasurer types)
         if let crate::OriginCaller::Origins(custom_origin) = id {
             match custom_origin {
-                pallet_custom_origins::Origin::SmallTipper |
-                pallet_custom_origins::Origin::BigTipper |
-                pallet_custom_origins::Origin::SmallSpender |
-                pallet_custom_origins::Origin::MediumSpender |
-                pallet_custom_origins::Origin::BigSpender |
-                pallet_custom_origins::Origin::Treasurer => return Ok(2),
+                pallet_custom_origins::Origin::SmallTipper
+                | pallet_custom_origins::Origin::BigTipper
+                | pallet_custom_origins::Origin::SmallSpender
+                | pallet_custom_origins::Origin::MediumSpender
+                | pallet_custom_origins::Origin::BigSpender
+                | pallet_custom_origins::Origin::Treasurer => return Ok(2),
             }
         }
 
@@ -218,16 +221,16 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
                 0,
                 pallet_referenda::TrackInfo {
                     name: "root",
-                    max_deciding: 1,                // Only 1 referendum can be in deciding phase at a time
-                    decision_deposit: 1000 * UNIT,    // Highest deposit requirement to prevent spam
-                    prepare_period: 1 * DAYS,       // 1 day preparation before voting begins
-                    decision_period: 5 * DAYS,     // 5 days for community to vote
-                    confirm_period: 2 * DAYS,       // 2 days confirmation period once passing
+                    max_deciding: 1, // Only 1 referendum can be in deciding phase at a time
+                    decision_deposit: 1000 * UNIT, // Highest deposit requirement to prevent spam
+                    prepare_period: 1 * DAYS, // 1 day preparation before voting begins
+                    decision_period: 5 * DAYS, // 5 days for community to vote
+                    confirm_period: 2 * DAYS, // 2 days confirmation period once passing
                     min_enactment_period: 2 * DAYS, // 2 day between approval and execution
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(75),    // Minimum 75% approval at end
-                        ceil: Perbill::from_percent(100),    // Requires 100% approval at start
+                        floor: Perbill::from_percent(75), // Minimum 75% approval at end
+                        ceil: Perbill::from_percent(100), // Requires 100% approval at start
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(0),
@@ -240,7 +243,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
         ];
         &TRACKS
     }
-
 
     fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
         // Check for system origins first
@@ -258,7 +260,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
         }
         Err(())
     }
-
 
     fn info(id: Self::Id) -> Option<&'static pallet_referenda::TrackInfo<Balance, BlockNumber>> {
         Self::tracks()
@@ -279,7 +280,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
     }
 }
 
-
 /// Converts a track ID to a minimum required rank for voting.
 /// Currently, all tracks require rank 0 as the minimum rank.
 /// In the future, this could be extended to support multiple ranks
@@ -293,7 +293,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 pub struct MinRankOfClassConverter<Delta>(PhantomData<Delta>);
 impl<Delta: Get<u16>> Convert<u16, u16> for MinRankOfClassConverter<Delta> {
     fn convert(_a: u16) -> u16 {
-        0  // Currently, all tracks require rank 0 as the minimum rank
+        0 // Currently, all tracks require rank 0 as the minimum rank
     }
 }
 
@@ -307,7 +307,8 @@ impl<MaxVal: Get<u32>> MaybeConvert<u16, u32> for GlobalMaxMembers<MaxVal> {
 
 pub struct RootOrMemberForCollectiveOriginImpl<Runtime, I>(PhantomData<(Runtime, I)>);
 
-impl<Runtime, I> EnsureOrigin<Runtime::RuntimeOrigin> for RootOrMemberForCollectiveOriginImpl<Runtime, I>
+impl<Runtime, I> EnsureOrigin<Runtime::RuntimeOrigin>
+    for RootOrMemberForCollectiveOriginImpl<Runtime, I>
 where
     Runtime: pallet_ranked_collective::Config<I> + frame_system::Config,
     <Runtime as frame_system::Config>::RuntimeOrigin:
@@ -349,9 +350,10 @@ where
 
 pub type RootOrMemberForCollectiveOrigin = RootOrMemberForCollectiveOriginImpl<Runtime, ()>;
 
-pub struct RootOrMemberForTechReferendaOriginImpl<Runtime,I>(PhantomData<(Runtime, I)>);
+pub struct RootOrMemberForTechReferendaOriginImpl<Runtime, I>(PhantomData<(Runtime, I)>);
 
-impl<Runtime, I> EnsureOriginWithArg<Runtime::RuntimeOrigin, crate::OriginCaller> for RootOrMemberForTechReferendaOriginImpl<Runtime,I>
+impl<Runtime, I> EnsureOriginWithArg<Runtime::RuntimeOrigin, crate::OriginCaller>
+    for RootOrMemberForTechReferendaOriginImpl<Runtime, I>
 where
     Runtime: frame_system::Config<AccountId = AccountId32> + pallet_ranked_collective::Config<I>,
     <Runtime as frame_system::Config>::RuntimeOrigin:
@@ -360,13 +362,17 @@ where
 {
     type Success = Runtime::AccountId;
 
-    fn try_origin(o: Runtime::RuntimeOrigin, _: &crate::OriginCaller) -> Result<Self::Success, Runtime::RuntimeOrigin> {
+    fn try_origin(
+        o: Runtime::RuntimeOrigin,
+        _: &crate::OriginCaller,
+    ) -> Result<Self::Success, Runtime::RuntimeOrigin> {
         let pallets_origin = o.clone().into_caller();
 
         if let crate::OriginCaller::system(frame_system::RawOrigin::Root) = pallets_origin {
             if let Ok(signer) = <frame_system::EnsureSigned<Runtime::AccountId> as EnsureOrigin<
                 Runtime::RuntimeOrigin,
-            >>::try_origin(o.clone()) {
+            >>::try_origin(o.clone())
+            {
                 return Ok(signer);
             }
         }
@@ -388,27 +394,28 @@ where
 
     #[cfg(feature = "runtime-benchmarks")]
     fn try_successful_origin(_arg: &crate::OriginCaller) -> Result<Runtime::RuntimeOrigin, ()> {
-        Ok(frame_system::RawOrigin::<Runtime::AccountId>::Signed(
-            AccountId32::new([0u8; 32])
-        ).into())
+        Ok(
+            frame_system::RawOrigin::<Runtime::AccountId>::Signed(AccountId32::new([0u8; 32]))
+                .into(),
+        )
     }
 }
 
 pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime, ()>;
 
-
 // Helper structs for pallet_treasury::Config
 pub struct RuntimeNativeBalanceConverter;
 impl ConversionFromAssetBalance<Balance, (), Balance> for RuntimeNativeBalanceConverter {
     type Error = sp_runtime::DispatchError;
-    fn from_asset_balance(balance: Balance, _asset_kind: ()) -> Result<Balance, sp_runtime::DispatchError> {
+    fn from_asset_balance(
+        balance: Balance,
+        _asset_kind: (),
+    ) -> Result<Balance, sp_runtime::DispatchError> {
         Ok(balance)
     }
 
     #[cfg(feature = "runtime-benchmarks")]
-    fn ensure_successful(
-        _asset_kind: (),
-    ) -> () {
+    fn ensure_successful(_asset_kind: ()) -> () {
         // For an identity conversion with AssetKind = (), there are no
         // external conditions to set up for the conversion itself to succeed.
         // The from_asset_balance call is trivial.
@@ -429,7 +436,12 @@ impl Pay for RuntimeNativePaymaster {
         amount: Self::Balance,
     ) -> Result<Self::Id, sp_runtime::DispatchError> {
         let treasury_account = TreasuryPalletId::get().into_account_truncating();
-        <crate::Balances as CurrencyTrait<crate::AccountId>>::transfer(&treasury_account, who, amount, frame_support::traits::ExistenceRequirement::AllowDeath)?;
+        <crate::Balances as CurrencyTrait<crate::AccountId>>::transfer(
+            &treasury_account,
+            who,
+            amount,
+            frame_support::traits::ExistenceRequirement::AllowDeath,
+        )?;
         Ok(0_u32) // Dummy ID
     }
 

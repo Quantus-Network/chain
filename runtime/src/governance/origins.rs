@@ -2,7 +2,7 @@
 
 #[frame_support::pallet]
 pub mod pallet_custom_origins {
-    use crate::{Balance, UNIT, MICRO_UNIT};
+    use crate::{Balance, MICRO_UNIT, UNIT};
     use frame_support::pallet_prelude::*;
 
     #[pallet::config]
@@ -58,9 +58,7 @@ pub mod pallet_custom_origins {
         };
         () => {}
     }
-    decl_unit_ensures!(
-        Treasurer,
-    );
+    decl_unit_ensures!(Treasurer,);
 
     macro_rules! decl_ensure {
 		(
