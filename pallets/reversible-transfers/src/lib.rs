@@ -440,16 +440,8 @@ pub mod pallet {
             amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let ReversibleAccountData {
-                delay,
-                explicit_reverser,
-                policy: _,
-            } = Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
-
-            if let Some(reverser) = explicit_reverser {
-                // If the reverser is set, ensure the caller is the reverser
-                ensure!(who == reverser, Error::<T>::InvalidReverser);
-            }
+            let ReversibleAccountData { delay, .. } =
+                Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
 
             let transfer_call: T::RuntimeCall = pallet_balances::Call::<T>::transfer_keep_alive {
                 dest: dest.clone(),
