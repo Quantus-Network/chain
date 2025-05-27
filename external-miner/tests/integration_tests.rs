@@ -1,9 +1,9 @@
 use external_miner::*;
-use warp::test::request;
-use warp::Filter;
 use primitive_types::U512;
+use resonance_miner_api::*;
 use std::time::Instant;
-use resonance_miner_api::*; // Import shared API types
+use warp::test::request;
+use warp::Filter; // Import shared API types
 
 #[tokio::test]
 async fn test_mine_endpoint() {
@@ -21,7 +21,7 @@ async fn test_mine_endpoint() {
     let valid_request = MiningRequest {
         job_id: "test".to_string(),
         mining_hash: "a".repeat(64),
-        difficulty: "1000".to_string(),
+        distance_threshold: "1000".to_string(),
         nonce_start: "0".repeat(128),
         nonce_end: "1".repeat(128),
     };
@@ -46,7 +46,7 @@ async fn test_mine_endpoint() {
         .reply(&mine_route)
         .await;
 
-    assert_eq!(resp.status(), 409); 
+    assert_eq!(resp.status(), 409);
     let body: MiningResponse = serde_json::from_slice(resp.body()).unwrap();
     assert_eq!(body.status, ApiResponseStatus::Error);
     assert!(body.message.is_some());
@@ -56,7 +56,7 @@ async fn test_mine_endpoint() {
     let invalid_request = MiningRequest {
         job_id: "".to_string(), // Empty job ID
         mining_hash: "a".repeat(64),
-        difficulty: "1000".to_string(),
+        distance_threshold: "1000".to_string(),
         nonce_start: "0".repeat(128),
         nonce_end: "1".repeat(128),
     };
@@ -80,12 +80,12 @@ async fn test_result_endpoint() {
     // First create a job
     let job = MiningJob {
         header_hash: [0; 32],
-        difficulty: 1000,
+        distance_threshold: U512::from(1000),
         nonce_start: U512::from(0),
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
         status: JobStatus::Running, // Use enum variant
-        hash_count: 0, 
+        hash_count: 0,
         start_time: Instant::now(),
     };
     state.add_job("test".to_string(), job).await.unwrap();
@@ -129,12 +129,12 @@ async fn test_cancel_endpoint() {
     // First create a job
     let job = MiningJob {
         header_hash: [0; 32],
-        difficulty: 1000,
+        distance_threshold: U512::from(1000),
         nonce_start: U512::from(0),
         nonce_end: U512::from(1000),
         current_nonce: U512::from(0),
         status: JobStatus::Running, // Use enum variant
-        hash_count: 0, 
+        hash_count: 0,
         start_time: Instant::now(),
     };
     state.add_job("test".to_string(), job).await.unwrap();
@@ -182,12 +182,12 @@ async fn test_concurrent_access() {
         let handle = tokio::spawn(async move {
             let job = MiningJob {
                 header_hash: [0; 32],
-                difficulty: 1000,
+                distance_threshold: U512::from(1000),
                 nonce_start: U512::from(0),
                 nonce_end: U512::from(1000),
                 current_nonce: U512::from(0),
                 status: JobStatus::Running, // Use enum variant
-                hash_count: 0, 
+                hash_count: 0,
                 start_time: Instant::now(),
             };
             state.add_job(format!("test{}", i), job).await

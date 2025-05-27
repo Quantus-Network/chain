@@ -59,7 +59,7 @@ pub mod pallet {
         pub fn mint_new_tokens(
             _origin: OriginFor<T>,
             dest: <T::Lookup as StaticLookup>::Source,
-            _seed: u64
+            _seed: u64,
         ) -> DispatchResult {
             // Get the destination address
             let dest = T::Lookup::lookup(dest)?;
@@ -92,11 +92,11 @@ pub mod pallet {
 
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
             match call {
-                Call::mint_new_tokens { dest, seed} => ValidTransaction::with_tag_prefix("Faucet")
+                Call::mint_new_tokens { dest, seed } => ValidTransaction::with_tag_prefix("Faucet")
                     .priority(100)
                     .longevity(64)
                     .propagate(true)
-                    .and_provides((dest,seed,<frame_system::Pallet<T>>::block_number()))
+                    .and_provides((dest, seed, <frame_system::Pallet<T>>::block_number()))
                     .build(),
                 _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call)),
             }
