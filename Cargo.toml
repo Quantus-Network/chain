@@ -32,7 +32,7 @@ resolver = "2"
 resonance-runtime = { path = "./runtime", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 plonky2 = { git="https://github.com/Resonance-Network/plonky2", default-features = false, features = ["no_random"] }
-poseidon-resonance = { version = "0.5.0", git = "https://github.com/Resonance-Network/poseidon-resonance", default-features = false }
+poseidon-resonance = { version = "0.6.0", git = "https://github.com/Resonance-Network/poseidon-resonance", default-features = false }
 
 docify = { version = "0.2.9", default-features = false }
 paste = { version = "1.0.15", default-features = false }
@@ -44,11 +44,10 @@ pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 pallet-vesting = { path = "./pallets/vesting", default-features = false }
 pallet-balances = { path="./pallets/balances", default-features = false }
 pallet-reversible-transfers = { path="./pallets/reversible-transfers", default-features = false }
-pallet-scheduler = { path="./pallets/scheduler", default-features = false }
+pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-referenda = { version = "39.1.0", default-features = false }
-#pallet-scheduler = { version = "40.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "46.1.0", default-features = false }
@@ -79,7 +78,7 @@ sp-blockchain = { version = "38.0.0", default-features = false }
 sp-consensus = { version = "0.41.0", default-features = false }
 sp-consensus-pow = { version = "0.41.0", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
-sp-common = { path = "./primitives/common", default-features = false }
+qp-common = { path = "./primitives/common", default-features = false }
 sp-faucet = { path = "./primitives/faucet", default-features = false}
 sp-wormhole = { path = "./primitives/crypto/wormhole", default-features = false}
 sp-core = { version = "35.0.0", default-features = false }

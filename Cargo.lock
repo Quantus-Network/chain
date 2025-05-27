@@ -2470,7 +2470,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "976dd42dc7e85965fe702eb8164f21f450704bdde31faefd6471dba214cb594e"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4288,7 +4288,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.0",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6696,8 +6696,8 @@ dependencies = [
  "pallet-scheduler",
  "pallet-timestamp",
  "parity-scale-codec",
+ "qp-common",
  "scale-info",
- "sp-common",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -6714,8 +6714,8 @@ dependencies = [
  "log",
  "pallet-preimage",
  "parity-scale-codec",
+ "qp-common",
  "scale-info",
- "sp-common",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -7591,8 +7591,8 @@ dependencies = [
 
 [[package]]
 name = "poseidon-resonance"
-version = "0.5.0"
-source = "git+https://github.com/Resonance-Network/poseidon-resonance#fba5320c8f22dd218a64b7a289e0b10e160055c8"
+version = "0.6.0"
+source = "git+https://github.com/Resonance-Network/poseidon-resonance#e39fff549e4bef8f97b1b96e0857c47a6a7eb5ab"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -7944,6 +7944,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-common"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+]
+
+[[package]]
 name = "qpow-math"
 version = "0.1.0"
 dependencies = [
@@ -8104,7 +8114,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.9",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8553,6 +8563,7 @@ dependencies = [
  "parity-scale-codec",
  "poseidon-resonance",
  "primitive-types 0.13.1",
+ "qp-common",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -8744,7 +8755,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8757,7 +8768,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10822,16 +10833,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp-common"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
-]
-
-[[package]]
 name = "sp-consensus"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12022,7 +12023,7 @@ dependencies = [
  "getrandom 0.3.2",
  "once_cell",
  "rustix 1.0.5",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -13493,7 +13494,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

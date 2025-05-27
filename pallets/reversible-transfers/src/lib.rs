@@ -22,14 +22,18 @@ pub mod weights;
 pub use weights::WeightInfo;
 
 use alloc::vec::Vec;
+use frame_support::pallet_prelude::*;
 use frame_support::traits::tokens::{Fortitude, Restriction};
-use frame_support::{pallet_prelude::*, traits::schedule::DispatchTime};
 use frame_system::pallet_prelude::*;
-use sp_common::scheduler::ScheduleNamed;
+use qp_common::scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_runtime::traits::StaticLookup;
 
+/// Type alias for this config's `BlockNumberOrTimestamp`.
+pub type BlockNumberOrTimestampOf<T> =
+    BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
+
 /// How to delay transactions
-/// - `Explicit`: Only delay transactions explicitly using `schedule_transfer`.
+/// - `Explicit`: Only delay transactions explicitly using this pallet's `schedule_transfer` extrinsic.
 /// - `Intercept`: Intercept and delay transactions at the `TransactionExtension` level.
 ///
 /// For example, for a reversible account with `DelayPolicy::Intercept`, the transaction
@@ -50,11 +54,11 @@ pub enum DelayPolicy {
 
 /// Reversible account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
-pub struct ReversibleAccountData<AccountId, BlockNumber> {
+pub struct ReversibleAccountData<AccountId, Delay> {
     /// The account that can reverse the transaction. `None` means the account itself.
     pub explicit_reverser: Option<AccountId>,
     /// The delay period for the account
-    pub delay: BlockNumber,
+    pub delay: Delay,
     /// The policy for the account
     pub policy: DelayPolicy,
 }
@@ -79,17 +83,15 @@ type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use crate::BlockNumberOrTimestampOf;
     use frame_support::dispatch::PostDispatchInfo;
     use frame_support::traits::fungible::MutateHold;
     use frame_support::traits::tokens::Precision;
-    use frame_support::traits::{Bounded, CallerTrait, QueryPreimage, StorePreimage};
-    use frame_support::{
-        traits::schedule::v3::{Named, TaskName},
-        PalletId,
-    };
-    use sp_runtime::traits::AccountIdConversion;
-    use sp_runtime::traits::Hash;
+    use frame_support::traits::{Bounded, CallerTrait, QueryPreimage, StorePreimage, Time};
+    use frame_support::{traits::schedule::v3::TaskName, PalletId};
+    use sp_runtime::traits::{AccountIdConversion, AtLeast32Bit};
     use sp_runtime::traits::{BlockNumberProvider, Dispatchable};
+    use sp_runtime::traits::{Hash, Scale};
     use sp_runtime::Saturating;
 
     #[pallet::pallet]
@@ -111,7 +113,8 @@ pub mod pallet {
             BlockNumberFor<Self>,
             Self::Moment,
             Self::RuntimeCall,
-            <Self as frame_system::Config>::RuntimeOrigin,
+            Self::SchedulerOrigin,
+            Hasher = Self::Hashing,
         >;
 
         /// Scheduler origin
@@ -128,11 +131,11 @@ pub mod pallet {
 
         /// The default delay period for reversible transactions if none is specified.
         #[pallet::constant]
-        type DefaultDelay: Get<BlockNumberFor<Self>>;
+        type DefaultDelay: Get<BlockNumberOrTimestampOf<Self>>;
 
         /// The minimum delay period allowed for reversible transactions.
         #[pallet::constant]
-        type MinDelayPeriod: Get<BlockNumberFor<Self>>;
+        type MinDelayPeriod: Get<BlockNumberOrTimestampOf<Self>>;
 
         /// Pallet Id
         type PalletId: Get<PalletId>;
@@ -153,6 +156,9 @@ pub mod pallet {
             + AtLeast32Bit
             + Scale<BlockNumberFor<Self>, Output = Self::Moment>
             + MaxEncodedLen;
+
+        /// Time provider for scheduling.
+        type TimeProvider: Time<Moment = Self::Moment>;
     }
 
     /// Maps accounts to their chosen reversibility delay period (in milliseconds).
@@ -163,7 +169,7 @@ pub mod pallet {
         _,
         Blake2_128Concat,
         T::AccountId,
-        ReversibleAccountData<T::AccountId, BlockNumberFor<T>>,
+        ReversibleAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>,
         OptionQuery,
     >;
 
@@ -193,14 +199,14 @@ pub mod pallet {
         /// [who, maybe_delay: None means disabled]
         ReversibilitySet {
             who: T::AccountId,
-            data: ReversibleAccountData<T::AccountId, BlockNumberFor<T>>,
+            data: ReversibleAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>,
         },
         /// A transaction has been intercepted and scheduled for delayed execution.
         /// [who, tx_id, execute_at_moment]
         TransactionScheduled {
             who: T::AccountId,
             tx_id: T::Hash,
-            execute_at: DispatchTime<BlockNumberFor<T>>,
+            execute_at: DispatchTime<BlockNumberFor<T>, T::Moment>,
         },
         /// A scheduled transaction has been successfully cancelled by the owner.
         /// [who, tx_id]
@@ -257,7 +263,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]
         pub fn set_reversibility(
             origin: OriginFor<T>,
-            delay: Option<BlockNumberFor<T>>,
+            delay: Option<BlockNumberOrTimestampOf<T>>,
             policy: DelayPolicy,
             reverser: Option<T::AccountId>,
         ) -> DispatchResult {
@@ -331,7 +337,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
             assert!(
-                T::MinDelayPeriod::get() > Zero::zero(),
+                !T::MinDelayPeriod::get().is_zero(),
                 "`T::MinDelayPeriod` must be greater than 0"
             );
             assert!(
@@ -356,7 +362,7 @@ pub mod pallet {
         /// Check if an account has reversibility enabled and return its delay.
         pub fn is_reversible(
             who: &T::AccountId,
-        ) -> Option<ReversibleAccountData<T::AccountId, BlockNumberFor<T>>> {
+        ) -> Option<ReversibleAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>> {
             ReversibleAccounts::<T>::get(who)
         }
 
@@ -440,12 +446,10 @@ pub mod pallet {
                 policy: _,
             } = Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
 
-            match explicit_reverser {
-                Some(reverser) => {
-                    ensure!(who != reverser, Error::<T>::InvalidReverser);
-                }
-                None => {}
-            };
+            if let Some(reverser) = explicit_reverser {
+                // If the reverser is set, ensure the caller is the reverser
+                ensure!(who == reverser, Error::<T>::InvalidReverser);
+            }
 
             let transfer_call: T::RuntimeCall = pallet_balances::Call::<T>::transfer_keep_alive {
                 dest: dest.clone(),
@@ -465,9 +469,16 @@ pub mod pallet {
                 Ok(())
             })?;
 
-            let dispatch_time = DispatchTime::At(
-                T::BlockNumberProvider::current_block_number().saturating_add(delay),
-            );
+            let dispatch_time = match delay {
+                BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
+                    T::BlockNumberProvider::current_block_number().saturating_add(blocks),
+                ),
+                BlockNumberOrTimestamp::Timestamp(millis) => {
+                    DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
+                        T::TimeProvider::now().saturating_add(millis),
+                    ))
+                }
+            };
 
             let call = T::Preimages::bound(transfer_call.into())?;
 
@@ -597,6 +608,7 @@ pub mod pallet {
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T: Config> {
         /// Configure initial reversible accounts. [AccountId, Delay]
+        /// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block numbers
         pub initial_reversible_accounts: Vec<(T::AccountId, BlockNumberFor<T>)>,
     }
 
@@ -605,12 +617,14 @@ pub mod pallet {
         fn build(&self) {
             for (who, delay) in &self.initial_reversible_accounts {
                 // Basic validation, ensure delay is reasonable if needed
-                if *delay >= T::MinDelayPeriod::get() {
+                let delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
+
+                if delay >= T::MinDelayPeriod::get() {
                     ReversibleAccounts::<T>::insert(
                         who,
                         ReversibleAccountData {
                             explicit_reverser: None,
-                            delay: *delay,
+                            delay,
                             policy: DelayPolicy::Explicit,
                         },
                     );

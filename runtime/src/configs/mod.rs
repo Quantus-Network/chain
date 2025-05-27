@@ -41,6 +41,7 @@ use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
+use qp_common::scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
 // Local module imports
@@ -137,12 +138,15 @@ impl pallet_wormhole::Config for Runtime {
     type WeightInfo = pallet_wormhole::DefaultWeightInfo;
 }
 
+type Moment = u64;
+
 parameter_types! {
     pub const MinimumPeriod: u64 = 100;
 }
+
 impl pallet_timestamp::Config for Runtime {
     /// A timestamp: milliseconds since the unix epoch.
-    type Moment = u64;
+    type Moment = Moment;
     type OnTimestampSet = Scheduler;
     type MinimumPeriod = MinimumPeriod;
     type WeightInfo = ();
@@ -315,8 +319,8 @@ impl pallet_utility::Config for Runtime {
 
 parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
-    pub const DefaultDelay: BlockNumber = 10;
-    pub const MinDelayPeriod: BlockNumber = 2;
+    pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
+    pub const MinDelayPeriod: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(2);
     pub const MaxReversibleTransfers: u32 = 10;
 }
 
@@ -332,4 +336,6 @@ impl pallet_reversible_transfers::Config for Runtime {
     type Preimages = Preimage;
     type WeightInfo = pallet_reversible_transfers::weights::SubstrateWeight<Runtime>;
     type RuntimeHoldReason = RuntimeHoldReason;
+    type Moment = Moment;
+    type TimeProvider = Timestamp;
 }

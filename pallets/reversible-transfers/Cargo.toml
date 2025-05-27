@@ -20,7 +20,7 @@ frame-support.workspace = true
 frame-system.workspace = true
 sp-runtime.workspace = true
 pallet-balances = { workspace = true }
-sp-common = { workspace = true, default-features = false }
+qp-common = { workspace = true, default-features = false }
 
 [dev-dependencies]
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
@@ -42,6 +42,8 @@ std = [
 	"scale-info/std",
 	"sp-runtime/std",
 	"pallet-balances/std",
+	"qp-common/std",
+	"pallet-scheduler/std",
 ]
 # Enable support for setting the existential deposit to zero.
 insecure_zero_ed = []

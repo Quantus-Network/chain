@@ -57,6 +57,7 @@ pallet-qpow = { workspace = true, default-features = false}
 pallet-wormhole = { workspace = true, default-features = false}
 pallet-reversible-transfers = { workspace = true, default-features = false }
 pallet-vesting = { workspace = true, default-features = false }
+qp-common = { path = "../primitives/common", default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false}
 sp-faucet = {workspace = true, default-features = false}
 log = { workspace = true }
@@ -127,8 +128,8 @@ std = [
 	"dilithium-crypto/full_crypto",
 	"poseidon-resonance/std",
 	"pallet-reversible-transfers/std",
+	"qp-common/std",
 ]
-
 
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
