@@ -32,8 +32,8 @@ sp_api::decl_runtime_apis! {
         /// calculate distance header with nonce to with nonce
         fn get_nonce_distance(
             header: [u8; 32],  // 256-bit header
-			nonce: [u8; 64], // 512-bit nonce
-		) -> U512;
+            nonce: [u8; 64], // 512-bit nonce
+        ) -> U512;
 
         /// Get the max possible reorg depth
         fn get_max_reorg_depth() -> u32;

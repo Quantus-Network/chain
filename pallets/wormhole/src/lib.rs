@@ -10,21 +10,21 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use codec::{Decode, Encode};
     use frame_support::{pallet_prelude::*, traits::Currency};
     use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
-    use codec::{Encode, Decode};
+    use lazy_static::lazy_static;
+    use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
     use plonky2::{
+        field::{goldilocks_field::GoldilocksField, types::PrimeField64},
         plonk::{
+            circuit_data::{CommonCircuitData, VerifierCircuitData},
             config::{GenericConfig, PoseidonGoldilocksConfig},
             proof::ProofWithPublicInputs,
-            circuit_data::{VerifierCircuitData, CommonCircuitData},
         },
-        field::{goldilocks_field::GoldilocksField, types::PrimeField64},
-        util::serialization::DefaultGateSerializer
+        util::serialization::DefaultGateSerializer,
     };
-    use lazy_static::lazy_static;
-    use pallet_balances::{Pallet as BalancesPallet, Config as BalancesConfig};
+    use sp_std::vec::Vec;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -64,7 +64,8 @@ pub mod pallet {
     impl<T: Config> WormholePublicInputs<T> {
         // Convert from a vector of GoldilocksField elements
         pub fn from_fields(fields: &[GoldilocksField]) -> Result<Self, Error<T>> {
-            if fields.len() < 16 { // Ensure we have enough fields
+            if fields.len() < 16 {
+                // Ensure we have enough fields
                 return Err(Error::<T>::InvalidPublicInputs);
             }
 
@@ -75,12 +76,14 @@ pub mod pallet {
 
             // First 8 fields (64 bytes) are the nullifier
             for i in 0..8 {
-                nullifier[i*8..(i+1)*8].copy_from_slice(&fields[i].to_canonical_u64().to_le_bytes());
+                nullifier[i * 8..(i + 1) * 8]
+                    .copy_from_slice(&fields[i].to_canonical_u64().to_le_bytes());
             }
 
             // Next 4 fields (32 bytes) are the exit account
             for i in 0..4 {
-                account_bytes[i*8..(i+1)*8].copy_from_slice(&fields[i+8].to_canonical_u64().to_le_bytes());
+                account_bytes[i * 8..(i + 1) * 8]
+                    .copy_from_slice(&fields[i + 8].to_canonical_u64().to_le_bytes());
             }
 
             // Next field is exit amount
@@ -91,7 +94,8 @@ pub mod pallet {
 
             // Last 2 fields are storage root
             for i in 0..4 {
-                storage_root[i*8..(i+1)*8].copy_from_slice(&fields[i+14].to_canonical_u64().to_le_bytes());
+                storage_root[i * 8..(i + 1) * 8]
+                    .copy_from_slice(&fields[i + 14].to_canonical_u64().to_le_bytes());
             }
 
             let exit_account = T::AccountId::decode(&mut &account_bytes[..])
@@ -123,7 +127,8 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn used_nullifiers)]
-    pub(super) type UsedNullifiers<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 64], bool, ValueQuery>;
+    pub(super) type UsedNullifiers<T: Config> =
+        StorageMap<_, Blake2_128Concat, [u8; 64], bool, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -150,10 +155,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
-        pub fn verify_wormhole_proof(
-            origin: OriginFor<T>,
-            proof_bytes: Vec<u8>,
-        ) -> DispatchResult {
+        pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
 
             let proof = ProofWithPublicInputs::from_bytes(proof_bytes.clone(), &*CIRCUIT_DATA)
@@ -169,30 +171,29 @@ pub mod pallet {
             // log::error!("{:?}", public_inputs.storage_root);
             // log::error!("{:?}", public_inputs.fee_amount);
 
-
             // Verify nullifier hasn't been used
-            ensure!(!UsedNullifiers::<T>::contains_key(public_inputs.nullifier), Error::<T>::NullifierAlreadyUsed);
+            ensure!(
+                !UsedNullifiers::<T>::contains_key(public_inputs.nullifier),
+                Error::<T>::NullifierAlreadyUsed
+            );
 
-            VERIFIER_DATA.verify(proof)
-                .map_err(|_e| {
-                    // log::error!("Verification failed: {:?}", e.to_string());
-                    Error::<T>::VerificationFailed
-                })?;
+            VERIFIER_DATA.verify(proof).map_err(|_e| {
+                // log::error!("Verification failed: {:?}", e.to_string());
+                Error::<T>::VerificationFailed
+            })?;
 
             // Mark nullifier as used
             UsedNullifiers::<T>::insert(public_inputs.nullifier, true);
 
             // let exit_balance: <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance
-            let exit_balance: <T as BalancesConfig>::Balance
-                = public_inputs.exit_amount
+            let exit_balance: <T as BalancesConfig>::Balance = public_inputs
+                .exit_amount
                 .try_into()
                 .map_err(|_| "Conversion from u64 to Balance failed")?;
 
             // Mint new tokens to the exit account
-            let _ = BalancesPallet::<T>::deposit_creating(
-                &public_inputs.exit_account,
-                exit_balance
-            );
+            let _ =
+                BalancesPallet::<T>::deposit_creating(&public_inputs.exit_account, exit_balance);
 
             // // Emit event
             Self::deposit_event(Event::ProofVerified {

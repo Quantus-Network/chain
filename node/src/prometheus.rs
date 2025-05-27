@@ -1,16 +1,13 @@
-use prometheus::{Registry, Opts, GaugeVec};
-use sp_api::ProvideRuntimeApi;
-use resonance_runtime::opaque::Block;
 use futures::StreamExt;
+use primitive_types::U512;
+use prometheus::{GaugeVec, Opts, Registry};
+use resonance_runtime::opaque::Block;
 use sc_client_api::BlockchainEvents;
-use std::sync::Arc;
-use primitive_types::{U512};
+use sp_api::ProvideRuntimeApi;
 use sp_consensus_qpow::QPoWApi;
+use std::sync::Arc;
 
 pub struct ResonanceBusinessMetrics;
-
-
-
 
 impl ResonanceBusinessMetrics {
     /// Pack a U512 into an f64 by taking the highest-order 64 bits (8 bytes).
@@ -31,10 +28,8 @@ impl ResonanceBusinessMetrics {
 
     /// Register QPoW metrics gauge vector with Prometheus
     pub fn register_gauge_vec(registry: &Registry) -> GaugeVec {
-        let gauge_vec = GaugeVec::new(
-            Opts::new("qpow_metrics", "QPOW Metrics"),
-            &["data_group"]
-        ).unwrap();
+        let gauge_vec =
+            GaugeVec::new(Opts::new("qpow_metrics", "QPOW Metrics"), &["data_group"]).unwrap();
 
         registry.register(Box::new(gauge_vec.clone())).unwrap();
         gauge_vec
@@ -50,49 +45,56 @@ impl ResonanceBusinessMetrics {
         C::Api: sp_consensus_qpow::QPoWApi<Block>,
     {
         // Get values via the runtime API - we'll handle potential errors gracefully
-        let block_time_sum = client.runtime_api()
+        let block_time_sum = client
+            .runtime_api()
             .get_block_time_sum(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get median_block_time: {:?}", e);
                 0
             });
 
-        let median_block_time = client.runtime_api()
+        let median_block_time = client
+            .runtime_api()
             .get_median_block_time(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get median_block_time: {:?}", e);
                 0
             });
 
-        let distance_threshold = client.runtime_api()
+        let distance_threshold = client
+            .runtime_api()
             .get_distance_threshold(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get distance_threshold: {:?}", e);
                 U512::zero()
             });
 
-        let last_block_time = client.runtime_api()
+        let last_block_time = client
+            .runtime_api()
             .get_last_block_time(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get last_block_time: {:?}", e);
                 0
             });
 
-        let last_block_duration = client.runtime_api()
+        let last_block_duration = client
+            .runtime_api()
             .get_last_block_duration(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get last_block_duration: {:?}", e);
                 0
             });
 
-        let chain_height = client.runtime_api()
+        let chain_height = client
+            .runtime_api()
             .get_chain_height(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get chain_height: {:?}", e);
                 0
             });
 
-        let difficulty = client.runtime_api()
+        let difficulty = client
+            .runtime_api()
             .get_difficulty(block_hash)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get difficulty: {:?}", e);
@@ -102,13 +104,27 @@ impl ResonanceBusinessMetrics {
         log::warn!("😵 difficulty reported: {:?}", difficulty.low_u64() as f64);
 
         // Update the metrics with the values we retrieved
-        gauge.with_label_values(&["chain_height"]).set(chain_height as f64);
-        gauge.with_label_values(&["block_time_sum"]).set(block_time_sum as f64);
-        gauge.with_label_values(&["median_block_time"]).set(median_block_time as f64);
-        gauge.with_label_values(&["distance_threshold"]).set(Self::pack_u512_to_f64(distance_threshold));
-        gauge.with_label_values(&["difficulty"]).set(difficulty.low_u64() as f64);
-        gauge.with_label_values(&["last_block_time"]).set(last_block_time as f64);
-        gauge.with_label_values(&["last_block_duration"]).set(last_block_duration as f64);
+        gauge
+            .with_label_values(&["chain_height"])
+            .set(chain_height as f64);
+        gauge
+            .with_label_values(&["block_time_sum"])
+            .set(block_time_sum as f64);
+        gauge
+            .with_label_values(&["median_block_time"])
+            .set(median_block_time as f64);
+        gauge
+            .with_label_values(&["distance_threshold"])
+            .set(Self::pack_u512_to_f64(distance_threshold));
+        gauge
+            .with_label_values(&["difficulty"])
+            .set(difficulty.low_u64() as f64);
+        gauge
+            .with_label_values(&["last_block_time"])
+            .set(last_block_time as f64);
+        gauge
+            .with_label_values(&["last_block_duration"])
+            .set(last_block_duration as f64);
     }
 
     /// Start a monitoring task for QPoW metrics
@@ -121,15 +137,12 @@ impl ResonanceBusinessMetrics {
         C::Api: sp_consensus_qpow::QPoWApi<Block>,
     {
         // Get or create the gauge vector from the registry
-        let prometheus_gauge_vec = prometheus_registry
-            .as_ref()
-            .map(Self::register_gauge_vec);
+        let prometheus_gauge_vec = prometheus_registry.as_ref().map(Self::register_gauge_vec);
 
         // Spawn the monitoring task
-        task_manager.spawn_essential_handle().spawn(
-            "monitoring_qpow",
-            None,
-            async move {
+        task_manager
+            .spawn_essential_handle()
+            .spawn("monitoring_qpow", None, async move {
                 log::info!("⚙️  QPoW Monitoring task spawned");
 
                 let mut sub = client.import_notification_stream();
@@ -141,7 +154,6 @@ impl ResonanceBusinessMetrics {
                         log::warn!("QPoW Monitoring: Prometheus registry not found");
                     }
                 }
-            }
-        );
+            });
     }
 }

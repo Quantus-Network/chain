@@ -2153,7 +2153,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0 (git+https://gitlab.com/resonance-network/rusty-crystals.git)",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -3525,7 +3525,7 @@ dependencies = [
 name = "hdwallet"
 version = "0.1.0"
 dependencies = [
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0 (git+https://gitlab.com/resonance-network/rusty-crystals.git)",
 ]
 
 [[package]]
@@ -6823,7 +6823,7 @@ dependencies = [
  "log",
  "pallet-balances",
  "parity-scale-codec",
- "plonky2",
+ "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -7145,6 +7145,27 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 [[package]]
 name = "plonky2"
 version = "1.0.2"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "hashbrown 0.14.5",
+ "itertools 0.11.0",
+ "keccak-hash 0.8.0",
+ "log",
+ "num",
+ "plonky2_field 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "rand 0.8.5",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
+name = "plonky2"
+version = "1.0.2"
 source = "git+https://github.com/Resonance-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
 dependencies = [
  "ahash",
@@ -7154,10 +7175,24 @@ dependencies = [
  "keccak-hash 0.8.0",
  "log",
  "num",
- "plonky2_field",
- "plonky2_maybe_rayon",
- "plonky2_util",
+ "plonky2_field 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
+ "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
+ "plonky2_util 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
  "rand 0.8.5",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
+name = "plonky2_field"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+dependencies = [
+ "anyhow",
+ "itertools 0.11.0",
+ "num",
+ "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
  "serde",
  "static_assertions",
  "unroll",
@@ -7171,7 +7206,7 @@ dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
- "plonky2_util",
+ "plonky2_util 1.0.0 (git+https://github.com/Resonance-Network/plonky2)",
  "serde",
  "static_assertions",
  "unroll",
@@ -7180,7 +7215,17 @@ dependencies = [
 [[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+
+[[package]]
+name = "plonky2_maybe_rayon"
+version = "1.0.0"
 source = "git+https://github.com/Resonance-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+
+[[package]]
+name = "plonky2_util"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
 
 [[package]]
 name = "plonky2_util"
@@ -7558,12 +7603,12 @@ dependencies = [
 
 [[package]]
 name = "poseidon-resonance"
-version = "0.5.0"
-source = "git+https://github.com/Resonance-Network/poseidon-resonance#fba5320c8f22dd218a64b7a289e0b10e160055c8"
+version = "0.6.0"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#e39fff549e4bef8f97b1b96e0857c47a6a7eb5ab"
 dependencies = [
  "log",
  "parity-scale-codec",
- "plonky2",
+ "plonky2 1.0.2 (git+https://github.com/Resonance-Network/plonky2)",
  "scale-info",
  "serde",
  "sp-core",
@@ -8950,6 +8995,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty-crystals-dilithium"
+version = "1.0.0"
+source = "git+https://gitlab.com/resonance-network/rusty-crystals.git#035445bb319a176226d756e397151ab24dee2eff"
+dependencies = [
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "rusty-crystals-hdwallet"
 version = "0.1.0"
 source = "git+https://github.com/Quantus-Network/rusty-crystals.git#035445bb319a176226d756e397151ab24dee2eff"
@@ -8959,7 +9012,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals.git)",
  "sha2 0.10.9",
  "thiserror 2.0.12",
 ]
@@ -12881,7 +12934,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 name = "verify"
 version = "0.1.0"
 dependencies = [
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0 (git+https://gitlab.com/resonance-network/rusty-crystals.git)",
 ]
 
 [[package]]

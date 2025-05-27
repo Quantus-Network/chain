@@ -16,8 +16,8 @@
 //!
 //! The hashing strategy ensures determinism while hiding the original secret.
 
-use sp_core::{Hasher, H256};
 use poseidon_resonance::PoseidonHasher;
+use sp_core::{Hasher, H256};
 
 /// Salt used when deriving wormhole addresses.
 pub const ADDRESS_SALT: [u8; 8] = *b"wormhole";
@@ -49,7 +49,8 @@ impl WormholePair {
         use rand::RngCore;
 
         let mut random_bytes = [0u8; 32];
-        OsRng.try_fill_bytes(&mut random_bytes)
+        OsRng
+            .try_fill_bytes(&mut random_bytes)
             .map_err(|_| WormholeError::InvalidSecretFormat)?;
 
         let secret = PoseidonHasher::hash(&random_bytes);
@@ -65,11 +66,10 @@ impl WormholePair {
     ///
     /// # Returns
     /// `Ok(true)` if the address matches the derived one, `Ok(false)` otherwise.
-    pub fn verify(address: &H256, secret: &[u8;32]) -> Result<bool, WormholeError> {
+    pub fn verify(address: &H256, secret: &[u8; 32]) -> Result<bool, WormholeError> {
         let generated_address = Self::generate_pair_from_secret(secret).address;
         Ok(&generated_address == address)
     }
-
 
     /// Verifies whether the given combined hash generates the specified wormhole address.
     ///
@@ -80,7 +80,10 @@ impl WormholePair {
     ///
     /// # Returns
     /// `Ok(true)` if the address matches the derived one, `Ok(false)` otherwise.
-    pub fn verify_with_combined_hash(address: &H256, combined_hash: &[u8; 32]) -> Result<bool, WormholeError> {
+    pub fn verify_with_combined_hash(
+        address: &H256,
+        combined_hash: &[u8; 32],
+    ) -> Result<bool, WormholeError> {
         let generated = PoseidonHasher::hash(combined_hash);
         Ok(&generated == address)
     }
@@ -89,8 +92,7 @@ impl WormholePair {
     ///
     /// This function performs a secondary Poseidon hash over the salt + hashed secret
     /// to derive the wormhole address.
-    fn generate_pair_from_secret(secret: &[u8;32]) -> WormholePair {
-
+    fn generate_pair_from_secret(secret: &[u8; 32]) -> WormholePair {
         let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.as_ref().len());
         combined.extend_from_slice(&ADDRESS_SALT);
         combined.extend_from_slice(secret.as_ref());
