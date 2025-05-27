@@ -410,7 +410,7 @@ mod tests {
 
                 <Scheduler as Hooks<BlockNumber>>::on_initialize(System::block_number());
 
-                // Sprawdzamy, że referendum nie zostało potwierdzone
+                // Check that the referendum was not confirmed
                 let confirmed_event = System::events().iter().find_map(|event_record| {
                     if let RuntimeEvent::Referenda(pallet_referenda::Event::Confirmed {
                         index,
@@ -431,7 +431,7 @@ mod tests {
                     "Referendum should not be confirmed with incorrect origin"
                 );
 
-                // Sprawdzamy, że środki nie zostały wydane
+                // Check that funds were not spent
                 assert_eq!(
                     Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
                     EXISTENTIAL_DEPOSIT
@@ -441,7 +441,7 @@ mod tests {
                     initial_treasury_balance
                 );
 
-                // Sprawdzamy, że nie ma eventu AssetSpendApproved
+                // Check that there is no AssetSpendApproved event
                 let spend_approved_event_found = System::events().iter().any(|event_record| {
                     matches!(
                         event_record.event,
