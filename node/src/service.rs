@@ -1,28 +1,28 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::{FutureExt, StreamExt};
-use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
+use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
+use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
-use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
 
-use std::{sync::Arc, time::Duration};
+use crate::external_miner_client;
+use crate::prometheus::ResonanceBusinessMetrics;
+use async_trait::async_trait;
 use codec::Encode;
 use jsonrpsee::tokio;
-use sp_api::__private::BlockT;
-use sp_core::{RuntimeDebug, U512};
-use async_trait::async_trait;
-use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
-use sp_runtime::traits::Header;
-use crate::prometheus::ResonanceBusinessMetrics;
-use sp_core::crypto::AccountId32;
 use reqwest::Client;
-use uuid::Uuid;
+use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
 use sp_api::ProvideRuntimeApi;
+use sp_api::__private::BlockT;
 use sp_consensus_qpow::QPoWApi;
-use crate::external_miner_client;
+use sp_core::crypto::AccountId32;
+use sp_core::{RuntimeDebug, U512};
+use sp_runtime::traits::Header;
+use std::{sync::Arc, time::Duration};
+use uuid::Uuid;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -37,7 +37,13 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
     FullClient,
     FullSelectChain,
     QPowAlgorithm<Block, FullClient>,
-    Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>,
+    Box<
+        dyn sp_inherents::CreateInherentDataProviders<
+            Block,
+            (),
+            InherentDataProviders = sp_timestamp::InherentDataProvider,
+        >,
+    >,
 >;
 
 #[derive(PartialEq, Eq, Clone, RuntimeDebug)]
@@ -56,8 +62,7 @@ impl<B: BlockT, I> LoggingBlockImport<B, I> {
 }
 
 #[async_trait]
-impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B>  for LoggingBlockImport<B, I>
-{
+impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<B, I> {
     type Error = I::Error;
 
     async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
@@ -85,8 +90,16 @@ pub type Service = sc_service::PartialComponents<
     (LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
 >;
 //TODO Question - for what is this method?
-pub fn build_inherent_data_providers(
-) -> Result<Box<dyn sp_inherents::CreateInherentDataProviders<Block, (), InherentDataProviders=sp_timestamp::InherentDataProvider>>, ServiceError> {
+pub fn build_inherent_data_providers() -> Result<
+    Box<
+        dyn sp_inherents::CreateInherentDataProviders<
+            Block,
+            (),
+            InherentDataProviders = sp_timestamp::InherentDataProvider,
+        >,
+    >,
+    ServiceError,
+> {
     struct Provider;
     #[async_trait::async_trait]
     impl sp_inherents::CreateInherentDataProviders<Block, ()> for Provider {
@@ -138,7 +151,11 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         _phantom: Default::default(),
     };
 
-    let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client), pow_algorithm.clone());
+    let select_chain = sc_consensus_qpow::HeaviestChain::new(
+        backend.clone(),
+        Arc::clone(&client),
+        pow_algorithm.clone(),
+    );
 
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
@@ -146,9 +163,9 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
             client.clone(),
             config.role.is_authority().into(),
         )
-            .with_options(config.transaction_pool.clone())
-            .with_prometheus(config.prometheus_registry())
-            .build(),
+        .with_options(config.transaction_pool.clone())
+        .with_prometheus(config.prometheus_registry())
+        .build(),
     );
 
     let inherent_data_providers = build_inherent_data_providers()?;
@@ -175,16 +192,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         config.prometheus_registry(),
     )?;
 
-	Ok(sc_service::PartialComponents {
-		client,
-		backend,
-		task_manager,
-		import_queue,
-		keystore_container,
-		select_chain,
-		transaction_pool,
-		other: (logging_block_import, telemetry),
-	})
+    Ok(sc_service::PartialComponents {
+        client,
+        backend,
+        task_manager,
+        import_queue,
+        keystore_container,
+        select_chain,
+        transaction_pool,
+        other: (logging_block_import, telemetry),
+    })
 }
 
 /// Builds a new service for a full client.
@@ -229,26 +246,28 @@ pub fn new_full<
             metrics,
         })?;
 
-	if config.offchain_worker.enabled {
-		let offchain_workers =
-			sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-				runtime_api_provider: client.clone(),
-				is_validator: config.role.is_authority(),
-				keystore: Some(keystore_container.keystore()),
-				offchain_db: backend.offchain_storage(),
-				transaction_pool: Some(OffchainTransactionPoolFactory::new(
-					transaction_pool.clone(),
-				)),
-				network_provider: Arc::new(network.clone()),
-				enable_http_requests: true,
-				custom_extensions: |_| vec![],
-			})?;
-		task_manager.spawn_handle().spawn(
-			"offchain-workers-runner",
-			"offchain-worker",
-			offchain_workers.run(client.clone(), task_manager.spawn_handle()).boxed(),
-		);
-	}
+    if config.offchain_worker.enabled {
+        let offchain_workers =
+            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+                runtime_api_provider: client.clone(),
+                is_validator: config.role.is_authority(),
+                keystore: Some(keystore_container.keystore()),
+                offchain_db: backend.offchain_storage(),
+                transaction_pool: Some(OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                )),
+                network_provider: Arc::new(network.clone()),
+                enable_http_requests: true,
+                custom_extensions: |_| vec![],
+            })?;
+        task_manager.spawn_handle().spawn(
+            "offchain-workers-runner",
+            "offchain-worker",
+            offchain_workers
+                .run(client.clone(), task_manager.spawn_handle())
+                .boxed(),
+        );
+    }
 
     let role = config.role;
     let prometheus_registry = config.prometheus_registry().cloned();
@@ -305,7 +324,7 @@ pub fn new_full<
                 Ok(account) => {
                     log::info!("Using provided rewards address: {:?}", account);
                     Some(account.encode())
-                },
+                }
                 Err(_) => {
                     log::warn!("Invalid rewards address format: {}", addr_str);
                     None
@@ -336,13 +355,10 @@ pub fn new_full<
         ResonanceBusinessMetrics::start_monitoring_task(
             client.clone(),
             prometheus_registry.clone(),
-            &task_manager
+            &task_manager,
         );
 
-        ChainManagement::spawn_finalization_task(
-            Arc::new(select_chain.clone()),
-            &task_manager
-        );
+        ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
 
         task_manager.spawn_essential_handle().spawn(
             "qpow-mining",
@@ -465,17 +481,19 @@ pub fn new_full<
             },
         );
 
-        task_manager.spawn_handle().spawn("tx-logger", None, async move {
-            while let Some(tx_hash) = tx_stream.next().await {
-                if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
-                    log::info!("New transaction: Hash = {:?}", tx_hash);
-                    let extrinsic = tx.data();
-                    log::info!("Payload: {:?}", extrinsic);
-                } else {
-                    log::warn!("Transaction {:?} not found in pool", tx_hash);
+        task_manager
+            .spawn_handle()
+            .spawn("tx-logger", None, async move {
+                while let Some(tx_hash) = tx_stream.next().await {
+                    if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
+                        log::info!("New transaction: Hash = {:?}", tx_hash);
+                        let extrinsic = tx.data();
+                        log::info!("Payload: {:?}", extrinsic);
+                    } else {
+                        log::warn!("Transaction {:?} not found in pool", tx_hash);
+                    }
                 }
-            }
-        });
+            });
 
         log::info!("⛏️  Pow miner spawned");
     }

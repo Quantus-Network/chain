@@ -16,6 +16,7 @@ build = "build.rs"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
 sc-consensus-pow = { workspace = true, default-features = false }
 sc-consensus-qpow = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false }

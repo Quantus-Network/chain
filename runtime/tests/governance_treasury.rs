@@ -4,9 +4,7 @@ mod common;
 #[cfg(test)]
 mod tests {
     // Imports from the runtime crate
-    use resonance_runtime::configs::{
-        ReferendumSubmissionDeposit, TreasuryPalletId, TreasuryPayoutPeriod,
-    }; // ReferendumSubmissionDeposit unused, consider removing
+    use resonance_runtime::configs::{TreasuryPalletId, TreasuryPayoutPeriod};
     use resonance_runtime::governance::pallet_custom_origins;
     use resonance_runtime::{
         AccountId,
@@ -20,9 +18,7 @@ mod tests {
         RuntimeOrigin,
         System,
         TreasuryPallet,
-        DAYS,
-        EXISTENTIAL_DEPOSIT,
-        HOURS, // DAYS, HOURS are unused, consider removing if not needed elsewhere
+        EXISTENTIAL_DEPOSIT, // DAYS, HOURS are unused, consider removing if not needed elsewhere
         MICRO_UNIT,
         UNIT,
     };
@@ -33,6 +29,7 @@ mod tests {
     use codec::Encode;
     use sp_runtime::traits::Hash as RuntimeTraitHash;
 
+    use crate::common::run_to_block;
     // Frame and Substrate traits & types
     use frame_support::{
         assert_ok,
@@ -42,23 +39,18 @@ mod tests {
             Bounded, // Added Bounded
             Currency,
             PreimageProvider, // Added PreimageProvider
-            QueryPreimage, // For Preimage pallet (StorePreimage, QueryPreimage might be unused if direct calls work)
-            StorePreimage,
             UnfilteredDispatchable,
         },
     };
     use frame_system::RawOrigin;
+    use pallet_referenda::{self, ReferendumIndex, TracksInfo};
     use pallet_treasury;
+    use resonance_runtime::governance::definitions::CommunityTracksInfo;
     use sp_runtime::{
         traits::{AccountIdConversion, StaticLookup},
         BuildStorage,
     };
-    // ReferendumInfo, ReferendumStatus are unused, consider removing
-    use crate::common::run_to_block;
-    use pallet_referenda::{self, ReferendumIndex, TracksInfo};
-    use resonance_runtime::governance::definitions::CommunityTracksInfo;
-    use sp_core::crypto::AccountId32; // Ensure AccountId32 is imported
-    use sp_runtime::traits::Hash; // Import run_to_block
+    // Import run_to_block
 
     // Type aliases
     type TestRuntimeCall = RuntimeCall;
@@ -330,7 +322,6 @@ mod tests {
             ])
             .build()
             .execute_with(|| {
-                // Use explicitly imported RuntimeOrigin
                 let proposal_origin_for_preimage =
                     RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID.clone());
                 let proposal_origin_for_referendum_submission =
@@ -362,7 +353,6 @@ mod tests {
                     });
 
                 let encoded_call = treasury_spend_call.encode();
-
                 assert_ok!(Preimage::note_preimage(
                     proposal_origin_for_preimage,
                     encoded_call.clone()
@@ -370,31 +360,26 @@ mod tests {
 
                 let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
                 let h256_preimage_hash: sp_core::H256 = preimage_hash.into();
-
                 assert!(Preimage::have_preimage(&h256_preimage_hash));
 
                 let track_id = 0u16;
                 type RuntimeTracks = <Runtime as pallet_referenda::Config>::Tracks;
 
-                // Use imported frame_support::traits::Bounded
                 let proposal_for_referenda = Bounded::Lookup {
                     hash: preimage_hash,
                     len: encoded_call.len() as u32,
                 };
 
-                // Corrected Referenda::submit call: origin, track, proposal (not boxed), dispatch_after
                 assert_ok!(Referenda::submit(
                     proposal_origin_for_referendum_submission,
                     Box::new(OriginCaller::system(RawOrigin::Signed(
                         PROPOSER_ACCOUNT_ID.clone()
                     ))),
-                    proposal_for_referenda.clone(), // Pass Bounded::Lookup directly
+                    proposal_for_referenda.clone(),
                     ScheduleDispatchTime::After(1u32.into())
                 ));
 
-                // If referendum_count() still not found, assume 0 for now for testing flow.
-                // let referendum_index: ReferendumIndex = Referenda::referendum_count() - 1;
-                let referendum_index: ReferendumIndex = 0; // Temporary workaround
+                let referendum_index: ReferendumIndex = 0;
 
                 let track_info =
                     <RuntimeTracks as TracksInfo<Balance, BlockNumber>>::info(track_id)
@@ -423,9 +408,30 @@ mod tests {
                 current_block += 1;
                 System::set_block_number(current_block);
 
-                // Use imported frame_support::pallet_prelude::Hooks
                 <Scheduler as Hooks<BlockNumber>>::on_initialize(System::block_number());
 
+                // Sprawdzamy, że referendum nie zostało potwierdzone
+                let confirmed_event = System::events().iter().find_map(|event_record| {
+                    if let RuntimeEvent::Referenda(pallet_referenda::Event::Confirmed {
+                        index,
+                        tally,
+                    }) = &event_record.event
+                    {
+                        if *index == referendum_index {
+                            Some(tally.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+                assert!(
+                    confirmed_event.is_none(),
+                    "Referendum should not be confirmed with incorrect origin"
+                );
+
+                // Sprawdzamy, że środki nie zostały wydane
                 assert_eq!(
                     Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
                     EXISTENTIAL_DEPOSIT
@@ -435,8 +441,8 @@ mod tests {
                     initial_treasury_balance
                 );
 
-                let latest_events = System::events();
-                let spend_approved_event_found = latest_events.iter().any(|event_record| {
+                // Sprawdzamy, że nie ma eventu AssetSpendApproved
+                let spend_approved_event_found = System::events().iter().any(|event_record| {
                     matches!(
                         event_record.event,
                         RuntimeEvent::TreasuryPallet(
@@ -446,35 +452,8 @@ mod tests {
                 });
                 assert!(
                     !spend_approved_event_found,
-                    "Treasury spend should not have been approved via this referendum track."
+                    "Treasury spend should not have been approved via this referendum track"
                 );
-
-                // Znajdź event Confirmed i pobierz tally
-                let confirmed_event = System::events()
-                    .iter()
-                    .find_map(|event_record| {
-                        if let RuntimeEvent::Referenda(pallet_referenda::Event::Confirmed {
-                            index,
-                            tally,
-                        }) = &event_record.event
-                        {
-                            if *index == referendum_index {
-                                Some(tally.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .expect("Confirmed event should be present");
-                System::assert_has_event(RuntimeEvent::Referenda(
-                    pallet_referenda::Event::Confirmed {
-                        index: referendum_index,
-                        tally: confirmed_event,
-                    },
-                ));
-                println!("[TREASURY_TEST_DEBUG] Event Referenda::Confirmed asserted.");
             });
     }
 

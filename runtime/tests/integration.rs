@@ -1,12 +1,8 @@
 use codec::{Decode, Encode};
-use dilithium_crypto::{
-    ResonanceSignatureWithPublic, ResonanceSignatureScheme, PUB_KEY_BYTES,
-};
+use dilithium_crypto::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, PUB_KEY_BYTES};
 use sp_core::ByteArray;
 use sp_runtime::{
-    generic::UncheckedExtrinsic,generic::Preamble,
-    traits::Verify,
-    AccountId32, MultiAddress,
+    generic::Preamble, generic::UncheckedExtrinsic, traits::Verify, AccountId32, MultiAddress,
 }; // Add this to bring as_slice and from_slice into scope
 
 // Placeholder types (replace with your actual runtime types)
@@ -41,7 +37,7 @@ mod tests {
 
     //
     // Integration test for dilithium signatures
-    // Tests valid case and fail cases 
+    // Tests valid case and fail cases
     //
     #[test]
     fn test_dilithium_extrinsic() {
@@ -52,14 +48,20 @@ mod tests {
         let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
-        println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
+        println!(
+            "Gen Public Key (hex): {:?}",
+            format_hex_truncated(&pk_bytes)
+        );
 
         // Create and sign a payload
         let payload: RuntimeCall = 42; // Example call
         let msg = payload.encode();
         let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
 
-        println!("Gen Signature (hex): {:?}", format_hex_truncated(&sig_bytes));
+        println!(
+            "Gen Signature (hex): {:?}",
+            format_hex_truncated(&sig_bytes)
+        );
 
         let signature =
             ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
@@ -74,7 +76,10 @@ mod tests {
         println!("Payload AccountId: {:?}", &id);
         let signed_extra: SignedExtra = ();
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(signature, ResonancePublic::from_slice(&pk_bytes).unwrap());
+        let sig_with_public = ResonanceSignatureWithPublic::new(
+            signature,
+            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+        );
 
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
@@ -120,7 +125,10 @@ mod tests {
                         let sig = sig_public.signature();
                         let sig_bytes = sig.as_slice();
                         println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
-                        println!("Decoded Public Key: {:?}", format_hex_truncated(sig_public.public().as_ref()));
+                        println!(
+                            "Decoded Public Key: {:?}",
+                            format_hex_truncated(sig_public.public().as_ref())
+                        );
                     }
                     _ => println!("Decoded Signature: --"),
                 }
@@ -171,7 +179,10 @@ mod tests {
         let signature_wrong_key = ResonanceSignature::try_from(&sig_bytes_wrong_key[..])
             .expect("Signature length mismatch");
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(signature_wrong_key, ResonancePublic::from_slice(&pk_bytes).unwrap());
+        let sig_with_public = ResonanceSignatureWithPublic::new(
+            signature_wrong_key,
+            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+        );
 
         // Create transaction with invalid signature
         let extrinsic = UncheckedExtrinsic::new_signed(
@@ -226,7 +237,10 @@ mod tests {
         let id_2 = Address::Id(account_id_2);
         let signed_extra: SignedExtra = ();
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(signature, ResonancePublic::from_slice(&pk_bytes).unwrap());
+        let sig_with_public = ResonanceSignatureWithPublic::new(
+            signature,
+            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+        );
 
         // Create transaction with wrong account ID.
         let extrinsic = UncheckedExtrinsic::new_signed(
@@ -277,7 +291,7 @@ mod tests {
         let sig_bytes = keypair.sign(&msg, None, false).expect("Signing failed");
         let signature =
             ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
-            
+
         let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
         let id = Address::Id(account_id);
         let signed_extra: SignedExtra = ();
@@ -285,7 +299,10 @@ mod tests {
         // Create transaction with wrong payload. Should fail.
         let wrong_payload: RuntimeCall = 40;
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(signature, ResonancePublic::from_slice(&pk_bytes).unwrap());
+        let sig_with_public = ResonanceSignatureWithPublic::new(
+            signature,
+            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+        );
 
         let extrinsic = UncheckedExtrinsic::new_signed(
             wrong_payload,
@@ -319,7 +336,7 @@ mod tests {
 
     //
     // Integration test for sr25519 extrinsic
-    // Keep this as long as we still have these around. 
+    // Keep this as long as we still have these around.
     //
     #[test]
     fn test_sr25519_extrinsic() {
@@ -407,5 +424,4 @@ mod tests {
             _ => panic!("Decoded extrinsic has no signature"),
         }
     }
-
 }

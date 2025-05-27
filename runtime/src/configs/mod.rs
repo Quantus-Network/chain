@@ -30,7 +30,7 @@ use crate::governance::definitions::{
     RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
 };
 use crate::governance::{pallet_custom_origins, Spender};
-use frame_support::traits::{ConstU64, EitherOf, NeverEnsureOrigin};
+use frame_support::traits::{ConstU64, EitherOf, NeverEnsureOrigin, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -45,16 +45,17 @@ use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use pallet_ranked_collective::Linear;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
+use sp_runtime::traits::ConvertInto;
 use sp_runtime::{traits::One, Perbill, Permill};
 use sp_version::RuntimeVersion;
+
 // Local module imports
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
     Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, DAYS, EXISTENTIAL_DEPOSIT,
-    MICRO_UNIT, UNIT, VERSION,
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Vesting, DAYS,
+    EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -389,11 +390,25 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+    pub const MinVestedTransfer: Balance = UNIT;
+    /// Unvested funds can be transferred and reserved for any other means (reserves overlap)
+    pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+    WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
 impl pallet_vesting::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type PalletId = VestingPalletId;
+    type Currency = Balances;
     type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+    type MinVestedTransfer = MinVestedTransfer;
+    type BlockNumberToBalance = ConvertInto;
+    type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+    type BlockNumberProvider = System;
+
+    const MAX_VESTING_SCHEDULES: u32 = 28;
 }
+
 impl pallet_utility::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeCall = RuntimeCall;
@@ -425,10 +440,13 @@ impl pallet_reversible_transfers::Config for Runtime {
 impl pallet_merkle_airdrop::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
+    type Vesting = Vesting;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
     type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
     type UnsignedClaimPriority = UnsignedClaimPriority;
+    type BlockNumberProvider = System;
+    type BlockNumberToBalance = ConvertInto;
 }
 
 parameter_types! {
