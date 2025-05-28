@@ -140,8 +140,56 @@ jobs:
           echo "New version: $new_version"
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
 
-  build_and_package:
+  update_cargo_toml:
     needs: calculate_next_version
+    runs-on: ubuntu-latest # Runs on Linux, can use sed easily
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch the whole history to allow comparing with previous tags for versioning if needed
+          # and to allow pushing back to the branch.
+          fetch-depth: 0 
+          token: ${{ secrets.GITHUB_TOKEN }} # Needs token to push
+
+      - name: Update Cargo.toml version
+        env:
+          NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
+        run: |
+          # Strip \'v\' prefix for Cargo.toml
+          new_cargo_version=${NEW_VERSION_WITH_V#v}
+          echo "Updating node/Cargo.toml to version: $new_cargo_version"
+          
+          # Use sed to update the version. This assumes the version line looks like:
+          # version = "x.y.z"
+          # It will replace the string between the quotes.
+          # The regex handles potential whitespace around the equals sign.
+          sed -i -E "s/^version\\s*=\\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
+          
+          echo "Contents of node/Cargo.toml after update:"
+          cat node/Cargo.toml
+
+      - name: Commit and push Cargo.toml changes
+        env:
+          NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
+          BRANCH_NAME: ${{ needs.calculate_next_version.outputs.branch_name }}
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git add node/Cargo.toml
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit in Cargo.toml. Version might be the same."
+          else
+            git commit -m "Bump version to $NEW_VERSION_WITH_V in Cargo.toml
+
+            [skip ci]" # Add [skip ci] to prevent this commit from triggering another workflow run
+            git push origin HEAD:${BRANCH_NAME}
+            echo "Pushed Cargo.toml changes to ${BRANCH_NAME}"
+          fi
+
+  build_and_package:
+    needs: [calculate_next_version, update_cargo_toml] # Add update_cargo_toml dependency
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
