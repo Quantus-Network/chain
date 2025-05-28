@@ -253,4 +253,4 @@ if [ "$secret_phrase" != "" ]; then
 fi
 echo ""
 echo "To start mining Quantus node, run the following command:"
-echo "$NODE_BINARY_PATH --identity \"$NODE_IDENTITY_PATH\" --rewards-address \"$(cat \"$REWARDS_ADDRESS_PATH\")\" --validator" 
+echo "$NODE_BINARY_PATH --node-key-file \"$NODE_IDENTITY_PATH\" --rewards-address \"$REWARDS_ADDRESS_PATH\" --validator" 
