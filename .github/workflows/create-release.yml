@@ -221,6 +221,7 @@ jobs:
       - name: Apply version bump to local Cargo.toml and Cargo.lock for build
         env:
           NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
+        shell: bash
         run: |
           set -ex
           new_cargo_version=${NEW_VERSION_WITH_V#v}
