@@ -147,10 +147,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Fetch the whole history to allow comparing with previous tags for versioning if needed
-          # and to allow pushing back to the branch.
           fetch-depth: 0 
-          token: ${{ secrets.GITHUB_TOKEN }} # Needs token to push
+          token: ${{ secrets.ADMIN_PAT }}
 
       - name: Update Cargo.toml version
         env:
@@ -184,7 +182,8 @@ jobs:
             git commit -m "Bump version to $NEW_VERSION_WITH_V in Cargo.toml
 
             [skip ci]" # Add [skip ci] to prevent this commit from triggering another workflow run
-            git push origin HEAD:${BRANCH_NAME}
+            # Use the PAT in the push command
+            git push https://${{ github.actor }}:${{ secrets.ADMIN_PAT }}@github.com/${{ github.repository }}.git HEAD:${BRANCH_NAME}
             echo "Pushed Cargo.toml changes to ${BRANCH_NAME}"
           fi
 
