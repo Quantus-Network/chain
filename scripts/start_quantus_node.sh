@@ -89,8 +89,8 @@ if [ -f "$REWARDS_ADDRESS_FILE" ]; then
         echo -e "\033[1;33mWARN\033[0m: Rewards address file ($REWARDS_ADDRESS_FILE) is empty or contains a placeholder."
         REWARDS_ADDRESS="" # Reset to trigger prompt if interactive
     else
-        echo -e "\033[1;32mINFO\033[0m: Loaded rewards address from $REWARDS_ADDRESS_FILE: $REWARDS_ADDRESS"
-    fi
+    echo -e "\033[1;32mINFO\033[0m: Loaded rewards address from $REWARDS_ADDRESS_FILE: $REWARDS_ADDRESS"
+fi
 fi
 
 if [ -z "${REWARDS_ADDRESS}" ]; then # If still empty after trying to load
@@ -106,7 +106,7 @@ if [ -z "${REWARDS_ADDRESS}" ]; then # If still empty after trying to load
     echo "  1. Enter your existing Quantus rewards address manually."
     echo "  2. Generate a new rewards address (runs '${CREATE_ADDRESS_SCRIPT_PATH##*/}')"
     echo "  3. Exit to set it manually later (edit $REWARDS_ADDRESS_FILE or this script)."
-
+    
     read -r -p "Enter your choice (1, 2, or 3): " choice
 
     case "$choice" in

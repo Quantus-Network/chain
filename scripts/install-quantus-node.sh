@@ -133,12 +133,12 @@ setup_node_identity() {
     if [ ! -f "$NODE_IDENTITY_PATH" ]; then
         echo "No node identity file found at $NODE_IDENTITY_PATH"
         echo "Would you like to:"
-        echo "A) Provide a path to an existing node identity file"
-        echo "B) Generate a new node identity"
-        read -p "Enter your choice (A/B): " choice
+        echo "[1] Provide a path to an existing node identity file"
+        echo "[2] Generate a new node identity"
+        read -p "Enter your choice (1/2): " choice
 
         case $choice in
-            A|a)
+            1)
                 read -p "Enter the path to your node identity file: " identity_path
                 if [ -f "$identity_path" ]; then
                     cp "$identity_path" "$NODE_IDENTITY_PATH"
@@ -148,13 +148,13 @@ setup_node_identity() {
                     exit 1
                 fi
                 ;;
-            B|b)
+            2)
                 echo "Generating new node identity..."
                 if ! command -v "$NODE_BINARY_PATH" &> /dev/null; then
                     echo "Error: Node binary not found at $NODE_BINARY_PATH"
                     exit 1
                 fi
-                $NODE_BINARY_PATH key generate-node-identity --output "$NODE_IDENTITY_PATH"
+                $NODE_BINARY_PATH key generate-node-key --file "$NODE_IDENTITY_PATH"
                 echo "New node identity generated and saved to $NODE_IDENTITY_PATH"
                 ;;
             *)
@@ -167,33 +167,40 @@ setup_node_identity() {
     fi
 }
 
+secret_phrase=""
+
 # Function to handle rewards address setup
 setup_rewards_address() {
     echo "Checking rewards address setup..."
     if [ ! -f "$REWARDS_ADDRESS_PATH" ]; then
         echo "No rewards address found at $REWARDS_ADDRESS_PATH"
         echo "Would you like to:"
-        echo "A) Provide an existing rewards address"
-        echo "B) Generate a new rewards address"
-        read -p "Enter your choice (A/B): " choice
+        echo "[1] Provide an existing rewards address"
+        echo "[2] Generate a new rewards address"
+        read -p "Enter your choice (1/2): " choice
 
         case $choice in
-            A|a)
+            1)
                 read -p "Enter your rewards address: " address
                 echo "$address" > "$REWARDS_ADDRESS_PATH"
                 echo "Rewards address saved to $REWARDS_ADDRESS_PATH"
                 ;;
-            B|b)
+            2)
                 echo "Generating new rewards address..."
                 if ! command -v "$NODE_BINARY_PATH" &> /dev/null; then
                     echo "Error: Node binary not found at $NODE_BINARY_PATH"
                     exit 1
                 fi
                 # Generate new address and capture all output
-                output=$($NODE_BINARY_PATH key generate --scheme standard)
+                output=$($NODE_BINARY_PATH key quantus)
                 
                 # Extract the address (assuming it's the last line)
                 address=$(echo "$output" | grep "Address:" | awk '{print $2}')
+                
+                # Secret phrase: shadow valve wild recall jeans blush mandate diagram recall slide alley water wealth transfer soup fit above army crisp involve level trust rabbit panda
+                line=$(printf '%s\n' "$output" | grep "Secret phrase:")
+                # strip everything up through “Secret phrase: ”
+                secret_phrase="${line#*Secret phrase: }"
                 
                 # Save only the address to the file
                 echo "$address" > "$REWARDS_ADDRESS_PATH"
@@ -238,4 +245,12 @@ setup_rewards_address
 echo "Installation completed successfully!"
 echo "Node binary: $NODE_BINARY_PATH"
 echo "Node identity: $NODE_IDENTITY_PATH"
-echo "Rewards address: $REWARDS_ADDRESS_PATH" 
+echo "Rewards address: $REWARDS_ADDRESS_PATH"
+if [ "$secret_phrase" != "" ]; then 
+  echo ""
+  echo "PLEASE SAVE YOUR SECRET PHRASE IN A SAFE PLACE"
+  echo "Secret phrase: $secret_phrase"
+fi
+echo ""
+echo "To start mining Quantus node, run the following command:"
+echo "$NODE_BINARY_PATH --identity \"$NODE_IDENTITY_PATH\" --rewards-address \"$(cat \"$REWARDS_ADDRESS_PATH\")\" --validator" 
