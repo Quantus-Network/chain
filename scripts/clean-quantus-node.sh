@@ -6,7 +6,7 @@ set -e
 SYSTEM_BINARY_PATH="/usr/local/bin/quantus-node"
 USER_BINARY_PATH="$HOME/.local/bin/quantus-node"
 QUANTUS_HOME="$HOME/.quantus"
-NODE_IDENTITY_PATH="$QUANTUS_HOME/node-identity.json"
+NODE_IDENTITY_PATH="$QUANTUS_HOME/node_key.p2p"
 REWARDS_ADDRESS_PATH="$QUANTUS_HOME/rewards-address.txt"
 
 echo "Starting Quantus node cleanup..."

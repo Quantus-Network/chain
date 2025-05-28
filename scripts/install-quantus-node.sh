@@ -10,7 +10,7 @@ REPO_OWNER="Quantus-Network"
 REPO_NAME="chain"
 BINARY_NAME="quantus-node"
 QUANTUS_HOME="$HOME/.quantus"
-NODE_IDENTITY_PATH="$QUANTUS_HOME/node-identity.json"
+NODE_IDENTITY_PATH="$QUANTUS_HOME/node_key.p2p"
 REWARDS_ADDRESS_PATH="$QUANTUS_HOME/rewards-address.txt"
 
 # Detect OS and Architecture
