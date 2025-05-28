@@ -259,4 +259,6 @@ echo "$NODE_BINARY_PATH \
   --validator \
   --chain live_resonance \
   --port 30333 \
-  --prometheus-port 9616"
+  --prometheus-port 9616 \
+  --name ResonanceLiveTestnetNode \
+  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9944,methods=unsafe,cors=all" \
