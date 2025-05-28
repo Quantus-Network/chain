@@ -61,10 +61,11 @@ fn miner_reward_with_transaction_fees_works() {
         // Run the on_finalize hook
         MiningRewards::on_finalize(1);
 
-        // Check that the miner received the block reward + fees
+        // Check that the miner received the block reward + remaining fees
+        // Fees: 25. 10% to treasury (25 * 0.1 = 2.5, floor -> 2). Miner gets 25 - 2 = 23.
         assert_eq!(
             Balances::free_balance(MINER),
-            initial_balance + 50 + 25 // Initial + base + fees
+            initial_balance + 50 + 23 // Initial + base + (fees - treasury_cut)
         );
 
         // Check the event was emitted with the correct amount
@@ -72,7 +73,7 @@ fn miner_reward_with_transaction_fees_works() {
             Event::MinerRewarded {
                 block: 1,
                 miner: MINER,
-                reward: 75,
+                reward: 50 + 23, // base + (fees - treasury_cut)
             }
             .into(),
         );
@@ -95,10 +96,11 @@ fn on_unbalanced_collects_fees() {
         set_miner_digest(MINER);
         MiningRewards::on_finalize(1);
 
-        // Check that the miner received the block reward + fees
+        // Check that the miner received the block reward + 90% of fees
+        // Fees: 30. 10% to treasury = 3. 90% to miner = 27.
         assert_eq!(
             Balances::free_balance(MINER),
-            initial_balance + 50 + 30 // Initial + base + fees
+            initial_balance + 50 + 27 // Initial + base + 90% of fees
         );
     });
 }
@@ -114,7 +116,8 @@ fn multiple_blocks_accumulate_rewards() {
         MiningRewards::collect_transaction_fees(10);
         MiningRewards::on_finalize(1);
 
-        let balance_after_block_1 = initial_balance + 50 + 10; // Initial + base + fees
+        // Fees: 10. 10% to treasury (10 * 0.1 = 1, floor -> 1). Miner gets 10 - 1 = 9.
+        let balance_after_block_1 = initial_balance + 50 + 9; // Initial + base + (fees - treasury_cut)
         assert_eq!(Balances::free_balance(MINER), balance_after_block_1);
 
         // Block 2
@@ -123,9 +126,10 @@ fn multiple_blocks_accumulate_rewards() {
         MiningRewards::collect_transaction_fees(15);
         MiningRewards::on_finalize(2);
 
+        // Fees: 15. 10% to treasury (15 * 0.1 = 1.5, floor -> 1). Miner gets 15 - 1 = 14.
         assert_eq!(
             Balances::free_balance(MINER),
-            balance_after_block_1 + 50 + 15 // Balance after block 1 + base + fees
+            balance_after_block_1 + 50 + 14 // Balance after block 1 + base + (fees - treasury_cut)
         );
     });
 }
@@ -143,7 +147,8 @@ fn different_miners_get_different_rewards() {
         MiningRewards::on_finalize(1);
 
         // Check first miner balance
-        let balance_after_block_1 = initial_balance_miner1 + 50 + 10; // Initial + base + fees
+        // Fees: 10. 10% to treasury = 1. 90% to miner1 = 9.
+        let balance_after_block_1 = initial_balance_miner1 + 50 + 9; // Initial + base + 90% of fees
         assert_eq!(Balances::free_balance(MINER), balance_after_block_1);
 
         // Block 2 - Second miner
@@ -153,9 +158,10 @@ fn different_miners_get_different_rewards() {
         MiningRewards::on_finalize(2);
 
         // Check second miner balance
+        // Fees: 20. 10% to treasury = 2. 90% to miner2 = 18.
         assert_eq!(
             Balances::free_balance(MINER2),
-            initial_balance_miner2 + 50 + 20 // Initial + base + fees
+            initial_balance_miner2 + 50 + 18 // Initial + base + 90% of fees
         );
 
         // First miner balance should remain unchanged
@@ -181,10 +187,11 @@ fn transaction_fees_collector_works() {
         set_miner_digest(MINER);
         MiningRewards::on_finalize(1);
 
-        // Check miner got all fees plus base reward
+        // Check miner got base reward + 90% of all fees
+        // Fees: 30. 10% to treasury = 3. 90% to miner = 27.
         assert_eq!(
             Balances::free_balance(MINER),
-            initial_balance + 50 + 30 // Initial + base + fees
+            initial_balance + 50 + 27 // Initial + base + 90% of fees
         );
     });
 }
@@ -209,9 +216,10 @@ fn block_lifecycle_works() {
         MiningRewards::on_finalize(1);
 
         // Check miner received rewards
+        // Fees: 15. 10% to treasury (15 * 0.1 = 1.5, floor -> 1). Miner gets 15 - 1 = 14.
         assert_eq!(
             Balances::free_balance(MINER),
-            initial_balance + 50 + 15 // Initial + base + fees
+            initial_balance + 50 + 14 // Initial + base + (fees - treasury_cut)
         );
     });
 }
@@ -232,11 +240,11 @@ fn test_run_to_block_helper() {
         run_to_block(3);
 
         // Check that miner received rewards for blocks 1 and 2
-        // Block 1: Initial + 50 (base) + 10 (fees) = Initial + 60
-        // Block 2: (Initial + 60) + 50 (base) = Initial + 110
+        // Block 1: Initial + 50 (base) + 10*0.9 (fees) = Initial + 59
+        // Block 2: (Initial + 59) + 50 (base) + 0 (no new fees for block 2 in this test) = Initial + 109
         assert_eq!(
             Balances::free_balance(MINER),
-            initial_balance + 110 // Initial + 50 + 10 + 50
+            initial_balance + 109 // Initial + 50 + 9 + 50
         );
 
         // Verify we're at the expected block number
