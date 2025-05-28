@@ -151,40 +151,53 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Default GITHUB_TOKEN is fine for checkout; gh cli step will use ADMIN_PAT
 
-      - name: Update Cargo.toml version locally and create PR
+      - name: Update files and Create PR
         env:
           NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
           BRANCH_NAME: ${{ needs.calculate_next_version.outputs.branch_name }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # gh cli needs this
+          # IMPORTANT: Use ADMIN_PAT for gh tool to have permission to create PR
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }} 
         run: |
-          set -ex
+          set -ex # exit on error, print commands
           new_cargo_version=${NEW_VERSION_WITH_V#v}
-          echo "Updating node/Cargo.toml to version: $new_cargo_version locally for PR"
+          
+          echo "Updating node/Cargo.toml to version: $new_cargo_version"
           sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
           
-          echo "Contents of node/Cargo.toml after local update:"
+          echo "Updating Cargo.lock for quantus-node package..."
+          # Attempt to update Cargo.lock. If this specific version isn't resolvable (e.g. for a new, unpublished crate version),
+          # cargo update might not change anything or could error if strict. We'll proceed.
+          cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node tried, proceeding."
+          
+          echo "Contents of node/Cargo.toml after update:"
           cat node/Cargo.toml
 
           bump_branch_name="version-bump-${NEW_VERSION_WITH_V}"
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          # Configure git user for the commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           
           git checkout -b "$bump_branch_name"
-          git add node/Cargo.toml
-          git commit -m "Bump version to $NEW_VERSION_WITH_V in Cargo.toml
-
-          [skip ci]"
+          git add node/Cargo.toml Cargo.lock # Add updated Cargo.toml and Cargo.lock
+          git commit -m $"Bump version to $NEW_VERSION_WITH_V\n\nUpdate Cargo.toml and Cargo.lock for quantus-node.\n[skip ci]"
+          
           # Try to delete the remote branch first, ignore error if it doesn't exist
           git push origin --delete "$bump_branch_name" || true 
+          # Push the new branch. This uses the checkout token if not overridden, but gh needs ADMIN_PAT.
+          # For pushing this branch, default GITHUB_TOKEN (if it has contents:write from permissions block) might be okay.
+          # However, gh cli operations need the elevated PAT.
           git push origin "$bump_branch_name"
           
           echo "Creating Pull Request for version bump..."
+          # gh cli will use GITHUB_TOKEN from env, which we set to ADMIN_PAT
           gh pr create \
             --title "Bump version to $NEW_VERSION_WITH_V" \
-            --body "This PR bumps the version in node/Cargo.toml to $NEW_VERSION_WITH_V for the release. Triggered by workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --body "This PR bumps the version in node/Cargo.toml and updates Cargo.lock to $NEW_VERSION_WITH_V for the release. Triggered by workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --base "${BRANCH_NAME}" \
-            --head "$bump_branch_name"
+            --head "$bump_branch_name" \
+            --label "version-bump,automated-pr"
 
   build_and_package:
     needs: [calculate_next_version, update_cargo_toml] 
@@ -205,16 +218,20 @@ jobs:
         uses: actions/checkout@v4
         # This will checkout the original commit the workflow ran on, or tip of BRANCH_NAME
 
-      - name: Apply version bump to local Cargo.toml for build
+      - name: Apply version bump to local Cargo.toml and Cargo.lock for build
         env:
           NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
-        shell: bash
         run: |
+          set -ex
           new_cargo_version=${NEW_VERSION_WITH_V#v}
           echo "Applying version $new_cargo_version to node/Cargo.toml for build purposes..."
           if [ -f node/Cargo.toml ]; then
             sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
-            echo "node/Cargo.toml updated locally for build:"
+            echo "node/Cargo.toml updated locally for build."
+            echo "Updating local Cargo.lock for quantus-node for build..."
+            # Attempt to update lock file for build consistency
+            cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node for build tried, proceeding."
+            echo "Local Cargo.lock updated for build."
             cat node/Cargo.toml
           else
             echo "Error: node/Cargo.toml not found at expected location for build-time update."
