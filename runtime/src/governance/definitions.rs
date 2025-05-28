@@ -84,7 +84,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
-        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 3] = [
+        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] = [
             // Track 0: Signed Track (authenticated proposals)
             (
                 0,
@@ -122,7 +122,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                     min_enactment_period: 1, // 1 Block - immediate "execution" (just for record-keeping)
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(50), // Simple majority approval
+                        floor: Perbill::from_percent(50),
                         ceil: Perbill::from_percent(60),
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
@@ -132,26 +132,92 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                     },
                 },
             ),
-            // Track 2: Treasury Spender or Treasurer Track
+            // Track 2: Treasury tracks
             (
                 2,
                 pallet_referenda::TrackInfo {
-                    name: "treasury_spender_or_treasurer",
+                    name: "treasury_small_spender",
                     max_deciding: 5,
-                    decision_deposit: 50 * UNIT,
-                    prepare_period: 6 * HOURS,
+                    decision_deposit: 100 * UNIT,
+                    prepare_period: 1 * DAYS,
                     decision_period: 3 * DAYS,
-                    confirm_period: 6 * HOURS,
+                    confirm_period: 1 * DAYS,
                     min_enactment_period: 12 * HOURS,
                     min_approval: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(50),
+                        floor: Perbill::from_percent(25),
                         ceil: Perbill::from_percent(50),
                     },
                     min_support: pallet_referenda::Curve::LinearDecreasing {
                         length: Perbill::from_percent(100),
                         floor: Perbill::from_percent(1),
                         ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+            (
+                3,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_medium_spender",
+                    max_deciding: 2,
+                    decision_deposit: 250 * UNIT,
+                    prepare_period: 6 * HOURS,
+                    decision_period: 5 * DAYS,
+                    confirm_period: 1 * DAYS,
+                    min_enactment_period: 12 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),
+                        ceil: Perbill::from_percent(75),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(2),
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+            (
+                4,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_big_spender",
+                    max_deciding: 2,
+                    decision_deposit: 500 * UNIT,
+                    prepare_period: 1 * DAYS,
+                    decision_period: 7 * DAYS,
+                    confirm_period: 2 * DAYS,
+                    min_enactment_period: 12 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(65),
+                        ceil: Perbill::from_percent(85),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(5),
+                        ceil: Perbill::from_percent(15),
+                    },
+                },
+            ),
+            (
+                5,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_treasurer",
+                    max_deciding: 1,
+                    decision_deposit: 1000 * UNIT,
+                    prepare_period: 2 * DAYS,
+                    decision_period: 14 * DAYS,
+                    confirm_period: 4 * DAYS,
+                    min_enactment_period: 24 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(75),
+                        ceil: Perbill::from_percent(100),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(10),
+                        ceil: Perbill::from_percent(25),
                     },
                 },
             ),
@@ -163,12 +229,10 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
         // Check for specific custom origins first (Spender/Treasurer types)
         if let crate::OriginCaller::Origins(custom_origin) = id {
             match custom_origin {
-                pallet_custom_origins::Origin::SmallTipper
-                | pallet_custom_origins::Origin::BigTipper
-                | pallet_custom_origins::Origin::SmallSpender
-                | pallet_custom_origins::Origin::MediumSpender
-                | pallet_custom_origins::Origin::BigSpender
-                | pallet_custom_origins::Origin::Treasurer => return Ok(2),
+                pallet_custom_origins::Origin::SmallSpender => return Ok(2),
+                pallet_custom_origins::Origin::MediumSpender => return Ok(3),
+                pallet_custom_origins::Origin::BigSpender => return Ok(4),
+                pallet_custom_origins::Origin::Treasurer => return Ok(2),
             }
         }
 
@@ -474,56 +538,3 @@ impl Pay for RuntimeNativePaymaster {
         // No further action needed for ensure_concluded.
     }
 }
-
-// Custom EnsureOrigin for Treasury SpendOrigin to allow Root to spend any amount.
-// pub struct EnsureRootWithAnySpendPermission;
-// impl frame_support::traits::EnsureOrigin<crate::RuntimeOrigin> for EnsureRootWithAnySpendPermission {
-//     type Success = crate::Balance; // u128
-
-//     fn try_origin(o: crate::RuntimeOrigin) -> Result<Self::Success, crate::RuntimeOrigin> {
-//         <frame_system::EnsureRoot<crate::AccountId> as frame_support::traits::EnsureOrigin<crate::RuntimeOrigin>>::try_origin(o)
-//             .map(|()| crate::Balance::max_value())
-//     }
-
-//     #[cfg(feature = "runtime-benchmarks")]
-//     fn try_successful_origin() -> Result<crate::RuntimeOrigin, ()> {
-//         // The successful origin for EnsureRoot is Root.
-//         Ok(crate::RuntimeOrigin::root())
-//     }
-// }
-
-// pub struct EnsureRootOrSpender;
-
-// impl frame_support::traits::EnsureOrigin<crate::RuntimeOrigin> for EnsureRootOrSpender {
-//     type Success = crate::Balance;
-
-//     fn try_origin(o: crate::RuntimeOrigin) -> Result<Self::Success, crate::RuntimeOrigin> {
-//         // Check for Root first
-//         if let Ok(()) = <frame_system::EnsureRoot<crate::AccountId> as frame_support::traits::EnsureOrigin<crate::RuntimeOrigin>>::try_origin(o.clone()) {
-//             return Ok(crate::Balance::max_value());
-//         }
-//         else{
-//             Err(o)
-//         }
-
-//         // // Check for Spender origin by converting RuntimeOrigin to pallet_custom_origins::Origin
-//         // let pallets_origin = o.clone().into_caller();
-//         // if let crate::OriginCaller::pallet_custom_origins(origin) = pallets_origin {
-//         //     match origin {
-//         //         pallet_custom_origins::Origin::SmallTipper => Ok(250 * 3 * MICRO_UNIT),
-//         //         pallet_custom_origins::Origin::BigTipper => Ok(10 * UNIT),
-//         //         pallet_custom_origins::Origin::SmallSpender => Ok(100 * UNIT),
-//         //         pallet_custom_origins::Origin::MediumSpender => Ok(1_000 * UNIT),
-//         //         pallet_custom_origins::Origin::BigSpender => Ok(10_000 * UNIT),
-//         //         pallet_custom_origins::Origin::Treasurer => Ok(100_000 * UNIT),
-//         //     }
-//         // } else {
-//         //     Err(o)
-//         // }
-//     }
-
-//     #[cfg(feature = "runtime-benchmarks")]
-//     fn try_successful_origin() -> Result<crate::RuntimeOrigin, ()> {
-//         Ok(crate::RuntimeOrigin::root())
-//     }
-// }

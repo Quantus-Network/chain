@@ -213,8 +213,8 @@ mod tests {
                 let beneficiary_lookup_source =
                     <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
                 let treasury_pot = treasury_account_id();
-                let small_tipper_origin: TestRuntimeOrigin =
-                    pallet_custom_origins::Origin::SmallTipper.into();
+                let small_spender_origin: TestRuntimeOrigin =
+                    pallet_custom_origins::Origin::SmallSpender.into();
 
                 let initial_treasury_balance = 1000 * UNIT;
                 let _ = <Balances as Currency<AccountId>>::deposit_creating(
@@ -239,7 +239,7 @@ mod tests {
 
                 assert_ok!(call_within_limit
                     .clone()
-                    .dispatch_bypass_filter(small_tipper_origin.clone()));
+                    .dispatch_bypass_filter(small_spender_origin.clone()));
 
                 let spend_index_within_limit = 0;
                 System::assert_last_event(RuntimeEvent::TreasuryPallet(
@@ -289,7 +289,7 @@ mod tests {
                     initial_treasury_balance - spend_amount_within_limit
                 );
 
-                let spend_amount_above_limit = (250 * 3 * MICRO_UNIT) + 1 * MICRO_UNIT;
+                let spend_amount_above_limit = (100 * UNIT) + 1; // Przekroczenie limitu SmallSpender
                 let call_above_limit =
                     TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
                         asset_kind: Box::new(()),
@@ -299,10 +299,10 @@ mod tests {
                     });
 
                 let dispatch_result_above_limit =
-                    call_above_limit.dispatch_bypass_filter(small_tipper_origin);
+                    call_above_limit.dispatch_bypass_filter(small_spender_origin);
                 assert!(
                     dispatch_result_above_limit.is_err(),
-                    "Dispatch should fail for amount above limit"
+                    "Dispatch should fail for amount above SmallSpender limit"
                 );
 
                 assert!(
@@ -502,7 +502,7 @@ mod tests {
 
                 // Revert to original: Target Track 2
                 let proposal_origin_for_track_selection =
-                    Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::SmallTipper));
+                    Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::SmallSpender));
 
                 let proposal_for_referenda = Bounded::Lookup {
                     hash: hash_of_call_to_spend,
@@ -629,8 +629,8 @@ mod tests {
                     asset_kind: (),
                     amount: SPEND_AMOUNT,
                     beneficiary: beneficiary_account_id.clone(),
-                    valid_from: 86402,
-                    expire_at: 86402 + TreasuryPayoutPeriod::get(),
+                    valid_from: 216002,
+                    expire_at: 216002 + TreasuryPayoutPeriod::get(),
                 }));
                 println!("[TREASURY_TEST_DEBUG] Event TreasuryPallet::AssetSpendApproved asserted.");
 

@@ -2,7 +2,7 @@
 
 #[frame_support::pallet]
 pub mod pallet_custom_origins {
-    use crate::{Balance, MICRO_UNIT, UNIT};
+    use crate::{Balance, UNIT};
     use frame_support::pallet_prelude::*;
 
     #[pallet::config]
@@ -14,17 +14,9 @@ pub mod pallet_custom_origins {
     #[derive(PartialEq, Eq, Clone, MaxEncodedLen, Encode, Decode, TypeInfo, RuntimeDebug)]
     #[pallet::origin]
     pub enum Origin {
-        /// Origin for cancelling slashes.
         Treasurer,
-        /// Origin able to spend up to 1 KSM from the treasury at once.
-        SmallTipper,
-        /// Origin able to spend up to 5 KSM from the treasury at once.
-        BigTipper,
-        /// Origin able to spend up to 50 KSM from the treasury at once.
         SmallSpender,
-        /// Origin able to spend up to 500 KSM from the treasury at once.
         MediumSpender,
-        /// Origin able to spend up to 5,000 KSM from the treasury at once.
         BigSpender,
     }
 
@@ -95,8 +87,6 @@ pub mod pallet_custom_origins {
 
     decl_ensure! {
         pub type Spender: EnsureOrigin<Success = Balance> {
-            SmallTipper = 250 * 3 * MICRO_UNIT,
-            BigTipper = 10 * UNIT,
             SmallSpender = 100 * UNIT,
             MediumSpender = 1_000 * UNIT,
             BigSpender = 10_000 * UNIT,
