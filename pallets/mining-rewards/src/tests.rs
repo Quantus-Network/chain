@@ -1,8 +1,8 @@
 use crate::{mock::*, Event};
+use frame_support::traits::Currency;
 use frame_support::traits::Hooks;
 use frame_support::weights::Weight;
 use sp_runtime::traits::AccountIdConversion;
-use frame_support::traits::Currency;
 
 const UNIT: u128 = 1_000_000_000_000;
 
@@ -267,9 +267,76 @@ fn rewards_go_to_treasury_when_no_miner() {
         );
 
         // Check that the event was emitted
-        System::assert_has_event(Event::TreasuryRewarded {
-            block: 1,
-            reward: expected_reward,
-        }.into());
+        System::assert_has_event(
+            Event::TreasuryRewarded {
+                block: 1,
+                reward: expected_reward,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn test_fees_split_between_treasury_and_miner() {
+    new_test_ext().execute_with(|| {
+        // Set up initial balances
+        let miner = 1;
+        let _ = Balances::deposit_creating(&miner, 0); // Create account, balance might become ExistentialDeposit
+        let actual_initial_balance_after_creation = Balances::free_balance(&miner);
+
+        // Set transaction fees
+        let mut tx_fees = 100;
+        MiningRewards::collect_transaction_fees(tx_fees);
+
+        // Create a block with a miner
+        System::set_block_number(1);
+        set_miner_digest(miner);
+
+        // Run on_finalize
+        MiningRewards::on_finalize(System::block_number());
+
+        // Get Treasury account
+        let treasury_account = TreasuryPalletId::get().into_account_truncating();
+
+        // Get actual values from the system AFTER on_finalize
+        let treasury_balance_after_finalize = Balances::free_balance(&treasury_account);
+        let miner_balance_after_finalize = Balances::free_balance(&miner);
+
+        // Calculate expected values using the same method as in the implementation
+        let fees_to_treasury_percentage = FeesToTreasuryPermill::get();
+        let fees_for_treasury = fees_to_treasury_percentage * tx_fees;
+        tx_fees = tx_fees.saturating_sub(fees_for_treasury); // This tx_fees is now fees for miner
+        let expected_reward_component_for_miner = BlockReward::get().saturating_add(tx_fees);
+
+        // Check Treasury balance
+        assert_eq!(
+            treasury_balance_after_finalize, fees_for_treasury,
+            "Treasury should receive correct percentage of fees"
+        );
+
+        // Check miner balance
+        assert_eq!(
+            miner_balance_after_finalize,
+            actual_initial_balance_after_creation + expected_reward_component_for_miner,
+            "Miner should receive initial balance + base reward + remaining fees"
+        );
+
+        // Verify events
+        System::assert_has_event(
+            Event::FeesRedirectedToTreasury {
+                amount: fees_for_treasury,
+            }
+            .into(),
+        );
+
+        System::assert_has_event(
+            Event::MinerRewarded {
+                block: 1,
+                miner,
+                reward: expected_reward_component_for_miner, // This is the reward component, not the final balance change
+            }
+            .into(),
+        );
     });
 }

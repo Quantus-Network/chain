@@ -23,7 +23,8 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
-    use sp_runtime::traits::{Saturating, AccountIdConversion};
+    use sp_runtime::traits::{AccountIdConversion, Saturating};
+    use sp_runtime::Permill;
 
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -58,6 +59,10 @@ pub mod pallet {
         /// The treasury pallet ID
         #[pallet::constant]
         type TreasuryPalletId: Get<frame_support::PalletId>;
+
+        /// The percentage of transaction fees that should go to the Treasury.
+        #[pallet::constant]
+        type FeesToTreasuryPermill: Get<Permill>;
     }
 
     #[pallet::event]
@@ -86,6 +91,11 @@ pub mod pallet {
             /// Total reward (base + fees)
             reward: BalanceOf<T>,
         },
+        /// A portion of transaction fees was redirected to the Treasury.
+        FeesRedirectedToTreasury {
+            /// The amount of fees sent to the Treasury
+            amount: BalanceOf<T>,
+        },
     }
 
     #[pallet::hooks]
@@ -100,61 +110,86 @@ pub mod pallet {
             if let Some(miner) = Self::extract_miner_from_digest() {
                 // Get the block reward
                 let base_reward = T::BlockReward::get();
-
-                let tx_fees = <CollectedFees<T>>::take();
+                let mut tx_fees = <CollectedFees<T>>::take();
 
                 log::info!("💰 Base reward: {:?}", base_reward);
-                log::info!("💰 Tx_fees: {:?}", tx_fees);
+                log::info!("💰 Original Tx_fees: {:?}", tx_fees);
 
-                let total_reward = base_reward.saturating_add(tx_fees);
-
-                // Create imbalance for block reward
-                let reward_imbalance = T::Currency::issue(total_reward);
-
-                // We could do this in a more sophisticated way with OnUnbalanced<NegativeInbalance>
-                T::Currency::resolve_creating(&miner, reward_imbalance);
-
-                // Emit an event
-                Self::deposit_event(Event::MinerRewarded {
-                    block: block_number,
-                    miner: miner.clone(),
-                    reward: total_reward,
-                });
-
-                log::info!(
-                    target: "mining-rewards",
-                    "💰 Miner rewarded: {:?}",
-                    total_reward);
-                let miner_balance = T::Currency::free_balance(&miner);
-                log::info!(target: "mining-rewards",
-                    "🏦 Miner balance: {:?}",
-                    miner_balance);
-            } else {
-                // No miner specified, send rewards to Treasury
-                let base_reward = T::BlockReward::get();
-                let tx_fees = <CollectedFees<T>>::take();
-                let total_reward = base_reward.saturating_add(tx_fees);
+                // Calculate fees for Treasury
+                let fees_to_treasury_percentage = T::FeesToTreasuryPermill::get();
+                let fees_for_treasury = fees_to_treasury_percentage * tx_fees;
 
                 // Get Treasury account
                 let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
 
-                // Create imbalance for block reward
-                let reward_imbalance = T::Currency::issue(total_reward);
+                // Send fees to Treasury if any
+                if fees_for_treasury > BalanceOf::<T>::from(0u32) {
+                    let treasury_imbalance = T::Currency::issue(fees_for_treasury);
+                    T::Currency::resolve_creating(&treasury_account, treasury_imbalance);
+                    Self::deposit_event(Event::FeesRedirectedToTreasury {
+                        amount: fees_for_treasury,
+                    });
+                    log::info!(
+                        target: "mining-rewards",
+                        "💰 Fees sent to Treasury: {:?}",
+                        fees_for_treasury
+                    );
+                    // Subtract fees sent to treasury from the total tx_fees
+                    tx_fees = tx_fees.saturating_sub(fees_for_treasury);
+                }
 
-                // Send rewards to Treasury
-                T::Currency::resolve_creating(&treasury_account, reward_imbalance);
+                let reward_for_miner = base_reward.saturating_add(tx_fees);
 
-                // Emit an event
-                Self::deposit_event(Event::TreasuryRewarded {
-                    block: block_number,
-                    reward: total_reward,
-                });
+                // Create imbalance for miner's reward
+                if reward_for_miner > BalanceOf::<T>::from(0u32) {
+                    let miner_reward_imbalance = T::Currency::issue(reward_for_miner);
+                    T::Currency::resolve_creating(&miner, miner_reward_imbalance);
 
-                log::info!(
-                    target: "mining-rewards",
-                    "💰 No miner specified, rewards sent to Treasury: {:?}",
-                    total_reward
-                );
+                    // Emit an event for miner's reward
+                    Self::deposit_event(Event::MinerRewarded {
+                        block: block_number,
+                        miner: miner.clone(),
+                        reward: reward_for_miner, // Actual reward for miner
+                    });
+
+                    log::info!(
+                        target: "mining-rewards",
+                        "💰 Miner rewarded: {:?}",
+                        reward_for_miner
+                    );
+                    let miner_balance = T::Currency::free_balance(&miner);
+                    log::info!(target: "mining-rewards",
+                        "🏦 Miner balance: {:?}",
+                        miner_balance);
+                }
+            } else {
+                // No miner specified, send all rewards (base + all fees) to Treasury
+                let base_reward = T::BlockReward::get();
+                let tx_fees = <CollectedFees<T>>::take();
+                let total_reward_for_treasury = base_reward.saturating_add(tx_fees);
+
+                if total_reward_for_treasury > BalanceOf::<T>::from(0u32) {
+                    // Get Treasury account
+                    let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
+
+                    // Create imbalance for block reward
+                    let reward_imbalance = T::Currency::issue(total_reward_for_treasury);
+
+                    // Send rewards to Treasury
+                    T::Currency::resolve_creating(&treasury_account, reward_imbalance);
+
+                    // Emit an event
+                    Self::deposit_event(Event::TreasuryRewarded {
+                        block: block_number,
+                        reward: total_reward_for_treasury,
+                    });
+
+                    log::info!(
+                        target: "mining-rewards",
+                        "💰 No miner specified, all rewards sent to Treasury: {:?}",
+                        total_reward_for_treasury
+                    );
+                }
             }
         }
     }
