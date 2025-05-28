@@ -1,3 +1,13 @@
+#!/bin/bash
+
+# Start a Quantus node in testnet mode
+#
+# USAGE:
+#   ./start_testnet.sh
+#
+# This script will start a Quantus node in testnet mode (Resonance Live Testnet)
+#
+
 rm -rf /tmp/validator1
 
 ./target/release/quantus-node \

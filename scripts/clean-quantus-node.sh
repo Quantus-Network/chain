@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Clean an existing quantus node installation
+#
+# USAGE:
+#   ./clean-quantus-node.sh
+#
+# This script will remove the Quantus node binary, node identity file, and rewards address file.
+# It will also remove the Quantus home directory.
+#
+
 set -e
 
 # Configuration

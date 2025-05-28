@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Install the Quantus node binary
+#
+# USAGE:
+#   ./install-quantus-node.sh
+#
+# This script will install the Quantus node binary, create a node identity file, and create a rewards address file.
+# It will also create the Quantus home directory.
+
 set -e
 
 # Get the directory where the script is located
