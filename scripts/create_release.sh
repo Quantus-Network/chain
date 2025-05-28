@@ -21,7 +21,7 @@ gh workflow run create-release.yml \
   -f version_type=patch \
   -f is_prerelease=false \
   -f draft_release=true \
-  -f fast_test_create_release_job=false
+  -f fast_test_create_release_job=true
 
 # Wait a moment for the workflow to be registered
 sleep 5
