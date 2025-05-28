@@ -199,7 +199,7 @@ setup_rewards_address() {
                 
                 # Secret phrase: shadow valve wild recall jeans blush mandate diagram recall slide alley water wealth transfer soup fit above army crisp involve level trust rabbit panda
                 line=$(printf '%s\n' "$output" | grep "Secret phrase:")
-                # strip everything up through “Secret phrase: ”
+                # strip everything up through "Secret phrase: "
                 secret_phrase="${line#*Secret phrase: }"
                 
                 # Save only the address to the file
@@ -253,4 +253,10 @@ if [ "$secret_phrase" != "" ]; then
 fi
 echo ""
 echo "To start mining Quantus node, run the following command:"
-echo "$NODE_BINARY_PATH --node-key-file \"$NODE_IDENTITY_PATH\" --rewards-address \"$REWARDS_ADDRESS_PATH\" --validator" 
+echo "$NODE_BINARY_PATH \
+  --node-key-file \"$NODE_IDENTITY_PATH\" \
+  --rewards-address \"$REWARDS_ADDRESS_PATH\" \
+  --validator \
+  --chain live_resonance \
+  --port 30333 \
+  --prometheus-port 9616"
