@@ -6823,12 +6823,13 @@ dependencies = [
  "log",
  "pallet-balances",
  "parity-scale-codec",
- "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
  "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "wormhole-circuit",
+ "wormhole-verifier",
 ]
 
 [[package]]
@@ -8627,6 +8628,8 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
+ "wormhole-circuit",
+ "wormhole-verifier",
 ]
 
 [[package]]
@@ -13912,6 +13915,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags 2.9.1",
+]
+
+[[package]]
+name = "wormhole-circuit"
+version = "0.1.0"
+source = "git+https://github.com/Quantus-Network/wormhole-circuit.git?branch=vrom911%2Fno-std-compat#efe390bc704af854ea3c52444d5e55431046ca41"
+dependencies = [
+ "anyhow",
+ "hex",
+ "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
+]
+
+[[package]]
+name = "wormhole-verifier"
+version = "0.1.0"
+source = "git+https://github.com/Quantus-Network/wormhole-circuit.git?branch=vrom911%2Fno-std-compat#efe390bc704af854ea3c52444d5e55431046ca41"
+dependencies = [
+ "anyhow",
+ "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
+ "wormhole-circuit",
 ]
 
 [[package]]

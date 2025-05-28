@@ -13,13 +13,8 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-codec = { features = [
-	"derive",
-], workspace = true }
-scale-info = { features = [
-	"derive",
-	"serde",
-], workspace = true }
+codec = { features = ["derive"], workspace = true }
+scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
 frame-support = { features = ["experimental"], workspace = true }
 frame-system.workspace = true
@@ -67,8 +62,9 @@ dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = { default-features = false, workspace = true }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
-
 poseidon-resonance = { workspace = true, features = ["serde"] }
+wormhole-circuit = { workspace = true, default-features = false }
+wormhole-verifier = { workspace = true, default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -129,10 +125,12 @@ std = [
 	"sp-runtime-interface/std",
 	"scale-info/std",
 	"dilithium-crypto/full_crypto",
+	
 	"poseidon-resonance/std",
 	"pallet-reversible-transfers/std",
+	"wormhole-circuit/std",
+	"wormhole-verifier/std",
 ]
-
 
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
