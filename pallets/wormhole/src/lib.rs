@@ -10,17 +10,16 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use codec::{Decode, Encode};
+    use codec::Decode;
     use frame_support::{pallet_prelude::*, traits::Currency};
     use frame_system::pallet_prelude::*;
-    use lazy_static::lazy_static;
     use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
     use sp_std::vec::Vec;
     use wormhole_circuit::circuit::{C, D, F};
     use wormhole_circuit::codec::ByteCodec;
     use wormhole_circuit::inputs::PublicCircuitInputs;
     use wormhole_verifier::ProofWithPublicInputs;
-    use wormhole_verifier::{WormholeVerifier};
+    use wormhole_verifier::WormholeVerifier;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);

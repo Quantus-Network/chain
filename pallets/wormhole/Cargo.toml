@@ -43,6 +43,8 @@ std = [
   "scale-info/std",
   "pallet-balances/std",
   "lazy_static/spin_no_std",
+  "wormhole-circuit/std",
+  "wormhole-verifier/std"
 ]
 runtime-benchmarks = [
   "frame-system/runtime-benchmarks",
