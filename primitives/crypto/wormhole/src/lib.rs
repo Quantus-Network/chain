@@ -71,23 +71,6 @@ impl WormholePair {
         Ok(&generated_address == address)
     }
 
-    /// Verifies whether the given combined hash generates the specified wormhole address.
-    ///
-    /// # Arguments
-    /// * `address` - The expected wormhole address.
-    /// * `combined_hash` - The result of the first Poseidon hash of (salt + secret).
-    ///                     This is the intermediate hash before the final address derivation.
-    ///
-    /// # Returns
-    /// `Ok(true)` if the address matches the derived one, `Ok(false)` otherwise.
-    pub fn verify_with_combined_hash(
-        address: &H256,
-        combined_hash: &[u8; 32],
-    ) -> Result<bool, WormholeError> {
-        let generated = PoseidonHasher::hash(combined_hash);
-        Ok(&generated == address)
-    }
-
     /// Internal function that generates a `WormholePair` from a given secret.
     ///
     /// This function performs a secondary Poseidon hash over the salt + hashed secret
@@ -160,30 +143,6 @@ mod tests {
         // Assert
         assert!(result.is_ok());
         assert!(!result.unwrap());
-    }
-
-    #[test]
-    fn test_verify_with_combined_hash() {
-        // Arrange
-        let secret = [3u8; 32];
-
-        // Generate a pair using our normal process
-        let pair = WormholePair::generate_pair_from_secret(&secret);
-
-        // Create the combined salt + secret
-        let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.len());
-        combined.extend_from_slice(&ADDRESS_SALT.as_bytes());
-        combined.extend_from_slice(&secret);
-
-        // This is the combined hash (first hash in the two-step process)
-        let combined_hash = PoseidonHasher::hash(&combined);
-
-        // Act
-        let result = WormholePair::verify_with_combined_hash(&pair.address, &combined_hash.0);
-
-        // Assert
-        assert!(result.is_ok());
-        assert!(result.unwrap());
     }
 
     #[test]
