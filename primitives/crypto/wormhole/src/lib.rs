@@ -92,7 +92,7 @@ impl WormholePair {
     ///
     /// This function performs a secondary Poseidon hash over the salt + hashed secret
     /// to derive the wormhole address.
-    fn generate_pair_from_secret(secret: &[u8;32]) -> WormholePair {
+    fn generate_pair_from_secret(secret: &[u8; 32]) -> WormholePair {
         let mut preimage_felts = Vec::new();
         let salt_felt = string_to_felt(ADDRESS_SALT);
         let secret_felt = bytes_to_felts(secret);
