@@ -4,48 +4,56 @@ use resonance_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
 
-// Add #[allow(dead_code)] attribute to suppress warnings
-#[allow(dead_code)]
-pub fn account_id(id: u8) -> AccountId32 {
-    let mut bytes = [0u8; 32];
-    bytes[0] = id;
-    AccountId32::new(bytes)
-}
+pub struct TestCommons;
 
-// Create a test externality
-#[allow(dead_code)]
-pub fn new_test_ext() -> sp_io::TestExternalities {
-    let t = frame_system::GenesisConfig::<Runtime>::default()
-        .build_storage()
-        .unwrap();
+impl TestCommons {
+    // Add #[allow(dead_code)] attribute to suppress warnings
+    #[allow(dead_code)]
+    pub fn account_id(id: u8) -> AccountId32 {
+        let mut bytes = [0u8; 32];
+        bytes[0] = id;
+        AccountId32::new(bytes)
+    }
 
-    let mut ext = sp_io::TestExternalities::new(t);
+    // Create a test externality
+    #[allow(dead_code)]
+    pub fn new_test_ext() -> sp_io::TestExternalities {
+        let t = frame_system::GenesisConfig::<Runtime>::default()
+            .build_storage()
+            .unwrap();
 
-    // Add balances in the ext
-    ext.execute_with(|| {
-        Balances::make_free_balance_be(&account_id(1), 1000 * UNIT);
-        Balances::make_free_balance_be(&account_id(2), 1000 * UNIT);
-        Balances::make_free_balance_be(&account_id(3), 1000 * UNIT);
-        Balances::make_free_balance_be(&account_id(4), 1000 * UNIT);
-    });
+        let mut ext = sp_io::TestExternalities::new(t);
 
-    ext
-}
+        // Add balances in the ext
+        ext.execute_with(|| {
+            Balances::make_free_balance_be(&Self::account_id(1), 1000 * UNIT);
+            Balances::make_free_balance_be(&Self::account_id(2), 1000 * UNIT);
+            Balances::make_free_balance_be(&Self::account_id(3), 1000 * UNIT);
+            Balances::make_free_balance_be(&Self::account_id(4), 1000 * UNIT);
+        });
 
-// Helper function to run blocks
-#[allow(dead_code)]
-pub fn run_to_block(n: u32) {
-    while System::block_number() < n {
-        let b = System::block_number();
-        // Call on_finalize for pallets that need it
-        resonance_runtime::Scheduler::on_finalize(b);
-        System::on_finalize(b);
+        ext
+    }
 
-        // Move to next block
-        System::set_block_number(b + 1);
+    // Helper function to run blocks
+    #[allow(dead_code)]
+    pub fn run_to_block(n: u32) {
+        while System::block_number() < n {
+            let b = System::block_number();
+            // Call on_finalize for pallets that need it
+            resonance_runtime::Scheduler::on_finalize(b);
+            System::on_finalize(b);
 
-        // Call on_initialize for pallets that need it
-        System::on_initialize(b + 1);
-        resonance_runtime::Scheduler::on_initialize(b + 1);
+            // Move to next block
+            System::set_block_number(b + 1);
+
+            // Call on_initialize for pallets that need it
+            System::on_initialize(b + 1);
+            resonance_runtime::Scheduler::on_initialize(b + 1);
+        }
+    }
+
+    pub fn print_balances() {
+        println!("Balances: OK");
     }
 }

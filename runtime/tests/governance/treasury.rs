@@ -1,8 +1,6 @@
-#[path = "common.rs"]
-mod common;
-
 #[cfg(test)]
 mod tests {
+    //    use common::TestCommons;
     // Imports from the runtime crate
     use resonance_runtime::configs::{TreasuryPalletId, TreasuryPayoutPeriod};
     use resonance_runtime::governance::pallet_custom_origins;
@@ -29,8 +27,8 @@ mod tests {
     use codec::Encode;
     use sp_runtime::traits::Hash as RuntimeTraitHash;
 
-    use crate::common::run_to_block;
     // Frame and Substrate traits & types
+    use crate::common::TestCommons;
     use frame_support::{
         assert_ok,
         pallet_prelude::Hooks, // For Scheduler hooks
@@ -50,8 +48,6 @@ mod tests {
         traits::{AccountIdConversion, StaticLookup},
         BuildStorage,
     };
-
-    // Import run_to_block
 
     // Type aliases
     type TestRuntimeCall = RuntimeCall;
@@ -447,7 +443,7 @@ mod tests {
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_some());
 
                 // Advance time beyond the PayoutPeriod
-                run_to_block(expected_expiry_block + 1);
+                TestCommons::run_to_block(expected_expiry_block + 1);
 
                 // Try to payout the expired spend
                 let payout_result = TreasuryPallet::payout(
@@ -534,7 +530,7 @@ mod tests {
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_some());
 
                 // Try to payout the spend when treasury funds are insufficient
-                run_to_block(System::block_number() + 5); // Advance a few blocks
+                TestCommons::run_to_block(System::block_number() + 5);
 
                 let payout_result_insufficient = TreasuryPallet::payout(
                     RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
@@ -638,7 +634,7 @@ mod tests {
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_some());
 
                 // Try to payout before valid_from_block
-                run_to_block(valid_from_block - 1);
+                TestCommons::run_to_block(valid_from_block - 1);
                 let payout_result_before_valid = TreasuryPallet::payout(
                     RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
                     spend_index,
@@ -658,7 +654,7 @@ mod tests {
                 assert!(!paid_event_found_before);
 
                 // Advance to valid_from_block
-                run_to_block(valid_from_block);
+                TestCommons::run_to_block(valid_from_block);
                 assert_ok!(TreasuryPallet::payout(
                     RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
                     spend_index
@@ -923,9 +919,9 @@ mod tests {
     fn treasury_spend_via_dedicated_spender_track_works() {
         const SPEND_AMOUNT: Balance = 200 * MICRO_UNIT;
         // Use common::account_id for consistency
-        let proposer_account_id = crate::common::account_id(123);
-        let voter_account_id = crate::common::account_id(124);
-        let beneficiary_account_id = crate::common::account_id(125);
+        let proposer_account_id = TestCommons::account_id(123);
+        let voter_account_id = TestCommons::account_id(124);
+        let beneficiary_account_id = TestCommons::account_id(125);
 
         ExtBuilder::default()
             .with_balances(vec![
@@ -1005,7 +1001,7 @@ mod tests {
                 let end_of_prepare_period =
                     block_after_decision_deposit + track_info_2.prepare_period;
 
-                run_to_block(end_of_prepare_period);
+                TestCommons::run_to_block(end_of_prepare_period);
 
                 assert_ok!(ConvictionVoting::vote(
                     RuntimeOrigin::signed(voter_account_id.clone()),
@@ -1023,21 +1019,21 @@ mod tests {
                 // Advance 1 block for scheduler to potentially process vote related actions
                 let block_for_vote_processing = block_vote_cast + 1;
 
-                run_to_block(block_for_vote_processing);
+                TestCommons::run_to_block(block_for_vote_processing);
 
                 // Advance by confirm_period from the block where vote was processed
                 let block_after_vote_processing = System::block_number();
                 let end_of_confirm_period =
                     block_after_vote_processing + track_info_2.confirm_period;
 
-                run_to_block(end_of_confirm_period);
+                TestCommons::run_to_block(end_of_confirm_period);
 
                 // Wait for approval phase
                 let block_after_confirm = System::block_number();
                 let approval_period = track_info_2.decision_period / 2; // Half of decision period for approval
                 let target_approval_block = block_after_confirm + approval_period;
 
-                run_to_block(target_approval_block);
+                TestCommons::run_to_block(target_approval_block);
 
                 let confirmed_event = System::events()
                     .iter()
@@ -1068,11 +1064,11 @@ mod tests {
                 let block_after_approved = System::block_number();
                 let target_enactment_block =
                     block_after_approved + track_info_2.min_enactment_period;
-                run_to_block(target_enactment_block);
+                TestCommons::run_to_block(target_enactment_block);
 
                 // Add a small buffer for scheduler to pick up and dispatch
                 let final_check_block = System::block_number() + 5;
-                run_to_block(final_check_block);
+                TestCommons::run_to_block(final_check_block);
 
                 System::events().iter().any(|event_record| {
                     matches!(
