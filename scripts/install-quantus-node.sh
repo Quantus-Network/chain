@@ -261,12 +261,15 @@ if [ "$secret_phrase" != "" ]; then
 fi
 echo ""
 echo "To start mining Quantus node, run the following command:"
-echo "$NODE_BINARY_PATH \
-  --node-key-file \"$NODE_IDENTITY_PATH\" \
-  --rewards-address \"$REWARDS_ADDRESS_PATH\" \
-  --validator \
-  --chain live_resonance \
-  --port 30333 \
-  --prometheus-port 9616 \
-  --name ResonanceLiveTestnetNode \
-  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9944,methods=unsafe,cors=all" \
+echo ""
+cat <<EOF
+$NODE_BINARY_PATH \\
+  --node-key-file "$NODE_IDENTITY_PATH" \\
+  --rewards-address "$REWARDS_ADDRESS_PATH" \\
+  --validator \\
+  --chain live_resonance \\
+  --port 30333 \\
+  --prometheus-port 9616 \\
+  --name "ResonanceLiveTestnetNode" \\
+  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9944,methods=unsafe,cors=all"
+EOF
