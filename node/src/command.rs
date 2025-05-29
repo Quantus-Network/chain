@@ -196,7 +196,7 @@ pub fn run() -> sc_cli::Result<()> {
                                 }
                                 QuantusAddressType::Wormhole => {
                                     println!("Generating wormhole address...");
-                                    println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
+                                    println!("XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX");
                                     println!("Address: {}", details.address); // This is 0x prefixed H256 hex
                                     println!("Secret: {}", details.secret_key_hex);
                                     // Pub key and Seed are N/A for wormhole as per QuantusKeyDetails

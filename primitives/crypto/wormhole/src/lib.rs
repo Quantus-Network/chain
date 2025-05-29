@@ -16,11 +16,11 @@
 //!
 //! The hashing strategy ensures determinism while hiding the original secret.
 
-use poseidon_resonance::PoseidonHasher;
+use poseidon_resonance::{bytes_to_felts, string_to_felt, PoseidonHasher};
 use sp_core::{Hasher, H256};
 
 /// Salt used when deriving wormhole addresses.
-pub const ADDRESS_SALT: [u8; 8] = *b"wormhole";
+pub const ADDRESS_SALT: &str = "wormhole";
 
 /// Error types returned from wormhole identity operations.
 #[derive(Debug, Eq, PartialEq)]
@@ -92,13 +92,17 @@ impl WormholePair {
     ///
     /// This function performs a secondary Poseidon hash over the salt + hashed secret
     /// to derive the wormhole address.
-    fn generate_pair_from_secret(secret: &[u8; 32]) -> WormholePair {
-        let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.as_ref().len());
-        combined.extend_from_slice(&ADDRESS_SALT);
-        combined.extend_from_slice(secret.as_ref());
-
+    fn generate_pair_from_secret(secret: &[u8;32]) -> WormholePair {
+        let mut preimage_felts = Vec::new();
+        let salt_felt = string_to_felt(ADDRESS_SALT);
+        let secret_felt = bytes_to_felts(secret);
+        preimage_felts.push(salt_felt);
+        preimage_felts.extend_from_slice(&secret_felt);
+        let inner_hash = PoseidonHasher::hash_no_pad(preimage_felts);
+        // println!("inner_hash: {:?}", hex::encode(inner_hash.clone()));
+        let second_hash = PoseidonHasher::hash_no_pad(bytes_to_felts(&inner_hash));
         WormholePair {
-            address: PoseidonHasher::hash(PoseidonHasher::hash(&combined).as_ref()),
+            address: H256::from_slice(&second_hash),
             secret: *secret,
         }
     }
@@ -168,7 +172,7 @@ mod tests {
 
         // Create the combined salt + secret
         let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.len());
-        combined.extend_from_slice(&ADDRESS_SALT);
+        combined.extend_from_slice(&ADDRESS_SALT.as_bytes());
         combined.extend_from_slice(&secret);
 
         // This is the combined hash (first hash in the two-step process)
@@ -212,7 +216,7 @@ mod tests {
         // 5. Verify that each stage of the hash process changes the result
         // (Create a hash with salt but without the second hashing step)
         let mut combined = Vec::with_capacity(ADDRESS_SALT.len() + secret.len());
-        combined.extend_from_slice(&ADDRESS_SALT);
+        combined.extend_from_slice(&ADDRESS_SALT.as_bytes());
         combined.extend_from_slice(&secret);
         let first_hash = PoseidonHasher::hash(&combined);
         assert_ne!(pair.address, first_hash);
