@@ -8,10 +8,10 @@ mod tests {
     use pallet_referenda::TracksInfo;
     use resonance_runtime::configs::TechReferendaInstance;
     use resonance_runtime::{
-        Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, TechCollective,
-        TechReferenda, UNIT,
+        Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
+        TechCollective, TechReferenda, UNIT,
     };
-    use sp_runtime::traits::Hash;
+    use sp_runtime::traits::{AccountIdConversion, Hash, StaticLookup};
     use sp_runtime::MultiAddress;
 
     const TRACK_ID: u16 = 0;
@@ -1097,6 +1097,143 @@ mod tests {
                     pallet_referenda::ReferendumInfo::Approved(_, _, _)
                 ),
                 "Track 0 referendum should be approved with minimal token amounts"
+            );
+        });
+    }
+
+    #[test]
+    fn test_tech_collective_treasury_spend_with_root_origin() {
+        TestCommons::new_test_ext().execute_with(|| {
+            // Define test accounts
+            let tech_member = TestCommons::account_id(1);
+            let beneficiary = TestCommons::account_id(2);
+            let treasury_pot: resonance_runtime::AccountId =
+                resonance_runtime::configs::TreasuryPalletId::get().into_account_truncating();
+
+            // Setup account balances
+            Balances::make_free_balance_be(&tech_member, 10_000 * UNIT);
+            Balances::make_free_balance_be(&beneficiary, 100 * UNIT);
+
+            // Fund treasury
+            let initial_treasury_balance = 1000 * UNIT;
+            assert_ok!(Balances::force_set_balance(
+                frame_system::RawOrigin::Root.into(),
+                <Runtime as frame_system::Config>::Lookup::unlookup(treasury_pot.clone()),
+                initial_treasury_balance
+            ));
+
+            // Add tech_member to TechCollective
+            assert_ok!(TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::from(tech_member.clone())
+            ));
+
+            // Create a treasury spend proposal
+            let spend_amount = 1000 * UNIT;
+            let treasury_spend =
+                RuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+                    asset_kind: Box::new(()),
+                    amount: spend_amount,
+                    beneficiary: Box::new(<Runtime as frame_system::Config>::Lookup::unlookup(
+                        beneficiary.clone(),
+                    )),
+                    valid_from: None,
+                });
+
+            // Store preimage
+            let encoded_proposal = treasury_spend.encode();
+            let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal);
+            assert_ok!(Preimage::note_preimage(
+                RuntimeOrigin::signed(tech_member.clone()),
+                encoded_proposal.clone()
+            ));
+
+            // Submit referendum with Root origin
+            let bounded_call = frame_support::traits::Bounded::Lookup {
+                hash: preimage_hash,
+                len: encoded_proposal.len() as u32,
+            };
+
+            // This should succeed as Tech Collective members can create referenda with Root origin
+            assert_ok!(TechReferenda::submit(
+                RuntimeOrigin::signed(tech_member.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                bounded_call,
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+            ));
+
+            let referendum_index = 0;
+
+            // Place decision deposit
+            assert_ok!(TechReferenda::place_decision_deposit(
+                RuntimeOrigin::signed(tech_member.clone()),
+                referendum_index
+            ));
+
+            // Get track info
+            let track_info =
+                <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(
+                    TRACK_ID,
+                )
+                .expect("Track info should exist for the given TRACK_ID");
+
+            // Run to just after prepare period to trigger deciding phase
+            TestCommons::run_to_block(track_info.prepare_period + 1);
+
+            // Vote AYE
+            assert_ok!(TechCollective::vote(
+                RuntimeOrigin::signed(tech_member.clone()),
+                referendum_index,
+                true // AYE vote
+            ));
+
+            // Wait for the referendum to complete
+            TestCommons::run_to_block(
+                track_info.prepare_period
+                    + track_info.decision_period
+                    + track_info.confirm_period
+                    + track_info.min_enactment_period
+                    + 5,
+            );
+
+            // Check referendum outcome
+            let referendum_info = pallet_referenda::ReferendumInfoFor::<
+                Runtime,
+                TechReferendaInstance,
+            >::get(referendum_index)
+            .expect("Referendum info should exist");
+
+            // Verify the referendum was approved
+            assert!(
+                matches!(
+                    referendum_info,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                ),
+                "Treasury spend referendum should be approved"
+            );
+
+            // Wait for scheduler to dispatch the approved referendum
+            TestCommons::run_to_block(System::block_number() + 5);
+
+            // Check if treasury spend was approved
+            let spend_index = 0;
+            assert!(
+                pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
+                "Treasury spend should exist"
+            );
+
+            // Execute payout
+            assert_ok!(pallet_treasury::Pallet::<Runtime>::payout(
+                RuntimeOrigin::signed(beneficiary.clone()),
+                spend_index
+            ));
+
+            // Verify the beneficiary received the funds
+            let beneficiary_balance = Balances::free_balance(&beneficiary);
+            assert_eq!(
+                beneficiary_balance,
+                100 * UNIT + spend_amount,
+                "Beneficiary should receive the treasury spend amount"
             );
         });
     }
