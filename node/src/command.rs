@@ -8,13 +8,13 @@ use crate::{
 use dilithium_crypto::ResonancePair;
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use resonance_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
 use sc_cli::SubstrateCli;
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
-use sp_wormhole::WormholePair;
 
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
