@@ -11,7 +11,7 @@ A module for scheduling dispatches.
 ## Overview
 
 This module exposes capabilities for scheduling dispatches to occur at a
-specified block number or at a specified period. These scheduled dispatches
+specified block number or timestamp or at a specified period. These scheduled dispatches
 may be named or anonymous and may be canceled.
 
 **NOTE:** The scheduled calls will be dispatched with the default filter
