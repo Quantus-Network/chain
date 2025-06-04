@@ -3719,11 +3719,7 @@ dependencies = [
  "ipconfig",
  "moka",
  "once_cell",
-<<<<<<< HEAD
- "parking_lot 0.12.3",
-=======
  "parking_lot 0.12.4",
->>>>>>> d7e6f7fb58327a6f5b497bddfc6a4581a73a9d7a
  "rand 0.9.1",
  "resolv-conf",
  "smallvec",
@@ -6070,11 +6066,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "loom",
-<<<<<<< HEAD
- "parking_lot 0.12.3",
-=======
  "parking_lot 0.12.4",
->>>>>>> d7e6f7fb58327a6f5b497bddfc6a4581a73a9d7a
  "portable-atomic",
  "rustc_version",
  "smallvec",
@@ -6828,7 +6820,6 @@ dependencies = [
  "parity-scale-codec",
  "qp-common",
  "scale-info",
- "sp-common",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -7747,7 +7738,7 @@ dependencies = [
 [[package]]
 name = "poseidon-resonance"
 version = "0.6.0"
-source = "git+https://github.com/Resonance-Network/poseidon-resonance#e39fff549e4bef8f97b1b96e0857c47a6a7eb5ab"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#e39fff549e4bef8f97b1b96e0857c47a6a7eb5ab"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -11050,16 +11041,6 @@ dependencies = [
  "sp-state-machine",
  "thiserror 1.0.69",
  "tracing",
-]
-
-[[package]]
-name = "sp-common"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
 ]
 
 [[package]]

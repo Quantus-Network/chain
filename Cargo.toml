@@ -30,18 +30,20 @@ resolver = "2"
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
 rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-plonky2 = { git="https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
-poseidon-resonance = { git = "https://github.com/Resonance-Network/poseidon-resonance", default-features = false }
+plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
+    "no_random",
+] }
+poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
 futures-timer = { version = "3.0.2" }
 docify = { version = "0.2.9", default-features = false }
 paste = { version = "1.0.15", default-features = false }
 async-trait = { version = "0.1.85", default-features = false }
-pallet-faucet = {path = "./pallets/faucet", default-features = false}
-pallet-qpow = { path = "./pallets/qpow", default-features = false}
-pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false}
-pallet-wormhole = { path="./pallets/wormhole", default-features = false }
-pallet-balances = { path="./pallets/balances", default-features = false }
-pallet-reversible-transfers = { path="./pallets/reversible-transfers", default-features = false }
+pallet-faucet = { path = "./pallets/faucet", default-features = false }
+pallet-qpow = { path = "./pallets/qpow", default-features = false }
+pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
+pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
+pallet-balances = { path = "./pallets/balances", default-features = false }
+pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
 pallet-ranked-collective = { version = "39.0.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
@@ -80,11 +82,7 @@ sp-blockchain = { version = "38.0.0", default-features = false }
 sp-consensus = { version = "0.41.0", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
-<<<<<<< HEAD
 qp-common = { path = "./primitives/common", default-features = false }
-=======
-sp-common = { path = "./primitives/common", default-features = false }
->>>>>>> d7e6f7fb58327a6f5b497bddfc6a4581a73a9d7a
 sp-faucet = { path = "./primitives/faucet", default-features = false }
 sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }
