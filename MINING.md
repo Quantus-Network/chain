@@ -159,7 +159,7 @@ curl -H "Content-Type: application/json" \
 - **Consensus**: Quantum Proof of Work (QPoW)
 - **Block Time**: ~6 seconds target
 - **Network Explorer**: Coming soon
-- **Faucet**: Built into node RPC
+- **Faucet**: See Telegram
 
 ## Troubleshooting
 
