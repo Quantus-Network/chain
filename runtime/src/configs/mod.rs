@@ -52,11 +52,7 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
     Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-<<<<<<< HEAD
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, DAYS,
-=======
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Vesting, DAYS,
->>>>>>> be3d3306aa3a05db5be57a2ea3900a808e0c06b7
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
     EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
