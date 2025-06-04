@@ -24,15 +24,7 @@ cargo 1.85.0-nightly (769f622e1 2024-12-14)
 
 #### Generate new key
 ```sh
-<<<<<<< HEAD
-<<<<<<< HEAD
-./quantus-node key resonance --scheme standard --seed "<64-HEX-STRING>"
-=======
-./resonance-node key quantus --scheme standard --seed "<64-HEX-STRING>"
->>>>>>> 99ee218 (chore: CLI: Resonance Key -> Quantus Key (#13))
-=======
 ./quantus-node key quantus
->>>>>>> 17a4cd2 (CLI Updates  (#27))
 ```
 
 This creates a new 24 word phrase, seed, and public and private keys.
@@ -57,11 +49,7 @@ Seed must be a 64-character hex string
 ### Wormhole address pair generation
 
 ```sh
-<<<<<<< HEAD
-./quantus-node key resonance --scheme wormhole
-=======
-./resonance-node key quantus --scheme wormhole
->>>>>>> 99ee218 (chore: CLI: Resonance Key -> Quantus Key (#13))
+./quantus-node key quantus --scheme wormhole
 ```
 
 This generates a wormhole secret and a wormhole address.

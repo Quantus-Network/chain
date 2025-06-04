@@ -205,9 +205,7 @@ fn schedule_transfer_works() {
         let ReversibleAccountData {
             delay: user_delay, ..
         } = ReversibleTransfers::is_reversible(&user).unwrap();
-        let expected_block = BlockNumberOrTimestamp::BlockNumber(
-            System::block_number() + user_delay.as_block_number().unwrap(),
-        );
+        let expected_block = System::block_number() + user_delay;
         let bounded = Preimage::bound(call.clone()).unwrap();
 
         assert!(Agenda::<Test>::get(expected_block).len() == 0);
@@ -234,7 +232,7 @@ fn schedule_transfer_works() {
         assert!(Agenda::<Test>::get(expected_block).len() > 0);
 
         // Skip to the delay block
-        run_to_block(expected_block.as_block_number().unwrap());
+        run_to_block(expected_block);
 
         // Check that the transfer is executed
         assert_eq!(Balances::free_balance(user), user_balance - amount);
@@ -250,7 +248,7 @@ fn schedule_transfer_works() {
         // Set reversibility
         assert_ok!(ReversibleTransfers::set_reversibility(
             RuntimeOrigin::signed(reversible_account),
-            Some(BlockNumberOrTimestamp::BlockNumber(10)),
+            Some(10),
             DelayPolicy::Explicit,
             Some(explicit_reverser),
         ));
@@ -408,9 +406,7 @@ fn cancel_dispatch_works() {
         let ReversibleAccountData {
             delay: user_delay, ..
         } = ReversibleTransfers::is_reversible(&user).unwrap();
-        let execute_block = BlockNumberOrTimestamp::BlockNumber(
-            System::block_number() + user_delay.as_block_number().unwrap(),
-        );
+        let execute_block = System::block_number() + user_delay;
 
         assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
@@ -493,9 +489,7 @@ fn execute_transfer_works() {
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData { delay, .. } =
             ReversibleTransfers::is_reversible(&user).unwrap();
-        let execute_block = BlockNumberOrTimestampOf::<Test>::BlockNumber(
-            System::block_number() + delay.as_block_number().unwrap(),
-        );
+        let execute_block = System::block_number() + delay;
 
         assert_ok!(ReversibleTransfers::schedule_transfer(
             RuntimeOrigin::signed(user),
@@ -538,8 +532,8 @@ fn full_flow_execute_works() {
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData { delay, .. } =
             ReversibleTransfers::is_reversible(&user).unwrap();
-        let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
-        let execute_block = start_block.saturating_add(&delay).unwrap();
+        let start_block = System::block_number();
+        let execute_block = start_block + delay;
 
         assert_ok!(ReversibleTransfers::schedule_transfer(
             RuntimeOrigin::signed(user),
@@ -664,15 +658,9 @@ fn freeze_amount_is_consistent_with_multiple_transfers() {
 
         let ReversibleAccountData { delay, .. } =
             ReversibleTransfers::is_reversible(&user).unwrap();
-        let delay_blocks = delay.as_block_number().unwrap();
-        let execute_block1 =
-            BlockNumberOrTimestampOf::<Test>::BlockNumber(System::block_number() + delay_blocks);
-        let execute_block2 = BlockNumberOrTimestampOf::<Test>::BlockNumber(
-            System::block_number() + delay_blocks + 2,
-        );
-        let execute_block3 = BlockNumberOrTimestampOf::<Test>::BlockNumber(
-            System::block_number() + delay_blocks + 3,
-        );
+        let execute_block1 = System::block_number() + delay;
+        let execute_block2 = System::block_number() + delay + 2;
+        let execute_block3 = System::block_number() + delay + 3;
 
         assert_ok!(ReversibleTransfers::schedule_transfer(
             RuntimeOrigin::signed(user),
