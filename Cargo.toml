@@ -16,7 +16,6 @@ members = [
     "pallets/merkle-airdrop",
     "primitives/faucet",
     "primitives/consensus/qpow",
-    "primitives/crypto/wormhole",
     "runtime",
     "dilithium-crypto",
     "dilithium-crypto/verify",
@@ -85,7 +84,6 @@ sp-consensus = { version = "0.41.0", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 sp-faucet = { path = "./primitives/faucet", default-features = false }
-sp-wormhole = { path = "./primitives/crypto/wormhole", default-features = false }
 sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }
 sp-inherents = { version = "35.0.0", default-features = false }

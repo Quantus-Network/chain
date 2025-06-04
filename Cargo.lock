@@ -2464,7 +2464,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cea14ef9355e3beab063703aa9dab15afd25f0667c341310c1e5274bb1d0da18"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4236,7 +4236,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.1",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8021,7 +8021,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.1.0"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "clap",
@@ -8071,7 +8071,6 @@ dependencies = [
  "sp-keyring",
  "sp-runtime",
  "sp-timestamp",
- "sp-wormhole",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "uuid",
@@ -8213,7 +8212,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.9",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8836,7 +8835,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8849,7 +8848,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9026,7 +9025,7 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals.git#035445bb319a176226d756e397151ab24dee2eff"
+source = "git+https://github.com/Quantus-Network/rusty-crystals.git#9715789ac763bcac18552bdab584537a24663113"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9042,16 +9041,19 @@ dependencies = [
 
 [[package]]
 name = "rusty-crystals-hdwallet"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals.git#035445bb319a176226d756e397151ab24dee2eff"
+version = "0.1.1"
+source = "git+https://github.com/Quantus-Network/rusty-crystals.git#9715789ac763bcac18552bdab584537a24663113"
 dependencies = [
  "bip39",
+ "hex-literal",
  "hmac 0.12.1",
+ "poseidon-resonance",
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
  "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals.git)",
  "sha2 0.10.9",
+ "sp-core",
  "thiserror 2.0.12",
 ]
 
@@ -11556,16 +11558,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp-wormhole"
-version = "0.1.0"
-dependencies = [
- "hex-literal",
- "poseidon-resonance",
- "rand 0.8.5",
- "sp-core",
-]
-
-[[package]]
 name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12092,7 +12084,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.7",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -13549,7 +13541,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

@@ -1,9 +1,16 @@
+# Quantus Network Node Installation Guide
+
+This guide will help you install and run a Quantus Network node for mining.
+
+**🚀 Quick Start Mining**: See our [Mining Guide](MINING.md) for a comprehensive setup tutorial with troubleshooting and optimization tips.
+
+
 # Resonance Network Node
 
 ---
 ## Prerequisites
 
-Use nightly rust version 12-24 or newer. Rust stable channel will not work. 
+Use nightly rust version 12-24 or newer. Rust stable channel will not work.
 
 ```
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -35,8 +42,8 @@ This creates a new 24 word phrase, seed, and public and private keys.
 ./quantus-node key quantus --words "<words>"
 ```
 
-Words are 24 words list separated by spaces, like "autumn bear... ". The words must be from the 
-bip39 wordlist. 
+Words are 24 words list separated by spaces, like "autumn bear... ". The words must be from the
+bip39 wordlist.
 
 #### Restore key seed (64 bit hex)
 
@@ -235,7 +242,7 @@ This chain has mandatory storage configuration settings that cannot be overridde
 
 ### What this means
 
-ArchiveCanonical State Pruning: The node will keep the state for all blocks that are part of the canonical chain. 
+ArchiveCanonical State Pruning: The node will keep the state for all blocks that are part of the canonical chain.
 This ensures you can query historical state for any finalized block, while non-canonical blocks' states are pruned to save disk space.
 
 KeepFinalized Blocks Pruning: The node will keep all finalized blocks and prune non-finalized blocks that become stale.
@@ -246,7 +253,7 @@ KeepFinalized Blocks Pruning: The node will keep all finalized blocks and prune 
 Note that any command-line parameters related to pruning (--state-pruning, --blocks-pruning) will be ignored as these settings are enforced at the code level for all node operators.
 Disk Usage
 
-This configuration provides a good balance between storage efficiency and data availability. 
+This configuration provides a good balance between storage efficiency and data availability.
 You should expect your database to grow steadily over time as the blockchain progresses, though at a slower rate than a full archive node.
 If you're running a validator or service that needs access to historical chain state, this configuration will meet your needs while optimizing disk usage.
 

@@ -40,6 +40,7 @@ jobs:
         name: pin
         run: rustup override set ${RUSTUP_TOOLCHAIN}
       -
+        if: contains(matrix.os, 'macos')
         name: cache
         uses: Swatinem/rust-cache@v2
         with:
