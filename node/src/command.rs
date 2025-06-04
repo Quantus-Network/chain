@@ -196,7 +196,6 @@ pub fn run() -> sc_cli::Result<()> {
                                         println!("Secret phrase: {}", phrase);
                                     }
                                     println!("Address: {}", details.address);
-                                    log::debug!("Raw Hex Address: {}", details.raw_address);
                                     println!("Seed: {}", details.seed_hex);
                                     println!("Pub key: {}", details.public_key_hex);
                                     println!("Secret key: {}", details.secret_key_hex);
@@ -210,7 +209,6 @@ pub fn run() -> sc_cli::Result<()> {
                                         "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
                                     );
                                     println!("Address: {}", details.address);
-                                    log::debug!("Raw Hex Address: {}", details.raw_address);
                                     println!("Wormhole Address: {}", details.public_key_hex);
                                     println!("Secret: {}", details.secret_key_hex);
                                     // Pub key and Seed are N/A for wormhole as per QuantusKeyDetails
