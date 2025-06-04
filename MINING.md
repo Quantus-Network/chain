@@ -28,10 +28,6 @@ quantus-node \
   --rewards-address ~/.quantus/rewards-address.txt \
   --validator \
   --chain live_resonance \
-  --port 30333 \
-  --prometheus-port 9616 \
-  --name "ResonanceLiveTestnetNode" \
-  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9944,methods=unsafe,cors=all"
 ```
 
 That's it! You're now mining on the Quantus Network.

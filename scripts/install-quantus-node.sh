@@ -102,36 +102,36 @@ install_node_binary() {
     fi
 
     echo "Latest release tag: $LATEST_TAG"
-    
+
     # Construct the asset filename and URL
     ASSET_FILENAME="${BINARY_NAME}-${LATEST_TAG}-${TARGET_ARCH_NAME}.tar.gz"
     ASSET_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${LATEST_TAG}/${ASSET_FILENAME}"
-    
+
     echo "Attempting to download asset: $ASSET_URL"
-    
+
     # Download the asset
     if ! curl -L "$ASSET_URL" -o "$TEMP_DIR/$ASSET_FILENAME"; then
         echo "Error: Failed to download node binary"
         exit 1
     fi
-    
+
     echo "Asset downloaded to $TEMP_DIR/$ASSET_FILENAME"
-    
+
     # Extract the binary
     echo "Extracting $BINARY_NAME from $TEMP_DIR/$ASSET_FILENAME..."
     tar -xzf "$TEMP_DIR/$ASSET_FILENAME" -C "$TEMP_DIR"
-    
+
     # Verify extracted binary
     if [ ! -f "$TEMP_DIR/$BINARY_NAME" ]; then
         echo "Error: Failed to extract $BINARY_NAME from the archive"
         exit 1
     fi
-    
+
     chmod +x "$TEMP_DIR/$BINARY_NAME"
-    
+
     # Move to final location
     mv "$TEMP_DIR/$BINARY_NAME" "$NODE_BINARY_PATH"
-    
+
     echo "Node binary installed successfully at $NODE_BINARY_PATH"
 }
 
@@ -201,18 +201,18 @@ setup_rewards_address() {
                 fi
                 # Generate new address and capture all output
                 output=$($NODE_BINARY_PATH key quantus)
-                
+
                 # Extract the address (assuming it's the last line)
                 address=$(echo "$output" | grep "Address:" | awk '{print $2}')
-                
+
                 # Secret phrase: shadow valve wild recall jeans blush mandate diagram recall slide alley water wealth transfer soup fit above army crisp involve level trust rabbit panda
                 line=$(printf '%s\n' "$output" | grep "Secret phrase:")
                 # strip everything up through "Secret phrase: "
                 secret_phrase="${line#*Secret phrase: }"
-                
+
                 # Save only the address to the file
                 echo "$address" > "$REWARDS_ADDRESS_PATH"
-                
+
                 # Display all details to the user
                 echo "New rewards address generated. Please save these details securely:"
                 echo "$output"
@@ -254,7 +254,7 @@ echo "Installation completed successfully!"
 echo "Node binary: $NODE_BINARY_PATH"
 echo "Node identity: $NODE_IDENTITY_PATH"
 echo "Rewards address: $REWARDS_ADDRESS_PATH"
-if [ "$secret_phrase" != "" ]; then 
+if [ "$secret_phrase" != "" ]; then
   echo ""
   echo "PLEASE SAVE YOUR SECRET PHRASE IN A SAFE PLACE"
   echo "Secret phrase: $secret_phrase"
@@ -267,9 +267,5 @@ $NODE_BINARY_PATH \\
   --node-key-file "$NODE_IDENTITY_PATH" \\
   --rewards-address "$REWARDS_ADDRESS_PATH" \\
   --validator \\
-  --chain live_resonance \\
-  --port 30333 \\
-  --prometheus-port 9616 \\
-  --name "ResonanceLiveTestnetNode" \\
-  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9944,methods=unsafe,cors=all"
+  --chain live_resonance
 EOF
