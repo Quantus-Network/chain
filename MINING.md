@@ -73,34 +73,6 @@ If you prefer manual installation or the script doesn't work for your system:
 
    Save the displayed address to `~/.quantus/rewards-address.txt`
 
-### External Mining Setup
-
-For improved performance, you can offload mining to a dedicated service:
-
-1. **Build External Miner**
-   ```bash
-   git clone https://github.com/Quantus-Network/chain.git
-   cd chain
-   cargo build --release -p external-miner
-   ```
-
-2. **Start External Miner** (separate terminal)
-   ```bash
-   RUST_LOG=info ./target/release/external-miner
-   ```
-
-3. **Start Node with External Miner**
-   ```bash
-   quantus-node \
-     --node-key-file ~/.quantus/node_key.p2p \
-     --rewards-address ~/.quantus/rewards-address.txt \
-     --validator \
-     --chain live_resonance \
-     --external-miner-url http://127.0.0.1:9833 \
-     --port 30333 \
-     --name "ResonanceLiveTestnetNode"
-   ```
-
 ## Configuration Options
 
 ### Node Parameters
