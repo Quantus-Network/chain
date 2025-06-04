@@ -1,9 +1,89 @@
+# Quantus Network Node Installation Guide
+
+This guide will help you install and run a Quantus Network node for mining.
+
+**🚀 Quick Start Mining**: See our [Mining Guide](MINING.md) for a comprehensive setup tutorial with troubleshooting and optimization tips.
+
+## Prerequisites
+
+- Linux or macOS operating system
+- x86_64 or ARM64 architecture
+- Internet connection
+- Basic command-line knowledge
+
+## Installation
+
+1. Clone this repository:
+```bash
+git clone https://github.com/Quantus-Network/chain.git
+cd chain
+```
+
+2. Make the installation script executable:
+```bash
+chmod +x scripts/install-quantus-node.sh
+```
+
+3. Run the installation script:
+```bash
+./scripts/install-quantus-node.sh
+```
+
+The script will:
+- Detect your operating system and architecture
+- Download and install the latest Quantus node binary
+- Create a node identity file
+- Set up a rewards address
+- Create necessary directories
+
+## Important Notes
+
+- If you're not running as root, the node binary will be installed to `~/.local/bin/`. Make sure this directory is in your PATH.
+- The script will create a `.quantus` directory in your home folder to store node configuration files.
+- When generating a new rewards address, make sure to save the secret phrase securely - you'll need it to access your rewards.
+
+## Starting Your Node
+
+After installation, you can start your node with the command shown at the end of the installation script. The node will run as a validator on the Resonance Live Testnet.
+
+The default configuration includes:
+- P2P port: 30333
+- Prometheus metrics port: 9616
+- RPC endpoint: 127.0.0.1:9944
+
+## Monitoring Your Node
+
+You can monitor your node's performance using:
+- Prometheus metrics at `http://localhost:9616/metrics`
+- RPC endpoint at `ws://127.0.0.1:9944`
+
+## Troubleshooting
+
+If you encounter any issues:
+1. Ensure all ports (30333, 9616, 9944) are available and not blocked by your firewall
+2. Check that the node binary is in your PATH
+3. Verify that the node identity and rewards address files exist in `~/.quantus/`
+
+## Support
+
+For additional support:
+- See the [Mining Guide](MINING.md) for detailed setup instructions and troubleshooting
+- Join our Discord community
+- Check our documentation
+- Open an issue on GitHub
+
+## Security Notes
+
+- Never share your secret phrase
+- Keep your node identity file secure
+- Regularly backup your rewards address and node identity files
+
 # Resonance Network Node
 
 ---
 ## Prerequisites
 
-Use nightly rust version 12-24 or newer. Rust stable channel will not work. 
+Use nightly rust version 12-24 or newer. Rust stable channel will not work.
 
 ```
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -35,8 +115,8 @@ This creates a new 24 word phrase, seed, and public and private keys.
 ./quantus-node key quantus --words "<words>"
 ```
 
-Words are 24 words list separated by spaces, like "autumn bear... ". The words must be from the 
-bip39 wordlist. 
+Words are 24 words list separated by spaces, like "autumn bear... ". The words must be from the
+bip39 wordlist.
 
 #### Restore key seed (64 bit hex)
 
@@ -235,7 +315,7 @@ This chain has mandatory storage configuration settings that cannot be overridde
 
 ### What this means
 
-ArchiveCanonical State Pruning: The node will keep the state for all blocks that are part of the canonical chain. 
+ArchiveCanonical State Pruning: The node will keep the state for all blocks that are part of the canonical chain.
 This ensures you can query historical state for any finalized block, while non-canonical blocks' states are pruned to save disk space.
 
 KeepFinalized Blocks Pruning: The node will keep all finalized blocks and prune non-finalized blocks that become stale.
@@ -246,7 +326,7 @@ KeepFinalized Blocks Pruning: The node will keep all finalized blocks and prune 
 Note that any command-line parameters related to pruning (--state-pruning, --blocks-pruning) will be ignored as these settings are enforced at the code level for all node operators.
 Disk Usage
 
-This configuration provides a good balance between storage efficiency and data availability. 
+This configuration provides a good balance between storage efficiency and data availability.
 You should expect your database to grow steadily over time as the blockchain progresses, though at a slower rate than a full archive node.
 If you're running a validator or service that needs access to historical chain state, this configuration will meet your needs while optimizing disk usage.
 
