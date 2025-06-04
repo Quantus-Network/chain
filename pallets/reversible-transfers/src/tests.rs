@@ -133,6 +133,18 @@ fn set_reversibility_works() {
             ),
             Error::<Test>::DelayTooShort
         );
+
+        // Explicit reverse can not be self
+        assert_err!(
+            ReversibleTransfers::set_reversibility(
+                RuntimeOrigin::signed(new_user),
+                Some(delay),
+                DelayPolicy::Explicit,
+                Some(new_user),
+            ),
+            Error::<Test>::ExplicitReverserCanNotBeSelf
+        );
+
         assert_eq!(ReversibleTransfers::is_reversible(&new_user), None);
 
         // Use explicit reverser
@@ -533,7 +545,7 @@ fn full_flow_execute_works() {
         // Event should be emitted by execute_transfer called by scheduler
         let expected_event = Event::TransactionExecuted {
             tx_id,
-            result: Ok(().into()).into(),
+            result: Ok(().into()),
         };
         assert!(
             System::events()

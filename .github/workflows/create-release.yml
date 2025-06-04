@@ -1,0 +1,467 @@
+name: Create Release
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Type of version bump (major, minor, patch) or specify custom version. For 0.x.y releases, major will bump 0.x -> 0.(x+1)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: 'Custom version string (e.g., v1.2.3 or v0.2.1-beta.1). Only used if version_type is "custom". MUST start with "v" (e.g. v1.2.3)'
+        required: false
+      is_prerelease:
+        description: 'Is this a pre-release? (e.g., alpha, beta, rc)'
+        required: true
+        type: boolean
+        default: false
+      prerelease_identifier:
+        description: 'Pre-release identifier (e.g., alpha, beta, rc). Only used if is_prerelease is true.'
+        required: false
+        default: 'rc'
+      draft_release:
+        description: 'Create the release as a draft?'
+        required: true
+        type: boolean
+        default: true
+      fast_test_create_release_job:
+        description: 'If true, skips actual build and uses dummy artifacts to test release creation steps.'
+        required: false
+        type: boolean
+        default: false
+      # Add an input for release notes if you want to paste them in manually
+      # release_notes:
+      #   description: 'Release notes content (Markdown)'
+      #   required: false
+
+jobs:
+  calculate_next_version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.versioner.outputs.new_version }}
+      commit_sha_short: ${{ steps.vars.outputs.commit_sha_short }}
+      branch_name: ${{ steps.vars.outputs.branch_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get current branch and commit SHA
+        id: vars
+        run: |
+          echo "commit_sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "branch_name=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          # Attempt to get the latest vX.Y.Z tag
+          latest_semver_tag=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag_found=$latest_semver_tag" >> $GITHUB_OUTPUT
+          echo "Latest semantic version tag found: $latest_semver_tag"
+
+      - name: Calculate new version
+        id: versioner
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
+          IS_PRERELEASE: ${{ github.event.inputs.is_prerelease }}
+          PRERELEASE_ID: ${{ github.event.inputs.prerelease_identifier }}
+        run: |
+          # Remove \'v\' prefix for processing
+          current_version=${LATEST_TAG#v}
+
+          if [[ "$VERSION_TYPE" == "custom" ]]; then
+            if [[ -z "$CUSTOM_VERSION" ]]; then
+              echo "Error: Custom version is selected but no custom_version string provided."
+              exit 1
+            fi
+            if [[ ! "$CUSTOM_VERSION" =~ ^v ]]; then
+              echo "Error: Custom version string MUST start with \'v\' (e.g., v1.2.3)."
+              exit 1
+            fi
+            new_version="$CUSTOM_VERSION"
+          else
+            # Split version and pre-release part
+            IFS=\'-\' read -r version_core prerelease_part <<< "$current_version"
+            IFS=\'.\' read -r major minor patch <<< "$version_core"
+
+            # Increment based on type
+            if [[ "$VERSION_TYPE" == "major" ]]; then
+              if [[ "$major" == "0" ]]; then # Handle 0.x.y -> 0.(x+1).0
+                major=$major
+                minor=$((minor + 1))
+                patch=0
+              else
+                major=$((major + 1))
+                minor=0
+                patch=0
+              fi
+            elif [[ "$VERSION_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+            elif [[ "$VERSION_TYPE" == "patch" ]]; then
+              patch=$((patch + 1))
+            else
+              echo "Error: Invalid version_type: $VERSION_TYPE"
+              exit 1
+            fi
+            new_version_core="v$major.$minor.$patch"
+
+            if [[ "$IS_PRERELEASE" == "true" ]]; then
+              prerelease_num=1
+              # If current was a prerelease of the same core and same ID, increment number
+              if [[ "$prerelease_part" =~ ^$PRERELEASE_ID\\.([0-9]+)$ ]]; then
+                # Check if base version matches after potential increment
+                # This logic gets tricky if we bump minor/major and also want a prerelease
+                # For simplicity, if major/minor/patch is bumped, new prerelease starts at .1
+                # If only toggling IS_PRERELEASE or changing PRERELEASE_ID on same core, then consider incrementing.
+                # Current logic: a new version bump (patch/minor/major) resets prerelease to .1
+                prerelease_num=1 # Simplified: always start at .1 for new core version
+              elif [[ "$prerelease_part" =~ ^$PRERELEASE_ID$ ]]; then
+                 prerelease_num=1 # also start at .1 if it was just "alpha"
+              fi
+              new_version="$new_version_core-$PRERELEASE_ID.$prerelease_num"
+            else
+              new_version="$new_version_core"
+            fi
+          fi
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+  update_cargo_toml:
+    needs: calculate_next_version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Default GITHUB_TOKEN is fine for checkout; gh cli step will use ADMIN_PAT
+
+      - name: Update files and Create PR
+        env:
+          NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
+          BRANCH_NAME: ${{ needs.calculate_next_version.outputs.branch_name }}
+          # IMPORTANT: Use ADMIN_PAT for gh tool to have permission to create PR
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }} 
+        run: |
+          set -ex # exit on error, print commands
+          new_cargo_version=${NEW_VERSION_WITH_V#v}
+          
+          echo "Updating node/Cargo.toml to version: $new_cargo_version"
+          sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
+          
+          echo "Updating Cargo.lock for quantus-node package..."
+          # Attempt to update Cargo.lock. If this specific version isn't resolvable (e.g. for a new, unpublished crate version),
+          # cargo update might not change anything or could error if strict. We'll proceed.
+          cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node tried, proceeding."
+          
+          echo "Contents of node/Cargo.toml after update:"
+          cat node/Cargo.toml
+
+          bump_branch_name="version-bump-${NEW_VERSION_WITH_V}"
+          # Configure git user for the commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git checkout -b "$bump_branch_name"
+          git add node/Cargo.toml Cargo.lock # Add updated Cargo.toml and Cargo.lock
+          git commit -m $"Bump version to $NEW_VERSION_WITH_V\n\nUpdate Cargo.toml and Cargo.lock for quantus-node.\n[skip ci]"
+          
+          # Try to delete the remote branch first, ignore error if it doesn't exist
+          git push origin --delete "$bump_branch_name" || true 
+          # Push the new branch. This uses the checkout token if not overridden, but gh needs ADMIN_PAT.
+          # For pushing this branch, default GITHUB_TOKEN (if it has contents:write from permissions block) might be okay.
+          # However, gh cli operations need the elevated PAT.
+          git push origin "$bump_branch_name"
+          
+          echo "Creating Pull Request for version bump..."
+          # gh cli will use GITHUB_TOKEN from env, which we set to ADMIN_PAT
+          gh pr create \
+            --title "Bump version to $NEW_VERSION_WITH_V" \
+            --body "This PR bumps the version in node/Cargo.toml and updates Cargo.lock to $NEW_VERSION_WITH_V for the release. Triggered by workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --base "${BRANCH_NAME}" \
+            --head "$bump_branch_name" \
+            --label "version-bump,automated-pr"
+
+  build_and_package:
+    needs: [calculate_next_version, update_cargo_toml] 
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    outputs:
+      release_assets_json: ${{ steps.prepare_assets.outputs.release_assets_json }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # This will checkout the original commit the workflow ran on, or tip of BRANCH_NAME
+
+      - name: Apply version bump to local Cargo.toml and Cargo.lock for build
+        env:
+          NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
+        shell: bash
+        run: |
+          set -ex
+          new_cargo_version=${NEW_VERSION_WITH_V#v}
+          echo "Applying version $new_cargo_version to node/Cargo.toml for build purposes..."
+          if [ -f node/Cargo.toml ]; then
+            sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
+            echo "node/Cargo.toml updated locally for build."
+            echo "Updating local Cargo.lock for quantus-node for build..."
+            # Attempt to update lock file for build consistency
+            cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node for build tried, proceeding."
+            echo "Local Cargo.lock updated for build."
+            cat node/Cargo.toml
+          else
+            echo "Error: node/Cargo.toml not found at expected location for build-time update."
+            exit 1
+          fi
+
+      - name: Install protoc (protobuf-compiler) for Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc (protobuf-compiler) for macOS
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install protoc (protobuf-compiler) for Windows
+        if: runner.os == 'Windows'
+        run: choco install protoc --yes --no-progress
+
+      - name: Install Rust toolchain
+        shell: bash
+        env:
+          # Ensure GITHUB_PATH is available for bash scripts
+          # RUSTUP_TOOLCHAIN_NAME: nightly-2024-12-24 # Directly use the string for simplicity in script
+          RUST_COMPONENTS: "rustfmt,clippy,rust-src"
+          RUST_TARGETS_ADDITIONAL: "wasm32-unknown-unknown"
+        run: |
+          set -e
+          TOOLCHAIN_NIGHTLY_VERSION="nightly-2024-12-24"
+          echo "Installing toolchain: $TOOLCHAIN_NIGHTLY_VERSION"
+          echo "With components: $RUST_COMPONENTS"
+          echo "With targets for matrix.target (${{ matrix.target }}): already included in install cmd."
+          echo "With additional targets: $RUST_TARGETS_ADDITIONAL"
+
+          # Commands to execute
+          CMD_TOOLCHAIN_INSTALL="rustup toolchain install $TOOLCHAIN_NIGHTLY_VERSION --profile minimal --no-self-update --target ${{ matrix.target }}"
+          CMD_COMPONENTS_ADD="rustup component add $(echo $RUST_COMPONENTS | sed 's/,/ /g') --toolchain $TOOLCHAIN_NIGHTLY_VERSION"
+          CMD_TARGET_ADD="rustup target add $RUST_TARGETS_ADDITIONAL --toolchain $TOOLCHAIN_NIGHTLY_VERSION"
+
+          FULL_COMMAND="$CMD_TOOLCHAIN_INSTALL && $CMD_COMPONENTS_ADD && $CMD_TARGET_ADD"
+
+          MAX_ATTEMPTS=3
+          ATTEMPT_NUM=1
+          SUCCESS=false
+          while [ $ATTEMPT_NUM -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $ATTEMPT_NUM/$MAX_ATTEMPTS: Running toolchain installation..."
+            # Using subshell for the command to avoid `set -e` exiting the whole script on first failure
+            if (eval "$FULL_COMMAND"); then
+              SUCCESS=true
+              echo "Toolchain installation successful."
+              break
+            fi
+            echo "Attempt $ATTEMPT_NUM failed."
+            ATTEMPT_NUM=$((ATTEMPT_NUM+1))
+            if [ $ATTEMPT_NUM -gt $MAX_ATTEMPTS ]; then
+              echo "All $MAX_ATTEMPTS attempts failed to install Rust toolchain."
+              exit 1
+            fi
+            echo "Retrying in 30 seconds..."
+            sleep 30
+          done
+
+          if [ "$SUCCESS" = false ]; then
+            # This state should ideally not be reached if loop exits with exit 1 above, but as a safeguard.
+            echo "Critical error: Toolchain installation marked as failed despite loop completion logic."
+            exit 1
+          fi
+
+          rustup default $TOOLCHAIN_NIGHTLY_VERSION
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN_NIGHTLY_VERSION" >> $GITHUB_ENV
+          echo "Installed Rust toolchain: $(rustc --version)"
+
+      - name: Build quantus-node binary
+        if: github.event.inputs.fast_test_create_release_job == 'false'
+        run: cargo build --release --package quantus-node --target ${{ matrix.target }}
+
+      - name: Create dummy quantus-node binary (fast test mode)
+        if: github.event.inputs.fast_test_create_release_job == 'true' && (runner.os == 'Linux' || runner.os == 'macOS')
+        run: |
+          mkdir -p target/${{ matrix.target }}/release
+          echo "This is a dummy quantus-node for fast testing (${{ matrix.target }}). Actual build skipped." > target/${{ matrix.target }}/release/quantus-node
+          chmod +x target/${{ matrix.target }}/release/quantus-node
+          echo "Dummy quantus-node created at target/${{ matrix.target }}/release/quantus-node"
+
+      - name: Create dummy quantus-node.exe binary (for fast test Windows)
+        if: github.event.inputs.fast_test_create_release_job == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dummy_dir = "target/${{ matrix.target }}/release"
+          New-Item -ItemType Directory -Path $dummy_dir -Force | Out-Null
+          Set-Content -Path "$dummy_dir/quantus-node.exe" -Value "This is a dummy quantus-node.exe for fast testing (${{ matrix.target }}). Actual build skipped."
+          Write-Host "Dummy quantus-node.exe created at $dummy_dir/quantus-node.exe"
+
+      - name: Prepare Release Assets
+        id: prepare_assets
+        env:
+          NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
+          TARGET_ARCH: ${{ matrix.target }}
+        shell: bash 
+        run: |
+          NODE_BASE_NAME="quantus-node"
+          
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            NODE_EXECUTABLE_NAME="${NODE_BASE_NAME}.exe"
+            ARCHIVE_EXTENSION="zip"
+            # These are defined for eval later
+            CHSUM_EXEC="powershell -Command \"(Get-FileHash -Algorithm SHA256 '\${asset_name}').Hash.ToLower() + ' *\${asset_name}' | Set-Content -Encoding ascii '\${checksum_file_name}'\""
+            ARCHIVE_EXEC="powershell -Command \"Compress-Archive -Path staging/\${NODE_EXECUTABLE_NAME} -DestinationPath \${asset_name}\""
+            
+            # asset_name and checksum_file_name will be defined globally below for Windows path
+            asset_name="${NODE_BASE_NAME}-${NEW_VERSION}-${TARGET_ARCH}.${ARCHIVE_EXTENSION}"
+            checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
+
+            mkdir -p staging
+            cp "target/${TARGET_ARCH}/release/${NODE_EXECUTABLE_NAME}" "staging/"
+            
+            eval "$ARCHIVE_EXEC"
+            eval "$CHSUM_EXEC"
+
+          else # Linux or macOS
+            NODE_BINARY_NAME="quantus-node"
+            asset_name="${NODE_BINARY_NAME}-${NEW_VERSION}-${TARGET_ARCH}.tar.gz"
+            checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
+
+            # Create staging directory for assets
+            mkdir staging
+            # Copy from target-specific path
+            cp target/${TARGET_ARCH}/release/${NODE_BINARY_NAME} staging/
+            
+            # Create tarball
+            (cd staging && tar -czvf "../${asset_name}" ${NODE_BINARY_NAME})
+            
+            # Generate checksum for the tarball
+            if [[ "${{ runner.os }}" == "macOS" ]]; then
+              shasum -a 256 "${asset_name}" > "${checksum_file_name}"
+            else
+              sha256sum "${asset_name}" > "${checksum_file_name}"
+            fi          
+          fi
+
+          echo "Created asset: ${asset_name}"
+          echo "Created checksum file: ${checksum_file_name}"
+
+          # Prepare JSON output for artifact upload and release creation
+          # Storing paths relative to GITHUB_WORKSPACE
+          asset_paths_json="[\\"${asset_name}\\", \\"${checksum_file_name}\\"]"
+          echo "release_assets_json=${asset_paths_json}" >> $GITHUB_OUTPUT
+          # List files for verification
+          ls -la
+
+      - name: Upload Release Assets as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: | 
+            quantus-node-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
+            sha256sums-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.txt
+
+  create_github_release:
+    needs: [calculate_next_version, build_and_package] 
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Download all release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-artifacts # All artifacts extracted here, each in its own subdir
+        # No 'name' specified, downloads all artifacts from previous jobs in this workflow run
+        # This will create directories like 'downloaded-artifacts/release-assets-x86_64-unknown-linux-gnu/'
+        # We'll need to find the files within these directories.
+
+      - name: Generate asset list file
+        run: |
+          echo "--- Directory structure of downloaded-artifacts ---"
+          ls -R downloaded-artifacts
+          echo "--- Finding asset files ---"
+          find downloaded-artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.txt" \) -print0 > asset_files.txt
+          echo "--- Raw content of asset_files.txt (null characters will not be visible) ---"
+          cat asset_files.txt 
+          echo "--- Processed content of asset_files.txt (one file per line) ---"
+          cat asset_files.txt | xargs -0 -n1
+          echo "--- End of Generate asset list file step ---"
+
+      - name: Create Git Tag
+        env:
+          NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+          git push origin "$NEW_VERSION"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
+          COMMIT_SHA_SHORT: ${{ needs.calculate_next_version.outputs.commit_sha_short }}
+          BRANCH_NAME: ${{ needs.calculate_next_version.outputs.branch_name }}
+          IS_PRERELEASE: ${{ github.event.inputs.is_prerelease }}
+          DRAFT_RELEASE: ${{ github.event.inputs.draft_release }}
+        run: |
+          release_notes=$(printf "Automated release for version %s.\\nBuilt from branch: \`%s\`\\nCommit: \`%s\`" "$NEW_VERSION" "$BRANCH_NAME" "$COMMIT_SHA_SHORT")
+          
+          # Write release notes to a file
+          printf "%s" "$release_notes" > release_notes.txt
+
+          # Collect asset files
+          asset_args=()
+          while IFS= read -r -d $'\0' file; do
+            asset_args+=("$file")
+          done < asset_files.txt
+
+          echo "Debug: Release notes file content:"
+          cat release_notes.txt
+          echo "Debug: Files to attach to release:"
+          printf "'%s'\n" "${asset_args[@]}"
+
+          gh release create "$NEW_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Release $NEW_VERSION" \
+            --notes-file release_notes.txt \
+            --target "$GITHUB_SHA" \
+            $( [[ "$IS_PRERELEASE" == "true" ]] && echo "--prerelease" ) \
+            $( [[ "$DRAFT_RELEASE" == "true" ]] && echo "--draft" ) \
+            "${asset_args[@]}" 

@@ -258,6 +258,11 @@ pub mod pallet {
                 !ReversibleAccounts::<T>::contains_key(&who),
                 Error::<T>::AccountAlreadyReversible
             );
+            ensure!(
+                reverser != Some(who.clone()),
+                Error::<T>::ExplicitReverserCanNotBeSelf
+            );
+
             let delay = delay.unwrap_or(T::DefaultDelay::get());
 
             ensure!(delay >= T::MinDelayPeriod::get(), Error::<T>::DelayTooShort);
@@ -399,8 +404,8 @@ pub mod pallet {
 
             // Emit event
             Self::deposit_event(Event::TransactionExecuted {
-                tx_id: tx_id.clone(),
-                result: post_info.clone(),
+                tx_id: *tx_id,
+                result: post_info,
             });
 
             post_info
@@ -460,10 +465,10 @@ pub mod pallet {
                 T::BlockNumberProvider::current_block_number().saturating_add(delay),
             );
 
-            let call = T::Preimages::bound(transfer_call.into())?;
+            let call = T::Preimages::bound(transfer_call)?;
 
             // Store details before scheduling
-            let new_pending = if let Some(pending) = PendingTransfers::<T>::get(&tx_id) {
+            let new_pending = if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
                 PendingTransfer {
                     who: who.clone(),
                     call,
@@ -480,7 +485,7 @@ pub mod pallet {
             };
             let schedule_id = Self::make_schedule_id(&tx_id, new_pending.count)?;
 
-            PendingTransfers::<T>::insert(&tx_id, new_pending);
+            PendingTransfers::<T>::insert(tx_id, new_pending);
 
             let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
@@ -517,8 +522,7 @@ pub mod pallet {
         /// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
         fn cancel_transfer(who: &T::AccountId, tx_id: T::Hash) -> DispatchResult {
             // Retrieve owner from storage to verify ownership
-            let pending =
-                PendingTransfers::<T>::get(&tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
+            let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
             let reversible_account_data = ReversibleAccounts::<T>::get(&pending.who)
                 .ok_or(Error::<T>::AccountNotReversible)?;

@@ -1,0 +1,20 @@
+---
+name: macos dependencies
+description: installs dependencies required to compile the node and runtime on macos
+
+runs:
+  using: composite
+  steps:
+    -
+      name: rust compilation prerequisites (macos)
+      if: contains(matrix.os, 'macos')
+      run: |
+        brew install protobuf
+        curl https://sh.rustup.rs -sSf -y | sh
+        rustup update
+        rustup toolchain install ${RUSTUP_TOOLCHAIN}
+        rustup target add wasm32-unknown-unknown \
+          --toolchain ${RUSTUP_TOOLCHAIN}-aarch64-apple-darwin
+        rustup component add rustfmt clippy rust-src \
+          --toolchain ${RUSTUP_TOOLCHAIN}-aarch64-apple-darwin
+      shell: sh

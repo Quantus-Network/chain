@@ -1,45 +1,44 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use core::ops::BitXor;
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
 use primitive_types::U512;
 use sha2::{Digest, Sha256};
 use sha3::Sha3_512;
 
-pub const CHUNK_SIZE: usize = 32;
-pub const NUM_CHUNKS: usize = 512 / CHUNK_SIZE; // Should be 16
-pub const MAX_DISTANCE: u64 = (1u64 << CHUNK_SIZE) * NUM_CHUNKS as u64;
-
 // Common verification logic
-pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], difficulty: u64) -> bool {
+pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> bool {
     if nonce == [0u8; 64] {
         return false;
     }
 
     let distance = get_nonce_distance(header, nonce);
-    distance <= MAX_DISTANCE - difficulty
+    log::debug!("difficulty = {}, threshold = {}", distance, threshold);
+    distance <= threshold
 }
 
 pub fn get_nonce_distance(
     header: [u8; 32], // 256-bit header
     nonce: [u8; 64],  // 512-bit nonce
-) -> u64 {
+) -> U512 {
     // s = 0 is cheating
     if nonce == [0u8; 64] {
-        return 0u64;
+        return U512::zero();
     }
 
     let (m, n) = get_random_rsa(&header);
     let header_int = U512::from_big_endian(&header);
     let nonce_int = U512::from_big_endian(&nonce);
 
-    let original_chunks = hash_to_group_bigint_split(&header_int, &m, &n, &U512::zero());
+    let target = hash_to_group_bigint_sha(&header_int, &m, &n, &U512::zero());
 
     // Compare PoW results
-    let nonce_chunks = hash_to_group_bigint_split(&header_int, &m, &n, &nonce_int);
+    let nonce_element = hash_to_group_bigint_sha(&header_int, &m, &n, &nonce_int);
 
-    l1_distance(&original_chunks, &nonce_chunks)
+    target.bitxor(nonce_element)
 }
+
 /// Generates a pair of RSA-style numbers (m,n) deterministically from input header
 pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
     // Generate m as random 256-bit number from SHA2-256
@@ -53,11 +52,8 @@ pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
     let mut n = U512::from_big_endian(sha3.finalize().as_slice());
 
     // Keep hashing until we find composite coprime n > m
-    while n.clone() % 2u32 == U512::zero() || n <= m || !is_coprime(&m, &n) || is_prime(&n) {
-        let mut sha3 = Sha3_512::new();
-        let bytes = n.to_big_endian();
-        sha3.update(&bytes);
-        n = U512::from_big_endian(sha3.finalize().as_slice());
+    while n % 2u32 == U512::zero() || n <= m || !is_coprime(&m, &n) || is_prime(&n) {
+        n = sha3_512(n);
     }
 
     (m, n)
@@ -77,34 +73,9 @@ pub fn is_coprime(a: &U512, b: &U512) -> bool {
     x == U512::one()
 }
 
-/// Split a 512-bit number into 32-bit chunks
-pub fn split_chunks(num: &U512) -> [u32; NUM_CHUNKS] {
-    let mut chunks: [u32; 16] = [0u32; NUM_CHUNKS];
-    let mask = (U512::one() << CHUNK_SIZE) - U512::one();
-
-    for i in 0..NUM_CHUNKS {
-        let shift = i * CHUNK_SIZE;
-        let chunk = (num >> shift) & mask;
-        chunks[i] = chunk.as_u32();
-    }
-
-    chunks
-}
-
-/// Calculate L1 distance between two chunk vectors
-fn l1_distance(original: &[u32], solution: &[u32]) -> u64 {
-    original
-        .iter()
-        .zip(solution.iter())
-        .map(|(a, b)| if a > b { a - b } else { b - a })
-        .map(|x| x as u64)
-        .sum()
-}
-
-pub fn hash_to_group_bigint_split(h: &U512, m: &U512, n: &U512, solution: &U512) -> [u32; 16] {
+pub fn hash_to_group_bigint_sha(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
     let result = hash_to_group_bigint(h, m, n, solution);
-
-    split_chunks(&result)
+    sha3_512(result)
 }
 
 // no split chunks by Nik
@@ -114,9 +85,8 @@ pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U5
     //log::info!("ComputePoW: h={:?}, m={:?}, n={:?}, solution={:?}, sum={:?}", h, m, n, solution, sum);
 
     // Compute m^sum mod n using modular exponentiation
-    let result = mod_pow(&m, &sum, n);
 
-    result
+    mod_pow(m, &sum, n)
 }
 
 /// Modular exponentiation using Substrate's BigUint
@@ -161,7 +131,7 @@ pub fn is_prime(n: &U512) -> bool {
     let mut d = *n - U512::one();
     let mut r = 0u32;
     while d % U512::from(2u32) == U512::zero() {
-        d = d / U512::from(2u32);
+        d /= U512::from(2u32);
         r += 1;
     }
 
@@ -182,7 +152,7 @@ pub fn is_prime(n: &U512) -> bool {
         bytes[..64].copy_from_slice(&n_bytes);
         bytes[64..128].copy_from_slice(&counter_bytes);
 
-        sha3.update(&bytes);
+        sha3.update(bytes);
 
         // Use the hash to generate a base between 2 and n-2
         let hash = U512::from_big_endian(sha3.finalize_reset().as_slice());
@@ -190,11 +160,11 @@ pub fn is_prime(n: &U512) -> bool {
         bases[base_count] = base;
         base_count += 1;
 
-        counter = counter + U512::one();
+        counter += U512::one();
     }
 
     'witness: for base in bases {
-        let mut x = mod_pow(&U512::from(base), &d, n);
+        let mut x = mod_pow(&base, &d, n);
 
         if x == U512::one() || x == *n - U512::one() {
             continue 'witness;
@@ -214,4 +184,13 @@ pub fn is_prime(n: &U512) -> bool {
     }
 
     true
+}
+
+/// Generate a permutation of byte indices [0, 1, ..., 63] using the hash of h
+pub fn sha3_512(input: U512) -> U512 {
+    let mut sha3 = Sha3_512::new();
+    let bytes = input.to_big_endian();
+    sha3.update(bytes);
+    let output = U512::from_big_endian(sha3.finalize().as_slice());
+    output
 }
