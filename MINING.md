@@ -161,20 +161,6 @@ curl -H "Content-Type: application/json" \
 - **Network Explorer**: Coming soon
 - **Faucet**: Built into node RPC
 
-### Faucet Usage
-
-Get test tokens for transactions:
-
-```bash
-# Request tokens (replace YOUR_ADDRESS)
-curl -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"faucet_requestTokens","params":["YOUR_ADDRESS"]}' \
-  http://localhost:9944
-```
-
-- Maximum 10 tokens per request
-- Account balance limit: 1000 tokens
-
 ## Troubleshooting
 
 ### Common Issues
