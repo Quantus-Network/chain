@@ -466,11 +466,16 @@ mod tests {
         let result = generate_quantus_key(QuantusAddressType::Wormhole, None, None);
         assert!(result.is_ok());
         let details = result.unwrap();
-        assert!(details.address.starts_with("0x"));
-        assert_eq!(details.public_key_hex, "N/A (Wormhole)");
+        assert!(details.public_key_hex.starts_with("0x"));
         assert!(details.secret_key_hex.starts_with("0x"));
         assert_eq!(details.seed_hex, "N/A (Wormhole)");
         assert!(details.secret_phrase.is_none());
+        let address = details.address;
+        assert!(
+            AccountId32::from_ss58check_with_version(&address).is_ok(),
+            "Generated address should be valid SS58: {}",
+            address
+        );
     }
 
     #[test]
