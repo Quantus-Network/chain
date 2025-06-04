@@ -9,7 +9,7 @@ use sp_core::{
     crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
     ByteArray,
 };
-use sp_core::{ecdsa, ed25519, sr25519};
+use sp_core::{ecdsa, ed25519, sr25519, H256};
 use sp_runtime::traits::Hash;
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
@@ -84,6 +84,16 @@ impl IdentifyAccount for ResonancePublic {
     type AccountId = AccountId32;
     fn into_account(self) -> Self::AccountId {
         AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
+    }
+}
+
+pub struct WormholeAddress(pub H256);
+
+// AccountID32 for a wormhole address is the same as the address itself
+impl IdentifyAccount for WormholeAddress {
+    type AccountId = AccountId32;
+    fn into_account(self) -> Self::AccountId {
+        AccountId32::new(self.0.as_bytes().try_into().unwrap())
     }
 }
 
