@@ -16,7 +16,6 @@ members = [
     "pallets/merkle-airdrop",
     "primitives/faucet",
     "primitives/consensus/qpow",
-    "primitives/crypto/wormhole",
     "runtime",
     "dilithium-crypto",
     "dilithium-crypto/verify",
@@ -43,11 +42,11 @@ pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = 
 pallet-wormhole = { path="./pallets/wormhole", default-features = false }
 pallet-balances = { path="./pallets/balances", default-features = false }
 pallet-reversible-transfers = { path="./pallets/reversible-transfers", default-features = false }
-pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
 pallet-ranked-collective = { version = "39.0.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-referenda = { version = "39.1.0", default-features = false }
+pallet-scheduler = { path="./pallets/scheduler", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 parking_lot = { version = "0.12.1", default-features = false }
 pallet-vesting = { version = "39.1.0", default-features = false }
@@ -81,9 +80,12 @@ sp-blockchain = { version = "38.0.0", default-features = false }
 sp-consensus = { version = "0.41.0", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
+<<<<<<< HEAD
 qp-common = { path = "./primitives/common", default-features = false }
+=======
+sp-common = { path = "./primitives/common", default-features = false }
+>>>>>>> d7e6f7fb58327a6f5b497bddfc6a4581a73a9d7a
 sp-faucet = { path = "./primitives/faucet", default-features = false }
-sp-wormhole = { path = "./primitives/crypto/wormhole", default-features = false }
 sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }
 sp-inherents = { version = "35.0.0", default-features = false }

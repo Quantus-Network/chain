@@ -5,20 +5,22 @@ use crate::{
     cli::{Cli, Subcommand},
     service,
 };
-use dilithium_crypto::ResonancePair;
+use dilithium_crypto::{traits::WormholeAddress, ResonancePair};
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use resonance_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
 use sc_cli::SubstrateCli;
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
-use sp_wormhole::WormholePair;
+use sp_runtime::traits::IdentifyAccount;
 
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
     pub address: String,
+    pub raw_address: String,
     pub public_key_hex: String, // Full public key, hex encoded with "0x" prefix
     pub secret_key_hex: String, // Secret key, hex encoded with "0x" prefix
     pub seed_hex: String,       // Derived seed, hex encoded with "0x" prefix
@@ -85,6 +87,7 @@ pub fn generate_quantus_key(
 
             Ok(QuantusKeyDetails {
                 address: account_id.to_ss58check(),
+                raw_address: format!("0x{}", hex::encode(account_id)),
                 public_key_hex: format!("0x{}", hex::encode(resonance_pair.public())),
                 secret_key_hex: format!("0x{}", hex::encode(resonance_pair.secret)),
                 seed_hex: format!("0x{}", hex::encode(&actual_seed_for_pair)),
@@ -97,11 +100,14 @@ pub fn generate_quantus_key(
                 sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e).into())
             })?;
 
-            // Wormhole addresses are H256, not directly SS58. We'll show its hex representation.
-            // For consistency with the struct, we use the `address` field.
+            // Convert wormhole address to account ID using WormholeAddress type
+            let wormhole_address = WormholeAddress(wormhole_pair.address);
+            let account_id = wormhole_address.into_account();
+
             Ok(QuantusKeyDetails {
-                address: format!("0x{}", hex::encode(wormhole_pair.address)),
-                public_key_hex: "N/A (Wormhole)".to_string(),
+                address: account_id.to_ss58check(),
+                raw_address: format!("0x{}", hex::encode(account_id)),
+                public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address)),
                 secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
                 seed_hex: "N/A (Wormhole)".to_string(),
                 secret_phrase: None,
@@ -159,7 +165,6 @@ impl SubstrateCli for Cli {
 /// Parse and run command line arguments
 pub fn run() -> sc_cli::Result<()> {
     let cli = Cli::from_args();
-
     match &cli.subcommand {
         Some(Subcommand::Key(cmd)) => {
             match cmd {
@@ -179,7 +184,9 @@ pub fn run() -> sc_cli::Result<()> {
                                     } else if words.is_some() {
                                         println!("Using provided words phrase...");
                                     } else {
-                                        println!("No seed or words provided. Generating a new 24-word phrase...");
+                                        println!(
+                                            "No seed or words provided. Generating a new 24-word phrase..."
+                                        );
                                     }
 
                                     println!(
@@ -192,15 +199,22 @@ pub fn run() -> sc_cli::Result<()> {
                                     println!("Seed: {}", details.seed_hex);
                                     println!("Pub key: {}", details.public_key_hex);
                                     println!("Secret key: {}", details.secret_key_hex);
-                                    println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                                    println!(
+                                        "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                                    );
                                 }
                                 QuantusAddressType::Wormhole => {
                                     println!("Generating wormhole address...");
-                                    println!("XXXXXXXXXXXXXXX Reconance Wormhole Details XXXXXXXXXXXXXXXXX");
-                                    println!("Address: {}", details.address); // This is 0x prefixed H256 hex
+                                    println!(
+                                        "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
+                                    );
+                                    println!("Address: {}", details.address);
+                                    println!("Wormhole Address: {}", details.public_key_hex);
                                     println!("Secret: {}", details.secret_key_hex);
                                     // Pub key and Seed are N/A for wormhole as per QuantusKeyDetails
-                                    println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                                    println!(
+                                        "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                                    );
                                 }
                             }
                             Ok(())

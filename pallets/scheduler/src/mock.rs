@@ -253,6 +253,7 @@ impl Time for MockTimestamp {
     fn now() -> Self::Moment {
         MOCKED_TIME.with(|v| *v.borrow())
     }
+    pub const MaxTimestampBucketSize: u32 = 10_000;
 }
 
 impl Config for Test {
