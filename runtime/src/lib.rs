@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
@@ -12,7 +13,6 @@ pub use dilithium_crypto::ResonancePublic;
 pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonanceSignatureScheme;
 
-extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
     generic, impl_opaque_keys,

@@ -86,8 +86,6 @@ pub mod pallet {
         },
         /// Rewards were sent to Treasury when no miner was specified
         TreasuryRewarded {
-            /// Block number
-            block: BlockNumberFor<T>,
             /// Total reward (base + fees)
             reward: BalanceOf<T>,
         },
@@ -117,13 +115,13 @@ pub mod pallet {
 
                 // Calculate fees for Treasury
                 let fees_to_treasury_percentage = T::FeesToTreasuryPermill::get();
-                let fees_for_treasury = fees_to_treasury_percentage * tx_fees;
+                let fees_for_treasury = fees_to_treasury_percentage.mul_floor(tx_fees);
 
                 // Get Treasury account
                 let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
 
                 // Send fees to Treasury if any
-                if fees_for_treasury > BalanceOf::<T>::from(0u32) {
+                if fees_for_treasury > Zero::zero() {
                     let treasury_imbalance = T::Currency::issue(fees_for_treasury);
                     T::Currency::resolve_creating(&treasury_account, treasury_imbalance);
                     Self::deposit_event(Event::FeesRedirectedToTreasury {
@@ -141,7 +139,7 @@ pub mod pallet {
                 let reward_for_miner = base_reward.saturating_add(tx_fees);
 
                 // Create imbalance for miner's reward
-                if reward_for_miner > BalanceOf::<T>::from(0u32) {
+                if reward_for_miner > Zero::zero() {
                     let miner_reward_imbalance = T::Currency::issue(reward_for_miner);
                     T::Currency::resolve_creating(&miner, miner_reward_imbalance);
 
@@ -180,7 +178,6 @@ pub mod pallet {
 
                     // Emit an event
                     Self::deposit_event(Event::TreasuryRewarded {
-                        block: block_number,
                         reward: total_reward_for_treasury,
                     });
 

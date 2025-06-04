@@ -1,5 +1,5 @@
 use frame_support::__private::sp_io;
-use frame_support::traits::{Currency, Hooks};
+use frame_support::traits::{Currency, OnFinalize, OnInitialize};
 use resonance_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
@@ -7,8 +7,6 @@ use sp_runtime::BuildStorage;
 pub struct TestCommons;
 
 impl TestCommons {
-    // Add #[allow(dead_code)] attribute to suppress warnings
-    #[allow(dead_code)]
     pub fn account_id(id: u8) -> AccountId32 {
         let mut bytes = [0u8; 32];
         bytes[0] = id;
@@ -16,7 +14,6 @@ impl TestCommons {
     }
 
     // Create a test externality
-    #[allow(dead_code)]
     pub fn new_test_ext() -> sp_io::TestExternalities {
         let t = frame_system::GenesisConfig::<Runtime>::default()
             .build_storage()
@@ -36,7 +33,6 @@ impl TestCommons {
     }
 
     // Helper function to run blocks
-    #[allow(dead_code)]
     pub fn run_to_block(n: u32) {
         while System::block_number() < n {
             let b = System::block_number();

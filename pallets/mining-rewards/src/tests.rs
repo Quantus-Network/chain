@@ -277,7 +277,6 @@ fn rewards_go_to_treasury_when_no_miner() {
         // Check that the event was emitted
         System::assert_has_event(
             Event::TreasuryRewarded {
-                block: 1,
                 reward: expected_reward,
             }
             .into(),
