@@ -2,9 +2,13 @@ use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSig
 
 use super::types::{ResonancePair, ResonancePublic};
 use sp_core::{
-    crypto::{DeriveError, DeriveJunction, SecretStringError}, ByteArray, Pair
+    crypto::{DeriveError, DeriveJunction, SecretStringError},
+    ByteArray, Pair,
 };
-use sp_runtime::{traits::{IdentifyAccount, Verify}, AccountId32};
+use sp_runtime::{
+    traits::{IdentifyAccount, Verify},
+    AccountId32,
+};
 use sp_std::vec::Vec;
 
 pub fn crystal_alice() -> ResonancePair {
@@ -23,10 +27,9 @@ pub fn crystal_charlie() -> ResonancePair {
 impl IdentifyAccount for ResonancePair {
     type AccountId = AccountId32;
     fn into_account(self) -> AccountId32 {
-       self.public().into_account()
+        self.public().into_account()
     }
 }
-
 
 impl Pair for ResonancePair {
     type Public = ResonancePublic;
@@ -43,7 +46,7 @@ impl Pair for ResonancePair {
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-        Ok(ResonancePair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)?)
+        ResonancePair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
     }
 
     #[cfg(any(feature = "default", feature = "full_crypto"))]
@@ -51,20 +54,25 @@ impl Pair for ResonancePair {
         // Create keypair struct
 
         use crate::types::ResonanceSignature;
-        let keypair = hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
+        let keypair =
+            hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
         let signature = keypair
             .sign(message, None, false)
             .expect("Signing should succeed");
 
-        let signature = ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
-        let sig_with_public = ResonanceSignatureWithPublic::new(signature, self.public());
+        let signature =
+            ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
 
-        sig_with_public
+        ResonanceSignatureWithPublic::new(signature, self.public())
     }
 
-    fn verify<M: AsRef<[u8]>>(sig: &ResonanceSignatureWithPublic, message: M, pubkey: &ResonancePublic) -> bool {
+    fn verify<M: AsRef<[u8]>>(
+        sig: &ResonanceSignatureWithPublic,
+        message: M,
+        pubkey: &ResonancePublic,
+    ) -> bool {
         let sig_scheme = ResonanceSignatureScheme::Resonance(sig.clone());
         let signer = ResonanceSigner::Resonance(pubkey.clone());
         sig_scheme.verify(message.as_ref(), &signer.into_account())
@@ -84,7 +92,6 @@ impl Pair for ResonancePair {
         Self::from_string_with_seed(s, password_override).map(|x| x.0)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -106,7 +113,7 @@ mod tests {
 
         let pair = ResonancePair::from_seed_slice(&seed).expect("Failed to create pair");
         let message: Vec<u8> = b"Hello, world!".to_vec();
-        
+
         log::info!("Signing message: {:?}", &message[..10]);
 
         let signature = pair.sign(&message);
@@ -120,7 +127,7 @@ mod tests {
         // let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
         // let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
         // assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
-        
+
         let public = pair.public();
 
         let result = ResonancePair::verify(&signature, message, &public);
@@ -134,10 +141,10 @@ mod tests {
         let pair = ResonancePair::from_seed(&seed).expect("Failed to create pair");
         let message = b"Hello, world!";
         let wrong_message = b"Goodbye, world!";
-        
+
         let signature = pair.sign(message);
         let public = pair.public();
-        
+
         assert!(
             !ResonancePair::verify(&signature, wrong_message, &public),
             "Signature should not verify with wrong message"
@@ -149,16 +156,17 @@ mod tests {
         let seed = [0u8; 32];
         let pair = ResonancePair::from_seed(&seed).expect("Failed to create pair");
         let message = b"Hello, world!";
-        
+
         let mut signature = pair.sign(message);
         let signature_bytes = signature.as_mut();
         // Corrupt the signature by flipping a bit
         if let Some(byte) = signature_bytes.get_mut(0) {
             *byte ^= 1;
         }
-        let false_signature = ResonanceSignatureWithPublic::from_slice(&signature_bytes).expect("Failed to create signature");
+        let false_signature = ResonanceSignatureWithPublic::from_slice(signature_bytes)
+            .expect("Failed to create signature");
         let public = pair.public();
-        
+
         assert!(
             !ResonancePair::verify(&false_signature, message, &public),
             "Corrupted signature should not verify"
@@ -171,11 +179,14 @@ mod tests {
         let seed2 = vec![1u8; 32];
         let pair1 = ResonancePair::from_seed(&seed1).expect("Failed to create pair");
         let pair2 = ResonancePair::from_seed(&seed2).expect("Failed to create pair");
-        
+
         let pub1 = pair1.public();
         let pub2 = pair2.public();
-        
-        assert_ne!(pub1.as_ref(), pub2.as_ref(), "Different seeds should produce different public keys");
+
+        assert_ne!(
+            pub1.as_ref(),
+            pub2.as_ref(),
+            "Different seeds should produce different public keys"
+        );
     }
 }
-

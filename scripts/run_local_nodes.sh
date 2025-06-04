@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # Kill any previous node processes
-pkill -f "resonance-node"
+pkill -f "quantus-node"
 
 # Clean up old chain data
 rm -rf /tmp/validator1 /tmp/validator2 /tmp/listener
@@ -11,7 +11,7 @@ rm -rf /tmp/validator1 /tmp/validator2 /tmp/listener
 # 1) Start Node1 (Alice)
 #    WebSocket on 127.0.0.1:9944
 # -----------------------------
-./target/release/resonance-node \
+./target/release/quantus-node \
   --base-path /tmp/validator1 \
   --dev \
   --port 30333 \
@@ -44,7 +44,7 @@ echo "Node1 Peer ID: $NODE1_PEER_ID"
 # 2) Start Node2 (Bob)
 #    WebSocket on 127.0.0.1:9945
 # -----------------------------
-./target/release/resonance-node \
+./target/release/quantus-node \
   --base-path /tmp/validator2 \
   --dev \
   --port 30334 \
@@ -60,7 +60,7 @@ echo "Node1 Peer ID: $NODE1_PEER_ID"
 # 3) Start Listener (non-mining node)
 #    WebSocket on 127.0.0.1:9946
 # -----------------------------
-./target/release/resonance-node \
+./target/release/quantus-node \
   --base-path /tmp/listener \
   --dev \
   --port 30335 \

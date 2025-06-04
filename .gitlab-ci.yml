@@ -30,14 +30,14 @@
     - |
       for ip in ${target_ips}; do
         ${ssh_command} resonance@${ip} '
-          if systemctl is-active --quiet resonance-node.service; then
-            if sudo systemctl stop resonance-node.service; then
-              echo "$(resonance-node --version | head -n 1) stopped on $(hostname -s)";
+          if systemctl is-active --quiet quantus-node.service; then
+            if sudo systemctl stop quantus-node.service; then
+              echo "$(quantus-node --version | head -n 1) stopped on $(hostname -s)";
             else
-              echo "failed to stop $(resonance-node --version | head -n 1) on $(hostname -s)";
+              echo "failed to stop $(quantus-node --version | head -n 1) on $(hostname -s)";
             fi;
           else
-            echo "inactive $(resonance-node --version | head -n 1) observed on $(hostname -s)";
+            echo "inactive $(quantus-node --version | head -n 1) observed on $(hostname -s)";
           fi;
           if systemctl is-active --quiet resonance-miner.service; then
             if sudo systemctl stop resonance-miner.service; then
@@ -80,14 +80,14 @@
             echo "resonance-miner started on $(hostname -s)";
           fi;
         ' || true
-        if rsync --archive --compress --rsync-path='sudo rsync' --rsh "${ssh_command}" ./resonance-node resonance@${ip}:/usr/local/bin/resonance-node; then
-          echo "$(./resonance-node --version | head -n 1) deployed to ${ip}"
+        if rsync --archive --compress --rsync-path='sudo rsync' --rsh "${ssh_command}" ./quantus-node resonance@${ip}:/usr/local/bin/quantus-node; then
+          echo "$(./quantus-node --version | head -n 1) deployed to ${ip}"
         else
-          echo "failed to deploy $(./resonance-node --version | head -n 1) to ${ip}"
+          echo "failed to deploy $(./quantus-node --version | head -n 1) to ${ip}"
         fi
         ${ssh_command} resonance@${ip} '
-          if sudo systemctl start resonance-node.service; then
-            echo "$(resonance-node --version | head -n 1) started on $(hostname -s)";
+          if sudo systemctl start quantus-node.service; then
+            echo "$(quantus-node --version | head -n 1) started on $(hostname -s)";
           fi;
         ' || true
       done
@@ -128,16 +128,16 @@ compile:
   after_script:
     - mv target/release/external-miner ./resonance-miner
     - sha256sum ./resonance-miner | cut -d ' ' -f 1 | tee ./resonance-miner.sha256
-    - mv target/release/resonance-node ./resonance-node
-    - sha256sum ./resonance-node | cut -d ' ' -f 1 | tee ./resonance-node.sha256
+    - mv target/release/quantus-node ./quantus-node
+    - sha256sum ./quantus-node | cut -d ' ' -f 1 | tee ./quantus-node.sha256
     - mv target/release/wbuild/resonance-runtime/resonance_runtime.compact.compressed.wasm ./resonance_runtime.compact.compressed.wasm
     - sha256sum ./resonance_runtime.compact.compressed.wasm | cut -d ' ' -f 1 | tee ./resonance_runtime.compact.compressed.wasm.sha256
   artifacts:
     paths:
       - resonance-miner
       - resonance-miner.sha256
-      - resonance-node
-      - resonance-node.sha256
+      - quantus-node
+      - quantus-node.sha256
       - resonance_runtime.compact.compressed.wasm
       - resonance_runtime.compact.compressed.wasm.sha256
 

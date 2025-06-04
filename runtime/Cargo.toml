@@ -28,6 +28,7 @@ frame-executive.workspace = true
 frame-metadata-hash-extension.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting = { workspace = true, default-features = false }
+pallet-ranked-collective = { workspace = true, default-features = false}
 pallet-preimage = { workspace = true, default-features = false }
 pallet-referenda = {workspace = true, default-features = false }
 pallet-scheduler = { workspace = true, default-features = false }
@@ -60,6 +61,7 @@ pallet-vesting = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false}
 sp-faucet = {workspace = true, default-features = false}
 log = { workspace = true }
+pallet-merkle-airdrop = { workspace = true, default-features = false }
 
 dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
 primitive-types = { default-features = false, workspace = true }
@@ -94,6 +96,7 @@ std = [
 	"pallet-faucet/std",
 	"pallet-mining-rewards/std",
 	"pallet-conviction-voting/std",
+	"pallet-ranked-collective/std",
 	"pallet-preimage/std",
 	"pallet-referenda/std",
 	"pallet-scheduler/std",
@@ -105,6 +108,7 @@ std = [
 	"pallet-vesting/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
+	"pallet-merkle-airdrop/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
@@ -137,6 +141,7 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
+	"pallet-ranked-collective/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-referenda/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
@@ -145,6 +150,7 @@ runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
+	"pallet-merkle-airdrop/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
 	"pallet-reversible-transfers/runtime-benchmarks",
 ]
@@ -161,6 +167,7 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-vesting/try-runtime",
 	"pallet-transaction-payment/try-runtime",
+	"pallet-ranked-collective/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

@@ -24,8 +24,11 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use crate::governance::{PreimageDeposit, TracksInfo};
-use frame_support::traits::ConstU64;
+use crate::governance::{
+    CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
+    RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+};
+use frame_support::traits::{ConstU64, NeverEnsureOrigin, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -37,17 +40,23 @@ use frame_support::{
 };
 use frame_system::limits::{BlockLength, BlockWeights};
 use frame_system::EnsureRoot;
+use pallet_ranked_collective::Linear;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use pallet_vesting::VestingPalletId;
 use poseidon_resonance::PoseidonHasher;
+use sp_runtime::traits::ConvertInto;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;
+
 // Local module imports
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
     Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+<<<<<<< HEAD
     RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, DAYS,
+=======
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Vesting, DAYS,
+>>>>>>> be3d3306aa3a05db5be57a2ea3900a808e0c06b7
     EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
@@ -64,6 +73,9 @@ parameter_types! {
     );
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 42;
+    pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
+    pub const MaxProofs: u32 = 100;
+    pub const UnsignedClaimPriority: u32 = 100;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -97,7 +109,7 @@ impl frame_system::Config for Runtime {
     type AccountData = pallet_balances::AccountData<Balance>;
     /// This is used as an identifier of the chain. 42 is the generic substrate prefix.
     type SS58Prefix = SS58Prefix;
-    type MaxConsumers = frame_support::traits::ConstU32<16>;
+    type MaxConsumers = ConstU32<16>;
 }
 
 parameter_types! {
@@ -123,12 +135,12 @@ impl pallet_mining_rewards::Config for Runtime {
 impl pallet_qpow::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_qpow::DefaultWeightInfo;
-    type InitialDifficulty = ConstU64<5500000000>; //Min + 5
-    type MinDifficulty = ConstU64<50000000000>;
-    type TargetBlockTime = ConstU64<1000>;
-    type AdjustmentPeriod = ConstU32<10>;
-    type DampeningFactor = ConstU64<8>;
-    type BlockTimeHistorySize = ConstU32<60>;
+    // NOTE: InitialDistance will be shifted left by this amount: higher is easier
+    type InitialDistanceThresholdExponent = ConstU32<502>;
+    type DifficultyAdjustPercentClamp = ConstU8<10>;
+    type TargetBlockTime = ConstU64<10000>;
+    type AdjustmentPeriod = ConstU32<1>;
+    type BlockTimeHistorySize = ConstU32<10>;
     type MaxReorgDepth = ConstU32<10>;
 }
 
@@ -171,7 +183,7 @@ parameter_types! {
     pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
     pub const MaxVotes: u32 = 512;
     pub const MaxTurnout: Balance = 60 * UNIT;
-    pub const MinimumDeposit: Balance = 1 * UNIT;
+    pub const MinimumDeposit: Balance = UNIT;
 }
 
 impl pallet_conviction_voting::Config for Runtime {
@@ -185,8 +197,8 @@ impl pallet_conviction_voting::Config for Runtime {
 }
 
 parameter_types! {
-    pub const PreimageBaseDeposit: Balance = 1 * UNIT;
-    pub const PreimageByteDeposit: Balance = 1 * MICRO_UNIT;
+    pub const PreimageBaseDeposit: Balance = UNIT;
+    pub const PreimageByteDeposit: Balance = MICRO_UNIT;
 }
 
 impl pallet_preimage::Config for Runtime {
@@ -197,7 +209,7 @@ impl pallet_preimage::Config for Runtime {
     type Consideration = PreimageDeposit;
 }
 
-impl_tracksinfo_get!(TracksInfo, Balance, BlockNumber);
+impl_tracksinfo_get!(CommunityTracksInfo, Balance, BlockNumber);
 
 parameter_types! {
     // Default voting period (28 days)
@@ -250,7 +262,89 @@ impl pallet_referenda::Config for Runtime {
     /// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
     type AlarmInterval = AlarmInterval;
     /// Defines the different referendum tracks (categories with distinct parameters).
-    type Tracks = TracksInfo;
+    type Tracks = CommunityTracksInfo;
+    /// The pallet used to store preimages (detailed proposal content) for referenda.
+    type Preimages = Preimage;
+}
+
+parameter_types! {
+    pub const MinRankOfClassDelta: u16 = 0;
+    pub const MaxMemberCount: u32 = 13;
+}
+impl pallet_ranked_collective::Config for Runtime {
+    type WeightInfo = pallet_ranked_collective::weights::SubstrateWeight<Runtime>;
+    type RuntimeEvent = RuntimeEvent;
+    type AddOrigin = RootOrMemberForCollectiveOrigin;
+    type RemoveOrigin = RootOrMemberForCollectiveOrigin;
+    type PromoteOrigin = NeverEnsureOrigin<u16>;
+    type DemoteOrigin = NeverEnsureOrigin<u16>;
+    type ExchangeOrigin = NeverEnsureOrigin<u16>;
+    type Polls = pallet_referenda::Pallet<Runtime, TechReferendaInstance>;
+    type MinRankOfClass = MinRankOfClassConverter<MinRankOfClassDelta>;
+    type MemberSwappedHandler = ();
+    type VoteWeight = Linear;
+    type MaxMemberCount = GlobalMaxMembers<MaxMemberCount>;
+
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkSetup = ();
+}
+
+parameter_types! {
+    // Default voting period (28 days)
+    pub const TechReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
+    // Minimum time before a successful referendum can be enacted (4 days)
+    pub const TechReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
+    // Maximum number of active referenda
+    pub const TechReferendumMaxProposals: u32 = 100;
+    // Submission deposit for referenda
+    pub const TechReferendumSubmissionDeposit: Balance = 100 * UNIT;
+    // Undeciding timeout (90 days)
+    pub const TechUndecidingTimeout: BlockNumber = 45 * DAYS;
+    pub const TechAlarmInterval: BlockNumber = 1;
+}
+
+pub type TechReferendaInstance = pallet_referenda::Instance1;
+
+impl_tracksinfo_get!(TechCollectiveTracksInfo, Balance, BlockNumber);
+
+impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
+    /// The type of call dispatched by referenda upon approval and execution.
+    type RuntimeCall = RuntimeCall;
+    /// The overarching event type for the runtime.
+    type RuntimeEvent = RuntimeEvent;
+    /// Provides weights for the pallet operations to properly charge transaction fees.
+    type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
+    /// The scheduler pallet used to delay execution of successful referenda.
+    type Scheduler = Scheduler;
+    /// The currency mechanism used for handling deposits and voting.
+    type Currency = Balances;
+    /// The origin allowed to submit referenda - in this case any signed account.
+    type SubmitOrigin = RootOrMemberForTechReferendaOrigin;
+    /// The privileged origin allowed to cancel an ongoing referendum - only root can do this.
+    type CancelOrigin = EnsureRoot<AccountId>;
+    /// The privileged origin allowed to kill a referendum that's not passing - only root can do this.
+    type KillOrigin = EnsureRoot<AccountId>;
+    /// Destination for slashed deposits when a referendum is cancelled or killed.
+    /// Leaving () here, will burn all slashed deposits. It's possible to use here the same idea
+    /// as we have for TransactionFees (OnUnbalanced) - with this it should be possible to
+    /// do something more sophisticated with this.
+    type Slash = (); // Will discard any slashed deposits
+    /// The voting mechanism used to collect votes and determine how they're counted.
+    /// Connected to the conviction voting pallet to allow conviction-weighted votes.
+    type Votes = pallet_ranked_collective::Votes;
+    /// The method to tally votes and determine referendum outcome.
+    /// Uses conviction voting's tally system with a maximum turnout threshold.
+    type Tally = pallet_ranked_collective::TallyOf<Runtime>;
+    /// The deposit required to submit a referendum proposal.
+    type SubmissionDeposit = ReferendumSubmissionDeposit;
+    /// Maximum number of referenda that can be in the deciding phase simultaneously.
+    type MaxQueued = ReferendumMaxProposals;
+    /// Time period after which an undecided referendum will be automatically rejected.
+    type UndecidingTimeout = UndecidingTimeout;
+    /// The frequency at which the pallet checks for expired or ready-to-timeout referenda.
+    type AlarmInterval = AlarmInterval;
+    /// Defines the different referendum tracks (categories with distinct parameters).
+    type Tracks = TechCollectiveTracksInfo;
     /// The pallet used to store preimages (detailed proposal content) for referenda.
     type Preimages = Preimage;
 }
@@ -301,11 +395,25 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+    pub const MinVestedTransfer: Balance = UNIT;
+    /// Unvested funds can be transferred and reserved for any other means (reserves overlap)
+    pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+    WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
 impl pallet_vesting::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type PalletId = VestingPalletId;
+    type Currency = Balances;
     type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+    type MinVestedTransfer = MinVestedTransfer;
+    type BlockNumberToBalance = ConvertInto;
+    type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+    type BlockNumberProvider = System;
+
+    const MAX_VESTING_SCHEDULES: u32 = 28;
 }
+
 impl pallet_utility::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeCall = RuntimeCall;
@@ -332,4 +440,16 @@ impl pallet_reversible_transfers::Config for Runtime {
     type Preimages = Preimage;
     type WeightInfo = pallet_reversible_transfers::weights::SubstrateWeight<Runtime>;
     type RuntimeHoldReason = RuntimeHoldReason;
+}
+
+impl pallet_merkle_airdrop::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type Vesting = Vesting;
+    type MaxProofs = MaxProofs;
+    type PalletId = MerkleAirdropPalletId;
+    type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
+    type UnsignedClaimPriority = UnsignedClaimPriority;
+    type BlockNumberProvider = System;
+    type BlockNumberToBalance = ConvertInto;
 }
