@@ -60,7 +60,7 @@ jobs:
       contents: read
       packages: write
     env:
-      GHCR_IMAGE_PATH: ghcr.io/${{ github.repository_owner }}/quantus-node-test
+      GHCR_IMAGE_PATH: ghcr.io/quantus-network/quantus-node-test
       TARGET_VERSION_WITH_V: ${{ needs.determine_version.outputs.version_with_v }}
 
     steps:
