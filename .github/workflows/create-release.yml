@@ -473,6 +473,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      DOCKER_IMAGE_BASE_NAME: quantus-node-test
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -499,12 +501,12 @@ jobs:
           build-args: |
             VERSION_ARG=${{ needs.calculate_next_version.outputs.new_version }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/quantus-node:${{ needs.calculate_next_version.outputs.new_version }}
-            ghcr.io/${{ github.repository_owner }}/quantus-node:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE_BASE_NAME }}:${{ needs.calculate_next_version.outputs.new_version }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE_BASE_NAME }}:latest
 
       - name: Test the built Docker image
         run: |
-          echo "Testing Docker image ghcr.io/${{ github.repository_owner }}/quantus-node:${{ needs.calculate_next_version.outputs.new_version }}"
+          echo "Testing Docker image ghcr.io/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE_BASE_NAME }}:${{ needs.calculate_next_version.outputs.new_version }}"
           # Example test: Run the image and ask for its version
-          docker run --rm ghcr.io/${{ github.repository_owner }}/quantus-node:${{ needs.calculate_next_version.outputs.new_version }} quantus-node --version
+          docker run --rm ghcr.io/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE_BASE_NAME }}:${{ needs.calculate_next_version.outputs.new_version }} ${{ env.DOCKER_IMAGE_BASE_NAME }} --version
           echo "Docker image test (version check) successful."
