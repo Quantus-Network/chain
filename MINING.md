@@ -2,36 +2,6 @@
 
 Get started mining on the Quantus Network testnet in minutes.
 
-## Quick Start
-
-### 1. Install Node Binary
-
-Download and run our installation script:
-
-```bash
-curl -sSL https://raw.githubusercontent.com/Quantus-Network/chain/main/scripts/install-quantus-node.sh | bash
-```
-
-This script will:
-- Download the latest Quantus node binary for your system
-- Create your node identity (P2P key)
-- Generate or import your rewards address
-- Set up the Quantus home directory (`~/.quantus`)
-
-### 2. Start Mining
-
-After installation, run the command provided by the installer:
-
-```bash
-quantus-node \
-  --node-key-file ~/.quantus/node_key.p2p \
-  --rewards-address ~/.quantus/rewards-address.txt \
-  --validator \
-  --chain live_resonance \
-```
-
-That's it! You're now mining on the Quantus Network.
-
 ## System Requirements
 
 ### Minimum Requirements
@@ -47,7 +17,7 @@ That's it! You're now mining on the Quantus Network.
 - **Storage**: 500GB+ SSD
 - **Network**: Broadband connection (10+ Mbps)
 
-## Advanced Setup
+## Setup
 
 ### Manual Installation
 
@@ -68,6 +38,142 @@ If you prefer manual installation or the script doesn't work for your system:
    ```
 
    Save the displayed address to `~/.quantus/rewards-address.txt`
+
+### Docker Installation
+
+For users who prefer containerized deployment or have only Docker installed:
+
+#### Quick Start with Docker
+
+Follow these steps to get your Docker-based validator node running:
+
+**Step 1: Prepare a Local Directory for Node Data**
+
+Create a dedicated directory on your host machine to store persistent node data, such as your P2P key and rewards address file.
+```bash
+mkdir -p ./quantus_node_data
+```
+This command creates a directory named `quantus_node_data` in your current working directory.
+
+**Step 2: Generate Your Node Identity (P2P Key)**
+
+Your node needs a unique P2P identity to connect to the network. Generate this key into your data directory:
+```bash
+# If on Apple Silicon, you may need to add --platform linux/amd64
+docker run --rm \
+  -v "$(pwd)/quantus_node_data":/var/lib/quantus_data_in_container \
+  quantus-node:v0.0.4 \
+  key generate-node-key --file /var/lib/quantus_data_in_container/node_key.p2p
+```
+Replace `quantus-node:v0.0.4` with your desired image (e.g., `ghcr.io/quantus-network/quantus-node:latest`).
+This command saves `node_key.p2p` into your local `./quantus_node_data` directory.
+
+**Step 3: Generate and Save Your Rewards Address**
+
+Run the following command to generate your unique rewards address:
+```bash
+# If on Apple Silicon, you may need to add --platform linux/amd64
+docker run --rm quantus-node:v0.0.4 key quantus
+```
+Replace `quantus-node:v0.0.4` with your desired image.
+This command will display your secret phrase, public key, address, and seed.
+**Important: Securely back up your secret phrase!**
+Next, **copy the displayed `Address`**. Create a file named `rewards-address.txt` inside your `./quantus_node_data` directory and paste the copied address into this file. For example:
+```bash
+echo "YOUR_COPIED_REWARDS_ADDRESS_HERE" > ./quantus_node_data/rewards-address.txt
+```
+Replace `YOUR_COPIED_REWARDS_ADDRESS_HERE` with the actual address.
+
+**Step 4: Run the Validator Node**
+
+Now, run the Docker container with all the necessary parameters:
+```bash
+# If on Apple Silicon, you may need to add --platform linux/amd64
+docker run -d \
+  --name quantus-node \
+  --restart unless-stopped \
+  -v "$(pwd)/quantus_node_data":/var/lib/quantus \
+  -p 30333:30333 \
+  -p 9944:9944 \
+  quantus-node:v0.0.4 \
+  --validator \
+  --base-path /var/lib/quantus \
+  --chain live_resonance \
+  --node-key-file /var/lib/quantus/node_key.p2p \
+  --rewards-address /var/lib/quantus/rewards-address.txt
+```
+Replace `quantus-node:v0.0.4` with your desired image.
+
+This command:
+- Mounts your local `./quantus_node_data` directory (containing `node_key.p2p` and `rewards-address.txt`) to `/var/lib/quantus` inside the container.
+- Explicitly points to the node key file and the rewards address file within the container.
+
+*Note for Apple Silicon (M1/M2/M3) users:* As mentioned above, if you are using an `amd64` based Docker image on an ARM-based Mac, you will likely need to add the `--platform linux/amd64` flag to your `docker run` commands.
+
+Your node should now be starting up! You can check its logs using `docker logs -f quantus-node`.
+
+#### Docker Management Commands
+
+**View logs**
+```bash
+docker logs -f quantus-node
+```
+
+**Stop node**
+```bash
+docker stop quantus-node
+```
+
+**Start node again**
+```bash
+docker start quantus-node
+```
+
+**Remove container**
+```bash
+docker stop quantus-node && docker rm quantus-node
+```
+
+#### Updating Your Docker Node
+
+When a new version is released:
+
+```bash
+# Stop and remove current container
+docker stop quantus-node && docker rm quantus-node
+
+# Pull latest image
+docker pull ghcr.io/quantus-network/quantus-node:latest
+
+# Start new container (data is preserved in ~/.quantus)
+./run-node.sh --mode validator --rewards YOUR_ADDRESS_HERE
+```
+
+#### Docker-Specific Configuration
+
+**Custom data directory**
+```bash
+./run-node.sh --data-dir /path/to/custom/data --name "my-node"
+```
+
+**Specific version**
+```bash
+docker run -d \
+  --name quantus-node \
+  --restart unless-stopped \
+  -p 30333:30333 \
+  -p 9944:9944 \
+  -v ~/.quantus:/var/lib/quantus \
+  ghcr.io/quantus-network/quantus-node:v0.0.4 \
+  --validator \
+  --base-path /var/lib/quantus \
+  --chain live_resonance \
+  --rewards-address YOUR_ADDRESS_HERE
+```
+
+**Docker system requirements**
+- Docker 20.10+ or compatible runtime
+- All other system requirements same as binary installation
 
 ## Configuration Options
 
