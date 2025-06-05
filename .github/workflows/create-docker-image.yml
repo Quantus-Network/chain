@@ -110,6 +110,7 @@ jobs:
             VERSION_ARG=${{ env.TARGET_VERSION_WITH_V }}
           tags: |
             ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}
+            ${{ env.GHCR_IMAGE_PATH }}:latest
 
       - name: Print completion message
         run: |
