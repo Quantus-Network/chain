@@ -30,6 +30,7 @@ pallet-scheduler = { workspace = true, default-features = false }
 pallet-timestamp = { workspace = true, default-features = false }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, default-features = false }
+qp-common = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]

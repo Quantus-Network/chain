@@ -286,7 +286,6 @@ pub fn run_to_block(n: u64) {
         Scheduler::on_finalize(System::block_number());
         System::set_block_number(System::block_number() + 1);
         Scheduler::on_initialize(System::block_number());
-        Scheduler::on_timestamp_set(n * MaxTimestampBucketSize::get());
     }
 }
 

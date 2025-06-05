@@ -6,6 +6,7 @@ use frame_support::traits::fungible::InspectHold;
 use frame_support::traits::StorePreimage;
 use frame_support::{assert_err, assert_ok};
 use pallet_scheduler::Agenda;
+use qp_common::scheduler::BlockNumberOrTimestamp;
 use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
 
@@ -205,10 +206,9 @@ fn schedule_transfer_works() {
         let ReversibleAccountData {
             delay: user_delay, ..
         } = ReversibleTransfers::is_reversible(&user).unwrap();
-        let expected_block = BlockNumberOrTimestamp::BlockNumber(
-            System::block_number() + user_delay.as_block_number().unwrap(),
-        );
+        let expected_block = System::block_number() + user_delay.as_block_number().unwrap();
         let bounded = Preimage::bound(call.clone()).unwrap();
+        let expected_block = BlockNumberOrTimestamp::BlockNumber(expected_block);
 
         assert!(Agenda::<Test>::get(expected_block).len() == 0);
 

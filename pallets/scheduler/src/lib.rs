@@ -639,9 +639,9 @@ impl<T: Config> Pallet<T> {
             DispatchTime::After(x) => {
                 // get the median block time
                 let res = match x {
-                    BlockNumberOrTimestamp::BlockNumber(x) => {
-                        BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()))
-                    }
+                    BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
+                        current_block.saturating_add(x).saturating_add(One::one()),
+                    ),
                     BlockNumberOrTimestamp::Timestamp(x) => {
                         // Simply strip and round to the nearest bucket.
                         let x = x
