@@ -5,6 +5,7 @@ use frame_support::{
     PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
+use qp_common::scheduler::BlockNumberOrTimestamp;
 use sp_core::{ConstU128, ConstU32, ConstU64};
 use sp_runtime::{BuildStorage, Perbill, Weight};
 
@@ -76,9 +77,8 @@ impl Time for MockTimeProvider {
 
 parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
-    pub const BlockHashCount: u32 = 250;
-    pub const DefaultDelay: u64 = 10;
-    pub const MinDelayPeriod: u64 = 2;
+    pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(10);
+    pub const MinDelayPeriod: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(2);
     pub const MaxReversibleTransfers: u32 = 100;
 }
 
@@ -94,6 +94,8 @@ impl pallet_reversible_transfers::Config for Test {
     type PalletId = ReversibleTransfersPalletIdValue;
     type Preimages = Preimage;
     type WeightInfo = ();
+    type Moment = u64;
+    type TimeProvider = MockTimeProvider;
 }
 
 impl pallet_preimage::Config for Test {

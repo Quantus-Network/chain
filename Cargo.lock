@@ -6800,8 +6800,8 @@ dependencies = [
  "pallet-scheduler",
  "pallet-timestamp",
  "parity-scale-codec",
+ "qp-common",
  "scale-info",
- "sp-common",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -6818,8 +6818,8 @@ dependencies = [
  "log",
  "pallet-preimage",
  "parity-scale-codec",
+ "qp-common",
  "scale-info",
- "sp-common",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -8099,6 +8099,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-common"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+]
+
+[[package]]
 name = "qpow-math"
 version = "0.1.0"
 dependencies = [
@@ -8749,6 +8759,7 @@ dependencies = [
  "parity-scale-codec",
  "poseidon-resonance",
  "primitive-types 0.13.1",
+ "qp-common",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -11030,16 +11041,6 @@ dependencies = [
  "sp-state-machine",
  "thiserror 1.0.69",
  "tracing",
-]
-
-[[package]]
-name = "sp-common"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
 ]
 
 [[package]]
