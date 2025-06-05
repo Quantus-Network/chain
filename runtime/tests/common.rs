@@ -48,8 +48,4 @@ impl TestCommons {
             resonance_runtime::Scheduler::on_initialize(b + 1);
         }
     }
-
-    pub fn print_balances() {
-        println!("Balances: OK");
-    }
 }

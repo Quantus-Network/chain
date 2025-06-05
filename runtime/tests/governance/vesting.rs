@@ -552,8 +552,6 @@ mod tests {
             // Verify the integration worked
             let locked_amount = Vesting::vesting_balance(&beneficiary).unwrap_or(0);
             assert!(locked_amount > 0, "Vesting should be active");
-
-            TestCommons::print_balances();
         });
     }
 
@@ -639,8 +637,6 @@ mod tests {
                 balance_after >= balance_before_cancellation,
                 "Emergency handling should maintain or improve user's position"
             );
-
-            TestCommons::print_balances();
         });
     }
 }
