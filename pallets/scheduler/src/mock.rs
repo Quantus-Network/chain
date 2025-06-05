@@ -20,6 +20,7 @@
 use super::*;
 
 use crate as scheduler;
+use core::cell::RefCell;
 use frame_support::{
     derive_impl, ord_parameter_types, parameter_types,
     traits::{ConstU32, Contains, EitherOfDiverse, EqualPrivilegeOnly, OnFinalize, OnInitialize},
@@ -217,7 +218,41 @@ parameter_types! {
 }
 
 parameter_types! {
-    pub const MaxTimestampBucketSize: u32 = 10_000;
+    pub const MaxTimestampBucketSize: u64 = 10_000;
+}
+
+pub type Moment = u64;
+
+// In memory storage
+thread_local! {
+    static MOCKED_TIME: RefCell<Moment> = RefCell::new(0);
+}
+
+/// A mock `TimeProvider` that allows setting the current time for tests.
+pub struct MockTimestamp;
+
+impl MockTimestamp {
+    /// Sets the current time for the `MockTimestamp` provider.
+    pub fn set_timestamp(now: Moment) {
+        MOCKED_TIME.with(|v| {
+            *v.borrow_mut() = now;
+        });
+    }
+
+    /// Resets the timestamp to a default value (e.g., 0 or a specific starting time).
+    /// Good to call at the beginning of tests or `execute_with` blocks if needed.
+    pub fn reset_timestamp() {
+        MOCKED_TIME.with(|v| {
+            *v.borrow_mut() = 0; // Or any default you prefer
+        });
+    }
+}
+
+impl Time for MockTimestamp {
+    type Moment = Moment;
+    fn now() -> Self::Moment {
+        MOCKED_TIME.with(|v| *v.borrow())
+    }
 }
 
 impl Config for Test {
@@ -231,8 +266,8 @@ impl Config for Test {
     type WeightInfo = TestWeightInfo;
     type OriginPrivilegeCmp = EqualPrivilegeOnly;
     type Preimages = Preimage;
-    type Moment = u32;
-    type TimeProvider = Timestamp;
+    type Moment = Moment;
+    type TimeProvider = MockTimestamp;
     type TimestampBucketSize = MaxTimestampBucketSize;
 }
 
