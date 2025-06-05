@@ -113,4 +113,13 @@ jobs:
 
       - name: Print completion message
         run: |
-          echo "Successfully built and pushed ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}" 
+          echo "Successfully built and pushed ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}"
+
+      - name: Make image public
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PATCH \
+            /orgs/${{ github.repository_owner }}/packages/container/quantus-node-test \
+            -f visibility=public
