@@ -11,6 +11,10 @@ struct Args {
     /// Port number to listen on
     #[arg(short, long, env = "MINER_PORT", default_value_t = 9833)]
     port: u16,
+    
+    /// Number of CPU cores to use for mining
+    #[arg(short, long, env = "MINER_CORES", default_value_t = 1)]
+    cores: usize,
 }
 
 #[tokio::main]
@@ -23,7 +27,7 @@ async fn main() {
     let state = MiningState::new();
 
     // --- Start the mining loop ---
-    state.start_mining_loop().await;
+    state.start_mining_loop(args.cores).await;
 
     // --- Set up Warp filters ---
     let state_clone = state.clone(); // Clone state for the filter closure

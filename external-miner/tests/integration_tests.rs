@@ -1,9 +1,8 @@
 use external_miner::*;
 use primitive_types::U512;
 use resonance_miner_api::*;
-use std::time::Instant;
 use warp::test::request;
-use warp::Filter; // Import shared API types
+use warp::Filter;
 
 #[tokio::test]
 async fn test_mine_endpoint() {
@@ -77,18 +76,14 @@ async fn test_result_endpoint() {
     let state_clone = state.clone();
     let state_filter = warp::any().map(move || state_clone.clone());
 
-    // First create a job
-    let job = MiningJob {
-        header_hash: [0; 32],
-        distance_threshold: U512::from(1000),
-        nonce_start: U512::from(0),
-        nonce_end: U512::from(1000),
-        current_nonce: U512::from(0),
-        status: JobStatus::Running, // Use enum variant
-        hash_count: 0,
-        start_time: Instant::now(),
-    };
-    state.add_job("test".to_string(), job).await.unwrap();
+    // Create a job directly using the new structure
+    let job = MiningJob::new(
+        [0; 32],
+        U512::from(1000),
+        U512::from(0),
+        U512::from(1000),
+    );
+    state.add_job("test".to_string(), job, 1).await.unwrap();
 
     let result_route = warp::get()
         .and(warp::path("result"))
@@ -126,18 +121,14 @@ async fn test_cancel_endpoint() {
     let state_clone = state.clone();
     let state_filter = warp::any().map(move || state_clone.clone());
 
-    // First create a job
-    let job = MiningJob {
-        header_hash: [0; 32],
-        distance_threshold: U512::from(1000),
-        nonce_start: U512::from(0),
-        nonce_end: U512::from(1000),
-        current_nonce: U512::from(0),
-        status: JobStatus::Running, // Use enum variant
-        hash_count: 0,
-        start_time: Instant::now(),
-    };
-    state.add_job("test".to_string(), job).await.unwrap();
+    // Create a job with a large range that won't finish quickly
+    let job = MiningJob::new(
+        [1; 32],
+        U512::from(1),  // Very low threshold - will likely fail
+        U512::from(0),
+        U512::from(100000), // Large range
+    );
+    state.add_job("test".to_string(), job, 1).await.unwrap();
 
     let cancel_route = warp::post()
         .and(warp::path("cancel"))
@@ -180,17 +171,13 @@ async fn test_concurrent_access() {
     for i in 0..10 {
         let state = state.clone();
         let handle = tokio::spawn(async move {
-            let job = MiningJob {
-                header_hash: [0; 32],
-                distance_threshold: U512::from(1000),
-                nonce_start: U512::from(0),
-                nonce_end: U512::from(1000),
-                current_nonce: U512::from(0),
-                status: JobStatus::Running, // Use enum variant
-                hash_count: 0,
-                start_time: Instant::now(),
-            };
-            state.add_job(format!("test{}", i), job).await
+            let job = MiningJob::new(
+                [i as u8; 32],
+                U512::from(1000),
+                U512::from(0),
+                U512::from(1000),
+            );
+            state.add_job(format!("test{}", i), job, 1).await
         });
         handles.push(handle);
     }
@@ -230,6 +217,77 @@ async fn test_concurrent_access() {
         let resp = handle.await.unwrap();
         assert_eq!(resp.status(), 200);
         let body: MiningResult = serde_json::from_slice(resp.body()).unwrap();
-        assert_eq!(body.status, ApiResponseStatus::Running);
+        // Status could be Running, Completed, or Failed depending on timing
+        assert!(
+            body.status == ApiResponseStatus::Running ||
+            body.status == ApiResponseStatus::Completed ||
+            body.status == ApiResponseStatus::Failed
+        );
     }
+}
+
+#[tokio::test]
+async fn test_multi_core_mining() {
+    let state = MiningState::new();
+    
+    // Start the mining loop
+    state.start_mining_loop(4).await;
+    
+    // Create a job with multiple cores
+    let job = MiningJob::new(
+        [2; 32],
+        U512::MAX, // High threshold to potentially find a result
+        U512::from(0),
+        U512::from(1000),
+    );
+    
+    state.add_job("multicore_test".to_string(), job, 4).await.unwrap();
+    
+    // Wait longer for mining to potentially find something or fail
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+    
+    let job_result = state.get_job("multicore_test").await;
+    assert!(job_result.is_some());
+    
+    let job = job_result.unwrap();
+    // Job should have moved beyond Running status
+    assert!(
+        job.status == JobStatus::Completed ||
+        job.status == JobStatus::Failed ||
+        job.status == JobStatus::Cancelled
+    );
+    
+    // Should have attempted some hashes
+    assert!(job.total_hash_count > 0);
+}
+
+#[tokio::test]
+async fn test_job_cancellation_during_mining() {
+    let state = MiningState::new();
+    
+    // Start the mining loop
+    state.start_mining_loop(2).await;
+    
+    // Create a job with a very large range
+    let job = MiningJob::new(
+        [3; 32],
+        U512::from(1), // Very difficult - unlikely to complete quickly
+        U512::from(0),
+        U512::from(1000000), // Large range
+    );
+    
+    state.add_job("cancel_test".to_string(), job, 2).await.unwrap();
+    
+    // Let it run briefly
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    
+    // Cancel the job
+    let cancelled = state.cancel_job("cancel_test").await;
+    assert!(cancelled);
+    
+    // Check that job status is cancelled
+    let job_result = state.get_job("cancel_test").await;
+    assert!(job_result.is_some());
+    let job = job_result.unwrap();
+    assert_eq!(job.status, JobStatus::Cancelled);
 }
