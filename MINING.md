@@ -55,6 +55,13 @@ mkdir -p ./quantus_node_data
 ```
 This command creates a directory named `quantus_node_data` in your current working directory.
 
+**Optional Linux**  
+On linux you may need to make sure this directory has generous permissions so Docker can access it
+
+```bash
+chmod 755 quantus_node_data
+```
+
 **Step 2: Generate Your Node Identity (P2P Key)**
 
 Your node needs a unique P2P identity to connect to the network. Generate this key into your data directory:
