@@ -49,6 +49,7 @@ pallet-ranked-collective = { version = "39.0.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-referenda = { version = "39.1.0", default-features = false }
 pallet-scheduler = { path="./pallets/scheduler", default-features = false }
+pallet-treasury = { version = "38.1.0", default-features = false}
 pallet-utility = { version = "39.1.0", default-features = false }
 parking_lot = { version = "0.12.1", default-features = false }
 pallet-vesting = { version = "39.1.0", default-features = false }

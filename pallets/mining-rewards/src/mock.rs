@@ -2,13 +2,13 @@ use crate as pallet_mining_rewards;
 use codec::Encode;
 use frame_support::__private::sp_io;
 use frame_support::traits::{Everything, Hooks};
-use frame_support::{parameter_types, traits::ConstU32};
+use frame_support::{parameter_types, traits::ConstU32, PalletId};
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::app_crypto::sp_core;
 use sp_runtime::testing::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
-    BuildStorage, Digest, DigestItem,
+    BuildStorage, Digest, DigestItem, Permill,
 };
 
 // Configure a mock runtime to test the pallet
@@ -25,9 +25,11 @@ pub type Block = frame_system::mocking::MockBlock<Test>;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
-    pub const BlockReward: Balance = 50;
-    pub const ExistentialDeposit: Balance = 1;
     pub const SS58Prefix: u8 = 42;
+    pub const BlockReward: u128 = 50;
+    pub const ExistentialDeposit: Balance = 1;
+    pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+    pub FeesToTreasuryPermill: Permill = Permill::from_percent(10);
 }
 
 impl frame_system::Config for Test {
@@ -85,6 +87,8 @@ impl pallet_mining_rewards::Config for Test {
     type WeightInfo = ();
     type Currency = Balances;
     type BlockReward = BlockReward;
+    type TreasuryPalletId = TreasuryPalletId;
+    type FeesToTreasuryPermill = FeesToTreasuryPermill;
 }
 
 // Configure a default miner account for tests
