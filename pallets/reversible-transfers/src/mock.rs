@@ -1,11 +1,11 @@
 use crate as pallet_reversible_transfers;
 use frame_support::{
     derive_impl, ord_parameter_types, parameter_types,
-    traits::{EitherOfDiverse, EqualPrivilegeOnly},
+    traits::{EitherOfDiverse, EqualPrivilegeOnly, Time},
     PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
-use sp_core::{ConstU128, ConstU32};
+use sp_core::{ConstU128, ConstU32, ConstU64};
 use sp_runtime::{BuildStorage, Perbill, Weight};
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -64,6 +64,16 @@ impl pallet_balances::Config for Test {
     type MaxFreezes = MaxReversibleTransfers;
 }
 
+pub struct MockTimeProvider;
+
+impl Time for MockTimeProvider {
+    type Moment = u64;
+
+    fn now() -> Self::Moment {
+        69420 // Mocked time value
+    }
+}
+
 parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
     pub const BlockHashCount: u32 = 250;
@@ -113,6 +123,9 @@ impl pallet_scheduler::Config for Test {
     type MaxScheduledPerBlock = ConstU32<10>;
     type WeightInfo = ();
     type Preimages = Preimage;
+    type Moment = u64;
+    type TimeProvider = MockTimeProvider;
+    type TimestampBucketSize = ConstU64<1000>;
 }
 
 // Build genesis storage according to the mock runtime.

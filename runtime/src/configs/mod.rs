@@ -54,7 +54,7 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
     Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Vesting, DAYS,
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
     EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
@@ -156,7 +156,7 @@ parameter_types! {
 impl pallet_timestamp::Config for Runtime {
     /// A timestamp: milliseconds since the unix epoch.
     type Moment = u64;
-    type OnTimestampSet = ();
+    type OnTimestampSet = Scheduler;
     type MinimumPeriod = MinimumPeriod;
     type WeightInfo = ();
 }
@@ -370,6 +370,9 @@ impl pallet_scheduler::Config for Runtime {
     type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
     type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
     type Preimages = Preimage;
+    type TimeProvider = Timestamp;
+    type Moment = u64;
+    type TimestampBucketSize = ConstU64<2000>; // 2 second
 }
 
 parameter_types! {

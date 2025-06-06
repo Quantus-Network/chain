@@ -24,11 +24,9 @@ use crate::mock::{
 };
 use frame_support::{
     assert_err, assert_noop, assert_ok,
-    traits::{Contains, GetStorageVersion, OnInitialize, QueryPreimage, StorePreimage},
-    Hashable,
+    traits::{Contains, OnInitialize, QueryPreimage, StorePreimage},
 };
 use sp_runtime::traits::Hash;
-use substrate_test_utils::assert_eq_uvec;
 
 #[test]
 #[docify::export]
@@ -130,7 +128,7 @@ fn schedule_after_works() {
         ));
         // This will schedule the call 3 blocks after the next block... so block 3 + 3 = 6
         assert_ok!(Scheduler::do_schedule(
-            DispatchTime::After(3),
+            DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(3)),
             None,
             127,
             root(),
@@ -157,7 +155,7 @@ fn schedule_after_zero_works() {
             &call
         ));
         assert_ok!(Scheduler::do_schedule(
-            DispatchTime::After(0),
+            DispatchTime::After(BlockNumberOrTimestamp::BlockNumber(0)),
             None,
             127,
             root(),
@@ -177,7 +175,7 @@ fn periodic_scheduling_works() {
         // at #4, every 3 blocks, 3 times.
         assert_ok!(Scheduler::do_schedule(
             DispatchTime::At(4),
-            Some((3, 3)),
+            Some((BlockNumberOrTimestamp::BlockNumber(3), 3)),
             127,
             root(),
             Preimage::bound(RuntimeCall::Logger(logger::Call::log {
@@ -226,28 +224,33 @@ fn retry_scheduling_works() {
             }))
             .unwrap()
         ));
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // retry 10 times every 3 blocks
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 3));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(3)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // task should be retried in block 7
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert!(logger::log().is_empty());
         run_to_block(6);
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert!(logger::log().is_empty());
         // task still fails, should be retried in block 10
         run_to_block(7);
-        assert!(Agenda::<Test>::get(7).is_empty());
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert!(logger::log().is_empty());
         run_to_block(8);
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert!(logger::log().is_empty());
         run_to_block(9);
         assert!(logger::log().is_empty());
@@ -285,30 +288,35 @@ fn named_retry_scheduling_works() {
                 Preimage::bound(call).unwrap(),
             )
             .unwrap(),
-            (4, 0)
+            (BlockNumberOrTimestamp::BlockNumber(4), 0)
         );
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // retry 10 times every 3 blocks
-        assert_ok!(Scheduler::set_retry_named(root().into(), [1u8; 32], 10, 3));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [1u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(3)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // task should be retried in block 7
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert!(logger::log().is_empty());
         run_to_block(6);
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert!(logger::log().is_empty());
         // task still fails, should be retried in block 10
         run_to_block(7);
-        assert!(Agenda::<Test>::get(7).is_empty());
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert!(logger::log().is_empty());
         run_to_block(8);
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert!(logger::log().is_empty());
         run_to_block(9);
         assert!(logger::log().is_empty());
@@ -356,46 +364,83 @@ fn retry_scheduling_multiple_tasks_works() {
             .unwrap()
         ));
 
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // task 20 will be retried 3 times every block
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 3, 1));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            3,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         // task 42 will be retried 10 times every 3 blocks
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 1), 10, 3));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 1),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(3)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 2);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // both tasks fail
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
         // 20 is rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(5).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5)).len(),
+            1
+        );
         // 42 is rescheduled for block 7
-        assert_eq!(Agenda::<Test>::get(7).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            1
+        );
         assert!(logger::log().is_empty());
         // 20 still fails
         run_to_block(5);
         // 20 rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(6).len(), 1);
-        assert_eq!(Agenda::<Test>::get(7).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(6)).len(),
+            1
+        );
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            1
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert!(logger::log().is_empty());
         // 20 still fails
         run_to_block(6);
         // rescheduled for next block together with 42
-        assert_eq!(Agenda::<Test>::get(7).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert!(logger::log().is_empty());
         // both tasks will fail, for 20 it was the last retry so it's dropped
         run_to_block(7);
-        assert!(Agenda::<Test>::get(7).is_empty());
-        assert!(Agenda::<Test>::get(8).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8)).is_empty());
         // 42 is rescheduled for block 10
-        assert_eq!(Agenda::<Test>::get(10).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10)).len(),
+            1
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert!(logger::log().is_empty());
         run_to_block(8);
-        assert_eq!(Agenda::<Test>::get(10).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10)).len(),
+            1
+        );
         assert!(logger::log().is_empty());
         run_to_block(9);
         assert!(logger::log().is_empty());
@@ -445,46 +490,83 @@ fn retry_scheduling_multiple_named_tasks_works() {
             .unwrap()
         ));
 
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // task 20 will be retried 3 times every block
-        assert_ok!(Scheduler::set_retry_named(root().into(), [20u8; 32], 3, 1));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [20u8; 32],
+            3,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         // task 42 will be retried 10 times every 3 block
-        assert_ok!(Scheduler::set_retry_named(root().into(), [42u8; 32], 10, 3));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [42u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(3)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 2);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // both tasks fail
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
         // 42 is rescheduled for block 7
-        assert_eq!(Agenda::<Test>::get(7).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            1
+        );
         // 20 is rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(5).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5)).len(),
+            1
+        );
         assert!(logger::log().is_empty());
         // 20 still fails
         run_to_block(5);
         // 20 rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(6).len(), 1);
-        assert_eq!(Agenda::<Test>::get(7).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(6)).len(),
+            1
+        );
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            1
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert!(logger::log().is_empty());
         // 20 still fails
         run_to_block(6);
         // 20 rescheduled for next block together with 42
-        assert_eq!(Agenda::<Test>::get(7).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert!(logger::log().is_empty());
         // both tasks will fail, for 20 it was the last retry so it's dropped
         run_to_block(7);
-        assert!(Agenda::<Test>::get(7).is_empty());
-        assert!(Agenda::<Test>::get(8).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8)).is_empty());
         // 42 is rescheduled for block 10
-        assert_eq!(Agenda::<Test>::get(10).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10)).len(),
+            1
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert!(logger::log().is_empty());
         run_to_block(8);
-        assert_eq!(Agenda::<Test>::get(10).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10)).len(),
+            1
+        );
         assert!(logger::log().is_empty());
         run_to_block(9);
         assert!(logger::log().is_empty());
@@ -510,7 +592,7 @@ fn retry_scheduling_with_period_works() {
         // task 42 at #4, every 3 blocks, 6 times
         assert_ok!(Scheduler::do_schedule(
             DispatchTime::At(4),
-            Some((3, 6)),
+            Some((BlockNumberOrTimestamp::BlockNumber(3), 6)),
             127,
             root(),
             Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
@@ -520,103 +602,166 @@ fn retry_scheduling_with_period_works() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // 42 will be retried 10 times every 2 blocks
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 2));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(2)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // 42 runs successfully once, it will run again at block 7
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // nothing changed
         run_to_block(6);
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // 42 runs successfully again, it will run again at block 10
         run_to_block(7);
-        assert!(Agenda::<Test>::get(7).is_empty());
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         run_to_block(9);
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // 42 has 10 retries left out of a total of 10
-        assert_eq!(Retries::<Test>::get((10, 0)).unwrap().remaining, 10);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(10), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         // 42 will fail because we're outside the set threshold (block number in `4..8`), so it
         // should be retried in 2 blocks (at block 12)
         run_to_block(10);
         // should be queued for the normal period of 3 blocks
-        assert!(Agenda::<Test>::get(13)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(13))[0].is_some());
         // should also be queued to be retried in 2 blocks
-        assert!(Agenda::<Test>::get(12)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(12))[0].is_some());
         // 42 has consumed one retry attempt
-        assert_eq!(Retries::<Test>::get((12, 0)).unwrap().remaining, 9);
-        assert_eq!(Retries::<Test>::get((13, 0)).unwrap().remaining, 10);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(12), 0))
+                .unwrap()
+                .remaining,
+            9
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(13), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // 42 will fail again
         run_to_block(12);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(13)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(13))[0].is_some());
         // should be queued to be retried in 2 blocks
-        assert!(Agenda::<Test>::get(14)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(14))[0].is_some());
         // 42 has consumed another retry attempt
-        assert_eq!(Retries::<Test>::get((14, 0)).unwrap().remaining, 8);
-        assert_eq!(Retries::<Test>::get((13, 0)).unwrap().remaining, 10);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(14), 0))
+                .unwrap()
+                .remaining,
+            8
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(13), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // 42 will fail for the regular periodic run
         run_to_block(13);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(16)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0].is_some());
         // should still be queued to be retried next block
-        assert!(Agenda::<Test>::get(14)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(14))[0].is_some());
         // 42 consumed another periodic run, which failed, so another retry is queued for block 15
-        assert!(Agenda::<Test>::get(16)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_some());
-        assert!(Agenda::<Test>::get(15)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_none());
-        assert!(Agenda::<Test>::get(14)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_none());
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_some()
+        );
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(15))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_none()
+        );
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(14))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_none()
+        );
         assert_eq!(Retries::<Test>::iter().count(), 3);
-        assert!(Retries::<Test>::get((14, 0)).unwrap().remaining == 8);
-        assert!(Retries::<Test>::get((15, 0)).unwrap().remaining == 9);
-        assert!(Retries::<Test>::get((16, 0)).unwrap().remaining == 10);
+        assert!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(14), 0))
+                .unwrap()
+                .remaining
+                == 8
+        );
+        assert!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(15), 0))
+                .unwrap()
+                .remaining
+                == 9
+        );
+        assert!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(16), 0))
+                .unwrap()
+                .remaining
+                == 10
+        );
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // change the threshold to allow the task to succeed
         Threshold::<Test>::put((14, 100));
         // first retry should now succeed
         run_to_block(14);
-        assert!(Agenda::<Test>::get(15)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_none());
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(15))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_none()
+        );
         assert_eq!(
-            Agenda::<Test>::get(16)
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))
                 .iter()
                 .filter(|entry| entry.is_some())
                 .count(),
             1
         );
-        assert!(Agenda::<Test>::get(16)[0].is_some());
-        assert_eq!(Retries::<Test>::get((15, 0)).unwrap().remaining, 9);
-        assert_eq!(Retries::<Test>::get((16, 0)).unwrap().remaining, 10);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0].is_some());
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(15), 0))
+                .unwrap()
+                .remaining,
+            9
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(16), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(
             logger::log(),
@@ -625,15 +770,20 @@ fn retry_scheduling_with_period_works() {
         // second retry should also succeed
         run_to_block(15);
         assert_eq!(
-            Agenda::<Test>::get(16)
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))
                 .iter()
                 .filter(|entry| entry.is_some())
                 .count(),
             1
         );
-        assert!(Agenda::<Test>::get(16)[0].is_some());
-        assert!(Agenda::<Test>::get(17).is_empty());
-        assert_eq!(Retries::<Test>::get((16, 0)).unwrap().remaining, 10);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(17)).is_empty());
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(16), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(
             logger::log(),
@@ -647,10 +797,15 @@ fn retry_scheduling_with_period_works() {
         // normal periodic run on block 16 will succeed
         run_to_block(16);
         // next periodic run at block 19
-        assert!(Agenda::<Test>::get(19)[0].is_some());
-        assert!(Agenda::<Test>::get(18).is_empty());
-        assert!(Agenda::<Test>::get(17).is_empty());
-        assert_eq!(Retries::<Test>::get((19, 0)).unwrap().remaining, 10);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(19))[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(18)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(17)).is_empty());
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(19), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(
             logger::log(),
@@ -690,7 +845,7 @@ fn named_retry_scheduling_with_period_works() {
         assert_ok!(Scheduler::do_schedule_named(
             [42u8; 32],
             DispatchTime::At(4),
-            Some((3, 6)),
+            Some((BlockNumberOrTimestamp::BlockNumber(3), 6)),
             127,
             root(),
             Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
@@ -700,105 +855,174 @@ fn named_retry_scheduling_with_period_works() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // 42 will be retried 10 times every 2 blocks
-        assert_ok!(Scheduler::set_retry_named(root().into(), [42u8; 32], 10, 2));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [42u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(2)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // 42 runs successfully once, it will run again at block 7
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // nothing changed
         run_to_block(6);
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // 42 runs successfully again, it will run again at block 10
         run_to_block(7);
-        assert!(Agenda::<Test>::get(7).is_empty());
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         run_to_block(9);
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // 42 has 10 retries left out of a total of 10
-        assert_eq!(Retries::<Test>::get((10, 0)).unwrap().remaining, 10);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(10), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         // 42 will fail because we're outside the set threshold (block number in `4..8`), so it
         // should be retried in 2 blocks (at block 12)
         run_to_block(10);
         // should be queued for the normal period of 3 blocks
-        assert!(Agenda::<Test>::get(13)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(13))[0].is_some());
         // should also be queued to be retried in 2 blocks
-        assert!(Agenda::<Test>::get(12)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(12))[0].is_some());
         // 42 has consumed one retry attempt
-        assert_eq!(Retries::<Test>::get((12, 0)).unwrap().remaining, 9);
-        assert_eq!(Retries::<Test>::get((13, 0)).unwrap().remaining, 10);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(12), 0))
+                .unwrap()
+                .remaining,
+            9
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(13), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
-        assert_eq!(Lookup::<Test>::get([42u8; 32]).unwrap(), (13, 0));
+        assert_eq!(
+            Lookup::<Test>::get([42u8; 32]).unwrap(),
+            (BlockNumberOrTimestamp::BlockNumber(13), 0)
+        );
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // 42 will fail again
         run_to_block(12);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(13)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(13))[0].is_some());
         // should be queued to be retried in 2 blocks
-        assert!(Agenda::<Test>::get(14)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(14))[0].is_some());
         // 42 has consumed another retry attempt
-        assert_eq!(Retries::<Test>::get((14, 0)).unwrap().remaining, 8);
-        assert_eq!(Retries::<Test>::get((13, 0)).unwrap().remaining, 10);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(14), 0))
+                .unwrap()
+                .remaining,
+            8
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(13), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // 42 will fail for the regular periodic run
         run_to_block(13);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(16)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0].is_some());
         // should still be queued to be retried next block
-        assert!(Agenda::<Test>::get(14)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(14))[0].is_some());
         // 42 consumed another periodic run, which failed, so another retry is queued for block 15
-        assert!(Agenda::<Test>::get(16)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_some());
-        assert!(Agenda::<Test>::get(15)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_none());
-        assert!(Agenda::<Test>::get(14)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_none());
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_some()
+        );
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(15))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_none()
+        );
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(14))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_none()
+        );
         assert_eq!(Retries::<Test>::iter().count(), 3);
-        assert!(Retries::<Test>::get((14, 0)).unwrap().remaining == 8);
-        assert!(Retries::<Test>::get((15, 0)).unwrap().remaining == 9);
-        assert!(Retries::<Test>::get((16, 0)).unwrap().remaining == 10);
-        assert_eq!(Lookup::<Test>::get([42u8; 32]).unwrap(), (16, 0));
+        assert!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(14), 0))
+                .unwrap()
+                .remaining
+                == 8
+        );
+        assert!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(15), 0))
+                .unwrap()
+                .remaining
+                == 9
+        );
+        assert!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(16), 0))
+                .unwrap()
+                .remaining
+                == 10
+        );
+        assert_eq!(
+            Lookup::<Test>::get([42u8; 32]).unwrap(),
+            (BlockNumberOrTimestamp::BlockNumber(16), 0)
+        );
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
         // change the threshold to allow the task to succeed
         Threshold::<Test>::put((14, 100));
         // first retry should now succeed
         run_to_block(14);
-        assert!(Agenda::<Test>::get(15)[0]
-            .as_ref()
-            .unwrap()
-            .maybe_periodic
-            .is_none());
+        assert!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(15))[0]
+                .as_ref()
+                .unwrap()
+                .maybe_periodic
+                .is_none()
+        );
         assert_eq!(
-            Agenda::<Test>::get(16)
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))
                 .iter()
                 .filter(|entry| entry.is_some())
                 .count(),
             1
         );
-        assert!(Agenda::<Test>::get(16)[0].is_some());
-        assert_eq!(Retries::<Test>::get((15, 0)).unwrap().remaining, 9);
-        assert_eq!(Retries::<Test>::get((16, 0)).unwrap().remaining, 10);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0].is_some());
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(15), 0))
+                .unwrap()
+                .remaining,
+            9
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(16), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(
             logger::log(),
@@ -807,17 +1031,25 @@ fn named_retry_scheduling_with_period_works() {
         // second retry should also succeed
         run_to_block(15);
         assert_eq!(
-            Agenda::<Test>::get(16)
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))
                 .iter()
                 .filter(|entry| entry.is_some())
                 .count(),
             1
         );
-        assert!(Agenda::<Test>::get(16)[0].is_some());
-        assert!(Agenda::<Test>::get(17).is_empty());
-        assert_eq!(Retries::<Test>::get((16, 0)).unwrap().remaining, 10);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(16))[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(17)).is_empty());
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(16), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
-        assert_eq!(Lookup::<Test>::get([42u8; 32]).unwrap(), (16, 0));
+        assert_eq!(
+            Lookup::<Test>::get([42u8; 32]).unwrap(),
+            (BlockNumberOrTimestamp::BlockNumber(16), 0)
+        );
         assert_eq!(
             logger::log(),
             vec![
@@ -830,12 +1062,20 @@ fn named_retry_scheduling_with_period_works() {
         // normal periodic run on block 16 will succeed
         run_to_block(16);
         // next periodic run at block 19
-        assert!(Agenda::<Test>::get(19)[0].is_some());
-        assert!(Agenda::<Test>::get(18).is_empty());
-        assert!(Agenda::<Test>::get(17).is_empty());
-        assert_eq!(Retries::<Test>::get((19, 0)).unwrap().remaining, 10);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(19))[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(18)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(17)).is_empty());
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(19), 0))
+                .unwrap()
+                .remaining,
+            10
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
-        assert_eq!(Lookup::<Test>::get([42u8; 32]).unwrap(), (19, 0));
+        assert_eq!(
+            Lookup::<Test>::get([42u8; 32]).unwrap(),
+            (BlockNumberOrTimestamp::BlockNumber(19), 0)
+        );
         assert_eq!(
             logger::log(),
             vec![
@@ -883,37 +1123,57 @@ fn retry_scheduling_expires() {
             }))
             .unwrap()
         ));
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // task 42 will be retried 3 times every block
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 3, 1));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            3,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         run_to_block(3);
         assert!(logger::log().is_empty());
         // task 42 is scheduled for next block
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // task fails because we're past block 3
         run_to_block(4);
         // task is scheduled for next block
-        assert!(Agenda::<Test>::get(4).is_empty());
-        assert!(Agenda::<Test>::get(5)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5))[0].is_some());
         // one retry attempt is consumed
-        assert_eq!(Retries::<Test>::get((5, 0)).unwrap().remaining, 2);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(5), 0))
+                .unwrap()
+                .remaining,
+            2
+        );
         assert!(logger::log().is_empty());
         // task fails again
         run_to_block(5);
         // task is scheduled for next block
-        assert!(Agenda::<Test>::get(5).is_empty());
-        assert!(Agenda::<Test>::get(6)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(6))[0].is_some());
         // another retry attempt is consumed
-        assert_eq!(Retries::<Test>::get((6, 0)).unwrap().remaining, 1);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(6), 0))
+                .unwrap()
+                .remaining,
+            1
+        );
         assert!(logger::log().is_empty());
         // task fails again
         run_to_block(6);
         // task is scheduled for next block
-        assert!(Agenda::<Test>::get(6).is_empty());
-        assert!(Agenda::<Test>::get(7)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(6)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_some());
         // another retry attempt is consumed
-        assert_eq!(Retries::<Test>::get((7, 0)).unwrap().remaining, 0);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(7), 0))
+                .unwrap()
+                .remaining,
+            0
+        );
         assert!(logger::log().is_empty());
         // task fails again
         run_to_block(7);
@@ -932,7 +1192,7 @@ fn set_retry_bad_origin() {
             DispatchTime::At(4),
             None,
             127,
-            101.into(),
+            RawOrigin::Signed(101).into(),
             Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
                 i: 42,
                 weight: Weight::from_parts(10, 0)
@@ -940,10 +1200,14 @@ fn set_retry_bad_origin() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // try to change the retry config with a different (non-root) account
-        let res: Result<(), DispatchError> =
-            Scheduler::set_retry(RuntimeOrigin::signed(102), (4, 0), 10, 2);
+        let res: Result<(), DispatchError> = Scheduler::set_retry(
+            RuntimeOrigin::signed(102),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(2),
+        );
         assert_eq!(res, Err(BadOrigin.into()));
     });
 }
@@ -957,7 +1221,7 @@ fn set_named_retry_bad_origin() {
             DispatchTime::At(4),
             None,
             127,
-            101.into(),
+            RawOrigin::Signed(101).into(),
             Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
                 i: 42,
                 weight: Weight::from_parts(10, 0)
@@ -965,10 +1229,14 @@ fn set_named_retry_bad_origin() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // try to change the retry config with a different (non-root) account
-        let res: Result<(), DispatchError> =
-            Scheduler::set_retry_named(RuntimeOrigin::signed(102), [42u8; 32], 10, 2);
+        let res: Result<(), DispatchError> = Scheduler::set_retry_named(
+            RuntimeOrigin::signed(102),
+            [42u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(2),
+        );
         assert_eq!(res, Err(BadOrigin.into()));
     });
 }
@@ -989,15 +1257,20 @@ fn set_retry_works() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // make sure the retry configuration was stored
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 2));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(2)
+        ));
         assert_eq!(
-            Retries::<Test>::get((4, 0)),
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(4), 0)),
             Some(RetryConfig {
                 total_retries: 10,
                 remaining: 10,
-                period: 2
+                period: BlockNumberOrTimestamp::BlockNumber(2)
             })
         );
     });
@@ -1020,16 +1293,21 @@ fn set_named_retry_works() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
         // make sure the retry configuration was stored
-        assert_ok!(Scheduler::set_retry_named(root().into(), [42u8; 32], 10, 2));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [42u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(2)
+        ));
         let address = Lookup::<Test>::get([42u8; 32]).unwrap();
         assert_eq!(
             Retries::<Test>::get(address),
             Some(RetryConfig {
                 total_retries: 10,
                 remaining: 10,
-                period: 2
+                period: BlockNumberOrTimestamp::BlockNumber(2)
             })
         );
     });
@@ -1044,7 +1322,7 @@ fn retry_periodic_full_cycle() {
         assert_ok!(Scheduler::do_schedule_named(
             [42u8; 32],
             DispatchTime::At(10),
-            Some((100, 4)),
+            Some((BlockNumberOrTimestamp::BlockNumber(100), 4)),
             127,
             root(),
             Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
@@ -1054,24 +1332,34 @@ fn retry_periodic_full_cycle() {
             .unwrap()
         ));
 
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         // 42 will be retried 2 times every block
-        assert_ok!(Scheduler::set_retry_named(root().into(), [42u8; 32], 2, 1));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [42u8; 32],
+            2,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         run_to_block(9);
         assert!(logger::log().is_empty());
-        assert!(Agenda::<Test>::get(10)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10))[0].is_some());
         // 42 runs successfully once, it will run again at block 110
         run_to_block(10);
-        assert!(Agenda::<Test>::get(10).is_empty());
-        assert!(Agenda::<Test>::get(110)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(10)).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(110))[0].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // nothing changed
         run_to_block(109);
-        assert!(Agenda::<Test>::get(110)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(110))[0].is_some());
         // original task still has 2 remaining retries
-        assert_eq!(Retries::<Test>::get((110, 0)).unwrap().remaining, 2);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(110), 0))
+                .unwrap()
+                .remaining,
+            2
+        );
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // make 42 fail next block
         Threshold::<Test>::put((1, 2));
@@ -1079,49 +1367,79 @@ fn retry_periodic_full_cycle() {
         // should be retried next block (at block 111)
         run_to_block(110);
         // should be queued for the normal period of 100 blocks
-        assert!(Agenda::<Test>::get(210)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(210))[0].is_some());
         // should also be queued to be retried next block
-        assert!(Agenda::<Test>::get(111)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(111))[0].is_some());
         // 42 retry clone has consumed one retry attempt
-        assert_eq!(Retries::<Test>::get((111, 0)).unwrap().remaining, 1);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(111), 0))
+                .unwrap()
+                .remaining,
+            1
+        );
         // 42 original task still has the original remaining attempts
-        assert_eq!(Retries::<Test>::get((210, 0)).unwrap().remaining, 2);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(210), 0))
+                .unwrap()
+                .remaining,
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // 42 retry will fail again
         run_to_block(111);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(210)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(210))[0].is_some());
         // should be queued to be retried next block
-        assert!(Agenda::<Test>::get(112)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(112))[0].is_some());
         // 42 has consumed another retry attempt
-        assert_eq!(Retries::<Test>::get((210, 0)).unwrap().remaining, 2);
-        assert_eq!(Retries::<Test>::get((112, 0)).unwrap().remaining, 0);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(210), 0))
+                .unwrap()
+                .remaining,
+            2
+        );
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(112), 0))
+                .unwrap()
+                .remaining,
+            0
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // 42 retry will fail again
         run_to_block(112);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(210)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(210))[0].is_some());
         // 42 retry clone ran out of retries, must have been evicted
         assert_eq!(Agenda::<Test>::iter().count(), 1);
 
         // advance
         run_to_block(209);
         // should still be queued for the normal period
-        assert!(Agenda::<Test>::get(210)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(210))[0].is_some());
         // 42 retry clone ran out of retries, must have been evicted
         assert_eq!(Agenda::<Test>::iter().count(), 1);
         // 42 should fail again and should spawn another retry clone
         run_to_block(210);
         // should be queued for the normal period of 100 blocks
-        assert!(Agenda::<Test>::get(310)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(310))[0].is_some());
         // should also be queued to be retried next block
-        assert!(Agenda::<Test>::get(211)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(211))[0].is_some());
         // 42 retry clone has consumed one retry attempt
-        assert_eq!(Retries::<Test>::get((211, 0)).unwrap().remaining, 1);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(211), 0))
+                .unwrap()
+                .remaining,
+            1
+        );
         // 42 original task still has the original remaining attempts
-        assert_eq!(Retries::<Test>::get((310, 0)).unwrap().remaining, 2);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(310), 0))
+                .unwrap()
+                .remaining,
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // make 42 run successfully again
@@ -1129,11 +1447,16 @@ fn retry_periodic_full_cycle() {
         // 42 retry clone should now succeed
         run_to_block(211);
         // should be queued for the normal period of 100 blocks
-        assert!(Agenda::<Test>::get(310)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(310))[0].is_some());
         // retry was successful, retry task should have been discarded
         assert_eq!(Agenda::<Test>::iter().count(), 1);
         // 42 original task still has the original remaining attempts
-        assert_eq!(Retries::<Test>::get((310, 0)).unwrap().remaining, 2);
+        assert_eq!(
+            Retries::<Test>::get((BlockNumberOrTimestamp::BlockNumber(310), 0))
+                .unwrap()
+                .remaining,
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 42u32)]);
 
@@ -1170,19 +1493,26 @@ fn reschedule_works() {
                 Preimage::bound(call).unwrap()
             )
             .unwrap(),
-            (4, 0)
+            (BlockNumberOrTimestamp::BlockNumber(4), 0)
         );
 
         run_to_block(3);
         assert!(logger::log().is_empty());
 
         assert_eq!(
-            Scheduler::do_reschedule((4, 0), DispatchTime::At(6)).unwrap(),
-            (6, 0)
+            Scheduler::do_reschedule(
+                (BlockNumberOrTimestamp::BlockNumber(4), 0),
+                DispatchTime::At(6)
+            )
+            .unwrap(),
+            (BlockNumberOrTimestamp::BlockNumber(6), 0)
         );
 
         assert_noop!(
-            Scheduler::do_reschedule((6, 0), DispatchTime::At(6)),
+            Scheduler::do_reschedule(
+                (BlockNumberOrTimestamp::BlockNumber(6), 0),
+                DispatchTime::At(6)
+            ),
             Error::<Test>::RescheduleNoChange
         );
 
@@ -1217,7 +1547,7 @@ fn reschedule_named_works() {
                 Preimage::bound(call).unwrap(),
             )
             .unwrap(),
-            (4, 0)
+            (BlockNumberOrTimestamp::BlockNumber(4), 0)
         );
 
         run_to_block(3);
@@ -1225,7 +1555,7 @@ fn reschedule_named_works() {
 
         assert_eq!(
             Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(6)).unwrap(),
-            (6, 0)
+            (BlockNumberOrTimestamp::BlockNumber(6), 0)
         );
 
         assert_noop!(
@@ -1258,13 +1588,13 @@ fn reschedule_named_periodic_works() {
             Scheduler::do_schedule_named(
                 [1u8; 32],
                 DispatchTime::At(4),
-                Some((3, 3)),
+                Some((BlockNumberOrTimestamp::BlockNumber(3), 3)),
                 127,
                 root(),
                 Preimage::bound(call).unwrap(),
             )
             .unwrap(),
-            (4, 0)
+            (BlockNumberOrTimestamp::BlockNumber(4), 0)
         );
 
         run_to_block(3);
@@ -1272,11 +1602,11 @@ fn reschedule_named_periodic_works() {
 
         assert_eq!(
             Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(5)).unwrap(),
-            (5, 0)
+            (BlockNumberOrTimestamp::BlockNumber(5), 0)
         );
         assert_eq!(
             Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(6)).unwrap(),
-            (6, 0)
+            (BlockNumberOrTimestamp::BlockNumber(6), 0)
         );
 
         run_to_block(5);
@@ -1287,7 +1617,7 @@ fn reschedule_named_periodic_works() {
 
         assert_eq!(
             Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(10)).unwrap(),
-            (10, 0)
+            (BlockNumberOrTimestamp::BlockNumber(10), 0)
         );
 
         run_to_block(9);
@@ -1355,7 +1685,7 @@ fn cancel_named_periodic_scheduling_works() {
         Scheduler::do_schedule_named(
             [1u8; 32],
             DispatchTime::At(4),
-            Some((3, 3)),
+            Some((BlockNumberOrTimestamp::BlockNumber(3), 3)),
             127,
             root(),
             Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
@@ -1468,24 +1798,32 @@ fn retry_respects_weight_limits() {
             Preimage::bound(call).unwrap(),
         ));
         // set a retry config for 20 for 10 retries every block
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 1));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         // 20 should fail and be retried later
         run_to_block(4);
-        assert!(Agenda::<Test>::get(5)[0].is_some());
-        assert!(Agenda::<Test>::get(8)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5))[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8))[0].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert!(logger::log().is_empty());
         // 20 still fails but is scheduled next block together with 42
         run_to_block(7);
-        assert_eq!(Agenda::<Test>::get(8).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8)).len(),
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert!(logger::log().is_empty());
         // 20 and 42 do not fit together
         // 42 is executed as it was first in the queue
         // 20 is still on the 8th block's agenda
         run_to_block(8);
-        assert!(Agenda::<Test>::get(8)[0].is_none());
-        assert!(Agenda::<Test>::get(8)[1].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8))[0].is_none());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8))[1].is_some());
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
         // 20 is executed and the schedule is cleared
@@ -1543,7 +1881,12 @@ fn try_schedule_retry_respects_weight_limits() {
             Preimage::bound(call).unwrap(),
         ));
         // set a retry config for 20 for 10 retries every block
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 1));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         // 20 should fail and, because of insufficient weight, it should not be scheduled again
         run_to_block(4);
         // nothing else should be scheduled
@@ -1553,7 +1896,7 @@ fn try_schedule_retry_respects_weight_limits() {
         // check the `RetryFailed` event happened
         let events = frame_system::Pallet::<Test>::events();
         let system_event: <Test as frame_system::Config>::RuntimeEvent = Event::RetryFailed {
-            task: (4, 0),
+            task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
             id: None,
         }
         .into();
@@ -1587,13 +1930,13 @@ fn scheduler_does_not_delete_permanently_overweight_call() {
         assert_eq!(
             System::events().last().unwrap().event,
             crate::Event::PermanentlyOverweight {
-                task: (4, 0),
+                task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
                 id: None
             }
             .into(),
         );
         // The call is still in the agenda.
-        assert!(Agenda::<Test>::get(4)[0].is_some());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
     });
 }
 
@@ -1611,7 +1954,7 @@ fn scheduler_handles_periodic_failure() {
 
         assert_ok!(Scheduler::do_schedule(
             DispatchTime::At(4),
-            Some((4, u32::MAX)),
+            Some((BlockNumberOrTimestamp::BlockNumber(4), u32::MAX)),
             127,
             root(),
             bound.clone(),
@@ -1638,7 +1981,7 @@ fn scheduler_handles_periodic_failure() {
         assert_eq!(
             System::events().last().unwrap().event,
             crate::Event::PeriodicFailed {
-                task: (24, 0),
+                task: (BlockNumberOrTimestamp::BlockNumber(24), 0),
                 id: None
             }
             .into(),
@@ -1664,7 +2007,7 @@ fn scheduler_handles_periodic_unavailable_preimage() {
 
         assert_ok!(Scheduler::do_schedule(
             DispatchTime::At(4),
-            Some((4, u32::MAX)),
+            Some((BlockNumberOrTimestamp::BlockNumber(4), u32::MAX)),
             127,
             root(),
             bound.clone(),
@@ -1804,7 +2147,7 @@ fn on_initialize_weight_is_correct() {
         // Anon Periodic
         assert_ok!(Scheduler::do_schedule(
             DispatchTime::At(2),
-            Some((1000, 3)),
+            Some((BlockNumberOrTimestamp::BlockNumber(1000), 3)),
             128,
             root(),
             Preimage::bound(call).unwrap(),
@@ -1829,7 +2172,7 @@ fn on_initialize_weight_is_correct() {
         assert_ok!(Scheduler::do_schedule_named(
             [2u8; 32],
             DispatchTime::At(1),
-            Some((1000, 3)),
+            Some((BlockNumberOrTimestamp::BlockNumber(1000), 3)),
             126,
             root(),
             Preimage::bound(call).unwrap(),
@@ -1926,10 +2269,17 @@ fn root_calls_works() {
         ));
         run_to_block(3);
         // Scheduled calls are in the agenda.
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         assert!(logger::log().is_empty());
         assert_ok!(Scheduler::cancel_named(RuntimeOrigin::root(), [1u8; 32]));
-        assert_ok!(Scheduler::cancel(RuntimeOrigin::root(), 4, 1));
+        assert_ok!(Scheduler::cancel(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::BlockNumber(4),
+            1
+        ));
         // Scheduled calls are made NONE, so should not effect state
         run_to_block(100);
         assert!(logger::log().is_empty());
@@ -1999,13 +2349,20 @@ fn should_use_origin() {
         ));
         run_to_block(3);
         // Scheduled calls are in the agenda.
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         assert!(logger::log().is_empty());
         assert_ok!(Scheduler::cancel_named(
             system::RawOrigin::Signed(1).into(),
             [1u8; 32]
         ));
-        assert_ok!(Scheduler::cancel(system::RawOrigin::Signed(1).into(), 4, 1));
+        assert_ok!(Scheduler::cancel(
+            system::RawOrigin::Signed(1).into(),
+            BlockNumberOrTimestamp::BlockNumber(4),
+            1
+        ));
         // Scheduled calls are made NONE, so should not effect state
         run_to_block(100);
         assert!(logger::log().is_empty());
@@ -2069,14 +2426,21 @@ fn should_check_origin_for_cancel() {
         ));
         run_to_block(3);
         // Scheduled calls are in the agenda.
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         assert!(logger::log().is_empty());
         assert_noop!(
             Scheduler::cancel_named(system::RawOrigin::Signed(2).into(), [1u8; 32]),
             BadOrigin
         );
         assert_noop!(
-            Scheduler::cancel(system::RawOrigin::Signed(2).into(), 4, 1),
+            Scheduler::cancel(
+                system::RawOrigin::Signed(2).into(),
+                BlockNumberOrTimestamp::BlockNumber(4),
+                1
+            ),
             BadOrigin
         );
         assert_noop!(
@@ -2084,7 +2448,11 @@ fn should_check_origin_for_cancel() {
             BadOrigin
         );
         assert_noop!(
-            Scheduler::cancel(system::RawOrigin::Root.into(), 4, 1),
+            Scheduler::cancel(
+                system::RawOrigin::Root.into(),
+                BlockNumberOrTimestamp::BlockNumber(4),
+                1
+            ),
             BadOrigin
         );
         run_to_block(5);
@@ -2129,46 +2497,78 @@ fn cancel_removes_retry_entry() {
             .unwrap()
         ));
 
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // task 20 will be retried 3 times every block
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 1));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         // task 42 will be retried 10 times every 3 blocks
-        assert_ok!(Scheduler::set_retry_named(root().into(), [1u8; 32], 10, 1));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [1u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 2);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // both tasks fail
         run_to_block(4);
-        assert!(Agenda::<Test>::get(4).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).is_empty());
         // 42 and 20 are rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(5).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(5)).len(),
+            2
+        );
         assert!(logger::log().is_empty());
         // 42 and 20 still fail
         run_to_block(5);
         // 42 and 20 rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(6).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(6)).len(),
+            2
+        );
         assert_eq!(Retries::<Test>::iter().count(), 2);
         assert!(logger::log().is_empty());
 
         // even though 42 is being retried, the tasks scheduled for retries are not named
         assert_eq!(Lookup::<Test>::iter().count(), 0);
-        assert!(Scheduler::cancel(root().into(), 6, 0).is_ok());
+        assert!(
+            Scheduler::cancel(root().into(), BlockNumberOrTimestamp::BlockNumber(6), 0).is_ok()
+        );
 
         // 20 is removed, 42 still fails
         run_to_block(6);
         // 42 rescheduled for next block
-        assert_eq!(Agenda::<Test>::get(7).len(), 1);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).len(),
+            1
+        );
         // 20's retry entry is removed
-        assert!(!Retries::<Test>::contains_key((4, 0)));
+        assert!(!Retries::<Test>::contains_key((
+            BlockNumberOrTimestamp::BlockNumber(4),
+            0
+        )));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert!(logger::log().is_empty());
 
-        assert!(Scheduler::cancel(root().into(), 7, 0).is_ok());
+        assert!(
+            Scheduler::cancel(root().into(), BlockNumberOrTimestamp::BlockNumber(7), 0).is_ok()
+        );
 
         // both tasks are canceled, everything is removed now
         run_to_block(7);
-        assert!(Agenda::<Test>::get(8).is_empty());
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(8)).is_empty());
         assert_eq!(Retries::<Test>::iter().count(), 0);
     });
 }
@@ -2204,313 +2604,47 @@ fn cancel_retries_works() {
             .unwrap()
         ));
 
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // task 20 will be retried 3 times every block
-        assert_ok!(Scheduler::set_retry(root().into(), (4, 0), 10, 1));
+        assert_ok!(Scheduler::set_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0),
+            10,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         // task 42 will be retried 10 times every 3 blocks
-        assert_ok!(Scheduler::set_retry_named(root().into(), [1u8; 32], 10, 1));
+        assert_ok!(Scheduler::set_retry_named(
+            root().into(),
+            [1u8; 32],
+            10,
+            BlockNumberOrTimestamp::BlockNumber(1)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 2);
         run_to_block(3);
         assert!(logger::log().is_empty());
-        assert_eq!(Agenda::<Test>::get(4).len(), 2);
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            2
+        );
         // cancel the retry config for 20
-        assert_ok!(Scheduler::cancel_retry(root().into(), (4, 0)));
+        assert_ok!(Scheduler::cancel_retry(
+            root().into(),
+            (BlockNumberOrTimestamp::BlockNumber(4), 0)
+        ));
         assert_eq!(Retries::<Test>::iter().count(), 1);
         // cancel the retry config for 42
         assert_ok!(Scheduler::cancel_retry_named(root().into(), [1u8; 32]));
         assert_eq!(Retries::<Test>::iter().count(), 0);
         run_to_block(4);
         // both tasks failed and there are no more retries, so they are evicted
-        assert_eq!(Agenda::<Test>::get(4).len(), 0);
-        assert_eq!(Retries::<Test>::iter().count(), 0);
-    });
-}
-
-#[test]
-fn migration_to_v4_works() {
-    new_test_ext().execute_with(|| {
-        for i in 0..3u64 {
-            let k = i.twox_64_concat();
-            let old = vec![
-                Some(ScheduledV1 {
-                    maybe_id: None,
-                    priority: i as u8 + 10,
-                    call: RuntimeCall::Logger(LoggerCall::log {
-                        i: 96,
-                        weight: Weight::from_parts(100, 0),
-                    }),
-                    maybe_periodic: None,
-                }),
-                None,
-                Some(ScheduledV1 {
-                    maybe_id: Some(b"test".to_vec()),
-                    priority: 123,
-                    call: RuntimeCall::Logger(LoggerCall::log {
-                        i: 69,
-                        weight: Weight::from_parts(10, 0),
-                    }),
-                    maybe_periodic: Some((456u64, 10)),
-                }),
-            ];
-            frame_support::migration::put_storage_value(b"Scheduler", b"Agenda", &k, old);
-        }
-
-        Scheduler::migrate_v1_to_v4();
-
-        let mut x = Agenda::<Test>::iter()
-            .map(|x| (x.0, x.1.into_inner()))
-            .collect::<Vec<_>>();
-        x.sort_by_key(|x| x.0);
-        let expected = vec![
-            (
-                0,
-                vec![
-                    Some(ScheduledOf::<Test> {
-                        maybe_id: None,
-                        priority: 10,
-                        call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                            i: 96,
-                            weight: Weight::from_parts(100, 0),
-                        }))
-                        .unwrap(),
-                        maybe_periodic: None,
-                        origin: root(),
-                        _phantom: PhantomData::<u64>::default(),
-                    }),
-                    None,
-                    Some(ScheduledOf::<Test> {
-                        maybe_id: Some(blake2_256(&b"test"[..])),
-                        priority: 123,
-                        call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                            i: 69,
-                            weight: Weight::from_parts(10, 0),
-                        }))
-                        .unwrap(),
-                        maybe_periodic: Some((456u64, 10)),
-                        origin: root(),
-                        _phantom: PhantomData::<u64>::default(),
-                    }),
-                ],
-            ),
-            (
-                1,
-                vec![
-                    Some(ScheduledOf::<Test> {
-                        maybe_id: None,
-                        priority: 11,
-                        call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                            i: 96,
-                            weight: Weight::from_parts(100, 0),
-                        }))
-                        .unwrap(),
-                        maybe_periodic: None,
-                        origin: root(),
-                        _phantom: PhantomData::<u64>::default(),
-                    }),
-                    None,
-                    Some(ScheduledOf::<Test> {
-                        maybe_id: Some(blake2_256(&b"test"[..])),
-                        priority: 123,
-                        call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                            i: 69,
-                            weight: Weight::from_parts(10, 0),
-                        }))
-                        .unwrap(),
-                        maybe_periodic: Some((456u64, 10)),
-                        origin: root(),
-                        _phantom: PhantomData::<u64>::default(),
-                    }),
-                ],
-            ),
-            (
-                2,
-                vec![
-                    Some(ScheduledOf::<Test> {
-                        maybe_id: None,
-                        priority: 12,
-                        call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                            i: 96,
-                            weight: Weight::from_parts(100, 0),
-                        }))
-                        .unwrap(),
-                        maybe_periodic: None,
-                        origin: root(),
-                        _phantom: PhantomData::<u64>::default(),
-                    }),
-                    None,
-                    Some(ScheduledOf::<Test> {
-                        maybe_id: Some(blake2_256(&b"test"[..])),
-                        priority: 123,
-                        call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                            i: 69,
-                            weight: Weight::from_parts(10, 0),
-                        }))
-                        .unwrap(),
-                        maybe_periodic: Some((456u64, 10)),
-                        origin: root(),
-                        _phantom: PhantomData::<u64>::default(),
-                    }),
-                ],
-            ),
-        ];
-        for (i, j) in x.iter().zip(expected.iter()) {
-            assert_eq!(i.0, j.0);
-            for (x, y) in i.1.iter().zip(j.1.iter()) {
-                assert_eq!(x, y);
-            }
-        }
-        assert_eq_uvec!(x, expected);
-
-        assert_eq!(Scheduler::on_chain_storage_version(), 4);
-    });
-}
-
-#[test]
-fn test_migrate_origin() {
-    new_test_ext().execute_with(|| {
-        for i in 0..3u64 {
-            let k = i.twox_64_concat();
-            let old: Vec<Option<Scheduled<[u8; 32], BoundedCallOf<Test>, u64, u32, u64>>> = vec![
-                Some(Scheduled {
-                    maybe_id: None,
-                    priority: i as u8 + 10,
-                    call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                        i: 96,
-                        weight: Weight::from_parts(100, 0),
-                    }))
-                    .unwrap(),
-                    origin: 3u32,
-                    maybe_periodic: None,
-                    _phantom: Default::default(),
-                }),
-                None,
-                Some(Scheduled {
-                    maybe_id: Some(blake2_256(&b"test"[..])),
-                    priority: 123,
-                    origin: 2u32,
-                    call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                        i: 69,
-                        weight: Weight::from_parts(10, 0),
-                    }))
-                    .unwrap(),
-                    maybe_periodic: Some((456u64, 10)),
-                    _phantom: Default::default(),
-                }),
-            ];
-            frame_support::migration::put_storage_value(b"Scheduler", b"Agenda", &k, old);
-        }
-
-        impl Into<OriginCaller> for u32 {
-            fn into(self) -> OriginCaller {
-                match self {
-                    3u32 => system::RawOrigin::Root.into(),
-                    2u32 => system::RawOrigin::None.into(),
-                    101u32 => system::RawOrigin::Signed(101).into(),
-                    102u32 => system::RawOrigin::Signed(102).into(),
-                    _ => unreachable!("test make no use of it"),
-                }
-            }
-        }
-
-        Scheduler::migrate_origin::<u32>();
-
-        assert_eq_uvec!(
-            Agenda::<Test>::iter()
-                .map(|x| (x.0, x.1.into_inner()))
-                .collect::<Vec<_>>(),
-            vec![
-                (
-                    0,
-                    vec![
-                        Some(ScheduledOf::<Test> {
-                            maybe_id: None,
-                            priority: 10,
-                            call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                                i: 96,
-                                weight: Weight::from_parts(100, 0)
-                            }))
-                            .unwrap(),
-                            maybe_periodic: None,
-                            origin: system::RawOrigin::Root.into(),
-                            _phantom: PhantomData::<u64>::default(),
-                        }),
-                        None,
-                        Some(Scheduled {
-                            maybe_id: Some(blake2_256(&b"test"[..])),
-                            priority: 123,
-                            call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                                i: 69,
-                                weight: Weight::from_parts(10, 0)
-                            }))
-                            .unwrap(),
-                            maybe_periodic: Some((456u64, 10)),
-                            origin: system::RawOrigin::None.into(),
-                            _phantom: PhantomData::<u64>::default(),
-                        }),
-                    ]
-                ),
-                (
-                    1,
-                    vec![
-                        Some(Scheduled {
-                            maybe_id: None,
-                            priority: 11,
-                            call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                                i: 96,
-                                weight: Weight::from_parts(100, 0)
-                            }))
-                            .unwrap(),
-                            maybe_periodic: None,
-                            origin: system::RawOrigin::Root.into(),
-                            _phantom: PhantomData::<u64>::default(),
-                        }),
-                        None,
-                        Some(Scheduled {
-                            maybe_id: Some(blake2_256(&b"test"[..])),
-                            priority: 123,
-                            call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                                i: 69,
-                                weight: Weight::from_parts(10, 0)
-                            }))
-                            .unwrap(),
-                            maybe_periodic: Some((456u64, 10)),
-                            origin: system::RawOrigin::None.into(),
-                            _phantom: PhantomData::<u64>::default(),
-                        }),
-                    ]
-                ),
-                (
-                    2,
-                    vec![
-                        Some(Scheduled {
-                            maybe_id: None,
-                            priority: 12,
-                            call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                                i: 96,
-                                weight: Weight::from_parts(100, 0)
-                            }))
-                            .unwrap(),
-                            maybe_periodic: None,
-                            origin: system::RawOrigin::Root.into(),
-                            _phantom: PhantomData::<u64>::default(),
-                        }),
-                        None,
-                        Some(Scheduled {
-                            maybe_id: Some(blake2_256(&b"test"[..])),
-                            priority: 123,
-                            call: Preimage::bound(RuntimeCall::Logger(LoggerCall::log {
-                                i: 69,
-                                weight: Weight::from_parts(10, 0)
-                            }))
-                            .unwrap(),
-                            maybe_periodic: Some((456u64, 10)),
-                            origin: system::RawOrigin::None.into(),
-                            _phantom: PhantomData::<u64>::default(),
-                        }),
-                    ]
-                )
-            ]
+        assert_eq!(
+            Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(),
+            0
         );
+        assert_eq!(Retries::<Test>::iter().count(), 0);
     });
 }
 
@@ -2549,7 +2683,7 @@ fn postponed_named_task_cannot_be_rescheduled() {
         assert_eq!(
             System::events().last().unwrap().event,
             crate::Event::CallUnavailable {
-                task: (4, 0),
+                task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
                 id: Some(name)
             }
             .into()
@@ -2603,6 +2737,7 @@ fn postponed_named_task_cannot_be_rescheduled() {
 #[test]
 fn scheduler_v3_anon_basic_works() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -2634,6 +2769,8 @@ fn scheduler_v3_anon_basic_works() {
 #[test]
 fn scheduler_v3_anon_cancel_works() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -2666,6 +2803,8 @@ fn scheduler_v3_anon_cancel_works() {
 #[test]
 fn scheduler_v3_anon_reschedule_works() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -2718,6 +2857,8 @@ fn scheduler_v3_anon_reschedule_works() {
 #[test]
 fn scheduler_v3_anon_next_schedule_time_works() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -2760,6 +2901,8 @@ fn scheduler_v3_anon_next_schedule_time_works() {
 #[test]
 fn scheduler_v3_anon_reschedule_and_next_schedule_time_work() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -2808,6 +2951,8 @@ fn scheduler_v3_anon_reschedule_and_next_schedule_time_work() {
 #[test]
 fn scheduler_v3_anon_schedule_agenda_overflows() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
+
     let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
 
     new_test_ext().execute_with(|| {
@@ -2845,6 +2990,8 @@ fn scheduler_v3_anon_schedule_agenda_overflows() {
 #[test]
 fn scheduler_v3_anon_cancel_and_schedule_fills_holes() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
+
     let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
     assert!(
         max > 3,
@@ -2899,6 +3046,7 @@ fn scheduler_v3_anon_cancel_and_schedule_fills_holes() {
 #[test]
 fn scheduler_v3_anon_reschedule_fills_holes() {
     use frame_support::traits::schedule::v3::Anon;
+    use frame_support::traits::schedule::DispatchTime;
     let max: u32 = <Test as Config>::MaxScheduledPerBlock::get();
     assert!(
         max > 3,
@@ -2950,6 +3098,7 @@ fn scheduler_v3_anon_reschedule_fills_holes() {
 #[test]
 fn scheduler_v3_named_basic_works() {
     use frame_support::traits::schedule::v3::Named;
+    use frame_support::traits::schedule::DispatchTime;
 
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
@@ -2985,6 +3134,8 @@ fn scheduler_v3_named_basic_works() {
 #[test]
 fn scheduler_v3_named_cancel_named_works() {
     use frame_support::traits::schedule::v3::Named;
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3020,6 +3171,8 @@ fn scheduler_v3_named_cancel_named_works() {
 #[test]
 fn scheduler_v3_named_cancel_without_name_works() {
     use frame_support::traits::schedule::v3::{Anon, Named};
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3055,6 +3208,8 @@ fn scheduler_v3_named_cancel_without_name_works() {
 #[test]
 fn scheduler_v3_named_reschedule_named_works() {
     use frame_support::traits::schedule::v3::{Anon, Named};
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3119,6 +3274,8 @@ fn scheduler_v3_named_reschedule_named_works() {
 #[test]
 fn scheduler_v3_named_next_schedule_time_works() {
     use frame_support::traits::schedule::v3::{Anon, Named};
+    use frame_support::traits::schedule::DispatchTime;
+
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3194,14 +3351,14 @@ fn cancel_last_task_removes_agenda() {
         )
         .unwrap();
         // two tasks at agenda.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         assert_ok!(Scheduler::do_cancel(None, address));
         // still two tasks at agenda, `None` and `Some`.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         // cancel last task from `when` agenda.
         assert_ok!(Scheduler::do_cancel(None, address2));
         // if all tasks `None`, agenda fully removed.
-        assert!(Agenda::<Test>::get(when).len() == 0);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
     });
 }
 
@@ -3232,14 +3389,14 @@ fn cancel_named_last_task_removes_agenda() {
         )
         .unwrap();
         // two tasks at agenda.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         assert_ok!(Scheduler::do_cancel_named(None, [2u8; 32]));
         // removes trailing `None` and leaves one task.
-        assert!(Agenda::<Test>::get(when).len() == 1);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 1);
         // cancel last task from `when` agenda.
         assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
         // if all tasks `None`, agenda fully removed.
-        assert!(Agenda::<Test>::get(when).len() == 0);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
     });
 }
 
@@ -3268,17 +3425,17 @@ fn reschedule_last_task_removes_agenda() {
         )
         .unwrap();
         // two tasks at agenda.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         assert_ok!(Scheduler::do_cancel(None, address));
         // still two tasks at agenda, `None` and `Some`.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         // reschedule last task from `when` agenda.
         assert_eq!(
             Scheduler::do_reschedule(address2, DispatchTime::At(when + 1)).unwrap(),
-            (when + 1, 0)
+            (BlockNumberOrTimestamp::BlockNumber(when + 1), 0)
         );
         // if all tasks `None`, agenda fully removed.
-        assert!(Agenda::<Test>::get(when).len() == 0);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
     });
 }
 
@@ -3309,17 +3466,17 @@ fn reschedule_named_last_task_removes_agenda() {
         )
         .unwrap();
         // two tasks at agenda.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
         // still two tasks at agenda, `None` and `Some`.
-        assert!(Agenda::<Test>::get(when).len() == 2);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 2);
         // reschedule last task from `when` agenda.
         assert_eq!(
             Scheduler::do_reschedule_named([2u8; 32], DispatchTime::At(when + 1)).unwrap(),
-            (when + 1, 0)
+            (BlockNumberOrTimestamp::BlockNumber(when + 1), 0)
         );
         // if all tasks `None`, agenda fully removed.
-        assert!(Agenda::<Test>::get(when).len() == 0);
+        assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0);
     });
 }
 
@@ -3327,6 +3484,7 @@ fn reschedule_named_last_task_removes_agenda() {
 #[test]
 fn unavailable_call_is_detected() {
     use frame_support::traits::schedule::v3::Named;
+    use frame_support::traits::schedule::DispatchTime;
 
     new_test_ext().execute_with(|| {
         let call = RuntimeCall::Logger(LoggerCall::log {
@@ -3362,7 +3520,7 @@ fn unavailable_call_is_detected() {
         assert_eq!(
             System::events().last().unwrap().event,
             crate::Event::CallUnavailable {
-                task: (4, 0),
+                task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
                 id: Some(name)
             }
             .into()
