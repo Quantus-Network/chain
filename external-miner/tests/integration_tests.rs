@@ -1,7 +1,6 @@
 use external_miner::*;
 use primitive_types::U512;
 use resonance_miner_api::*;
-use std::time::Instant;
 use warp::test::request;
 use warp::Filter; // Import shared API types
 
@@ -78,16 +77,7 @@ async fn test_result_endpoint() {
     let state_filter = warp::any().map(move || state_clone.clone());
 
     // First create a job
-    let job = MiningJob {
-        header_hash: [0; 32],
-        distance_threshold: U512::from(1000),
-        nonce_start: U512::from(0),
-        nonce_end: U512::from(1000),
-        current_nonce: U512::from(0),
-        status: JobStatus::Running, // Use enum variant
-        hash_count: 0,
-        start_time: Instant::now(),
-    };
+    let job = MiningJob::new([0; 32], U512::from(1000), U512::from(0), U512::from(1000));
     state.add_job("test".to_string(), job).await.unwrap();
 
     let result_route = warp::get()
@@ -127,16 +117,7 @@ async fn test_cancel_endpoint() {
     let state_filter = warp::any().map(move || state_clone.clone());
 
     // First create a job
-    let job = MiningJob {
-        header_hash: [0; 32],
-        distance_threshold: U512::from(1000),
-        nonce_start: U512::from(0),
-        nonce_end: U512::from(1000),
-        current_nonce: U512::from(0),
-        status: JobStatus::Running, // Use enum variant
-        hash_count: 0,
-        start_time: Instant::now(),
-    };
+    let job = MiningJob::new([0; 32], U512::from(1000), U512::from(0), U512::from(1000));
     state.add_job("test".to_string(), job).await.unwrap();
 
     let cancel_route = warp::post()
@@ -180,16 +161,7 @@ async fn test_concurrent_access() {
     for i in 0..10 {
         let state = state.clone();
         let handle = tokio::spawn(async move {
-            let job = MiningJob {
-                header_hash: [0; 32],
-                distance_threshold: U512::from(1000),
-                nonce_start: U512::from(0),
-                nonce_end: U512::from(1000),
-                current_nonce: U512::from(0),
-                status: JobStatus::Running, // Use enum variant
-                hash_count: 0,
-                start_time: Instant::now(),
-            };
+            let job = MiningJob::new([0; 32], U512::from(1000), U512::from(0), U512::from(1000));
             state.add_job(format!("test{}", i), job).await
         });
         handles.push(handle);

@@ -435,7 +435,7 @@ pub fn new_full<
                                             nonce += U512::one();
                                         }
                                     } else {
-                                        log::info!("Work from external miner is stale, discarding.");
+                                        log::debug!(target: "miner", "Work from external miner is stale, discarding.");
                                     }
                                     break;
                                 }

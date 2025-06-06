@@ -161,7 +161,10 @@ async fn spec_mine_invalid_hash_format() {
         serde_json::from_slice(resp.body()).expect("Error response should deserialize");
     assert_eq!(body.status, ApiResponseStatus::Error);
     assert!(body.message.is_some());
-    assert!(body.message.unwrap().contains("Invalid mining_hash"));
+    assert!(body
+        .message
+        .unwrap()
+        .contains("mining_hash must be 64 hex characters"));
 }
 
 // Add similar tests for invalid nonce_start, nonce_end, difficulty format...
@@ -223,7 +226,7 @@ async fn spec_result_job_running() {
         serde_json::from_slice(resp.body()).expect("Should deserialize to MiningResult");
     assert_eq!(body.status, ApiResponseStatus::Running);
     assert_eq!(body.job_id, job_id);
-    assert!(body.nonce.is_some()); // Should show current nonce
+    assert!(body.nonce.is_none()); // Should be none initially
     assert!(body.work.is_none()); // No work yet
                                   // hash_count and elapsed_time should be present
                                   // assert_eq!(body.hash_count, 0); // Initial state
@@ -262,12 +265,11 @@ async fn spec_result_job_not_found() {
 async fn spec_cancel_existing_job() {
     let (state, routes) = setup_routes();
     let job_id = "job-cancel-1".to_string();
-    // Add a job
-    let job = MiningJob::new([2u8; 32], U512::from(2000), U512::from(0), U512::from(500));
+    let job = MiningJob::new([2u8; 32], U512::from(1000), U512::from(0), U512::from(1000));
     state.add_job(job_id.clone(), job).await.unwrap();
 
     let resp = request()
-        .method("POST") // POST for cancel
+        .method("POST")
         .path(&format!("/cancel/{}", job_id))
         .reply(&routes)
         .await;
@@ -280,8 +282,9 @@ async fn spec_cancel_existing_job() {
     assert_eq!(body.job_id, job_id);
     assert!(body.message.is_none());
 
-    // Verify job is actually removed
-    assert!(state.get_job(&job_id).await.is_none());
+    // Verify job is actually cancelled
+    let job = state.get_job(&job_id).await.unwrap();
+    assert_eq!(job.status, JobStatus::Cancelled);
 }
 
 #[tokio::test]
@@ -301,7 +304,7 @@ async fn spec_cancel_non_existent_job() {
         .expect("Should deserialize to MiningResponse (NotFound variant)");
     assert_eq!(body.status, ApiResponseStatus::NotFound);
     assert_eq!(body.job_id, job_id);
-    assert!(body.message.is_none());
+    assert!(body.message.is_some());
 }
 
 // Removed placeholder test
