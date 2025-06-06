@@ -1,6 +1,5 @@
 use clap::Parser;
 use external_miner::*; // Import everything from lib.rs
-use log::info;
 use std::net::SocketAddr;
 use warp::Filter;
 
@@ -21,19 +20,19 @@ struct Args {
 async fn main() {
     let args = Args::parse(); // Parse args - this handles --help and --version
     env_logger::init(); // Initialize logger after parsing args
-    info!("Starting external miner service...");
+    log::info!("Starting external miner service...");
 
     let mut state = MiningState::new();
 
     if let Some(num_cores) = args.num_cores {
         if num_cores > 0 {
-            info!("Using specified number of cores: {}", num_cores);
+            log::info!("Using specified number of cores: {}", num_cores);
             state.num_cores = num_cores;
         } else {
             log::warn!("Number of cores must be positive. Defaulting to all available cores.");
         }
     } else {
-        info!("Using all available cores: {}", state.num_cores);
+        log::info!("Using all available cores: {}", state.num_cores);
     }
 
     // --- Start the mining loop ---
@@ -68,6 +67,6 @@ async fn main() {
 
     // Use the port from parsed arguments
     let addr: SocketAddr = ([0, 0, 0, 0], args.port).into();
-    info!("Server starting on {}", addr);
+    log::info!("Server starting on {}", addr);
     warp::serve(routes).run(addr).await;
 }

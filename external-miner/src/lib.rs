@@ -94,7 +94,8 @@ impl MiningJob {
         let range_per_core = total_range / U512::from(num_cores as u64);
         let remainder = total_range % U512::from(num_cores as u64);
 
-        log::info!(
+        log::debug!(
+            target: "miner",
             "Starting mining with {} cores, total range: {}, range per core: {}",
             num_cores,
             total_range,
@@ -135,7 +136,7 @@ impl MiningJob {
     }
 
     pub fn cancel(&mut self) {
-        log::info!("Cancelling mining job");
+        log::debug!(target: "miner", "Cancelling mining job");
         self.cancel_flag.store(true, Ordering::Relaxed);
         self.status = JobStatus::Cancelled;
 
@@ -164,7 +165,7 @@ impl MiningJob {
                     .map_or(true, |current_best| result.distance < current_best.distance);
 
                 if is_better {
-                    log::info!(
+                    log::debug!(target: "miner",
                         "Found better result from thread {}: distance = {}, nonce = {}",
                         thread_result.thread_id,
                         result.distance,
@@ -230,7 +231,7 @@ impl MiningState {
             return Err("Job already exists".to_string());
         }
 
-        log::info!("Adding job: {} with {} cores", job_id, self.num_cores);
+        log::debug!(target: "miner", "Adding job: {} with {} cores", job_id, self.num_cores);
         job.start_mining(self.num_cores);
         jobs.insert(job_id, job);
         Ok(())
@@ -244,7 +245,7 @@ impl MiningState {
     pub async fn remove_job(&self, job_id: &str) -> Option<MiningJob> {
         let mut jobs = self.jobs.lock().await;
         if let Some(mut job) = jobs.remove(job_id) {
-            log::info!("Removing job: {}", job_id);
+            log::debug!(target: "miner", "Removing job: {}", job_id);
             job.cancel();
             Some(job)
         } else {
@@ -264,7 +265,7 @@ impl MiningState {
 
     pub async fn start_mining_loop(&self) {
         let jobs = self.jobs.clone();
-        log::info!("Starting mining loop...");
+        log::debug!(target: "miner", "Starting mining loop...");
 
         tokio::spawn(async move {
             loop {
@@ -273,7 +274,7 @@ impl MiningState {
                 jobs_guard.retain(|job_id, job| {
                     if job.status == JobStatus::Running {
                         if job.update_from_results() {
-                            log::info!(
+                            log::debug!(target: "miner",
                                 "Job {} finished with status {:?}, hashes: {}, time: {:?}",
                                 job_id,
                                 job.status,
@@ -287,7 +288,7 @@ impl MiningState {
                     let retain = job.status == JobStatus::Running
                         || job.start_time.elapsed().as_secs() < 300;
                     if !retain {
-                        log::info!("Cleaning up old job {}", job_id);
+                        log::debug!(target: "miner", "Cleaning up old job {}", job_id);
                     }
                     retain
                 });
@@ -331,7 +332,7 @@ fn mine_range(
                 distance,
             };
 
-            log::info!(
+            log::debug!(target: "miner",
                 "Thread {} found valid nonce: {}, distance: {}",
                 thread_id,
                 current_nonce,
@@ -439,7 +440,7 @@ pub async fn handle_mine_request(
 
     match state.add_job(request.job_id.clone(), job).await {
         Ok(_) => {
-            log::info!("Accepted mine request for job ID: {}", request.job_id);
+            log::debug!(target: "miner", "Accepted mine request for job ID: {}", request.job_id);
             Ok(warp::reply::with_status(
                 warp::reply::json(&MiningResponse {
                     status: ApiResponseStatus::Accepted,
@@ -524,7 +525,7 @@ pub async fn handle_cancel_request(
     log::debug!("Received cancel request for job: {}", job_id);
 
     if state.cancel_job(&job_id).await {
-        log::info!("Successfully cancelled job: {}", job_id);
+        log::debug!(target: "miner", "Successfully cancelled job: {}", job_id);
         Ok(warp::reply::with_status(
             warp::reply::json(&MiningResponse {
                 status: ApiResponseStatus::Cancelled,
