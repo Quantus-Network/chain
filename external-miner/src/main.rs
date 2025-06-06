@@ -11,6 +11,10 @@ struct Args {
     /// Port number to listen on
     #[arg(short, long, env = "MINER_PORT", default_value_t = 9833)]
     port: u16,
+
+    /// Number of CPU cores to use for mining
+    #[arg(long, env = "MINER_CORES")]
+    num_cores: Option<usize>,
 }
 
 #[tokio::main]
@@ -19,8 +23,18 @@ async fn main() {
     env_logger::init(); // Initialize logger after parsing args
     info!("Starting external miner service...");
 
-    // Use MiningState from lib.rs
-    let state = MiningState::new();
+    let mut state = MiningState::new();
+
+    if let Some(num_cores) = args.num_cores {
+        if num_cores > 0 {
+            info!("Using specified number of cores: {}", num_cores);
+            state.num_cores = num_cores;
+        } else {
+            log::warn!("Number of cores must be positive. Defaulting to all available cores.");
+        }
+    } else {
+        info!("Using all available cores: {}", state.num_cores);
+    }
 
     // --- Start the mining loop ---
     state.start_mining_loop().await;
