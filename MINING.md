@@ -60,7 +60,7 @@ This command creates a directory named `quantus_node_data` in your current worki
 Your node needs a unique P2P identity to connect to the network. Generate this key into your data directory:
 ```bash
 # If on Apple Silicon, you may need to add --platform linux/amd64
-docker run --rm \
+docker run --rm --platform linux/amd64 \
   -v "$(pwd)/quantus_node_data":/var/lib/quantus_data_in_container \
   quantus-node:v0.0.4 \
   key generate-node-key --file /var/lib/quantus_data_in_container/node_key.p2p

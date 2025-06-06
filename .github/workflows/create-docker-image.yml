@@ -1,0 +1,117 @@
+name: Create Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      specific_version:
+        description: "Optional: Specify a full version (e.g., v1.2.3 or v0.2.1-beta.1) to build. If empty, uses the latest release tag. MUST start with 'v'."
+        required: false
+        default: ""
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  determine_version:
+    runs-on: ubuntu-latest
+    outputs:
+      version_with_v: ${{ steps.version_info.outputs.version_with_v }}
+      is_valid_version: ${{ steps.version_info.outputs.is_valid_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version information
+        id: version_info
+        run: |
+          set -ex
+          TARGET_VERSION=""
+          SPECIFIC_VERSION="${{ github.event.inputs.specific_version }}"
+
+          if [[ -n "$SPECIFIC_VERSION" ]]; then
+            if [[ ! "$SPECIFIC_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+              echo "::error::Specified version '$SPECIFIC_VERSION' is not a valid format. It must start with 'v' (e.g., v1.2.3 or v0.2.1-beta.1)."
+              echo "is_valid_version=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            TARGET_VERSION="$SPECIFIC_VERSION"
+            echo "Using specified version: $TARGET_VERSION"
+          else
+            echo "No specific version provided, determining latest release tag..."
+            TARGET_VERSION=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+            if [[ -z "$TARGET_VERSION" ]]; then
+              echo "::error::No version tags starting with 'v' (e.g., vX.Y.Z) found in the repository."
+              echo "is_valid_version=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            echo "Latest release version found: $TARGET_VERSION"
+          fi
+
+          echo "version_with_v=$TARGET_VERSION" >> $GITHUB_OUTPUT
+          echo "is_valid_version=true" >> $GITHUB_OUTPUT
+
+  build_and_publish_image:
+    needs: determine_version
+    if: needs.determine_version.outputs.is_valid_version == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GHCR_IMAGE_PATH: ghcr.io/quantus-network/quantus-node
+      TARGET_VERSION_WITH_V: ${{ needs.determine_version.outputs.version_with_v }}
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if Docker image already exists and fail if so
+        id: check_image
+        run: |
+          set -ex
+          IMAGE_TO_CHECK="${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}"
+          echo "Checking for image: $IMAGE_TO_CHECK"
+          
+          if docker manifest inspect "$IMAGE_TO_CHECK" > /dev/null 2>&1; then
+            echo "::error::Image $IMAGE_TO_CHECK already exists. Aborting."
+            exit 1
+          else
+            echo "Image $IMAGE_TO_CHECK does not exist. Proceeding with build."
+          fi
+
+      - name: Checkout default branch (for Dockerfile)
+        uses: actions/checkout@v4
+        with:
+          ref: main # Assuming 'main' is your default branch
+
+      - name: Checkout target version source code into subdir
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_VERSION_WITH_V }}
+          path: source_code_for_build
+
+      - name: Build and push Docker image from Dockerfile.binary
+        uses: docker/build-push-action@v5
+        with:
+          context: ./source_code_for_build
+          file: ./Dockerfile.binary
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            VERSION_ARG=${{ env.TARGET_VERSION_WITH_V }}
+          tags: |
+            ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}
+            ${{ env.GHCR_IMAGE_PATH }}:latest
+
+      - name: Print completion message
+        run: |
+          echo "Successfully built and pushed ${{ env.GHCR_IMAGE_PATH }}:${{ env.TARGET_VERSION_WITH_V }}" 
