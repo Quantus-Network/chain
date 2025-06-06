@@ -29,7 +29,9 @@ resolver = "2"
 
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = [
+    "no_std",
+] }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
     "no_random",
 ] }
@@ -119,3 +121,6 @@ log = { version = "0.4.22", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
 rand = { version = "0.8.5", default-features = false }
+
+[patch.crates-io]
+sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }

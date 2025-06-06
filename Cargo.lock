@@ -11440,11 +11440,11 @@ dependencies = [
 [[package]]
 name = "sp-trie"
 version = "38.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1851c4929ae88932c6bcdb9e60f4063e478ca612012af3b6d365c7dc9c591f7f"
+source = "git+https://github.com/Quantus-Network/zk-trie#5f34ddf973db762617aa5305f9986b6922c86b80"
 dependencies = [
  "ahash",
  "hash-db",
+ "log",
  "memory-db",
  "nohash-hasher",
  "parity-scale-codec",
