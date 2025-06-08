@@ -3,8 +3,18 @@ name = "wormhole-circuits"
 version = "1.0.0"
 edition = "2021"
 
+[workspace]
+
 [dependencies]
-hex = { workspace = true }
-plonky2 = { workspace = true }
-poseidon-resonance = { workspace = true }
 anyhow = "1.0.75"
+hex = { version = "0.4.3", default-features = false }
+plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
+    "std",
+    "no_random",
+] }
+poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
+
+
+[features]
+default = ["std"]
+std = ["plonky2/std", "poseidon-resonance/std"]

@@ -82,8 +82,8 @@ impl WormholeCircuit {
 
         let mut pw = PartialWitness::new();
 
-        pw.set_target(secret_target, secret);
-        pw.set_target(nullifier_target, nullifier);
+        pw.set_target(secret_target, secret)?;
+        pw.set_target(nullifier_target, nullifier)?;
 
         // Calculate public inputs based on private inputs
         let commitment = PoseidonHash::hash_no_pad(&[
@@ -109,8 +109,8 @@ impl WormholeCircuit {
         ])
         .elements[0];
 
-        pw.set_target(commitment_target, commitment);
-        pw.set_target(nullifier_hash_target, nullifier_hash);
+        pw.set_target(commitment_target, commitment)?;
+        pw.set_target(nullifier_hash_target, nullifier_hash)?;
 
         println!("Generating proof...");
         let proof = data.prove(pw)?;

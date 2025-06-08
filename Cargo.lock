@@ -13962,16 +13962,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wormhole-circuits"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "hex",
- "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
- "poseidon-resonance",
-]
-
-[[package]]
 name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
