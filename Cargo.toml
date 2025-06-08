@@ -22,14 +22,18 @@ members = [
     "dilithium-crypto/sign",
     "pallets/balances",
     "pallets/reversible-transfers",
+    "pallets/wormhole2",
     "external-miner",
     "resonance-miner-api",
+    "wormhole-circuits",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = [
+    "no_std",
+] }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
     "no_random",
 ] }
@@ -49,7 +53,7 @@ pallet-ranked-collective = { version = "39.0.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-referenda = { version = "39.1.0", default-features = false }
 pallet-scheduler = { version = "40.1.0", default-features = false }
-pallet-treasury = { version = "38.1.0", default-features = false}
+pallet-treasury = { version = "38.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 parking_lot = { version = "0.12.1", default-features = false }
 pallet-vesting = { version = "39.1.0", default-features = false }

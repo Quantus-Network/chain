@@ -6869,6 +6869,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-wormhole2"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances 40.0.1",
+ "parity-scale-codec",
+ "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "parity-bip39"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13942,6 +13959,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags 2.9.1",
+]
+
+[[package]]
+name = "wormhole-circuits"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "plonky2 1.0.2 (git+https://github.com/Quantus-Network/plonky2)",
+ "poseidon-resonance",
 ]
 
 [[package]]

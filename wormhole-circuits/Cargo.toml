@@ -1,0 +1,10 @@
+[package]
+name = "wormhole-circuits"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+hex = { workspace = true }
+plonky2 = { workspace = true }
+poseidon-resonance = { workspace = true }
+anyhow = "1.0.75"
