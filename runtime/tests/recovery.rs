@@ -41,7 +41,6 @@ fn full_recovery_cycle_works() {
         // Capture initial balances for later verification.
         let initial_lost_balance = Balances::free_balance(&lost_account);
         let initial_recovery_balance = Balances::free_balance(&recovery_account);
-        let initial_total_balance = initial_lost_balance + initial_recovery_balance;
 
         println!("Initial lost account balance: {}", initial_lost_balance);
         println!(
@@ -76,18 +75,21 @@ fn full_recovery_cycle_works() {
             MultiAddress::Id(lost_account.clone()),
         ));
 
+        // 5. As the controller, close the recovery to unfreeze funds and return deposits.
+        let close_recovery_call = Box::new(RuntimeCall::Recovery(
+            pallet_recovery::Call::close_recovery {
+                rescuer: MultiAddress::Id(recovery_account.clone()),
+            },
+        ));
+        assert_ok!(Recovery::as_recovered(
+            RuntimeOrigin::signed(recovery_account.clone()),
+            MultiAddress::Id(lost_account.clone()),
+            close_recovery_call
+        ));
+
         // The balance of the lost account *before* the final transfer.
         let lost_balance_before_transfer = Balances::free_balance(&lost_account);
-        println!(
-            "Lost account balance before transfer: {}",
-            lost_balance_before_transfer
-        );
-
         let recovery_balance_before_transfer = Balances::free_balance(&recovery_account);
-        println!(
-            "Recovery account balance before transfer: {}",
-            recovery_balance_before_transfer
-        );
 
         // 5. As the recovery account, execute a `transfer_all` call on behalf of the lost account.
         let transfer_all_call =
@@ -114,11 +116,8 @@ fn full_recovery_cycle_works() {
         // The lost account should be left with only the existential deposit.
         assert_eq!(final_lost_balance, existential_deposit);
 
-        // The total balance should be conserved, minus transaction fees and the locked deposit.
-        // We check that the loss is less than a small fraction of the initial total.
-        let fee_tolerance = initial_total_balance / 1000; // 0.1% tolerance
         assert!(
-            final_recovery_balance > expected_recovery_balance - fee_tolerance,
+            final_recovery_balance == expected_recovery_balance,
             "Total balance decreased by more than 0.1% (fees)."
         );
     });
