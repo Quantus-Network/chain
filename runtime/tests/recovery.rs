@@ -107,6 +107,8 @@ fn full_recovery_cycle_works() {
         // 6. Verify the outcome.
         let final_lost_balance = Balances::free_balance(&lost_account);
         let final_recovery_balance = Balances::free_balance(&recovery_account);
+
+        // Note: We use the values from before the final transfer because both accounts paid some fees
         let expected_recovery_balance =
             recovery_balance_before_transfer + (lost_balance_before_transfer - final_lost_balance);
 
@@ -116,9 +118,6 @@ fn full_recovery_cycle_works() {
         // The lost account should be left with only the existential deposit.
         assert_eq!(final_lost_balance, existential_deposit);
 
-        assert!(
-            final_recovery_balance == expected_recovery_balance,
-            "Total balance decreased by more than 0.1% (fees)."
-        );
+        assert_eq!(final_recovery_balance, expected_recovery_balance);
     });
 }
