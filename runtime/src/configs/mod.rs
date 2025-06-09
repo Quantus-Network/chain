@@ -423,6 +423,19 @@ impl pallet_utility::Config for Runtime {
 }
 
 parameter_types! {
+    pub const MaxProofLength: u32 = 256;
+    pub const UnsignedVotePriority: u64 = 100;
+}
+
+impl pallet_voting::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RegisterOrigin = frame_system::EnsureSigned<AccountId>;
+    type MaxProofLength = MaxProofLength;
+    type UnsignedVotePriority = UnsignedVotePriority;
+    type WeightInfo = pallet_voting::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
     pub const DefaultDelay: BlockNumber = 10;
     pub const MinDelayPeriod: BlockNumber = 2;

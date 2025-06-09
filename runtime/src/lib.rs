@@ -28,6 +28,7 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_merkle_airdrop;
 pub use pallet_reversible_transfers as ReversibleTransfersCall;
 pub use pallet_timestamp::Call as TimestampCall;
+pub use pallet_voting;
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -284,4 +285,7 @@ mod runtime {
 
     #[runtime::pallet_index(20)]
     pub type Origins = pallet_custom_origins;
+
+    #[runtime::pallet_index(21)]
+    pub type Voting = pallet_voting;
 }
