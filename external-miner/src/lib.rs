@@ -595,10 +595,18 @@ mod tests {
         let job = MiningJob::new(header_hash, distance_threshold, nonce_start, nonce_end);
         state.add_job("fail_job".to_string(), job).await.unwrap();
 
-        // Give the mining loop time to process the job
-        sleep(Duration::from_millis(500)).await;
+        let mut finished_job = None;
+        for _ in 0..50 {
+            // Poll for 5 seconds max (50 * 100ms)
+            let job_status = state.get_job("fail_job").await.unwrap();
+            if job_status.status != JobStatus::Running {
+                finished_job = Some(job_status);
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
 
-        let finished_job = state.get_job("fail_job").await.unwrap();
+        let finished_job = finished_job.expect("Job did not finish in time");
         assert_eq!(finished_job.status, JobStatus::Failed);
         assert!(finished_job.total_hash_count > 0);
     }
@@ -618,10 +626,18 @@ mod tests {
         let job = MiningJob::new(header_hash, distance_threshold, nonce_start, nonce_end);
         state.add_job("success_job".to_string(), job).await.unwrap();
 
-        // Give the mining loop time to find a solution
-        sleep(Duration::from_millis(500)).await;
+        let mut finished_job = None;
+        for _ in 0..50 {
+            // Poll for 5 seconds max
+            let job_status = state.get_job("success_job").await.unwrap();
+            if job_status.status != JobStatus::Running {
+                finished_job = Some(job_status);
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
 
-        let finished_job = state.get_job("success_job").await.unwrap();
+        let finished_job = finished_job.expect("Job did not finish in time");
         assert_eq!(finished_job.status, JobStatus::Completed);
         assert!(finished_job.best_result.is_some());
     }
