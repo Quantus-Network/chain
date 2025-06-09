@@ -1,9 +1,6 @@
-#[path = "common.rs"]
-mod common;
-
 #[cfg(test)]
 mod tests {
-    use crate::common::{account_id, new_test_ext, run_to_block};
+    use crate::common::TestCommons;
     use codec::Encode;
     use frame_support::traits::{ConstU32, Currency, QueryPreimage};
     use frame_support::{assert_noop, assert_ok, traits::PreimageProvider, BoundedVec};
@@ -17,15 +14,15 @@ mod tests {
     };
     use sp_runtime::traits::Hash;
 
-    // Helper function to create simple test data
+    // Helper function to create governance test data
     fn bounded(s: &[u8]) -> BoundedVec<u8, ConstU32<100>> {
         s.to_vec().try_into().unwrap()
     }
 
     #[test]
     fn note_preimage_works() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
             // Check initial balance
             let initial_balance = Balances::free_balance(&account);
 
@@ -57,8 +54,8 @@ mod tests {
 
     #[test]
     fn unnote_preimage_works() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&account);
 
             // Create test data
@@ -95,8 +92,8 @@ mod tests {
 
     #[test]
     fn request_preimage_works() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&account);
 
             // Create test data
@@ -130,8 +127,8 @@ mod tests {
 
     #[test]
     fn unrequest_preimage_works() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
 
             // Create test data
             let preimage_data = bounded(b"test_preimage_data");
@@ -162,8 +159,8 @@ mod tests {
 
     #[test]
     fn preimage_cannot_be_noted_twice() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
 
             // Create test data
             let preimage_data = bounded(b"test_preimage_data");
@@ -187,8 +184,8 @@ mod tests {
 
     #[test]
     fn preimage_too_large_fails() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
 
             // Create large data exceeding the limit
             // 5MB should be larger than any reasonable limit
@@ -206,9 +203,9 @@ mod tests {
 
     #[test]
     fn scheduler_works() {
-        new_test_ext().execute_with(|| {
-            let account = account_id(1);
-            let recipient = account_id(2);
+        TestCommons::new_test_ext().execute_with(|| {
+            let account = TestCommons::account_id(1);
+            let recipient = TestCommons::account_id(2);
 
             // Check initial balances
             let initial_balance = Balances::free_balance(&account);
@@ -234,12 +231,12 @@ mod tests {
             ));
 
             // Advance to block 9
-            run_to_block(9);
+            TestCommons::run_to_block(9);
             assert_eq!(Balances::free_balance(&account), initial_balance);
             assert_eq!(Balances::free_balance(&recipient), recipient_balance);
 
             // Advance to block 10
-            run_to_block(10);
+            TestCommons::run_to_block(10);
 
             // Verify the transfer occurred
             assert_eq!(
@@ -257,8 +254,8 @@ mod tests {
 
     #[test]
     fn referendum_submission_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&proposer);
 
             // Make sure we have sufficient funds
@@ -278,8 +275,8 @@ mod tests {
 
             // Create a call for the proposal
             let call = RuntimeCall::Balances(pallet_balances::Call::force_transfer {
-                source: account_id(1).into(),
-                dest: account_id(42).into(),
+                source: TestCommons::account_id(1).into(),
+                dest: TestCommons::account_id(42).into(),
                 value: 1,
             });
 
@@ -345,8 +342,8 @@ mod tests {
 
     #[test]
     fn referendum_cancel_by_root_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&proposer);
 
             // Prepare origin for the proposal
@@ -421,10 +418,10 @@ mod tests {
 
     #[test]
     fn referendum_voting_and_passing_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let voter1 = account_id(2);
-            let voter2 = account_id(3);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let voter1 = TestCommons::account_id(2);
+            let voter2 = TestCommons::account_id(3);
 
             // Ensure voters have enough balance
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
@@ -507,7 +504,7 @@ mod tests {
             let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
             let prepare_period = track_info.prepare_period;
 
-            run_to_block(prepare_period + 1);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // Check if referendum is in deciding phase
             let info =
@@ -528,10 +525,10 @@ mod tests {
                 .map(|info| info.decision_period)
                 .unwrap_or(30); // Fallback value if track info can't be retrieved
 
-            run_to_block(10 + voting_period);
+            TestCommons::run_to_block(10 + voting_period);
 
             // Now advance through confirmation period
-            run_to_block(10 + voting_period + 10); // Add some extra blocks for confirmation
+            TestCommons::run_to_block(10 + voting_period + 10); // Add some extra blocks for confirmation
 
             // Check if referendum passed
             let info =
@@ -547,11 +544,11 @@ mod tests {
 
     #[test]
     fn delegated_voting_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let delegate = account_id(2);
-            let delegator1 = account_id(3);
-            let delegator2 = account_id(4);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let delegate = TestCommons::account_id(2);
+            let delegator1 = TestCommons::account_id(3);
+            let delegator2 = TestCommons::account_id(4);
 
             // Set up sufficient balances for all accounts
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
@@ -675,7 +672,7 @@ mod tests {
             // Advance to deciding phase
             let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
             let prepare_period = track_info.prepare_period;
-            run_to_block(prepare_period + 1);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // Check the tally includes both direct and delegated votes
             let referendum_info =
@@ -720,7 +717,7 @@ mod tests {
             );
 
             // Advance blocks to update tally
-            run_to_block(prepare_period + 10);
+            TestCommons::run_to_block(prepare_period + 10);
 
             // The undelegated account now votes directly
             assert_ok!(ConvictionVoting::vote(
@@ -755,7 +752,7 @@ mod tests {
             // Complete the referendum
             let decision_period = track_info.decision_period;
             let confirm_period = track_info.confirm_period;
-            run_to_block(prepare_period + decision_period + confirm_period + 10);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 10);
 
             // Check referendum passed despite the vote against
             let final_info =
@@ -821,7 +818,7 @@ mod tests {
             ));
 
             // Advance to deciding phase
-            run_to_block(prepare_period + decision_period + confirm_period + 20);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 20);
 
             // Verify active delegations are automatically applied to the new referendum
             let referendum_info2 =
