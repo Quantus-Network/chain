@@ -7,7 +7,7 @@ use frame_support::{
     PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
-use qp_common::scheduler::BlockNumberOrTimestamp;
+use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::{ConstU128, ConstU32};
 use sp_runtime::{BuildStorage, Perbill, Weight};
 

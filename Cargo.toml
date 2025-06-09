@@ -82,7 +82,7 @@ sp-blockchain = { version = "38.0.0", default-features = false }
 sp-consensus = { version = "0.41.0", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
-qp-common = { path = "./primitives/common", default-features = false }
+qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 sp-faucet = { path = "./primitives/faucet", default-features = false }
 sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }

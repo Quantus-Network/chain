@@ -25,7 +25,7 @@ use alloc::vec::Vec;
 use frame_support::pallet_prelude::*;
 use frame_support::traits::tokens::{Fortitude, Restriction};
 use frame_system::pallet_prelude::*;
-use qp_common::scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
+use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_runtime::traits::StaticLookup;
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.

@@ -6,7 +6,7 @@ use frame_support::traits::fungible::InspectHold;
 use frame_support::traits::{StorePreimage, Time};
 use frame_support::{assert_err, assert_ok};
 use pallet_scheduler::Agenda;
-use qp_common::scheduler::BlockNumberOrTimestamp;
+use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
 

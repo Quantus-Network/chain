@@ -44,7 +44,7 @@ use pallet_ranked_collective::Linear;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
-use qp_common::scheduler::BlockNumberOrTimestamp;
+use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::traits::ConvertInto;
 use sp_runtime::{traits::One, Perbill};
 use sp_version::RuntimeVersion;

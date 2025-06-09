@@ -20,7 +20,7 @@ sp-io.workspace = true
 sp-runtime.workspace = true
 sp-weights.workspace = true
 docify = { workspace = true }
-qp-common = { workspace = true, default-features = false }
+qp-scheduler = { workspace = true, default-features = false }
 
 
 [dev-dependencies]

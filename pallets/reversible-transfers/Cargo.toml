@@ -20,7 +20,7 @@ frame-support.workspace = true
 frame-system.workspace = true
 sp-runtime.workspace = true
 pallet-balances = { workspace = true }
-qp-common = { workspace = true, default-features = false }
+qp-scheduler = { workspace = true, default-features = false }
 
 [dev-dependencies]
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
@@ -30,7 +30,7 @@ pallet-scheduler = { workspace = true, default-features = false }
 pallet-timestamp = { workspace = true, default-features = false }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, default-features = false }
-qp-common = { workspace = true, default-features = false }
+qp-scheduler = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -43,7 +43,7 @@ std = [
 	"scale-info/std",
 	"sp-runtime/std",
 	"pallet-balances/std",
-	"qp-common/std",
+	"qp-scheduler/std",
 	"pallet-scheduler/std",
 ]
 # Enable support for setting the existential deposit to zero.

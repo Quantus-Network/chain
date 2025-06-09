@@ -88,7 +88,7 @@ use frame_system::{
     pallet_prelude::BlockNumberFor,
     {self as system},
 };
-use qp_common::scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
+use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
 use scale_info::TypeInfo;
 use sp_runtime::{
     traits::{BadOrigin, Dispatchable, One, Saturating},
