@@ -6,6 +6,7 @@ use frame_support::traits::fungible::InspectHold;
 use frame_support::traits::StorePreimage;
 use frame_support::{assert_err, assert_ok};
 use pallet_scheduler::Agenda;
+use sp_common::scheduler::BlockNumberOrTimestamp;
 use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
 
@@ -203,6 +204,7 @@ fn schedule_transfer_works() {
         } = ReversibleTransfers::is_reversible(&user).unwrap();
         let expected_block = System::block_number() + user_delay;
         let bounded = Preimage::bound(call.clone()).unwrap();
+        let expected_block = BlockNumberOrTimestamp::BlockNumber(expected_block);
 
         assert!(Agenda::<Test>::get(expected_block).len() == 0);
 
@@ -228,7 +230,7 @@ fn schedule_transfer_works() {
         assert!(Agenda::<Test>::get(expected_block).len() > 0);
 
         // Skip to the delay block
-        run_to_block(expected_block);
+        run_to_block(expected_block.as_block_number().unwrap());
 
         // Check that the transfer is executed
         assert_eq!(Balances::free_balance(user), user_balance - amount);
@@ -402,7 +404,8 @@ fn cancel_dispatch_works() {
         let ReversibleAccountData {
             delay: user_delay, ..
         } = ReversibleTransfers::is_reversible(&user).unwrap();
-        let execute_block = System::block_number() + user_delay;
+        let execute_block =
+            BlockNumberOrTimestamp::BlockNumber(System::block_number() + user_delay);
 
         assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
@@ -529,7 +532,7 @@ fn full_flow_execute_works() {
         let ReversibleAccountData { delay, .. } =
             ReversibleTransfers::is_reversible(&user).unwrap();
         let start_block = System::block_number();
-        let execute_block = start_block + delay;
+        let execute_block = BlockNumberOrTimestamp::BlockNumber(start_block + delay);
 
         assert_ok!(ReversibleTransfers::schedule_transfer(
             RuntimeOrigin::signed(user),
@@ -540,7 +543,7 @@ fn full_flow_execute_works() {
         assert!(Agenda::<Test>::get(execute_block).len() > 0);
         assert_eq!(Balances::free_balance(user), initial_user_balance - 50); // Not executed yet, but on hold
 
-        run_to_block(execute_block);
+        run_to_block(execute_block.as_block_number().unwrap());
 
         // Event should be emitted by execute_transfer called by scheduler
         let expected_event = Event::TransactionExecuted {
