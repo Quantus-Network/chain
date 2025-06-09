@@ -2,6 +2,7 @@ mod common;
 
 use common::TestCommons;
 use frame_support::traits::Contains;
+use frame_support::weights::Weight;
 use resonance_runtime::{Runtime, RuntimeCall};
 
 #[test]
@@ -26,9 +27,14 @@ fn test_can_batch_txs() {
 #[test]
 fn test_can_batch_non_batch_utility_call() {
     TestCommons::new_test_ext().execute_with(|| {
+        let remark_call = RuntimeCall::System(frame_system::Call::remark {
+            remark: b"hello".to_vec(),
+        });
+
         let call = RuntimeCall::Utility(pallet_utility::Call::batch {
-            calls: vec![RuntimeCall::System(frame_system::Call::remark {
-                remark: b"hello".to_vec(),
+            calls: vec![RuntimeCall::Utility(pallet_utility::Call::with_weight {
+                call: Box::new(remark_call),
+                weight: Weight::from_parts(10_000, 0),
             })],
         });
 

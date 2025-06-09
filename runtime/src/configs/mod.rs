@@ -90,9 +90,10 @@ impl Contains<RuntimeCall> for NoNestingCallFilter {
                     _ => return true,
                 };
 
-                !calls
-                    .iter()
-                    .any(|call| matches!(call, RuntimeCall::Utility(..)))
+                let nested_call_contains_batch = calls.iter().any(|call| {
+					matches!(call, RuntimeCall::Utility(inner) if matches!(inner, pallet_utility::Call::force_batch { .. } | pallet_utility::Call::batch_all { .. } | pallet_utility::Call::batch { .. }))
+				});
+                !nested_call_contains_batch
             }
             _ => true,
         }
