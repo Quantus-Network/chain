@@ -8791,6 +8791,7 @@ dependencies = [
  "serde_json",
  "sp-api",
  "sp-block-builder",
+ "sp-common",
  "sp-consensus-qpow",
  "sp-core",
  "sp-faucet",
