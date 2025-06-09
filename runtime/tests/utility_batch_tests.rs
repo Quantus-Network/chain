@@ -2,49 +2,111 @@ mod common;
 
 use common::TestCommons;
 use frame_support::traits::Contains;
-use resonance_runtime::{configs::NoNestingCallFilter, RuntimeCall};
+use resonance_runtime::{Runtime, RuntimeCall};
 
 #[test]
-fn utility_batch_works() {
+fn test_can_batch_txs() {
+    TestCommons::new_test_ext().execute_with(|| {
+        let bob = TestCommons::account_id(2);
+        let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+            calls: vec![RuntimeCall::Balances(
+                pallet_balances::Call::transfer_allow_death {
+                    dest: bob.into(),
+                    value: 1000,
+                },
+            )],
+        });
+
+        assert!(<Runtime as frame_system::Config>::BaseCallFilter::contains(
+            &call
+        ));
+    });
+}
+
+#[test]
+fn test_can_batch_non_batch_utility_call() {
     TestCommons::new_test_ext().execute_with(|| {
         let call = RuntimeCall::Utility(pallet_utility::Call::batch {
             calls: vec![RuntimeCall::System(frame_system::Call::remark {
-                remark: vec![1],
+                remark: b"hello".to_vec(),
             })],
         });
-        assert!(NoNestingCallFilter::contains(&call));
+
+        assert!(<Runtime as frame_system::Config>::BaseCallFilter::contains(
+            &call
+        ));
     });
 }
 
 #[test]
-fn nested_utility_batch_is_disallowed() {
+fn test_cant_nest_batch_txs() {
     TestCommons::new_test_ext().execute_with(|| {
-        let inner_call = RuntimeCall::Utility(pallet_utility::Call::batch { calls: vec![] });
+        let bob = TestCommons::account_id(2);
+        let charlie = TestCommons::account_id(3);
+
         let call = RuntimeCall::Utility(pallet_utility::Call::batch {
-            calls: vec![inner_call],
+            calls: vec![
+                RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                    dest: bob.into(),
+                    value: 1000,
+                }),
+                RuntimeCall::Utility(pallet_utility::Call::batch {
+                    calls: vec![RuntimeCall::Balances(
+                        pallet_balances::Call::transfer_allow_death {
+                            dest: charlie.into(),
+                            value: 1000,
+                        },
+                    )],
+                }),
+            ],
         });
-        assert!(!NoNestingCallFilter::contains(&call));
+
+        assert!(!<Runtime as frame_system::Config>::BaseCallFilter::contains(&call));
     });
 }
 
 #[test]
-fn nested_utility_force_batch_is_disallowed() {
+fn test_cant_nest_different_batch_types() {
     TestCommons::new_test_ext().execute_with(|| {
-        let inner_call = RuntimeCall::Utility(pallet_utility::Call::force_batch { calls: vec![] });
-        let call = RuntimeCall::Utility(pallet_utility::Call::batch {
-            calls: vec![inner_call],
-        });
-        assert!(!NoNestingCallFilter::contains(&call));
-    });
-}
+        let charlie = TestCommons::account_id(3);
 
-#[test]
-fn utility_batch_with_non_batch_utility_call_works() {
-    TestCommons::new_test_ext().execute_with(|| {
-        let inner_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+        // batch in batch
         let call = RuntimeCall::Utility(pallet_utility::Call::batch {
-            calls: vec![inner_call],
+            calls: vec![RuntimeCall::Utility(pallet_utility::Call::force_batch {
+                calls: vec![RuntimeCall::Balances(
+                    pallet_balances::Call::transfer_allow_death {
+                        dest: charlie.clone().into(),
+                        value: 1000,
+                    },
+                )],
+            })],
         });
-        assert!(NoNestingCallFilter::contains(&call));
+        assert!(!<Runtime as frame_system::Config>::BaseCallFilter::contains(&call));
+
+        // batch_all in batch
+        let call2 = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+            calls: vec![RuntimeCall::Utility(pallet_utility::Call::batch {
+                calls: vec![RuntimeCall::Balances(
+                    pallet_balances::Call::transfer_allow_death {
+                        dest: charlie.clone().into(),
+                        value: 1000,
+                    },
+                )],
+            })],
+        });
+        assert!(!<Runtime as frame_system::Config>::BaseCallFilter::contains(&call2));
+
+        // force_batch in batch_all
+        let call3 = RuntimeCall::Utility(pallet_utility::Call::force_batch {
+            calls: vec![RuntimeCall::Utility(pallet_utility::Call::batch_all {
+                calls: vec![RuntimeCall::Balances(
+                    pallet_balances::Call::transfer_allow_death {
+                        dest: charlie.into(),
+                        value: 1000,
+                    },
+                )],
+            })],
+        });
+        assert!(!<Runtime as frame_system::Config>::BaseCallFilter::contains(&call3));
     });
 }
