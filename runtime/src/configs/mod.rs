@@ -30,7 +30,7 @@ use crate::governance::definitions::{
     RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
 };
 use crate::governance::{pallet_custom_origins, Spender};
-use frame_support::traits::{ConstU64, EitherOf, NeverEnsureOrigin, WithdrawReasons};
+use frame_support::traits::{ConstU64, Contains, EitherOf, NeverEnsureOrigin, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -77,11 +77,34 @@ parameter_types! {
     pub MiningRewardsFeesToTreasury: Permill = Permill::from_percent(10);
 }
 
+pub struct NoNestingCallFilter;
+
+impl Contains<RuntimeCall> for NoNestingCallFilter {
+    fn contains(call: &RuntimeCall) -> bool {
+        match call {
+            RuntimeCall::Utility(inner) => {
+                let calls = match inner {
+                    pallet_utility::Call::force_batch { calls } => calls,
+                    pallet_utility::Call::batch { calls } => calls,
+                    pallet_utility::Call::batch_all { calls } => calls,
+                    _ => return true,
+                };
+
+                !calls
+                    .iter()
+                    .any(|call| matches!(call, RuntimeCall::Utility(..)))
+            }
+            _ => true,
+        }
+    }
+}
+
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
 /// [`SoloChainDefaultConfig`](`struct@frame_system::config_preludes::SolochainDefaultConfig`),
 /// but overridden as needed.
 #[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
 impl frame_system::Config for Runtime {
+    type BaseCallFilter = NoNestingCallFilter;
     /// The block type for the runtime.
     type Block = Block;
     /// Block & extrinsics weights: base values and limits.
