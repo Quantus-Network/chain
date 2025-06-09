@@ -29,7 +29,9 @@ resolver = "2"
 
 [workspace.dependencies]
 resonance-runtime = { path = "./runtime", default-features = false }
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = [
+    "no_std",
+] }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
     "no_random",
 ] }
@@ -48,8 +50,9 @@ pallet-conviction-voting = { version = "39.1.0", default-features = false }
 pallet-ranked-collective = { version = "39.0.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-referenda = { version = "39.1.0", default-features = false }
-pallet-scheduler = { path="./pallets/scheduler", default-features = false }
-pallet-treasury = { version = "38.1.0", default-features = false}
+pallet-recovery = { version = "40.0.0", default-features = false }
+pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
+pallet-treasury = { version = "38.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 parking_lot = { version = "0.12.1", default-features = false }
 pallet-vesting = { version = "39.1.0", default-features = false }
@@ -119,8 +122,8 @@ substrate-wasm-builder = { version = "25.0.0", default-features = false }
 pallet-merkle-airdrop = { version = "0.1.0", path = "./pallets/merkle-airdrop", default-features = false }
 
 log = { version = "0.4.22", default-features = false }
-hex = {version = "0.4.3", default-features = false }
-primitive-types = { version="0.13.1", default-features=false }
-rand = {version = "0.8.5", default-features = false}
+hex = { version = "0.4.3", default-features = false }
+primitive-types = { version = "0.13.1", default-features = false }
+rand = { version = "0.8.5", default-features = false }
 
 substrate-test-utils = { version = "3.0.0", default-features = false }

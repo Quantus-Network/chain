@@ -13,14 +13,11 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-codec = { features = [
-	"derive",
-], workspace = true }
-scale-info = { features = [
-	"derive",
-	"serde",
-], workspace = true }
-serde_json = { workspace = true, default-features = false, features = ["alloc"] }
+codec = { features = ["derive"], workspace = true }
+scale-info = { features = ["derive", "serde"], workspace = true }
+serde_json = { workspace = true, default-features = false, features = [
+	"alloc",
+] }
 frame-support = { features = ["experimental"], workspace = true }
 frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
@@ -28,15 +25,16 @@ frame-executive.workspace = true
 frame-metadata-hash-extension.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting = { workspace = true, default-features = false }
-pallet-ranked-collective = { workspace = true, default-features = false}
+pallet-ranked-collective = { workspace = true, default-features = false }
 pallet-preimage = { workspace = true, default-features = false }
-pallet-referenda = {workspace = true, default-features = false }
+pallet-referenda = { workspace = true, default-features = false }
 pallet-scheduler = { workspace = true, default-features = false }
 pallet-treasury = { workspace = true, default-features = false }
 pallet-utility = { workspace = true, default-features = false }
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
+pallet-recovery = { workspace = true, default-features = false }
 sp-api.workspace = true
 sp-block-builder.workspace = true
 sp-keyring.workspace = true
@@ -53,14 +51,14 @@ frame-system-rpc-runtime-api.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 frame-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-benchmarking = { optional = true, workspace = true }
-pallet-faucet = {workspace = true, default-features = false}
-pallet-mining-rewards = {workspace = true, default-features = false}
-pallet-qpow = { workspace = true, default-features = false}
-pallet-wormhole = { workspace = true, default-features = false}
+pallet-faucet = { workspace = true, default-features = false }
+pallet-mining-rewards = { workspace = true, default-features = false }
+pallet-qpow = { workspace = true, default-features = false }
+pallet-wormhole = { workspace = true, default-features = false }
 pallet-reversible-transfers = { workspace = true, default-features = false }
 pallet-vesting = { workspace = true, default-features = false }
-sp-consensus-qpow = { workspace = true, default-features = false}
-sp-faucet = {workspace = true, default-features = false}
+sp-consensus-qpow = { workspace = true, default-features = false }
+sp-faucet = { workspace = true, default-features = false }
 log = { workspace = true }
 pallet-merkle-airdrop = { workspace = true, default-features = false }
 
@@ -78,7 +76,7 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 sp-std = { version = "14.0.0", default-features = true }
 hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
 env_logger = "0.11.5"
-sp-keyring = { workspace = true, features = ["std"]}
+sp-keyring = { workspace = true, features = ["std"] }
 sp-io = { workspace = true, default-features = true }
 sp-common = { workspace = true, default-features = false }
 
@@ -112,6 +110,7 @@ std = [
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
 	"pallet-merkle-airdrop/std",
+	"pallet-recovery/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
@@ -151,6 +150,7 @@ runtime-benchmarks = [
 	"pallet-treasury/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
+	"pallet-recovery/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
@@ -173,6 +173,7 @@ try-runtime = [
 	"pallet-sudo/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"pallet-treasury/try-runtime",
+	"pallet-recovery/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 
