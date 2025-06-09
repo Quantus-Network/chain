@@ -27,7 +27,7 @@ fn register_proposal_works() {
 
         assert_eq!(Voting::next_proposal_id(), 1);
 
-        System::assert_last_event(
+        System::assert_has_event(
             Event::ProposalRegistered {
                 proposal_id: 0,
                 creator: creator_account,
@@ -79,7 +79,8 @@ fn vote_works() {
         assert_eq!(proposal.no_votes, 0);
         assert!(UsedNullifiers::<Test>::contains_key(proposal_id, nullifier));
 
-        System::assert_last_event(Event::Voted { proposal_id, vote }.into());
+        // 4. Check for event
+        System::assert_has_event(Event::Voted { proposal_id, vote }.into());
     });
 }
 
