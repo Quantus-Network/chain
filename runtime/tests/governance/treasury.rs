@@ -1074,10 +1074,7 @@ mod tests {
                     matches!(
                         event_record.event,
                         RuntimeEvent::Scheduler(pallet_scheduler::Event::Dispatched {
-                            task: (
-                                sp_common::scheduler::BlockNumberOrTimestamp::BlockNumber(86402),
-                                0
-                            ),
+                            task: (qp_scheduler::BlockNumberOrTimestamp::BlockNumber(86402), 0),
                             id: _,
                             result: Ok(())
                         })
