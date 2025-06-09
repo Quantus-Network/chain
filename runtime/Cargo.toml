@@ -34,6 +34,7 @@ pallet-referenda = {workspace = true, default-features = false }
 pallet-scheduler = { workspace = true, default-features = false }
 pallet-treasury = { workspace = true, default-features = false }
 pallet-utility = { workspace = true, default-features = false }
+pallet-voting = { workspace = true, default-features = false }
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
@@ -105,6 +106,7 @@ std = [
 	"pallet-sudo/std",
 	"pallet-treasury/std",
 	"pallet-utility/std",
+	"pallet-voting/std",
 	"pallet-qpow/std",
 	"pallet-wormhole/std",
 	"pallet-timestamp/std",
@@ -153,6 +155,7 @@ runtime-benchmarks = [
 	"pallet-transaction-payment/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
+	"pallet-voting/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
 	"pallet-merkle-airdrop/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
