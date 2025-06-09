@@ -24,11 +24,13 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use crate::governance::{
+use crate::governance::definitions::{
     CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-    RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+    RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
+    RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
 };
-use frame_support::traits::{ConstU64, NeverEnsureOrigin, WithdrawReasons};
+use crate::governance::{pallet_custom_origins, Spender};
+use frame_support::traits::{ConstU64, EitherOf, NeverEnsureOrigin, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -39,14 +41,14 @@ use frame_support::{
     },
 };
 use frame_system::limits::{BlockLength, BlockWeights};
-use frame_system::EnsureRoot;
+use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use pallet_ranked_collective::Linear;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::traits::ConvertInto;
-use sp_runtime::{traits::One, Perbill};
+use sp_runtime::{traits::One, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
@@ -73,6 +75,7 @@ parameter_types! {
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
     pub const MaxProofs: u32 = 100;
     pub const UnsignedClaimPriority: u32 = 100;
+    pub MiningRewardsFeesToTreasury: Permill = Permill::from_percent(10);
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -127,6 +130,8 @@ impl pallet_mining_rewards::Config for Runtime {
     type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
     type Currency = Balances;
     type BlockReward = ConstU128<1_000_000_000_000>; // 1 token
+    type TreasuryPalletId = TreasuryPalletId;
+    type FeesToTreasuryPermill = MiningRewardsFeesToTreasury;
 }
 
 parameter_types! {
@@ -461,3 +466,45 @@ impl pallet_merkle_airdrop::Config for Runtime {
     type BlockNumberProvider = System;
     type BlockNumberToBalance = ConvertInto;
 }
+
+parameter_types! {
+    pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+    pub const ProposalBond: Permill = Permill::from_percent(5);
+    pub const ProposalBondMinimum: Balance = 1 * UNIT;
+    pub const ProposalBondMaximum: Option<Balance> = None;
+    pub const SpendPeriod: BlockNumber = 2 * DAYS;
+    pub const Burn: Permill = Permill::from_percent(0);
+    pub const MaxApprovals: u32 = 100;
+    pub const TreasuryPayoutPeriod: BlockNumber = 14 * DAYS; // Added for PayoutPeriod
+}
+
+impl pallet_treasury::Config for Runtime {
+    type PalletId = TreasuryPalletId;
+    type Currency = Balances;
+    type RejectOrigin = EnsureRoot<AccountId>;
+    type RuntimeEvent = RuntimeEvent;
+    type SpendPeriod = SpendPeriod;
+    type Burn = Burn;
+    type BurnDestination = (); // Treasury funds will be burnt without a specific destination
+    type SpendFunds = (); // No external pallets spending treasury funds directly through this hook
+    type MaxApprovals = MaxApprovals; // For deprecated spend_local flow
+    type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
+    type SpendOrigin = TreasurySpender; // Changed to use the custom EnsureOrigin
+    type AssetKind = (); // Using () to represent native currency for simplicity
+    type Beneficiary = AccountId; // Spends are paid to AccountId
+    type BeneficiaryLookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>; // Standard lookup for AccountId
+    type Paymaster = RuntimeNativePaymaster; // Custom paymaster for native currency
+    type BalanceConverter = RuntimeNativeBalanceConverter; // Custom converter for native currency
+    type PayoutPeriod = TreasuryPayoutPeriod; // How long a spend is valid for claiming
+    type BlockNumberProvider = System;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = (); // System pallet provides block number
+}
+
+parameter_types! {
+    pub const MaxBalance: Balance = Balance::max_value();
+}
+
+pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;
+
+impl pallet_custom_origins::Config for Runtime {}

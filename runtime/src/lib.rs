@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
@@ -12,7 +13,6 @@ pub use dilithium_crypto::ResonancePublic;
 pub use dilithium_crypto::ResonanceSignature;
 pub use dilithium_crypto::ResonanceSignatureScheme;
 
-extern crate alloc;
 use alloc::vec::Vec;
 use sp_runtime::{
     generic, impl_opaque_keys,
@@ -33,9 +33,11 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
-pub mod governance;
 pub mod transaction_extensions;
 
+pub mod governance;
+
+use crate::governance::pallet_custom_origins;
 use poseidon_resonance::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -272,8 +274,14 @@ mod runtime {
     pub type TechReferenda = pallet_referenda::Pallet<Runtime, Instance1>;
 
     #[runtime::pallet_index(17)]
-    pub type Faucet = pallet_faucet;
+    pub type MerkleAirdrop = pallet_merkle_airdrop;
 
     #[runtime::pallet_index(18)]
-    pub type MerkleAirdrop = pallet_merkle_airdrop;
+    pub type TreasuryPallet = pallet_treasury;
+
+    #[runtime::pallet_index(19)]
+    pub type Faucet = pallet_faucet;
+
+    #[runtime::pallet_index(20)]
+    pub type Origins = pallet_custom_origins;
 }

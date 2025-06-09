@@ -6640,6 +6640,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-balances"
+version = "40.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fbabdd4c43723e94a6f806853d19a2db5cac45152bc67ab1ae7327eedca0971"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-conviction-voting"
 version = "39.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6664,7 +6680,7 @@ dependencies = [
  "frame-system",
  "hex",
  "log",
- "pallet-balances",
+ "pallet-balances 40.0.1",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -6682,7 +6698,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances",
+ "pallet-balances 40.0.1",
  "pallet-vesting",
  "parity-scale-codec",
  "poseidon-resonance",
@@ -6701,7 +6717,8 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances",
+ "pallet-balances 40.0.1",
+ "pallet-treasury",
  "parity-scale-codec",
  "scale-info",
  "sp-consensus-pow",
@@ -6795,7 +6812,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances",
+ "pallet-balances 40.0.1",
  "pallet-preimage",
  "pallet-scheduler",
  "pallet-timestamp",
@@ -6911,6 +6928,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-treasury"
+version = "38.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58278ce6cb5f7a1a0a4602e1854b1f9bf6a41d93bf3079b8dcb712bdf9e4ac06"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "pallet-balances 40.1.0",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-utility"
 version = "39.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6949,7 +6986,7 @@ dependencies = [
  "frame-system",
  "lazy_static",
  "log",
- "pallet-balances",
+ "pallet-balances 40.0.1",
  "parity-scale-codec",
  "plonky2",
  "scale-info",
@@ -8693,7 +8730,7 @@ dependencies = [
  "frame-try-runtime",
  "hdwallet",
  "log",
- "pallet-balances",
+ "pallet-balances 40.0.1",
  "pallet-conviction-voting",
  "pallet-faucet",
  "pallet-merkle-airdrop",
@@ -8708,6 +8745,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-treasury",
  "pallet-utility",
  "pallet-vesting",
  "pallet-wormhole",

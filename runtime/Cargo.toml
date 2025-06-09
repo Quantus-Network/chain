@@ -32,6 +32,7 @@ pallet-ranked-collective = { workspace = true, default-features = false}
 pallet-preimage = { workspace = true, default-features = false }
 pallet-referenda = {workspace = true, default-features = false }
 pallet-scheduler = { workspace = true, default-features = false }
+pallet-treasury = { workspace = true, default-features = false }
 pallet-utility = { workspace = true, default-features = false }
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
@@ -102,6 +103,7 @@ std = [
 	"pallet-referenda/std",
 	"pallet-scheduler/std",
 	"pallet-sudo/std",
+	"pallet-treasury/std",
 	"pallet-utility/std",
 	"pallet-qpow/std",
 	"pallet-wormhole/std",
@@ -146,6 +148,7 @@ runtime-benchmarks = [
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-referenda/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
+	"pallet-treasury/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
@@ -163,12 +166,13 @@ try-runtime = [
 	"frame-try-runtime/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-mining-rewards/try-runtime",
-	"pallet-sudo/try-runtime",
 	"pallet-qpow/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-vesting/try-runtime",
-	"pallet-transaction-payment/try-runtime",
 	"pallet-ranked-collective/try-runtime",
+	"pallet-sudo/try-runtime",
+	"pallet-transaction-payment/try-runtime",
+	"pallet-treasury/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

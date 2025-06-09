@@ -1,9 +1,6 @@
-#[path = "common.rs"]
-mod common;
-
 #[cfg(test)]
 mod tests {
-    use crate::common::{account_id, new_test_ext, run_to_block};
+    use crate::common::TestCommons;
     use codec::Encode;
     use frame_support::traits::Currency;
     use frame_support::{assert_noop, assert_ok};
@@ -18,10 +15,10 @@ mod tests {
 
     #[test]
     fn referendum_with_conviction_voting_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let voter_for = account_id(2);
-            let voter_against = account_id(3);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let voter_for = TestCommons::account_id(2);
+            let voter_against = TestCommons::account_id(3);
 
             // Ensure proposer has enough balance for preimage, submission and decision deposit
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
@@ -103,7 +100,7 @@ mod tests {
             // Advance blocks to get past prepare period
             let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
             let prepare_period = track_info.prepare_period;
-            run_to_block(prepare_period + 1);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // Ensure referendum is in deciding phase
             let info =
@@ -125,11 +122,11 @@ mod tests {
 
             // Advance to end of voting period
             let decision_period = track_info.decision_period;
-            run_to_block(prepare_period + decision_period + 1);
+            TestCommons::run_to_block(prepare_period + decision_period + 1);
 
             // Advance through confirmation period (optional, but good practice)
             let confirm_period = track_info.confirm_period;
-            run_to_block(prepare_period + decision_period + confirm_period + 2);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Check referendum outcome
             let info =
@@ -152,9 +149,9 @@ mod tests {
 
     #[test]
     fn referendum_execution_with_scheduler_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let target = account_id(4);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let target = TestCommons::account_id(4);
 
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
             // Give target account some initial balance
@@ -230,19 +227,19 @@ mod tests {
                 prepare_period + decision_period + confirm_period + min_enactment_period + 5; // Add buffer
 
             // Run through prepare period
-            run_to_block(prepare_period + 1);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // Run through decision period
-            run_to_block(prepare_period + decision_period + 1);
+            TestCommons::run_to_block(prepare_period + decision_period + 1);
 
             // Run through confirmation period
-            run_to_block(prepare_period + decision_period + confirm_period + 1);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 1);
 
             // Run to execution block with buffer
-            run_to_block(execution_block);
+            TestCommons::run_to_block(execution_block);
 
             // Run a few more blocks to ensure scheduler has run
-            run_to_block(execution_block + 10);
+            TestCommons::run_to_block(execution_block + 10);
 
             // Check final balance
             let final_target_balance = Balances::free_balance(&target);
@@ -258,10 +255,10 @@ mod tests {
 
     #[test]
     fn referendum_fails_with_insufficient_turnout() {
-        new_test_ext().execute_with(|| {
+        TestCommons::new_test_ext().execute_with(|| {
             // Test for track 1 (signed) where support is enabled
-            let proposer = account_id(1);
-            let voter = account_id(2);
+            let proposer = TestCommons::account_id(1);
+            let voter = TestCommons::account_id(2);
 
             // Ensure voters have enough balance
             Balances::make_free_balance_be(&voter, 1000 * UNIT);
@@ -322,7 +319,7 @@ mod tests {
             let decision_period = track_info.decision_period;
 
             // Advance to end of voting period
-            run_to_block(prepare_period + decision_period + 1);
+            TestCommons::run_to_block(prepare_period + decision_period + 1);
 
             // Check referendum outcome - should be rejected due to insufficient turnout
             let info =
@@ -341,8 +338,8 @@ mod tests {
 
     #[test]
     fn referendum_timeout_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
 
             // Prepare the proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark {
@@ -396,8 +393,8 @@ mod tests {
 
     #[test]
     fn referendum_token_slashing_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
             let initial_balance = 10000 * UNIT;
             Balances::make_free_balance_be(&proposer, initial_balance);
 
@@ -505,10 +502,10 @@ mod tests {
 
     #[test]
     fn signaling_track_referendum_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let voter1 = account_id(2);
-            let voter2 = account_id(3);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let voter1 = TestCommons::account_id(2);
+            let voter2 = TestCommons::account_id(3);
 
             // Set up much larger balances to ensure sufficient funds
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
@@ -594,7 +591,7 @@ mod tests {
             let confirm_period = 3 * HOURS;
 
             // Advance to deciding phase
-            run_to_block(prepare_period + 1);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // Verify referendum is in deciding phase
             let info =
@@ -615,7 +612,7 @@ mod tests {
             }
 
             // Advance through decision and confirmation
-            run_to_block(prepare_period + decision_period + confirm_period + 2);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Verify referendum passed
             let info =
@@ -629,9 +626,9 @@ mod tests {
 
     #[test]
     fn concurrent_tracks_referendum_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
-            let voter = account_id(2);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let voter = TestCommons::account_id(2);
 
             // Set up balances
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
@@ -754,7 +751,7 @@ mod tests {
             let signal_prepare = 6 * HOURS;
 
             // Advance to signal prepare completion (shortest)
-            run_to_block(signal_prepare + 1);
+            TestCommons::run_to_block(signal_prepare + 1);
 
             // Check signal referendum moved to deciding phase
             let signal_info =
@@ -783,7 +780,7 @@ mod tests {
             }
 
             // Advance to signed prepare completion
-            run_to_block(signed_prepare + 1);
+            TestCommons::run_to_block(signed_prepare + 1);
 
             // Check signed referendum moved to deciding phase
             let signed_info =
@@ -800,7 +797,7 @@ mod tests {
 
             // Advance through all decision periods to confirm all pass
             let longest_process = signed_prepare + 7 * DAYS + 12 * HOURS + 5; // Signed track has longest periods
-            run_to_block(longest_process);
+            TestCommons::run_to_block(longest_process);
 
             // Verify all referenda passed
             let signed_final =
@@ -826,8 +823,8 @@ mod tests {
     }
     #[test]
     fn max_deciding_limit_works() {
-        new_test_ext().execute_with(|| {
-            let proposer = account_id(1);
+        TestCommons::new_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
 
             // Set up sufficient balance
             Balances::make_free_balance_be(&proposer, 5000 * UNIT);
@@ -872,7 +869,7 @@ mod tests {
             }
 
             // Advance past prepare period for signaling track
-            run_to_block(6 * HOURS + 1);
+            TestCommons::run_to_block(6 * HOURS + 1);
 
             // Count how many referenda are in deciding phase
             let mut deciding_count = 0;
