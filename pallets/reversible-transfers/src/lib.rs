@@ -130,12 +130,18 @@ pub mod pallet {
         type MaxPendingPerAccount: Get<u32>;
 
         /// The default delay period for reversible transactions if none is specified.
+        ///
+        /// NOTE: default delay is always in blocks.
         #[pallet::constant]
         type DefaultDelay: Get<BlockNumberOrTimestampOf<Self>>;
 
-        /// The minimum delay period allowed for reversible transactions.
+        /// The minimum delay period allowed for reversible transactions, in blocks.
         #[pallet::constant]
-        type MinDelayPeriod: Get<BlockNumberOrTimestampOf<Self>>;
+        type MinDelayPeriodBlocks: Get<BlockNumberFor<Self>>;
+
+        /// The minimum delay period allowed for reversible transactions, in milliseconds.
+        #[pallet::constant]
+        type MinDelayPeriodMoment: Get<Self::Moment>;
 
         /// Pallet Id
         type PalletId: Get<PalletId>;
@@ -279,7 +285,20 @@ pub mod pallet {
             );
             let delay = delay.unwrap_or(T::DefaultDelay::get());
 
-            ensure!(delay >= T::MinDelayPeriod::get(), Error::<T>::DelayTooShort);
+            match delay {
+                BlockNumberOrTimestamp::BlockNumber(x) => {
+                    ensure!(
+                        x > T::MinDelayPeriodBlocks::get(),
+                        Error::<T>::DelayTooShort
+                    )
+                }
+                BlockNumberOrTimestamp::Timestamp(t) => {
+                    ensure!(
+                        t > T::MinDelayPeriodMoment::get(),
+                        Error::<T>::DelayTooShort
+                    )
+                }
+            }
 
             let reversible_account_data = ReversibleAccountData {
                 explicit_reverser: reverser,
@@ -341,12 +360,16 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
             assert!(
-                !T::MinDelayPeriod::get().is_zero(),
-                "`T::MinDelayPeriod` must be greater than 0"
+                !T::MinDelayPeriodBlocks::get().is_zero()
+                    && !T::MinDelayPeriodMoment::get().is_zero(),
+                "Minimum delay periods must be greater than 0"
             );
+
+            // NOTE: default delay is always in blocks
             assert!(
-                T::MinDelayPeriod::get() <= T::DefaultDelay::get(),
-                "`T::MinDelayPeriod` must be less or equal to `T::DefaultDelay`"
+                BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get())
+                    <= T::DefaultDelay::get(),
+                "Minimum delay periods must be less or equal to `T::DefaultDelay`"
             );
         }
     }
@@ -612,22 +635,22 @@ pub mod pallet {
         fn build(&self) {
             for (who, delay) in &self.initial_reversible_accounts {
                 // Basic validation, ensure delay is reasonable if needed
-                let delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
+                let wrapped_delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
 
-                if delay >= T::MinDelayPeriod::get() {
+                if delay >= &T::MinDelayPeriodBlocks::get() {
                     ReversibleAccounts::<T>::insert(
                         who,
                         ReversibleAccountData {
                             explicit_reverser: None,
-                            delay,
+                            delay: wrapped_delay,
                             policy: DelayPolicy::Explicit,
                         },
                     );
                 } else {
                     // Optionally log a warning during genesis build
                     log::warn!(
-                        "Genesis config for account {:?} has delay {:?} below MinDelayPeriod {:?}, skipping.",
-                        who, delay, T::MinDelayPeriod::get()
+                        "Genesis config for account {:?} has delay {:?} below MinDelayPeriodBlocks {:?}, skipping.",
+                        who, wrapped_delay, T::MinDelayPeriodBlocks::get()
                      );
                 }
             }

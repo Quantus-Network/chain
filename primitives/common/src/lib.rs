@@ -13,7 +13,7 @@ pub mod scheduler {
     };
     use scale_info::TypeInfo;
     use sp_runtime::{
-        traits::{Hash, One, Saturating, Zero},
+        traits::{CheckedDiv, Hash, One, Saturating, Zero},
         DispatchError, RuntimeDebug,
     };
 
@@ -44,13 +44,36 @@ pub mod scheduler {
     impl<BlockNumber, Moment> BlockNumberOrTimestamp<BlockNumber, Moment>
     where
         BlockNumber: Saturating + Copy + Parameter + One + Zero,
-        Moment: Saturating + Copy + Parameter + Zero,
+        Moment: Saturating + Copy + Parameter + Zero + CheckedDiv,
     {
+        /// Normalize timestamp value
+        pub fn normalize(&self, precision: Moment) -> Self {
+            match self {
+                BlockNumberOrTimestamp::BlockNumber(_) => self.clone(),
+                BlockNumberOrTimestamp::Timestamp(t) => {
+                    let stripped_t = t
+                        .checked_div(&precision)
+                        .unwrap_or(Zero::zero())
+                        .saturating_mul(precision);
+
+                    BlockNumberOrTimestamp::Timestamp(stripped_t.saturating_add(precision))
+                }
+            }
+        }
+
         /// Returns the block number if it is a block number.
         pub fn as_block_number(&self) -> Option<BlockNumber> {
             match self {
                 BlockNumberOrTimestamp::BlockNumber(x) => Some(*x),
                 BlockNumberOrTimestamp::Timestamp(_) => None,
+            }
+        }
+
+        /// Returns the timestamp if it is a timestamp
+        pub fn as_timestamp(&self) -> Option<Moment> {
+            match self {
+                BlockNumberOrTimestamp::BlockNumber(_) => None,
+                BlockNumberOrTimestamp::Timestamp(x) => Some(*x),
             }
         }
 
@@ -132,5 +155,72 @@ pub mod scheduler {
 
         /// Get the approximate dispatch block number for a task with a name.
         fn next_dispatch_time(id: TaskName) -> Result<BlockNumber, DispatchError>;
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::BlockNumberOrTimestamp; // Adjust path as needed
+
+        type DefaultBlockNumberOrTimestamp = BlockNumberOrTimestamp<u64, u64>;
+
+        #[test]
+        fn normalize_block_number_is_unchanged() {
+            let bn = DefaultBlockNumberOrTimestamp::BlockNumber(123u64);
+            assert_eq!(
+                bn.normalize(10u64),
+                DefaultBlockNumberOrTimestamp::BlockNumber(123u64)
+            );
+        }
+
+        #[test]
+        fn normalize_timestamp_mid_bucket() {
+            // Tests the common case: timestamp within a bucket.
+            // Expected: start of the *next* bucket.
+            let ts = DefaultBlockNumberOrTimestamp::Timestamp(15500u64); // Bucket [14000, 15999]
+                                                                         // Calculation: (15500 / 2000) * 2000 + 2000 = 14000 + 2000 = 16000
+            assert_eq!(
+                ts.normalize(2000u64),
+                DefaultBlockNumberOrTimestamp::Timestamp(16000u64)
+            );
+        }
+
+        #[test]
+        fn normalize_timestamp_at_bucket_start_boundary() {
+            // Tests behavior when timestamp is exactly at a bucket start.
+            // Expected: start of the *next* bucket.
+            let ts = DefaultBlockNumberOrTimestamp::Timestamp(14000u64); // Exactly at start of bucket [14000, 15999]
+            let precision = 2000u64;
+            // Calculation: (14000 / 2000) * 2000 + 2000 = 14000 + 2000 = 16000
+            assert_eq!(
+                ts.normalize(precision),
+                DefaultBlockNumberOrTimestamp::Timestamp(16000u64)
+            );
+        }
+
+        #[test]
+        fn normalize_timestamp_zero_value() {
+            // Tests the zero timestamp edge case.
+            // Expected: 0 + precision.
+            let ts = DefaultBlockNumberOrTimestamp::Timestamp(0u64);
+            let precision = 2000u64;
+            // Calculation: (0 / 2000) * 2000 + 2000 = 0 + 2000 = 2000
+            assert_eq!(
+                ts.normalize(precision),
+                DefaultBlockNumberOrTimestamp::Timestamp(2000u64)
+            );
+        }
+
+        #[test]
+        fn normalize_timestamp_less_than_precision() {
+            // Tests when timestamp is smaller than the precision (falls into the first bucket [0, precision-1]).
+            // Expected: 0 + precision.
+            let ts = DefaultBlockNumberOrTimestamp::Timestamp(500u64);
+            let precision = 2000u64;
+            // Calculation: (500 / 2000) * 2000 + 2000 = 0 + 2000 = 2000
+            assert_eq!(
+                ts.normalize(precision),
+                DefaultBlockNumberOrTimestamp::Timestamp(2000u64)
+            );
+        }
     }
 }

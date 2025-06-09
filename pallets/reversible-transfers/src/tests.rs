@@ -3,7 +3,7 @@
 use super::*; // Import items from parent module (lib.rs)
 use crate::mock::*; // Import mock runtime and types
 use frame_support::traits::fungible::InspectHold;
-use frame_support::traits::StorePreimage;
+use frame_support::traits::{StorePreimage, Time};
 use frame_support::{assert_err, assert_ok};
 use pallet_scheduler::Agenda;
 use qp_common::scheduler::BlockNumberOrTimestamp;
@@ -122,9 +122,7 @@ fn set_reversibility_works() {
         );
 
         // Too short delay
-        let short_delay = BlockNumberOrTimestamp::BlockNumber(
-            MinDelayPeriod::get().as_block_number().unwrap() - 1,
-        );
+        let short_delay = BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get() - 1);
 
         let new_user = 4;
         assert_err!(
@@ -171,12 +169,67 @@ fn set_reversibility_works() {
 }
 
 #[test]
+fn set_reversibility_with_timestamp_delay_works() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1); // Block number still relevant for system events, etc.
+        MockTimestamp::<Test>::set_timestamp(1_000_000); // Initial mock time
+
+        let user = 4;
+        // Assuming MinDelayPeriod allows for timestamp delays of this magnitude.
+        // e.g., MinDelayPeriod is Timestamp(1000) and TimestampBucketSize is 1000.
+        // A delay of 5 * TimestampBucketSize = 5000.
+        let delay = BlockNumberOrTimestamp::Timestamp(5 * TimestampBucketSize::get());
+
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(user),
+            Some(delay),
+            DelayPolicy::Intercept,
+            None,
+        ));
+        assert_eq!(
+            ReversibleTransfers::is_reversible(&user),
+            Some(ReversibleAccountData {
+                delay,
+                policy: DelayPolicy::Intercept,
+                explicit_reverser: None,
+            })
+        );
+        System::assert_last_event(
+            Event::ReversibilitySet {
+                who: user,
+                data: ReversibleAccountData {
+                    delay,
+                    policy: DelayPolicy::Intercept,
+                    explicit_reverser: None,
+                },
+            }
+            .into(),
+        );
+
+        // Too short timestamp delay
+        // This requires MinDelayPeriodTimestamp to be set and > 0 for this check to be meaningful
+        // and not panic due to Ord issues if MinDelayPeriod is BlockNumber.
+        // Assuming MinDelayPeriodTimestamp is, say, 2 * TimestampBucketSize::get().
+        let short_delay_ts = BlockNumberOrTimestamp::Timestamp(TimestampBucketSize::get());
+        let another_user = 5;
+
+        assert_err!(
+            ReversibleTransfers::set_reversibility(
+                RuntimeOrigin::signed(another_user),
+                Some(short_delay_ts),
+                DelayPolicy::Explicit,
+                None,
+            ),
+            Error::<Test>::DelayTooShort
+        );
+    });
+}
+
+#[test]
 fn set_reversibility_fails_delay_too_short() {
     new_test_ext().execute_with(|| {
         let user = 2; // User 2 is not reversible initially
-        let short_delay = BlockNumberOrTimestamp::BlockNumber(
-            MinDelayPeriod::get().as_block_number().unwrap() - 1,
-        );
+        let short_delay = BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get() - 1);
 
         assert_err!(
             ReversibleTransfers::set_reversibility(
@@ -246,6 +299,143 @@ fn schedule_transfer_works() {
         // Use explicit reverser
         let reversible_account = 255;
         let explicit_reverser = user;
+
+        // Set reversibility
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(reversible_account),
+            Some(BlockNumberOrTimestamp::BlockNumber(10)),
+            DelayPolicy::Explicit,
+            Some(explicit_reverser),
+        ));
+
+        // Schedule transfer
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(reversible_account),
+            dest_user,
+            amount,
+        ));
+
+        let tx_id = calculate_tx_id(reversible_account, &call);
+        // Try reversing with original user
+        assert_err!(
+            ReversibleTransfers::cancel(RuntimeOrigin::signed(reversible_account), tx_id,),
+            Error::<Test>::InvalidReverser
+        );
+
+        let explicit_reverser_balance = Balances::free_balance(explicit_reverser);
+        let reversible_account_balance = Balances::free_balance(reversible_account);
+        let explicit_reverser_hold = Balances::balance_on_hold(
+            &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+            &explicit_reverser,
+        );
+        assert_eq!(explicit_reverser_hold, 0);
+
+        // Try reversing with explicit reverser
+        assert_ok!(ReversibleTransfers::cancel(
+            RuntimeOrigin::signed(explicit_reverser),
+            tx_id,
+        ));
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+
+        // Funds should be release as free balance to `explicit_reverser`
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &reversible_account
+            ),
+            0
+        );
+
+        assert_eq!(
+            Balances::free_balance(explicit_reverser),
+            explicit_reverser_balance + amount
+        );
+
+        // Unchanged balance for `reversible_account`
+        assert_eq!(
+            Balances::free_balance(reversible_account),
+            reversible_account_balance
+        );
+
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &explicit_reverser,
+            ),
+            0
+        );
+    });
+}
+
+#[test]
+fn schedule_transfer_with_timestamp_works() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let user = 255;
+        let dest_user = 2;
+        let amount = 100;
+        let dest_user_balance = Balances::free_balance(dest_user);
+        let user_balance = Balances::free_balance(user);
+
+        let call = transfer_call(dest_user, amount);
+        let tx_id = calculate_tx_id(user, &call);
+
+        // Set reversibility
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(user),
+            Some(BlockNumberOrTimestamp::Timestamp(10_000)),
+            DelayPolicy::Explicit,
+            None,
+        ));
+
+        let timestamp_bucket_size = TimestampBucketSize::get();
+        let current_time = MockTimestamp::<Test>::now();
+        let ReversibleAccountData {
+            delay: user_delay, ..
+        } = ReversibleTransfers::is_reversible(&user).unwrap();
+        let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size
+            + user_delay.as_timestamp().unwrap();
+
+        let bounded = Preimage::bound(call.clone()).unwrap();
+        let expected_timestamp =
+            BlockNumberOrTimestamp::Timestamp(expected_raw_timestamp + TimestampBucketSize::get());
+
+        assert!(Agenda::<Test>::get(expected_timestamp).len() == 0);
+
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(user),
+            dest_user,
+            amount,
+        ));
+
+        // Check storage
+        assert_eq!(
+            PendingTransfers::<Test>::get(tx_id).unwrap(),
+            PendingTransfer {
+                who: user,
+                call: bounded,
+                amount,
+                count: 1,
+            }
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(user), 1);
+
+        // Check scheduler
+        assert!(Agenda::<Test>::get(expected_timestamp).len() > 0);
+
+        // Skip to the delay timestamp
+        MockTimestamp::<Test>::set_timestamp(expected_raw_timestamp);
+
+        // Check that the transfer is executed
+        assert_eq!(Balances::free_balance(user), user_balance - amount);
+        assert_eq!(
+            Balances::free_balance(dest_user),
+            dest_user_balance + amount
+        );
+
+        // Use explicit reverser
+        let reversible_account = 256;
+        let explicit_reverser = 1;
 
         // Set reversibility
         assert_ok!(ReversibleTransfers::set_reversibility(
@@ -525,6 +715,91 @@ fn execute_transfer_works() {
 }
 
 #[test]
+fn schedule_transfer_with_timestamp_delay_executes() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let initial_mock_time = MockTimestamp::<Test>::now();
+        MockTimestamp::<Test>::set_timestamp(initial_mock_time);
+
+        let user = 255;
+        let dest_user = 2;
+        let amount = 100;
+
+        let bucket_size = TimestampBucketSize::get();
+        let user_delay_duration = 5 * bucket_size; // e.g., 5000ms if bucket is 1000ms
+        let user_timestamp_delay = BlockNumberOrTimestamp::Timestamp(user_delay_duration);
+
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(user),
+            Some(user_timestamp_delay),
+            DelayPolicy::Explicit,
+            None,
+        ));
+
+        let user_balance_before = Balances::free_balance(user);
+        let dest_balance_before = Balances::free_balance(dest_user);
+        let call = transfer_call(dest_user, amount);
+        let tx_id = calculate_tx_id(user, &call);
+
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(user),
+            dest_user,
+            amount,
+        ));
+
+        // The transfer should be scheduled at: current_time + user_delay_duration
+        let expected_execution_time =
+            BlockNumberOrTimestamp::Timestamp(initial_mock_time + user_delay_duration)
+                .normalize(bucket_size);
+
+        assert!(
+            Agenda::<Test>::get(expected_execution_time).len() > 0,
+            "Task not found in agenda for timestamp"
+        );
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &user
+            ),
+            amount
+        );
+
+        // Advance time to just before execution
+        MockTimestamp::<Test>::set_timestamp(
+            expected_execution_time.as_timestamp().unwrap() - bucket_size - 1,
+        );
+        assert_eq!(Balances::free_balance(user), user_balance_before - amount);
+        assert_eq!(Balances::free_balance(dest_user), dest_balance_before);
+
+        // Advance time to the exact execution moment
+        MockTimestamp::<Test>::set_timestamp(expected_execution_time.as_timestamp().unwrap() - 1);
+
+        // Check that the transfer is executed
+        assert_eq!(Balances::free_balance(user), user_balance_before - amount);
+        assert_eq!(
+            Balances::free_balance(dest_user),
+            dest_balance_before + amount
+        );
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &user
+            ),
+            0
+        );
+        System::assert_has_event(
+            Event::TransactionExecuted {
+                tx_id,
+                result: Ok(().into()),
+            }
+            .into(),
+        );
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+        assert_eq!(Agenda::<Test>::get(expected_execution_time).len(), 0); // Task removed
+    });
+}
+
+#[test]
 fn full_flow_execute_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
@@ -570,6 +845,68 @@ fn full_flow_execute_works() {
         assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
         assert!(ReversibleTransfers::account_pending_index(user).is_zero());
         assert_eq!(Agenda::<Test>::get(execute_block).len(), 0); // Task removed after execution
+    });
+}
+
+#[test]
+fn full_flow_execute_with_timestamp_delay_works() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let initial_mock_time = 1_000_000;
+        MockTimestamp::<Test>::set_timestamp(initial_mock_time);
+
+        let user = 255;
+        let dest = 2;
+        let amount = 50;
+
+        let user_delay_duration = 10 * TimestampBucketSize::get(); // e.g. 10s
+        let user_timestamp_delay = BlockNumberOrTimestamp::Timestamp(user_delay_duration);
+
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(user),
+            Some(user_timestamp_delay),
+            DelayPolicy::Explicit,
+            None
+        ));
+
+        let initial_user_balance = Balances::free_balance(user);
+        let initial_dest_balance = Balances::free_balance(dest);
+        let call = transfer_call(dest, amount);
+        let tx_id = calculate_tx_id(user, &call);
+
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(user),
+            dest,
+            amount
+        ));
+
+        let expected_execution_time =
+            BlockNumberOrTimestamp::Timestamp(initial_mock_time + user_delay_duration)
+                .normalize(TimestampBucketSize::get());
+
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+        assert!(Agenda::<Test>::get(expected_execution_time).len() > 0);
+        assert_eq!(Balances::free_balance(user), initial_user_balance - amount); // On hold
+
+        // Advance time to execution
+        MockTimestamp::<Test>::set_timestamp(expected_execution_time.as_timestamp().unwrap() - 1);
+
+        let expected_event = Event::TransactionExecuted {
+            tx_id,
+            result: Ok(().into()),
+        };
+        assert!(
+            System::events()
+                .iter()
+                .any(|rec| rec.event == expected_event.clone().into()),
+            "Execute event not found"
+        );
+
+        assert_eq!(Balances::free_balance(user), initial_user_balance - amount);
+        assert_eq!(Balances::free_balance(dest), initial_dest_balance + amount);
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+        assert!(ReversibleTransfers::account_pending_index(user).is_zero());
+        assert_eq!(Agenda::<Test>::get(expected_execution_time).len(), 0);
     });
 }
 
@@ -638,6 +975,84 @@ fn full_flow_cancel_prevents_execution() {
                 .iter()
                 .any(|rec| expected_event_pattern(&rec.event)),
             "TransactionExecuted event should not exist"
+        );
+    });
+}
+
+#[test]
+fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let initial_mock_time = 1_000_000;
+        MockTimestamp::<Test>::set_timestamp(initial_mock_time);
+
+        let user = 255;
+        let dest = 2;
+        let amount = 50;
+
+        let user_delay_duration = 10 * TimestampBucketSize::get();
+        let user_timestamp_delay = BlockNumberOrTimestamp::Timestamp(user_delay_duration);
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(user),
+            Some(user_timestamp_delay),
+            DelayPolicy::Explicit,
+            None
+        ));
+
+        let initial_user_balance = Balances::free_balance(user);
+        let initial_dest_balance = Balances::free_balance(dest);
+        let call = transfer_call(dest, amount);
+        let tx_id = calculate_tx_id(user, &call);
+
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(user),
+            dest,
+            amount
+        ));
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &user
+            ),
+            amount
+        );
+
+        // Cancel before execution time
+        MockTimestamp::<Test>::set_timestamp(initial_mock_time + user_delay_duration / 2);
+
+        assert_ok!(ReversibleTransfers::cancel(
+            RuntimeOrigin::signed(user),
+            tx_id
+        ));
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+        assert!(ReversibleTransfers::account_pending_index(user).is_zero());
+        assert_eq!(
+            Balances::balance_on_hold(
+                &RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+                &user
+            ),
+            0 // Hold released
+        );
+        assert_eq!(Balances::free_balance(user), initial_user_balance); // Balance restored
+
+        // Run past the original execution time
+        let original_execution_time = initial_mock_time + user_delay_duration;
+        MockTimestamp::<Test>::set_timestamp(original_execution_time + TimestampBucketSize::get());
+
+        assert_eq!(Balances::free_balance(user), initial_user_balance);
+        assert_eq!(Balances::free_balance(dest), initial_dest_balance);
+
+        let expected_event_pattern = |e: &RuntimeEvent| match e {
+            RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
+                tx_id: tid, ..
+            }) if *tid == tx_id => true,
+            _ => false,
+        };
+        assert!(
+            !System::events()
+                .iter()
+                .any(|rec| expected_event_pattern(&rec.event)),
+            "TransactionExecuted event should not exist for timestamp delay"
         );
     });
 }

@@ -129,13 +129,18 @@ impl pallet_mining_rewards::Config for Runtime {
     type BlockReward = ConstU128<1_000_000_000_000>; // 1 token
 }
 
+parameter_types! {
+    /// Target block time
+    pub const TargetBlockTime: u64 = 10000;
+}
+
 impl pallet_qpow::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_qpow::DefaultWeightInfo;
     // NOTE: InitialDistance will be shifted left by this amount: higher is easier
     type InitialDistanceThresholdExponent = ConstU32<502>;
     type DifficultyAdjustPercentClamp = ConstU8<10>;
-    type TargetBlockTime = ConstU64<10000>;
+    type TargetBlockTime = TargetBlockTime;
     type AdjustmentPeriod = ConstU32<1>;
     type BlockTimeHistorySize = ConstU32<10>;
     type MaxReorgDepth = ConstU32<10>;
@@ -424,7 +429,7 @@ impl pallet_utility::Config for Runtime {
 parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
     pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
-    pub const MinDelayPeriod: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(2);
+    pub const MinDelayPeriodBlocks: BlockNumber = 2;
     pub const MaxReversibleTransfers: u32 = 10;
 }
 
@@ -435,7 +440,8 @@ impl pallet_reversible_transfers::Config for Runtime {
     type BlockNumberProvider = System;
     type MaxPendingPerAccount = MaxReversibleTransfers;
     type DefaultDelay = DefaultDelay;
-    type MinDelayPeriod = MinDelayPeriod;
+    type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
+    type MinDelayPeriodMoment = TargetBlockTime;
     type PalletId = ReversibleTransfersPalletIdValue;
     type Preimages = Preimage;
     type WeightInfo = pallet_reversible_transfers::weights::SubstrateWeight<Runtime>;

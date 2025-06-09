@@ -91,7 +91,7 @@ use frame_system::{
 use qp_common::scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
 use scale_info::TypeInfo;
 use sp_runtime::{
-    traits::{BadOrigin, CheckedDiv, Dispatchable, One, Saturating, Zero},
+    traits::{BadOrigin, Dispatchable, One, Saturating},
     BoundedVec, DispatchError, RuntimeDebug,
 };
 
@@ -642,18 +642,8 @@ impl<T: Config> Pallet<T> {
                     BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
                         current_block.saturating_add(x).saturating_add(One::one()),
                     ),
-                    BlockNumberOrTimestamp::Timestamp(x) => {
-                        // Simply strip and round to the nearest bucket.
-                        let x = x
-                            .checked_div(&T::TimestampBucketSize::get())
-                            .unwrap_or(Zero::zero())
-                            .saturating_mul(T::TimestampBucketSize::get());
-
-                        // Add the bucket size to the current time to ensure that we are
-                        // scheduling in the future.
-                        BlockNumberOrTimestamp::Timestamp(
-                            x.saturating_add(T::TimestampBucketSize::get()),
-                        )
+                    BlockNumberOrTimestamp::Timestamp(_) => {
+                        x.normalize(T::TimestampBucketSize::get())
                     }
                 };
                 res
@@ -940,7 +930,9 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let mut incomplete_since = match now {
+        let normalized_now = now.normalize(T::TimestampBucketSize::get());
+
+        let mut incomplete_since = match normalized_now {
             BlockNumberOrTimestamp::BlockNumber(x) => {
                 BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()))
             }
@@ -948,14 +940,23 @@ impl<T: Config> Pallet<T> {
                 BlockNumberOrTimestamp::Timestamp(x.saturating_add(T::TimestampBucketSize::get()))
             }
         };
-        let mut when = IncompleteSince::<T>::take().unwrap_or(now);
+        let mut when = IncompleteSince::<T>::take().unwrap_or(normalized_now);
         let mut executed = 0;
 
         let max_items = T::MaxScheduledPerBlock::get();
         let mut count_down = max;
         let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
-        while count_down > 0 && when <= now && weight.can_consume(service_agenda_base_weight) {
-            if !Self::service_agenda(weight, &mut executed, now, when, u32::max_value()) {
+        while count_down > 0
+            && when <= normalized_now
+            && weight.can_consume(service_agenda_base_weight)
+        {
+            if !Self::service_agenda(
+                weight,
+                &mut executed,
+                normalized_now,
+                when,
+                u32::max_value(),
+            ) {
                 incomplete_since = incomplete_since.min(when);
             }
             match when {
@@ -971,7 +972,7 @@ impl<T: Config> Pallet<T> {
             count_down.saturating_dec();
         }
         incomplete_since = incomplete_since.min(when);
-        if incomplete_since <= now {
+        if incomplete_since <= normalized_now {
             IncompleteSince::<T>::put(incomplete_since);
         }
     }

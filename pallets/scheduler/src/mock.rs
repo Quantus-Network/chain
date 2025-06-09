@@ -20,7 +20,7 @@
 use super::*;
 
 use crate as scheduler;
-use core::{borrow::BorrowMut, cell::RefCell};
+use core::cell::RefCell;
 use frame_support::{
     derive_impl, ord_parameter_types, parameter_types,
     traits::{ConstU32, Contains, EitherOfDiverse, EqualPrivilegeOnly, OnFinalize, OnInitialize},
@@ -253,7 +253,6 @@ impl Time for MockTimestamp {
     fn now() -> Self::Moment {
         MOCKED_TIME.with(|v| *v.borrow())
     }
-    pub const MaxTimestampBucketSize: u32 = 10_000;
 }
 
 impl Config for Test {

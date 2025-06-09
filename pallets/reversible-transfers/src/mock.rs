@@ -1,12 +1,14 @@
+use core::{cell::RefCell, marker::PhantomData};
+
 use crate as pallet_reversible_transfers;
 use frame_support::{
     derive_impl, ord_parameter_types, parameter_types,
-    traits::{EitherOfDiverse, EqualPrivilegeOnly, Time},
+    traits::{EitherOfDiverse, EqualPrivilegeOnly, OnTimestampSet, Time},
     PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
 use qp_common::scheduler::BlockNumberOrTimestamp;
-use sp_core::{ConstU128, ConstU32, ConstU64};
+use sp_core::{ConstU128, ConstU32};
 use sp_runtime::{BuildStorage, Perbill, Weight};
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -65,20 +67,50 @@ impl pallet_balances::Config for Test {
     type MaxFreezes = MaxReversibleTransfers;
 }
 
-pub struct MockTimeProvider;
+// In memory storage
+thread_local! {
+    static MOCKED_TIME: RefCell<Moment> = RefCell::new(69420);
+}
 
-impl Time for MockTimeProvider {
-    type Moment = u64;
+type Moment = u64;
 
+/// A mock `TimeProvider` that allows setting the current time for tests.
+pub struct MockTimestamp<T>(PhantomData<T>);
+
+impl<T: pallet_scheduler::Config> MockTimestamp<T>
+where
+    T::Moment: From<Moment>,
+{
+    /// Sets the current time for the `MockTimestamp` provider.
+    pub fn set_timestamp(now: Moment) {
+        MOCKED_TIME.with(|v| {
+            *v.borrow_mut() = now;
+        });
+
+        pallet_scheduler::Pallet::<T>::on_timestamp_set(now.into());
+    }
+
+    /// Resets the timestamp to a default value (e.g., 0 or a specific starting time).
+    /// Good to call at the beginning of tests or `execute_with` blocks if needed.
+    pub fn reset_timestamp() {
+        MOCKED_TIME.with(|v| {
+            *v.borrow_mut() = 69420;
+        });
+    }
+}
+
+impl<T> Time for MockTimestamp<T> {
+    type Moment = Moment;
     fn now() -> Self::Moment {
-        69420 // Mocked time value
+        MOCKED_TIME.with(|v| *v.borrow())
     }
 }
 
 parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
     pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(10);
-    pub const MinDelayPeriod: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(2);
+    pub const MinDelayPeriodBlocks: u64 = 2;
+    pub const MinDelayPeriodMoment: u64 = 2000;
     pub const MaxReversibleTransfers: u32 = 100;
 }
 
@@ -90,12 +122,13 @@ impl pallet_reversible_transfers::Config for Test {
     type BlockNumberProvider = System;
     type MaxPendingPerAccount = MaxReversibleTransfers;
     type DefaultDelay = DefaultDelay;
-    type MinDelayPeriod = MinDelayPeriod;
+    type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
+    type MinDelayPeriodMoment = MinDelayPeriodMoment;
     type PalletId = ReversibleTransfersPalletIdValue;
     type Preimages = Preimage;
     type WeightInfo = ();
-    type Moment = u64;
-    type TimeProvider = MockTimeProvider;
+    type Moment = Moment;
+    type TimeProvider = MockTimestamp<Test>;
 }
 
 impl pallet_preimage::Config for Test {
@@ -109,7 +142,10 @@ impl pallet_preimage::Config for Test {
 parameter_types! {
     pub storage MaximumSchedulerWeight: Weight = Perbill::from_percent(80) *
         BlockWeights::default().max_block;
+
+    pub const TimestampBucketSize: u64 = 1000;
 }
+
 ord_parameter_types! {
     pub const One: u64 = 1;
 }
@@ -125,9 +161,9 @@ impl pallet_scheduler::Config for Test {
     type MaxScheduledPerBlock = ConstU32<10>;
     type WeightInfo = ();
     type Preimages = Preimage;
-    type Moment = u64;
-    type TimeProvider = MockTimeProvider;
-    type TimestampBucketSize = ConstU64<1000>;
+    type Moment = Moment;
+    type TimeProvider = MockTimestamp<Test>;
+    type TimestampBucketSize = TimestampBucketSize;
 }
 
 // Build genesis storage according to the mock runtime.
@@ -137,7 +173,12 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         .unwrap();
 
     pallet_balances::GenesisConfig::<Test> {
-        balances: vec![(1, 1_000_000_000_000_000), (2, 2), (255, 100_000_000_000)],
+        balances: vec![
+            (1, 1_000_000_000_000_000),
+            (2, 2),
+            (255, 100_000_000_000),
+            (256, 100_000_000_000),
+        ],
     }
     .assimilate_storage(&mut t)
     .unwrap();
