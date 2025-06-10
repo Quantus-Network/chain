@@ -134,16 +134,11 @@ mod benchmarks {
         assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
         assert!(PendingTransfers::<T>::contains_key(&tx_id));
         // Check scheduler state (can be complex, checking count is simpler)
-        let execute_at = match delay {
-            BlockNumberOrTimestamp::BlockNumber(bn) => {
-                T::BlockNumberProvider::current_block_number().saturating_add(bn)
-            }
-            _ => {
-                return Err(BenchmarkError::Stop(
-                    "Timestamp delay not supported in benchmark",
-                ))
-            }
-        };
+        let execute_at = T::BlockNumberProvider::current_block_number().saturating_add(
+            delay
+                .as_block_number()
+                .expect("Timestamp delay not supported in benchmark"),
+        );
         let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id, 1)?;
         assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
 
