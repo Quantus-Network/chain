@@ -76,12 +76,12 @@ mod tests {
     use frame_system;
     use pallet_referenda::TracksInfo;
     use resonance_runtime::configs::TechReferendaInstance;
-    use resonance_runtime::governance::definitions::GlobalTrackConfig;
+
     use resonance_runtime::{
         Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
         TechCollective, TechReferenda, UNIT,
     };
-    use sp_runtime::traits::BlakeTwo256;
+
     use sp_runtime::traits::{AccountIdConversion, Hash, StaticLookup};
     use sp_runtime::MultiAddress;
 
@@ -690,7 +690,6 @@ mod tests {
 
             // With fast governance (2 blocks each), both referenda complete very quickly
             // Let's just verify the max_deciding functionality by checking the queue behavior
-            
             // Run a bit longer to allow both referenda to progress
             TestCommons::run_to_block(track_info.prepare_period + 3);
             
@@ -1441,13 +1440,10 @@ mod tests {
     fn test_global_fast_governance_config_all_tracks() {
         use crate::common::TestCommons;
         use codec::Encode;
-        use frame_support::{
-            assert_ok,
-            traits::{Currency, OnFinalize, OnInitialize},
-        };
+        use frame_support::assert_ok;
         use resonance_runtime::governance::definitions::GlobalTrackConfig;
-        use resonance_runtime::{Preimage, Referenda, RuntimeOrigin, TechCollective};
-        use sp_runtime::traits::BlakeTwo256;
+        use resonance_runtime::{Preimage, RuntimeOrigin, TechCollective};
+
         use sp_runtime::traits::Hash;
 
         // Test with global fast configuration for ALL tracks

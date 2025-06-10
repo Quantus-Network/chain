@@ -8,7 +8,7 @@ use sp_runtime::MultiAddress;
 
 #[test]
 fn test_create_and_initiate_recovery() {
-    let mut ext = TestCommons::new_fast_governance_test_ext();
+    let mut ext = TestCommons::new_test_ext();
     ext.execute_with(|| {
         let friends = vec![TestCommons::account_id(2), TestCommons::account_id(3)];
         let threshold = 2;
@@ -32,7 +32,7 @@ fn test_create_and_initiate_recovery() {
 
 #[test]
 fn full_recovery_cycle_works() {
-    TestCommons::new_fast_governance_test_ext().execute_with(|| {
+    TestCommons::new_test_ext().execute_with(|| {
         let lost_account = TestCommons::account_id(1);
         let friend_account = TestCommons::account_id(2);
         let recovery_account = TestCommons::account_id(3);

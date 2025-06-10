@@ -9,7 +9,7 @@ mod tests {
     use pallet_referenda::TracksInfo;
     use resonance_runtime::{
         Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall,
-        RuntimeOrigin, DAYS, HOURS, UNIT,
+        RuntimeOrigin, UNIT,
     };
     use sp_runtime::traits::Hash;
 
