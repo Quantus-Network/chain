@@ -88,15 +88,15 @@ where
     pub fn saturating_add(
         &self,
         other: &BlockNumberOrTimestamp<BlockNumber, Moment>,
-    ) -> Option<BlockNumberOrTimestamp<BlockNumber, Moment>> {
+    ) -> Result<BlockNumberOrTimestamp<BlockNumber, Moment>, ()> {
         match (self, other) {
             (BlockNumberOrTimestamp::BlockNumber(x), BlockNumberOrTimestamp::BlockNumber(y)) => {
-                Some(BlockNumberOrTimestamp::BlockNumber(x.saturating_add(*y)))
+                Ok(BlockNumberOrTimestamp::BlockNumber(x.saturating_add(*y)))
             }
             (BlockNumberOrTimestamp::Timestamp(x), BlockNumberOrTimestamp::Timestamp(y)) => {
-                Some(BlockNumberOrTimestamp::Timestamp(x.saturating_add(*y)))
+                Ok(BlockNumberOrTimestamp::Timestamp(x.saturating_add(*y)))
             }
-            _ => None,
+            _ => Err(()),
         }
     }
 }

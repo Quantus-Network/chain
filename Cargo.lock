@@ -6786,6 +6786,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-recovery"
+version = "39.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62240994c9009065e83f3a6eff9619ab73a153b3a4841cc022136bb42e11bc8b"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-referenda"
 version = "39.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8738,6 +8753,7 @@ dependencies = [
  "pallet-preimage",
  "pallet-qpow",
  "pallet-ranked-collective",
+ "pallet-recovery",
  "pallet-referenda",
  "pallet-reversible-transfers",
  "pallet-scheduler",

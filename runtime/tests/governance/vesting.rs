@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::super::super::TestCommons;
+    use crate::common::TestCommons;
     use codec::Encode;
     use frame_support::{
         assert_ok,

@@ -1,6 +1,5 @@
-#[allow(dead_code)]
+#![cfg(test)]
 pub mod common;
-pub mod governance;
-pub mod integration;
-
-pub use common::TestCommons;
+mod governance;
+mod integration;
+mod recovery;

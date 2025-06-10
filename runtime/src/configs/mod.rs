@@ -432,6 +432,28 @@ impl pallet_utility::Config for Runtime {
 }
 
 parameter_types! {
+    /// Base deposit for creating a recovery configuration
+    pub const ConfigDepositBase: Balance = 10 * UNIT;
+    /// Deposit required per friend
+    pub const FriendDepositFactor: Balance = 1 * UNIT;
+    /// Maximum number of friends allowed in a recovery configuration
+    pub const MaxFriends: u32 = 9;
+    /// Deposit required to initiate a recovery
+    pub const RecoveryDeposit: Balance = 10 * UNIT;
+}
+
+impl pallet_recovery::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_recovery::weights::SubstrateWeight<Runtime>;
+    type RuntimeCall = RuntimeCall;
+    type Currency = Balances;
+    type ConfigDepositBase = ConfigDepositBase;
+    type FriendDepositFactor = FriendDepositFactor;
+    type MaxFriends = MaxFriends;
+    type RecoveryDeposit = RecoveryDeposit;
+}
+
+parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
     pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
     pub const MinDelayPeriodBlocks: BlockNumber = 2;

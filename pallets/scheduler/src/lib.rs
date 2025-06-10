@@ -1129,7 +1129,7 @@ impl<T: Config> Pallet<T> {
                         task.maybe_periodic = None;
                     }
                     let wake = now.saturating_add(&period);
-                    if let Some(wake) = wake {
+                    if let Ok(wake) = wake {
                         match Self::place_task(wake, task) {
                             Ok(new_address) => {
                                 if let Some(retry_config) = maybe_retry_config {
@@ -1230,7 +1230,7 @@ impl<T: Config> Pallet<T> {
             None => return,
         };
         let wake = now.saturating_add(&period);
-        if let Some(wake) = wake {
+        if let Ok(wake) = wake {
             match Self::place_task(wake, task.as_retry()) {
                 Ok(address) => {
                     // Reinsert the retry config to the new address of the task after it was
