@@ -416,10 +416,16 @@ pub mod pallet {
         fn validate_delay(delay: &BlockNumberOrTimestampOf<T>) -> DispatchResult {
             match delay {
                 BlockNumberOrTimestamp::BlockNumber(x) => {
-                    ensure!(*x > T::MinDelayPeriodBlocks::get(), Error::<T>::DelayTooShort)
+                    ensure!(
+                        *x > T::MinDelayPeriodBlocks::get(),
+                        Error::<T>::DelayTooShort
+                    )
                 }
                 BlockNumberOrTimestamp::Timestamp(t) => {
-                    ensure!(*t > T::MinDelayPeriodMoment::get(), Error::<T>::DelayTooShort)
+                    ensure!(
+                        *t > T::MinDelayPeriodMoment::get(),
+                        Error::<T>::DelayTooShort
+                    )
                 }
             }
             Ok(())
