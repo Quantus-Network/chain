@@ -285,12 +285,14 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
+        // Static tracks with production values
         lazy_static! {
-            // Static tracks with production values
             static ref STATIC_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] =
                 CommunityTracksInfo::create_community_tracks();
+        }
 
-            // Test tracks with fast governance timing
+        // Test tracks with fast governance timing
+        lazy_static! {
             static ref TEST_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] = {
                 let base_tracks = CommunityTracksInfo::create_community_tracks();
                 let mut test_tracks = base_tracks.clone();
@@ -394,12 +396,14 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
+        // Static tracks with production values
         lazy_static! {
-            // Static tracks with production values
             static ref STATIC_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] =
                 TechCollectiveTracksInfo::create_tech_collective_tracks();
+        }
 
-            // Test tracks with fast governance timing
+        // Test tracks with fast governance timing
+        lazy_static! {
             static ref TEST_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = {
                 let base_tracks = TechCollectiveTracksInfo::create_tech_collective_tracks();
                 let mut test_tracks = [(0, base_tracks[0].1.clone())];
