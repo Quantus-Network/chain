@@ -354,6 +354,47 @@ pub mod pallet {
         ) -> DispatchResult {
             Self::do_schedule_transfer(origin, dest, amount)
         }
+
+        /// Schedule a transaction for delayed execution with a custom, one-time delay.
+        ///
+        /// This can only be used by accounts that have *not* set up a persistent
+        /// reversibility configuration with `set_reversibility`.
+        ///
+        /// - `delay`: The time (in blocks or milliseconds) before the transaction executes.
+        #[pallet::call_index(4)]
+        #[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+        pub fn schedule_transfer_with_delay(
+            origin: OriginFor<T>,
+            dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+            amount: BalanceOf<T>,
+            delay: BlockNumberOrTimestampOf<T>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            // Accounts with pre-configured reversibility cannot use this extrinsic.
+            ensure!(
+                !ReversibleAccounts::<T>::contains_key(&who),
+                Error::<T>::AccountAlreadyReversible
+            );
+
+            // Validate the provided delay.
+            match delay {
+                BlockNumberOrTimestamp::BlockNumber(x) => {
+                    ensure!(
+                        x > T::MinDelayPeriodBlocks::get(),
+                        Error::<T>::DelayTooShort
+                    )
+                }
+                BlockNumberOrTimestamp::Timestamp(t) => {
+                    ensure!(
+                        t > T::MinDelayPeriodMoment::get(),
+                        Error::<T>::DelayTooShort
+                    )
+                }
+            }
+
+            Self::_do_schedule_transfer(who, dest, amount, delay)
+        }
     }
 
     #[pallet::hooks]
@@ -459,17 +500,13 @@ pub mod pallet {
             Ok(task_name)
         }
 
-        /// Schedules a runtime call for delayed execution.
-        /// This is intended to be called by the `TransactionExtension`, NOT directly by users.
-        pub fn do_schedule_transfer(
-            origin: T::RuntimeOrigin,
+        /// Internal logic to schedule a transfer with a given delay.
+        fn _do_schedule_transfer(
+            who: T::AccountId,
             dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
             amount: BalanceOf<T>,
+            delay: BlockNumberOrTimestampOf<T>,
         ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            let ReversibleAccountData { delay, .. } =
-                Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
-
             let transfer_call: T::RuntimeCall = pallet_balances::Call::<T>::transfer_keep_alive {
                 dest: dest.clone(),
                 value: amount,
@@ -553,20 +590,39 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Schedules a runtime call for delayed execution using the pre-configured delay.
+        /// This is intended to be called by the `TransactionExtension`, NOT directly by users.
+        pub fn do_schedule_transfer(
+            origin: T::RuntimeOrigin,
+            dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+            amount: BalanceOf<T>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let ReversibleAccountData { delay, .. } =
+                Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
+
+            Self::_do_schedule_transfer(who, dest, amount, delay)
+        }
+
         /// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
         fn cancel_transfer(who: &T::AccountId, tx_id: T::Hash) -> DispatchResult {
             // Retrieve owner from storage to verify ownership
             let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
-            let reversible_account_data = ReversibleAccounts::<T>::get(&pending.who)
-                .ok_or(Error::<T>::AccountNotReversible)?;
+            let reversible_account_data = ReversibleAccounts::<T>::get(&pending.who);
 
-            if let Some(explicit_reverser) = &reversible_account_data.explicit_reverser {
-                // If the reverser is set, ensure the caller is the reverser
-                ensure!(who == explicit_reverser, Error::<T>::InvalidReverser);
+            let maybe_reverser = if let Some(ref data) = reversible_account_data {
+                if let Some(ref explicit_reverser) = data.explicit_reverser {
+                    ensure!(who == explicit_reverser, Error::<T>::InvalidReverser);
+                    Some(explicit_reverser.clone())
+                } else {
+                    ensure!(&pending.who == who, Error::<T>::NotOwner);
+                    None
+                }
             } else {
                 ensure!(&pending.who == who, Error::<T>::NotOwner);
-            }
+                None
+            };
 
             if pending.count > 1 {
                 // If there are more than one identical transactions, decrement the count
@@ -595,11 +651,11 @@ pub mod pallet {
             // Cancel the scheduled task
             T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-            if let Some(reverser) = &reversible_account_data.explicit_reverser {
+            if let Some(reverser) = maybe_reverser {
                 pallet_balances::Pallet::<T>::transfer_on_hold(
                     &HoldReason::ScheduledTransfer.into(),
                     &pending.who,
-                    reverser,
+                    &reverser,
                     pending.amount,
                     Precision::Exact,
                     Restriction::Free,
