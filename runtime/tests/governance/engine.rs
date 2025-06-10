@@ -37,7 +37,7 @@ mod tests {
             ));
 
             // Check if preimage was stored
-            assert!(Preimage::have_preimage(&hash.into()));
+            assert!(Preimage::have_preimage(&hash));
 
             // If using an implementation with token reservation, check if balance changed
             if !std::any::TypeId::of::<()>().eq(&std::any::TypeId::of::<()>()) {
@@ -71,11 +71,11 @@ mod tests {
             // Remove the preimage
             assert_ok!(Preimage::unnote_preimage(
                 RuntimeOrigin::signed(account.clone()),
-                hash.into(),
+                hash,
             ));
 
             // Check if preimage was removed
-            assert!(!Preimage::have_preimage(&hash.into()));
+            assert!(!Preimage::have_preimage(&hash));
 
             // If using an implementation with token reservation, check if balance was restored
             if !std::any::TypeId::of::<()>().eq(&std::any::TypeId::of::<()>()) {
@@ -109,11 +109,11 @@ mod tests {
             // Request the preimage as system
             assert_ok!(Preimage::request_preimage(
                 RuntimeOrigin::root(),
-                hash.into(),
+                hash,
             ));
 
             // Check if preimage was requested
-            assert!(Preimage::is_requested(&hash.into()));
+            assert!(Preimage::is_requested(&hash));
 
             // If using an implementation with token reservation, check if balance was freed
             if !std::any::TypeId::of::<()>().eq(&std::any::TypeId::of::<()>()) {
@@ -143,17 +143,17 @@ mod tests {
             // Request the preimage as system
             assert_ok!(Preimage::request_preimage(
                 RuntimeOrigin::root(),
-                hash.into(),
+                hash,
             ));
 
             // Then unrequest it
             assert_ok!(Preimage::unrequest_preimage(
                 RuntimeOrigin::root(),
-                hash.into(),
+                hash,
             ));
 
             // Check if preimage is no longer requested
-            assert!(!Preimage::is_requested(&hash.into()));
+            assert!(!Preimage::is_requested(&hash));
         });
     }
 

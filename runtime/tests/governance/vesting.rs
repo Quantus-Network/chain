@@ -57,7 +57,7 @@ mod tests {
             // Note: Two-stage process - referendum approves principle, implementation follows
             let _vesting_call = RuntimeCall::Vesting(pallet_vesting::Call::vested_transfer {
                 target: MultiAddress::Id(beneficiary.clone()),
-                schedule: vesting_info.clone(),
+                schedule: vesting_info,
             });
 
             // Two-stage governance flow: referendum approves treasury spend principle
@@ -137,7 +137,7 @@ mod tests {
                 RuntimeOrigin::root(),
                 MultiAddress::Id(proposer.clone()),
                 MultiAddress::Id(beneficiary.clone()),
-                vesting_info.clone(),
+                vesting_info,
             ));
 
             let initial_balance = Balances::free_balance(&beneficiary);

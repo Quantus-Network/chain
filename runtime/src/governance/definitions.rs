@@ -46,7 +46,7 @@ impl TechTrackConfig {
         unsafe {
             TECH_TRACK_CONFIG
                 .clone()
-                .unwrap_or_else(|| Self::production_config())
+                .unwrap_or_else(Self::production_config)
         }
     }
 
@@ -271,7 +271,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                             prepare_period: 12 * HOURS, // Shorter preparation time
                             decision_period: 7 * DAYS, // 1 week voting period
                             confirm_period: 12 * HOURS, // 12 hours confirmation
-                            min_enactment_period: 1 * DAYS, // 1 day until execution
+                            min_enactment_period: DAYS, // 1 day until execution
                             min_approval: pallet_referenda::Curve::LinearDecreasing {
                                 length: Perbill::from_percent(100),
                                 floor: Perbill::from_percent(55), // Majority approval required
@@ -314,9 +314,9 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                             name: "treasury_small_spender",
                             max_deciding: 5,
                             decision_deposit: 100 * UNIT,
-                            prepare_period: 1 * DAYS,
+                            prepare_period: DAYS,
                             decision_period: 3 * DAYS,
-                            confirm_period: 1 * DAYS,
+                            confirm_period: DAYS,
                             min_enactment_period: 12 * HOURS,
                             min_approval: pallet_referenda::Curve::LinearDecreasing {
                                 length: Perbill::from_percent(100),
@@ -338,7 +338,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                             decision_deposit: 250 * UNIT,
                             prepare_period: 6 * HOURS,
                             decision_period: 5 * DAYS,
-                            confirm_period: 1 * DAYS,
+                            confirm_period: DAYS,
                             min_enactment_period: 12 * HOURS,
                             min_approval: pallet_referenda::Curve::LinearDecreasing {
                                 length: Perbill::from_percent(100),
@@ -358,7 +358,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
                             name: "treasury_big_spender",
                             max_deciding: 2,
                             decision_deposit: 500 * UNIT,
-                            prepare_period: 1 * DAYS,
+                            prepare_period: DAYS,
                             decision_period: 7 * DAYS,
                             confirm_period: 2 * DAYS,
                             min_enactment_period: 12 * HOURS,

@@ -51,7 +51,7 @@ mod tests {
 
             // Activation moment
             let enactment_moment =
-                frame_support::traits::schedule::DispatchTime::After(0u32.into());
+                frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
@@ -191,7 +191,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 proposal_origin,
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -289,7 +289,7 @@ mod tests {
                     proposer.clone()
                 ))),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -309,7 +309,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 1 * UNIT, // Very small amount to ensure insufficient turnout
+                    balance: UNIT, // Very small amount to ensure insufficient turnout
                 },
             ));
 
@@ -366,7 +366,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -425,7 +425,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -538,7 +538,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             // Check referendum is using track 2
@@ -673,7 +673,7 @@ mod tests {
                     hash: signed_hash,
                     len: signed_encoded.len() as u32
                 },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             // Signaling track (1)
@@ -684,7 +684,7 @@ mod tests {
                     hash: signal_hash,
                     len: signal_encoded.len() as u32
                 },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             // Check each referendum is on the correct track
@@ -844,7 +844,7 @@ mod tests {
                     RuntimeOrigin::signed(proposer.clone()),
                     Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                     bounded_call,
-                    frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                    frame_support::traits::schedule::DispatchTime::After(0u32)
                 ));
 
                 // Place decision deposit

@@ -170,7 +170,7 @@ mod tests {
                 );
 
                 assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index
                 ));
 
@@ -191,7 +191,7 @@ mod tests {
                 );
 
                 assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index
                 ));
 
@@ -263,7 +263,7 @@ mod tests {
                 );
 
                 assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index_within_limit
                 ));
                 System::assert_has_event(RuntimeEvent::TreasuryPallet(
@@ -274,7 +274,7 @@ mod tests {
                 ));
 
                 assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index_within_limit
                 ));
                 System::assert_last_event(RuntimeEvent::TreasuryPallet(
@@ -455,7 +455,7 @@ mod tests {
 
                 // Try to payout (this test is about non-expiry case, so payout should work)
                 let payout_result = TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index,
                 );
                 // Since we didn't advance to expiry, payout should succeed
@@ -469,7 +469,7 @@ mod tests {
 
                 // Process the spend status after successful payout
                 assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID),
                     spend_index
                 ));
 
@@ -540,7 +540,7 @@ mod tests {
                 TestCommons::run_to_block(System::block_number() + 5);
 
                 let payout_result_insufficient = TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index,
                 );
                 assert!(payout_result_insufficient.is_err(), "Payout with insufficient funds should fail");
@@ -572,7 +572,7 @@ mod tests {
 
                 // Try to payout again
                 assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index
                 ));
                 System::assert_has_event(RuntimeEvent::TreasuryPallet(
@@ -588,7 +588,7 @@ mod tests {
                 );
 
                 assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index
                 ));
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
@@ -643,7 +643,7 @@ mod tests {
                 // Try to payout before valid_from_block
                 TestCommons::run_to_block(valid_from_block - 1);
                 let payout_result_before_valid = TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index,
                 );
                 assert!(payout_result_before_valid.is_err(), "Payout before valid_from should fail");
@@ -663,7 +663,7 @@ mod tests {
                 // Advance to valid_from_block
                 TestCommons::run_to_block(valid_from_block);
                 assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index
                 ));
                 System::assert_has_event(RuntimeEvent::TreasuryPallet(
@@ -679,7 +679,7 @@ mod tests {
                 );
 
                 assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
                     spend_index
                 ));
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
@@ -723,7 +723,7 @@ mod tests {
 
                 // Payout by PROPOSER_ACCOUNT_ID
                 assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID).into(),
+                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID),
                     spend_index
                 ));
 
@@ -749,7 +749,7 @@ mod tests {
                 );
 
                 assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID).into(), // Can be anyone
+                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID), // Can be anyone
                     spend_index
                 ));
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
@@ -813,7 +813,7 @@ mod tests {
                 ));
 
                 let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
-                let h256_preimage_hash: sp_core::H256 = preimage_hash.into();
+                let h256_preimage_hash: sp_core::H256 = preimage_hash;
                 assert!(Preimage::have_preimage(&h256_preimage_hash));
 
                 let track_id = 0u16;
@@ -830,7 +830,7 @@ mod tests {
                         PROPOSER_ACCOUNT_ID.clone()
                     ))),
                     proposal_for_referenda.clone(),
-                    ScheduleDispatchTime::After(1u32.into())
+                    ScheduleDispatchTime::After(1u32)
                 ));
 
                 let referendum_index: ReferendumIndex = 0;
@@ -992,7 +992,7 @@ mod tests {
 
             let track_info_2 = CommunityTracksInfo::info(2).unwrap();
 
-            let dispatch_time = ScheduleDispatchTime::After(1u32.into());
+            let dispatch_time = ScheduleDispatchTime::After(1u32);
             const TEST_REFERENDUM_INDEX: ReferendumIndex = 0;
             let referendum_index: ReferendumIndex = TEST_REFERENDUM_INDEX;
 
