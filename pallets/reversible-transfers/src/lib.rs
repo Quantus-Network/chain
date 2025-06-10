@@ -285,20 +285,7 @@ pub mod pallet {
             );
             let delay = delay.unwrap_or(T::DefaultDelay::get());
 
-            match delay {
-                BlockNumberOrTimestamp::BlockNumber(x) => {
-                    ensure!(
-                        x > T::MinDelayPeriodBlocks::get(),
-                        Error::<T>::DelayTooShort
-                    )
-                }
-                BlockNumberOrTimestamp::Timestamp(t) => {
-                    ensure!(
-                        t > T::MinDelayPeriodMoment::get(),
-                        Error::<T>::DelayTooShort
-                    )
-                }
-            }
+            Self::validate_delay(&delay)?;
 
             let reversible_account_data = ReversibleAccountData {
                 explicit_reverser: reverser,
@@ -378,22 +365,9 @@ pub mod pallet {
             );
 
             // Validate the provided delay.
-            match delay {
-                BlockNumberOrTimestamp::BlockNumber(x) => {
-                    ensure!(
-                        x > T::MinDelayPeriodBlocks::get(),
-                        Error::<T>::DelayTooShort
-                    )
-                }
-                BlockNumberOrTimestamp::Timestamp(t) => {
-                    ensure!(
-                        t > T::MinDelayPeriodMoment::get(),
-                        Error::<T>::DelayTooShort
-                    )
-                }
-            }
+            Self::validate_delay(&delay)?;
 
-            Self::_do_schedule_transfer(who, dest, amount, delay)
+            Self::do_schedule_transfer_inner(who, dest, amount, delay)
         }
     }
 
@@ -437,6 +411,18 @@ pub mod pallet {
         // Pallet account as origin
         pub fn account_id() -> T::AccountId {
             T::PalletId::get().into_account_truncating()
+        }
+
+        fn validate_delay(delay: &BlockNumberOrTimestampOf<T>) -> DispatchResult {
+            match delay {
+                BlockNumberOrTimestamp::BlockNumber(x) => {
+                    ensure!(*x > T::MinDelayPeriodBlocks::get(), Error::<T>::DelayTooShort)
+                }
+                BlockNumberOrTimestamp::Timestamp(t) => {
+                    ensure!(*t > T::MinDelayPeriodMoment::get(), Error::<T>::DelayTooShort)
+                }
+            }
+            Ok(())
         }
 
         fn do_execute_transfer(tx_id: &T::Hash) -> DispatchResultWithPostInfo {
@@ -601,7 +587,7 @@ pub mod pallet {
             let ReversibleAccountData { delay, .. } =
                 Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
 
-            Self::_do_schedule_transfer(who, dest, amount, delay)
+            Self::do_schedule_transfer_inner(who, dest, amount, delay)
         }
 
         /// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.

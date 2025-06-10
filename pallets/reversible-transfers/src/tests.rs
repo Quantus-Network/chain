@@ -1250,6 +1250,27 @@ fn schedule_transfer_with_delay_works() {
 }
 
 #[test]
+fn schedule_transfer_with_error_short_delay() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 3;
+        let recipient: AccountId = 4;
+        let amount: Balance = 1000;
+        let custom_delay = BlockNumberOrTimestamp::BlockNumber(1);
+
+        assert_err!(
+            ReversibleTransfers::schedule_transfer_with_delay(
+                RuntimeOrigin::signed(sender),
+                recipient,
+                amount,
+                custom_delay,
+            ),
+            Error::<Test>::DelayTooShort
+        );
+    });
+}
+
+#[test]
 fn schedule_transfer_with_delay_executes_correctly() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
