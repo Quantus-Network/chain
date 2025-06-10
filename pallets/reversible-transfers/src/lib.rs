@@ -253,6 +253,8 @@ pub mod pallet {
         InvalidSchedulerOrigin,
         /// Reverser is invalid
         InvalidReverser,
+        /// Cannot schedule one time reversible transaction when account is reversible (theft deterrence)
+        AccountAlreadyReversibleCannotScheduleOneTime,
     }
 
     #[pallet::call]
@@ -361,7 +363,7 @@ pub mod pallet {
             // Accounts with pre-configured reversibility cannot use this extrinsic.
             ensure!(
                 !ReversibleAccounts::<T>::contains_key(&who),
-                Error::<T>::AccountAlreadyReversible
+                Error::<T>::AccountAlreadyReversibleCannotScheduleOneTime
             );
 
             // Validate the provided delay.

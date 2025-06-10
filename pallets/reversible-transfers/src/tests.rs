@@ -1244,7 +1244,7 @@ fn schedule_transfer_with_delay_works() {
                 amount,
                 custom_delay,
             ),
-            Error::<Test>::AccountAlreadyReversible
+            Error::<Test>::AccountAlreadyReversibleCannotScheduleOneTime
         );
     });
 }
