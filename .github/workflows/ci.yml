@@ -55,7 +55,7 @@ jobs:
         timeout-minutes: 90
       -
         name: compile with benchmarks
-        run: cargo build --locked --workspace --features runtime-benchmarks
+        run: cargo check --locked --workspace --features runtime-benchmarks
         timeout-minutes: 90
       -
         name: clippy
