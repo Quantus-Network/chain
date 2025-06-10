@@ -14,6 +14,7 @@ use frame_support::traits::{
     CallerTrait, Consideration, Currency as CurrencyTrait, EnsureOrigin, EnsureOriginWithArg,
     Footprint, Get, OriginTrait, ReservableCurrency,
 };
+use lazy_static::lazy_static;
 use pallet_ranked_collective::Rank;
 use sp_core::crypto::AccountId32;
 use sp_runtime::traits::{AccountIdConversion, Convert, MaybeConvert};
@@ -37,7 +38,7 @@ impl TechTrackConfig {
     pub fn get() -> pallet_referenda::TrackInfo<Balance, BlockNumber> {
         // Check for global timing overrides first
         if let Some((prepare, decision, confirm, enactment)) =
-            GlobalTrackConfig::get_global_timing()
+            GlobalTrackConfig::get_track_override()
         {
             return Self::custom_config(prepare, decision, confirm, enactment);
         }
@@ -199,7 +200,7 @@ static mut GLOBAL_TRACK_OVERRIDE: Option<(BlockNumber, BlockNumber, BlockNumber,
 impl GlobalTrackConfig {
     /// Set global track timing overrides for ALL governance tracks
     /// This affects CommunityTracksInfo, TechCollectiveTracksInfo, and Treasury tracks
-    pub fn set_global_timing(
+    pub fn set_track_override(
         prepare_period: BlockNumber,
         decision_period: BlockNumber,
         confirm_period: BlockNumber,
@@ -216,12 +217,12 @@ impl GlobalTrackConfig {
     }
 
     /// Get current global timing override, or None if using production values
-    pub fn get_global_timing() -> Option<(BlockNumber, BlockNumber, BlockNumber, BlockNumber)> {
+    pub fn get_track_override() -> Option<(BlockNumber, BlockNumber, BlockNumber, BlockNumber)> {
         unsafe { GLOBAL_TRACK_OVERRIDE }
     }
 
     /// Clear global overrides - return to production values
-    pub fn clear_global_timing() {
+    pub fn clear_track_override() {
         unsafe {
             GLOBAL_TRACK_OVERRIDE = None;
         }
@@ -229,14 +230,14 @@ impl GlobalTrackConfig {
 
     /// Set fast test timing (2 blocks for all periods) for ALL tracks
     pub fn set_fast_test_timing() {
-        Self::set_global_timing(2, 2, 2, 2);
+        Self::set_track_override(2, 2, 2, 2);
     }
 
     /// Apply timing overrides to a track if global overrides are set
     pub fn apply_timing_override(
         mut track: pallet_referenda::TrackInfo<Balance, BlockNumber>,
     ) -> pallet_referenda::TrackInfo<Balance, BlockNumber> {
-        if let Some((prepare, decision, confirm, enactment)) = Self::get_global_timing() {
+        if let Some((prepare, decision, confirm, enactment)) = Self::get_track_override() {
             track.prepare_period = prepare;
             track.decision_period = decision;
             track.confirm_period = confirm;
@@ -248,166 +249,179 @@ impl GlobalTrackConfig {
 
 // Define tracks for referenda
 pub struct CommunityTracksInfo;
+
+impl CommunityTracksInfo {
+    /// Creates the base track configurations with production values
+    fn create_community_tracks() -> [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] {
+        [
+            // Track 0: Signed Track (authenticated proposals)
+            (
+                0,
+                pallet_referenda::TrackInfo {
+                    name: "signed",
+                    max_deciding: 5, // Allow several concurrent proposals
+                    decision_deposit: 500 * UNIT, // Moderate deposit
+                    prepare_period: 12 * HOURS, // Shorter preparation time
+                    decision_period: 7 * DAYS, // 1 week voting period
+                    confirm_period: 12 * HOURS, // 12 hours confirmation
+                    min_enactment_period: DAYS, // 1 day until execution
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(55), // Majority approval required
+                        ceil: Perbill::from_percent(70),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(5),
+                        ceil: Perbill::from_percent(25),
+                    },
+                },
+            ),
+            // Track 1: Signaling Track (non-binding community opinions)
+            (
+                1,
+                pallet_referenda::TrackInfo {
+                    name: "signaling",
+                    max_deciding: 20, // High throughput for community proposals
+                    decision_deposit: 100 * UNIT, // Low deposit requirement
+                    prepare_period: 6 * HOURS, // Short preparation time
+                    decision_period: 5 * DAYS, // Standard voting period
+                    confirm_period: 3 * HOURS, // Minimal confirmation period
+                    min_enactment_period: 1, // 1 Block - immediate "execution" (just for record-keeping)
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),
+                        ceil: Perbill::from_percent(60),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(1),
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+            // Track 2: Treasury tracks
+            (
+                2,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_small_spender",
+                    max_deciding: 5,
+                    decision_deposit: 100 * UNIT,
+                    prepare_period: DAYS,
+                    decision_period: 3 * DAYS,
+                    confirm_period: DAYS,
+                    min_enactment_period: 12 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(25),
+                        ceil: Perbill::from_percent(50),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(1),
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+            (
+                3,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_medium_spender",
+                    max_deciding: 2,
+                    decision_deposit: 250 * UNIT,
+                    prepare_period: 6 * HOURS,
+                    decision_period: 5 * DAYS,
+                    confirm_period: DAYS,
+                    min_enactment_period: 12 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),
+                        ceil: Perbill::from_percent(75),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(2),
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            ),
+            (
+                4,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_big_spender",
+                    max_deciding: 2,
+                    decision_deposit: 500 * UNIT,
+                    prepare_period: DAYS,
+                    decision_period: 7 * DAYS,
+                    confirm_period: 2 * DAYS,
+                    min_enactment_period: 12 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(65),
+                        ceil: Perbill::from_percent(85),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(5),
+                        ceil: Perbill::from_percent(15),
+                    },
+                },
+            ),
+            (
+                5,
+                pallet_referenda::TrackInfo {
+                    name: "treasury_treasurer",
+                    max_deciding: 1,
+                    decision_deposit: 1000 * UNIT,
+                    prepare_period: 2 * DAYS,
+                    decision_period: 14 * DAYS,
+                    confirm_period: 4 * DAYS,
+                    min_enactment_period: 24 * HOURS,
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(75),
+                        ceil: Perbill::from_percent(100),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(10),
+                        ceil: Perbill::from_percent(25),
+                    },
+                },
+            ),
+        ]
+    }
+}
+
 impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo {
     type Id = u16;
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
-        static mut DYNAMIC_TRACKS: Option<
-            [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6],
-        > = None;
+        lazy_static! {
+            // Static tracks with production values
+            static ref STATIC_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] =
+                CommunityTracksInfo::create_community_tracks();
 
-        unsafe {
-            if DYNAMIC_TRACKS.is_none() || GlobalTrackConfig::get_global_timing().is_some() {
-                // Create base tracks with production values
-                let base_tracks = [
-                    // Track 0: Signed Track (authenticated proposals)
-                    (
-                        0,
-                        pallet_referenda::TrackInfo {
-                            name: "signed",
-                            max_deciding: 5, // Allow several concurrent proposals
-                            decision_deposit: 500 * UNIT, // Moderate deposit
-                            prepare_period: 12 * HOURS, // Shorter preparation time
-                            decision_period: 7 * DAYS, // 1 week voting period
-                            confirm_period: 12 * HOURS, // 12 hours confirmation
-                            min_enactment_period: DAYS, // 1 day until execution
-                            min_approval: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(55), // Majority approval required
-                                ceil: Perbill::from_percent(70),
-                            },
-                            min_support: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(5),
-                                ceil: Perbill::from_percent(25),
-                            },
-                        },
-                    ),
-                    // Track 1: Signaling Track (non-binding community opinions)
-                    (
-                        1,
-                        pallet_referenda::TrackInfo {
-                            name: "signaling",
-                            max_deciding: 20, // High throughput for community proposals
-                            decision_deposit: 100 * UNIT, // Low deposit requirement
-                            prepare_period: 6 * HOURS, // Short preparation time
-                            decision_period: 5 * DAYS, // Standard voting period
-                            confirm_period: 3 * HOURS, // Minimal confirmation period
-                            min_enactment_period: 1, // 1 Block - immediate "execution" (just for record-keeping)
-                            min_approval: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(50),
-                                ceil: Perbill::from_percent(60),
-                            },
-                            min_support: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(1),
-                                ceil: Perbill::from_percent(10),
-                            },
-                        },
-                    ),
-                    // Track 2: Treasury tracks
-                    (
-                        2,
-                        pallet_referenda::TrackInfo {
-                            name: "treasury_small_spender",
-                            max_deciding: 5,
-                            decision_deposit: 100 * UNIT,
-                            prepare_period: DAYS,
-                            decision_period: 3 * DAYS,
-                            confirm_period: DAYS,
-                            min_enactment_period: 12 * HOURS,
-                            min_approval: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(25),
-                                ceil: Perbill::from_percent(50),
-                            },
-                            min_support: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(1),
-                                ceil: Perbill::from_percent(10),
-                            },
-                        },
-                    ),
-                    (
-                        3,
-                        pallet_referenda::TrackInfo {
-                            name: "treasury_medium_spender",
-                            max_deciding: 2,
-                            decision_deposit: 250 * UNIT,
-                            prepare_period: 6 * HOURS,
-                            decision_period: 5 * DAYS,
-                            confirm_period: DAYS,
-                            min_enactment_period: 12 * HOURS,
-                            min_approval: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(50),
-                                ceil: Perbill::from_percent(75),
-                            },
-                            min_support: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(2),
-                                ceil: Perbill::from_percent(10),
-                            },
-                        },
-                    ),
-                    (
-                        4,
-                        pallet_referenda::TrackInfo {
-                            name: "treasury_big_spender",
-                            max_deciding: 2,
-                            decision_deposit: 500 * UNIT,
-                            prepare_period: DAYS,
-                            decision_period: 7 * DAYS,
-                            confirm_period: 2 * DAYS,
-                            min_enactment_period: 12 * HOURS,
-                            min_approval: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(65),
-                                ceil: Perbill::from_percent(85),
-                            },
-                            min_support: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(5),
-                                ceil: Perbill::from_percent(15),
-                            },
-                        },
-                    ),
-                    (
-                        5,
-                        pallet_referenda::TrackInfo {
-                            name: "treasury_treasurer",
-                            max_deciding: 1,
-                            decision_deposit: 1000 * UNIT,
-                            prepare_period: 2 * DAYS,
-                            decision_period: 14 * DAYS,
-                            confirm_period: 4 * DAYS,
-                            min_enactment_period: 24 * HOURS,
-                            min_approval: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(75),
-                                ceil: Perbill::from_percent(100),
-                            },
-                            min_support: pallet_referenda::Curve::LinearDecreasing {
-                                length: Perbill::from_percent(100),
-                                floor: Perbill::from_percent(10),
-                                ceil: Perbill::from_percent(25),
-                            },
-                        },
-                    ),
-                ];
+            // Test tracks with fast governance timing
+            static ref TEST_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] = {
+                let base_tracks = CommunityTracksInfo::create_community_tracks();
+                let mut test_tracks = base_tracks.clone();
 
-                // Apply global timing overrides if set
-                let mut dynamic_tracks = base_tracks;
-                for (_, track) in &mut dynamic_tracks {
+                // Apply global timing overrides to all tracks
+                for (_, track) in &mut test_tracks {
                     *track = GlobalTrackConfig::apply_timing_override(track.clone());
                 }
 
-                DYNAMIC_TRACKS = Some(dynamic_tracks);
-            }
+                test_tracks
+            };
+        }
 
-            DYNAMIC_TRACKS.as_ref().unwrap()
+        // Return the appropriate tracks based on whether global overrides are set
+        if GlobalTrackConfig::get_track_override().is_some() {
+            &*TEST_TRACKS
+        } else {
+            &*STATIC_TRACKS
         }
     }
 
@@ -459,27 +473,11 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 }
 
 pub struct TechCollectiveTracksInfo;
-impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracksInfo {
-    type Id = u16;
-    type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
-    fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
-        static mut DYNAMIC_TRACKS: Option<
-            [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1],
-        > = None;
-
-        unsafe {
-            // Get current dynamic configuration
-            let current_config = TechTrackConfig::get();
-            DYNAMIC_TRACKS = Some([(0, current_config)]);
-
-            if let Some(ref tracks) = DYNAMIC_TRACKS {
-                return tracks;
-            }
-        }
-
-        // Fallback - should never reach here due to always setting DYNAMIC_TRACKS above
-        static FALLBACK_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = [(
+impl TechCollectiveTracksInfo {
+    fn create_tech_collective_tracks(
+    ) -> [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] {
+        [(
             0,
             pallet_referenda::TrackInfo {
                 name: "tech_collective_members",
@@ -500,8 +498,38 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
                     ceil: Perbill::from_percent(0),
                 },
             },
-        )];
-        &FALLBACK_TRACKS
+        )]
+    }
+}
+
+impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracksInfo {
+    type Id = u16;
+    type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
+
+    fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
+        lazy_static! {
+            // Static tracks with production values
+            static ref STATIC_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] =
+                TechCollectiveTracksInfo::create_tech_collective_tracks();
+
+            // Test tracks with fast governance timing
+            static ref TEST_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = {
+                let base_tracks = TechCollectiveTracksInfo::create_tech_collective_tracks();
+                let mut test_tracks = [(0, base_tracks[0].1.clone())];
+
+                // Apply global timing override to the track
+                test_tracks[0].1 = GlobalTrackConfig::apply_timing_override(test_tracks[0].1.clone());
+
+                test_tracks
+            };
+        }
+
+        // Return the appropriate tracks based on whether global overrides are set
+        if GlobalTrackConfig::get_track_override().is_some() {
+            &*TEST_TRACKS
+        } else {
+            &*STATIC_TRACKS
+        }
     }
 
     fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {

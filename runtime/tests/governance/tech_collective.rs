@@ -21,6 +21,7 @@
 //!
 //! ### 2. Test Infrastructure (runtime/tests/common.rs)
 //! - `TestCommons::run_to_block()` - Optimized block advancement
+//! - `TestCommons::calculate_governance_blocks()` - Helper for block calculations
 //! - `TestCommons::new_fast_governance_test_ext()` - Fast test setup
 //!
 //! ### 3. Performance Improvement
@@ -1433,7 +1434,7 @@ mod tests {
         // Test with global fast configuration for ALL tracks
         TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Verify global config is set
-            let timing = GlobalTrackConfig::get_global_timing();
+            let timing = GlobalTrackConfig::get_track_override();
             assert!(timing.is_some(), "Global timing should be set");
             let (prepare, decision, confirm, enactment) = timing.unwrap();
             println!(

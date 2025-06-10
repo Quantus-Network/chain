@@ -8746,6 +8746,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hdwallet",
+ "lazy_static",
  "log",
  "pallet-balances 40.0.1",
  "pallet-conviction-voting",
