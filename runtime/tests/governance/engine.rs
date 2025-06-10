@@ -107,10 +107,7 @@ mod tests {
             ));
 
             // Request the preimage as system
-            assert_ok!(Preimage::request_preimage(
-                RuntimeOrigin::root(),
-                hash,
-            ));
+            assert_ok!(Preimage::request_preimage(RuntimeOrigin::root(), hash,));
 
             // Check if preimage was requested
             assert!(Preimage::is_requested(&hash));
@@ -141,16 +138,10 @@ mod tests {
             ));
 
             // Request the preimage as system
-            assert_ok!(Preimage::request_preimage(
-                RuntimeOrigin::root(),
-                hash,
-            ));
+            assert_ok!(Preimage::request_preimage(RuntimeOrigin::root(), hash,));
 
             // Then unrequest it
-            assert_ok!(Preimage::unrequest_preimage(
-                RuntimeOrigin::root(),
-                hash,
-            ));
+            assert_ok!(Preimage::unrequest_preimage(RuntimeOrigin::root(), hash,));
 
             // Check if preimage is no longer requested
             assert!(!Preimage::is_requested(&hash));
@@ -858,7 +849,7 @@ mod tests {
                 _ => {
                     // With fast governance, the second referendum might also complete quickly
                     println!("Second referendum also completed quickly with fast governance");
-                    
+
                     // Verify it was approved (which indicates delegations worked)
                     if let pallet_referenda::ReferendumInfo::Approved(_, _, _) = referendum_info2 {
                         println!("Second referendum was approved, indicating delegations worked correctly");

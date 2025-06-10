@@ -6,7 +6,7 @@
 //! ## Problem
 //! The original tech collective tests were very slow because they used real timing values:
 //! - `prepare_period: 2 * DAYS` (≈ 288,000 blocks)
-//! - `decision_period: 14 * DAYS` (≈ 2,016,000 blocks)  
+//! - `decision_period: 14 * DAYS` (≈ 2,016,000 blocks)
 //! - `confirm_period: 2 * DAYS` (≈ 288,000 blocks)
 //! - `min_enactment_period: 24 * HOURS` (≈ 14,400 blocks)
 //!
@@ -690,7 +690,7 @@ mod tests {
             // Let's just verify the max_deciding functionality by checking the queue behavior
             // Run a bit longer to allow both referenda to progress
             TestCommons::run_to_block(track_info.prepare_period + 3);
-            
+
             // Check that at most one referendum is deciding at any time due to max_deciding = 1
             let first_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
@@ -700,7 +700,7 @@ mod tests {
                 pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
                     second_referendum_index,
                 );
-            
+
             // Count how many are in deciding phase
             let mut deciding_count = 0;
             if let Some(pallet_referenda::ReferendumInfo::Ongoing(status)) = first_info {
@@ -713,12 +713,12 @@ mod tests {
                     deciding_count += 1;
                 }
             }
-            
+
             // With max_deciding = 1 and fast governance, we should have at most 1 deciding at any time
             // (or they may have already completed due to fast timing)
             assert!(
-                deciding_count <= 1, 
-                "Should have at most one referendum in deciding phase due to max_deciding = 1, got: {}", 
+                deciding_count <= 1,
+                "Should have at most one referendum in deciding phase due to max_deciding = 1, got: {}",
                 deciding_count
             );
         });
@@ -906,7 +906,7 @@ mod tests {
             println!("Current block before second referendum: {}", frame_system::Pallet::<Runtime>::block_number());
             println!("Debug: track_info.prepare_period = {}", track_info.prepare_period);
             println!("Debug: second_referendum_start calculation = 2 * {} + 2 = {}", track_info.prepare_period, second_referendum_start);
-            
+
             // Use relative block advancement to avoid any overflow issues
             let current_block = frame_system::Pallet::<Runtime>::block_number();
             let target_block = current_block.max(second_referendum_start);
@@ -1095,7 +1095,7 @@ mod tests {
                 fourth_referendum_index
             ));
 
-            // Run to just after prepare period for fourth referendum  
+            // Run to just after prepare period for fourth referendum
             let current_block_for_fourth = frame_system::Pallet::<Runtime>::block_number();
             let fourth_referendum_target = current_block_for_fourth + track_info.prepare_period + 1;
             TestCommons::run_to_block(fourth_referendum_target);

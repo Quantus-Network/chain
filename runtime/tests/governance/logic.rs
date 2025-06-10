@@ -50,8 +50,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment =
-                frame_support::traits::schedule::DispatchTime::After(0u32);
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
