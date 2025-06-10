@@ -58,8 +58,8 @@ pallet-wormhole = { workspace = true, default-features = false }
 pallet-reversible-transfers = { workspace = true, default-features = false }
 pallet-vesting = { workspace = true, default-features = false }
 qp-scheduler = { workspace = true, default-features = false }
-sp-consensus-qpow = { workspace = true, default-features = false}
-sp-faucet = {workspace = true, default-features = false}
+sp-consensus-qpow = { workspace = true, default-features = false }
+sp-faucet = { workspace = true, default-features = false }
 log = { workspace = true }
 pallet-merkle-airdrop = { workspace = true, default-features = false }
 

@@ -36,6 +36,7 @@ impl TestCommons {
     pub fn run_to_block(n: u32) {
         while System::block_number() < n {
             let b = System::block_number();
+            println!("Current block: {} - target block: {}", b, n);
             // Call on_finalize for pallets that need it
             resonance_runtime::Scheduler::on_finalize(b);
             System::on_finalize(b);

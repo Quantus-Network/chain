@@ -277,34 +277,57 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
     type Id = u16;
     type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
+    #[cfg(not(test))]
     fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
-        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = [
-            // Track 0: Root Track (major system changes)
-            // - Highest privileges for critical protocol upgrades and parameter changes
-            (
-                0,
-                pallet_referenda::TrackInfo {
-                    name: "root",
-                    max_deciding: 1, // Only 1 referendum can be in deciding phase at a time
-                    decision_deposit: 1000 * UNIT, // Highest deposit requirement to prevent spam
-                    prepare_period: 1 * DAYS, // 1 day preparation before voting begins
-                    decision_period: 5 * DAYS, // 5 days for community to vote
-                    confirm_period: 2 * DAYS, // 2 days confirmation period once passing
-                    min_enactment_period: 2 * DAYS, // 2 day between approval and execution
-                    min_approval: pallet_referenda::Curve::LinearDecreasing {
-                        length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(75), // Minimum 75% approval at end
-                        ceil: Perbill::from_percent(100), // Requires 100% approval at start
-                    },
-                    min_support: pallet_referenda::Curve::LinearDecreasing {
-                        length: Perbill::from_percent(0),
-                        //In this way support param is off.
-                        floor: Perbill::from_percent(0),
-                        ceil: Perbill::from_percent(0),
-                    },
+        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = [(
+            0,
+            pallet_referenda::TrackInfo {
+                name: "tech_collective_members",
+                max_deciding: 1, // Only one tech collective referendum at a time
+                decision_deposit: 1000 * UNIT,
+                prepare_period: 2 * DAYS,
+                decision_period: 14 * DAYS,
+                confirm_period: 2 * DAYS,
+                min_enactment_period: 24 * HOURS,
+                min_approval: pallet_referenda::Curve::LinearDecreasing {
+                    length: Perbill::from_percent(100),
+                    floor: Perbill::from_percent(50), // Simple majority
+                    ceil: Perbill::from_percent(100),
                 },
-            ),
-        ];
+                min_support: pallet_referenda::Curve::LinearDecreasing {
+                    length: Perbill::from_percent(100),
+                    floor: Perbill::from_percent(0), // No minimum support required
+                    ceil: Perbill::from_percent(0),
+                },
+            },
+        )];
+        &TRACKS
+    }
+
+    #[cfg(test)]
+    fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
+        static TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = [(
+            0,
+            pallet_referenda::TrackInfo {
+                name: "tech_collective_members",
+                max_deciding: 1, // Only one tech collective referendum at a time
+                decision_deposit: 10 * UNIT,
+                prepare_period: 4,
+                decision_period: 4,
+                confirm_period: 4,
+                min_enactment_period: 4,
+                min_approval: pallet_referenda::Curve::LinearDecreasing {
+                    length: Perbill::from_percent(100),
+                    floor: Perbill::from_percent(50), // Simple majority
+                    ceil: Perbill::from_percent(100),
+                },
+                min_support: pallet_referenda::Curve::LinearDecreasing {
+                    length: Perbill::from_percent(100),
+                    floor: Perbill::from_percent(0), // No minimum support required
+                    ceil: Perbill::from_percent(0),
+                },
+            },
+        )];
         &TRACKS
     }
 
