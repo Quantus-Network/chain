@@ -501,7 +501,7 @@ pub mod pallet {
         }
 
         /// Internal logic to schedule a transfer with a given delay.
-        fn _do_schedule_transfer(
+        fn do_schedule_transfer_inner(
             who: T::AccountId,
             dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
             amount: BalanceOf<T>,
