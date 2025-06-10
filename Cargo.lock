@@ -2554,11 +2554,13 @@ name = "external-miner"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "crossbeam-channel",
  "env_logger 0.10.2",
  "hex",
  "log",
  "num-bigint",
  "num-traits",
+ "num_cpus",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qpow-math",
