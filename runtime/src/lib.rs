@@ -284,4 +284,7 @@ mod runtime {
 
     #[runtime::pallet_index(20)]
     pub type Origins = pallet_custom_origins;
+
+    #[runtime::pallet_index(21)]
+    pub type Recovery = pallet_recovery;
 }
