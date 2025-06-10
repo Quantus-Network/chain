@@ -6,11 +6,9 @@ use super::*;
 
 use crate::Pallet as ReversibleTransfers; // Alias the pallet
 use frame_benchmarking::{account as benchmark_account, v2::*, BenchmarkError};
-use frame_support::traits::{schedule::v3::Named as SchedulerNamed, Get};
+use frame_support::traits::Get;
 use frame_system::RawOrigin;
-use sp_runtime::traits::BlockNumberProvider;
-use sp_runtime::traits::Hash;
-use sp_runtime::traits::StaticLookup;
+use sp_runtime::traits::{BlockNumberProvider, Hash, StaticLookup};
 use sp_runtime::Saturating;
 
 const SEED: u32 = 0;
@@ -38,7 +36,7 @@ where
 // Helper function to set reversible state directly for benchmark setup
 fn setup_reversible_account<T: Config>(
     who: T::AccountId,
-    delay: BlockNumberFor<T>,
+    delay: BlockNumberOrTimestampOf<T>,
     policy: DelayPolicy,
     reverser: Option<T::AccountId>,
 ) {
@@ -86,13 +84,13 @@ mod benchmarks {
     fn set_reversibility() -> Result<(), BenchmarkError> {
         let caller: T::AccountId = whitelisted_caller();
         let explicit_reverser: T::AccountId = benchmark_account("explicit_reverser", 0, SEED);
-        let delay: BlockNumberFor<T> = T::DefaultDelay::get();
+        let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
         let policy = DelayPolicy::Explicit;
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(caller.clone()),
-            Some(delay),
+            Some(delay.clone()),
             policy.clone(),
             Some(explicit_reverser.clone()),
         );
@@ -119,26 +117,35 @@ mod benchmarks {
 
         // Setup caller as reversible
         let delay = T::DefaultDelay::get();
-        setup_reversible_account::<T>(caller.clone(), delay, DelayPolicy::Explicit, None);
+        setup_reversible_account::<T>(caller.clone(), delay.clone(), DelayPolicy::Explicit, None);
 
         let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
         let tx_id = T::Hashing::hash_of(&(caller.clone(), call).encode());
 
-        let recipient = <T as frame_system::Config>::Lookup::unlookup(recipient);
+        let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
         // Schedule the dispatch
         #[extrinsic_call]
         _(
             RawOrigin::Signed(caller.clone()),
-            recipient,
+            recipient_lookup,
             transfer_amount.into(),
         );
 
         assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
         assert!(PendingTransfers::<T>::contains_key(&tx_id));
         // Check scheduler state (can be complex, checking count is simpler)
-        let execute_at = T::BlockNumberProvider::current_block_number().saturating_add(delay);
+        let execute_at = match delay {
+            BlockNumberOrTimestamp::BlockNumber(bn) => {
+                T::BlockNumberProvider::current_block_number().saturating_add(bn)
+            }
+            _ => {
+                return Err(BenchmarkError::Stop(
+                    "Timestamp delay not supported in benchmark",
+                ))
+            }
+        };
         let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id, 1)?;
-        assert_eq!(T::Scheduler::next_dispatch_time(task_name), Ok(execute_at));
+        assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
 
         Ok(())
     }
@@ -168,8 +175,12 @@ mod benchmarks {
         let origin = RawOrigin::Signed(caller.clone()).into(); // T::RuntimeOrigin
 
         // Call the *internal* scheduling logic here for setup
-        let recipient = <T as frame_system::Config>::Lookup::unlookup(recipient);
-        ReversibleTransfers::<T>::do_schedule_transfer(origin, recipient, transfer_amount.into())?;
+        let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
+        ReversibleTransfers::<T>::do_schedule_transfer(
+            origin,
+            recipient_lookup,
+            transfer_amount.into(),
+        )?;
         let tx_id = T::Hashing::hash_of(&(caller.clone(), call).encode());
 
         // Ensure setup worked before benchmarking cancel
