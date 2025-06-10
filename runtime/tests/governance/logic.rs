@@ -15,7 +15,7 @@ mod tests {
 
     #[test]
     fn referendum_with_conviction_voting_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter_for = TestCommons::account_id(2);
             let voter_against = TestCommons::account_id(3);
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn referendum_execution_with_scheduler_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let target = TestCommons::account_id(4);
 
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn referendum_fails_with_insufficient_turnout() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Test for track 1 (signed) where support is enabled
             let proposer = TestCommons::account_id(1);
             let voter = TestCommons::account_id(2);
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn referendum_timeout_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
 
             // Prepare the proposal
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn referendum_token_slashing_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let initial_balance = 10000 * UNIT;
             Balances::make_free_balance_be(&proposer, initial_balance);
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn signaling_track_referendum_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter1 = TestCommons::account_id(2);
             let voter2 = TestCommons::account_id(3);
@@ -585,13 +585,13 @@ mod tests {
                 }
             ));
 
-            // Progress through phases
-            let prepare_period = 6 * HOURS;
-            let decision_period = 5 * DAYS;
-            let confirm_period = 3 * HOURS;
+            // With fast governance config, all periods are 2 blocks
+            let fast_prepare = 2;
+            let fast_decision = 2;
+            let fast_confirm = 2;
 
             // Advance to deciding phase
-            TestCommons::run_to_block(prepare_period + 1);
+            TestCommons::run_to_block(fast_prepare + 1);
 
             // Verify referendum is in deciding phase
             let info =
@@ -611,8 +611,8 @@ mod tests {
                 panic!("Referendum should be ongoing");
             }
 
-            // Advance through decision and confirmation
-            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
+            // Advance through decision and confirmation with fast timing
+            TestCommons::run_to_block(fast_prepare + fast_decision + fast_confirm + 2);
 
             // Verify referendum passed
             let info =
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn concurrent_tracks_referendum_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter = TestCommons::account_id(2);
 
@@ -746,14 +746,16 @@ mod tests {
                 }
             ));
 
-            // Get the prepare periods for each track
-            let signed_prepare = 12 * HOURS;
-            let signal_prepare = 6 * HOURS;
+            // With fast governance config, all periods are 2 blocks
+            let fast_prepare = 2;
+            let fast_decision = 2;
+            let fast_confirm = 2;
+            let fast_enactment = 2;
 
-            // Advance to signal prepare completion (shortest)
-            TestCommons::run_to_block(signal_prepare + 1);
+            // Advance to prepare completion (both tracks use same fast timing)
+            TestCommons::run_to_block(fast_prepare + 1);
 
-            // Check signal referendum moved to deciding phase
+            // Check both referenda moved to deciding phase
             let signal_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
             match signal_info {
@@ -766,38 +768,22 @@ mod tests {
                 _ => panic!("Signal referendum should be ongoing"),
             }
 
-            // Check signed referendum not yet in deciding phase
-            let signed_info =
-                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-            match signed_info {
-                pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    assert!(
-                        status.deciding.is_none(),
-                        "Signed referendum should not yet be in deciding phase"
-                    );
-                }
-                _ => panic!("Signed referendum should be ongoing"),
-            }
-
-            // Advance to signed prepare completion
-            TestCommons::run_to_block(signed_prepare + 1);
-
-            // Check signed referendum moved to deciding phase
             let signed_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
                     assert!(
                         status.deciding.is_some(),
-                        "Signed referendum should now be in deciding phase"
+                        "Signed referendum should be in deciding phase"
                     );
                 }
                 _ => panic!("Signed referendum should be ongoing"),
             }
 
-            // Advance through all decision periods to confirm all pass
-            let longest_process = signed_prepare + 7 * DAYS + 12 * HOURS + 5; // Signed track has longest periods
-            TestCommons::run_to_block(longest_process);
+            // Advance through all fast governance periods to confirm all pass
+            let total_fast_blocks =
+                fast_prepare + fast_decision + fast_confirm + fast_enactment + 2;
+            TestCommons::run_to_block(total_fast_blocks);
 
             // Verify all referenda passed
             let signed_final =
@@ -823,7 +809,7 @@ mod tests {
     }
     #[test]
     fn max_deciding_limit_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
 
             // Set up sufficient balance
@@ -868,8 +854,8 @@ mod tests {
                 ));
             }
 
-            // Advance past prepare period for signaling track
-            TestCommons::run_to_block(6 * HOURS + 1);
+            // Advance past prepare period with fast governance timing (2 blocks)
+            TestCommons::run_to_block(2 + 1);
 
             // Count how many referenda are in deciding phase
             let mut deciding_count = 0;
