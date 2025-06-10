@@ -45,41 +45,6 @@ impl TestCommons {
         Self::new_test_ext()
     }
 
-    /// Create a test externality with CUSTOM governance track timing for ALL tracks
-    /// Allows precise control over timing periods for all governance tracks
-    pub fn new_custom_governance_test_ext(
-        prepare_period: u32,
-        decision_period: u32,
-        confirm_period: u32,
-        min_enactment_period: u32,
-    ) -> sp_io::TestExternalities {
-        use resonance_runtime::governance::definitions::GlobalTrackConfig;
-
-        // Set custom timing for ALL governance tracks
-        GlobalTrackConfig::set_global_timing(
-            prepare_period,
-            decision_period,
-            confirm_period,
-            min_enactment_period,
-        );
-
-        println!(
-            "Custom governance test config: prepare={}, decision={}, confirm={}, enactment={}",
-            prepare_period, decision_period, confirm_period, min_enactment_period
-        );
-        Self::new_test_ext()
-    }
-
-    /// Legacy method - still works but now uses global config
-    /// Create a test externality with FAST governance track timing for Tech Collective specifically
-    /// Note: This now uses the global config system and affects ALL tracks
-    pub fn new_fast_tech_collective_test_ext() -> sp_io::TestExternalities {
-        println!(
-            "Legacy tech collective test config - now using global fast config for all tracks"
-        );
-        Self::new_fast_governance_test_ext()
-    }
-
     // Helper function to run blocks
     pub fn run_to_block(n: u32) {
         let num_blocks = n - System::block_number();
@@ -114,10 +79,5 @@ impl TestCommons {
     ) -> u32 {
         prepare_period + decision_period + confirm_period + min_enactment_period + 5
         // +5 for buffer
-    }
-
-    /// Get the default fast governance timing - useful for quick tests
-    pub fn fast_governance_timing() -> (u32, u32, u32, u32) {
-        (2, 2, 2, 2) // prepare, decision, confirm, enactment
     }
 }

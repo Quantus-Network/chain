@@ -21,7 +21,6 @@
 //!
 //! ### 2. Test Infrastructure (runtime/tests/common.rs)
 //! - `TestCommons::run_to_block()` - Optimized block advancement
-//! - `TestCommons::calculate_governance_blocks()` - Helper for block calculations
 //! - `TestCommons::new_fast_governance_test_ext()` - Fast test setup
 //!
 //! ### 3. Performance Improvement
@@ -31,20 +30,7 @@
 //!
 //! ## Usage Examples
 //!
-//! ### Fast Test (Recommended)
-//! ```rust
-//! #[test]
-//! fn my_fast_test() {
-//!     TestCommons::new_fast_governance_test_ext().execute_with(|| {
-//!         // Your test logic here
-//!         let total_blocks = TestCommons::calculate_governance_blocks(2, 2, 2, 2);
-//!         TestCommons::run_to_block(total_blocks);
-//!         // Assertions
-//!     });
-//! }
-//! ```
-//!
-//! ### Legacy Test (Still Works)
+//! ### Fast Test
 //! ```rust
 //! #[test]
 //! fn my_legacy_test() {
