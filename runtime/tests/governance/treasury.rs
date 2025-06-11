@@ -924,36 +924,27 @@ mod tests {
     /// 9. Spend is processed and removed.
     #[test]
     fn treasury_spend_via_dedicated_spender_track_works() {
-        use crate::common::TestCommons;
-
         const SPEND_AMOUNT: Balance = 200 * MICRO_UNIT;
         // Use common::account_id for consistency
         let proposer_account_id = TestCommons::account_id(123);
         let voter_account_id = TestCommons::account_id(124);
         let beneficiary_account_id = TestCommons::account_id(125);
 
+        fn set_balance(account_id: AccountId, balance: u128) {
+            let _ = Balances::force_set_balance(
+                RawOrigin::Root.into(),
+                <Runtime as frame_system::Config>::Lookup::unlookup(account_id.clone()),
+                balance * UNIT,
+            );
+        }
+
         TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Set up balances after externality creation
-            let _ = Balances::force_set_balance(
-                RawOrigin::Root.into(),
-                <Runtime as frame_system::Config>::Lookup::unlookup(proposer_account_id.clone()),
-                10000 * UNIT,
-            );
-            let _ = Balances::force_set_balance(
-                RawOrigin::Root.into(),
-                <Runtime as frame_system::Config>::Lookup::unlookup(voter_account_id.clone()),
-                10000 * UNIT,
-            );
-            let _ = Balances::force_set_balance(
-                RawOrigin::Root.into(),
-                <Runtime as frame_system::Config>::Lookup::unlookup(beneficiary_account_id.clone()),
-                EXISTENTIAL_DEPOSIT,
-            );
-            let _ = Balances::force_set_balance(
-                RawOrigin::Root.into(),
-                <Runtime as frame_system::Config>::Lookup::unlookup(TreasuryPallet::account_id()),
-                1000 * UNIT,
-            );
+            set_balance(proposer_account_id.clone(), 10000);
+            set_balance(voter_account_id.clone(), 10000);
+            set_balance(beneficiary_account_id.clone(), EXISTENTIAL_DEPOSIT);
+            set_balance(TreasuryPallet::account_id(), 1000);
+
             System::set_block_number(1); // Start at block 1
             let initial_treasury_balance = TreasuryPallet::pot();
             let initial_beneficiary_balance = Balances::free_balance(&beneficiary_account_id);
@@ -992,7 +983,7 @@ mod tests {
 
             let track_info_2 = CommunityTracksInfo::info(2).unwrap();
 
-            let dispatch_time = ScheduleDispatchTime::After(1u32);
+            let dispatch_time = ScheduleDispatchTime::After(1u32.into());
             const TEST_REFERENDUM_INDEX: ReferendumIndex = 0;
             let referendum_index: ReferendumIndex = TEST_REFERENDUM_INDEX;
 
@@ -1003,6 +994,7 @@ mod tests {
                 dispatch_time
             ));
 
+            println!("Referendum submitted - checking events");
             System::assert_has_event(RuntimeEvent::Referenda(
                 pallet_referenda::Event::Submitted {
                     index: referendum_index,
@@ -1055,6 +1047,7 @@ mod tests {
 
             TestCommons::run_to_block(target_approval_block);
 
+            println!("Checking for confirmed event");
             let confirmed_event = System::events()
                 .iter()
                 .find_map(|event_record| {
@@ -1089,31 +1082,50 @@ mod tests {
             let final_check_block = System::block_number() + 5;
             TestCommons::run_to_block(final_check_block);
 
-            System::events().iter().any(|event_record| {
-                matches!(
-                    event_record.event,
-                    RuntimeEvent::Scheduler(pallet_scheduler::Event::Dispatched {
-                        task: (qp_scheduler::BlockNumberOrTimestamp::BlockNumber(86402), 0),
-                        id: _,
-                        result: Ok(())
-                    })
-                )
+            println!("checking for dispatched event 99");
+
+            // Search for any Scheduler::Dispatched event from block 0 onwards
+            // The event might have been dispatched earlier than our calculation
+            let current_block = System::block_number();
+
+            let dispatched_block = System::events().iter().find_map(|event_record| {
+                if let RuntimeEvent::Scheduler(pallet_scheduler::Event::Dispatched {
+                    task: (qp_scheduler::BlockNumberOrTimestamp::BlockNumber(block), 0),
+                    id: _,
+                    result: Ok(())
+                }) = &event_record.event {
+                    Some(*block)
+                } else {
+                    None
+                }
             });
 
-            // Check the actual event that was emitted (don't hardcode expected values)
-            let spend_approved_events: Vec<_> = System::events()
+            match dispatched_block {
+                Some(block) => {
+                    println!("✅ Found Scheduler::Dispatched event at block {}", block);
+                }
+                None => {
+                    panic!(
+                        "Expected Scheduler::Dispatched event not found anywhere. Current block: {}. Expected range was {}..={}",
+                        current_block,
+                        target_enactment_block,
+                        current_block
+                    );
+                }
+            }
+
+            // Extract the actual AssetSpendApproved event to get dynamic valid_from
+            let spend_approved_event = System::events()
                 .iter()
-                .filter_map(|event_record| {
-                    if let RuntimeEvent::TreasuryPallet(
-                        pallet_treasury::Event::AssetSpendApproved {
-                            index,
-                            asset_kind,
-                            amount,
-                            beneficiary,
-                            valid_from,
-                            expire_at,
-                        },
-                    ) = &event_record.event
+                .find_map(|event_record| {
+                    if let RuntimeEvent::TreasuryPallet(pallet_treasury::Event::AssetSpendApproved {
+                        index,
+                        asset_kind,
+                        amount,
+                        beneficiary,
+                        valid_from,
+                        expire_at,
+                    }) = &event_record.event
                     {
                         if *index == initial_spend_index {
                             Some((*valid_from, *expire_at))
@@ -1124,23 +1136,16 @@ mod tests {
                         None
                     }
                 })
-                .collect();
+                .expect("AssetSpendApproved event should be present");
 
-            assert!(
-                !spend_approved_events.is_empty(),
-                "AssetSpendApproved event should be emitted"
-            );
-            let (actual_valid_from, actual_expire_at) = spend_approved_events[0];
-
-            // Verify the event exists with the correct basic details
             System::assert_has_event(RuntimeEvent::TreasuryPallet(
                 pallet_treasury::Event::AssetSpendApproved {
                     index: initial_spend_index,
                     asset_kind: (),
                     amount: SPEND_AMOUNT,
                     beneficiary: beneficiary_account_id.clone(),
-                    valid_from: actual_valid_from,
-                    expire_at: actual_expire_at,
+                    valid_from: spend_approved_event.0,
+                    expire_at: spend_approved_event.1,
                 },
             ));
 
