@@ -55,6 +55,13 @@ mkdir -p ./quantus_node_data
 ```
 This command creates a directory named `quantus_node_data` in your current working directory.
 
+**Optional Linux**  
+On linux you may need to make sure this directory has generous permissions so Docker can access it
+
+```bash
+chmod 755 quantus_node_data
+```
+
 **Step 2: Generate Your Node Identity (P2P Key)**
 
 Your node needs a unique P2P identity to connect to the network. Generate this key into your data directory:
@@ -62,7 +69,7 @@ Your node needs a unique P2P identity to connect to the network. Generate this k
 # If on Apple Silicon, you may need to add --platform linux/amd64
 docker run --rm --platform linux/amd64 \
   -v "$(pwd)/quantus_node_data":/var/lib/quantus_data_in_container \
-  quantus-node:v0.0.4 \
+  ghcr.io/quantus-network/quantus-node:latest \
   key generate-node-key --file /var/lib/quantus_data_in_container/node_key.p2p
 ```
 Replace `quantus-node:v0.0.4` with your desired image (e.g., `ghcr.io/quantus-network/quantus-node:latest`).
@@ -73,7 +80,7 @@ This command saves `node_key.p2p` into your local `./quantus_node_data` director
 Run the following command to generate your unique rewards address:
 ```bash
 # If on Apple Silicon, you may need to add --platform linux/amd64
-docker run --rm quantus-node:v0.0.4 key quantus
+docker run --rm ghcr.io/quantus-network/quantus-node:latest key quantus
 ```
 Replace `quantus-node:v0.0.4` with your desired image.
 This command will display your secret phrase, public key, address, and seed.
@@ -95,14 +102,13 @@ docker run -d \
   -v "$(pwd)/quantus_node_data":/var/lib/quantus \
   -p 30333:30333 \
   -p 9944:9944 \
-  quantus-node:v0.0.4 \
+  ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
   --chain live_resonance \
   --node-key-file /var/lib/quantus/node_key.p2p \
   --rewards-address /var/lib/quantus/rewards-address.txt
 ```
-Replace `quantus-node:v0.0.4` with your desired image.
 
 This command:
 - Mounts your local `./quantus_node_data` directory (containing `node_key.p2p` and `rewards-address.txt`) to `/var/lib/quantus` inside the container.
@@ -164,7 +170,7 @@ docker run -d \
   -p 30333:30333 \
   -p 9944:9944 \
   -v ~/.quantus:/var/lib/quantus \
-  ghcr.io/quantus-network/quantus-node:v0.0.4 \
+  ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
   --chain live_resonance \
