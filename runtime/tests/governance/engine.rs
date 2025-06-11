@@ -707,64 +707,43 @@ mod tests {
                 "Delegator1 should no longer be delegating"
             );
 
-            // Check if referendum is still ongoing before trying to vote
-            let referendum_status = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
-            if let Some(pallet_referenda::ReferendumInfo::Ongoing(_)) = referendum_status {
-                // With fast governance, advance just 1 block to update tally but not complete the referendum
-                let current_block = frame_system::Pallet::<Runtime>::block_number();
-                TestCommons::run_to_block(current_block + 1);
+            // Advance blocks to update tally
+            TestCommons::run_to_block(prepare_period + 1);
 
-                // Check again after advancing
-                let referendum_status_after = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
-                if let Some(pallet_referenda::ReferendumInfo::Ongoing(_)) = referendum_status_after {
-                    // The undelegated account now votes directly (before referendum completes)
-                    assert_ok!(ConvictionVoting::vote(
-                        RuntimeOrigin::signed(delegator1.clone()),
-                        referendum_index,
-                        Standard {
-                            vote: Vote {
-                                aye: false, // Voting against
-                                conviction: pallet_conviction_voting::Conviction::Locked1x,
-                            },
-                            balance: 300 * UNIT
-                        }
-                    ));
-                } else {
-                    // If referendum completed too fast, skip the direct voting test
-                    println!("Referendum completed too fast with fast governance - skipping direct vote test");
+            // The undelegated account now votes directly
+            assert_ok!(ConvictionVoting::vote(
+                RuntimeOrigin::signed(delegator1.clone()),
+                referendum_index,
+                Standard {
+                    vote: Vote {
+                        aye: false, // Voting against
+                        conviction: pallet_conviction_voting::Conviction::Locked1x,
+                    },
+                    balance: 300 * UNIT
                 }
-            } else {
-                // If referendum already completed, skip the direct voting test
-                println!("Referendum already completed - skipping direct vote test");
-            }
+            ));
 
-            // Check the updated tally (if referendum is still ongoing)
+            // Check the updated tally
             let referendum_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
-            match referendum_info {
-                pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    // Now we should have:
-                    // Ayes: Delegate (200 UNIT * 1x) + Delegator2 (400 UNIT * 2x) = 1000 UNIT equivalent
-                    // Nays: Delegator1 (300 UNIT * 1x) = 300 UNIT equivalent (if vote was cast)
+            if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info {
+                // Now we should have:
+                // Ayes: Delegate (200 UNIT * 1x) + Delegator2 (400 UNIT * 2x) = 1000 UNIT equivalent
+                // Nays: Delegator1 (300 UNIT * 1x) = 300 UNIT equivalent
 
-                    println!(
-                        "Updated referendum tally - ayes: {}, nays: {}",
-                        status.tally.ayes, status.tally.nays
-                    );
-                    // Only check for nays if we actually managed to cast the vote
-                    if status.tally.nays > 0 {
-                        println!("Successfully cast vote against referendum");
-                    }
-                }
-                _ => {
-                    println!("Referendum completed before we could cast additional votes");
-                }
+                println!(
+                    "Updated referendum tally - ayes: {}, nays: {}",
+                    status.tally.ayes, status.tally.nays
+                );
+                assert!(status.tally.nays > 0, "Tally should include votes against");
+            } else {
+                panic!("Referendum should be ongoing");
             }
 
             // Complete the referendum
             let decision_period = track_info.decision_period;
             let confirm_period = track_info.confirm_period;
-            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 10);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 1);
 
             // Check referendum passed despite the vote against
             let final_info =
@@ -829,32 +808,22 @@ mod tests {
                 }
             ));
 
-            // Advance to deciding phase (but not too far with fast governance)
-            let current_block_for_second = frame_system::Pallet::<Runtime>::block_number();
-            TestCommons::run_to_block(current_block_for_second + prepare_period + 1);
+            // Advance to deciding phase
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Verify active delegations are automatically applied to the new referendum
             let referendum_info2 =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index2).unwrap();
-            match referendum_info2 {
-                pallet_referenda::ReferendumInfo::Ongoing(status) => {
-                    // Should still include delegator2's votes automatically
-                    assert!(
-                        status.tally.ayes > 100 * UNIT,
-                        "Tally should include delegated votes from existing delegations"
-                    );
+            if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info2 {
+                // Should still include delegator2's votes automatically
+                assert!(
+                    status.tally.ayes > 100 * UNIT,
+                    "Tally should include delegated votes from existing delegations"
+                );
 
-                    println!("Second referendum tally - ayes: {}", status.tally.ayes);
-                }
-                _ => {
-                    // With fast governance, the second referendum might also complete quickly
-                    println!("Second referendum also completed quickly with fast governance");
-
-                    // Verify it was approved (which indicates delegations worked)
-                    if let pallet_referenda::ReferendumInfo::Approved(_, _, _) = referendum_info2 {
-                        println!("Second referendum was approved, indicating delegations worked correctly");
-                    }
-                }
+                println!("Second referendum tally - ayes: {}", status.tally.ayes);
+            } else {
+                panic!("Second referendum should be ongoing");
             }
         });
     }
