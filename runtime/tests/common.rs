@@ -57,12 +57,6 @@ impl TestCommons {
 
     // Helper function to run blocks
     pub fn run_to_block(n: u32) {
-        // let num_blocks = n - System::block_number();
-        // if num_blocks > 300 {
-        //     panic!("Too many blocks to run: {}", num_blocks);
-        // }
-        // println!("run_to_block: Fast forwarding {} blocks", num_blocks);
-
         while System::block_number() < n {
             let b = System::block_number();
             // Call on_finalize for pallets that need it
