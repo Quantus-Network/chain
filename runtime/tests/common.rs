@@ -32,30 +32,39 @@ impl TestCommons {
         ext
     }
 
-    /// Create a test externality with FAST governance track timing for ALL tracks
-    /// This speeds up ALL governance tests by using 2-block periods for prepare, decision, confirm, and enactment
-    /// Should reduce test execution time from 30+ seconds to milliseconds
+    /// Create a test externality with governance track timing based on feature flags
+    /// - Without `slow-governance-tests`: Uses fast 2-block periods for all governance tracks
+    /// - With `slow-governance-tests`: Uses production timing (hours/days)
+    /// This allows CI to test both fast (for speed) and slow (for correctness) governance
     pub fn new_fast_governance_test_ext() -> sp_io::TestExternalities {
-        use resonance_runtime::governance::definitions::GlobalTrackConfig;
+        #[cfg(feature = "slow-governance-tests")]
+        {
+            println!("Slow governance test config: Using production timing (hours/days)");
+            Self::new_test_ext()
+        }
 
-        // Set global fast timing for ALL governance tracks (Community, Treasury, Tech Collective)
-        GlobalTrackConfig::set_fast_test_timing(); // Sets 2 blocks for all periods
+        #[cfg(not(feature = "slow-governance-tests"))]
+        {
+            use resonance_runtime::governance::definitions::GlobalTrackConfig;
 
-        println!("Fast governance test config activated: All tracks use 2-block periods");
-        Self::new_test_ext()
+            // Set global fast timing for ALL governance tracks (Community, Treasury, Tech Collective)
+            GlobalTrackConfig::set_fast_test_timing(); // Sets 2 blocks for all periods
+
+            println!("Fast governance test config activated: All tracks use 2-block periods");
+            Self::new_test_ext()
+        }
     }
 
     // Helper function to run blocks
     pub fn run_to_block(n: u32) {
-        let num_blocks = n - System::block_number();
-        if num_blocks > 300 {
-            panic!("Too many blocks to run: {}", num_blocks);
-        }
-        println!("run_to_block: Fast forwarding {} blocks", num_blocks);
+        // let num_blocks = n - System::block_number();
+        // if num_blocks > 300 {
+        //     panic!("Too many blocks to run: {}", num_blocks);
+        // }
+        // println!("run_to_block: Fast forwarding {} blocks", num_blocks);
 
         while System::block_number() < n {
             let b = System::block_number();
-            println!("Current block: {} - target block: {}", b, n);
             // Call on_finalize for pallets that need it
             resonance_runtime::Scheduler::on_finalize(b);
             System::on_finalize(b);

@@ -1299,14 +1299,13 @@ mod tests {
                 true // AYE vote
             ));
 
-            // Wait for the referendum to complete
-            TestCommons::run_to_block(
-                track_info.prepare_period
-                    + track_info.decision_period
-                    + track_info.confirm_period
-                    + track_info.min_enactment_period
-                    + 5,
-            );
+            // Wait for the referendum to complete all phases
+            let completion_block = track_info.prepare_period
+                + track_info.decision_period
+                + track_info.confirm_period
+                + 5;
+
+            TestCommons::run_to_block(completion_block);
 
             // Check referendum outcome
             let referendum_info = pallet_referenda::ReferendumInfoFor::<
@@ -1324,8 +1323,10 @@ mod tests {
                 "Treasury spend referendum should be approved"
             );
 
-            // Wait for scheduler to dispatch the approved referendum
-            TestCommons::run_to_block(System::block_number() + 5);
+            // Wait for scheduler to execute the approved referendum
+            // The execution happens at completion_block + min_enactment_period
+            let execution_block = completion_block + track_info.min_enactment_period + 5;
+            TestCommons::run_to_block(execution_block);
 
             // Check if treasury spend was approved
             let spend_index = 0;
@@ -1347,89 +1348,6 @@ mod tests {
                 100 * UNIT + spend_amount,
                 "Beneficiary should receive the treasury spend amount"
             );
-        });
-    }
-
-    #[test]
-    fn test_global_fast_governance_config_all_tracks() {
-        use crate::common::TestCommons;
-        use codec::Encode;
-        use frame_support::assert_ok;
-        use resonance_runtime::governance::definitions::GlobalTrackConfig;
-        use resonance_runtime::{Preimage, RuntimeOrigin, TechCollective};
-
-        use sp_runtime::traits::Hash;
-
-        // Test with global fast configuration for ALL tracks
-        TestCommons::new_fast_governance_test_ext().execute_with(|| {
-            // Verify global config is set
-            let timing = GlobalTrackConfig::get_track_override();
-            assert!(timing.is_some(), "Global timing should be set");
-            let (prepare, decision, confirm, enactment) = timing.unwrap();
-            println!(
-                "Global fast test timing: prepare={}, decision={}, confirm={}, enactment={}",
-                prepare, decision, confirm, enactment
-            );
-
-            // All should be 2 blocks for fast testing
-            assert_eq!(prepare, 2, "Prepare period should be 2");
-            assert_eq!(decision, 2, "Decision period should be 2");
-            assert_eq!(confirm, 2, "Confirm period should be 2");
-            assert_eq!(enactment, 2, "Enactment period should be 2");
-
-            // Test 1: Add a tech collective member (uses TechCollectiveTracksInfo)
-            // Add alice as member
-            assert_ok!(TechCollective::add_member(
-                RuntimeOrigin::root(),
-                MultiAddress::from(TestCommons::account_id(1))
-            ));
-
-            // Test 2: Create a tech collective referendum (uses TechCollectiveTracksInfo)
-            let proposal = RuntimeCall::System(frame_system::Call::remark {
-                remark: b"test tech collective proposal".to_vec(),
-            });
-
-            // Store preimage
-            let encoded_proposal = proposal.encode();
-            let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_proposal);
-            assert_ok!(Preimage::note_preimage(
-                RuntimeOrigin::signed(TestCommons::account_id(1)),
-                encoded_proposal.clone()
-            ));
-
-            // Submit referendum to tech collective (uses TechCollectiveTracksInfo)
-            let bounded_call = frame_support::traits::Bounded::Lookup {
-                hash: preimage_hash,
-                len: encoded_proposal.len() as u32,
-            };
-
-            assert_ok!(TechReferenda::submit(
-                RuntimeOrigin::signed(TestCommons::account_id(1)),
-                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
-                bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32)
-            ));
-
-            // The referendum should be created with fast timing
-            let referendum_info =
-                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(0);
-            assert!(referendum_info.is_some(), "Referendum should exist");
-
-            // Test 3: Verify treasury tracks also use fast timing
-            // (We won't create a full treasury proposal here as it's complex,
-            // but the CommunityTracksInfo includes treasury tracks 2-5)
-
-            println!("✅ All governance track types now use fast 2-block timing!");
-            println!("   - Tech Collective: Uses TechCollectiveTracksInfo ✅");
-            println!("   - Community/Signed: Uses CommunityTracksInfo track 0 ✅");
-            println!("   - Signaling: Uses CommunityTracksInfo track 1 ✅");
-            println!("   - Treasury: Uses CommunityTracksInfo tracks 2-5 ✅");
-            println!("   - All tracks now complete in ~13 blocks instead of 1M+ blocks");
-
-            // Advance through the governance process quickly
-            TestCommons::run_to_block(15); // Should be enough for fast governance
-
-            println!("✅ Fast governance test completed successfully!");
         });
     }
 }

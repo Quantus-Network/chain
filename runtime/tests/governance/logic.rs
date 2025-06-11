@@ -585,13 +585,14 @@ mod tests {
                 }
             ));
 
-            // With fast governance config, all periods are 2 blocks
-            let fast_prepare = 2;
-            let fast_decision = 2;
-            let fast_confirm = 2;
+            // Get the actual track configuration (track 1 = signaling)
+            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap();
+            let prepare_period = track_info.prepare_period;
+            let decision_period = track_info.decision_period;
+            let confirm_period = track_info.confirm_period;
 
             // Advance to deciding phase
-            TestCommons::run_to_block(fast_prepare + 1);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // Verify referendum is in deciding phase
             let info =
@@ -611,8 +612,8 @@ mod tests {
                 panic!("Referendum should be ongoing");
             }
 
-            // Advance through decision and confirmation with fast timing
-            TestCommons::run_to_block(fast_prepare + fast_decision + fast_confirm + 2);
+            // Advance through decision and confirmation periods
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Verify referendum passed
             let info =
@@ -838,8 +839,9 @@ mod tests {
             // Set up sufficient balance
             Balances::make_free_balance_be(&proposer, 5000 * UNIT);
 
-            // Get max_deciding for signaling track
-            let max_deciding = 20; // From your track configuration (track 1)
+            // Get max_deciding for signaling track dynamically
+            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap(); // Track 1 = signaling
+            let max_deciding = track_info.max_deciding;
 
             // Create max_deciding + 1 signaling referenda
             for i in 0..max_deciding + 1 {
@@ -877,8 +879,8 @@ mod tests {
                 ));
             }
 
-            // Advance past prepare period with fast governance timing (2 blocks)
-            TestCommons::run_to_block(2 + 1);
+            // Advance past prepare period using actual track timing
+            TestCommons::run_to_block(track_info.prepare_period + 1);
 
             // Count how many referenda are in deciding phase
             let mut deciding_count = 0;

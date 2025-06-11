@@ -181,6 +181,10 @@ try-runtime = [
 	"sp-runtime/try-runtime",
 ]
 
+# Feature flag to run governance tests with original production timing
+# This ensures tests still pass with the original slow governance settings
+slow-governance-tests = []
+
 # Enable the metadata hash generation.
 #
 # This is hidden behind a feature because it increases the compile time.
