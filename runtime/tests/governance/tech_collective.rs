@@ -1214,8 +1214,9 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_tech_collective_treasury_spend_with_root_origin() {
-        TestCommons::new_fast_governance_test_ext().execute_with(|| {
+        TestCommons::new_test_ext().execute_with(|| {
             // Define test accounts
             let tech_member = TestCommons::account_id(1);
             let beneficiary = TestCommons::account_id(2);
@@ -1271,7 +1272,7 @@ mod tests {
                 RuntimeOrigin::signed(tech_member.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32)
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
 
             let referendum_index = 0;
@@ -1299,13 +1300,14 @@ mod tests {
                 true // AYE vote
             ));
 
-            // Wait for the referendum to complete all phases
-            let completion_block = track_info.prepare_period
-                + track_info.decision_period
-                + track_info.confirm_period
-                + 5;
-
-            TestCommons::run_to_block(completion_block);
+            // Wait for the referendum to complete
+            TestCommons::run_to_block(
+                track_info.prepare_period
+                    + track_info.decision_period
+                    + track_info.confirm_period
+                    + track_info.min_enactment_period
+                    + 5,
+            );
 
             // Check referendum outcome
             let referendum_info = pallet_referenda::ReferendumInfoFor::<
@@ -1323,10 +1325,8 @@ mod tests {
                 "Treasury spend referendum should be approved"
             );
 
-            // Wait for scheduler to execute the approved referendum
-            // The execution happens at completion_block + min_enactment_period
-            let execution_block = completion_block + track_info.min_enactment_period + 5;
-            TestCommons::run_to_block(execution_block);
+            // Wait for scheduler to dispatch the approved referendum
+            TestCommons::run_to_block(System::block_number() + 5);
 
             // Check if treasury spend was approved
             let spend_index = 0;
