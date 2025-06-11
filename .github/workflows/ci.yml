@@ -54,6 +54,10 @@ jobs:
         run: cargo build --locked --workspace
         timeout-minutes: 90
       -
+        name: compile with benchmarks
+        run: cargo check --locked --workspace --features runtime-benchmarks
+        timeout-minutes: 90
+      -
         name: clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
         timeout-minutes: 30

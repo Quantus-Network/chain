@@ -99,11 +99,11 @@ jobs:
           ref: ${{ env.TARGET_VERSION_WITH_V }}
           path: source_code_for_build
 
-      - name: Build and push Docker image from Dockerfile.binary
+      - name: Build and push Docker image from Dockerfile
         uses: docker/build-push-action@v5
         with:
           context: ./source_code_for_build
-          file: ./Dockerfile.binary
+          file: ./Dockerfile
           push: true
           platforms: linux/amd64
           build-args: |
