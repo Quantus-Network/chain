@@ -520,7 +520,7 @@ mod tests {
                 RuntimeOrigin::signed(member_one.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call_one,
-                frame_support::traits::schedule::DispatchTime::After(0u32)
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
 
             // Submit second referendum
@@ -533,7 +533,7 @@ mod tests {
                 RuntimeOrigin::signed(member_two.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call_two,
-                frame_support::traits::schedule::DispatchTime::After(0u32)
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
 
             // Check referendum indices
@@ -617,41 +617,26 @@ mod tests {
                 "Should have exactly one referendum still waiting"
             );
 
-            // With fast governance (2 blocks each), both referenda complete very quickly
-            // Let's just verify the max_deciding functionality by checking the queue behavior
-            // Run a bit longer to allow both referenda to progress
-            TestCommons::run_to_block(track_info.prepare_period + 3);
+            // Complete the first referendum
+            TestCommons::run_to_block(
+                track_info.prepare_period + track_info.decision_period + track_info.confirm_period,
+            );
 
-            // Check that at most one referendum is deciding at any time due to max_deciding = 1
-            let first_info =
-                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
-                    first_referendum_index,
-                );
+            // Check that the second referendum has moved to deciding after the first completed
             let second_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
                     second_referendum_index,
+                )
+                .expect("Second referendum should still exist");
+
+            if let pallet_referenda::ReferendumInfo::Ongoing(status) = second_info {
+                assert!(
+                    status.deciding.is_some(),
+                    "Second referendum should now be in deciding phase"
                 );
-
-            // Count how many are in deciding phase
-            let mut deciding_count = 0;
-            if let Some(pallet_referenda::ReferendumInfo::Ongoing(status)) = first_info {
-                if status.deciding.is_some() {
-                    deciding_count += 1;
-                }
+            } else {
+                panic!("Second referendum should be ongoing {:?}", second_info);
             }
-            if let Some(pallet_referenda::ReferendumInfo::Ongoing(status)) = second_info {
-                if status.deciding.is_some() {
-                    deciding_count += 1;
-                }
-            }
-
-            // With max_deciding = 1 and fast governance, we should have at most 1 deciding at any time
-            // (or they may have already completed due to fast timing)
-            assert!(
-                deciding_count <= 1,
-                "Should have at most one referendum in deciding phase due to max_deciding = 1, got: {}",
-                deciding_count
-            );
         });
     }
 
