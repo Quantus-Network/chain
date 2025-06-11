@@ -994,7 +994,6 @@ mod tests {
                 dispatch_time
             ));
 
-            println!("Referendum submitted - checking events");
             System::assert_has_event(RuntimeEvent::Referenda(
                 pallet_referenda::Event::Submitted {
                     index: referendum_index,
@@ -1047,7 +1046,6 @@ mod tests {
 
             TestCommons::run_to_block(target_approval_block);
 
-            println!("Checking for confirmed event");
             let confirmed_event = System::events()
                 .iter()
                 .find_map(|event_record| {
@@ -1081,8 +1079,6 @@ mod tests {
             // Add a small buffer for scheduler to pick up and dispatch
             let final_check_block = System::block_number() + 5;
             TestCommons::run_to_block(final_check_block);
-
-            println!("checking for dispatched event 99");
 
             // Search for any Scheduler::Dispatched event from block 0 onwards
             // The event might have been dispatched earlier than our calculation
