@@ -11440,7 +11440,7 @@ dependencies = [
 [[package]]
 name = "sp-trie"
 version = "38.0.0"
-source = "git+https://github.com/Quantus-Network/zk-trie#5f34ddf973db762617aa5305f9986b6922c86b80"
+source = "git+https://github.com/Quantus-Network/zk-trie#fb1216a5cc15c6767eb5eec2981868d749923a80"
 dependencies = [
  "ahash",
  "hash-db",
@@ -14222,3 +14222,8 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "sp-state-machine"
+version = "0.35.0"
+source = "git+https://github.com/Quantus-Network/zk-state-machine#2dc9625b7419f225f5928c7944657fc1c67d5a07"

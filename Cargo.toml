@@ -123,4 +123,5 @@ primitive-types = { version = "0.13.1", default-features = false }
 rand = { version = "0.8.5", default-features = false }
 
 [patch.crates-io]
+sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
 sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
