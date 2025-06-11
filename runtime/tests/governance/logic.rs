@@ -770,20 +770,21 @@ mod tests {
                 _ => panic!("Signal referendum should be ongoing"),
             }
 
-            // Note: Commented out. ==> In our test world these two tracks take the same time so this check is invalid.
-            // Check signed referendum not yet in deciding phase
-            //
-            // let signed_info =
-            //     pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-            // match signed_info {
-            //     pallet_referenda::ReferendumInfo::Ongoing(status) => {
-            //         assert!(
-            //             status.deciding.is_none(),
-            //             "Signed referendum should not yet be in deciding phase"
-            //         );
-            //     }
-            //     _ => panic!("Signed referendum should be ongoing"),
-            // }
+            // Check signed referendum not yet in deciding phase (only relevant for slow-governance-tests)
+            #[cfg(feature = "slow-governance-tests")]
+            let signed_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+
+            #[cfg(feature = "slow-governance-tests")]
+            match signed_info {
+                pallet_referenda::ReferendumInfo::Ongoing(status) => {
+                    assert!(
+                        status.deciding.is_none(),
+                        "Signed referendum should not yet be in deciding phase"
+                    );
+                }
+                _ => panic!("Signed referendum should be ongoing"),
+            }
 
             // Advance to signed prepare completion
             TestCommons::run_to_block(signed_prepare + 1);
