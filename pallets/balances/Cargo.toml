@@ -14,21 +14,21 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { features = ["derive", "max-encoded-len"], workspace = true }
-log = { workspace = true }
-scale-info = { features = ["derive"], workspace = true }
+docify = { workspace = true }
 frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
-sp-runtime.workspace = true
-docify = { workspace = true }
+log.workspace = true
 poseidon-resonance = { workspace = true, features = ["serde"] }
+scale-info = { features = ["derive"], workspace = true }
+sp-runtime.workspace = true
 
 [dev-dependencies]
-pallet-transaction-payment = { workspace = true, default-features = true }
+pallet-transaction-payment.workspace = true
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
-sp-core = { workspace = true, default-features = true }
-sp-io = { workspace = true, default-features = true }
-paste = { workspace = true, default-features = true }
+sp-core.workspace = true
+sp-io.workspace = true
+paste.workspace = true
 
 [features]
 default = ["std"]
