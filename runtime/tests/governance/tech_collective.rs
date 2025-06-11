@@ -1214,9 +1214,9 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn test_tech_collective_treasury_spend_with_root_origin() {
         TestCommons::new_test_ext().execute_with(|| {
+            println!("DEBUG: Test starting at block: {}", System::block_number());
             // Define test accounts
             let tech_member = TestCommons::account_id(1);
             let beneficiary = TestCommons::account_id(2);
@@ -1290,6 +1290,14 @@ mod tests {
                 )
                 .expect("Track info should exist for the given TRACK_ID");
 
+            println!(
+                "DEBUG: Track timing - prepare: {}, decision: {}, confirm: {}, enactment: {}",
+                track_info.prepare_period,
+                track_info.decision_period,
+                track_info.confirm_period,
+                track_info.min_enactment_period
+            );
+
             // Run to just after prepare period to trigger deciding phase
             TestCommons::run_to_block(track_info.prepare_period + 1);
 
@@ -1300,13 +1308,20 @@ mod tests {
                 true // AYE vote
             ));
 
-            // Wait for the referendum to complete
-            TestCommons::run_to_block(
-                track_info.prepare_period
-                    + track_info.decision_period
-                    + track_info.confirm_period
-                    + track_info.min_enactment_period
-                    + 5,
+            // Wait for the referendum to be approved (but not yet enacted)
+            let approval_block = track_info.prepare_period
+                + track_info.decision_period
+                + track_info.confirm_period
+                + 5;
+
+            println!(
+                "DEBUG: Waiting for referendum approval at block: {}",
+                approval_block
+            );
+            TestCommons::run_to_block(approval_block);
+            println!(
+                "DEBUG: After referendum approval - current block: {}",
+                System::block_number()
             );
 
             // Check referendum outcome
@@ -1315,6 +1330,14 @@ mod tests {
                 TechReferendaInstance,
             >::get(referendum_index)
             .expect("Referendum info should exist");
+
+            println!(
+                "DEBUG: Referendum final state: {:?}",
+                matches!(
+                    referendum_info,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                )
+            );
 
             // Verify the referendum was approved
             assert!(
@@ -1325,21 +1348,92 @@ mod tests {
                 "Treasury spend referendum should be approved"
             );
 
-            // Wait for scheduler to dispatch the approved referendum
-            TestCommons::run_to_block(System::block_number() + 5);
-
-            // Check if treasury spend was approved
+            // The treasury spend is created during the referendum process, so let's monitor for it
             let spend_index = 0;
-            assert!(
-                pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
-                "Treasury spend should exist"
+            let max_wait_block = approval_block + track_info.min_enactment_period + 20;
+            let mut current_poll_block = System::block_number();
+
+            println!(
+                "DEBUG: Starting to poll for treasury spend creation from block: {}",
+                current_poll_block
             );
 
+            // Poll for treasury spend creation
+            while current_poll_block <= max_wait_block {
+                if pallet_treasury::Spends::<Runtime>::get(spend_index).is_some() {
+                    println!(
+                        "DEBUG: Treasury spend detected at block: {}",
+                        System::block_number()
+                    );
+                    break;
+                }
+
+                // Advance 2 blocks and check again
+                current_poll_block += 2;
+                TestCommons::run_to_block(current_poll_block);
+            }
+
+            // Verify treasury spend exists and get timing info
+            if let Some(_spend_info) = pallet_treasury::Spends::<Runtime>::get(spend_index) {
+                println!(
+                    "DEBUG: Treasury spend found at block: {}",
+                    System::block_number()
+                );
+
+                // Find the exact creation details from events
+                let events = System::events();
+                for event_record in events.iter().rev() {
+                    if let resonance_runtime::RuntimeEvent::TreasuryPallet(
+                        pallet_treasury::Event::AssetSpendApproved {
+                            valid_from,
+                            expire_at,
+                            ..
+                        },
+                    ) = &event_record.event
+                    {
+                        println!(
+                            "DEBUG: Found treasury spend - valid_from: {}, expire_at: {}",
+                            valid_from, expire_at
+                        );
+                        println!(
+                            "DEBUG: Current block: {}, blocks until expiry: {}",
+                            System::block_number(),
+                            expire_at.saturating_sub(System::block_number())
+                        );
+
+                        // Check if we still have time to claim it
+                        if System::block_number() >= *expire_at {
+                            panic!(
+                                "Treasury spend already expired! Current: {}, Expiry: {}",
+                                System::block_number(),
+                                expire_at
+                            );
+                        }
+                        break;
+                    }
+                }
+            } else {
+                panic!("Treasury spend should exist by block {}", max_wait_block);
+            }
+
             // Execute payout
-            assert_ok!(pallet_treasury::Pallet::<Runtime>::payout(
+            println!(
+                "DEBUG: About to attempt payout at block: {}",
+                System::block_number()
+            );
+            println!("DEBUG: Payout attempt for spend_index: {}", spend_index);
+
+            let payout_result = pallet_treasury::Pallet::<Runtime>::payout(
                 RuntimeOrigin::signed(beneficiary.clone()),
-                spend_index
-            ));
+                spend_index,
+            );
+
+            match &payout_result {
+                Ok(_) => println!("DEBUG: Payout succeeded!"),
+                Err(e) => println!("DEBUG: Payout failed with error: {:?}", e),
+            }
+
+            assert_ok!(payout_result);
 
             // Verify the beneficiary received the funds
             let beneficiary_balance = Balances::free_balance(&beneficiary);
