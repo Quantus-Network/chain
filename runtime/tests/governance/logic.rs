@@ -7,6 +7,7 @@ mod tests {
     use pallet_conviction_voting::AccountVote::Standard;
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
+    use resonance_runtime::governance::definitions::CommunityTracksInfo;
     use resonance_runtime::{
         Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall,
         RuntimeOrigin, UNIT,
@@ -672,7 +673,7 @@ mod tests {
                     hash: signed_hash,
                     len: signed_encoded.len() as u32
                 },
-                frame_support::traits::schedule::DispatchTime::After(0u32)
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
 
             // Signaling track (1)
@@ -683,7 +684,7 @@ mod tests {
                     hash: signal_hash,
                     len: signal_encoded.len() as u32
                 },
-                frame_support::traits::schedule::DispatchTime::After(0u32)
+                frame_support::traits::schedule::DispatchTime::After(0u32.into())
             ));
 
             // Check each referendum is on the correct track
@@ -745,16 +746,17 @@ mod tests {
                 }
             ));
 
-            // With fast governance config, all periods are 2 blocks
-            let fast_prepare = 2;
-            let fast_decision = 2;
-            let fast_confirm = 2;
-            let fast_enactment = 2;
+            // Get the prepare periods for each track dynamically
+            let signed_track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap(); // Track 0: signed
+            let signal_track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap(); // Track 1: signaling
 
-            // Advance to prepare completion (both tracks use same fast timing)
-            TestCommons::run_to_block(fast_prepare + 1);
+            let signed_prepare = signed_track_info.prepare_period;
+            let signal_prepare = signal_track_info.prepare_period;
 
-            // Check both referenda moved to deciding phase
+            // Advance to signal prepare completion (shortest)
+            TestCommons::run_to_block(signal_prepare + 1);
+
+            // Check signal referendum moved to deciding phase
             let signal_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
             match signal_info {
@@ -767,22 +769,43 @@ mod tests {
                 _ => panic!("Signal referendum should be ongoing"),
             }
 
+            // Note: Commented out. ==> In our test world these two tracks take the same time so this check is invalid.
+            // Check signed referendum not yet in deciding phase
+            //
+            // let signed_info =
+            //     pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+            // match signed_info {
+            //     pallet_referenda::ReferendumInfo::Ongoing(status) => {
+            //         assert!(
+            //             status.deciding.is_none(),
+            //             "Signed referendum should not yet be in deciding phase"
+            //         );
+            //     }
+            //     _ => panic!("Signed referendum should be ongoing"),
+            // }
+
+            // Advance to signed prepare completion
+            TestCommons::run_to_block(signed_prepare + 1);
+
+            // Check signed referendum moved to deciding phase
             let signed_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
                     assert!(
                         status.deciding.is_some(),
-                        "Signed referendum should be in deciding phase"
+                        "Signed referendum should now be in deciding phase"
                     );
                 }
                 _ => panic!("Signed referendum should be ongoing"),
             }
 
-            // Advance through all fast governance periods to confirm all pass
-            let total_fast_blocks =
-                fast_prepare + fast_decision + fast_confirm + fast_enactment + 2;
-            TestCommons::run_to_block(total_fast_blocks);
+            // Advance through all decision periods to confirm all pass
+            let longest_process = signed_prepare
+                + signed_track_info.decision_period
+                + signed_track_info.confirm_period
+                + 1; // Signed track has longest periods
+            TestCommons::run_to_block(longest_process);
 
             // Verify all referenda passed
             let signed_final =
@@ -806,6 +829,7 @@ mod tests {
             );
         });
     }
+
     #[test]
     fn max_deciding_limit_works() {
         TestCommons::new_fast_governance_test_ext().execute_with(|| {
