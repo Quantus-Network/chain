@@ -23,6 +23,7 @@ frame-system-benchmarking = { optional = true, workspace = true }
 frame-system-rpc-runtime-api.workspace = true
 frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
+lazy_static.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
