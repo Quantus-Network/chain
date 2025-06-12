@@ -11491,7 +11491,7 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.44.0"
-source = "git+https://github.com/Quantus-Network/zk-state-machine#4ca895f675aa510c62ca1022f4c5a2386c616f85"
+source = "git+https://github.com/Quantus-Network/zk-state-machine#06d1e9545428b57aa56e8997c7bf24eaeb48a103"
 dependencies = [
  "hash-db",
  "log",
@@ -11605,7 +11605,7 @@ dependencies = [
 [[package]]
 name = "sp-trie"
 version = "38.0.0"
-source = "git+https://github.com/Quantus-Network/zk-trie#7fbcc0430ada29f177a93c47c2bad2996fad3a91"
+source = "git+https://github.com/Quantus-Network/zk-trie#bb1c142115ef1c7cae9378dd438b179d113d29cb"
 dependencies = [
  "ahash",
  "hash-db",
