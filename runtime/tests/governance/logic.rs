@@ -770,12 +770,12 @@ mod tests {
                 _ => panic!("Signal referendum should be ongoing"),
             }
 
-            // Check signed referendum not yet in deciding phase (only relevant for slow-governance-tests)
-            #[cfg(feature = "slow-governance-tests")]
+            // Check signed referendum not yet in deciding phase (only relevant for production-governance-tests)
+            #[cfg(feature = "production-governance-tests")]
             let signed_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
 
-            #[cfg(feature = "slow-governance-tests")]
+            #[cfg(feature = "production-governance-tests")]
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
                     assert!(
