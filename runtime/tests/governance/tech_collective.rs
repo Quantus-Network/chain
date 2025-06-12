@@ -7,18 +7,131 @@ mod tests {
     use frame_system;
     use pallet_referenda::TracksInfo;
     use resonance_runtime::configs::TechReferendaInstance;
+
     use resonance_runtime::{
         Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
         TechCollective, TechReferenda, UNIT,
     };
+
     use sp_runtime::traits::{AccountIdConversion, Hash, StaticLookup};
     use sp_runtime::MultiAddress;
 
     const TRACK_ID: u16 = 0;
 
+    /// Fast test example demonstrating the solution - this test uses the improved 2-block periods
+    /// instead of the original slow periods that were causing performance issues
+    #[test]
+    fn test_add_member_via_referendum_fast() {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
+            let proposer = TestCommons::account_id(1);
+            let voter = TestCommons::account_id(2);
+            let new_member_candidate = TestCommons::account_id(3);
+
+            Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+            // Add proposer. Rank will be 0 as added by Root.
+            assert_ok!(TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::from(proposer.clone())
+            ));
+
+            Balances::make_free_balance_be(&voter, 2000 * UNIT);
+            // Add voter. Rank will be 0 as added by Root.
+            assert_ok!(TechCollective::add_member(
+                RuntimeOrigin::root(),
+                MultiAddress::from(voter.clone())
+            ));
+
+            let call_to_propose =
+                RuntimeCall::TechCollective(pallet_ranked_collective::Call::add_member {
+                    who: MultiAddress::from(new_member_candidate.clone()),
+                });
+
+            let encoded_call = call_to_propose.encode();
+            let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+            assert_ok!(Preimage::note_preimage(
+                RuntimeOrigin::signed(proposer.clone()),
+                encoded_call.clone()
+            ));
+
+            let bounded_call = frame_support::traits::Bounded::Lookup {
+                hash: preimage_hash,
+                len: encoded_call.len() as u32,
+            };
+
+            assert_ok!(TechReferenda::submit(
+                RuntimeOrigin::signed(proposer.clone()),
+                Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+                bounded_call,
+                frame_support::traits::schedule::DispatchTime::After(0u32)
+            ));
+
+            let referendum_index =
+                pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
+
+            assert_ok!(TechReferenda::place_decision_deposit(
+                RuntimeOrigin::signed(proposer.clone()),
+                referendum_index
+            ));
+
+            assert_ok!(TechCollective::vote(
+                RuntimeOrigin::signed(voter.clone()),
+                referendum_index,
+                true
+            ));
+
+            let track_info =
+                <Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(
+                    TRACK_ID,
+                )
+                .expect("Track info should exist for the given TRACK_ID");
+
+            // With the fast configuration, these should all be 2 blocks each
+            let prepare_period = track_info.prepare_period;
+            let decision_period = track_info.decision_period;
+            let confirm_period = track_info.confirm_period;
+            let min_enactment_period = track_info.min_enactment_period;
+
+            println!(
+                "Fast test periods: prepare={}, decision={}, confirm={}, enactment={}",
+                prepare_period, decision_period, confirm_period, min_enactment_period
+            );
+
+            // This should be much faster now - total of ~8 blocks instead of hundreds of thousands
+            let total_blocks = TestCommons::calculate_governance_blocks(
+                prepare_period,
+                decision_period,
+                confirm_period,
+                min_enactment_period,
+            );
+
+            println!("Total blocks needed: {}", total_blocks);
+
+            TestCommons::run_to_block(total_blocks);
+
+            let final_info =
+                pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+                    referendum_index,
+                )
+                .expect("Referendum info should exist at the end");
+            assert!(
+                matches!(
+                    final_info,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                ),
+                "Referendum should be approved, but is {:?}",
+                final_info
+            );
+
+            assert!(
+                pallet_ranked_collective::Members::<Runtime>::contains_key(&new_member_candidate),
+                "New member should have been added to TechCollective"
+            );
+        });
+    }
+
     #[test]
     fn test_add_member_via_referendum_in_collective() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter = TestCommons::account_id(2);
             let new_member_candidate = TestCommons::account_id(3);
@@ -42,7 +155,6 @@ mod tests {
                 encoded_call.clone()
             ));
 
-
             let bounded_call = frame_support::traits::Bounded::Lookup {
                 hash: preimage_hash,
                 len: encoded_call.len() as u32
@@ -52,7 +164,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
@@ -94,10 +206,8 @@ mod tests {
                 if let Some(pallet_referenda::ReferendumInfo::Ongoing(status)) =
                     pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(i)
                 {
-                    if status.deciding.is_some() {
-                        if status.track == TRACK_ID {
-                           deciding_count += 1;
-                        }
+                    if status.deciding.is_some() && status.track == TRACK_ID {
+                       deciding_count += 1;
                     }
                 }
                 if deciding_count >= max_deciding && track_info.max_deciding > 0 {
@@ -130,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_tech_collective_access_control() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Define our test accounts
             let root_member = TestCommons::account_id(1);
             let existing_member = TestCommons::account_id(2);
@@ -237,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_tech_referenda_submit_access_control() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Define our test accounts
             let collective_member = TestCommons::account_id(1);
             let non_member = TestCommons::account_id(2);
@@ -305,7 +415,7 @@ mod tests {
                 RuntimeOrigin::signed(collective_member.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call_root,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             // VERIFY 2: TechCollective member can submit referendum
@@ -319,7 +429,7 @@ mod tests {
                 RuntimeOrigin::signed(collective_member.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call_member,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             // VERIFY 3: Non-member cannot submit referendum
@@ -334,7 +444,7 @@ mod tests {
                     RuntimeOrigin::signed(non_member.clone()),
                     Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                     bounded_call_non_member,
-                    frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                    frame_support::traits::schedule::DispatchTime::After(0u32)
                 )
                 .is_err(),
                 "Non-member should not be able to submit referendum"
@@ -352,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_tech_collective_max_deciding_limit() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Define test accounts
             let root_account = TestCommons::account_id(1);
             let member_one = TestCommons::account_id(2);
@@ -509,18 +619,7 @@ mod tests {
 
             // Complete the first referendum
             TestCommons::run_to_block(
-                track_info.prepare_period
-                    + track_info.decision_period
-                    + track_info.confirm_period
-                    + 5,
-            );
-
-            // The first referendum should now be completed and the second one should move to deciding
-            TestCommons::run_to_block(
-                track_info.prepare_period
-                    + track_info.decision_period
-                    + track_info.confirm_period
-                    + 5,
+                track_info.prepare_period + track_info.decision_period + track_info.confirm_period,
             );
 
             // Check that the second referendum has moved to deciding after the first completed
@@ -536,7 +635,7 @@ mod tests {
                     "Second referendum should now be in deciding phase"
                 );
             } else {
-                panic!("Second referendum should be ongoing");
+                panic!("Second referendum should be ongoing {:?}", second_info);
             }
         });
     }
@@ -553,7 +652,7 @@ mod tests {
         //    - 2 AYE vs 3 NAY should fail
         // The test uses frame_system::Call::remark as a neutral proposal to avoid affecting chain state.
         // -------------------------------------------------------------
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Define test accounts
             let root_account = TestCommons::account_id(1);
             let member_one = TestCommons::account_id(2);
@@ -619,7 +718,7 @@ mod tests {
                 RuntimeOrigin::signed(member_one.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -707,7 +806,7 @@ mod tests {
                 RuntimeOrigin::signed(member_one.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_second_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let second_referendum_index = 1;
@@ -721,7 +820,13 @@ mod tests {
             // Run to just after prepare period for second referendum
             let second_referendum_start = 2 * track_info.prepare_period + 2;
             println!("Current block before second referendum: {}", frame_system::Pallet::<Runtime>::block_number());
-            TestCommons::run_to_block(second_referendum_start);
+            println!("Debug: track_info.prepare_period = {}", track_info.prepare_period);
+            println!("Debug: second_referendum_start calculation = 2 * {} + 2 = {}", track_info.prepare_period, second_referendum_start);
+
+            // Use relative block advancement to avoid any overflow issues
+            let current_block = frame_system::Pallet::<Runtime>::block_number();
+            let target_block = current_block.max(second_referendum_start);
+            TestCommons::run_to_block(target_block);
             println!("Block after prepare period: {}", frame_system::Pallet::<Runtime>::block_number());
 
             // Only member_one votes (AYE) - by default this should be enough to approve if no one votes against
@@ -737,8 +842,10 @@ mod tests {
             println!("Referendum status after vote: {:?}", status_after_vote);
 
             // Wait until the end of the confirm phase for the second referendum
-            let second_confirm_end = second_referendum_start + track_info.decision_period + track_info.confirm_period + track_info.min_enactment_period;
-            TestCommons::run_to_block(second_confirm_end + 5);
+            // Use relative advancement to avoid overflow
+            let current_block_for_second_confirm = frame_system::Pallet::<Runtime>::block_number();
+            let blocks_to_advance_for_second = track_info.decision_period + track_info.confirm_period + track_info.min_enactment_period + 5;
+            TestCommons::run_to_block(current_block_for_second_confirm + blocks_to_advance_for_second);
 
             // Check second referendum outcome
             let second_referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(second_referendum_index)
@@ -783,7 +890,7 @@ mod tests {
                 RuntimeOrigin::signed(member_one.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_third_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let third_referendum_index = 2;
@@ -795,7 +902,9 @@ mod tests {
             ));
 
             // Run to just after prepare period for third referendum
-            TestCommons::run_to_block(3 * track_info.prepare_period + 3);
+            let current_block_for_third = frame_system::Pallet::<Runtime>::block_number();
+            let third_referendum_target = current_block_for_third + track_info.prepare_period + 1;
+            TestCommons::run_to_block(third_referendum_target);
 
             // Test scenario with 5 voters: 4 AYE vs 1 NAY
             // First four members vote AYE
@@ -840,8 +949,10 @@ mod tests {
 
             println!("Member five voted NAY for third referendum");
 
-            // Wait for the confirmation period
-            TestCommons::run_to_block(1382405 + 172800 + 5); // Wait for confirmation period + some extra blocks
+            // Wait for the confirmation period using fast governance timing
+            let current_block = frame_system::Pallet::<Runtime>::block_number();
+            let target_block = current_block + track_info.decision_period + track_info.confirm_period + 5;
+            TestCommons::run_to_block(target_block);
 
             // Print detailed timing information
             println!("Timing parameters:");
@@ -889,7 +1000,7 @@ mod tests {
                 RuntimeOrigin::signed(member_one.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
                 bounded_fourth_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let fourth_referendum_index = 3;
@@ -901,7 +1012,9 @@ mod tests {
             ));
 
             // Run to just after prepare period for fourth referendum
-            TestCommons::run_to_block(4 * track_info.prepare_period + 4);
+            let current_block_for_fourth = frame_system::Pallet::<Runtime>::block_number();
+            let fourth_referendum_target = current_block_for_fourth + track_info.prepare_period + 1;
+            TestCommons::run_to_block(fourth_referendum_target);
 
             // Test scenario with 5 voters: 2 AYE vs 3 NAY
             // First two members vote AYE
@@ -947,11 +1060,10 @@ mod tests {
             println!("Member five voted NAY for fourth referendum");
 
             // Wait for the confirmation period for the fourth referendum to complete
-            let fourth_submitted_block = frame_system::Pallet::<Runtime>::block_number();
-            let fourth_decision_start = fourth_submitted_block + track_info.prepare_period;
-            let fourth_confirm_start = fourth_decision_start + track_info.decision_period;
-            let fourth_confirm_end = fourth_confirm_start + track_info.confirm_period;
-            TestCommons::run_to_block(fourth_confirm_end + 5); // Wait for confirmation period + some extra blocks
+            // Use relative advancement to avoid overflow with fast governance timing
+            let current_block = frame_system::Pallet::<Runtime>::block_number();
+            let blocks_to_advance = track_info.prepare_period + track_info.decision_period + track_info.confirm_period + 5;
+            TestCommons::run_to_block(current_block + blocks_to_advance);
 
             // Check fourth referendum outcome
             let fourth_referendum_info = pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(fourth_referendum_index)
@@ -975,7 +1087,7 @@ mod tests {
 
     #[test]
     fn track0_ignores_token_support_threshold_when_min_support_is_zero() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter1 = TestCommons::account_id(2);
             let voter2 = TestCommons::account_id(3);
@@ -1020,7 +1132,7 @@ mod tests {
                     hash,
                     len: encoded.len() as u32
                 },
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_idx = 0;
@@ -1104,6 +1216,7 @@ mod tests {
     #[test]
     fn test_tech_collective_treasury_spend_with_root_origin() {
         TestCommons::new_test_ext().execute_with(|| {
+            println!("DEBUG: Test starting at block: {}", System::block_number());
             // Define test accounts
             let tech_member = TestCommons::account_id(1);
             let beneficiary = TestCommons::account_id(2);
@@ -1177,6 +1290,14 @@ mod tests {
                 )
                 .expect("Track info should exist for the given TRACK_ID");
 
+            println!(
+                "DEBUG: Track timing - prepare: {}, decision: {}, confirm: {}, enactment: {}",
+                track_info.prepare_period,
+                track_info.decision_period,
+                track_info.confirm_period,
+                track_info.min_enactment_period
+            );
+
             // Run to just after prepare period to trigger deciding phase
             TestCommons::run_to_block(track_info.prepare_period + 1);
 
@@ -1187,13 +1308,20 @@ mod tests {
                 true // AYE vote
             ));
 
-            // Wait for the referendum to complete
-            TestCommons::run_to_block(
-                track_info.prepare_period
-                    + track_info.decision_period
-                    + track_info.confirm_period
-                    + track_info.min_enactment_period
-                    + 5,
+            // Wait for the referendum to be approved (but not yet enacted)
+            let approval_block = track_info.prepare_period
+                + track_info.decision_period
+                + track_info.confirm_period
+                + 5;
+
+            println!(
+                "DEBUG: Waiting for referendum approval at block: {}",
+                approval_block
+            );
+            TestCommons::run_to_block(approval_block);
+            println!(
+                "DEBUG: After referendum approval - current block: {}",
+                System::block_number()
             );
 
             // Check referendum outcome
@@ -1202,6 +1330,14 @@ mod tests {
                 TechReferendaInstance,
             >::get(referendum_index)
             .expect("Referendum info should exist");
+
+            println!(
+                "DEBUG: Referendum final state: {:?}",
+                matches!(
+                    referendum_info,
+                    pallet_referenda::ReferendumInfo::Approved(_, _, _)
+                )
+            );
 
             // Verify the referendum was approved
             assert!(
@@ -1212,21 +1348,92 @@ mod tests {
                 "Treasury spend referendum should be approved"
             );
 
-            // Wait for scheduler to dispatch the approved referendum
-            TestCommons::run_to_block(System::block_number() + 5);
-
-            // Check if treasury spend was approved
+            // The treasury spend is created during the referendum process, so let's monitor for it
             let spend_index = 0;
-            assert!(
-                pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
-                "Treasury spend should exist"
+            let max_wait_block = approval_block + track_info.min_enactment_period + 20;
+            let mut current_poll_block = System::block_number();
+
+            println!(
+                "DEBUG: Starting to poll for treasury spend creation from block: {}",
+                current_poll_block
             );
 
+            // Poll for treasury spend creation
+            while current_poll_block <= max_wait_block {
+                if pallet_treasury::Spends::<Runtime>::get(spend_index).is_some() {
+                    println!(
+                        "DEBUG: Treasury spend detected at block: {}",
+                        System::block_number()
+                    );
+                    break;
+                }
+
+                // Advance 2 blocks and check again
+                current_poll_block += 2;
+                TestCommons::run_to_block(current_poll_block);
+            }
+
+            // Verify treasury spend exists and get timing info
+            if let Some(_spend_info) = pallet_treasury::Spends::<Runtime>::get(spend_index) {
+                println!(
+                    "DEBUG: Treasury spend found at block: {}",
+                    System::block_number()
+                );
+
+                // Find the exact creation details from events
+                let events = System::events();
+                for event_record in events.iter().rev() {
+                    if let resonance_runtime::RuntimeEvent::TreasuryPallet(
+                        pallet_treasury::Event::AssetSpendApproved {
+                            valid_from,
+                            expire_at,
+                            ..
+                        },
+                    ) = &event_record.event
+                    {
+                        println!(
+                            "DEBUG: Found treasury spend - valid_from: {}, expire_at: {}",
+                            valid_from, expire_at
+                        );
+                        println!(
+                            "DEBUG: Current block: {}, blocks until expiry: {}",
+                            System::block_number(),
+                            expire_at.saturating_sub(System::block_number())
+                        );
+
+                        // Check if we still have time to claim it
+                        if System::block_number() >= *expire_at {
+                            panic!(
+                                "Treasury spend already expired! Current: {}, Expiry: {}",
+                                System::block_number(),
+                                expire_at
+                            );
+                        }
+                        break;
+                    }
+                }
+            } else {
+                panic!("Treasury spend should exist by block {}", max_wait_block);
+            }
+
             // Execute payout
-            assert_ok!(pallet_treasury::Pallet::<Runtime>::payout(
+            println!(
+                "DEBUG: About to attempt payout at block: {}",
+                System::block_number()
+            );
+            println!("DEBUG: Payout attempt for spend_index: {}", spend_index);
+
+            let payout_result = pallet_treasury::Pallet::<Runtime>::payout(
                 RuntimeOrigin::signed(beneficiary.clone()),
-                spend_index
-            ));
+                spend_index,
+            );
+
+            match &payout_result {
+                Ok(_) => println!("DEBUG: Payout succeeded!"),
+                Err(e) => println!("DEBUG: Payout failed with error: {:?}", e),
+            }
+
+            assert_ok!(payout_result);
 
             // Verify the beneficiary received the funds
             let beneficiary_balance = Balances::free_balance(&beneficiary);

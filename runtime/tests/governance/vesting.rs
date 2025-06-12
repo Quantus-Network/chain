@@ -26,7 +26,7 @@ mod tests {
     ///
     #[test]
     fn test_grant_application_with_vesting_schedule() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Setup accounts
             let proposer = TestCommons::account_id(1);
             let beneficiary = TestCommons::account_id(2);
@@ -40,7 +40,7 @@ mod tests {
 
             // Step 1: Create a treasury proposal for referendum
             let grant_amount = 1000 * UNIT;
-            let vesting_period = 30 * DAYS; // 30 days vesting
+            let vesting_period = 30; // Fast test: 30 blocks instead of 30 days
             let per_block = grant_amount / vesting_period as u128;
 
             // Create the vesting info for later implementation
@@ -57,7 +57,7 @@ mod tests {
             // Note: Two-stage process - referendum approves principle, implementation follows
             let _vesting_call = RuntimeCall::Vesting(pallet_vesting::Call::vested_transfer {
                 target: MultiAddress::Id(beneficiary.clone()),
-                schedule: vesting_info.clone(),
+                schedule: vesting_info,
             });
 
             // Two-stage governance flow: referendum approves treasury spend principle
@@ -117,8 +117,8 @@ mod tests {
             ));
 
             // Step 5: Wait for referendum to pass and execute
-            // Fast forward blocks for voting period + confirmation period
-            let blocks_to_advance = 5 * DAYS + 1 * DAYS + 1; // decision_period + confirm_period + 1
+            // Fast forward blocks for voting period + confirmation period (using fast governance timing)
+            let blocks_to_advance = 2 + 2 + 2 + 2 + 1; // prepare + decision + confirm + enactment + 1
             TestCommons::run_to_block(System::block_number() + blocks_to_advance);
 
             // The referendum should now be approved and treasury spend executed
@@ -137,7 +137,7 @@ mod tests {
                 RuntimeOrigin::root(),
                 MultiAddress::Id(proposer.clone()),
                 MultiAddress::Id(beneficiary.clone()),
-                vesting_info.clone(),
+                vesting_info,
             ));
 
             let initial_balance = Balances::free_balance(&beneficiary);
@@ -201,7 +201,7 @@ mod tests {
     ///
     #[test]
     fn test_milestone_based_grant_with_multiple_vesting() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let grantee = TestCommons::account_id(1);
             let grantor = TestCommons::account_id(2);
 
@@ -295,7 +295,7 @@ mod tests {
     ///
     #[test]
     fn test_progressive_milestone_referenda() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let grantee = TestCommons::account_id(1);
             let proposer = TestCommons::account_id(2);
             let voter1 = TestCommons::account_id(3);
@@ -392,7 +392,7 @@ mod tests {
                 }
             ));
 
-            let blocks_to_advance = 5 * DAYS + 1 * DAYS + 1;
+            let blocks_to_advance = 2 + 2 + 2 + 2 + 1; // Fast governance timing: prepare + decision + confirm + enactment + 1
             TestCommons::run_to_block(System::block_number() + blocks_to_advance);
 
             println!("✅ Grant plan approved by referendum!");
@@ -408,7 +408,7 @@ mod tests {
             // Tech Collective evaluates and decides on milestone 1 payment
             let milestone1_vesting = VestingInfo::new(
                 milestone1_amount,
-                milestone1_amount / (60 * DAYS) as u128, // Conservative: 60-day vesting
+                milestone1_amount / 60, // Fast test: 60 blocks instead of 60 days
                 System::block_number() + 1,
             );
 
@@ -438,7 +438,7 @@ mod tests {
             // Reduced vesting due to high quality
             let milestone2_vesting = VestingInfo::new(
                 milestone2_amount,
-                milestone2_amount / (30 * DAYS) as u128, // Optimistic: 30-day vesting
+                milestone2_amount / 30, // Fast test: 30 blocks instead of 30 days
                 System::block_number() + 1,
             );
 
@@ -508,7 +508,7 @@ mod tests {
     ///
     #[test]
     fn test_treasury_auto_vesting_integration() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let beneficiary = TestCommons::account_id(1);
             let amount = 1000 * UNIT;
 
@@ -562,7 +562,7 @@ mod tests {
     ///
     #[test]
     fn test_emergency_vesting_cancellation() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let grantee = TestCommons::account_id(1);
             let grantor = TestCommons::account_id(2);
 

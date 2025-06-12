@@ -14,76 +14,76 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { features = ["derive"], workspace = true }
+dilithium-crypto.workspace = true
+frame-benchmarking.workspace = true
+frame-executive.workspace = true
+frame-metadata-hash-extension.workspace = true
+frame-support = { features = ["experimental"], workspace = true }
+frame-system-benchmarking = { optional = true, workspace = true }
+frame-system-rpc-runtime-api.workspace = true
+frame-system.workspace = true
+frame-try-runtime = { optional = true, workspace = true }
+lazy_static.workspace = true
+log.workspace = true
+pallet-balances.workspace = true
+pallet-conviction-voting.workspace = true
+pallet-faucet.workspace = true
+pallet-merkle-airdrop.workspace = true
+pallet-mining-rewards.workspace = true
+pallet-preimage.workspace = true
+pallet-qpow.workspace = true
+pallet-ranked-collective.workspace = true
+pallet-recovery.workspace = true
+pallet-referenda.workspace = true
+pallet-reversible-transfers.workspace = true
+pallet-scheduler.workspace = true
+pallet-sudo.workspace = true
+pallet-timestamp.workspace = true
+pallet-transaction-payment-rpc-runtime-api.workspace = true
+pallet-transaction-payment.workspace = true
+pallet-treasury.workspace = true
+pallet-utility.workspace = true
+pallet-vesting.workspace = true
+pallet-wormhole.workspace = true
+poseidon-resonance = { workspace = true, features = ["serde"] }
+primitive-types.workspace = true
+qp-scheduler.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = [
 	"alloc",
 ] }
-frame-support = { features = ["experimental"], workspace = true }
-frame-system.workspace = true
-frame-try-runtime = { optional = true, workspace = true }
-frame-executive.workspace = true
-frame-metadata-hash-extension.workspace = true
-pallet-balances.workspace = true
-pallet-conviction-voting = { workspace = true, default-features = false }
-pallet-ranked-collective = { workspace = true, default-features = false }
-pallet-preimage = { workspace = true, default-features = false }
-pallet-referenda = { workspace = true, default-features = false }
-pallet-scheduler = { workspace = true, default-features = false }
-pallet-treasury = { workspace = true, default-features = false }
-pallet-utility = { workspace = true, default-features = false }
-pallet-sudo.workspace = true
-pallet-timestamp.workspace = true
-pallet-transaction-payment.workspace = true
-pallet-recovery = { workspace = true, default-features = false }
 sp-api.workspace = true
 sp-block-builder.workspace = true
-sp-keyring.workspace = true
+sp-consensus-qpow.workspace = true
 sp-core = { features = ["serde"], workspace = true }
+sp-faucet.workspace = true
+sp-genesis-builder.workspace = true
 sp-inherents.workspace = true
+sp-keyring.workspace = true
 sp-offchain.workspace = true
 sp-runtime = { features = ["serde"], workspace = true }
+sp-runtime-interface.workspace = true
 sp-session.workspace = true
+sp-std.workspace = true
 sp-storage.workspace = true
 sp-transaction-pool.workspace = true
 sp-version = { features = ["serde"], workspace = true }
-sp-genesis-builder.workspace = true
-frame-system-rpc-runtime-api.workspace = true
-pallet-transaction-payment-rpc-runtime-api.workspace = true
-frame-benchmarking = { version = "39.0.0", default-features = false }
-frame-system-benchmarking = { optional = true, workspace = true }
-pallet-faucet = { workspace = true, default-features = false }
-pallet-mining-rewards = { workspace = true, default-features = false }
-pallet-qpow = { workspace = true, default-features = false }
-pallet-wormhole = { workspace = true, default-features = false }
-pallet-reversible-transfers = { workspace = true, default-features = false }
-pallet-vesting = { workspace = true, default-features = false }
-qp-scheduler = { workspace = true, default-features = false }
-sp-consensus-qpow = { workspace = true, default-features = false}
-sp-faucet = {workspace = true, default-features = false}
-log = { workspace = true }
-pallet-merkle-airdrop = { workspace = true, default-features = false }
-
-dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
-primitive-types = { default-features = false, workspace = true }
-sp-runtime-interface = { workspace = true, default-features = false }
-sp-std = { workspace = true, default-features = false }
-
-poseidon-resonance = { workspace = true, features = ["serde"] }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
 [dev-dependencies]
-sp-std = { version = "14.0.0", default-features = true }
-hdwallet = { path = "../dilithium-crypto/hdwallet", default-features = true }
-env_logger = "0.11.5"
+env_logger.workspace = true
+hdwallet.workspace = true
+sp-io.workspace = true
 sp-keyring = { workspace = true, features = ["std"] }
-sp-io = { workspace = true, default-features = true }
+sp-std.workspace = true
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
+	"dilithium-crypto/full_crypto",
 	"frame-benchmarking/std",
 	"frame-executive/std",
 	"frame-metadata-hash-extension/std",
@@ -93,47 +93,46 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"pallet-balances/std",
-	"pallet-faucet/std",
-	"pallet-mining-rewards/std",
 	"pallet-conviction-voting/std",
-	"pallet-ranked-collective/std",
+	"pallet-faucet/std",
+	"pallet-merkle-airdrop/std",
+	"pallet-mining-rewards/std",
 	"pallet-preimage/std",
+	"pallet-qpow/std",
+	"pallet-ranked-collective/std",
+	"pallet-recovery/std",
 	"pallet-referenda/std",
+	"pallet-reversible-transfers/std",
 	"pallet-scheduler/std",
 	"pallet-sudo/std",
-	"pallet-treasury/std",
-	"pallet-utility/std",
-	"pallet-qpow/std",
-	"pallet-wormhole/std",
 	"pallet-timestamp/std",
-	"pallet-vesting/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
-	"pallet-merkle-airdrop/std",
-	"pallet-recovery/std",
+	"pallet-treasury/std",
+	"pallet-utility/std",
+	"pallet-vesting/std",
+	"pallet-wormhole/std",
+	"poseidon-resonance/std",
+	"qp-scheduler/std",
+	"scale-info/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
-	"sp-faucet/std",
 	"sp-consensus-qpow/std",
 	"sp-core/std",
+	"sp-faucet/std",
 	"sp-genesis-builder/std",
 	"sp-inherents/std",
 	"sp-offchain/std",
+	"sp-runtime-interface/std",
 	"sp-runtime/std",
 	"sp-session/std",
+	"sp-std/std",
 	"sp-storage/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
 	"substrate-wasm-builder",
-	"sp-std/std",
-	"sp-runtime-interface/std",
-	"scale-info/std",
-	"dilithium-crypto/full_crypto",
-	"poseidon-resonance/std",
-	"pallet-reversible-transfers/std",
-	"qp-scheduler/std",
 ]
 
 runtime-benchmarks = [
@@ -143,20 +142,20 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
-	"pallet-ranked-collective/runtime-benchmarks",
-	"pallet-preimage/runtime-benchmarks",
-	"pallet-referenda/runtime-benchmarks",
-	"pallet-sudo/runtime-benchmarks",
-	"pallet-treasury/runtime-benchmarks",
-	"pallet-timestamp/runtime-benchmarks",
-	"pallet-transaction-payment/runtime-benchmarks",
-	"pallet-recovery/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
-	"pallet-vesting/runtime-benchmarks",
-	"pallet-wormhole/runtime-benchmarks",
 	"pallet-merkle-airdrop/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
+	"pallet-preimage/runtime-benchmarks",
+	"pallet-ranked-collective/runtime-benchmarks",
+	"pallet-recovery/runtime-benchmarks",
+	"pallet-referenda/runtime-benchmarks",
 	"pallet-reversible-transfers/runtime-benchmarks",
+	"pallet-sudo/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
+	"pallet-transaction-payment/runtime-benchmarks",
+	"pallet-treasury/runtime-benchmarks",
+	"pallet-vesting/runtime-benchmarks",
+	"pallet-wormhole/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 
 try-runtime = [
@@ -167,13 +166,13 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-mining-rewards/try-runtime",
 	"pallet-qpow/try-runtime",
-	"pallet-timestamp/try-runtime",
-	"pallet-vesting/try-runtime",
 	"pallet-ranked-collective/try-runtime",
+	"pallet-recovery/try-runtime",
 	"pallet-sudo/try-runtime",
+	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"pallet-treasury/try-runtime",
-	"pallet-recovery/try-runtime",
+	"pallet-vesting/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 
@@ -185,6 +184,12 @@ try-runtime = [
 # `RUNTIME_METADATA_HASH` environment variable set for the `CheckMetadataHash`
 # extension.
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]
+
+
+# Feature for running governance tests with production timing values
+# These tests use real mainnet timing (hours/days) instead of fast 2-block periods
+# Useful for comprehensive validation but much slower than default fast tests
+production-governance-tests = []
 
 # A convenience feature for enabling things when doing a build
 # for an on-chain release.

@@ -11,22 +11,21 @@ readme = "README.md"
 
 [dependencies]
 codec = { features = ["derive"], workspace = true }
-log = { workspace = true }
-scale-info = { features = ["derive"], workspace = true }
+docify.workspace = true
 frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
+log.workspace = true
+qp-scheduler.workspace = true
+scale-info = { features = ["derive"], workspace = true }
 sp-io.workspace = true
 sp-runtime.workspace = true
 sp-weights.workspace = true
-docify = { workspace = true }
-qp-scheduler = { workspace = true, default-features = false }
-
 
 [dev-dependencies]
-pallet-preimage = { default-features = true, workspace = true }
-sp-core = { workspace = true, default-features = false }
-substrate-test-utils = { workspace = true, default-features = false }
+pallet-preimage.workspace = true
+sp-core.workspace = true
+substrate-test-utils.workspace = true
 
 [features]
 default = ["std"]

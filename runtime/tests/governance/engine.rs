@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn note_preimage_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
             // Check initial balance
             let initial_balance = Balances::free_balance(&account);
@@ -37,7 +37,7 @@ mod tests {
             ));
 
             // Check if preimage was stored
-            assert!(Preimage::have_preimage(&hash.into()));
+            assert!(Preimage::have_preimage(&hash));
 
             // If using an implementation with token reservation, check if balance changed
             if !std::any::TypeId::of::<()>().eq(&std::any::TypeId::of::<()>()) {
@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn unnote_preimage_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&account);
 
@@ -71,11 +71,11 @@ mod tests {
             // Remove the preimage
             assert_ok!(Preimage::unnote_preimage(
                 RuntimeOrigin::signed(account.clone()),
-                hash.into(),
+                hash,
             ));
 
             // Check if preimage was removed
-            assert!(!Preimage::have_preimage(&hash.into()));
+            assert!(!Preimage::have_preimage(&hash));
 
             // If using an implementation with token reservation, check if balance was restored
             if !std::any::TypeId::of::<()>().eq(&std::any::TypeId::of::<()>()) {
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn request_preimage_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&account);
 
@@ -107,13 +107,10 @@ mod tests {
             ));
 
             // Request the preimage as system
-            assert_ok!(Preimage::request_preimage(
-                RuntimeOrigin::root(),
-                hash.into(),
-            ));
+            assert_ok!(Preimage::request_preimage(RuntimeOrigin::root(), hash,));
 
             // Check if preimage was requested
-            assert!(Preimage::is_requested(&hash.into()));
+            assert!(Preimage::is_requested(&hash));
 
             // If using an implementation with token reservation, check if balance was freed
             if !std::any::TypeId::of::<()>().eq(&std::any::TypeId::of::<()>()) {
@@ -127,7 +124,7 @@ mod tests {
 
     #[test]
     fn unrequest_preimage_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
 
             // Create test data
@@ -141,25 +138,19 @@ mod tests {
             ));
 
             // Request the preimage as system
-            assert_ok!(Preimage::request_preimage(
-                RuntimeOrigin::root(),
-                hash.into(),
-            ));
+            assert_ok!(Preimage::request_preimage(RuntimeOrigin::root(), hash,));
 
             // Then unrequest it
-            assert_ok!(Preimage::unrequest_preimage(
-                RuntimeOrigin::root(),
-                hash.into(),
-            ));
+            assert_ok!(Preimage::unrequest_preimage(RuntimeOrigin::root(), hash,));
 
             // Check if preimage is no longer requested
-            assert!(!Preimage::is_requested(&hash.into()));
+            assert!(!Preimage::is_requested(&hash));
         });
     }
 
     #[test]
     fn preimage_cannot_be_noted_twice() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
 
             // Create test data
@@ -184,7 +175,7 @@ mod tests {
 
     #[test]
     fn preimage_too_large_fails() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
 
             // Create large data exceeding the limit
@@ -203,7 +194,7 @@ mod tests {
 
     #[test]
     fn scheduler_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let account = TestCommons::account_id(1);
             let recipient = TestCommons::account_id(2);
 
@@ -254,7 +245,7 @@ mod tests {
 
     #[test]
     fn referendum_submission_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&proposer);
 
@@ -342,7 +333,7 @@ mod tests {
 
     #[test]
     fn referendum_cancel_by_root_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let initial_balance = Balances::free_balance(&proposer);
 
@@ -418,7 +409,7 @@ mod tests {
 
     #[test]
     fn referendum_voting_and_passing_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter1 = TestCommons::account_id(2);
             let voter2 = TestCommons::account_id(3);
@@ -544,7 +535,7 @@ mod tests {
 
     #[test]
     fn delegated_voting_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let delegate = TestCommons::account_id(2);
             let delegator1 = TestCommons::account_id(3);
@@ -717,7 +708,7 @@ mod tests {
             );
 
             // Advance blocks to update tally
-            TestCommons::run_to_block(prepare_period + 10);
+            TestCommons::run_to_block(prepare_period + 1);
 
             // The undelegated account now votes directly
             assert_ok!(ConvictionVoting::vote(
@@ -752,7 +743,7 @@ mod tests {
             // Complete the referendum
             let decision_period = track_info.decision_period;
             let confirm_period = track_info.confirm_period;
-            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 10);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 1);
 
             // Check referendum passed despite the vote against
             let final_info =
@@ -818,7 +809,7 @@ mod tests {
             ));
 
             // Advance to deciding phase
-            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 20);
+            TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Verify active delegations are automatically applied to the new referendum
             let referendum_info2 =

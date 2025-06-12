@@ -32,6 +32,29 @@ impl TestCommons {
         ext
     }
 
+    /// Create a test externality with governance track timing based on feature flags
+    /// - Without `production-governance-tests`: Uses fast 2-block periods for all governance tracks
+    /// - With `production-governance-tests`: Uses production timing (hours/days)
+    /// This allows CI to test both fast (for speed) and slow (for correctness) governance
+    pub fn new_fast_governance_test_ext() -> sp_io::TestExternalities {
+        #[cfg(feature = "production-governance-tests")]
+        {
+            println!("Production governance test config: Using production timing (hours/days).");
+            Self::new_test_ext()
+        }
+
+        #[cfg(not(feature = "production-governance-tests"))]
+        {
+            use resonance_runtime::governance::definitions::GlobalTrackConfig;
+
+            // Set global fast timing for ALL governance tracks (Community, Treasury, Tech Collective)
+            GlobalTrackConfig::set_fast_test_timing(); // Sets 2 blocks for all periods
+
+            println!("Fast governance test config activated: All tracks use 2-block periods");
+            Self::new_test_ext()
+        }
+    }
+
     // Helper function to run blocks
     pub fn run_to_block(n: u32) {
         while System::block_number() < n {
@@ -47,5 +70,17 @@ impl TestCommons {
             System::on_initialize(b + 1);
             resonance_runtime::Scheduler::on_initialize(b + 1);
         }
+    }
+
+    /// Helper to calculate total blocks needed for a governance process
+    /// This helps tests understand how many blocks they need to advance
+    pub fn calculate_governance_blocks(
+        prepare_period: u32,
+        decision_period: u32,
+        confirm_period: u32,
+        min_enactment_period: u32,
+    ) -> u32 {
+        prepare_period + decision_period + confirm_period + min_enactment_period + 5
+        // +5 for buffer
     }
 }

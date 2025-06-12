@@ -7,15 +7,16 @@ mod tests {
     use pallet_conviction_voting::AccountVote::Standard;
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
+    use resonance_runtime::governance::definitions::CommunityTracksInfo;
     use resonance_runtime::{
         Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall,
-        RuntimeOrigin, DAYS, HOURS, UNIT,
+        RuntimeOrigin, UNIT,
     };
     use sp_runtime::traits::Hash;
 
     #[test]
     fn referendum_with_conviction_voting_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter_for = TestCommons::account_id(2);
             let voter_against = TestCommons::account_id(3);
@@ -50,8 +51,7 @@ mod tests {
             };
 
             // Activation moment
-            let enactment_moment =
-                frame_support::traits::schedule::DispatchTime::After(0u32.into());
+            let enactment_moment = frame_support::traits::schedule::DispatchTime::After(0u32);
 
             // Submit referendum
             assert_ok!(Referenda::submit(
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn referendum_execution_with_scheduler_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let target = TestCommons::account_id(4);
 
@@ -191,7 +191,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 proposal_origin,
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn referendum_fails_with_insufficient_turnout() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Test for track 1 (signed) where support is enabled
             let proposer = TestCommons::account_id(1);
             let voter = TestCommons::account_id(2);
@@ -289,7 +289,7 @@ mod tests {
                     proposer.clone()
                 ))),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -309,7 +309,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 1 * UNIT, // Very small amount to ensure insufficient turnout
+                    balance: UNIT, // Very small amount to ensure insufficient turnout
                 },
             ));
 
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn referendum_timeout_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
 
             // Prepare the proposal
@@ -366,7 +366,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn referendum_token_slashing_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let initial_balance = 10000 * UNIT;
             Balances::make_free_balance_be(&proposer, initial_balance);
@@ -425,7 +425,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             let referendum_index = 0;
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn signaling_track_referendum_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter1 = TestCommons::account_id(2);
             let voter2 = TestCommons::account_id(3);
@@ -538,7 +538,7 @@ mod tests {
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                 bounded_call,
-                frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                frame_support::traits::schedule::DispatchTime::After(0u32)
             ));
 
             // Check referendum is using track 2
@@ -585,10 +585,11 @@ mod tests {
                 }
             ));
 
-            // Progress through phases
-            let prepare_period = 6 * HOURS;
-            let decision_period = 5 * DAYS;
-            let confirm_period = 3 * HOURS;
+            // Get the actual track configuration (track 1 = signaling)
+            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap();
+            let prepare_period = track_info.prepare_period;
+            let decision_period = track_info.decision_period;
+            let confirm_period = track_info.confirm_period;
 
             // Advance to deciding phase
             TestCommons::run_to_block(prepare_period + 1);
@@ -611,7 +612,7 @@ mod tests {
                 panic!("Referendum should be ongoing");
             }
 
-            // Advance through decision and confirmation
+            // Advance through decision and confirmation periods
             TestCommons::run_to_block(prepare_period + decision_period + confirm_period + 2);
 
             // Verify referendum passed
@@ -626,7 +627,7 @@ mod tests {
 
     #[test]
     fn concurrent_tracks_referendum_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
             let voter = TestCommons::account_id(2);
 
@@ -746,9 +747,12 @@ mod tests {
                 }
             ));
 
-            // Get the prepare periods for each track
-            let signed_prepare = 12 * HOURS;
-            let signal_prepare = 6 * HOURS;
+            // Get the prepare periods for each track dynamically
+            let signed_track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap(); // Track 0: signed
+            let signal_track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap(); // Track 1: signaling
+
+            let signed_prepare = signed_track_info.prepare_period;
+            let signal_prepare = signal_track_info.prepare_period;
 
             // Advance to signal prepare completion (shortest)
             TestCommons::run_to_block(signal_prepare + 1);
@@ -766,9 +770,12 @@ mod tests {
                 _ => panic!("Signal referendum should be ongoing"),
             }
 
-            // Check signed referendum not yet in deciding phase
+            // Check signed referendum not yet in deciding phase (only relevant for production-governance-tests)
+            #[cfg(feature = "production-governance-tests")]
             let signed_info =
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+
+            #[cfg(feature = "production-governance-tests")]
             match signed_info {
                 pallet_referenda::ReferendumInfo::Ongoing(status) => {
                     assert!(
@@ -796,7 +803,10 @@ mod tests {
             }
 
             // Advance through all decision periods to confirm all pass
-            let longest_process = signed_prepare + 7 * DAYS + 12 * HOURS + 5; // Signed track has longest periods
+            let longest_process = signed_prepare
+                + signed_track_info.decision_period
+                + signed_track_info.confirm_period
+                + 1; // Signed track has longest periods
             TestCommons::run_to_block(longest_process);
 
             // Verify all referenda passed
@@ -821,16 +831,18 @@ mod tests {
             );
         });
     }
+
     #[test]
     fn max_deciding_limit_works() {
-        TestCommons::new_test_ext().execute_with(|| {
+        TestCommons::new_fast_governance_test_ext().execute_with(|| {
             let proposer = TestCommons::account_id(1);
 
             // Set up sufficient balance
             Balances::make_free_balance_be(&proposer, 5000 * UNIT);
 
-            // Get max_deciding for signaling track
-            let max_deciding = 20; // From your track configuration (track 1)
+            // Get max_deciding for signaling track dynamically
+            let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap(); // Track 1 = signaling
+            let max_deciding = track_info.max_deciding;
 
             // Create max_deciding + 1 signaling referenda
             for i in 0..max_deciding + 1 {
@@ -858,7 +870,7 @@ mod tests {
                     RuntimeOrigin::signed(proposer.clone()),
                     Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
                     bounded_call,
-                    frame_support::traits::schedule::DispatchTime::After(0u32.into())
+                    frame_support::traits::schedule::DispatchTime::After(0u32)
                 ));
 
                 // Place decision deposit
@@ -868,8 +880,8 @@ mod tests {
                 ));
             }
 
-            // Advance past prepare period for signaling track
-            TestCommons::run_to_block(6 * HOURS + 1);
+            // Advance past prepare period using actual track timing
+            TestCommons::run_to_block(track_info.prepare_period + 1);
 
             // Count how many referenda are in deciding phase
             let mut deciding_count = 0;

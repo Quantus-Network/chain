@@ -16,89 +16,87 @@ build = "build.rs"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
-sc-consensus-pow = { workspace = true, default-features = false }
-sc-consensus-qpow = { workspace = true, default-features = false }
-sp-consensus-qpow = { workspace = true, default-features = false }
-log = { workspace = true }
-codec = { workspace = true }
-dilithium-crypto = { path = "../dilithium-crypto", default-features = false }
-async-trait = { workspace = true }
+async-trait.workspace = true
 clap = { features = ["derive"], workspace = true }
-futures = { features = ["thread-pool"], workspace = true }
-jsonrpsee = { features = ["server"], workspace = true }
-sc-cli.workspace = true
-sc-cli.default-features = true
-sp-core.workspace = true
-sp-core.default-features = true
-sc-executor.workspace = true
-sc-executor.default-features = true
-sc-network.workspace = true
-sc-network.default-features = true
-sc-service.workspace = true
-sc-service.default-features = true
-sc-telemetry.workspace = true
-sc-telemetry.default-features = true
-sc-transaction-pool.workspace = true
-sc-transaction-pool.default-features = true
-sc-transaction-pool-api.workspace = true
-sc-transaction-pool-api.default-features = true
-sc-offchain.workspace = true
-sc-offchain.default-features = true
-sc-consensus.workspace = true
-sc-consensus.default-features = true
-sp-genesis-builder.workspace = true
-sp-genesis-builder.default-features = true
-sc-client-api.workspace = true
-sc-client-api.default-features = true
-sc-basic-authorship.workspace = true
-sc-basic-authorship.default-features = true
-sp-runtime.workspace = true
-sp-runtime.default-features = true
-sp-io.workspace = true
-sp-io.default-features = true
-sp-timestamp.workspace = true
-sp-timestamp.default-features = true
-sp-inherents.workspace = true
-sp-inherents.default-features = true
-sp-keyring.workspace = true
-sp-keyring.default-features = true
-sp-api.workspace = true
-sp-api.default-features = true
-sp-blockchain.workspace = true
-sp-blockchain.default-features = true
-sp-block-builder.workspace = true
-sp-block-builder.default-features = true
-frame-system.workspace = true
-frame-system.default-features = true
-frame-metadata-hash-extension.workspace = true
-frame-metadata-hash-extension.default-features = true
-pallet-transaction-payment.workspace = true
-pallet-transaction-payment.default-features = true
-pallet-transaction-payment-rpc.workspace = true
-pallet-transaction-payment-rpc.default-features = true
-pallet-faucet.workspace = true
-pallet-faucet.default-features = false
-substrate-frame-rpc-system.workspace = true
-substrate-frame-rpc-system.default-features = true
-frame-benchmarking-cli.workspace = true
+codec.workspace = true
+dilithium-crypto.workspace = true
 frame-benchmarking-cli.default-features = true
-resonance-runtime.workspace = true
-
-sp-faucet = { workspace = true, default-features = false }
+frame-benchmarking-cli.workspace = true
+frame-metadata-hash-extension.default-features = true
+frame-metadata-hash-extension.workspace = true
+frame-system.default-features = true
+frame-system.workspace = true
+futures = { features = ["thread-pool"], workspace = true }
 hex = { workspace = true, default-features = false }
+jsonrpsee = { features = ["server"], workspace = true }
+log.workspace = true
+pallet-faucet.default-features = false
+pallet-faucet.workspace = true
+pallet-transaction-payment-rpc.default-features = true
+pallet-transaction-payment-rpc.workspace = true
+pallet-transaction-payment.default-features = true
+pallet-transaction-payment.workspace = true
+primitive-types = { workspace = true, default-features = false }
+prometheus.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
-serde = { version = "1.0.197", features = ["derive"] }
-serde_json = { version = "1.0.107", features = ["alloc"] }
-uuid = { version = "1.7.0", features = ["v4", "serde"] }
-primitive-types = { version = "0.13.1", default-features = false }
-
-prometheus = { version = "0.13.4", default-features = false }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
+resonance-runtime.workspace = true
+rusty-crystals-hdwallet.workspace = true
+sc-basic-authorship.default-features = true
+sc-basic-authorship.workspace = true
+sc-cli.default-features = true
+sc-cli.workspace = true
+sc-client-api.default-features = true
+sc-client-api.workspace = true
+sc-consensus-pow.workspace = true
+sc-consensus-qpow.workspace = true
+sc-consensus.default-features = true
+sc-consensus.workspace = true
+sc-executor.default-features = true
+sc-executor.workspace = true
+sc-network.default-features = true
+sc-network.workspace = true
+sc-offchain.default-features = true
+sc-offchain.workspace = true
+sc-service.default-features = true
+sc-service.workspace = true
+sc-telemetry.default-features = true
+sc-telemetry.workspace = true
+sc-transaction-pool-api.default-features = true
+sc-transaction-pool-api.workspace = true
+sc-transaction-pool.default-features = true
+sc-transaction-pool.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["alloc"] }
+sp-api.default-features = true
+sp-api.workspace = true
+sp-block-builder.default-features = true
+sp-block-builder.workspace = true
+sp-blockchain.default-features = true
+sp-blockchain.workspace = true
+sp-consensus-qpow.workspace = true
+sp-core.default-features = true
+sp-core.workspace = true
+sp-faucet = { workspace = true, default-features = false }
+sp-genesis-builder.default-features = true
+sp-genesis-builder.workspace = true
+sp-inherents.default-features = true
+sp-inherents.workspace = true
+sp-io.default-features = true
+sp-io.workspace = true
+sp-keyring.default-features = true
+sp-keyring.workspace = true
+sp-runtime.default-features = true
+sp-runtime.workspace = true
+sp-timestamp.default-features = true
+sp-timestamp.workspace = true
+substrate-frame-rpc-system.default-features = true
+substrate-frame-rpc-system.workspace = true
+uuid.workspace = true
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true
@@ -107,9 +105,9 @@ substrate-build-script-utils.default-features = true
 [features]
 default = ["std"]
 std = [
-	"resonance-runtime/std",
 	"dilithium-crypto/std",
 	"rand/std",
+	"resonance-runtime/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [

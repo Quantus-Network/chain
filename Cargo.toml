@@ -28,49 +28,86 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-resonance-runtime = { path = "./runtime", default-features = false }
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = [
-    "no_std",
-] }
-plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
-    "no_random",
-] }
-poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
-futures-timer = { version = "3.0.2" }
-docify = { version = "0.2.9", default-features = false }
-paste = { version = "1.0.15", default-features = false }
+# Miscellaneous
 async-trait = { version = "0.1.85", default-features = false }
-pallet-faucet = { path = "./pallets/faucet", default-features = false }
-pallet-qpow = { path = "./pallets/qpow", default-features = false }
-pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
-pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
-pallet-balances = { path = "./pallets/balances", default-features = false }
-pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
-pallet-conviction-voting = { version = "39.1.0", default-features = false }
-pallet-ranked-collective = { version = "39.0.0", default-features = false }
-pallet-preimage = { version = "39.0.0", default-features = false }
-pallet-referenda = { version = "39.1.0", default-features = false }
-pallet-treasury = { version = "38.1.0", default-features = false}
-pallet-recovery = { version = "39.1.0", default-features = false }
-pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
-pallet-utility = { version = "39.1.0", default-features = false }
-parking_lot = { version = "0.12.1", default-features = false }
-pallet-vesting = { version = "39.1.0", default-features = false }
+binary-merkle-tree = { version = "16.0.0", default-features = false }
 clap = { version = "4.5.13" }
-frame-benchmarking-cli = { version = "46.1.0", default-features = false }
-frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
-frame-system = { version = "39.1.0", default-features = false }
+codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
+docify = { version = "0.2.9", default-features = false }
+env_logger = "0.11.5"
 futures = { version = "0.3.31" }
+futures-timer = { version = "3.0.2" }
+hex = { version = "0.4.3", default-features = false }
 jsonrpsee = { version = "0.24.3" }
+lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
+log = { version = "0.4.22", default-features = false }
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
+parking_lot = { version = "0.12.1", default-features = false }
+paste = { version = "1.0.15", default-features = false }
+primitive-types = { version = "0.13.1", default-features = false }
+prometheus = { version = "0.13.4", default-features = false }
+rand = { version = "0.8.5", default-features = false }
+reqwest = { version = "0.11.24", default-features = false, features = ["json"] }
+scale-info = { version = "2.11.1", default-features = false }
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = { version = "1.0.132", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+thiserror = { version = "1.0.64" }
+uuid = { version = "1.7.0", features = ["v4", "serde"] }
+
+# Own dependencies
+dilithium-crypto = { path = "./dilithium-crypto", default-features = false }
+hdwallet = { path = "./dilithium-crypto/hdwallet", default-features = true }
+pallet-balances = { path = "./pallets/balances", default-features = false }
+pallet-faucet = { path = "./pallets/faucet", default-features = false }
+pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
+pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
+pallet-qpow = { path = "./pallets/qpow", default-features = false }
+pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
+pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
+pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
+qp-scheduler = { path = "./primitives/scheduler", default-features = false }
+qpow-math = { path = "./qpow-math", default-features = false }
+resonance-runtime = { path = "./runtime", default-features = false }
+sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
+sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
+sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
+sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
+sp-faucet = { path = "./primitives/faucet", default-features = false }
+
+# Quantus network dependencies
+rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", default-features = false, features = ["no_std"] }
+rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
+plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
+poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
+
+# polkadot-sdk dependencies
+frame-benchmarking = { version = "39.0.0", default-features = false }
+frame-benchmarking-cli = { version = "46.1.0", default-features = false }
+frame-executive = { version = "39.1.0", default-features = false }
+frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
+frame-support = { version = "39.1.0", default-features = false }
+frame-system = { version = "39.1.0", default-features = false }
+frame-system-benchmarking = { version = "39.0.0", default-features = false }
+frame-system-rpc-runtime-api = { version = "35.0.0", default-features = false }
+frame-try-runtime = { version = "0.45.0", default-features = false }
+pallet-conviction-voting = { version = "39.1.0", default-features = false }
+pallet-preimage = { version = "39.0.0", default-features = false }
+pallet-ranked-collective = { version = "39.0.0", default-features = false }
+pallet-recovery = { version = "39.1.0", default-features = false }
+pallet-referenda = { version = "39.1.0", default-features = false }
+pallet-sudo = { version = "39.0.0", default-features = false }
+pallet-timestamp = { version = "38.0.0", default-features = false }
 pallet-transaction-payment = { version = "39.1.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "42.0.0", default-features = false }
-reqwest = { version = "0.11.24", default-features = false, features = ["json"] }
+pallet-transaction-payment-rpc-runtime-api = { version = "39.0.0", default-features = false }
+pallet-treasury = { version = "38.1.0", default-features = false}
+pallet-utility = { version = "39.1.0", default-features = false }
+pallet-vesting = { version = "39.1.0", default-features = false }
 sc-basic-authorship = { version = "0.48.0", default-features = false }
 sc-cli = { version = "0.50.1", default-features = false }
 sc-client-api = { version = "38.0.0", default-features = false }
 sc-consensus = { version = "0.47.0", default-features = false }
-sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
-sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sc-executor = { version = "0.41.0", default-features = false }
 sc-network = { version = "0.48.3", default-features = false }
 sc-offchain = { version = "43.0.0", default-features = false }
@@ -78,54 +115,32 @@ sc-service = { version = "0.49.0", default-features = false }
 sc-telemetry = { version = "28.0.0", default-features = false }
 sc-transaction-pool = { version = "38.1.0", default-features = false }
 sc-transaction-pool-api = { version = "38.1.0", default-features = false }
-serde_json = { version = "1.0.132", default-features = false }
 sp-api = { version = "35.0.0", default-features = false }
 sp-arithmetic = { version = "26.0.0", default-features = false }
 sp-block-builder = { version = "35.0.0", default-features = false }
 sp-blockchain = { version = "38.0.0", default-features = false }
 sp-consensus = { version = "0.41.0", default-features = false }
-sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
-sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
-qp-scheduler = { path = "./primitives/scheduler", default-features = false }
-sp-faucet = { path = "./primitives/faucet", default-features = false }
 sp-core = { version = "35.0.0", default-features = false }
 sp-genesis-builder = { version = "0.16.0", default-features = false }
 sp-inherents = { version = "35.0.0", default-features = false }
 sp-io = { version = "39.0.0", default-features = false }
-sp-std = { version = "14.0.0", default-features = false }
 sp-keyring = { version = "40.0.0", default-features = false }
+sp-offchain = { version = "35.0.0", default-features = false }
 sp-runtime = { version = "40.1.0", default-features = false }
 sp-runtime-interface = { version = "29.0.0", default-features = false }
-sp-timestamp = { version = "35.0.0", default-features = false }
-sp-weights = { version = "31.0.0", default-features = false }
-substrate-frame-rpc-system = { version = "42.0.0", default-features = false }
-substrate-build-script-utils = { version = "11.0.0", default-features = false }
-substrate-prometheus-endpoint = { version = "0.17.1", default-features = false }
-thiserror = { version = "1.0.64" }
-codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
-frame-benchmarking = { version = "39.0.0", default-features = false }
-frame-executive = { version = "39.1.0", default-features = false }
-frame-support = { version = "39.1.0", default-features = false }
-frame-system-benchmarking = { version = "39.0.0", default-features = false }
-frame-system-rpc-runtime-api = { version = "35.0.0", default-features = false }
-frame-try-runtime = { version = "0.45.0", default-features = false }
-pallet-sudo = { version = "39.0.0", default-features = false }
-pallet-timestamp = { version = "38.0.0", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { version = "39.0.0", default-features = false }
-scale-info = { version = "2.11.1", default-features = false }
-sp-offchain = { version = "35.0.0", default-features = false }
 sp-session = { version = "37.0.0", default-features = false }
+sp-std = { version = "14.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
+sp-timestamp = { version = "35.0.0", default-features = false }
 sp-transaction-pool = { version = "35.0.0", default-features = false }
 sp-version = { version = "38.0.0", default-features = false }
 substrate-wasm-builder = { version = "25.0.0", default-features = false }
-pallet-merkle-airdrop = { version = "0.1.0", path = "./pallets/merkle-airdrop", default-features = false }
 substrate-test-utils = { version = "3.0.0", default-features = false }
+sp-weights = { version = "31.0.0", default-features = false }
+substrate-build-script-utils = { version = "11.0.0", default-features = false }
+substrate-frame-rpc-system = { version = "42.0.0", default-features = false }
+substrate-prometheus-endpoint = { version = "0.17.1", default-features = false }
 
-log = { version = "0.4.22", default-features = false }
-hex = { version = "0.4.3", default-features = false }
-primitive-types = { version = "0.13.1", default-features = false }
-rand = { version = "0.8.5", default-features = false }
 
 [patch.crates-io]
 sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
