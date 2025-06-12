@@ -39,7 +39,7 @@ impl TestCommons {
     pub fn new_fast_governance_test_ext() -> sp_io::TestExternalities {
         #[cfg(feature = "production-governance-tests")]
         {
-            println!("Slow governance test config: Using production timing (hours/days)");
+            println!("Production governance test config: Using production timing (hours/days).");
             Self::new_test_ext()
         }
 
