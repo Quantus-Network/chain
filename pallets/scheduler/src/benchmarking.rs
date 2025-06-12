@@ -29,6 +29,7 @@ use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
 
 use crate::Pallet as Scheduler;
 use frame_system::{Call as SystemCall, EventRecord};
+use sp_io::hashing::blake2_256;
 
 const SEED: u32 = 0;
 
@@ -59,12 +60,12 @@ fn fill_schedule<T: Config>(
     let origin: <T as Config>::PalletsOrigin = frame_system::RawOrigin::Root.into();
     for i in 0..n {
         let call = make_call::<T>(None);
-        let period = Some(((i + 100).into(), 100));
+        let period = Some((BlockNumberOrTimestamp::BlockNumber((i + 100).into()), 100));
         let name = u32_to_name(i);
         Scheduler::<T>::do_schedule_named(name, t, period, 0, origin.clone(), call)?;
     }
     ensure!(
-        Agenda::<T>::get(when).len() == n as usize,
+        Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == n as usize,
         "didn't fill schedule"
     );
     Ok(())
@@ -83,7 +84,7 @@ fn make_task<T: Config>(
 ) -> ScheduledOf<T> {
     let call = make_call::<T>(maybe_lookup_len);
     let maybe_periodic = match periodic {
-        true => Some((100u32.into(), 100)),
+        true => Some((BlockNumberOrTimestamp::BlockNumber(100u32.into()), 100)),
         false => None,
     };
     let maybe_id = match named {
@@ -149,11 +150,11 @@ benchmarks! {
     // `service_agendas` when no work is done.
     service_agendas_base {
         let now = BlockNumberFor::<T>::from(BLOCK_NUMBER);
-        IncompleteSince::<T>::put(now - One::one());
+        IncompleteSince::<T>::put(BlockNumberOrTimestamp::BlockNumber(now - One::one()));
     }: {
-        Scheduler::<T>::service_agendas(&mut WeightMeter::new(), now, 0);
+        Scheduler::<T>::service_agendas(&mut WeightMeter::new(), BlockNumberOrTimestamp::BlockNumber(now), 0);
     } verify {
-        assert_eq!(IncompleteSince::<T>::get(), Some(now - One::one()));
+        assert_eq!(IncompleteSince::<T>::get(), Some(BlockNumberOrTimestamp::BlockNumber(now - One::one())));
     }
 
     // `service_agenda` when no work is done.
@@ -163,7 +164,7 @@ benchmarks! {
         fill_schedule::<T>(now, s)?;
         let mut executed = 0;
     }: {
-        Scheduler::<T>::service_agenda(&mut WeightMeter::new(), &mut executed, now, now, 0);
+        Scheduler::<T>::service_agenda(&mut WeightMeter::new(), &mut executed, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0);
     } verify {
         assert_eq!(executed, 0);
     }
@@ -176,7 +177,7 @@ benchmarks! {
         // prevent any tasks from actually being executed as we only want the surrounding weight.
         let mut counter = WeightMeter::with_limit(Weight::zero());
     }: {
-        let result = Scheduler::<T>::service_task(&mut counter, now, now, 0, true, task);
+        let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
     } verify {
         //assert_eq!(result, Ok(()));
     }
@@ -194,7 +195,7 @@ benchmarks! {
         // prevent any tasks from actually being executed as we only want the surrounding weight.
         let mut counter = WeightMeter::with_limit(Weight::zero());
     }: {
-        let result = Scheduler::<T>::service_task(&mut counter, now, now, 0, true, task);
+        let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
     } verify {
     }
 
@@ -206,7 +207,7 @@ benchmarks! {
         // prevent any tasks from actually being executed as we only want the surrounding weight.
         let mut counter = WeightMeter::with_limit(Weight::zero());
     }: {
-        let result = Scheduler::<T>::service_task(&mut counter, now, now, 0, true, task);
+        let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
     } verify {
     }
 
@@ -218,7 +219,7 @@ benchmarks! {
         // prevent any tasks from actually being executed as we only want the surrounding weight.
         let mut counter = WeightMeter::with_limit(Weight::zero());
     }: {
-        let result = Scheduler::<T>::service_task(&mut counter, now, now, 0, true, task);
+        let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
     } verify {
     }
 
@@ -247,7 +248,7 @@ benchmarks! {
     schedule {
         let s in 0 .. (T::MaxScheduledPerBlock::get() - 1);
         let when = BLOCK_NUMBER.into();
-        let periodic = Some((BlockNumberFor::<T>::one(), 100));
+        let periodic = Some((BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one()), 100));
         let priority = 0;
         // Essentially a no-op call.
         let call = Box::new(SystemCall::set_storage { items: vec![] }.into());
@@ -256,20 +257,20 @@ benchmarks! {
     }: _(RawOrigin::Root, when, periodic, priority, call)
     verify {
         ensure!(
-            Agenda::<T>::get(when).len() == (s + 1) as usize,
+            Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == (s + 1) as usize,
             "didn't add to schedule"
         );
     }
 
     cancel {
         let s in 1 .. T::MaxScheduledPerBlock::get();
-        let when = BLOCK_NUMBER.into();
+        let when: BlockNumberFor<T> = BLOCK_NUMBER.into();
 
         fill_schedule::<T>(when, s)?;
-        assert_eq!(Agenda::<T>::get(when).len(), s as usize);
+        assert_eq!(Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len(), s as usize);
         let schedule_origin =
             T::ScheduleOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-    }: _<SystemOrigin<T>>(schedule_origin, when, 0)
+    }: _<SystemOrigin<T>>(schedule_origin, BlockNumberOrTimestamp::BlockNumber(when), 0)
     verify {
         ensure!(
             s == 1 || Lookup::<T>::get(u32_to_name(0)).is_none(),
@@ -277,11 +278,11 @@ benchmarks! {
         );
         // Removed schedule is NONE
         ensure!(
-            s == 1 || Agenda::<T>::get(when)[0].is_none(),
+            s == 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when))[0].is_none(),
             "didn't remove from schedule if more than 1 task scheduled for `when`"
         );
         ensure!(
-            s > 1 || Agenda::<T>::get(when).len() == 0,
+            s > 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0,
             "remove from schedule if only 1 task scheduled for `when`"
         );
     }
@@ -290,7 +291,7 @@ benchmarks! {
         let s in 0 .. (T::MaxScheduledPerBlock::get() - 1);
         let id = u32_to_name(s);
         let when = BLOCK_NUMBER.into();
-        let periodic = Some((BlockNumberFor::<T>::one(), 100));
+        let periodic = Some((BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one()), 100));
         let priority = 0;
         // Essentially a no-op call.
         let call = Box::new(SystemCall::set_storage { items: vec![] }.into());
@@ -299,7 +300,7 @@ benchmarks! {
     }: _(RawOrigin::Root, id, when, periodic, priority, call)
     verify {
         ensure!(
-            Agenda::<T>::get(when).len() == (s + 1) as usize,
+            Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == (s + 1) as usize,
             "didn't add to schedule"
         );
     }
@@ -317,35 +318,35 @@ benchmarks! {
         );
         // Removed schedule is NONE
         ensure!(
-            s == 1 || Agenda::<T>::get(when)[0].is_none(),
+            s == 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when))[0].is_none(),
             "didn't remove from schedule if more than 1 task scheduled for `when`"
         );
         ensure!(
-            s > 1 || Agenda::<T>::get(when).len() == 0,
+            s > 1 || Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == 0,
             "remove from schedule if only 1 task scheduled for `when`"
         );
     }
 
     schedule_retry {
         let s in 1 .. T::MaxScheduledPerBlock::get();
-        let when = BLOCK_NUMBER.into();
+        let when: BlockNumberFor<T> = BLOCK_NUMBER.into();
 
         fill_schedule::<T>(when, s)?;
         let name = u32_to_name(s - 1);
         let address = Lookup::<T>::get(name).unwrap();
-        let period: BlockNumberFor<T> = 1u32.into();
+        let period: BlockNumberOrTimestampOf<T> = BlockNumberOrTimestamp::BlockNumber(1u32.into());
         let root: <T as Config>::PalletsOrigin = frame_system::RawOrigin::Root.into();
         let retry_config = RetryConfig { total_retries: 10, remaining: 10, period };
-        Retries::<T>::insert(address, retry_config);
-        let (mut when, index) = address;
+        Retries::<T>::insert(address, retry_config.clone());
+        let (when, index) = address;
         let task = Agenda::<T>::get(when)[index as usize].clone().unwrap();
         let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
     }: {
         Scheduler::<T>::schedule_retry(&mut weight_counter, when, when, index, &task, retry_config);
     } verify {
-        when = when + BlockNumberFor::<T>::one();
+        let next_when = when.saturating_add(&period).unwrap();
         assert_eq!(
-            Retries::<T>::get((when, 0)),
+            Retries::<T>::get((next_when, 0)),
             Some(RetryConfig { total_retries: 10, remaining: 9, period })
         );
     }
@@ -358,7 +359,7 @@ benchmarks! {
         let name = u32_to_name(s - 1);
         let address = Lookup::<T>::get(name).unwrap();
         let (when, index) = address;
-        let period = BlockNumberFor::<T>::one();
+        let period: BlockNumberOrTimestampOf<T> = BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one());
     }: _(RawOrigin::Root, (when, index), 10, period)
     verify {
         assert_eq!(
@@ -378,7 +379,7 @@ benchmarks! {
         let name = u32_to_name(s - 1);
         let address = Lookup::<T>::get(name).unwrap();
         let (when, index) = address;
-        let period = BlockNumberFor::<T>::one();
+        let period: BlockNumberOrTimestampOf<T> = BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one());
     }: _(RawOrigin::Root, name, 10, period)
     verify {
         assert_eq!(
@@ -398,7 +399,7 @@ benchmarks! {
         let name = u32_to_name(s - 1);
         let address = Lookup::<T>::get(name).unwrap();
         let (when, index) = address;
-        let period = BlockNumberFor::<T>::one();
+        let period: BlockNumberOrTimestampOf<T> = BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one());
         assert!(Scheduler::<T>::set_retry(RawOrigin::Root.into(), (when, index), 10, period).is_ok());
     }: _(RawOrigin::Root, (when, index))
     verify {
@@ -416,7 +417,7 @@ benchmarks! {
         let name = u32_to_name(s - 1);
         let address = Lookup::<T>::get(name).unwrap();
         let (when, index) = address;
-        let period = BlockNumberFor::<T>::one();
+        let period: BlockNumberOrTimestampOf<T> = BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one());
         assert!(Scheduler::<T>::set_retry_named(RawOrigin::Root.into(), name, 10, period).is_ok());
     }: _(RawOrigin::Root, name)
     verify {

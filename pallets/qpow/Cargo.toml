@@ -15,24 +15,22 @@ targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "wasm32-unknown-u
 #package = "parity-scale-codec",
 [dependencies]
 codec = { workspace=true, default-features = false, features = ["derive"] }
-scale-info = { workspace=true, default-features = false, features = ["derive"] }
 frame-benchmarking = { optional = true, default-features = false, workspace = true }
-frame-support = { default-features = false, workspace = true }
-frame-system = { default-features = false, workspace = true }
-sp-runtime = { workspace=true, default-features = false }
-sp-core = { workspace=true, default-features = false }
-sp-io = { workspace=true, default-features = false }
-sp-std = {workspace = true, default-features = false}
-qpow-math = { path = "../../qpow-math", default-features = false }
-sp-arithmetic = {workspace = true,default-features = false}
-
-pallet-timestamp = {workspace = true, default-features = false}
-
-num-traits = { version = "0.2", default-features = false, features = ["libm"]}
-log = { version = "0.4.22", default-features = false }
+frame-support.workspace = true
+frame-system.workspace = true
+log.workspace = true
+num-traits.workspace = true
+pallet-timestamp.workspace = true
+qpow-math.workspace = true
+scale-info = { workspace=true, default-features = false, features = ["derive"] }
+sp-arithmetic.workspace = true
+sp-core.workspace = true
+sp-io.workspace = true
+sp-runtime.workspace = true
+sp-std.workspace = true
 
 [dev-dependencies]
-primitive-types = { version = "0.13.1", default-features = false }
+primitive-types.workspace = true
 
 [features]
 default = ["std"]
