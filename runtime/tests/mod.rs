@@ -1,5 +1,4 @@
-#![cfg(test)]
+#[allow(dead_code)]
 pub mod common;
 mod governance;
-mod integration;
-mod recovery;
+mod transactions;

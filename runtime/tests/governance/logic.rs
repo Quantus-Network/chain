@@ -7,7 +7,6 @@ mod tests {
     use pallet_conviction_voting::AccountVote::Standard;
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
-    use resonance_runtime::governance::definitions::CommunityTracksInfo;
     use resonance_runtime::{
         Balances, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime, RuntimeCall,
         RuntimeOrigin, UNIT,
