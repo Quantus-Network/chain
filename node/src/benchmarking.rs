@@ -4,7 +4,7 @@
 
 use crate::service::FullClient;
 
-use resonance_runtime as runtime;
+use quantus_runtime as runtime;
 use runtime::{AccountId, Balance, BalancesCall, SystemCall};
 use sc_cli::Result;
 use sc_client_api::BlockBackend;
@@ -134,7 +134,7 @@ pub fn create_benchmark_extrinsic(
             frame_system::CheckWeight::<runtime::Runtime>::new(),
             pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
             frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(false),
-            resonance_runtime::transaction_extensions::ReversibleTransactionExtension::<
+            quantus_runtime::transaction_extensions::ReversibleTransactionExtension::<
                 runtime::Runtime,
             >::new(),
         );

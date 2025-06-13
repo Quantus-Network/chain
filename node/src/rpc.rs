@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::faucet::{Faucet, FaucetApiServer};
 use jsonrpsee::RpcModule;
-use resonance_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;

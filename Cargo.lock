@@ -2174,7 +2174,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
- "rusty-crystals-dilithium 1.0.0 (git+https://gitlab.com/resonance-network/rusty-crystals.git)",
+ "rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -3569,7 +3569,7 @@ dependencies = [
 name = "hdwallet"
 version = "0.1.0"
 dependencies = [
- "rusty-crystals-dilithium 1.0.0 (git+https://gitlab.com/resonance-network/rusty-crystals.git)",
+ "rusty-crystals-dilithium",
 ]
 
 [[package]]
@@ -8164,10 +8164,10 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "prometheus",
+ "quantus-runtime",
  "rand 0.8.5",
  "reqwest",
  "resonance-miner-api",
- "resonance-runtime",
  "rusty-crystals-hdwallet",
  "sc-basic-authorship",
  "sc-cli",
@@ -8199,6 +8199,69 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "uuid",
+]
+
+[[package]]
+name = "quantus-runtime"
+version = "0.1.0"
+dependencies = [
+ "dilithium-crypto",
+ "env_logger 0.11.8",
+ "frame-benchmarking",
+ "frame-executive",
+ "frame-metadata-hash-extension",
+ "frame-support",
+ "frame-system",
+ "frame-system-benchmarking",
+ "frame-system-rpc-runtime-api",
+ "frame-try-runtime",
+ "hdwallet",
+ "lazy_static",
+ "log",
+ "pallet-balances 40.0.1",
+ "pallet-conviction-voting",
+ "pallet-faucet",
+ "pallet-merkle-airdrop",
+ "pallet-mining-rewards",
+ "pallet-preimage",
+ "pallet-qpow",
+ "pallet-ranked-collective",
+ "pallet-recovery",
+ "pallet-referenda",
+ "pallet-reversible-transfers",
+ "pallet-scheduler",
+ "pallet-sudo",
+ "pallet-timestamp",
+ "pallet-transaction-payment",
+ "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-treasury",
+ "pallet-utility",
+ "pallet-vesting",
+ "pallet-wormhole",
+ "parity-scale-codec",
+ "poseidon-resonance",
+ "primitive-types 0.13.1",
+ "qp-scheduler",
+ "scale-info",
+ "serde_json",
+ "sp-api",
+ "sp-block-builder",
+ "sp-consensus-qpow",
+ "sp-core",
+ "sp-faucet",
+ "sp-genesis-builder",
+ "sp-inherents",
+ "sp-io",
+ "sp-keyring",
+ "sp-offchain",
+ "sp-runtime",
+ "sp-runtime-interface",
+ "sp-session",
+ "sp-std",
+ "sp-storage",
+ "sp-transaction-pool",
+ "sp-version",
+ "substrate-wasm-builder",
 ]
 
 [[package]]
@@ -8732,69 +8795,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "resonance-runtime"
-version = "0.1.0"
-dependencies = [
- "dilithium-crypto",
- "env_logger 0.11.8",
- "frame-benchmarking",
- "frame-executive",
- "frame-metadata-hash-extension",
- "frame-support",
- "frame-system",
- "frame-system-benchmarking",
- "frame-system-rpc-runtime-api",
- "frame-try-runtime",
- "hdwallet",
- "lazy_static",
- "log",
- "pallet-balances 40.0.1",
- "pallet-conviction-voting",
- "pallet-faucet",
- "pallet-merkle-airdrop",
- "pallet-mining-rewards",
- "pallet-preimage",
- "pallet-qpow",
- "pallet-ranked-collective",
- "pallet-recovery",
- "pallet-referenda",
- "pallet-reversible-transfers",
- "pallet-scheduler",
- "pallet-sudo",
- "pallet-timestamp",
- "pallet-transaction-payment",
- "pallet-transaction-payment-rpc-runtime-api",
- "pallet-treasury",
- "pallet-utility",
- "pallet-vesting",
- "pallet-wormhole",
- "parity-scale-codec",
- "poseidon-resonance",
- "primitive-types 0.13.1",
- "qp-scheduler",
- "scale-info",
- "serde_json",
- "sp-api",
- "sp-block-builder",
- "sp-consensus-qpow",
- "sp-core",
- "sp-faucet",
- "sp-genesis-builder",
- "sp-inherents",
- "sp-io",
- "sp-keyring",
- "sp-offchain",
- "sp-runtime",
- "sp-runtime-interface",
- "sp-session",
- "sp-std",
- "sp-storage",
- "sp-transaction-pool",
- "sp-version",
- "substrate-wasm-builder",
-]
-
-[[package]]
 name = "rfc6979"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9160,14 +9160,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rusty-crystals-dilithium"
-version = "1.0.0"
-source = "git+https://gitlab.com/resonance-network/rusty-crystals.git#035445bb319a176226d756e397151ab24dee2eff"
-dependencies = [
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "rusty-crystals-hdwallet"
 version = "0.1.1"
 source = "git+https://github.com/Quantus-Network/rusty-crystals.git#9715789ac763bcac18552bdab584537a24663113"
@@ -9179,7 +9171,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals.git)",
+ "rusty-crystals-dilithium",
  "sha2 0.10.9",
  "sp-core",
  "thiserror 2.0.12",
@@ -13142,7 +13134,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 name = "verify"
 version = "0.1.0"
 dependencies = [
- "rusty-crystals-dilithium 1.0.0 (git+https://gitlab.com/resonance-network/rusty-crystals.git)",
+ "rusty-crystals-dilithium",
 ]
 
 [[package]]

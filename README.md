@@ -2,12 +2,13 @@
 
 This guide will help you install and run a Quantus Network node for mining.
 
-**🚀 Quick Start Mining**: See our [Mining Guide](MINING.md) for a comprehensive setup tutorial with troubleshooting and optimization tips.
+**🚀 Quick Start Mining**: See our [Mining Guide](MINING.md) for a comprehensive setup tutorial with troubleshooting and
+optimization tips.
 
-
-# Resonance Network Node
+# Quantus Network Node
 
 ---
+
 ## Prerequisites
 
 Use nightly rust version 12-24 or newer. Rust stable channel will not work.
@@ -19,6 +20,7 @@ rustup default nightly
 ```
 
 Check your version to make sure
+
 ```
 cargo --version
 cargo 1.85.0-nightly (769f622e1 2024-12-14)
@@ -27,9 +29,11 @@ cargo 1.85.0-nightly (769f622e1 2024-12-14)
 ## CLI Quantus commands
 
 ---
+
 ### Standard address pair generation
 
 #### Generate new key
+
 ```sh
 ./quantus-node key quantus
 ```
@@ -62,9 +66,11 @@ Seed must be a 64-character hex string
 This generates a wormhole secret and a wormhole address.
 
 ---
+
 ### Rewards address
 
-By providing the optional `--rewards-address` parameter, the node will start sending mining and transaction rewards after each block confirmation by the runtime.
+By providing the optional `--rewards-address` parameter, the node will start sending mining and transaction rewards
+after each block confirmation by the runtime.
 If this address is not specified, rewards will not be minted.
 
 ```shell
@@ -80,64 +86,70 @@ The faucet allows you to obtain test tokens. You can use it via the following RP
 To check an account's balance, use the `faucet_getAccountInfo` method:
 
 ```bash
-curl -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"faucet_getAccountInfo", "params":["<RESONANCE_ACCOUNT_ADDRESS>"]}' http://localhost:9944
+curl -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"faucet_getAccountInfo", "params":["<QUANTUS_ACCOUNT_ADDRESS>"]}' http://localhost:9944
 ```
 
 ### Request tokens
 
 To request tokens, use the `faucet_requestTokens` method:
+
 ```bash
-curl -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"faucet_requestTokens", "params":["<RESONANCE_ACCOUNT_ADDRESS>"]}' http://localhost:9944
+curl -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"faucet_requestTokens", "params":["<QUANTUS_ACCOUNT_ADDRESS>"]}' http://localhost:9944
 ```
 
-Each mint operation adds 10 tokens to your account. The maximum balance an address can have is 1000 tokens. If your account already has the maximum amount, new tokens will not be added.
+Each mint operation adds 10 tokens to your account. The maximum balance an address can have is 1000 tokens. If your
+account already has the maximum amount, new tokens will not be added.
 
 The maximum amount of tokens that can be received in a single request is limited by the network configuration.
-
 
 ## Local dev run
 
 ---
+
 1. Build the release binary
 
 2. Run the node with --dev flag
+
 ```sh
 ./target/release/quantus-node --dev
 ```
+
 ## Run with External Miner
 
 ---
 
 This node supports offloading the QPoW mining process to a separate service, freeing up node resources.
 
-Any service that adheres to the API spec below can be used as miner by the node. We provide a sample implementation in the 'external-miner' crate.
+Any service that adheres to the API spec below can be used as miner by the node. We provide a sample implementation in
+the 'external-miner' crate.
 
 API classes are defined in the 'resonance-miner-api' crate.
 
-**API Spec:** [openapi.yaml](https://gitlab.com/resonance-network/backbone/-/blob/b37c4fcdb749ddddc747915b79149e29f537e92f/external-miner/api/openapi.yaml)
+**API Spec:
+** [openapi.yaml](https://gitlab.com/resonance-network/backbone/-/blob/b37c4fcdb749ddddc747915b79149e29f537e92f/external-miner/api/openapi.yaml)
 
-1.  **Build Node & Miner:**
-    ```bash
-    # From workspace root
-    cargo build --release -p quantus-node
-    cargo build --release -p external-miner
-    ```
+1. **Build Node & Miner:**
+   ```bash
+   # From workspace root
+   cargo build --release -p quantus-node
+   cargo build --release -p external-miner
+   ```
 
-2.  **Run External Miner:** (In a separate terminal)
-    ```bash
-    # From workspace root
-    RUST_LOG=info ./target/release/external-miner
-    ```
-    *(Listens on `http://127.0.0.1:9833` by default)*
+2. **Run External Miner:** (In a separate terminal)
+   ```bash
+   # From workspace root
+   RUST_LOG=info ./target/release/external-miner
+   ```
+   *(Listens on `http://127.0.0.1:9833` by default)*
 
-3.  **Run Node:** (In another terminal)
-    ```bash
-    # From workspace root (replace <YOUR_REWARDS_ADDRESS>)
-    RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
-     --dev \
-     --external-miner-url http://127.0.0.1:9833 \
-     --rewards-address <YOUR_REWARDS_ADDRESS>
-    ```
+3. **Run Node:** (In another terminal)
+   ```bash
+   # From workspace root (replace <YOUR_REWARDS_ADDRESS>)
+   RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
+    --dev \
+    --external-miner-url http://127.0.0.1:9833 \
+    --rewards-address <YOUR_REWARDS_ADDRESS>
+   ```
 
 ## Multinode local run
 
@@ -150,7 +162,8 @@ To run a local testnet with multiple validator nodes, use the provided script:
 ./scripts/run_local_nodes.sh
 ```
 
-This script handles building the node and launching two validator nodes and a listener node connected to each other. Refer to the script comments for configuration details.
+This script handles building the node and launching two validator nodes and a listener node connected to each other.
+Refer to the script comments for configuration details.
 
 ### Build
 
@@ -210,7 +223,6 @@ Development chains:
 - Are preconfigured with a genesis state (`/node/src/chain_spec.rs`) that
   includes several pre-funded development accounts.
 
-
 To persist chain state between runs, specify a base path by running a command
 similar to the following:
 
@@ -243,20 +255,22 @@ This chain has mandatory storage configuration settings that cannot be overridde
 ### What this means
 
 ArchiveCanonical State Pruning: The node will keep the state for all blocks that are part of the canonical chain.
-This ensures you can query historical state for any finalized block, while non-canonical blocks' states are pruned to save disk space.
+This ensures you can query historical state for any finalized block, while non-canonical blocks' states are pruned to
+save disk space.
 
 KeepFinalized Blocks Pruning: The node will keep all finalized blocks and prune non-finalized blocks that become stale.
 
-
 ### Command-line Parameters
 
-Note that any command-line parameters related to pruning (--state-pruning, --blocks-pruning) will be ignored as these settings are enforced at the code level for all node operators.
+Note that any command-line parameters related to pruning (--state-pruning, --blocks-pruning) will be ignored as these
+settings are enforced at the code level for all node operators.
 Disk Usage
 
 This configuration provides a good balance between storage efficiency and data availability.
-You should expect your database to grow steadily over time as the blockchain progresses, though at a slower rate than a full archive node.
-If you're running a validator or service that needs access to historical chain state, this configuration will meet your needs while optimizing disk usage.
-
+You should expect your database to grow steadily over time as the blockchain progresses, though at a slower rate than a
+full archive node.
+If you're running a validator or service that needs access to historical chain state, this configuration will meet your
+needs while optimizing disk usage.
 
 ## Connect with Polkadot-JS Apps Front-End
 
@@ -318,7 +332,6 @@ following:
   and other [consensus
   mechanisms](https://docs.substrate.io/fundamentals/consensus/#default-consensus-models)
   such as Aura for block authoring and GRANDPA for finality.
-
 
 ### Runtime
 

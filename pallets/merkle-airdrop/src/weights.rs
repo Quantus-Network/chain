@@ -30,11 +30,11 @@
 // benchmark
 // pallet
 // --runtime
-// ./target/release/wbuild/resonance-runtime/resonance_runtime.wasm
+// ./target/release/wbuild/quantus-runtime/quantus_runtime.wasm
 // --pallet
 // pallet-merkle-airdrop
 // --extrinsic
-// 
+//
 // --template
 // ./.maintain/frame-weight-template.hbs
 // --output
@@ -46,8 +46,8 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use frame_support::{traits::Get, weights::{Weight, constants::RocksDbWeight}};
 use core::marker::PhantomData;
+use frame_support::{traits::Get, weights::{constants::RocksDbWeight, Weight}};
 
 /// Weight functions needed for `pallet_merkle_airdrop`.
 pub trait WeightInfo {

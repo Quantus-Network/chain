@@ -118,10 +118,10 @@ variables:
 
 compile:
   stage: build
-  tags: [ci, ubuntu]
+  tags: [ ci, ubuntu ]
   image: rust:latest
   before_script:
-    - !reference [.common, before_script]
+    - !reference [ .common, before_script ]
   script:
     - rustup override set ${RUSTUP_TOOLCHAIN}
     - cargo build --locked --release
@@ -130,25 +130,25 @@ compile:
     - sha256sum ./resonance-miner | cut -d ' ' -f 1 | tee ./resonance-miner.sha256
     - mv target/release/quantus-node ./quantus-node
     - sha256sum ./quantus-node | cut -d ' ' -f 1 | tee ./quantus-node.sha256
-    - mv target/release/wbuild/resonance-runtime/resonance_runtime.compact.compressed.wasm ./resonance_runtime.compact.compressed.wasm
-    - sha256sum ./resonance_runtime.compact.compressed.wasm | cut -d ' ' -f 1 | tee ./resonance_runtime.compact.compressed.wasm.sha256
+    - mv target/release/wbuild/quantus-runtime/quantus_runtime.compact.compressed.wasm ./quantus_runtime.compact.compressed.wasm
+    - sha256sum ./quantus_runtime.compact.compressed.wasm | cut -d ' ' -f 1 | tee ./quantus_runtime.compact.compressed.wasm.sha256
   artifacts:
     paths:
       - resonance-miner
       - resonance-miner.sha256
       - quantus-node
       - quantus-node.sha256
-      - resonance_runtime.compact.compressed.wasm
-      - resonance_runtime.compact.compressed.wasm.sha256
+      - quantus_runtime.compact.compressed.wasm
+      - quantus_runtime.compact.compressed.wasm.sha256
 
 test:
   stage: test
-  tags: [ci, ubuntu]
+  tags: [ ci, ubuntu ]
   image: rust:latest
   dependencies:
     - compile
   before_script:
-    - !reference [.common, before_script]
+    - !reference [ .common, before_script ]
   script:
     - rustup override set ${RUSTUP_TOOLCHAIN}
     - cargo test --locked --release --workspace
@@ -159,15 +159,15 @@ deploy-integration-testnet:
     - compile
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
-  tags: [fedora, infra]
+  tags: [ fedora, infra ]
   image: fedora:latest
   variables:
     network: integration-testnet
     target_ips: 10.9.1.104 10.9.1.105 10.9.1.215
   before_script:
-    - !reference [.common, deploy_network_before_script]
+    - !reference [ .common, deploy_network_before_script ]
   script:
-    - !reference [.common, deploy_network_script]
+    - !reference [ .common, deploy_network_script ]
 
 deploy-live-testnet:
   stage: deploy
@@ -175,12 +175,12 @@ deploy-live-testnet:
     - compile
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
-  tags: [fedora, infra]
+  tags: [ fedora, infra ]
   image: fedora:latest
   variables:
     network: live-testnet
     target_ips: 10.9.1.201 10.9.1.202 10.9.1.203
   before_script:
-    - !reference [.common, deploy_network_before_script]
+    - !reference [ .common, deploy_network_before_script ]
   script:
-    - !reference [.common, deploy_network_script]
+    - !reference [ .common, deploy_network_script ]

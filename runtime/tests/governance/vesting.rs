@@ -8,7 +8,7 @@ mod tests {
     };
     use pallet_conviction_voting::{AccountVote, Vote};
     use pallet_vesting::VestingInfo;
-    use resonance_runtime::{
+    use quantus_runtime::{
         Balances, ConvictionVoting, Preimage, Referenda, RuntimeCall, RuntimeOrigin, System,
         Utility, Vesting, DAYS, UNIT,
     };
@@ -81,8 +81,7 @@ mod tests {
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(
-                    resonance_runtime::governance::pallet_custom_origins::Origin::SmallSpender
-                        .into()
+                    quantus_runtime::governance::pallet_custom_origins::Origin::SmallSpender.into()
                 ),
                 bounded_call,
                 frame_support::traits::schedule::DispatchTime::After(1)
@@ -317,15 +316,15 @@ mod tests {
             Balances::make_free_balance_be(&treasury_account, 10000 * UNIT);
 
             // Add Tech Collective members
-            assert_ok!(resonance_runtime::TechCollective::add_member(
+            assert_ok!(quantus_runtime::TechCollective::add_member(
                 RuntimeOrigin::root(),
                 MultiAddress::Id(tech_member1.clone())
             ));
-            assert_ok!(resonance_runtime::TechCollective::add_member(
+            assert_ok!(quantus_runtime::TechCollective::add_member(
                 RuntimeOrigin::root(),
                 MultiAddress::Id(tech_member2.clone())
             ));
-            assert_ok!(resonance_runtime::TechCollective::add_member(
+            assert_ok!(quantus_runtime::TechCollective::add_member(
                 RuntimeOrigin::root(),
                 MultiAddress::Id(tech_member3.clone())
             ));
@@ -360,8 +359,7 @@ mod tests {
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
                 Box::new(
-                    resonance_runtime::governance::pallet_custom_origins::Origin::SmallSpender
-                        .into()
+                    quantus_runtime::governance::pallet_custom_origins::Origin::SmallSpender.into()
                 ),
                 bounded_call,
                 frame_support::traits::schedule::DispatchTime::After(1)

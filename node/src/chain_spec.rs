@@ -1,5 +1,5 @@
-use resonance_runtime::genesis_config_presets::LIVE_TESTNET_RUNTIME_PRESET;
-use resonance_runtime::WASM_BINARY;
+use quantus_runtime::genesis_config_presets::LIVE_TESTNET_RUNTIME_PRESET;
+use quantus_runtime::WASM_BINARY;
 use sc_service::{ChainType, Properties};
 use sc_telemetry::TelemetryEndpoints;
 use serde_json::json;
@@ -31,7 +31,7 @@ pub fn local_chain_spec() -> Result<ChainSpec, String> {
     properties.insert("tokenSymbol".into(), json!("RESL"));
 
     Ok(ChainSpec::builder(
-        WASM_BINARY.ok_or_else(|| "Local Resonance wasm not available".to_string())?,
+        WASM_BINARY.ok_or_else(|| "Local Quantus wasm not available".to_string())?,
         None,
     )
     .with_name("Local Resonance")

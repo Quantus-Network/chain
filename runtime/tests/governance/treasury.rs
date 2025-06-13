@@ -2,9 +2,9 @@
 mod tests {
     //    use common::TestCommons;
     // Imports from the runtime crate
-    use resonance_runtime::configs::{TreasuryPalletId, TreasuryPayoutPeriod};
-    use resonance_runtime::governance::pallet_custom_origins;
-    use resonance_runtime::{
+    use quantus_runtime::configs::{TreasuryPalletId, TreasuryPayoutPeriod};
+    use quantus_runtime::governance::pallet_custom_origins;
+    use quantus_runtime::{
         AccountId,
         Balance,
         Balances,
@@ -21,7 +21,7 @@ mod tests {
         UNIT,
     };
     // Additional pallets for referenda tests
-    use resonance_runtime::{ConvictionVoting, Preimage, Referenda, Scheduler};
+    use quantus_runtime::{ConvictionVoting, Preimage, Referenda, Scheduler};
 
     // Codec & Hashing
     use codec::Encode;
@@ -43,7 +43,7 @@ mod tests {
     use frame_system::RawOrigin;
     use pallet_referenda::{self, ReferendumIndex, TracksInfo};
     use pallet_treasury;
-    use resonance_runtime::governance::definitions::CommunityTracksInfo;
+    use quantus_runtime::governance::definitions::CommunityTracksInfo;
     use sp_runtime::{
         traits::{AccountIdConversion, StaticLookup},
         BuildStorage,

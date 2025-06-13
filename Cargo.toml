@@ -1,8 +1,8 @@
 [workspace.package]
 license = "MIT-0"
-authors = ["Resonance Network Developers <hello@resonancenetwork.io>"]
-homepage = "https://resonancenetwork.io"
-repository = "https://gitlab.com/resonance-network/backbone#"
+authors = ["Quantus Network Developers <hello@quantus.com>"]
+homepage = "https://quantus.com/"
+repository = "https://gitlab.com/quantus-network/chain#"
 edition = "2021"
 
 [workspace]
@@ -68,7 +68,7 @@ pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
-resonance-runtime = { path = "./runtime", default-features = false }
+quantus-runtime = { path = "./runtime", default-features = false }
 sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
 sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
@@ -76,7 +76,7 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 sp-faucet = { path = "./primitives/faucet", default-features = false }
 
 # Quantus network dependencies
-rusty-crystals-dilithium = { git = "https://gitlab.com/resonance-network/rusty-crystals.git", default-features = false, features = ["no_std"] }
+rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
@@ -101,7 +101,7 @@ pallet-timestamp = { version = "38.0.0", default-features = false }
 pallet-transaction-payment = { version = "39.1.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "42.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "39.0.0", default-features = false }
-pallet-treasury = { version = "38.1.0", default-features = false}
+pallet-treasury = { version = "38.1.0", default-features = false }
 pallet-utility = { version = "39.1.0", default-features = false }
 pallet-vesting = { version = "39.1.0", default-features = false }
 sc-basic-authorship = { version = "0.48.0", default-features = false }

@@ -8,7 +8,7 @@ mod tests {
     use pallet_conviction_voting::Vote;
     use pallet_referenda::TracksInfo;
     use poseidon_resonance::PoseidonHasher;
-    use resonance_runtime::{
+    use quantus_runtime::{
         Balances, BlockNumber, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime,
         RuntimeCall, RuntimeOrigin, Scheduler, UNIT,
     };

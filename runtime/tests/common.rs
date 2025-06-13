@@ -1,6 +1,6 @@
 use frame_support::__private::sp_io;
 use frame_support::traits::{Currency, OnFinalize, OnInitialize};
-use resonance_runtime::{Balances, Runtime, System, UNIT};
+use quantus_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
 use sp_runtime::BuildStorage;
 
@@ -45,7 +45,7 @@ impl TestCommons {
 
         #[cfg(not(feature = "production-governance-tests"))]
         {
-            use resonance_runtime::governance::definitions::GlobalTrackConfig;
+            use quantus_runtime::governance::definitions::GlobalTrackConfig;
 
             // Set global fast timing for ALL governance tracks (Community, Treasury, Tech Collective)
             GlobalTrackConfig::set_fast_test_timing(); // Sets 2 blocks for all periods
@@ -60,7 +60,7 @@ impl TestCommons {
         while System::block_number() < n {
             let b = System::block_number();
             // Call on_finalize for pallets that need it
-            resonance_runtime::Scheduler::on_finalize(b);
+            quantus_runtime::Scheduler::on_finalize(b);
             System::on_finalize(b);
 
             // Move to next block
@@ -68,7 +68,7 @@ impl TestCommons {
 
             // Call on_initialize for pallets that need it
             System::on_initialize(b + 1);
-            resonance_runtime::Scheduler::on_initialize(b + 1);
+            quantus_runtime::Scheduler::on_initialize(b + 1);
         }
     }
 

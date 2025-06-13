@@ -1,6 +1,6 @@
 [package]
 name = "quantus-node"
-description = "Resonance Runtime - Echo Chamber"
+description = "Quantus Node - Echo Chamber"
 version = "0.0.4"
 license = "Apache-2.0"
 authors.workspace = true
@@ -39,12 +39,12 @@ pallet-transaction-payment.workspace = true
 primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
 rand = { workspace = true, default-features = false, features = [
-	"alloc",
-	"getrandom",
+    "alloc",
+    "getrandom",
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
-resonance-runtime.workspace = true
+quantus-runtime.workspace = true
 rusty-crystals-hdwallet.workspace = true
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
@@ -105,24 +105,24 @@ substrate-build-script-utils.default-features = true
 [features]
 default = ["std"]
 std = [
-	"dilithium-crypto/std",
-	"rand/std",
-	"resonance-runtime/std",
+    "dilithium-crypto/std",
+    "rand/std",
+    "quantus-runtime/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
-	"frame-benchmarking-cli/runtime-benchmarks",
-	"frame-system/runtime-benchmarks",
-	"pallet-transaction-payment/runtime-benchmarks",
-	"sc-service/runtime-benchmarks",
-	"resonance-runtime/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+    "frame-benchmarking-cli/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
+    "sc-service/runtime-benchmarks",
+    "quantus-runtime/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
 ]
 # Enable features that allow the runtime to be tried and debugged. Name might be subject to change
 # in the near future.
 try-runtime = [
-	"frame-system/try-runtime",
-	"pallet-transaction-payment/try-runtime",
-	"resonance-runtime/try-runtime",
-	"sp-runtime/try-runtime",
+    "frame-system/try-runtime",
+    "pallet-transaction-payment/try-runtime",
+    "quantus-runtime/try-runtime",
+    "sp-runtime/try-runtime",
 ]

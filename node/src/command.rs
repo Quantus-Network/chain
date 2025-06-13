@@ -7,7 +7,7 @@ use crate::{
 };
 use dilithium_crypto::{traits::WormholeAddress, ResonancePair};
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
-use resonance_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
 use sc_cli::SubstrateCli;
@@ -380,8 +380,8 @@ pub fn run() -> sc_cli::Result<()> {
                 match config.network.network_backend.unwrap_or_default() {
                     sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
                         sc_network::NetworkWorker<
-                            resonance_runtime::opaque::Block,
-                            <resonance_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
+                            quantus_runtime::opaque::Block,
+                            <quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
                         >,
                     >(
                         config,

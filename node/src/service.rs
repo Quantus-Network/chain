@@ -1,7 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::{FutureExt, StreamExt};
-use resonance_runtime::{self, apis::RuntimeApi, opaque::Block};
+use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
 use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};

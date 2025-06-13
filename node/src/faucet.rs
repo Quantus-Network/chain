@@ -1,7 +1,7 @@
 use codec::{Decode, Encode};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use resonance_runtime::opaque::Block;
-use resonance_runtime::{AccountId, Balance, Nonce, RuntimeCall, UncheckedExtrinsic};
+use quantus_runtime::opaque::Block;
+use quantus_runtime::{AccountId, Balance, Nonce, RuntimeCall, UncheckedExtrinsic};
 use sc_transaction_pool_api::TransactionPool;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
@@ -66,7 +66,7 @@ impl<C, P> Faucet<C, P> {
             }
         } else {
             // Format SS58
-            match resonance_runtime::AccountId::from_string(&address) {
+            match quantus_runtime::AccountId::from_string(&address) {
                 Ok(account) => Ok(account),
                 Err(_) => Err(jsonrpsee::types::error::ErrorObject::owned(
                     4001,

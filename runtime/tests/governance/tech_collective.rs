@@ -6,9 +6,9 @@ mod tests {
     use frame_support::traits::Currency;
     use frame_system;
     use pallet_referenda::TracksInfo;
-    use resonance_runtime::configs::TechReferendaInstance;
+    use quantus_runtime::configs::TechReferendaInstance;
 
-    use resonance_runtime::{
+    use quantus_runtime::{
         Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
         TechCollective, TechReferenda, UNIT,
     };
@@ -1220,8 +1220,8 @@ mod tests {
             // Define test accounts
             let tech_member = TestCommons::account_id(1);
             let beneficiary = TestCommons::account_id(2);
-            let treasury_pot: resonance_runtime::AccountId =
-                resonance_runtime::configs::TreasuryPalletId::get().into_account_truncating();
+            let treasury_pot: quantus_runtime::AccountId =
+                quantus_runtime::configs::TreasuryPalletId::get().into_account_truncating();
 
             // Setup account balances
             Balances::make_free_balance_be(&tech_member, 10_000 * UNIT);
@@ -1383,7 +1383,7 @@ mod tests {
                 // Find the exact creation details from events
                 let events = System::events();
                 for event_record in events.iter().rev() {
-                    if let resonance_runtime::RuntimeEvent::TreasuryPallet(
+                    if let quantus_runtime::RuntimeEvent::TreasuryPallet(
                         pallet_treasury::Event::AssetSpendApproved {
                             valid_from,
                             expire_at,

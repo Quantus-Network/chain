@@ -1,6 +1,6 @@
 openapi: 3.0.0
 info:
-  title: Resonance External Miner API
+  title: Quantus External Miner API
   version: 0.1.0
   description: API for managing QPoW mining jobs for the Resonance Network external miner service.
 
@@ -239,4 +239,4 @@ components:
             elapsed_time:
               type: number
               format: double
-              example: 0.0 
+              example: 0.0

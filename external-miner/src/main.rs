@@ -1,9 +1,10 @@
 use clap::Parser;
-use external_miner::*; // Import everything from lib.rs
+use external_miner::*;
+// Import everything from lib.rs
 use std::net::SocketAddr;
 use warp::Filter;
 
-/// Resonance External Miner Service
+/// Quantus External Miner Service
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {

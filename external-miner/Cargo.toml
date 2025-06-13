@@ -2,8 +2,8 @@
 name = "external-miner"
 version = "0.1.0"
 edition = "2021"
-authors = ["Resonance Network"]
-description = "External miner service for Resonance Network"
+authors = ["Quantus Network"]
+description = "External miner service for Quantus Network"
 
 [dependencies]
 tokio = { version = "1.36", features = ["full"] }
