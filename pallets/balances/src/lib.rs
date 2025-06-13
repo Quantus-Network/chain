@@ -577,7 +577,7 @@ pub mod pallet {
         _,
         PoseidonStorageHasher<T::AccountId>,
         (T::Nonce, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
-        bool,
+        (),
         OptionQuery, // Returns None if not present
     >;
 
@@ -934,7 +934,7 @@ pub mod pallet {
         fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
             if from != to {
                 let nonce = <frame_system::Pallet<T>>::account_nonce(from);
-                TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), true);
+                TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), ());
             }
         }
 
