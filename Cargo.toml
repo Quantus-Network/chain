@@ -7,23 +7,23 @@ edition = "2021"
 
 [workspace]
 members = [
-    "node",
-    "pallets/mining-rewards",
-    "client/consensus/qpow",
-    "pallets/faucet",
-    "pallets/qpow",
-    "pallets/wormhole",
-    "pallets/merkle-airdrop",
-    "primitives/faucet",
-    "primitives/consensus/qpow",
-    "runtime",
-    "dilithium-crypto",
-    "dilithium-crypto/verify",
-    "dilithium-crypto/sign",
-    "pallets/balances",
-    "pallets/reversible-transfers",
-    "external-miner",
-    "resonance-miner-api",
+	"client/consensus/qpow",
+	"dilithium-crypto",
+	"dilithium-crypto/sign",
+	"dilithium-crypto/verify",
+	"external-miner",
+	"node",
+	"pallets/balances",
+	"pallets/faucet",
+	"pallets/merkle-airdrop",
+	"pallets/mining-rewards",
+	"pallets/qpow",
+	"pallets/reversible-transfers",
+	"pallets/wormhole",
+	"primitives/consensus/qpow",
+	"primitives/faucet",
+	"resonance-miner-api",
+	"runtime",
 ]
 resolver = "2"
 
@@ -53,7 +53,7 @@ serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.132", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 thiserror = { version = "1.0.64" }
-uuid = { version = "1.7.0", features = ["v4", "serde"] }
+uuid = { version = "1.7.0", features = ["serde", "v4"] }
 
 # Own dependencies
 dilithium-crypto = { path = "./dilithium-crypto", default-features = false }
@@ -76,10 +76,10 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 sp-faucet = { path = "./primitives/faucet", default-features = false }
 
 # Quantus network dependencies
-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
+rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "39.0.0", default-features = false }

@@ -15,6 +15,6 @@ log = { version = "0.4.22", default-features = false }
 default = ["std"]
 std = [
 	"primitive-types/std",
-    "sha2/std",
-    "sha3/std",
+	"sha2/std",
+	"sha3/std",
 ]

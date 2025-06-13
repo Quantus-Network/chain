@@ -1,31 +1,31 @@
 [package]
-name = "pallet-merkle-airdrop"
-description = "A pallet for distributing tokens via Merkle proofs"
-version = "0.1.0"
-license = "MIT-0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
+description = "A pallet for distributing tokens via Merkle proofs"
 edition.workspace = true
+homepage.workspace = true
+license = "MIT-0"
+name = "pallet-merkle-airdrop"
 publish = false
+repository.workspace = true
+version = "0.1.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+binary-merkle-tree.workspace = true
 codec = { workspace = true, default-features = false, features = ["derive"] }
-scale-info = { workspace = true, default-features = false, features = ["derive"] }
 frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
+log.workspace = true
 pallet-balances.workspace = true
-sp-runtime.workspace = true
+poseidon-resonance.workspace = true
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
+sha2.workspace = true
 sp-core.workspace = true
 sp-io.workspace = true
-log.workspace = true
-sha2.workspace = true
-binary-merkle-tree.workspace = true
-poseidon-resonance.workspace = true
+sp-runtime.workspace = true
 
 [dev-dependencies]
 pallet-vesting.workspace = true
@@ -35,26 +35,26 @@ sp-runtime.workspace = true
 
 [features]
 default = ["std"]
-std = [
-    "codec/std",
-    "frame-benchmarking?/std",
-    "frame-support/std",
-    "frame-system/std",
-    "scale-info/std",
-    "sp-runtime/std",
-    "sp-core/std",
-    "sp-io/std",
-    "pallet-balances/std",
-    "sha2/std",
-    "binary-merkle-tree/std",
-    "poseidon-resonance/std",
-]
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+std = [
+	"binary-merkle-tree/std",
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"pallet-balances/std",
+	"poseidon-resonance/std",
+	"scale-info/std",
+	"sha2/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
 ]
 try-runtime = [
-    "frame-support/try-runtime",
-    "frame-system/try-runtime",
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
 ]

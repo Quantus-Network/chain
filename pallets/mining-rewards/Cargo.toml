@@ -1,16 +1,20 @@
 [package]
-name = "pallet-mining-rewards"
-description = "Mining rewards pallet responsible for miner's identification and rewards"
-version = "0.1.0"
-license = "Apache-2.0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
+description = "Mining rewards pallet responsible for miner's identification and rewards"
 edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "pallet-mining-rewards"
 publish = false
+repository.workspace = true
+version = "0.1.0"
 
 [package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "wasm32-unknown-unknown"]
+targets = [
+	"aarch64-apple-darwin",
+	"wasm32-unknown-unknown",
+	"x86_64-unknown-linux-gnu",
+]
 
 [dependencies]
 codec = { workspace = true, default-features = false, features = ["derive"] }
@@ -31,23 +35,23 @@ sp-io.workspace = true
 
 [features]
 default = ["std"]
-std = [
-    "codec/std",
-    "frame-benchmarking?/std",
-    "frame-support/std",
-    "frame-system/std",
-    "scale-info/std",
-    "sp-consensus-pow/std",
-    "pallet-balances/std",
-    "pallet-treasury/std",
-    "sp-runtime/std",
-    "sp-std/std",
-]
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"pallet-balances/std",
+	"pallet-treasury/std",
+	"scale-info/std",
+	"sp-consensus-pow/std",
+	"sp-runtime/std",
+	"sp-std/std",
 ]
 try-runtime = [
-    "frame-support/try-runtime",
+	"frame-support/try-runtime",
 ]

@@ -5,8 +5,7 @@ description: installs dependencies required to compile the node and runtime on u
 runs:
   using: composite
   steps:
-    -
-      name: rust compilation prerequisites (ubuntu)
+    - name: rust compilation prerequisites (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: |
         sudo apt-get update -yqq
@@ -19,4 +18,9 @@ runs:
           --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-unknown-linux-gnu
         rustup component add rustfmt clippy rust-src \
           --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-unknown-linux-gnu
+        # install taplo
+        curl -Ls "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz" | \
+        gzip -d > taplo && \
+        chmod +x taplo && \
+        sudo mv taplo /usr/local/bin/taplo
       shell: bash

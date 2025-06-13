@@ -173,6 +173,15 @@ Use the following command to build the node without launching it:
 cargo build --release
 ```
 
+### Linting
+
+We use `taplo` for formatting toml files and `fmt` for Rust.
+
+```sh
+taplo format --config taplo.toml
+cargo fmt --all --check
+```
+
 ## Embedded Docs
 
 ---

@@ -9,13 +9,13 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-sp-api = { default-features = false, workspace = true}
+sp-api = { default-features = false, workspace = true }
 codec = { default-features = false, workspace = true }
 
 
 [features]
 default = ["std"]
 std = [
-    "sp-api/std",
-    "codec/std",
+	"codec/std",
+	"sp-api/std",
 ]

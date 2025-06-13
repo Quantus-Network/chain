@@ -1,16 +1,20 @@
 [package]
-name = "pallet-qpow"
-description = "Quantum POW Pallet"
-version = "0.1.0"
-license = "Apache-2.0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
+description = "Quantum POW Pallet"
 edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "pallet-qpow"
 publish = false
+repository.workspace = true
+version = "0.1.0"
 
 [package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "wasm32-unknown-unknown"]
+targets = [
+	"aarch64-apple-darwin",
+	"wasm32-unknown-unknown",
+	"x86_64-unknown-linux-gnu",
+]
 
 #package = "parity-scale-codec",
 [dependencies]
@@ -34,22 +38,22 @@ primitive-types.workspace = true
 
 [features]
 default = ["std"]
-std = [
-    "codec/std",
-    "frame-benchmarking?/std",
-    "frame-support/std",
-    "frame-system/std",
-    "scale-info/std",
-    "sp-arithmetic/std",
-    "sp-core/std",
-    "sp-runtime/std",
-    "sp-std/std",
-]
 runtime-benchmarks = [
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
-    "frame-benchmarking",
+	"frame-benchmarking",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"scale-info/std",
+	"sp-arithmetic/std",
+	"sp-core/std",
+	"sp-runtime/std",
+	"sp-std/std",
 ]
 try-runtime = [
-    "frame-support/try-runtime",
+	"frame-support/try-runtime",
 ]

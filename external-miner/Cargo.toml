@@ -15,8 +15,8 @@ primitive-types = { version = "0.13.1", default-features = false }
 log = { version = "0.4.22", default-features = false }
 env_logger = "0.10"
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec", features = [
-    "derive",
-    "std",
+	"derive",
+	"std",
 ] }
 num-bigint = { version = "0.4", features = ["rand"] }
 num-traits = "0.2"

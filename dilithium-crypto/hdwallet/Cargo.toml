@@ -9,5 +9,5 @@ rusty-crystals-dilithium = { workspace = true, default-features = false }
 [features]
 default = ["std"]
 std = [
-    # Note: We don't include rusty-crystals-dilithium/std here since it doesn't have that feature
+	# Note: We don't include rusty-crystals-dilithium/std here since it doesn't have that feature
 ]

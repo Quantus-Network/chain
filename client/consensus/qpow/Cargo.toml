@@ -7,18 +7,18 @@ license = "Apache-2.0"
 
 [dependencies]
 async-trait = "0.1"
-codec = {workspace = true, default-features = false}
-scale-info = {workspace = true, default-features = false}
+codec = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false }
 sc-client-api = { workspace = true, default-features = false }
-sc-service = {workspace = true, default-features = false}
-sc-consensus-pow = {workspace = true, default-features = false}
-sp-consensus-pow = {workspace = true, default-features = false}
-sp-consensus-qpow = {workspace = true, default-features = false}
-sp-consensus = {workspace = true, default-features = false}
-sp-blockchain = {workspace = true, default-features = false}
-sp-runtime = {workspace = true, default-features = false}
-sp-api = {workspace = true, default-features = false}
-primitive-types = {workspace = true, default-features = false}
+sc-service = { workspace = true, default-features = false }
+sc-consensus-pow = { workspace = true, default-features = false }
+sp-consensus-pow = { workspace = true, default-features = false }
+sp-consensus-qpow = { workspace = true, default-features = false }
+sp-consensus = { workspace = true, default-features = false }
+sp-blockchain = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false }
+sp-api = { workspace = true, default-features = false }
+primitive-types = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 futures = { features = ["thread-pool"], workspace = true }
 
@@ -28,9 +28,9 @@ sha3 = { version = "0.10", default-features = false }
 [features]
 default = ["std"]
 std = [
-    "codec/std",
-    "scale-info/std",
-    "primitive-types/std",
-    "sha2/std",
-    "sha3/std",
+	"codec/std",
+	"primitive-types/std",
+	"scale-info/std",
+	"sha2/std",
+	"sha3/std",
 ]

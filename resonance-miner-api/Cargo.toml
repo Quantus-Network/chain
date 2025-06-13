@@ -7,7 +7,7 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
-publish = true # Make available for third-party miners
+publish = true                                                                             # Make available for third-party miners
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

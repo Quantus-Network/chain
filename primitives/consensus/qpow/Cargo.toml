@@ -9,18 +9,18 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-sp-api = { default-features = false, workspace = true}
+sp-api = { default-features = false, workspace = true }
 sp-runtime = { default-features = false, workspace = true }
 codec = { default-features = false, workspace = true }
-scale-info = { default-features=false, workspace = true }
-primitive-types = { default-features = false, workspace=true }
+scale-info = { default-features = false, workspace = true }
+primitive-types = { default-features = false, workspace = true }
 
 [features]
 default = ["std"]
 std = [
-    "sp-api/std",
-    "sp-runtime/std",
-    "codec/std",
-    "scale-info/std",
-    "primitive-types/std",
+	"codec/std",
+	"primitive-types/std",
+	"scale-info/std",
+	"sp-api/std",
+	"sp-runtime/std",
 ]
