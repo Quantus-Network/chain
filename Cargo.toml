@@ -2,7 +2,7 @@
 license = "MIT-0"
 authors = ["Quantus Network Developers <hello@quantus.com>"]
 homepage = "https://quantus.com/"
-repository = "https://gitlab.com/quantus-network/chain#"
+repository = "https://github.com/quantus-network/chain#"
 edition = "2021"
 
 [workspace]

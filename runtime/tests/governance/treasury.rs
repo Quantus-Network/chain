@@ -419,8 +419,6 @@ mod tests {
                 System::set_block_number(1);
                 let beneficiary_lookup =
                     <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-                let treasury_pot = treasury_account_id();
-                let initial_treasury_balance = Balances::free_balance(&treasury_pot);
                 let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
 
                 let spend_amount = 50 * UNIT;
@@ -1116,9 +1114,9 @@ mod tests {
                 .find_map(|event_record| {
                     if let RuntimeEvent::TreasuryPallet(pallet_treasury::Event::AssetSpendApproved {
                         index,
-                        asset_kind,
-                        amount,
-                        beneficiary,
+                        asset_kind: _,
+                        amount: _,
+                        beneficiary: _,
                         valid_from,
                         expire_at,
                     }) = &event_record.event
