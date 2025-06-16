@@ -8146,7 +8146,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.0.4"
+version = "0.0.27-green-parrot"
 dependencies = [
  "async-trait",
  "clap",
@@ -8203,7 +8203,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.1.0"
+version = "0.0.27-green-parrot"
 dependencies = [
  "dilithium-crypto",
  "env_logger 0.11.8",

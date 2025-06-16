@@ -1,0 +1,60 @@
+name: Create Test Issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_title:
+        description: 'Title of the test issue'
+        required: true
+        default: 'Test Issue'
+      issue_body:
+        description: 'Body of the test issue'
+        required: true
+        default: 'This is a test issue created by GitHub Actions workflow.'
+      add_labels:
+        description: 'Additional labels to add to the issue (comma-separated)'
+        required: false
+        default: 'test,automated'
+      assignee:
+        description: 'GitHub username to assign the issue to'
+        required: false
+        default: ''
+
+jobs:
+  create-issue:
+    name: 📝 Create Test Issue
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create test issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          ISSUE_TITLE: ${{ github.event.inputs.issue_title }}
+          ISSUE_BODY: ${{ github.event.inputs.issue_body }}
+          ISSUE_LABELS: ${{ github.event.inputs.add_labels }}
+          ISSUE_ASSIGNEE: ${{ github.event.inputs.assignee }}
+        run: |
+          echo "Creating issue with title: $ISSUE_TITLE"
+          echo "Body: $ISSUE_BODY"
+          echo "Labels: $ISSUE_LABELS"
+          echo "Assignee: $ISSUE_ASSIGNEE"
+          
+          # Combine type:task with additional labels
+          ALL_LABELS="type:task,$ISSUE_LABELS"
+          
+          # Create issue using GitHub CLI
+          if [[ -n "$ISSUE_ASSIGNEE" ]]; then
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --body "$ISSUE_BODY" \
+              --label "$ALL_LABELS" \
+              --assignee "$ISSUE_ASSIGNEE" \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --body "$ISSUE_BODY" \
+              --label "$ALL_LABELS" \
+              --repo "$GITHUB_REPOSITORY"
+          fi 

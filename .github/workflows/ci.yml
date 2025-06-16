@@ -39,7 +39,7 @@ jobs:
       -
         name: pin
         run: rustup override set ${RUSTUP_TOOLCHAIN}
-      - 
+      -
         name: taplo
         run: taplo format --check --config taplo.toml
       -

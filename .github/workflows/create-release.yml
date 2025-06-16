@@ -38,13 +38,19 @@ on:
         required: false
         type: boolean
         default: false
-      # Add an input for release notes if you want to paste them in manually
-      # release_notes:
-      #   description: 'Release notes content (Markdown)'
-      #   required: false
+      is_runtime_upgrade:
+        description: 'Is this a runtime upgrade release?'
+        required: true
+        type: boolean
+        default: false
+      runtime_upgrade_suffix:
+        description: 'Suffix for runtime upgrade version (e.g., dead-cat). Only used if is_runtime_upgrade is true.'
+        required: false
+        default: ''
 
 jobs:
-  calculate_next_version:
+  calculate-next-version:
+    name: 🧮 Calculate Next Version
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.versioner.outputs.new_version }}
@@ -55,6 +61,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Get current branch and commit SHA
         id: vars
@@ -65,8 +72,14 @@ jobs:
       - name: Get latest tag
         id: latest_tag
         run: |
-          # Attempt to get the latest vX.Y.Z tag
-          latest_semver_tag=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # Get all version tags and sort them by version
+          latest_semver_tag=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
+          
+          # If no tags found, use default
+          if [ -z "$latest_semver_tag" ]; then
+            latest_semver_tag="v0.0.0"
+          fi
+          
           echo "latest_tag_found=$latest_semver_tag" >> $GITHUB_OUTPUT
           echo "Latest semantic version tag found: $latest_semver_tag"
 
@@ -78,9 +91,13 @@ jobs:
           CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
           IS_PRERELEASE: ${{ github.event.inputs.is_prerelease }}
           PRERELEASE_ID: ${{ github.event.inputs.prerelease_identifier }}
+          IS_RUNTIME_UPGRADE: ${{ github.event.inputs.is_runtime_upgrade }}
+          RUNTIME_SUFFIX: ${{ github.event.inputs.runtime_upgrade_suffix }}
         run: |
-          # Remove \'v\' prefix for processing
+          # Remove 'v' prefix and any suffix for processing
           current_version=${LATEST_TAG#v}
+          # Remove any suffix after the version number
+          current_version=$(echo "$current_version" | sed -E 's/-[^-]+$//')
 
           if [[ "$VERSION_TYPE" == "custom" ]]; then
             if [[ -z "$CUSTOM_VERSION" ]]; then
@@ -88,14 +105,14 @@ jobs:
               exit 1
             fi
             if [[ ! "$CUSTOM_VERSION" =~ ^v ]]; then
-              echo "Error: Custom version string MUST start with \'v\' (e.g., v1.2.3)."
+              echo "Error: Custom version string MUST start with 'v' (e.g., v1.2.3)."
               exit 1
             fi
             new_version="$CUSTOM_VERSION"
           else
             # Split version and pre-release part
-            IFS=\'-\' read -r version_core prerelease_part <<< "$current_version"
-            IFS=\'.\' read -r major minor patch <<< "$version_core"
+            IFS='-' read -r version_core prerelease_part <<< "$current_version"
+            IFS='.' read -r major minor patch <<< "$version_core"
 
             # Increment based on type
             if [[ "$VERSION_TYPE" == "major" ]]; then
@@ -123,11 +140,6 @@ jobs:
               prerelease_num=1
               # If current was a prerelease of the same core and same ID, increment number
               if [[ "$prerelease_part" =~ ^$PRERELEASE_ID\\.([0-9]+)$ ]]; then
-                # Check if base version matches after potential increment
-                # This logic gets tricky if we bump minor/major and also want a prerelease
-                # For simplicity, if major/minor/patch is bumped, new prerelease starts at .1
-                # If only toggling IS_PRERELEASE or changing PRERELEASE_ID on same core, then consider incrementing.
-                # Current logic: a new version bump (patch/minor/major) resets prerelease to .1
                 prerelease_num=1 # Simplified: always start at .1 for new core version
               elif [[ "$prerelease_part" =~ ^$PRERELEASE_ID$ ]]; then
                  prerelease_num=1 # also start at .1 if it was just "alpha"
@@ -137,70 +149,81 @@ jobs:
               new_version="$new_version_core"
             fi
           fi
+
+          # Add runtime upgrade suffix if needed
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
+            new_version="${new_version}-$RUNTIME_SUFFIX"
+          fi
+
           echo "New version: $new_version"
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
 
-  update_cargo_toml:
-    needs: calculate_next_version
+  update-cargo-toml:
+    name: 📝 Update version files
+    needs: calculate-next-version
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Default GITHUB_TOKEN is fine for checkout; gh cli step will use ADMIN_PAT
 
-      - name: Update files and Create PR
+      - name: Create version bump branch and PR
         env:
-          NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
-          BRANCH_NAME: ${{ needs.calculate_next_version.outputs.branch_name }}
-          # IMPORTANT: Use ADMIN_PAT for gh tool to have permission to create PR
-          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }} 
+          NEW_VERSION_WITH_V: ${{ needs.calculate-next-version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
         run: |
-          set -ex # exit on error, print commands
+          set -ex
           new_cargo_version=${NEW_VERSION_WITH_V#v}
+          branch_name="release/${NEW_VERSION_WITH_V}"
+
+          git checkout -b "$branch_name"
           
+          # Always update node version
           echo "Updating node/Cargo.toml to version: $new_cargo_version"
           sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
           
-          echo "Updating Cargo.lock for quantus-node package..."
-          # Attempt to update Cargo.lock. If this specific version isn't resolvable (e.g. for a new, unpublished crate version),
-          # cargo update might not change anything or could error if strict. We'll proceed.
+          # For runtime upgrade, also update runtime version and increment spec_version
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+            echo "Runtime upgrade detected. Updating runtime/Cargo.toml and incrementing spec_version..."
+            sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" runtime/Cargo.toml
+          
+            # Increment spec_version
+            current_spec_version=$(grep -o 'spec_version: [0-9]*' runtime/src/lib.rs | awk '{print $2}')
+            new_spec_version=$((current_spec_version + 1))
+            sed -i -E "s/spec_version: [0-9]*/spec_version: $new_spec_version/" runtime/src/lib.rs
+          fi
+          
+          # Update Cargo.lock
           cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node tried, proceeding."
-          
-          echo "Contents of node/Cargo.toml after update:"
-          cat node/Cargo.toml
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+            cargo update -p quantus-runtime --precise "$new_cargo_version" || echo "cargo update -p quantus-runtime tried, proceeding."
+          fi
 
-          bump_branch_name="version-bump-${NEW_VERSION_WITH_V}"
-          # Configure git user for the commit
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Commit changes
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
           
-          git checkout -b "$bump_branch_name"
-          git add node/Cargo.toml Cargo.lock # Add updated Cargo.toml and Cargo.lock
-          git commit -m $"Bump version to $NEW_VERSION_WITH_V\n\nUpdate Cargo.toml and Cargo.lock for quantus-node.\n[skip ci]"
+          git add node/Cargo.toml Cargo.lock
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+            git add runtime/Cargo.toml runtime/src/lib.rs
+          fi
           
-          # Try to delete the remote branch first, ignore error if it doesn't exist
-          git push origin --delete "$bump_branch_name" || true 
-          # Push the new branch. This uses the checkout token if not overridden, but gh needs ADMIN_PAT.
-          # For pushing this branch, default GITHUB_TOKEN (if it has contents:write from permissions block) might be okay.
-          # However, gh cli operations need the elevated PAT.
-          git push origin "$bump_branch_name"
-          
-          echo "Creating Pull Request for version bump..."
-          # gh cli will use GITHUB_TOKEN from env, which we set to ADMIN_PAT
+          git commit -m "ci: Automate version bump to $NEW_VERSION_WITH_V"
+          git push origin "$branch_name"
+
           gh pr create \
-            --title "Bump version to $NEW_VERSION_WITH_V" \
-            --body "This PR bumps the version in node/Cargo.toml and updates Cargo.lock to $NEW_VERSION_WITH_V for the release. Triggered by workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --base "${BRANCH_NAME}" \
-            --head "$bump_branch_name" \
-            --label "version-bump,automated-pr"
+            --title "ci: Automate version bump to $NEW_VERSION_WITH_V" \
+            --body "$(printf "Automated version bump for release %s.\\n\\nTriggered by workflow run: %s" "$NEW_VERSION_WITH_V" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")" \
+            --base main \
+            --head "$branch_name" \
+            --label "version-bump,automated"
 
-  build_and_package:
-    needs: [calculate_next_version, update_cargo_toml] 
+  build-and-package:
+    name: 🏗️ Build & Package (Linux, macOS, Windows)
+    needs: [calculate-next-version, update-cargo-toml]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -216,28 +239,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        # This will checkout the original commit the workflow ran on, or tip of BRANCH_NAME
-
-      - name: Apply version bump to local Cargo.toml and Cargo.lock for build
-        env:
-          NEW_VERSION_WITH_V: ${{ needs.calculate_next_version.outputs.new_version }}
-        shell: bash
-        run: |
-          set -ex
-          new_cargo_version=${NEW_VERSION_WITH_V#v}
-          echo "Applying version $new_cargo_version to node/Cargo.toml for build purposes..."
-          if [ -f node/Cargo.toml ]; then
-            sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
-            echo "node/Cargo.toml updated locally for build."
-            echo "Updating local Cargo.lock for quantus-node for build..."
-            # Attempt to update lock file for build consistency
-            cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node for build tried, proceeding."
-            echo "Local Cargo.lock updated for build."
-            cat node/Cargo.toml
-          else
-            echo "Error: node/Cargo.toml not found at expected location for build-time update."
-            exit 1
-          fi
 
       - name: Install protoc (protobuf-compiler) for Linux
         if: runner.os == 'Linux'
@@ -254,8 +255,6 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         env:
-          # Ensure GITHUB_PATH is available for bash scripts
-          # RUSTUP_TOOLCHAIN_NAME: nightly-2024-12-24 # Directly use the string for simplicity in script
           RUST_COMPONENTS: "rustfmt,clippy,rust-src"
           RUST_TARGETS_ADDITIONAL: "wasm32-unknown-unknown"
         run: |
@@ -266,7 +265,6 @@ jobs:
           echo "With targets for matrix.target (${{ matrix.target }}): already included in install cmd."
           echo "With additional targets: $RUST_TARGETS_ADDITIONAL"
 
-          # Commands to execute
           CMD_TOOLCHAIN_INSTALL="rustup toolchain install $TOOLCHAIN_NIGHTLY_VERSION --profile minimal --no-self-update --target ${{ matrix.target }}"
           CMD_COMPONENTS_ADD="rustup component add $(echo $RUST_COMPONENTS | sed 's/,/ /g') --toolchain $TOOLCHAIN_NIGHTLY_VERSION"
           CMD_TARGET_ADD="rustup target add $RUST_TARGETS_ADDITIONAL --toolchain $TOOLCHAIN_NIGHTLY_VERSION"
@@ -278,7 +276,6 @@ jobs:
           SUCCESS=false
           while [ $ATTEMPT_NUM -le $MAX_ATTEMPTS ]; do
             echo "Attempt $ATTEMPT_NUM/$MAX_ATTEMPTS: Running toolchain installation..."
-            # Using subshell for the command to avoid `set -e` exiting the whole script on first failure
             if (eval "$FULL_COMMAND"); then
               SUCCESS=true
               echo "Toolchain installation successful."
@@ -295,7 +292,6 @@ jobs:
           done
 
           if [ "$SUCCESS" = false ]; then
-            # This state should ideally not be reached if loop exits with exit 1 above, but as a safeguard.
             echo "Critical error: Toolchain installation marked as failed despite loop completion logic."
             exit 1
           fi
@@ -329,43 +325,37 @@ jobs:
       - name: Prepare Release Assets
         id: prepare_assets
         env:
-          NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
+          NEW_VERSION: ${{ needs.calculate-next-version.outputs.new_version }}
           TARGET_ARCH: ${{ matrix.target }}
-        shell: bash 
+        shell: bash
         run: |
           NODE_BASE_NAME="quantus-node"
           
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             NODE_EXECUTABLE_NAME="${NODE_BASE_NAME}.exe"
             ARCHIVE_EXTENSION="zip"
-            # These are defined for eval later
             CHSUM_EXEC="powershell -Command \"(Get-FileHash -Algorithm SHA256 '\${asset_name}').Hash.ToLower() + ' *\${asset_name}' | Set-Content -Encoding ascii '\${checksum_file_name}'\""
             ARCHIVE_EXEC="powershell -Command \"Compress-Archive -Path staging/\${NODE_EXECUTABLE_NAME} -DestinationPath \${asset_name}\""
-            
-            # asset_name and checksum_file_name will be defined globally below for Windows path
+          
             asset_name="${NODE_BASE_NAME}-${NEW_VERSION}-${TARGET_ARCH}.${ARCHIVE_EXTENSION}"
             checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
 
             mkdir -p staging
             cp "target/${TARGET_ARCH}/release/${NODE_EXECUTABLE_NAME}" "staging/"
-            
+          
             eval "$ARCHIVE_EXEC"
             eval "$CHSUM_EXEC"
 
-          else # Linux or macOS
+          else
             NODE_BINARY_NAME="quantus-node"
             asset_name="${NODE_BINARY_NAME}-${NEW_VERSION}-${TARGET_ARCH}.tar.gz"
             checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
 
-            # Create staging directory for assets
             mkdir staging
-            # Copy from target-specific path
             cp target/${TARGET_ARCH}/release/${NODE_BINARY_NAME} staging/
-            
-            # Create tarball
+          
             (cd staging && tar -czvf "../${asset_name}" ${NODE_BINARY_NAME})
-            
-            # Generate checksum for the tarball
+          
             if [[ "${{ runner.os }}" == "macOS" ]]; then
               shasum -a 256 "${asset_name}" > "${checksum_file_name}"
             else
@@ -376,27 +366,152 @@ jobs:
           echo "Created asset: ${asset_name}"
           echo "Created checksum file: ${checksum_file_name}"
 
-          # Prepare JSON output for artifact upload and release creation
-          # Storing paths relative to GITHUB_WORKSPACE
           asset_paths_json="[\\"${asset_name}\\", \\"${checksum_file_name}\\"]"
           echo "release_assets_json=${asset_paths_json}" >> $GITHUB_OUTPUT
-          # List files for verification
           ls -la
 
       - name: Upload Release Assets as Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-assets-${{ matrix.target }}
-          path: | 
-            quantus-node-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
-            sha256sums-${{ needs.calculate_next_version.outputs.new_version }}-${{ matrix.target }}.txt
+          path: |
+            quantus-node-${{ needs.calculate-next-version.outputs.new_version }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
+            sha256sums-${{ needs.calculate-next-version.outputs.new_version }}-${{ matrix.target }}.txt
 
-  create_github_release:
-    needs: [calculate_next_version, build_and_package] 
+  build-runtime:
+    name: 🧩 Build Runtime (srtool)
+    if: github.event.inputs.is_runtime_upgrade == 'true'
+    timeout-minutes: 180
+    needs: [calculate-next-version, update-cargo-toml]
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: cache target dir
+        uses: actions/cache@v4
+        with:
+          path: "$GITHUB_WORKSPACE/runtime/target"
+          key: srtool-target-${{ github.sha }}
+          restore-keys: |
+            srtool-target-
+      - name: build runtime
+        id: srtool-build
+        shell: bash
+        run: |
+          set -eo pipefail
+          
+          echo "::group::Executing srtool command"
+          
+          JSON_OUTPUT=$(docker run --rm \
+            -e RUSTC_BOOTSTRAP=1 \
+            -e RUSTC_VERSION="${{ github.event.inputs.rust_version }}" \
+            -e PACKAGE="quantus-runtime" \
+            -e RUNTIME_DIR="runtime" \
+            -e "BUILD_OPTS=--features on-chain-release-build" \
+            -e PROFILE="release" \
+            -v "$(pwd):/build" \
+            -v "/tmp/cargo:/cargo-home" \
+            paritytech/srtool:1.84.1 \
+            build --app --json -cM \
+            | tee /dev/stderr | tail -n 1)
+
+          echo "::endgroup::"
+          
+          # Check if JSON is valid
+          if ! echo "$JSON_OUTPUT" | jq .; then
+            echo "::error::Failed to parse srtool JSON output. Last line was: $JSON_OUTPUT"
+            exit 1
+          fi
+
+          echo "::group::Srtool JSON Output"
+          echo "$JSON_OUTPUT" | jq .
+          echo "::endgroup::"
+
+          # Extract paths from JSON
+          WASM_PATH=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compact.wasm')
+          WASM_COMPRESSED_PATH=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compressed.wasm')
+          
+          if [ -z "$WASM_PATH" ] || [ "$WASM_PATH" == "null" ]; then
+            echo "::error::Could not extract wasm path from srtool output."
+            exit 1
+          fi
+
+          # Set outputs for subsequent steps
+          echo "json=$JSON_OUTPUT" >> $GITHUB_OUTPUT
+          echo "wasm=$WASM_PATH" >> $GITHUB_OUTPUT
+          echo "wasm_compressed=$WASM_COMPRESSED_PATH" >> $GITHUB_OUTPUT
+
+          # Extract runtime version
+          runtime_ver=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compact.subwasm.core_version.specVersion')
+          echo "runtime_ver=$runtime_ver" >> $GITHUB_OUTPUT
+
+          # Persist srtool digest
+          echo "$JSON_OUTPUT" | jq > srtool-output.json
+
+      - name: Fix permissions for cache
+        run: sudo chown -R runner:docker "$GITHUB_WORKSPACE/runtime/target"
+
+      - name: upload srtool json
+        uses: actions/upload-artifact@v4
+        with:
+          name: srtool-json
+          path: srtool-output.json
+
+      - name: Extract runtime version and rename files
+        run: |
+          runtime_ver=$(jq -r '.runtimes.compact.subwasm.core_version.specVersion' srtool-output.json)
+          wasm_path=$(jq -r '.runtimes.compact.wasm' srtool-output.json)
+          wasm_compressed_path=$(jq -r '.runtimes.compressed.wasm' srtool-output.json)
+          cp "$wasm_path" quantus-runtime-v${runtime_ver}.compact.wasm
+          cp "$wasm_compressed_path" quantus-runtime-v${runtime_ver}.compact.compressed.wasm
+          cp srtool-output.json quantus-runtime-srtool-output-v${runtime_ver}.json
+      - name: Upload runtime artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime
+          path: |
+            quantus-runtime-v*.wasm
+            quantus-runtime-srtool-output-v*.json
+
+  create-github-release:
+    name: 🚀 Create GitHub Release
+    needs: [calculate-next-version, build-and-package, build-runtime]
+    if: always() && (needs.build-runtime.result == 'success' || needs.build-runtime.result == 'skipped') && needs.build-and-package.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      new_version: ${{ needs.calculate-next-version.outputs.new_version }}
+      branch_name: ${{ needs.calculate-next-version.outputs.branch_name }}
     steps:
+      - uses: actions/checkout@v4
+      - if: github.event.inputs.is_runtime_upgrade == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime
+      - if: github.event.inputs.is_runtime_upgrade == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: srtool-json
+      - if: github.event.inputs.is_runtime_upgrade == 'true'
+        name: get runtime version and paths
+        id: get-runtime-info
+        run: |
+          runtime_ver=$(jq -r '.runtimes.compact.subwasm.core_version.specVersion' srtool-output.json)
+          compact_wasm_path=$(jq -r '.runtimes.compact.wasm' srtool-output.json)
+          compressed_wasm_path=$(jq -r '.runtimes.compressed.wasm' srtool-output.json)
+          
+          # Extract just the filename, as download-artifact flattens the structure
+          compact_wasm_filename=$(basename "$compact_wasm_path")
+          compressed_wasm_filename=$(basename "$compressed_wasm_path")
+
+          echo "runtime_ver=$runtime_ver" >> $GITHUB_OUTPUT
+          echo "compact_wasm_path=$compact_wasm_filename" >> $GITHUB_OUTPUT
+          echo "compressed_wasm_path=$compressed_wasm_filename" >> $GITHUB_OUTPUT
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -405,10 +520,7 @@ jobs:
       - name: Download all release assets
         uses: actions/download-artifact@v4
         with:
-          path: downloaded-artifacts # All artifacts extracted here, each in its own subdir
-        # No 'name' specified, downloads all artifacts from previous jobs in this workflow run
-        # This will create directories like 'downloaded-artifacts/release-assets-x86_64-unknown-linux-gnu/'
-        # We'll need to find the files within these directories.
+          path: downloaded-artifacts
 
       - name: Generate asset list file
         run: |
@@ -424,24 +536,36 @@ jobs:
 
       - name: Create Git Tag
         env:
-          NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ needs.calculate-next-version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          RELEASE_BRANCH: "release/${{ needs.calculate-next-version.outputs.new_version }}"
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+          
+          # Fetch the release branch
+          git fetch origin "$RELEASE_BRANCH"
+          
+          # Create tag on the release branch commit
+          git tag -a "$NEW_VERSION" -m "Quantus $NEW_VERSION" "origin/$RELEASE_BRANCH"
           git push origin "$NEW_VERSION"
 
       - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_VERSION: ${{ needs.calculate_next_version.outputs.new_version }}
-          COMMIT_SHA_SHORT: ${{ needs.calculate_next_version.outputs.commit_sha_short }}
-          BRANCH_NAME: ${{ needs.calculate_next_version.outputs.branch_name }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          NEW_VERSION: ${{ needs.calculate-next-version.outputs.new_version }}
+          COMMIT_SHA_SHORT: ${{ needs.calculate-next-version.outputs.commit_sha_short }}
+          BRANCH_NAME: ${{ needs.calculate-next-version.outputs.branch_name }}
           IS_PRERELEASE: ${{ github.event.inputs.is_prerelease }}
           DRAFT_RELEASE: ${{ github.event.inputs.draft_release }}
+          IS_RUNTIME_UPGRADE: ${{ github.event.inputs.is_runtime_upgrade }}
         run: |
-          release_notes=$(printf "Automated release for version %s.\\nBuilt from branch: \`%s\`\\nCommit: \`%s\`" "$NEW_VERSION" "$BRANCH_NAME" "$COMMIT_SHA_SHORT")
+          # Prepare release notes
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
+            release_notes=$(printf "Runtime upgrade release for version %s\\nBuilt from branch: \`%s\`\\nCommit: \`%s\`\\n\\nThis release is created from the version branch. PR to main is available for review." "$NEW_VERSION" "$BRANCH_NAME" "$COMMIT_SHA_SHORT")
+          else
+            release_notes=$(printf "Automated release for version %s.\\nBuilt from branch: \`%s\`\\nCommit: \`%s\`\\n\\nThis release is created from the version branch. PR to main is available for review." "$NEW_VERSION" "$BRANCH_NAME" "$COMMIT_SHA_SHORT")
+          fi
           
           # Write release notes to a file
           printf "%s" "$release_notes" > release_notes.txt
@@ -452,6 +576,25 @@ jobs:
             asset_args+=("$file")
           done < asset_files.txt
 
+          # Add runtime files if this is a runtime upgrade
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
+            # Get the actual paths from the downloaded artifacts
+            compact_wasm_path=$(find . -name "quantus-runtime-v*.compact.wasm" -type f)
+            compressed_wasm_path=$(find . -name "quantus-runtime-v*.compact.compressed.wasm" -type f)
+            srtool_json_path=$(find . -name "quantus-runtime-srtool-output-v*.json" -type f)
+
+            if [ -z "$compact_wasm_path" ] || [ -z "$compressed_wasm_path" ] || [ -z "$srtool_json_path" ]; then
+              echo "Error: Could not find WASM or JSON files"
+              exit 1
+            fi
+
+            asset_args+=(
+              "$compact_wasm_path"
+              "$compressed_wasm_path"
+              "$srtool_json_path"
+            )
+          fi
+
           echo "Debug: Release notes file content:"
           cat release_notes.txt
           echo "Debug: Files to attach to release:"
@@ -459,9 +602,49 @@ jobs:
 
           gh release create "$NEW_VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Release $NEW_VERSION" \
+            --title "Quantus $NEW_VERSION" \
             --notes-file release_notes.txt \
-            --target "$GITHUB_SHA" \
+            --target "$BRANCH_NAME" \
             $( [[ "$IS_PRERELEASE" == "true" ]] && echo "--prerelease" ) \
             $( [[ "$DRAFT_RELEASE" == "true" ]] && echo "--draft" ) \
-            "${asset_args[@]}" 
+            "${asset_args[@]}"
+
+  create-runtime-issue:
+    name: 📝 Create Runtime Upgrade Issue
+    needs: [create-github-release]
+    if: github.event.inputs.is_runtime_upgrade == 'true' && needs.create-github-release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create issue for runtime upgrade
+        env:
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          NEW_VERSION: ${{ needs.create-github-release.outputs.new_version }}
+          BRANCH_NAME: ${{ needs.create-github-release.outputs.branch_name }}
+          ISSUE_BODY: |
+            A new runtime upgrade has been released: [${{ needs.create-github-release.outputs.new_version }}](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-github-release.outputs.new_version }})
+
+            ## Details
+            - Release version: `${{ needs.create-github-release.outputs.new_version }}`
+            - Branch: `${{ needs.create-github-release.outputs.branch_name }}`
+            - PR for review: $PR_URL
+
+            ## Next Steps
+            Please review and coordinate the upgrade process.
+        run: |
+          # Get PR URL
+          PR_URL=$(gh pr list --head "$BRANCH_NAME" --json url --jq '.[0].url')
+          
+          issue_title="Runtime upgrade released: $NEW_VERSION"
+          gh issue create \
+            --title "$issue_title" \
+            --body "$ISSUE_BODY" \
+            --repo "$GITHUB_REPOSITORY" \
+            --label "runtime-upgrade,automated" \
+            --assignee "${{ github.actor }}"
