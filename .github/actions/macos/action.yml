@@ -6,7 +6,6 @@ runs:
   using: composite
   steps:
     - name: rust compilation prerequisites (macos)
-      if: contains(matrix.os, 'macos')
       run: |
         brew install protobuf
         curl https://sh.rustup.rs -sSf -y | sh

@@ -6,7 +6,6 @@ runs:
   using: composite
   steps:
     - name: rust compilation prerequisites (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
       run: |
         sudo apt-get update -yqq
         sudo apt-get install -yqq --no-install-recommends \
