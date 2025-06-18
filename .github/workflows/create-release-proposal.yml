@@ -24,15 +24,11 @@ on:
       custom_version:
         description: 'Custom version string (e.g., v1.2.3 or v0.2.1-beta.1). Only used if version_type is "custom". MUST start with "v" (e.g. v1.2.3)'
         required: false
-      is_prerelease:
-        description: 'Is this a pre-release? (e.g., alpha, beta, rc)'
+      is_draft:
+        description: 'Is this a draft release?'
         required: true
         type: boolean
         default: false
-      prerelease_identifier:
-        description: 'Pre-release identifier (e.g., alpha, beta, rc). Only used if is_prerelease is true.'
-        required: false
-        default: 'rc'
       is_runtime_upgrade:
         description: 'Is this a runtime upgrade release?'
         required: true
@@ -84,8 +80,7 @@ jobs:
           LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
           VERSION_TYPE: ${{ github.event.inputs.version_type }}
           CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
-          IS_PRERELEASE: ${{ github.event.inputs.is_prerelease }}
-          PRERELEASE_ID: ${{ github.event.inputs.prerelease_identifier }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
           IS_RUNTIME_UPGRADE: ${{ github.event.inputs.is_runtime_upgrade }}
           RUNTIME_SUFFIX: ${{ github.event.inputs.runtime_upgrade_suffix }}
         run: |
@@ -130,12 +125,6 @@ jobs:
               exit 1
             fi
             new_version_core="v$major.$minor.$patch"
-
-            if [[ "$IS_PRERELEASE" == "true" ]]; then
-              new_version="$new_version_core-$PRERELEASE_ID"
-            else
-              new_version="$new_version_core"
-            fi
           fi
 
           # Add runtime upgrade suffix if needed
@@ -206,18 +195,17 @@ jobs:
           git commit -m "ci: Automate version bump to $NEW_VERSION_WITH_V"
           git push origin "$branch_name"
 
-          # Prepare PR title with prerelease info if applicable
-          if [[ "${{ github.event.inputs.is_prerelease }}" == "true" ]]; then
-            PR_TITLE="[PRE-RELEASE] Automate release for $NEW_VERSION_WITH_V"
-            PRERELEASE_INFO="This is a pre-release version with identifier: ${{ github.event.inputs.prerelease_identifier }}"
-          else
-            PR_TITLE="Automate release for $NEW_VERSION_WITH_V"
-            PRERELEASE_INFO="This is a stable release"
+          PR_TITLE="Automate release for $NEW_VERSION_WITH_V"
+
+          # Prepare labels
+          PR_LABELS="automated,release-proposal"
+          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+            PR_LABELS="$PR_LABELS,draft-release"
           fi
 
           gh pr create \
             --title "$PR_TITLE" \
-            --body "$(printf "Automated version bump for release %s.\\n\\n%s\\n\\nTriggered by workflow run: %s\\n\\nType: %s" "$NEW_VERSION_WITH_V" "$PRERELEASE_INFO" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "${{ github.event.inputs.version_type }}")" \
+            --body "$(printf "Automated version bump for release %s.\\n\\n%s\\n\\nTriggered by workflow run: %s\\n\\nType: %s" "$NEW_VERSION_WITH_V" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "${{ github.event.inputs.version_type }}")" \
             --base "$TARGET_BRANCH" \
             --head "$branch_name" \
-            --label "automated,release-proposal" 
+            --label "$PR_LABELS" 

@@ -34,12 +34,12 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           
-          # Check if this is a pre-release
-          if [[ "${{ github.event.pull_request.title }}" == *"[PRE-RELEASE]"* ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          # Check if this is a draft release
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
+            echo "is_draft=true" >> $GITHUB_OUTPUT
             echo "release_branch=main" >> $GITHUB_OUTPUT
           else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "is_draft=false" >> $GITHUB_OUTPUT
             echo "release_branch=release/$VERSION" >> $GITHUB_OUTPUT
           fi
           echo "Extracted version: $VERSION"
@@ -264,11 +264,11 @@ jobs:
             )
           fi
 
-          # Add prerelease flag if this is a pre-release
-          if [[ "${{ needs.create-tag.outputs.is_prerelease }}" == "true" ]]; then
-            PRERELEASE_FLAG="--prerelease"
+          # Add draft flag if this is a draft release
+          if [[ "${{ needs.create-tag.outputs.is_draft }}" == "true" ]]; then
+            DRAFT_FLAG="--draft"
           else
-            PRERELEASE_FLAG=""
+            DRAFT_FLAG=""
           fi
 
           gh release create "$NEW_VERSION" \
@@ -276,7 +276,7 @@ jobs:
             --title "Quantus $NEW_VERSION" \
             --notes-file release_notes.txt \
             --target ${{ needs.create-tag.outputs.release_branch }} \
-            $PRERELEASE_FLAG \
+            $DRAFT_FLAG \
             "${asset_args[@]}"
 
   create-runtime-issue:
