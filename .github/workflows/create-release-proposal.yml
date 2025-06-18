@@ -132,14 +132,7 @@ jobs:
             new_version_core="v$major.$minor.$patch"
 
             if [[ "$IS_PRERELEASE" == "true" ]]; then
-              prerelease_num=1
-              # If current was a prerelease of the same core and same ID, increment number
-              if [[ "$prerelease_part" =~ ^$PRERELEASE_ID\\.([0-9]+)$ ]]; then
-                prerelease_num=1 # Simplified: always start at .1 for new core version
-              elif [[ "$prerelease_part" =~ ^$PRERELEASE_ID$ ]]; then
-                 prerelease_num=1 # also start at .1 if it was just "alpha"
-              fi
-              new_version="$new_version_core-$PRERELEASE_ID.$prerelease_num"
+              new_version="$new_version_core-$PRERELEASE_ID"
             else
               new_version="$new_version_core"
             fi
