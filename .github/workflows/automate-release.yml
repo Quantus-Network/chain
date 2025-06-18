@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+env:
+  RUSTUP_TOOLCHAIN: nightly-2024-12-14
+
 jobs:
   create-tag:
     name: Create Tag
