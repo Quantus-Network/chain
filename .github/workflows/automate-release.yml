@@ -270,12 +270,19 @@ jobs:
             )
           fi
 
+          # Debug: Print is_draft value
+          echo "is_draft value: ${{ needs.create-tag.outputs.is_draft }}"
+
           # Add draft flag if this is a draft release
           if [[ "${{ needs.create-tag.outputs.is_draft }}" == "true" ]]; then
+            echo "Setting draft flag"
             DRAFT_FLAG="--draft"
           else
+            echo "No draft flag needed"
             DRAFT_FLAG=""
           fi
+
+          echo "Final command will use DRAFT_FLAG: $DRAFT_FLAG"
 
           gh release create "$NEW_VERSION" \
             --repo "$GITHUB_REPOSITORY" \
