@@ -8047,7 +8047,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.2.2-ft2-white"
+version = "0.2.3-tf2-blue"
 dependencies = [
  "async-trait",
  "clap",
@@ -8104,7 +8104,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.2.2-ft2-white"
+version = "0.2.3-tf2-blue"
 dependencies = [
  "dilithium-crypto",
  "env_logger 0.11.8",
