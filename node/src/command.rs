@@ -390,12 +390,7 @@ pub fn run() -> sc_cli::Result<()> {
                     )
                     .map_err(sc_cli::Error::Service),
                     sc_network::config::NetworkBackendType::Litep2p => {
-                        service::new_full::<sc_network::Litep2pNetworkBackend>(
-                            config,
-                            cli.rewards_address.clone(),
-                            cli.external_miner_url.clone(),
-                        )
-                        .map_err(sc_cli::Error::Service)
+                        panic!("Litep2p is not quantum secure and not supported");
                     }
                 }
             })
