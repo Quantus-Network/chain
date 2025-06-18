@@ -58,9 +58,7 @@ impl Pair for ResonancePair {
             hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
-        let signature = keypair
-            .sign(message, None, false)
-            .expect("Signing should succeed");
+        let signature = keypair.sign(message, None, false);
 
         let signature =
             ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");

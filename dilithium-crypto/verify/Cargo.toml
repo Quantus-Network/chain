@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 rusty-crystals-dilithium.workspace = true
+log.workspace = true
