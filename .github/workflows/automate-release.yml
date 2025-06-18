@@ -94,21 +94,8 @@ jobs:
         if: runner.os == 'Windows'
         uses: ./.github/actions/windows
 
-      - name: Install Rust toolchain
-        shell: bash
-        env:
-          RUST_COMPONENTS: "rustfmt,clippy,rust-src"
-          RUST_TARGETS_ADDITIONAL: "wasm32-unknown-unknown"
-        run: |
-          set -e
-          TOOLCHAIN_NIGHTLY_VERSION="nightly-2024-12-24"
-          rustup toolchain install $TOOLCHAIN_NIGHTLY_VERSION --profile minimal --no-self-update --target ${{ matrix.target }}
-          rustup component add rustfmt clippy rust-src --toolchain $TOOLCHAIN_NIGHTLY_VERSION
-          rustup target add $RUST_TARGETS_ADDITIONAL --toolchain $TOOLCHAIN_NIGHTLY_VERSION
-          rustup default $TOOLCHAIN_NIGHTLY_VERSION
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN_NIGHTLY_VERSION" >> $GITHUB_ENV
-          echo "Installed Rust toolchain: $(rustc --version)"
+      - name: pin
+        run: rustup override set ${RUSTUP_TOOLCHAIN}
 
       - name: Build quantus-node binary
         run: cargo build --release --package quantus-node --target ${{ matrix.target }}
