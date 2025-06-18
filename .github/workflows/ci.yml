@@ -67,14 +67,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
-      - name: Install protobuf
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: pin
         run: rustup override set ${RUSTUP_TOOLCHAIN}
       - name: Install required components
-        run: |
-          rustup target add wasm32-unknown-unknown
-          rustup component add rust-src clippy
+        run: rustup component add rust-src clippy
       - name: Run clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
       - name: Run doc
