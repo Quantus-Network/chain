@@ -1,11 +1,14 @@
+# Quantus Network Node
+
+[![Continues Integration](https://github.com/Quantus-Network/chain-ru-test/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Quantus-Network/chain-ru-test/actions/workflows/ci.yml)&nbsp;&nbsp;[![GitHub issues](https://img.shields.io/github/issues/Quantus-Network/chain-ru-test)](https://github.com/Quantus-Network/chain-ru-test/issues)&nbsp;&nbsp;[![GitHub PRs](https://img.shields.io/github/issues-pr/Quantus-Network/chain-ru-test)](https://github.com/Quantus-Network/chain-ru-test/pulls)&nbsp;&nbsp;[![GitHub license](https://img.shields.io/github/license/Quantus-Network/chain-ru-test)](https://github.com/Quantus-Network/chain-ru-test/blob/main/LICENSE)&nbsp;&nbsp;[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Quantus-Network/chain-ru-test)](https://github.com/Quantus-Network/chain-ru-test/graphs/commit-activity)&nbsp;&nbsp;![GitHub last commit](https://img.shields.io/github/last-commit/Quantus-Network/chain-ru-test)
+
+
 # Quantus Network Node Installation Guide
 
 This guide will help you install and run a Quantus Network node for mining.
 
 **🚀 Quick Start Mining**: See our [Mining Guide](MINING.md) for a comprehensive setup tutorial with troubleshooting and
 optimization tips.
-
-# Quantus Network Node
 
 ---
 

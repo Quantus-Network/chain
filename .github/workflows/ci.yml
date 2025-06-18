@@ -1,5 +1,5 @@
 ---
-name: continuous integration
+name: Continuous Integration
 
 on:
   pull_request:
@@ -17,52 +17,65 @@ env:
   RUSTUP_TOOLCHAIN: nightly-2024-12-14
 
 jobs:
-  quality-control:
+  fast-checks:
+    name: 🏁 Fast Checks (Format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ubuntu
+      - name: pin
+        run: rustup override set ${RUSTUP_TOOLCHAIN}
+      - name: Install required components
+        run: rustup component add rustfmt
+      - name: Install taplo
+        run: cargo install taplo-cli --locked
+      - name: Run format checks
+        run: |
+          taplo format --check --config taplo.toml
+          cargo fmt --all -- --check
+
+  build-and-test-matrix:
+    name: 🛠️ Build & Test Matrix
+    needs: fast-checks
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
-          - macos-latest
           - ubuntu-latest
+          - macos-latest
     steps:
-      -
-        uses: actions/checkout@v4
-      -
-        if: contains(matrix.os, 'ubuntu')
-        uses: ./.github/actions/disk
-      -
-        if: contains(matrix.os, 'ubuntu')
+      - uses: actions/checkout@v4
+      - name: Setup Ubuntu
+        if: matrix.os == 'ubuntu-latest'
         uses: ./.github/actions/ubuntu
-      -
-        if: contains(matrix.os, 'macos')
+      - name: Setup macOS
+        if: matrix.os == 'macos-latest'
         uses: ./.github/actions/macos
-      -
-        name: pin
+      - name: pin
         run: rustup override set ${RUSTUP_TOOLCHAIN}
-      -
-        name: taplo
-        run: taplo format --check --config taplo.toml
-      -
-        name: format
-        run: cargo fmt --all -- --check
-        timeout-minutes: 5
-      -
-        name: compile
-        run: cargo build --locked --workspace
-        timeout-minutes: 90
-      -
-        name: compile with benchmarks
-        run: cargo check --locked --workspace --features runtime-benchmarks
-        timeout-minutes: 90
-      -
-        name: clippy
-        run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
-        timeout-minutes: 30
-      -
-        name: test
+      - name: compile
+        run: cargo build --locked --workspace --features runtime-benchmarks
+      - name: test
         run: SKIP_WASM_BUILD=1 cargo test --locked --workspace
-        timeout-minutes: 15
-      -
-        name: doc
+
+  analysis:
+    name: 🤖 Analysis (Clippy & Doc)
+    needs: fast-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Ubuntu
+        uses: ./.github/actions/ubuntu
+      - name: Install protobuf
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: pin
+        run: rustup override set ${RUSTUP_TOOLCHAIN}
+      - name: Install required components
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src clippy
+      - name: Run clippy
+        run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
+      - name: Run doc
         run: SKIP_WASM_BUILD=1 cargo doc --locked --workspace --no-deps
-        timeout-minutes: 15
