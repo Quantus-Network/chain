@@ -33,7 +33,15 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "release_branch=release/$VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if this is a pre-release
+          if [[ "${{ github.event.pull_request.title }}" == *"[PRE-RELEASE]"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_branch=main" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_branch=release/$VERSION" >> $GITHUB_OUTPUT
+          fi
           echo "Extracted version: $VERSION"
 
       - name: Detect runtime upgrade
@@ -256,11 +264,19 @@ jobs:
             )
           fi
 
+          # Add prerelease flag if this is a pre-release
+          if [[ "${{ needs.create-tag.outputs.is_prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          else
+            PRERELEASE_FLAG=""
+          fi
+
           gh release create "$NEW_VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Quantus $NEW_VERSION" \
             --notes-file release_notes.txt \
             --target ${{ needs.create-tag.outputs.release_branch }} \
+            $PRERELEASE_FLAG \
             "${asset_args[@]}"
 
   create-runtime-issue:

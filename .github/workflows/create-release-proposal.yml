@@ -213,9 +213,18 @@ jobs:
           git commit -m "ci: Automate version bump to $NEW_VERSION_WITH_V"
           git push origin "$branch_name"
 
+          # Prepare PR title with prerelease info if applicable
+          if [[ "${{ github.event.inputs.is_prerelease }}" == "true" ]]; then
+            PR_TITLE="[PRE-RELEASE] Automate release for $NEW_VERSION_WITH_V"
+            PRERELEASE_INFO="This is a pre-release version with identifier: ${{ github.event.inputs.prerelease_identifier }}"
+          else
+            PR_TITLE="Automate release for $NEW_VERSION_WITH_V"
+            PRERELEASE_INFO="This is a stable release"
+          fi
+
           gh pr create \
-            --title "Automate release for $NEW_VERSION_WITH_V" \
-            --body "$(printf "Automated version bump for release %s.\\n\\nTriggered by workflow run: %s" "$NEW_VERSION_WITH_V" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")" \
+            --title "$PR_TITLE" \
+            --body "$(printf "Automated version bump for release %s.\\n\\n%s\\n\\nTriggered by workflow run: %s\\n\\nType: %s" "$NEW_VERSION_WITH_V" "$PRERELEASE_INFO" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "${{ github.event.inputs.version_type }}")" \
             --base "$TARGET_BRANCH" \
             --head "$branch_name" \
             --label "automated,release-proposal" 
