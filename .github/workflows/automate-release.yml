@@ -82,17 +82,17 @@ jobs:
         with:
           ref: ${{ needs.create-tag.outputs.version }}
 
-      - name: Install protoc (protobuf-compiler) for Linux
+      - name: Setup Ubuntu
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        uses: ./.github/actions/ubuntu
 
-      - name: Install protoc (protobuf-compiler) for macOS
+      - name: Setup macOS
         if: runner.os == 'macOS'
-        run: brew install protobuf
+        uses: ./.github/actions/macos
 
-      - name: Install protoc (protobuf-compiler) for Windows
+      - name: Setup Windows
         if: runner.os == 'Windows'
-        run: choco install protoc --yes --no-progress
+        uses: ./.github/actions/windows
 
       - name: Install Rust toolchain
         shell: bash

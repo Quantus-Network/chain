@@ -1,0 +1,17 @@
+---
+name: windows dependencies
+description: installs dependencies required to compile the node and runtime on windows
+
+runs:
+  using: composite
+  steps:
+    - name: rust compilation prerequisites (windows)
+      run: |
+        choco install protoc --yes --no-progress
+        rustup update
+        rustup toolchain install ${RUSTUP_TOOLCHAIN}
+        rustup target add wasm32-unknown-unknown \
+          --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-pc-windows-msvc
+        rustup component add rustfmt clippy rust-src \
+          --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-pc-windows-msvc
+      shell: bash 
