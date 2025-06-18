@@ -15,6 +15,7 @@ jobs:
       contents: write
     outputs:
       version: ${{ steps.extract_version.outputs.version }}
+      is_draft: ${{ steps.extract_version.outputs.is_draft }}
       is_runtime_upgrade: ${{ steps.detect_upgrade.outputs.is_runtime_upgrade }}
       release_branch: ${{ steps.extract_version.outputs.release_branch }}
     steps:
