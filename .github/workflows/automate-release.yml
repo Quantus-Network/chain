@@ -99,6 +99,7 @@ jobs:
 
       - name: pin
         run: rustup override set ${RUSTUP_TOOLCHAIN}
+        shell: bash
 
       - name: Build quantus-node binary
         run: cargo build --release --package quantus-node --target ${{ matrix.target }}
