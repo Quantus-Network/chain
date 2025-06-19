@@ -1,5 +1,5 @@
 use codec::{Decode, Encode, MaxEncodedLen};
-use rusty_crystals_dilithium::ml_dsa_87::{PUBLICKEYBYTES, SECRETKEYBYTES};
+use rusty_crystals_dilithium_no_std::ml_dsa_87::{PUBLICKEYBYTES, SECRETKEYBYTES};
 use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

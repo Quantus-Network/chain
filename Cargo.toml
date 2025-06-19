@@ -7,23 +7,23 @@ edition = "2021"
 
 [workspace]
 members = [
-	"client/consensus/qpow",
-	"dilithium-crypto",
-	"dilithium-crypto/sign",
-	"dilithium-crypto/verify",
-	"external-miner",
-	"node",
-	"pallets/balances",
-	"pallets/faucet",
-	"pallets/merkle-airdrop",
-	"pallets/mining-rewards",
-	"pallets/qpow",
-	"pallets/reversible-transfers",
-	"pallets/wormhole",
-	"primitives/consensus/qpow",
-	"primitives/faucet",
-	"resonance-miner-api",
-	"runtime",
+    "client/consensus/qpow",
+    "dilithium-crypto",
+    "dilithium-crypto/sign",
+    "dilithium-crypto/verify",
+    "external-miner",
+    "node",
+    "pallets/balances",
+    "pallets/faucet",
+    "pallets/merkle-airdrop",
+    "pallets/mining-rewards",
+    "pallets/qpow",
+    "pallets/reversible-transfers",
+    "pallets/wormhole",
+    "primitives/consensus/qpow",
+    "primitives/faucet",
+    "resonance-miner-api",
+    "runtime",
 ]
 resolver = "2"
 
@@ -39,7 +39,9 @@ futures = { version = "0.3.31" }
 futures-timer = { version = "3.0.2" }
 hex = { version = "0.4.3", default-features = false }
 jsonrpsee = { version = "0.24.3" }
-lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
+lazy_static = { version = "1.5.0", default-features = false, features = [
+    "spin_no_std",
+] }
 log = { version = "0.4.22", default-features = false }
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 parking_lot = { version = "0.12.1", default-features = false }
@@ -76,10 +78,12 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 sp-faucet = { path = "./primitives/faucet", default-features = false }
 
 # Quantus network dependencies
-plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
+plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = [
+    "no_random",
+] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
+#rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = true }
+#rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-hdwallet" }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "39.0.0", default-features = false }
@@ -144,3 +148,5 @@ substrate-wasm-builder = { version = "25.0.0", default-features = false }
 [patch.crates-io]
 sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
 sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
+libp2p-identity = { path = "../libp2p-identity-pqc" }
+sc-network = { path = "../sc-network-pqc" }

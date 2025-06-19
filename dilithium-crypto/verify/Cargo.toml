@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rusty-crystals-dilithium.workspace = true
+rusty-crystals-dilithium-no-std = { git = "https://github.com/Quantus-Network/rusty-crystals.git", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 log.workspace = true

@@ -1,6 +1,6 @@
 #![no_std]
 
-use rusty_crystals_dilithium::{
+use rusty_crystals_dilithium_no_std::{
     ml_dsa_87::{Keypair, PublicKey, SecretKey},
     params::SEEDBYTES,
 };

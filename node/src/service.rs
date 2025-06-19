@@ -22,6 +22,7 @@ use sp_core::crypto::AccountId32;
 use sp_core::{RuntimeDebug, U512};
 use sp_runtime::traits::Header;
 use std::{sync::Arc, time::Duration};
+use sc_network::config::NodeKeyConfig;
 use uuid::Uuid;
 
 pub(crate) type FullClient = sc_service::TFullClient<
