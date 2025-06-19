@@ -1,0 +1,211 @@
+name: Create Release Proposal
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch for the PR (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      version_type:
+        description: 'Type of version bump (major, minor, patch) or specify custom version. For 0.x.y releases, major will bump 0.x -> 0.(x+1)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: 'Custom version string (e.g., v1.2.3 or v0.2.1-beta.1). Only used if version_type is "custom". MUST start with "v" (e.g. v1.2.3)'
+        required: false
+      is_draft:
+        description: 'Is this a draft release?'
+        required: true
+        type: boolean
+        default: false
+      is_runtime_upgrade:
+        description: 'Is this a runtime upgrade release?'
+        required: true
+        type: boolean
+        default: false
+      runtime_upgrade_suffix:
+        description: 'Suffix for runtime upgrade version (e.g., dead-cat). Only used if is_runtime_upgrade is true.'
+        required: false
+        default: ''
+
+jobs:
+  calculate-next-version:
+    name: 🧮 Calculate Next Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.versioner.outputs.new_version }}
+      commit_sha_short: ${{ steps.vars.outputs.commit_sha_short }}
+      source_branch: ${{ steps.vars.outputs.source_branch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get current branch and commit SHA
+        id: vars
+        run: |
+          echo "commit_sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "source_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          # Get all version tags and sort them by version
+          latest_semver_tag=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
+          
+          # If no tags found, use default
+          if [ -z "$latest_semver_tag" ]; then
+            latest_semver_tag="v0.0.0"
+          fi
+          
+          echo "latest_tag_found=$latest_semver_tag" >> $GITHUB_OUTPUT
+          echo "Latest semantic version tag found: $latest_semver_tag"
+
+      - name: Calculate new version
+        id: versioner
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
+          IS_RUNTIME_UPGRADE: ${{ github.event.inputs.is_runtime_upgrade }}
+          RUNTIME_SUFFIX: ${{ github.event.inputs.runtime_upgrade_suffix }}
+        run: |
+          # Remove 'v' prefix and any suffix for processing
+          current_version=${LATEST_TAG#v}
+          # Remove any suffix after the version number
+          current_version=$(echo "$current_version" | sed -E 's/-[^-]+$//')
+
+          if [[ "$VERSION_TYPE" == "custom" ]]; then
+            if [[ -z "$CUSTOM_VERSION" ]]; then
+              echo "Error: Custom version is selected but no custom_version string provided."
+              exit 1
+            fi
+            if [[ ! "$CUSTOM_VERSION" =~ ^v ]]; then
+              echo "Error: Custom version string MUST start with 'v' (e.g., v1.2.3)."
+              exit 1
+            fi
+            new_version="$CUSTOM_VERSION"
+          else
+            # Split version and pre-release part
+            IFS='-' read -r version_core prerelease_part <<< "$current_version"
+            IFS='.' read -r major minor patch <<< "$version_core"
+
+            # Increment based on type
+            if [[ "$VERSION_TYPE" == "major" ]]; then
+              if [[ "$major" == "0" ]]; then # Handle 0.x.y -> 0.(x+1).0
+                major=$major
+                minor=$((minor + 1))
+                patch=0
+              else
+                major=$((major + 1))
+                minor=0
+                patch=0
+              fi
+            elif [[ "$VERSION_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+            elif [[ "$VERSION_TYPE" == "patch" ]]; then
+              patch=$((patch + 1))
+            else
+              echo "Error: Invalid version_type: $VERSION_TYPE"
+              exit 1
+            fi
+            new_version="v$major.$minor.$patch"
+          fi
+
+          # Add runtime upgrade suffix if needed
+          if [[ "$IS_RUNTIME_UPGRADE" == "true" ]]; then
+            new_version="${new_version}-$RUNTIME_SUFFIX"
+          fi
+
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+  update-cargo-toml:
+    name: 📝 Update version files
+    needs: calculate-next-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create version bump branch and PR
+        env:
+          NEW_VERSION: ${{ needs.calculate-next-version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          SOURCE_BRANCH: ${{ needs.calculate-next-version.outputs.source_branch }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+        run: |
+          set -ex
+          new_cargo_version=${NEW_VERSION#v}
+          branch_name="release/${NEW_VERSION}"
+
+          # Create new branch from source branch
+          git checkout "$SOURCE_BRANCH"
+          git checkout -b "$branch_name"
+          
+          # Always update node version
+          echo "Updating node/Cargo.toml to version: $new_cargo_version"
+          sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" node/Cargo.toml
+          
+          # For runtime upgrade, also update runtime version and increment spec_version
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+            echo "Runtime upgrade detected. Updating runtime/Cargo.toml and incrementing spec_version..."
+            sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" runtime/Cargo.toml
+          
+            # Increment spec_version
+            current_spec_version=$(grep -o 'spec_version: [0-9]*' runtime/src/lib.rs | awk '{print $2}')
+            new_spec_version=$((current_spec_version + 1))
+            sed -i -E "s/spec_version: [0-9]*/spec_version: $new_spec_version/" runtime/src/lib.rs
+          fi
+          
+          # Update Cargo.lock
+          cargo update -p quantus-node --precise "$new_cargo_version" || echo "cargo update -p quantus-node tried, proceeding."
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+            cargo update -p quantus-runtime --precise "$new_cargo_version" || echo "cargo update -p quantus-runtime tried, proceeding."
+          fi
+
+          # Commit changes
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          
+          git add node/Cargo.toml Cargo.lock
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
+            git add runtime/Cargo.toml runtime/src/lib.rs
+          fi
+          
+          git commit -m "ci: Automate version bump to $NEW_VERSION"
+          git push origin "$branch_name"
+
+          PR_TITLE="Automate release for $NEW_VERSION"
+
+          # Prepare labels
+          PR_LABELS="automated,release-proposal"
+          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+            PR_LABELS="$PR_LABELS,draft-release"
+          fi
+
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body "$(printf "Automated version bump for release %s.\\n\\n%s\\n\\nTriggered by workflow run: %s\\n\\nType: %s" "$NEW_VERSION" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "${{ github.event.inputs.version_type }}")" \
+            --base "$TARGET_BRANCH" \
+            --head "$branch_name" \
+            --label "$PR_LABELS" 
