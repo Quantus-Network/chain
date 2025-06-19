@@ -6,20 +6,13 @@ runs:
   using: composite
   steps:
     - name: rust compilation prerequisites (macos)
-      if: contains(matrix.os, 'macos')
       run: |
         brew install protobuf
-        curl https://sh.rustup.rs -sSf -y | sh
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
         rustup update
         rustup toolchain install ${RUSTUP_TOOLCHAIN}
         rustup target add wasm32-unknown-unknown \
           --toolchain ${RUSTUP_TOOLCHAIN}-aarch64-apple-darwin
         rustup component add rustfmt clippy rust-src \
           --toolchain ${RUSTUP_TOOLCHAIN}-aarch64-apple-darwin
-        # install taplo
-        curl -Ls "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz" | \
-        gzip -d > taplo && \
-        chmod +x taplo && \
-        sudo mv taplo /usr/local/bin/taplo
-
       shell: sh
