@@ -3,9 +3,21 @@ name: Continuous Integration
 
 on:
   pull_request:
+    paths-ignore:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -39,7 +51,7 @@ jobs:
     needs: fast-checks
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os:
           - ubuntu-latest
