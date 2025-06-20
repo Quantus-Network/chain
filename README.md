@@ -121,7 +121,7 @@ The maximum amount of tokens that can be received in a single request is limited
 This node supports offloading the QPoW mining process to a separate service, freeing up node resources.
 
 Any service that adheres to the API spec below can be used as miner by the node. We provide a sample implementation in
-the 'external-miner' crate.
+the 'miner' crate.
 
 API classes are defined in the 'resonance-miner-api' crate.
 
