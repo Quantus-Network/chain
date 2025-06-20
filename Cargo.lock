@@ -2152,7 +2152,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
- "rusty-crystals-dilithium 1.0.0",
+ "rusty-crystals-dilithium 1.0.1",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -3522,7 +3522,7 @@ dependencies = [
 name = "hdwallet"
 version = "0.1.0"
 dependencies = [
- "rusty-crystals-dilithium 1.0.0",
+ "rusty-crystals-dilithium 1.0.1",
 ]
 
 [[package]]
@@ -9054,6 +9054,7 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/rusty-crystals.git#9715789ac763bcac18552bdab584537a24663113"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9061,8 +9062,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-crystals-dilithium"
-version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals.git#9715789ac763bcac18552bdab584537a24663113"
+version = "1.0.1"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9080,7 +9080,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals.git)",
+ "rusty-crystals-dilithium 1.0.0",
  "sha2 0.10.9",
  "sp-core",
  "thiserror 2.0.12",
@@ -12970,7 +12970,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 name = "verify"
 version = "0.1.0"
 dependencies = [
- "rusty-crystals-dilithium 1.0.0",
+ "rusty-crystals-dilithium 1.0.1",
 ]
 
 [[package]]
