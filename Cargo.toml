@@ -77,8 +77,8 @@ sp-faucet = { path = "./primitives/faucet", default-features = false }
 # Quantus network dependencies
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
-rusty-crystals-dilithium = { path = "../rusty-crystals/dilithium", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-rusty-crystals-hdwallet = { path = "../rusty-crystals/hdwallet", package = "rusty-crystals-hdwallet" }
+rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
+rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "39.0.0", default-features = false }
