@@ -146,5 +146,5 @@ substrate-wasm-builder = { version = "25.0.0", default-features = false }
 [patch.crates-io]
 sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
 sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
-sc-network = { path = "../sc-network-pqc" }
-libp2p-identity = { path = "../libp2p-identity-pqc" }
+sc-network = { git = "https://github.com/Quantus-Network/sc-network-pqc", branch = "pqc" }
+libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc" }

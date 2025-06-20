@@ -5047,6 +5047,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identity"
 version = "0.2.11"
+source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc#9c128c651fc0df7d086c05d595d42a69bbd9d2c7"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -9655,6 +9656,7 @@ dependencies = [
 [[package]]
 name = "sc-network"
 version = "0.48.4"
+source = "git+https://github.com/Quantus-Network/sc-network-pqc?branch=pqc#34740d3ea41f7c8ce64d6cb80e8f04cb9ca429e0"
 dependencies = [
  "array-bytes",
  "async-channel 1.9.0",
