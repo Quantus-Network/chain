@@ -84,6 +84,7 @@ default = ["std"]
 std = [
 	"codec/std",
 	"dilithium-crypto/full_crypto",
+	"dilithium-crypto/std",
 	"frame-benchmarking/std",
 	"frame-executive/std",
 	"frame-metadata-hash-extension/std",
@@ -184,7 +185,6 @@ try-runtime = [
 # `RUNTIME_METADATA_HASH` environment variable set for the `CheckMetadataHash`
 # extension.
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]
-
 
 # Feature for running governance tests with production timing values
 # These tests use real mainnet timing (hours/days) instead of fast 2-block periods

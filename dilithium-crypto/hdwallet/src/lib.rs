@@ -13,9 +13,12 @@ pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, &'static str> {
 }
 
 pub fn create_keypair(public_key: &[u8], secret_key: &[u8]) -> Result<Keypair, &'static str> {
+    let secret = SecretKey::from_bytes(secret_key).map_err(|_| "Invalid secret key")?;
+    let public = PublicKey::from_bytes(public_key).map_err(|_| "Invalid public key")?;
+    
     let keypair = Keypair {
-        secret: SecretKey::from_bytes(secret_key),
-        public: PublicKey::from_bytes(public_key),
+        secret,
+        public,
     };
     Ok(keypair)
 }
