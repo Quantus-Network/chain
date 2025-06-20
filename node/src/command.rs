@@ -11,12 +11,12 @@ use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
 use sc_cli::SubstrateCli;
+use sc_network::config::{NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
-use sc_network::config::{NodeKeyConfig, Secret};
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
     pub address: String,
@@ -378,7 +378,12 @@ pub fn run() -> sc_cli::Result<()> {
                 config.state_pruning = Some(PruningMode::ArchiveCanonical);
                 // NOTE: at this point the net_config_path is a pointer to a file that does not yet exist
                 // so it is safe to change it here
-                let key_path = config.network.net_config_path.clone().unwrap().join("secret_dilithium");
+                let key_path = config
+                    .network
+                    .net_config_path
+                    .clone()
+                    .unwrap()
+                    .join("secret_dilithium");
                 // log::info!("Node Key: {:?}, dir: {:?}, path: {:?}, contents: {:?}",
                 //     config.network.node_key,
                 //     config.network.net_config_path,
