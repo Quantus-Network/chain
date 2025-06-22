@@ -31,4 +31,7 @@ frame_benchmarking::define_benchmarks!(
     [pallet_sudo, Sudo]
     [pallet_reversible_transfers, ReversibleTransfers]
     [pallet_merkle_airdrop, MerkleAirdrop]
+    [pallet_mining_rewards, MiningRewards]
+    [pallet_scheduler, Scheduler]
+    [pallet_wormhole, Wormhole]
 );

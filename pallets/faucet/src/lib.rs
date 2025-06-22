@@ -8,6 +8,9 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use sp_runtime::traits::StaticLookup;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
 pub use pallet::*;
 
 // Define the BalanceOf type using the Inspect trait for consistency with Mutate

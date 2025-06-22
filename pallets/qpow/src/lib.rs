@@ -121,19 +121,7 @@ pub mod pallet {
         }
     }
 
-    //TODO all this should be generated with benchmarks
-
-    pub trait WeightInfo {
-        fn submit_proof() -> Weight;
-    }
-
-    pub struct DefaultWeightInfo;
-
-    impl WeightInfo for DefaultWeightInfo {
-        fn submit_proof() -> Weight {
-            Weight::from_parts(10_000, 0)
-        }
-    }
+    pub trait WeightInfo {}
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]

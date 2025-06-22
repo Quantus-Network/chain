@@ -479,7 +479,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 
 impl pallet_merkle_airdrop::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Currency = Balances;
     type Vesting = Vesting;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;

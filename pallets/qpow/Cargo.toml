@@ -16,7 +16,6 @@ targets = [
 	"x86_64-unknown-linux-gnu",
 ]
 
-#package = "parity-scale-codec",
 [dependencies]
 codec = { workspace = true, default-features = false, features = ["derive"] }
 frame-benchmarking = { optional = true, default-features = false, workspace = true }
@@ -42,6 +41,7 @@ runtime-benchmarks = [
 	"frame-benchmarking",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
 ]
 std = [
 	"codec/std",

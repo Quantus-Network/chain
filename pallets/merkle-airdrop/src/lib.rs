@@ -45,9 +45,11 @@ pub use weights::*;
 use frame_support::traits::{Currency, VestedTransfer};
 
 /// NOTE: Vesting traits still use deprecated `Currency` trait.
-type BalanceOf<T> = <<<T as Config>::Vesting as VestedTransfer<
-    <T as frame_system::Config>::AccountId,
->>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+type CurrencyOf<T> =
+    <<T as Config>::Vesting as VestedTransfer<<T as frame_system::Config>::AccountId>>::Currency;
+
+/// NOTE: Vesting traits still use deprecated `Currency` trait.
+type BalanceOf<T> = <CurrencyOf<T> as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
 /// Type alias for airdrop info for this pallet
 type AirdropMetadataFor<T> =
@@ -79,7 +81,8 @@ pub struct AirdropMetadata<BlockNumber, Balance, AccountId> {
 #[frame_support::pallet]
 pub mod pallet {
     use crate::{
-        AirdropId, AirdropMetadata, AirdropMetadataFor, BalanceOf, MerkleHash, MerkleRoot,
+        AirdropId, AirdropMetadata, AirdropMetadataFor, BalanceOf, CurrencyOf, MerkleHash,
+        MerkleRoot,
     };
 
     use super::weights::WeightInfo;
@@ -107,20 +110,9 @@ pub mod pallet {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Currency type for the airdrop.
-        /// NOTE: using deprecated `Currency` trait to comply with vesting traits.
-        type Currency: Currency<Self::AccountId>;
-
         /// The vesting mechanism.
-        type Vesting: VestedTransfer<
-                Self::AccountId,
-                Moment = BlockNumberFor<Self>,
-                Currency = Self::Currency,
-            > + VestingSchedule<
-                Self::AccountId,
-                Moment = BlockNumberFor<Self>,
-                Currency = Self::Currency,
-            >;
+        type Vesting: VestedTransfer<Self::AccountId, Moment = BlockNumberFor<Self>>
+            + VestingSchedule<Self::AccountId, Moment = BlockNumberFor<Self>>;
 
         /// Convert the block number into a balance.
         type BlockNumberToBalance: Convert<BlockNumberFor<Self>, BalanceOf<Self>>;
@@ -404,7 +396,7 @@ pub mod pallet {
                 Error::<T>::AirdropNotFound
             );
 
-            T::Currency::transfer(
+            CurrencyOf::<T>::transfer(
                 &who,
                 &Self::account_id(),
                 amount,
@@ -540,7 +532,7 @@ pub mod pallet {
                 Error::<T>::NotAirdropCreator
             );
 
-            T::Currency::transfer(
+            CurrencyOf::<T>::transfer(
                 &Self::account_id(),
                 &airdrop_metadata.creator,
                 airdrop_metadata.balance,
