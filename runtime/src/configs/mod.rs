@@ -30,7 +30,10 @@ use crate::governance::definitions::{
     RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
 };
 use crate::governance::{pallet_custom_origins, Spender};
-use frame_support::traits::{ConstU64, EitherOf, NeverEnsureOrigin, WithdrawReasons};
+use crate::MILLI_UNIT;
+use frame_support::traits::{
+    AsEnsureOriginWithArg, ConstU64, EitherOf, NeverEnsureOrigin, WithdrawReasons,
+};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -41,7 +44,7 @@ use frame_support::{
     },
 };
 use frame_system::limits::{BlockLength, BlockWeights};
-use frame_system::{EnsureRoot, EnsureRootWithSuccess};
+use frame_system::{EnsureRoot, EnsureRootWithSuccess, EnsureSigned};
 use pallet_ranked_collective::Linear;
 use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
@@ -53,8 +56,8 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-    AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
-    Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+    AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
+    PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
     RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
     EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
@@ -113,7 +116,6 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-
     pub const MaxTokenAmount: Balance = 1000 * UNIT;
     pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
@@ -170,6 +172,10 @@ impl pallet_timestamp::Config for Runtime {
     type WeightInfo = ();
 }
 
+parameter_types! {
+    pub const ExistentialDeposit: Balance = EXISTENTIAL_DEPOSIT;
+}
+
 impl pallet_balances::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
@@ -179,7 +185,7 @@ impl pallet_balances::Config for Runtime {
     /// The type for recording an account's balance.
     type Balance = Balance;
     type DustRemoval = ();
-    type ExistentialDeposit = ConstU128<EXISTENTIAL_DEPOSIT>;
+    type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
     type ReserveIdentifier = [u8; 8];
     type FreezeIdentifier = RuntimeFreezeReason;
@@ -530,3 +536,37 @@ parameter_types! {
 pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;
 
 impl pallet_custom_origins::Config for Runtime {}
+
+parameter_types! {
+    pub const AssetDeposit: Balance = MILLI_UNIT;
+    pub const AssetAccountDeposit: Balance = MILLI_UNIT;
+    pub const AssetsStringLimit: u32 = 50;
+    pub const MetadataDepositBase: Balance = MILLI_UNIT;
+    pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
+}
+
+/// We allow root to execute privileged asset operations.
+pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = AssetId;
+    type AssetIdParameter = codec::Compact<AssetId>;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+    type ForceOrigin = AssetsForceOrigin;
+    type AssetDeposit = AssetDeposit;
+    type MetadataDepositBase = MetadataDepositBase;
+    type MetadataDepositPerByte = MetadataDepositPerByte;
+    type ApprovalDeposit = ExistentialDeposit;
+    type StringLimit = AssetsStringLimit;
+    type Freezer = ();
+    type Extra = ();
+    type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+    type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
+    type AssetAccountDeposit = AssetAccountDeposit;
+    type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = ();
+}

@@ -144,6 +144,9 @@ pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::Account
 /// Balance of an account.
 pub type Balance = u128;
 
+/// Id type for assets
+pub type AssetId = u32;
+
 /// Index of a transaction in the chain.
 pub type Nonce = u32;
 
@@ -287,4 +290,7 @@ mod runtime {
 
     #[runtime::pallet_index(21)]
     pub type Recovery = pallet_recovery;
+
+    #[runtime::pallet_index(22)]
+    pub type Assets = pallet_assets;
 }

@@ -90,6 +90,7 @@ frame-system = { version = "39.1.0", default-features = false }
 frame-system-benchmarking = { version = "39.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "35.0.0", default-features = false }
 frame-try-runtime = { version = "0.45.0", default-features = false }
+pallet-assets = { version = "41.0.0", default-features = false }
 pallet-conviction-voting = { version = "39.1.0", default-features = false }
 pallet-preimage = { version = "39.0.0", default-features = false }
 pallet-ranked-collective = { version = "39.0.0", default-features = false }

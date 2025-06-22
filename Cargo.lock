@@ -6584,6 +6584,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
+name = "pallet-assets"
+version = "41.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2e7b9ed5bbcd0c66e4a1915fcdc0df9fbc75447a216a405db687398d5d8769b"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-balances"
 version = "40.0.1"
 dependencies = [
@@ -8209,6 +8226,7 @@ dependencies = [
  "hdwallet",
  "lazy_static",
  "log",
+ "pallet-assets",
  "pallet-balances 40.0.1",
  "pallet-conviction-voting",
  "pallet-faucet",
