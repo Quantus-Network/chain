@@ -154,6 +154,7 @@ impl pallet_qpow::Config for Runtime {
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_wormhole::DefaultWeightInfo;
+    type MaxVerifierDataSize = ConstU32<1024>;
 }
 
 type Moment = u64;
