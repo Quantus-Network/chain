@@ -6939,6 +6939,9 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "wormhole-circuit",
+ "wormhole-verifier",
+ "zk-circuits-common",
 ]
 
 [[package]]
@@ -8223,6 +8226,9 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
+ "wormhole-circuit",
+ "wormhole-verifier",
+ "zk-circuits-common",
 ]
 
 [[package]]
@@ -14022,6 +14028,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "wormhole-circuit"
+version = "0.1.0"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-bin#159e73a0ff904e02b65aee515a60e9f3b4460bc9"
+dependencies = [
+ "anyhow",
+ "hex",
+ "plonky2",
+ "zk-circuits-common",
+]
+
+[[package]]
+name = "wormhole-verifier"
+version = "0.1.0"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-bin#159e73a0ff904e02b65aee515a60e9f3b4460bc9"
+dependencies = [
+ "anyhow",
+ "plonky2",
+ "wormhole-circuit",
+ "zk-circuits-common",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14288,6 +14316,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "zk-circuits-common"
+version = "0.1.0"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-bin#159e73a0ff904e02b65aee515a60e9f3b4460bc9"
+dependencies = [
+ "anyhow",
+ "plonky2",
 ]
 
 [[package]]

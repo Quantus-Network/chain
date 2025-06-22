@@ -163,6 +163,7 @@ impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
     type MintingAccount = WormholeMintingAccount;
+    type MaxVerifierDataSize = ConstU32<1024>;
 }
 
 type Moment = u64;

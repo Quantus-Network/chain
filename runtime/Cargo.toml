@@ -45,7 +45,7 @@ pallet-transaction-payment.workspace = true
 pallet-treasury.workspace = true
 pallet-utility.workspace = true
 pallet-vesting.workspace = true
-pallet-wormhole.workspace = true
+pallet-wormhole = { workspace = true, default-features = false }
 poseidon-resonance = { workspace = true, features = ["serde"] }
 primitive-types.workspace = true
 qp-scheduler.workspace = true
@@ -69,6 +69,9 @@ sp-std.workspace = true
 sp-storage.workspace = true
 sp-transaction-pool.workspace = true
 sp-version = { features = ["serde"], workspace = true }
+wormhole-circuit = { workspace = true, default-features = false }
+wormhole-verifier = { workspace = true, default-features = false }
+zk-circuits-common = { workspace = true, default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }

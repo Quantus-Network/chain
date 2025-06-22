@@ -38,7 +38,9 @@ futures = { version = "0.3.31" }
 futures-timer = { version = "3.0.2" }
 hex = { version = "0.4.3", default-features = false }
 jsonrpsee = { version = "0.24.3" }
-lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
+lazy_static = { version = "1.5.0", default-features = false, features = [
+	"spin_no_std",
+] }
 log = { version = "0.4.22", default-features = false }
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 parking_lot = { version = "0.12.1", default-features = false }
@@ -79,6 +81,20 @@ plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
 rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
+# wormhole-circuit = { path = "../wormhole-circuit/wormhole/circuit", default-features = false, features = [
+wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "vrom911/circuit-bin", package = "wormhole-circuit", default-features = false, features = [
+	"no_std",
+] }
+# wormhole-verifier = { path = "../wormhole-circuit/wormhole/verifier", default-features = false, features = [
+wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "vrom911/circuit-bin", package = "wormhole-verifier", default-features = false, features = [
+	"no_random",
+	"no_std",
+] }
+# zk-circuits-common = { path = "../wormhole-circuit/common", default-features = false, features = [
+zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "vrom911/circuit-bin", package = "zk-circuits-common", default-features = false, features = [
+	"no_random",
+	"no_std",
+] }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "39.0.0", default-features = false }

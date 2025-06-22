@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-pub use pallet::*;
-
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -20,16 +18,11 @@ pub mod pallet {
     use codec::{Decode, Encode};
     use frame_support::{pallet_prelude::*, traits::fungible::Mutate};
     use frame_system::pallet_prelude::*;
-    use lazy_static::lazy_static;
-    use pallet_balances::Pallet as BalancesPallet;
-    use plonky2::{
-        field::{goldilocks_field::GoldilocksField, types::PrimeField64},
-        plonk::{
-            circuit_data::{CommonCircuitData, VerifierCircuitData},
-            config::{GenericConfig, PoseidonGoldilocksConfig},
-            proof::ProofWithPublicInputs,
-        },
-        util::serialization::DefaultGateSerializer,
+    use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
+    use wormhole_verifier::{ProofWithPublicInputs, WormholeVerifier};
+    use zk_circuits_common::{
+        circuit::{C, D, F},
+        utils::{felts_to_bytes, felts_to_u128},
     };
 
     #[pallet::pallet]
@@ -46,6 +39,9 @@ pub mod pallet {
         /// Account ID used as the "from" account when creating transfer proofs for minted tokens
         #[pallet::constant]
         type MintingAccount: Get<Self::AccountId>;
+
+        #[pallet::constant]
+        type MaxVerifierDataSize: Get<u32>;
     }
 
     pub trait WeightInfo {
@@ -70,87 +66,15 @@ pub mod pallet {
         }
     }
 
-    const D: usize = 2;
-    type C = PoseidonGoldilocksConfig;
-    type F = <C as GenericConfig<D>>::F;
-
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
-    pub struct WormholePublicInputs<T: Config> {
-        pub nullifier: [u8; 64],
-        pub exit_account: T::AccountId,
-        pub exit_amount: u64,
-        pub fee_amount: u64,
-        pub storage_root: [u8; 32],
-    }
-
-    impl<T: Config> WormholePublicInputs<T> {
-        // Convert from a vector of GoldilocksField elements
-        pub fn from_fields(fields: &[GoldilocksField]) -> Result<Self, Error<T>> {
-            if fields.len() < 16 {
-                // Ensure we have enough fields
-                return Err(Error::<T>::InvalidPublicInputs);
-            }
-
-            // Convert fields to bytes, each GoldilocksField is 8 bytes (u64)
-            let mut nullifier = [0u8; 64];
-            let mut account_bytes = [0u8; 32];
-            let mut storage_root = [0u8; 32];
-
-            // First 8 fields (64 bytes) are the nullifier
-            for i in 0..8 {
-                nullifier[i * 8..(i + 1) * 8]
-                    .copy_from_slice(&fields[i].to_canonical_u64().to_le_bytes());
-            }
-
-            // Next 4 fields (32 bytes) are the exit account
-            for i in 0..4 {
-                account_bytes[i * 8..(i + 1) * 8]
-                    .copy_from_slice(&fields[i + 8].to_canonical_u64().to_le_bytes());
-            }
-
-            // Next field is exit amount
-            let exit_amount = fields[12].to_canonical_u64();
-
-            // Next field is fee amount
-            let fee_amount = fields[13].to_canonical_u64();
-
-            // Last 2 fields are storage root
-            for i in 0..4 {
-                storage_root[i * 8..(i + 1) * 8]
-                    .copy_from_slice(&fields[i + 14].to_canonical_u64().to_le_bytes());
-            }
-
-            let exit_account = T::AccountId::decode(&mut &account_bytes[..])
-                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-            Ok(WormholePublicInputs {
-                nullifier,
-                exit_account,
-                exit_amount,
-                fee_amount,
-                storage_root,
-            })
-        }
-    }
-
-    // Define the circuit data as a lazy static constant
-    lazy_static! {
-        static ref CIRCUIT_DATA: CommonCircuitData<F, D> = {
-            let bytes = include_bytes!("../common.hex");
-            CommonCircuitData::from_bytes(bytes.to_vec(), &DefaultGateSerializer)
-                .expect("Failed to parse circuit data")
-        };
-        static ref VERIFIER_DATA: VerifierCircuitData<F, C, D> = {
-            let bytes = include_bytes!("../verifier.hex");
-            VerifierCircuitData::from_bytes(bytes.to_vec(), &DefaultGateSerializer)
-                .expect("Failed to parse verifier data")
-        };
-    }
-
     #[pallet::storage]
     #[pallet::getter(fn used_nullifiers)]
     pub(super) type UsedNullifiers<T: Config> =
-        StorageMap<_, Blake2_128Concat, [u8; 64], bool, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn verifier_data)]
+    pub(super) type VerifierData<T: Config> =
+        StorageValue<_, BoundedVec<u8, T::MaxVerifierDataSize>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -169,41 +93,95 @@ pub mod pallet {
         VerifierNotFound,
         InvalidPublicInputs,
         NullifierAlreadyUsed,
+        VerifierDataTooLarge,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
+        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        pub fn initialize_verifier(origin: OriginFor<T>, verifier_data: Vec<u8>) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                !verifier_data.is_empty(),
+                Error::<T>::InvalidVerificationKey
+            );
+            ensure!(
+                VerifierData::<T>::get().is_empty(),
+                Error::<T>::AlreadyInitialized
+            );
+            let bounded_verifier_data: BoundedVec<u8, T::MaxVerifierDataSize> = verifier_data
+                .try_into()
+                .map_err(|_| Error::<T>::VerifierDataTooLarge)?;
+            VerifierData::<T>::put(bounded_verifier_data);
+            Ok(())
+        }
+
+        #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
 
-            let proof = ProofWithPublicInputs::from_bytes(proof_bytes.clone(), &*CIRCUIT_DATA)
-                .map_err(|_e| {
-                    // log::error!("Proof deserialization failed: {:?}", e.to_string());
-                    Error::<T>::ProofDeserializationFailed
-                })?;
+            let verifier_bytes = VerifierData::<T>::get();
+            ensure!(!verifier_bytes.is_empty(), Error::<T>::NotInitialized);
+            let verifier = WormholeVerifier::from_bytes(&verifier_bytes)
+                .map_err(|_| Error::<T>::InvalidVerificationKey)?;
+            let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+                proof_bytes,
+                &verifier.circuit_data.common,
+            )
+            .map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
             let public_inputs = WormholePublicInputs::<T>::from_fields(&proof.public_inputs)?;
+            // Public inputs are ordered as follows:
+            // Nullifier.hash: 4 felts
+            // StorageProof.funding_amount: 2 felts
+            // StorageProof.root_hash: 4 felts
+            // ExitAccount.address: 4 felts
+            //
+            // TODO: These constants should be exposed from the common crate.
+            const PUBLIC_INPUTS_FELTS_LEN: usize = 14;
+            const NULLIFIER_START_INDEX: usize = 0;
+            const NULLIFIER_END_INDEX: usize = 4;
+            const FUNDING_AMOUNT_START_INDEX: usize = 4;
+            const FUNDING_AMOUNT_END_INDEX: usize = 6;
+            const EXIT_ACCOUNT_START_INDEX: usize = 10;
+            const EXIT_ACCOUNT_END_INDEX: usize = 14;
+
+            ensure!(
+                proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
+                Error::<T>::InvalidPublicInputs
+            );
+
+            let nullifier_bytes_vec =
+                felts_to_bytes(&proof.public_inputs[NULLIFIER_START_INDEX..NULLIFIER_END_INDEX]);
+            let nullifier_bytes: [u8; 32] = nullifier_bytes_vec
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
             // Verify nullifier hasn't been used
             ensure!(
-                !UsedNullifiers::<T>::contains_key(public_inputs.nullifier),
+                !UsedNullifiers::<T>::contains_key(&nullifier_bytes),
                 Error::<T>::NullifierAlreadyUsed
             );
 
-            VERIFIER_DATA.verify(proof).map_err(|_e| {
-                // log::error!("Verification failed: {:?}", e.to_string());
-                Error::<T>::VerificationFailed
-            })?;
+            verifier
+                .verify(proof.clone())
+                .map_err(|_| Error::<T>::VerificationFailed)?;
 
             // Mark nullifier as used
-            UsedNullifiers::<T>::insert(public_inputs.nullifier, true);
+            UsedNullifiers::<T>::insert(&nullifier_bytes, true);
 
-            let exit_balance = public_inputs
-                .exit_amount
+            let exit_balance = public_inputs.exit_amount;
+            let exit_balance_u128 = felts_to_u128(
+                <[F; 2]>::try_from(
+                    &proof.public_inputs[FUNDING_AMOUNT_START_INDEX..FUNDING_AMOUNT_END_INDEX],
+                )
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?,
+            );
+            let exit_balance: <T as BalancesConfig>::Balance = exit_balance_u128
                 .try_into()
-                .map_err(|_| "Conversion from u64 to Balance failed")?;
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
             BalancesPallet::<T, ()>::mint_into(&public_inputs.exit_account, exit_balance)?;
 
@@ -214,6 +192,14 @@ pub mod pallet {
                 &public_inputs.exit_account,
                 exit_balance,
             );
+
+            // Mint new tokens to the exit account
+            let exit_account_bytes = felts_to_bytes(
+                &proof.public_inputs[EXIT_ACCOUNT_START_INDEX..EXIT_ACCOUNT_END_INDEX],
+            );
+            let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
+            let _ = BalancesPallet::<T>::deposit_creating(&exit_account, exit_balance);
 
             // Emit event
             Self::deposit_event(Event::ProofVerified {
