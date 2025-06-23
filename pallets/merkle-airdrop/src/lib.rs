@@ -434,7 +434,7 @@ pub mod pallet {
         /// * `InvalidProof` - If the provided Merkle proof is invalid
         /// * `InsufficientAirdropBalance` - If the airdrop doesn't have enough tokens
         #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::claim())]
+        #[pallet::weight(T::WeightInfo::claim(merkle_proof.len() as u32))]
         pub fn claim(
             origin: OriginFor<T>,
             airdrop_id: AirdropId,

@@ -1,5 +1,7 @@
 //! Benchmarking setup for pallet-mining-rewards
 
+extern crate alloc;
+
 use super::*;
 use crate::Pallet as MiningRewards;
 use frame_benchmarking::{account, v2::*, BenchmarkError};
@@ -36,7 +38,7 @@ mod benchmarks {
             &block_number,
             &SystemPallet::<T>::parent_hash(),
             &Digest {
-                logs: vec![miner_digest_item],
+                logs: alloc::vec![miner_digest_item],
             },
         );
 
@@ -64,7 +66,7 @@ mod benchmarks {
             &block_number,
             &SystemPallet::<T>::parent_hash(),
             &Digest {
-                logs: vec![miner_digest_item],
+                logs: alloc::vec![miner_digest_item],
             },
         );
 

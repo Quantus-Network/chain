@@ -92,7 +92,6 @@ pub mod pallet {
         pub _phantom: PhantomData<T>,
     }
 
-    //#[cfg(feature = "std")]
     impl<T: Config> Default for GenesisConfig<T> {
         fn default() -> Self {
             Self {
@@ -122,6 +121,8 @@ pub mod pallet {
     }
 
     pub trait WeightInfo {}
+
+    impl WeightInfo for () {}
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]

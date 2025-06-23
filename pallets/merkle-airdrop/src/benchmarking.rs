@@ -8,7 +8,7 @@ use frame_benchmarking::v2::*;
 use frame_support::BoundedVec;
 use frame_system::RawOrigin;
 use sp_io::hashing::blake2_256;
-use sp_runtime::traits::{Get, One, Saturating};
+use sp_runtime::traits::{Get, Saturating};
 
 // Helper function to mirror pallet's Merkle proof verification logic
 fn calculate_expected_root_for_benchmark(

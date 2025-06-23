@@ -45,7 +45,7 @@ mod benchmarks {
         }
 
         // Verify that distance threshold was stored and blocks counter incremented
-        assert!(BlockDistanceThresholds::<T>::contains_key(block_number));
+        assert!(BlockDistanceThresholds::<T>::contains_key(block_number + 1));
         assert_eq!(<BlocksInPeriod<T>>::get(), 4u32);
     }
 

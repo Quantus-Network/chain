@@ -141,7 +141,7 @@ parameter_types! {
 
 impl pallet_qpow::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_qpow::DefaultWeightInfo;
+    type WeightInfo = ();
     // NOTE: InitialDistance will be shifted left by this amount: higher is easier
     type InitialDistanceThresholdExponent = ConstU32<502>;
     type DifficultyAdjustPercentClamp = ConstU8<10>;
@@ -153,7 +153,7 @@ impl pallet_qpow::Config for Runtime {
 
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_wormhole::DefaultWeightInfo;
+    type WeightInfo = ();
 }
 
 type Moment = u64;

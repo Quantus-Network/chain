@@ -150,6 +150,8 @@ runtime-benchmarks = [
 	"pallet-recovery/runtime-benchmarks",
 	"pallet-referenda/runtime-benchmarks",
 	"pallet-reversible-transfers/runtime-benchmarks",
+	"pallet-qpow/runtime-benchmarks",
+	"pallet-scheduler/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",

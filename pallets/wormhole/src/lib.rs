@@ -46,6 +46,21 @@ pub mod pallet {
         fn verify_wormhole_proof_empty_data() -> Weight;
     }
 
+    impl WeightInfo for () {
+        fn verify_wormhole_proof() -> Weight {
+            Weight::zero()
+        }
+        fn verify_wormhole_proof_with_used_nullifier() -> Weight {
+            Weight::zero()
+        }
+        fn verify_wormhole_proof_deserialization_failure() -> Weight {
+            Weight::zero()
+        }
+        fn verify_wormhole_proof_empty_data() -> Weight {
+            Weight::zero()
+        }
+    }
+
     const D: usize = 2;
     type C = PoseidonGoldilocksConfig;
     type F = <C as GenericConfig<D>>::F;
