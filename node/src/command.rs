@@ -1,3 +1,6 @@
+use std::{fs, io};
+use std::io::Write;
+use std::path::PathBuf;
 use crate::cli::{QuantusAddressType, QuantusKeySubcommand};
 use crate::{
     benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder},
@@ -7,12 +10,16 @@ use crate::{
 };
 use dilithium_crypto::{traits::WormholeAddress, ResonancePair};
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
+use rand::RngCore;
+use rand::rngs::OsRng;
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
-use sc_cli::SubstrateCli;
+use rusty_crystals_dilithium::ml_dsa_87;
+use sc_cli::{Error, KeySubcommand, SubstrateCli};
 use sc_network::config::{NodeKeyConfig, Secret};
-use sc_service::{BlocksPruning, PartialComponents, PruningMode};
+use sc_network::PublicKey;
+use sc_service::{BasePath, BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
@@ -26,6 +33,41 @@ pub struct QuantusKeyDetails {
     pub seed_hex: String,       // Derived seed, hex encoded with "0x" prefix
     pub secret_phrase: Option<String>, // Mnemonic phrase
 }
+
+const NODE_KEY_DILITHIUM_FILE: &str = "secret_dilithium";
+const DEFAULT_NETWORK_CONFIG_PATH: &str = "network";
+
+/// Returns the value of `base_path` or the default_path if it is None
+pub(crate) fn base_path_or_default(
+    base_path: Option<BasePath>,
+    executable_name: &String,
+) -> BasePath {
+    base_path.unwrap_or_else(|| BasePath::from_project("", "", executable_name))
+}
+
+/// Returns the default path for configuration  directory based on the chain_spec
+pub(crate) fn build_config_dir(base_path: &BasePath, chain_spec_id: &str) -> PathBuf {
+    base_path.config_dir(chain_spec_id)
+}
+
+
+/// Returns the default path for the network configuration inside the configuration dir
+pub(crate) fn build_net_config_dir(config_dir: &PathBuf) -> PathBuf {
+    config_dir.join(DEFAULT_NETWORK_CONFIG_PATH)
+}
+
+/// Returns the default path for the network directory starting from the provided base_path
+/// or from the default base_path.
+pub(crate) fn build_network_key_dir_or_default(
+    base_path: Option<BasePath>,
+    chain_spec_id: &str,
+    executable_name: &String,
+) -> PathBuf {
+    let config_dir =
+        build_config_dir(&base_path_or_default(base_path, executable_name), chain_spec_id);
+    build_net_config_dir(&config_dir)
+}
+
 
 pub fn generate_quantus_key(
     scheme: QuantusAddressType,
@@ -116,6 +158,61 @@ pub fn generate_quantus_key(
     }
 }
 
+/// This is copied from sc-cli and adapted to dilithium
+fn generate_key_in_file(
+    file: &Option<PathBuf>,
+    bin: bool,
+    chain_spec_id: Option<&str>,
+    base_path: &Option<PathBuf>,
+    default_base_path: bool,
+    executable_name: Option<&String>,
+) -> Result<(), Error> {
+    let mut seed: [u8; 32] = [0u8; 32];
+    OsRng.fill_bytes(seed.as_mut());
+
+    let keypair = ResonancePair::from_seed(&seed).unwrap();
+    let secret = keypair.secret;
+
+    let file_data = if bin {
+        secret.to_vec()
+    } else {
+        hex::encode(secret).into_bytes()
+    };
+
+    match (file, base_path, default_base_path) {
+        (Some(file), None, false) => fs::write(file, file_data)?,
+        (None, Some(_), false) | (None, None, true) => {
+            let network_path = build_network_key_dir_or_default(
+                base_path.clone().map(BasePath::new),
+                chain_spec_id.unwrap_or_default(),
+                executable_name.ok_or(Error::Input("Executable name not provided".into()))?,
+            );
+
+            fs::create_dir_all(network_path.as_path())?;
+
+            let key_path = network_path.join(NODE_KEY_DILITHIUM_FILE);
+            if key_path.exists() {
+                eprintln!("Skip generation, a key already exists in {:?}", key_path);
+                return Err(Error::KeyAlreadyExistsInPath(key_path));
+            } else {
+                eprintln!("Generating key in {:?}", key_path);
+                fs::write(key_path, file_data)?
+            }
+        },
+        (None, None, false) => io::stdout().lock().write_all(&file_data)?,
+        (_, _, _) => {
+            // This should not happen, arguments are marked as mutually exclusive.
+            return Err(Error::Input("Mutually exclusive arguments provided".into()));
+        },
+    }
+    let pubkey = PublicKey::from(ml_dsa_87::PublicKey { bytes: keypair.public });
+    let peer_id = pubkey.to_peer_id();
+    eprintln!("{}", peer_id);
+
+    Ok(())
+}
+
+
 impl SubstrateCli for Cli {
     fn impl_name() -> String {
         "Quantus Node".into()
@@ -168,7 +265,22 @@ pub fn run() -> sc_cli::Result<()> {
     match &cli.subcommand {
         Some(Subcommand::Key(cmd)) => {
             match cmd {
-                QuantusKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
+                QuantusKeySubcommand::Sc(sc_cmd) => {
+                    match sc_cmd {
+                        KeySubcommand::GenerateNodeKey(gen_cmd) => {
+                            let chain_spec = cli.load_spec(gen_cmd.chain.as_deref().unwrap_or(""))?;
+                            generate_key_in_file(
+                                &None,
+                                true,
+                                Some(chain_spec.id()),
+                                &None,
+                                true,
+                                Some(&Cli::executable_name()),
+                            )
+                        }
+                        _ => { sc_cmd.run(&cli) }
+                    }
+                },
                 QuantusKeySubcommand::Quantus {
                     scheme,
                     seed,
