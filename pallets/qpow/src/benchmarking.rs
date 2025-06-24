@@ -6,7 +6,7 @@ use frame_benchmarking::v2::*;
 use frame_support::traits::Hooks;
 use frame_system::pallet_prelude::BlockNumberFor;
 use sp_core::U512;
-use sp_runtime::traits::{Get, Zero};
+use sp_runtime::traits::{Get, One, Zero};
 
 #[benchmarks(
     where
@@ -45,7 +45,9 @@ mod benchmarks {
         }
 
         // Verify that distance threshold was stored and blocks counter incremented
-        assert!(BlockDistanceThresholds::<T>::contains_key(block_number + 1));
+        assert!(BlockDistanceThresholds::<T>::contains_key(
+            block_number + One::one()
+        ));
         assert_eq!(<BlocksInPeriod<T>>::get(), 4u32);
     }
 
