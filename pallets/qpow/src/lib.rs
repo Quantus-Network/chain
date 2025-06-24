@@ -11,8 +11,12 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+pub mod weights;
+use weights::*;
+
 #[frame_support::pallet]
 pub mod pallet {
+    use super::*;
     use core::ops::{Shl, Shr};
     use frame_support::sp_runtime::traits::{One, Zero};
     use frame_support::sp_runtime::SaturatedConversion;
@@ -64,7 +68,6 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_timestamp::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-        type WeightInfo: WeightInfo;
 
         #[pallet::constant]
         type InitialDistanceThresholdExponent: Get<u32>;
@@ -83,6 +86,9 @@ pub mod pallet {
 
         #[pallet::constant]
         type MaxReorgDepth: Get<u32>;
+
+        /// Weight information for extrinsics in this pallet.
+        type WeightInfo: WeightInfo;
     }
 
     #[pallet::genesis_config]
@@ -120,10 +126,6 @@ pub mod pallet {
         }
     }
 
-    pub trait WeightInfo {}
-
-    impl WeightInfo for () {}
-
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -150,7 +152,7 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-            Weight::zero()
+            <T as crate::Config>::WeightInfo::on_finalize_max_history()
         }
 
         /// Called when there is remaining weight at the end of the block.

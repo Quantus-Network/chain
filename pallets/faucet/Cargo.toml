@@ -35,10 +35,10 @@ pallet-balances = { workspace = true, default-features = false }
 [features]
 default = ["std"]
 runtime-benchmarks = [
-    "frame-benchmarking",
-    "frame-support/runtime-benchmarks",
-    "pallet-balances/runtime-benchmarks",
-    "sp-runtime/runtime-benchmarks",
+	"frame-benchmarking",
+	"frame-support/runtime-benchmarks",
+	"pallet-balances/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 std = [
 	"codec/std",

@@ -33,7 +33,6 @@ frame_benchmarking::define_benchmarks!(
     [pallet_merkle_airdrop, MerkleAirdrop]
     [pallet_mining_rewards, MiningRewards]
     [pallet_scheduler, Scheduler]
-    [pallet_wormhole, Wormhole]
     [pallet_qpow, QPoW]
     [pallet_faucet, Faucet]
 );
