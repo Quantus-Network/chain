@@ -1,6 +1,3 @@
-use std::{fs, io};
-use std::io::Write;
-use std::path::PathBuf;
 use crate::cli::{QuantusAddressType, QuantusKeySubcommand};
 use crate::{
     benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder},
@@ -10,20 +7,24 @@ use crate::{
 };
 use dilithium_crypto::{traits::WormholeAddress, ResonancePair};
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
-use rand::RngCore;
-use rand::rngs::OsRng;
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use rand::rngs::OsRng;
+use rand::RngCore;
+use rusty_crystals_dilithium::ml_dsa_87;
 use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
-use rusty_crystals_dilithium::ml_dsa_87;
 use sc_cli::{Error, KeySubcommand, SubstrateCli};
 use sc_network::config::{NodeKeyConfig, Secret};
-use sc_network::PublicKey;
+use sc_network::{Keypair, PublicKey};
 use sc_service::{BasePath, BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
+use sp_core::Pair;
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
+use std::io::Write;
+use std::path::PathBuf;
+use std::{fs, io};
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
     pub address: String,
@@ -50,7 +51,6 @@ pub(crate) fn build_config_dir(base_path: &BasePath, chain_spec_id: &str) -> Pat
     base_path.config_dir(chain_spec_id)
 }
 
-
 /// Returns the default path for the network configuration inside the configuration dir
 pub(crate) fn build_net_config_dir(config_dir: &PathBuf) -> PathBuf {
     config_dir.join(DEFAULT_NETWORK_CONFIG_PATH)
@@ -63,11 +63,12 @@ pub(crate) fn build_network_key_dir_or_default(
     chain_spec_id: &str,
     executable_name: &String,
 ) -> PathBuf {
-    let config_dir =
-        build_config_dir(&base_path_or_default(base_path, executable_name), chain_spec_id);
+    let config_dir = build_config_dir(
+        &base_path_or_default(base_path, executable_name),
+        chain_spec_id,
+    );
     build_net_config_dir(&config_dir)
 }
-
 
 pub fn generate_quantus_key(
     scheme: QuantusAddressType,
@@ -161,23 +162,19 @@ pub fn generate_quantus_key(
 /// This is copied from sc-cli and adapted to dilithium
 fn generate_key_in_file(
     file: &Option<PathBuf>,
-    bin: bool,
     chain_spec_id: Option<&str>,
     base_path: &Option<PathBuf>,
     default_base_path: bool,
     executable_name: Option<&String>,
+    keypair: Option<&Keypair>,
 ) -> Result<(), Error> {
-    let mut seed: [u8; 32] = [0u8; 32];
-    OsRng.fill_bytes(seed.as_mut());
-
-    let keypair = ResonancePair::from_seed(&seed).unwrap();
-    let secret = keypair.secret;
-
-    let file_data = if bin {
-        secret.to_vec()
+    let kp: Keypair;
+    if let Some(k) = keypair {
+        kp = k.clone();
     } else {
-        hex::encode(secret).into_bytes()
-    };
+        kp = Keypair::generate_dilithium();
+    }
+    let file_data = kp.to_protobuf_encoding().unwrap();
 
     match (file, base_path, default_base_path) {
         (Some(file), None, false) => fs::write(file, file_data)?,
@@ -198,20 +195,18 @@ fn generate_key_in_file(
                 eprintln!("Generating key in {:?}", key_path);
                 fs::write(key_path, file_data)?
             }
-        },
+        }
         (None, None, false) => io::stdout().lock().write_all(&file_data)?,
         (_, _, _) => {
             // This should not happen, arguments are marked as mutually exclusive.
             return Err(Error::Input("Mutually exclusive arguments provided".into()));
-        },
+        }
     }
-    let pubkey = PublicKey::from(ml_dsa_87::PublicKey { bytes: keypair.public });
-    let peer_id = pubkey.to_peer_id();
-    eprintln!("{}", peer_id);
+
+    eprintln!("{}", kp.public().to_peer_id());
 
     Ok(())
 }
-
 
 impl SubstrateCli for Cli {
     fn impl_name() -> String {
@@ -265,21 +260,19 @@ pub fn run() -> sc_cli::Result<()> {
     match &cli.subcommand {
         Some(Subcommand::Key(cmd)) => {
             match cmd {
-                QuantusKeySubcommand::Sc(sc_cmd) => {
-                    match sc_cmd {
-                        KeySubcommand::GenerateNodeKey(gen_cmd) => {
-                            let chain_spec = cli.load_spec(gen_cmd.chain.as_deref().unwrap_or(""))?;
-                            generate_key_in_file(
-                                &None,
-                                true,
-                                Some(chain_spec.id()),
-                                &None,
-                                true,
-                                Some(&Cli::executable_name()),
-                            )
-                        }
-                        _ => { sc_cmd.run(&cli) }
+                QuantusKeySubcommand::Sc(sc_cmd) => match sc_cmd {
+                    KeySubcommand::GenerateNodeKey(gen_cmd) => {
+                        let chain_spec = cli.load_spec(gen_cmd.chain.as_deref().unwrap_or(""))?;
+                        generate_key_in_file(
+                            &None,
+                            Some(chain_spec.id()),
+                            &None,
+                            true,
+                            Some(&Cli::executable_name()),
+                            None,
+                        )
                     }
+                    _ => sc_cmd.run(&cli),
                 },
                 QuantusKeySubcommand::Quantus {
                     scheme,
@@ -535,6 +528,7 @@ mod tests {
         EXPECTED_PUBLIC_KEY_HEX, EXPECTED_SECRET_KEY_HEX, TEST_ADDRESS, TEST_MNEMONIC,
         TEST_SEED_HEX,
     };
+    use tempfile::TempDir;
 
     #[test]
     fn test_generate_quantus_key_standard_new_mnemonic() {
@@ -656,5 +650,114 @@ mod tests {
         assert_eq!(details.address, expected_address);
         assert_eq!(details.public_key_hex, expected_public_key_hex);
         assert_eq!(details.secret_key_hex, expected_secret_key_hex);
+    }
+
+    #[test]
+    fn test_generate_key_in_file_explicit_path() {
+        // Setup: Create a temporary directory and file path.
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.key");
+        let original_keypair = Keypair::generate_dilithium();
+        // Generate and write keypair.
+        let result = generate_key_in_file(
+            &Some(file_path.clone()),
+            None,
+            &None,
+            false,
+            Some(&"test-exec".to_string()),
+            Some(&original_keypair),
+        );
+        assert!(result.is_ok(), "Failed to generate key: {:?}", result);
+
+        // Read the file contents.
+        let file_data = fs::read(&file_path).expect("Failed to read file");
+
+        // Deserialize the keypair.
+        let deserialized_keypair =
+            Keypair::from_protobuf_encoding(&file_data).expect("Failed to deserialize keypair");
+
+        // Verify the deserialized keypair matches the original.
+        assert_eq!(
+            deserialized_keypair.public().to_peer_id(),
+            original_keypair.public().to_peer_id(),
+            "Deserialized public key does not match original"
+        );
+    }
+
+    #[test]
+    fn test_generate_key_in_file_default_path() {
+        // Setup: Create a temporary directory as base path.
+        let temp_dir = TempDir::new().unwrap();
+        let base_path = Some(temp_dir.path().to_path_buf());
+        let chain_spec_id = "test-chain";
+        let executable_name = "test-exec";
+        let original_keypair = Keypair::generate_dilithium();
+
+        // Generate and write keypair.
+        let result = generate_key_in_file(
+            &None,
+            Some(chain_spec_id),
+            &base_path,
+            false,
+            Some(&executable_name.to_string()),
+            Some(&original_keypair),
+        );
+        assert!(result.is_ok(), "Failed to generate key: {:?}", result);
+
+        // Construct the expected key file path.
+        let expected_path = temp_dir
+            .path()
+            .join("chains")
+            .join(chain_spec_id)
+            .join("network")
+            .join(NODE_KEY_DILITHIUM_FILE);
+
+        // Read the file contents.
+        let file_data = fs::read(&expected_path).expect("Failed to read file");
+
+        // Deserialize the keypair.
+        let deserialized_keypair =
+            Keypair::from_protobuf_encoding(&file_data).expect("Failed to deserialize keypair");
+
+        // Verify the deserialized keypair matches the original.
+        assert_eq!(
+            deserialized_keypair.public().to_peer_id(),
+            original_keypair.public().to_peer_id(),
+            "Deserialized public key does not match original"
+        );
+    }
+
+    #[test]
+    fn test_generate_key_in_file_key_already_exists() {
+        // Setup: Create a temporary directory and pre-create the key file.
+        let temp_dir = TempDir::new().unwrap();
+        let base_path = Some(temp_dir.path().to_path_buf());
+        let chain_spec_id = "test-chain";
+        let executable_name = "test-exec";
+
+        // Create the network directory and key file.
+        let network_path = temp_dir
+            .path()
+            .join("chains")
+            .join(chain_spec_id)
+            .join("network");
+        fs::create_dir_all(&network_path).unwrap();
+        let key_path = network_path.join(NODE_KEY_DILITHIUM_FILE);
+        fs::write(&key_path, vec![0u8; 8]).unwrap(); // Write dummy data.
+
+        // Attempt to generate key (should fail due to existing file).
+        let result = generate_key_in_file(
+            &None,
+            Some(chain_spec_id),
+            &base_path,
+            false,
+            Some(&executable_name.to_string()),
+            None,
+        );
+        assert!(
+            matches!(result, Err(Error::KeyAlreadyExistsInPath(_))),
+            "Expected KeyAlreadyExistsInPath error, got: {:?}",
+            result
+        );
     }
 }
