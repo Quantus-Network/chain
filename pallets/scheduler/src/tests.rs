@@ -3529,3 +3529,76 @@ fn unavailable_call_is_detected() {
         assert!(!Preimage::is_requested(&hash));
     });
 }
+
+#[test]
+fn time_based_agenda_is_processed_correctly() {
+    new_test_ext().execute_with(|| {
+        // Bucket size is 10_000ms.
+        // Schedule a task in bucket 10_000
+        let schedule_time_ms = 15_000;
+
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(schedule_time_ms),
+            None,
+            0,
+            Box::new(RuntimeCall::Logger(LoggerCall::log {
+                i: 1,
+                weight: Weight::from_parts(100, 0)
+            })),
+        ));
+
+        // First block is at 0ms.
+        MockTimestamp::set_timestamp(0);
+        Scheduler::on_timestamp_set(0);
+
+        // Assert nothing is logged yet.
+        assert_eq!(logger::log(), vec![]);
+
+        // Jump time far ahead, skipping bucket 10_000 and 20_000.
+        let future_time_ms = 10_000;
+        MockTimestamp::set_timestamp(future_time_ms);
+        // Process the block at the future time.
+        Scheduler::on_timestamp_set(future_time_ms);
+
+        assert_eq!(logger::log().len(), 1);
+        assert_eq!(logger::log()[0].1, 1);
+    });
+}
+
+#[test]
+fn time_based_agenda_is_processed_correctly_after_time_skip() {
+    new_test_ext().execute_with(|| {
+        // Bucket size is 10_000ms.
+        // Schedule a task in bucket 10_000
+        let schedule_time_ms = 15_000;
+
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(schedule_time_ms),
+            None,
+            0,
+            Box::new(RuntimeCall::Logger(LoggerCall::log {
+                i: 1,
+                weight: Weight::from_parts(100, 0)
+            })),
+        ));
+
+        // First block is at 0ms.
+        MockTimestamp::set_timestamp(0);
+        Scheduler::on_timestamp_set(0);
+
+        // Assert nothing is logged yet.
+        assert_eq!(logger::log(), vec![]);
+
+        // Jump time far ahead, skipping bucket 10_000 and 20_000.
+        let future_time_ms = 30_000;
+        MockTimestamp::set_timestamp(future_time_ms);
+        // Process the block at the future time.
+        Scheduler::on_timestamp_set(future_time_ms);
+
+        // Fails due to bucket skipping
+        assert_eq!(logger::log().len(), 1);
+        assert_eq!(logger::log()[0].1, 1);
+    });
+}
