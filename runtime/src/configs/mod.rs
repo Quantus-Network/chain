@@ -570,3 +570,13 @@ impl pallet_assets::Config for Runtime {
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
 }
+
+impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
+    type Error = ();
+    fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+        match call {
+            RuntimeCall::Balances(c) => Ok(c),
+            _ => Err(()),
+        }
+    }
+}

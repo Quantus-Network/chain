@@ -102,7 +102,8 @@ pub mod pallet {
         frame_system::Config<
             RuntimeCall: From<pallet_balances::Call<Self>>
                              + From<Call<Self>>
-                             + Dispatchable<PostInfo = PostDispatchInfo>,
+                             + Dispatchable<PostInfo = PostDispatchInfo>
+                             + TryInto<pallet_balances::Call<Self>>,
         > + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
     {
         /// The overarching runtime event type.
@@ -112,7 +113,7 @@ pub mod pallet {
         type Scheduler: ScheduleNamed<
             BlockNumberFor<Self>,
             Self::Moment,
-            Self::RuntimeCall,
+            <Self as frame_system::Config>::RuntimeCall,
             Self::SchedulerOrigin,
             Hasher = Self::Hashing,
         >;
@@ -495,8 +496,7 @@ pub mod pallet {
             )?;
 
             // Remove transfer from all storage (handles indexes, account count, etc.)
-            // We pass None for recipient since cleanup_tx_id_from_all_recipient_indexes will handle it
-            Self::transfer_removed(&pending.who, None, *tx_id, &pending);
+            Self::transfer_removed(&pending.who, *tx_id, &pending);
 
             let post_info = call
                 .dispatch(frame_support::dispatch::RawOrigin::Signed(pending.who.clone()).into());
@@ -563,7 +563,6 @@ pub mod pallet {
         /// Called when a transfer is removed - cleans up all storage indexes
         fn transfer_removed(
             sender: &T::AccountId,
-            recipient: Option<&T::AccountId>,
             tx_id: T::Hash,
             pending_transfer: &PendingTransfer<
                 T::AccountId,
@@ -590,7 +589,6 @@ pub mod pallet {
                         count: new_count,
                     },
                 );
-                // DON'T clean up indexes yet - there are still instances remaining
             } else {
                 // This was the last instance (new_count == 0), remove completely and clean up indexes
                 PendingTransfers::<T>::remove(tx_id);
@@ -600,15 +598,32 @@ pub mod pallet {
                     list.retain(|&x| x != tx_id);
                 });
 
-                // Clean up recipient index - remove from all recipient lists that contain this tx_id
-                if let Some(recipient) = recipient {
-                    // If we know the specific recipient, clean it efficiently
-                    PendingTransfersByRecipient::<T>::mutate(recipient, |list| {
-                        list.retain(|&x| x != tx_id);
-                    });
+                // Extract recipient from the call and clean up recipient index efficiently
+                if let Ok((call, _)) = T::Preimages::peek::<T::RuntimeCall>(&pending_transfer.call)
+                {
+                    if let Ok(balance_call) = call.try_into() {
+                        if let pallet_balances::Call::transfer_keep_alive { dest, .. } =
+                            balance_call
+                        {
+                            if let Ok(recipient) = T::Lookup::lookup(dest) {
+                                // Clean up recipient index efficiently
+                                PendingTransfersByRecipient::<T>::mutate(&recipient, |list| {
+                                    list.retain(|&x| x != tx_id);
+                                });
+                            } else {
+                                // Fallback to cleanup all if lookup fails
+                                Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
+                            }
+                        } else {
+                            // Not a transfer_keep_alive call, cleanup all
+                            Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
+                        }
+                    } else {
+                        // Couldn't convert to balance call, cleanup all
+                        Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
+                    }
                 } else {
-                    // If we don't know the recipient, we need to clean it from all recipient indexes
-                    // This is less efficient but ensures proper cleanup during execution
+                    // Couldn't peek the call, cleanup all as fallback
                     Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
                 }
             }
@@ -748,7 +763,7 @@ pub mod pallet {
             };
 
             // Remove transfer from all storage (handles indexes, account count, etc.)
-            Self::transfer_removed(&pending.who, None, tx_id, &pending);
+            Self::transfer_removed(&pending.who, tx_id, &pending);
 
             let schedule_id = Self::make_schedule_id(&tx_id, pending.count)?;
 
