@@ -380,6 +380,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Execute the scheduled calls
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
+            log::debug!(target: "scheduler", "Scheduler on_initialize hook called");
             let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
             Self::service_agendas(
                 &mut weight_counter,
@@ -726,6 +727,8 @@ impl<T: Config> Pallet<T> {
     ) -> Result<TaskAddressOf<T>, DispatchError> {
         let when = Self::resolve_time(when)?;
 
+        log::debug!(target: "scheduler", "do_schedule resolved {:?}", when);
+
         let lookup_hash = call.lookup_hash();
 
         // sanitize maybe_periodic
@@ -825,6 +828,8 @@ impl<T: Config> Pallet<T> {
 
         let when = Self::resolve_time(when)?;
 
+        log::debug!(target: "scheduler", "do_schedule_named resolved {:?}", when);
+
         let lookup_hash = call.lookup_hash();
 
         // sanitize maybe_periodic
@@ -923,14 +928,19 @@ use ServiceTaskError::*;
 impl<T: Config> Pallet<T> {
     /// Service up to `max` agendas queue starting from earliest incompletely executed agenda.
     fn service_agendas(weight: &mut WeightMeter, now: BlockNumberOrTimestampOf<T>, max: u32) {
+        log::debug!(target: "scheduler", "Running service agendas");
+
         if weight
             .try_consume(T::WeightInfo::service_agendas_base())
             .is_err()
         {
+            log::error!(target: "scheduler", "Failed to consume weight for service_agendas");
             return;
         }
 
         let normalized_now = now.normalize(T::TimestampBucketSize::get());
+
+        log::debug!(target: "scheduler", "normalized_now {:?}", normalized_now);
 
         let mut incomplete_since = match normalized_now {
             BlockNumberOrTimestamp::BlockNumber(x) => {
@@ -941,6 +951,10 @@ impl<T: Config> Pallet<T> {
             }
         };
         let mut when = IncompleteSince::<T>::take().unwrap_or(normalized_now);
+
+        log::debug!(target: "scheduler", " incomplete_since {:?}", incomplete_since);
+        log::debug!(target: "scheduler", " when {:?}", when);
+
         let mut executed = 0;
 
         let max_items = T::MaxScheduledPerBlock::get();
@@ -987,6 +1001,7 @@ impl<T: Config> Pallet<T> {
         max: u32,
     ) -> bool {
         let mut agenda = Agenda::<T>::get(when);
+        log::debug!(target: "scheduler", "agenda at timestamp {:?} len: {}", when, agenda.len());
         let mut ordered = agenda
             .iter()
             .enumerate()
@@ -1000,6 +1015,7 @@ impl<T: Config> Pallet<T> {
         let within_limit = weight
             .try_consume(T::WeightInfo::service_agenda_base(ordered.len() as u32))
             .is_ok();
+        log::debug!(target: "scheduler", "within_limit: {}", within_limit);
         debug_assert!(
             within_limit,
             "weight limit should have been checked in advance"
@@ -1010,11 +1026,24 @@ impl<T: Config> Pallet<T> {
         // Items which we don't know can ever be executed.
         let mut dropped = 0;
 
+        log::debug!(
+            target: "scheduler",
+            "Running service agenda with {} items (max {}) at when {:?}",
+            ordered.len(),
+            max,
+            when
+        );
+
         for (agenda_index, _) in ordered.into_iter().take(max as usize) {
+            log::debug!(target: "scheduler", "service_agenda: agenda_index iter {}", agenda_index);
             let task = match agenda[agenda_index as usize].take() {
-                None => continue,
+                None => {
+                    log::debug!(target: "scheduler", "Skipping empty task at index {}", agenda_index);
+                    continue;
+                }
                 Some(t) => t,
             };
+
             let base_weight = T::WeightInfo::service_task(
                 task.call.lookup_len().map(|x| x as usize),
                 task.maybe_id.is_some(),
@@ -1022,6 +1051,7 @@ impl<T: Config> Pallet<T> {
             );
             if !weight.can_consume(base_weight) {
                 postponed += 1;
+                log::debug!(target: "scheduler", "Breaking out of service agenda due to overweight task at index {}", agenda_index);
                 break;
             }
             let result = Self::service_task(weight, now, when, agenda_index, *executed == 0, task);
@@ -1063,6 +1093,8 @@ impl<T: Config> Pallet<T> {
         is_first: bool,
         mut task: ScheduledOf<T>,
     ) -> Result<(), (ServiceTaskError, Option<ScheduledOf<T>>)> {
+        log::debug!(target: "scheduler", "Running service task at index {}", agenda_index);
+
         if let Some(ref id) = task.maybe_id {
             Lookup::<T>::remove(id);
         }
@@ -1070,6 +1102,7 @@ impl<T: Config> Pallet<T> {
         let (call, lookup_len) = match T::Preimages::peek(&task.call) {
             Ok(c) => c,
             Err(_) => {
+                log::error!(target: "scheduler", "Call unavailable for task at index {}", agenda_index);
                 Self::deposit_event(Event::CallUnavailable {
                     task: (when, agenda_index),
                     id: task.maybe_id,
@@ -1177,6 +1210,7 @@ impl<T: Config> Pallet<T> {
         let max_weight = base_weight.saturating_add(call_weight);
 
         if !weight.can_consume(max_weight) {
+            log::error!(target: "scheduler", "Error: Overweight call");
             return Err(());
         }
 
@@ -1191,6 +1225,7 @@ impl<T: Config> Pallet<T> {
         let call_weight = maybe_actual_call_weight.unwrap_or(call_weight);
         let _ = weight.try_consume(base_weight);
         let _ = weight.try_consume(call_weight);
+        log::debug!(target: "scheduler", "Scheduler: Dispatch success");
         Ok(result)
     }
 
