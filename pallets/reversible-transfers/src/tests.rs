@@ -1369,6 +1369,15 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
         );
         assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 
+        // Verify storage indexes are properly updated after scheduling
+        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+        assert_eq!(sender_pending.len(), 1);
+        assert_eq!(sender_pending[0], tx_id);
+        assert_eq!(recipient_pending.len(), 1);
+        assert_eq!(recipient_pending[0], tx_id);
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
         // Set time before execution time
         MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms - one_minute_ms);
         let execute_block = System::block_number() + 3;
@@ -1407,6 +1416,18 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
         // Check that the pending dispatch is removed
         assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 
+        // Verify storage indexes are cleaned up after execution
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            0
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
+        assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
+
         // Check for the execution event
         System::assert_has_event(
             Event::TransactionExecuted {
@@ -1415,5 +1436,331 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
             }
             .into(),
         );
+    });
+}
+
+#[test]
+fn storage_indexes_maintained_correctly_on_schedule() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 1; // delay of 10
+        let recipient: AccountId = 4;
+        let amount: Balance = 1000;
+
+        // Initially no pending transfers
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            0
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
+
+        // Schedule a transfer
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount,
+        ));
+
+        let call = transfer_call(recipient, amount);
+        let tx_id = calculate_tx_id(sender, &call);
+
+        // Verify storage indexes are properly updated
+        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+
+        assert_eq!(sender_pending.len(), 1);
+        assert_eq!(sender_pending[0], tx_id);
+        assert_eq!(recipient_pending.len(), 1);
+        assert_eq!(recipient_pending[0], tx_id);
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
+        // Verify transfer details
+        let transfer_details = ReversibleTransfers::get_pending_transfer_details(&tx_id);
+        assert!(transfer_details.is_some());
+        let details = transfer_details.unwrap();
+        assert_eq!(details.who, sender);
+        assert_eq!(details.amount, amount);
+        assert_eq!(details.count, 1);
+
+        // Schedule another transfer to the same recipient
+        let amount2 = 2000;
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount2,
+        ));
+
+        let call2 = transfer_call(recipient, amount2);
+        let tx_id2 = calculate_tx_id(sender, &call2);
+
+        // Verify both transfers are indexed
+        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+
+        assert_eq!(sender_pending.len(), 2);
+        assert!(sender_pending.contains(&tx_id));
+        assert!(sender_pending.contains(&tx_id2));
+        assert_eq!(recipient_pending.len(), 2);
+        assert!(recipient_pending.contains(&tx_id));
+        assert!(recipient_pending.contains(&tx_id2));
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 2);
+    });
+}
+
+#[test]
+fn storage_indexes_maintained_correctly_on_execution() {
+    new_test_ext().execute_with(|| {
+        let start_block = 1;
+        let sender: AccountId = 3;
+        let recipient: AccountId = 4;
+        let amount: Balance = 1000;
+        let delay_blocks = 10;
+
+        System::set_block_number(start_block);
+
+        // Schedule a transfer
+        assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount,
+            BlockNumberOrTimestamp::BlockNumber(delay_blocks),
+        ));
+
+        let call = transfer_call(recipient, amount);
+        let tx_id = calculate_tx_id(sender, &call);
+
+        // Verify storage indexes are populated
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            1
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            1
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
+        // Execute the transfer by running to the delay block
+        run_to_block(start_block + delay_blocks + 1);
+
+        // Verify storage indexes are cleaned up
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            0
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
+
+        // Verify transfer is no longer in main storage
+        assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
+    });
+}
+
+#[test]
+fn storage_indexes_maintained_correctly_on_cancel() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 1;
+        let recipient: AccountId = 4;
+        let amount: Balance = 1000;
+
+        // Schedule a transfer
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount,
+        ));
+
+        let call = transfer_call(recipient, amount);
+        let tx_id = calculate_tx_id(sender, &call);
+
+        // Verify storage indexes are populated
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            1
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            1
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
+        // Cancel the transfer
+        assert_ok!(ReversibleTransfers::cancel(
+            RuntimeOrigin::signed(sender),
+            tx_id
+        ));
+
+        // Verify storage indexes are cleaned up
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            0
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
+
+        // Verify transfer is no longer in main storage
+        assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
+    });
+}
+
+#[test]
+fn storage_indexes_handle_multiple_identical_transfers_correctly() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 1; // delay of 10
+        let recipient: AccountId = 4;
+        let amount: Balance = 1000;
+
+        // Schedule the same transfer twice (identical transfers)
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount,
+        ));
+
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount,
+        ));
+
+        let call = transfer_call(recipient, amount);
+        let tx_id = calculate_tx_id(sender, &call);
+
+        // Should only have one entry in indexes (since identical transfers share the same tx_id)
+        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+
+        assert_eq!(sender_pending.len(), 1);
+        assert_eq!(sender_pending[0], tx_id);
+        assert_eq!(recipient_pending.len(), 1);
+        assert_eq!(recipient_pending[0], tx_id);
+
+        // But account count should reflect both transfers
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 2);
+
+        // Transfer details should show count = 2
+        let transfer_details = ReversibleTransfers::get_pending_transfer_details(&tx_id).unwrap();
+        assert_eq!(transfer_details.count, 2);
+
+        // Cancel one instance
+        assert_ok!(ReversibleTransfers::cancel(
+            RuntimeOrigin::signed(sender),
+            tx_id
+        ));
+
+        // Indexes should still contain the transfer (since count > 1)
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            1
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            1
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
+        // Transfer details should show count = 1
+        let transfer_details = ReversibleTransfers::get_pending_transfer_details(&tx_id).unwrap();
+        assert_eq!(transfer_details.count, 1);
+
+        // Cancel the last instance
+        assert_ok!(ReversibleTransfers::cancel(
+            RuntimeOrigin::signed(sender),
+            tx_id
+        ));
+
+        // Now indexes should be completely cleaned up
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            0
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
+        assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
+    });
+}
+
+#[test]
+fn storage_indexes_handle_multiple_recipients_correctly() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 1;
+        let recipient1: AccountId = 4;
+        let recipient2: AccountId = 5;
+        let amount: Balance = 1000;
+
+        // Schedule transfers to different recipients
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient1,
+            amount,
+        ));
+
+        assert_ok!(ReversibleTransfers::schedule_transfer(
+            RuntimeOrigin::signed(sender),
+            recipient2,
+            amount,
+        ));
+
+        let call1 = transfer_call(recipient1, amount);
+        let call2 = transfer_call(recipient2, amount);
+        let tx_id1 = calculate_tx_id(sender, &call1);
+        let tx_id2 = calculate_tx_id(sender, &call2);
+
+        // Sender should have both transfers
+        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        assert_eq!(sender_pending.len(), 2);
+        assert!(sender_pending.contains(&tx_id1));
+        assert!(sender_pending.contains(&tx_id2));
+
+        // Each recipient should have their own transfer
+        let recipient1_pending =
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient1);
+        let recipient2_pending =
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient2);
+
+        assert_eq!(recipient1_pending.len(), 1);
+        assert_eq!(recipient1_pending[0], tx_id1);
+        assert_eq!(recipient2_pending.len(), 1);
+        assert_eq!(recipient2_pending[0], tx_id2);
+
+        // Account count should reflect both transfers
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 2);
+
+        // Cancel one transfer
+        assert_ok!(ReversibleTransfers::cancel(
+            RuntimeOrigin::signed(sender),
+            tx_id1
+        ));
+
+        // Verify selective cleanup
+        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        assert_eq!(sender_pending.len(), 1);
+        assert_eq!(sender_pending[0], tx_id2);
+
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient1).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient2).len(),
+            1
+        );
+        assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
     });
 }

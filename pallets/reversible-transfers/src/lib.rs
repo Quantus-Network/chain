@@ -494,11 +494,12 @@ pub mod pallet {
                 Precision::Exact,
             )?;
 
+            // Remove transfer from all storage (handles indexes, account count, etc.)
+            // We pass None for recipient since cleanup_tx_id_from_all_recipient_indexes will handle it
+            Self::transfer_removed(&pending.who, None, *tx_id, &pending);
+
             let post_info = call
                 .dispatch(frame_support::dispatch::RawOrigin::Signed(pending.who.clone()).into());
-
-            // Remove transfer from all storage (handles indexes, account count, etc.)
-            Self::transfer_removed(&pending.who, None, *tx_id, &pending);
 
             // Emit event
             Self::deposit_event(Event::TransactionExecuted {
@@ -531,8 +532,10 @@ pub mod pallet {
                 Bounded<T::RuntimeCall, T::Hashing>,
             >,
         ) -> DispatchResult {
+            let is_new_transfer = pending_transfer.count == 1;
+
             // Store the pending transfer
-            PendingTransfers::<T>::insert(tx_id, &pending_transfer);
+            PendingTransfers::<T>::insert(tx_id, pending_transfer);
 
             // Update account pending count
             AccountPendingIndex::<T>::mutate(sender, |count| {
@@ -540,7 +543,7 @@ pub mod pallet {
             });
 
             // Update indexes only for new transactions (count == 1)
-            if pending_transfer.count == 1 {
+            if is_new_transfer {
                 // Add to sender's pending list
                 PendingTransfersBySender::<T>::try_mutate(sender, |list| {
                     list.try_push(tx_id)
@@ -568,37 +571,57 @@ pub mod pallet {
                 Bounded<T::RuntimeCall, T::Hashing>,
             >,
         ) {
-            // Update account pending count
+            // Update account pending count (always decrement for each removed instance)
             AccountPendingIndex::<T>::mutate(sender, |count| {
                 *count = count.saturating_sub(1);
             });
 
-            if pending_transfer.count > 1 {
-                // If there are more identical transactions, decrement the count
+            // Calculate new count after removing this instance
+            let new_count = pending_transfer.count.saturating_sub(1);
+
+            if new_count > 0 {
+                // Still have remaining instances, just decrement the count
                 PendingTransfers::<T>::insert(
                     tx_id,
                     PendingTransfer {
                         who: pending_transfer.who.clone(),
                         call: pending_transfer.call.clone(),
                         amount: pending_transfer.amount,
-                        count: pending_transfer.count.saturating_sub(1),
+                        count: new_count,
                     },
                 );
+                // DON'T clean up indexes yet - there are still instances remaining
             } else {
-                // Remove the transaction completely
+                // This was the last instance (new_count == 0), remove completely and clean up indexes
                 PendingTransfers::<T>::remove(tx_id);
 
-                // Clean up indexes for the last instance
+                // Clean up sender index
                 PendingTransfersBySender::<T>::mutate(sender, |list| {
                     list.retain(|&x| x != tx_id);
                 });
 
+                // Clean up recipient index - remove from all recipient lists that contain this tx_id
                 if let Some(recipient) = recipient {
+                    // If we know the specific recipient, clean it efficiently
                     PendingTransfersByRecipient::<T>::mutate(recipient, |list| {
                         list.retain(|&x| x != tx_id);
                     });
+                } else {
+                    // If we don't know the recipient, we need to clean it from all recipient indexes
+                    // This is less efficient but ensures proper cleanup during execution
+                    Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
                 }
             }
+        }
+
+        /// Clean up a tx_id from all recipient indexes (used when recipient is unknown)
+        fn cleanup_tx_id_from_all_recipient_indexes(tx_id: T::Hash) {
+            // Iterate through all recipient storage and remove the tx_id
+            PendingTransfersByRecipient::<T>::iter().for_each(|(account, _)| {
+                PendingTransfersByRecipient::<T>::mutate(&account, |list| {
+                    list.retain(|&x| x != tx_id);
+                });
+            });
         }
 
         /// Internal logic to schedule a transfer with a given delay.
