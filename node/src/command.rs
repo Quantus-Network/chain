@@ -10,7 +10,7 @@ use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::wormhole::WormholePair;
 use rusty_crystals_hdwallet::{generate_mnemonic, HDLattice};
-use sc_cli::{SubstrateCli};
+use sc_cli::SubstrateCli;
 use sc_network::config::{NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::AccountId32;
@@ -545,5 +545,4 @@ mod tests {
         assert_eq!(details.public_key_hex, expected_public_key_hex);
         assert_eq!(details.secret_key_hex, expected_secret_key_hex);
     }
-
 }

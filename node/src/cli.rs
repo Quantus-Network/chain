@@ -1,10 +1,12 @@
-use std::{fs, io};
-use std::io::Write;
-use std::path::PathBuf;
 use clap::{Args, Parser};
-use sc_cli::{Error, GenerateCmd, InsertKeyCmd, InspectKeyCmd, InspectNodeKeyCmd, RunCmd, SubstrateCli};
+use sc_cli::{
+    Error, GenerateCmd, InsertKeyCmd, InspectKeyCmd, InspectNodeKeyCmd, RunCmd, SubstrateCli,
+};
 use sc_network::Keypair;
 use sc_service::BasePath;
+use std::io::Write;
+use std::path::PathBuf;
+use std::{fs, io};
 
 #[derive(Debug, clap::Parser)]
 pub struct Cli {
@@ -108,11 +110,10 @@ impl GenerateNodeKeyCmd {
             &self.base_path,
             self.default_base_path,
             Some(executable_name),
-            None
+            None,
         )
     }
 }
-
 
 #[derive(Debug, clap::Subcommand)]
 pub enum KeySubcommand {
@@ -140,7 +141,7 @@ impl KeySubcommand {
             KeySubcommand::GenerateNodeKey(cmd) => {
                 let chain_spec = cli.load_spec(cmd.chain.as_deref().unwrap_or(""))?;
                 cmd.run(chain_spec.id(), &C::executable_name())
-            },
+            }
             KeySubcommand::Generate(cmd) => cmd.run(),
             KeySubcommand::Inspect(cmd) => cmd.run(),
             KeySubcommand::Insert(cmd) => cmd.run(cli),
@@ -148,7 +149,6 @@ impl KeySubcommand {
         }
     }
 }
-
 
 #[derive(Debug, clap::Subcommand)]
 pub enum QuantusKeySubcommand {
@@ -178,7 +178,6 @@ pub enum QuantusAddressType {
     Wormhole,
     Standard,
 }
-
 
 const NODE_KEY_DILITHIUM_FILE: &str = "secret_dilithium";
 const DEFAULT_NETWORK_CONFIG_PATH: &str = "network";
@@ -266,10 +265,10 @@ pub(crate) fn generate_key_in_file(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use crate::cli::{generate_key_in_file, NODE_KEY_DILITHIUM_FILE};
     use sc_cli::Error;
     use sc_network::Keypair;
-    use crate::cli::{generate_key_in_file, NODE_KEY_DILITHIUM_FILE};
+    use std::fs;
     use tempfile::TempDir;
 
     #[test]
