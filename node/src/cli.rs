@@ -1,10 +1,8 @@
 use clap::{Args, Parser};
-use sc_cli::{
-    Error, GenerateCmd, InsertKeyCmd, InspectKeyCmd, InspectNodeKeyCmd, RunCmd, SubstrateCli,
-};
+use sc_cli::{Error, GenerateCmd, InsertKeyCmd, InspectKeyCmd, RunCmd, SubstrateCli};
 use sc_network::Keypair;
 use sc_service::BasePath;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
@@ -132,6 +130,55 @@ pub enum KeySubcommand {
 
     /// Insert a key to the keystore of a node.
     Insert(InsertKeyCmd),
+}
+
+/// The `inspect-node-key` command
+#[derive(Debug, Parser)]
+#[command(
+    name = "inspect-node-key",
+    about = "Load a node key from a file or stdin and print the corresponding peer-id."
+)]
+pub struct InspectNodeKeyCmd {
+    /// Name of file to read the secret key from.
+    /// If not given, the secret key is read from stdin (up to EOF).
+    #[arg(long)]
+    file: Option<PathBuf>,
+
+    /// The input is in raw binary format.
+    /// If not given, the input is read as an hex encoded string.
+    #[arg(long)]
+    bin: bool,
+
+    /// This argument is deprecated and has no effect for this command.
+    #[deprecated(note = "Network identifier is not used for node-key inspection")]
+    #[arg(
+        short = 'n',
+        long = "network",
+        value_name = "NETWORK",
+        ignore_case = true
+    )]
+    pub network_scheme: Option<String>,
+}
+
+impl InspectNodeKeyCmd {
+    /// runs the command
+    pub fn run(&self) -> Result<(), Error> {
+        let mut file_data = match &self.file {
+            Some(file) => fs::read(&file)?,
+            None => {
+                let mut buf = Vec::new();
+                io::stdin().lock().read_to_end(&mut buf)?;
+                buf
+            }
+        };
+
+        let keypair =
+            Keypair::from_protobuf_encoding(&mut file_data).map_err(|_| "Bad node key file")?;
+
+        println!("{}", keypair.public().to_peer_id());
+
+        Ok(())
+    }
 }
 
 impl KeySubcommand {
@@ -265,16 +312,19 @@ pub(crate) fn generate_key_in_file(
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::{generate_key_in_file, NODE_KEY_DILITHIUM_FILE};
+    use crate::cli::{
+        generate_key_in_file, GenerateNodeKeyCmd, InspectNodeKeyCmd, NODE_KEY_DILITHIUM_FILE,
+    };
+    use clap::Parser;
     use sc_cli::Error;
     use sc_network::Keypair;
     use std::fs;
-    use tempfile::TempDir;
+    use tempfile;
 
     #[test]
     fn test_generate_key_in_file_explicit_path() {
         // Setup: Create a temporary directory and file path.
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = tempfile::TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.key");
         let original_keypair = Keypair::generate_dilithium();
         // Generate and write keypair.
@@ -306,7 +356,7 @@ mod tests {
     #[test]
     fn test_generate_key_in_file_default_path() {
         // Setup: Create a temporary directory as base path.
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = tempfile::TempDir::new().unwrap();
         let base_path = Some(temp_dir.path().to_path_buf());
         let chain_spec_id = "test-chain";
         let executable_name = "test-exec";
@@ -349,7 +399,7 @@ mod tests {
     #[test]
     fn test_generate_key_in_file_key_already_exists() {
         // Setup: Create a temporary directory and pre-create the key file.
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = tempfile::TempDir::new().unwrap();
         let base_path = Some(temp_dir.path().to_path_buf());
         let chain_spec_id = "test-chain";
         let executable_name = "test-exec";
@@ -378,5 +428,21 @@ mod tests {
             "Expected KeyAlreadyExistsInPath error, got: {:?}",
             result
         );
+    }
+
+    #[test]
+    fn inspect_node_key() {
+        let path = tempfile::tempdir()
+            .unwrap()
+            .into_path()
+            .join("node-id")
+            .into_os_string();
+        let path = path.to_str().unwrap();
+        let cmd = GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--file", path]);
+
+        assert!(cmd.run("test", &String::from("test")).is_ok());
+
+        let cmd = InspectNodeKeyCmd::parse_from(&["inspect-node-key", "--file", path]);
+        assert!(cmd.run().is_ok());
     }
 }
