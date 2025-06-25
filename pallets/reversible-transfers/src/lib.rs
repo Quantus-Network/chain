@@ -610,33 +610,11 @@ pub mod pallet {
                                 PendingTransfersByRecipient::<T>::mutate(&recipient, |list| {
                                     list.retain(|&x| x != tx_id);
                                 });
-                            } else {
-                                // Fallback to cleanup all if lookup fails
-                                Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
                             }
-                        } else {
-                            // Not a transfer_keep_alive call, cleanup all
-                            Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
                         }
-                    } else {
-                        // Couldn't convert to balance call, cleanup all
-                        Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
                     }
-                } else {
-                    // Couldn't peek the call, cleanup all as fallback
-                    Self::cleanup_tx_id_from_all_recipient_indexes(tx_id);
                 }
             }
-        }
-
-        /// Clean up a tx_id from all recipient indexes (used when recipient is unknown)
-        fn cleanup_tx_id_from_all_recipient_indexes(tx_id: T::Hash) {
-            // Iterate through all recipient storage and remove the tx_id
-            PendingTransfersByRecipient::<T>::iter().for_each(|(account, _)| {
-                PendingTransfersByRecipient::<T>::mutate(&account, |list| {
-                    list.retain(|&x| x != tx_id);
-                });
-            });
         }
 
         /// Internal logic to schedule a transfer with a given delay.

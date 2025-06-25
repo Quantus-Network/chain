@@ -49,6 +49,15 @@ mod runtime {
     pub type Balances = pallet_balances::Pallet<Test>;
 }
 
+impl From<RuntimeCall> for pallet_balances::Call<Test> {
+    fn from(call: RuntimeCall) -> Self {
+        match call {
+            RuntimeCall::Balances(c) => c,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
     type Block = Block;
