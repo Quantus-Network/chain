@@ -198,6 +198,30 @@ pub mod pallet {
     pub type AccountPendingIndex<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
+    /// Maps sender accounts to their list of pending transaction IDs.
+    /// This allows users to query all their outgoing pending transfers.
+    #[pallet::storage]
+    #[pallet::getter(fn pending_transfers_by_sender)]
+    pub type PendingTransfersBySender<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::Hash, T::MaxPendingPerAccount>,
+        ValueQuery,
+    >;
+
+    /// Maps recipient accounts to their list of pending incoming transaction IDs.
+    /// This allows users to query all their incoming pending transfers.
+    #[pallet::storage]
+    #[pallet::getter(fn pending_transfers_by_recipient)]
+    pub type PendingTransfersByRecipient<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::Hash, T::MaxPendingPerAccount>,
+        ValueQuery,
+    >;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -410,6 +434,28 @@ pub mod pallet {
             ReversibleAccounts::<T>::get(who)
         }
 
+        /// Get all pending outgoing transfers for an account
+        pub fn get_pending_transfers_by_sender(
+            sender: &T::AccountId,
+        ) -> BoundedVec<T::Hash, T::MaxPendingPerAccount> {
+            PendingTransfersBySender::<T>::get(sender)
+        }
+
+        /// Get all pending incoming transfers for an account
+        pub fn get_pending_transfers_by_recipient(
+            recipient: &T::AccountId,
+        ) -> BoundedVec<T::Hash, T::MaxPendingPerAccount> {
+            PendingTransfersByRecipient::<T>::get(recipient)
+        }
+
+        /// Get full details of a pending transfer by its ID
+        pub fn get_pending_transfer_details(
+            tx_id: &T::Hash,
+        ) -> Option<PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<T::RuntimeCall, T::Hashing>>>
+        {
+            PendingTransfers::<T>::get(tx_id)
+        }
+
         // Pallet account as origin
         pub fn account_id() -> T::AccountId {
             T::PalletId::get().into_account_truncating()
@@ -451,28 +497,8 @@ pub mod pallet {
             let post_info = call
                 .dispatch(frame_support::dispatch::RawOrigin::Signed(pending.who.clone()).into());
 
-            // Remove from account index
-            AccountPendingIndex::<T>::mutate(&pending.who, |current_count| {
-                // Decrement the count of pending transactions for the account.
-                *current_count = current_count.saturating_sub(1);
-            });
-
-            // Remove from main storage
-            if pending.count > 1 {
-                // If there are more than one identical transactions, decrement the count
-                PendingTransfers::<T>::insert(
-                    tx_id,
-                    PendingTransfer {
-                        who: pending.who.clone(),
-                        call: pending.call,
-                        amount: pending.amount,
-                        count: pending.count.saturating_sub(1),
-                    },
-                );
-            } else {
-                // Otherwise, remove the transaction from storage
-                PendingTransfers::<T>::remove(tx_id);
-            }
+            // Remove transfer from all storage (handles indexes, account count, etc.)
+            Self::transfer_removed(&pending.who, None, *tx_id, &pending);
 
             // Emit event
             Self::deposit_event(Event::TransactionExecuted {
@@ -494,6 +520,87 @@ pub mod pallet {
             Ok(task_name)
         }
 
+        /// Called when a new transfer is added - updates all storage indexes
+        fn transfer_added(
+            sender: &T::AccountId,
+            recipient: &T::AccountId,
+            tx_id: T::Hash,
+            pending_transfer: PendingTransfer<
+                T::AccountId,
+                BalanceOf<T>,
+                Bounded<T::RuntimeCall, T::Hashing>,
+            >,
+        ) -> DispatchResult {
+            // Store the pending transfer
+            PendingTransfers::<T>::insert(tx_id, &pending_transfer);
+
+            // Update account pending count
+            AccountPendingIndex::<T>::mutate(sender, |count| {
+                *count = count.saturating_add(1);
+            });
+
+            // Update indexes only for new transactions (count == 1)
+            if pending_transfer.count == 1 {
+                // Add to sender's pending list
+                PendingTransfersBySender::<T>::try_mutate(sender, |list| {
+                    list.try_push(tx_id)
+                        .map_err(|_| Error::<T>::TooManyPendingTransactions)
+                })?;
+
+                // Add to recipient's pending list
+                PendingTransfersByRecipient::<T>::try_mutate(recipient, |list| {
+                    list.try_push(tx_id)
+                        .map_err(|_| Error::<T>::TooManyPendingTransactions)
+                })?;
+            }
+
+            Ok(())
+        }
+
+        /// Called when a transfer is removed - cleans up all storage indexes
+        fn transfer_removed(
+            sender: &T::AccountId,
+            recipient: Option<&T::AccountId>,
+            tx_id: T::Hash,
+            pending_transfer: &PendingTransfer<
+                T::AccountId,
+                BalanceOf<T>,
+                Bounded<T::RuntimeCall, T::Hashing>,
+            >,
+        ) {
+            // Update account pending count
+            AccountPendingIndex::<T>::mutate(sender, |count| {
+                *count = count.saturating_sub(1);
+            });
+
+            if pending_transfer.count > 1 {
+                // If there are more identical transactions, decrement the count
+                PendingTransfers::<T>::insert(
+                    tx_id,
+                    PendingTransfer {
+                        who: pending_transfer.who.clone(),
+                        call: pending_transfer.call.clone(),
+                        amount: pending_transfer.amount,
+                        count: pending_transfer.count.saturating_sub(1),
+                    },
+                );
+            } else {
+                // Remove the transaction completely
+                PendingTransfers::<T>::remove(tx_id);
+
+                // Clean up indexes for the last instance
+                PendingTransfersBySender::<T>::mutate(sender, |list| {
+                    list.retain(|&x| x != tx_id);
+                });
+
+                if let Some(recipient) = recipient {
+                    PendingTransfersByRecipient::<T>::mutate(recipient, |list| {
+                        list.retain(|&x| x != tx_id);
+                    });
+                }
+            }
+        }
+
         /// Internal logic to schedule a transfer with a given delay.
         fn do_schedule_transfer_inner(
             who: T::AccountId,
@@ -501,6 +608,7 @@ pub mod pallet {
             amount: BalanceOf<T>,
             delay: BlockNumberOrTimestampOf<T>,
         ) -> DispatchResult {
+            let recipient = T::Lookup::lookup(dest.clone())?;
             let transfer_call: T::RuntimeCall = pallet_balances::Call::<T>::transfer_keep_alive {
                 dest: dest.clone(),
                 value: amount,
@@ -510,14 +618,11 @@ pub mod pallet {
             let tx_id = T::Hashing::hash_of(&(who.clone(), transfer_call.clone()).encode());
 
             // Check if the account can accommodate another pending transaction
-            AccountPendingIndex::<T>::mutate(&who, |current_count| -> Result<(), DispatchError> {
-                ensure!(
-                    *current_count < T::MaxPendingPerAccount::get(),
-                    Error::<T>::TooManyPendingTransactions
-                );
-                *current_count = current_count.saturating_add(1);
-                Ok(())
-            })?;
+            let current_count = AccountPendingIndex::<T>::get(&who);
+            ensure!(
+                current_count < T::MaxPendingPerAccount::get(),
+                Error::<T>::TooManyPendingTransactions
+            );
 
             let dispatch_time = match delay {
                 BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
@@ -550,7 +655,8 @@ pub mod pallet {
             };
             let schedule_id = Self::make_schedule_id(&tx_id, new_pending.count)?;
 
-            PendingTransfers::<T>::insert(tx_id, new_pending);
+            // Add transfer to all storage (handles indexes, account count, etc.)
+            Self::transfer_added(&who, &recipient, tx_id, new_pending)?;
 
             let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
@@ -618,27 +724,8 @@ pub mod pallet {
                 None
             };
 
-            if pending.count > 1 {
-                // If there are more than one identical transactions, decrement the count
-                PendingTransfers::<T>::insert(
-                    &tx_id,
-                    PendingTransfer {
-                        who: pending.who.clone(),
-                        call: pending.call,
-                        amount: pending.amount,
-                        count: pending.count.saturating_sub(1),
-                    },
-                );
-            } else {
-                // Otherwise, remove the transaction from storage
-                PendingTransfers::<T>::remove(&tx_id);
-            }
-
-            // Decrement account index
-            AccountPendingIndex::<T>::mutate(&pending.who, |current_count| {
-                // Decrement the count of pending transactions for the account.
-                *current_count = current_count.saturating_sub(1);
-            });
+            // Remove transfer from all storage (handles indexes, account count, etc.)
+            Self::transfer_removed(&pending.who, None, tx_id, &pending);
 
             let schedule_id = Self::make_schedule_id(&tx_id, pending.count)?;
 
