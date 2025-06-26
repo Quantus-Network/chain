@@ -69,6 +69,7 @@ impl pallet_timestamp::Config for Test {
 
 impl pallet_qpow::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
     type InitialDistanceThresholdExponent = ConstU32<508>;
     type DifficultyAdjustPercentClamp = ConstU8<10>;
     type TargetBlockTime = ConstU64<1000>;

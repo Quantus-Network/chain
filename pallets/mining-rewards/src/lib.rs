@@ -101,8 +101,8 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-            // Return weight consumed
-            Weight::from_parts(10_000, 0)
+            // Return weight consumed for on finalize hook
+            T::WeightInfo::on_finalize_rewarded_miner()
         }
 
         fn on_finalize(_block_number: BlockNumberFor<T>) {

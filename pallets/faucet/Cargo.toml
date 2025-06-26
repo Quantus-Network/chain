@@ -19,6 +19,7 @@ targets = [
 
 [dependencies]
 codec = { workspace = true, default-features = false, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true, default-features = false }
 frame-system = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
@@ -27,16 +28,21 @@ sp-keyring = { workspace = true, default-features = false, optional = true }
 sp-runtime = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
-
 hex = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 pallet-balances = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
-runtime-benchmarks = []
+runtime-benchmarks = [
+	"frame-benchmarking",
+	"frame-support/runtime-benchmarks",
+	"pallet-balances/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
 std = [
 	"codec/std",
+	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",

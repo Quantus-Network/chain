@@ -56,13 +56,13 @@ pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
     .expect("Telemetry endpoints config is valid; qed");
 
     let boot_nodes = vec![
-        "/dns/a1.t.res.fm/tcp/30201/p2p/12D3KooWGmDZ95J13cggsv56mSepAj3WiVPR3foqqh728umZrhPr"
+        "/dns/a1.t.res.fm/tcp/30201/p2p/QmYpbayBgKbhfHGn2kNWWhh3DHwBnPaLDMYvaGmT78oAP7"
             .parse()
             .unwrap(),
-        "/dns/a2.t.res.fm/tcp/30203/p2p/12D3KooWPPv8nrVEN5mjcMruDnAEdcpfppSfSbij2A7FXWNGt8JL"
+        "/dns/a2.t.res.fm/tcp/30203/p2p/QmeN9H9CBdBESd6wib9xetPiYsCLYPTAJn8sxajWi2Bjkb"
             .parse()
             .unwrap(),
-        "/dns/a3.t.res.fm/tcp/30202/p2p/12D3KooWMpmEQmCB31Dz84YdnxL48aiSFQydEiq5MZv6VtZouXRd"
+        "/dns/a3.t.res.fm/tcp/30202/p2p/QmQLf3wj7KqqtTjtrq7iQZY5JokQ3k7HHLGe5hNvHSxnFr"
             .parse()
             .unwrap(),
     ];

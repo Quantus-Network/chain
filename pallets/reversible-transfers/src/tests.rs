@@ -1334,3 +1334,86 @@ fn schedule_transfer_with_delay_executes_correctly() {
         );
     });
 }
+
+#[test]
+fn schedule_transfer_with_timestamp_delay_executes_correctly() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        MockTimestamp::<Test>::set_timestamp(1_000_000); // Initial mock time
+
+        let sender: AccountId = 3;
+        let recipient: AccountId = 4;
+        let amount: Balance = 1000;
+        let one_minute_ms = 1000 * 60;
+        let custom_delay_ms = 10 * one_minute_ms; // 10 minutes
+        let custom_delay = BlockNumberOrTimestamp::Timestamp(custom_delay_ms);
+
+        let initial_sender_balance = Balances::free_balance(sender);
+        let initial_recipient_balance = Balances::free_balance(recipient);
+
+        // Schedule the transfer
+        assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            amount,
+            custom_delay,
+        ));
+
+        let call = transfer_call(recipient, amount);
+        let tx_id = calculate_tx_id(sender, &call);
+
+        // Check that funds are held
+        assert_eq!(
+            Balances::balance_on_hold(&HoldReason::ScheduledTransfer.into(), &sender),
+            amount
+        );
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+
+        // Set time before execution time
+        MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms - one_minute_ms);
+        let execute_block = System::block_number() + 3;
+        run_to_block(execute_block);
+
+        // Check that the transfer was not yet executed
+        assert_eq!(
+            Balances::free_balance(sender),
+            initial_sender_balance - amount
+        );
+
+        // recipient balance not yet changed
+        assert_eq!(Balances::free_balance(recipient), initial_recipient_balance);
+
+        // Set time past execution time
+        MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms + 1);
+        let execute_block = System::block_number() + 2;
+        run_to_block(execute_block);
+
+        // Check that the transfer was executed
+        assert_eq!(
+            Balances::free_balance(sender),
+            initial_sender_balance - amount
+        );
+        assert_eq!(
+            Balances::free_balance(recipient),
+            initial_recipient_balance + amount
+        );
+
+        // Check that the hold is released
+        assert_eq!(
+            Balances::balance_on_hold(&HoldReason::ScheduledTransfer.into(), &sender),
+            0
+        );
+
+        // Check that the pending dispatch is removed
+        assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+
+        // Check for the execution event
+        System::assert_has_event(
+            Event::TransactionExecuted {
+                tx_id,
+                result: Ok(().into()),
+            }
+            .into(),
+        );
+    });
+}

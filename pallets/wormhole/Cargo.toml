@@ -9,6 +9,7 @@ version = "0.1.0"
 
 [dependencies]
 codec = { workspace = true, default-features = false, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
 frame-system.workspace = true
 lazy_static.workspace = true
@@ -23,8 +24,10 @@ sp-std.workspace = true
 [features]
 default = ["std"]
 runtime-benchmarks = [
+	"frame-benchmarking",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
+	"pallet-balances/runtime-benchmarks",
 ]
 std = [
 	"codec/std",

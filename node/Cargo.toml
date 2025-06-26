@@ -46,6 +46,7 @@ reqwest = { workspace = true, default-features = false, features = ["json"] }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
 quantus-runtime.workspace = true
 rusty-crystals-hdwallet.workspace = true
+rusty-crystals-dilithium.workspace = true
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
@@ -102,13 +103,12 @@ uuid.workspace = true
 substrate-build-script-utils.workspace = true
 substrate-build-script-utils.default-features = true
 
+[dev-dependencies]
+tempfile = "3.0"
+
 [features]
 default = ["std"]
-std = [
-	"dilithium-crypto/std",
-	"quantus-runtime/std",
-	"rand/std",
-]
+std = ["dilithium-crypto/std", "quantus-runtime/std", "rand/std"]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",

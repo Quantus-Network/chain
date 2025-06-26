@@ -11,8 +11,12 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+pub mod weights;
+use weights::*;
+
 #[frame_support::pallet]
 pub mod pallet {
+    use super::*;
     use core::ops::{Shl, Shr};
     use frame_support::sp_runtime::traits::{One, Zero};
     use frame_support::sp_runtime::SaturatedConversion;
@@ -107,6 +111,9 @@ pub mod pallet {
         /// Maximum distance threshold multiplier (default: 4)
         #[pallet::constant]
         type MaxDistanceMultiplier: Get<u32>;
+
+        /// Weight information for extrinsics in this pallet.
+        type WeightInfo: WeightInfo;
     }
 
     #[pallet::genesis_config]
@@ -145,20 +152,6 @@ pub mod pallet {
         }
     }
 
-    //TODO all this should be generated with benchmarks
-
-    pub trait WeightInfo {
-        fn submit_proof() -> Weight;
-    }
-
-    pub struct DefaultWeightInfo;
-
-    impl WeightInfo for DefaultWeightInfo {
-        fn submit_proof() -> Weight {
-            Weight::from_parts(10_000, 0)
-        }
-    }
-
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -185,7 +178,7 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-            Weight::zero()
+            <T as crate::Config>::WeightInfo::on_finalize_max_history()
         }
 
         /// Called when there is remaining weight at the end of the block.
