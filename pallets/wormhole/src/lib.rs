@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+pub use pallet::*;
+
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -15,10 +17,18 @@ mod benchmarking;
 pub mod pallet {
     use super::BalanceOf;
     use alloc::vec::Vec;
-    use codec::{Decode, Encode};
+    use codec::Decode;
     use frame_support::{pallet_prelude::*, traits::fungible::Mutate};
+    use frame_support::{
+        traits::{Currency, ExistenceRequirement, OnUnbalanced, WithdrawReasons},
+        weights::WeightToFee,
+    };
     use frame_system::pallet_prelude::*;
     use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
+    use sp_runtime::{
+        traits::{Saturating, Zero},
+        Perbill,
+    };
     use wormhole_verifier::{ProofWithPublicInputs, WormholeVerifier};
     use zk_circuits_common::{
         circuit::{C, D, F},
@@ -42,6 +52,12 @@ pub mod pallet {
 
         #[pallet::constant]
         type MaxVerifierDataSize: Get<u32>;
+
+        type WeightToFee: WeightToFee<Balance = <Self as BalancesConfig>::Balance>;
+
+        type FeeReceiver: OnUnbalanced<
+            <BalancesPallet<Self> as Currency<Self::AccountId>>::NegativeImbalance,
+        >;
     }
 
     pub trait WeightInfo {
@@ -132,7 +148,6 @@ pub mod pallet {
             )
             .map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
-            let public_inputs = WormholePublicInputs::<T>::from_fields(&proof.public_inputs)?;
             // Public inputs are ordered as follows:
             // Nullifier.hash: 4 felts
             // StorageProof.funding_amount: 2 felts
@@ -161,7 +176,7 @@ pub mod pallet {
 
             // Verify nullifier hasn't been used
             ensure!(
-                !UsedNullifiers::<T>::contains_key(&nullifier_bytes),
+                !UsedNullifiers::<T>::contains_key(nullifier_bytes),
                 Error::<T>::NullifierAlreadyUsed
             );
 
@@ -170,9 +185,8 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::VerificationFailed)?;
 
             // Mark nullifier as used
-            UsedNullifiers::<T>::insert(&nullifier_bytes, true);
+            UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
-            let exit_balance = public_inputs.exit_amount;
             let exit_balance_u128 = felts_to_u128(
                 <[F; 2]>::try_from(
                     &proof.public_inputs[FUNDING_AMOUNT_START_INDEX..FUNDING_AMOUNT_END_INDEX],
@@ -183,16 +197,6 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
-            BalancesPallet::<T, ()>::mint_into(&public_inputs.exit_account, exit_balance)?;
-
-            // Create a transfer proof for the minted tokens
-            let mint_account = T::MintingAccount::get();
-            BalancesPallet::<T, ()>::store_transfer_proof(
-                &mint_account,
-                &public_inputs.exit_account,
-                exit_balance,
-            );
-
             // Mint new tokens to the exit account
             let exit_account_bytes = felts_to_bytes(
                 &proof.public_inputs[EXIT_ACCOUNT_START_INDEX..EXIT_ACCOUNT_END_INDEX],
@@ -200,6 +204,32 @@ pub mod pallet {
             let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
             let _ = BalancesPallet::<T>::deposit_creating(&exit_account, exit_balance);
+
+            // Calculate and withdraw fee
+            let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
+            let weight_fee = T::WeightToFee::weight_to_fee(&weight);
+            let volume_fee = Perbill::from_rational(1u32, 1000u32) * exit_balance;
+            let total_fee = weight_fee.saturating_add(volume_fee);
+
+            if !total_fee.is_zero() {
+                let fee_imbalance = BalancesPallet::<T>::withdraw(
+                    &exit_account,
+                    total_fee,
+                    WithdrawReasons::TRANSACTION_PAYMENT,
+                    ExistenceRequirement::KeepAlive,
+                )?;
+                T::FeeReceiver::on_unbalanced(fee_imbalance);
+            }
+
+            BalancesPallet::<T, ()>::mint_into(&exit_account, exit_balance)?;
+
+            // Create a transfer proof for the minted tokens
+            let mint_account = T::MintingAccount::get();
+            BalancesPallet::<T, ()>::store_transfer_proof(
+                &mint_account,
+                &exit_account,
+                exit_balance,
+            );
 
             // Emit event
             Self::deposit_event(Event::ProofVerified {

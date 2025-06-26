@@ -17,12 +17,13 @@ pub use weights::*;
 pub mod pallet {
     use super::*;
     use codec::Decode;
+    use core::marker::PhantomData;
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::{
         DecreaseIssuance, IncreaseIssuance, Inspect, Mutate, Unbalanced,
     };
     use frame_support::traits::Defensive;
-    use frame_support::traits::{Get, Imbalance, OnUnbalanced};
+    use frame_support::traits::{Currency, Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
@@ -204,13 +205,15 @@ pub mod pallet {
 
     pub struct TransactionFeesCollector<T>(PhantomData<T>);
 
-    impl<T> OnUnbalanced<NegativeImbalanceOf<T>> for TransactionFeesCollector<T>
+    // Additional implementation for old Currency trait compatibility
+    impl<T, I> OnUnbalanced<I> for TransactionFeesCollector<T>
     where
-        T: Config + pallet_balances::Config<Balance = u128>,
-        BalanceOf<T>: From<u128>,
+        T: Config,
+        I: Imbalance<BalanceOf<T>>,
     {
-        fn on_nonzero_unbalanced(amount: NegativeImbalanceOf<T>) {
-            Pallet::<T>::collect_transaction_fees(amount.peek());
+        fn on_nonzero_unbalanced(amount: I) {
+            let value = amount.peek();
+            Pallet::<T>::collect_transaction_fees(value);
         }
     }
 }
