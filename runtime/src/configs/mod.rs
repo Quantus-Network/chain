@@ -155,6 +155,7 @@ impl pallet_qpow::Config for Runtime {
 
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
     type WeightInfo = pallet_wormhole::DefaultWeightInfo;
 }
 

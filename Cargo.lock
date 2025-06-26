@@ -6981,7 +6981,6 @@ dependencies = [
  "frame-system",
  "lazy_static",
  "log",
- "pallet-balances 40.0.1",
  "parity-scale-codec",
  "plonky2",
  "scale-info",

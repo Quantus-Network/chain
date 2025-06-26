@@ -16,7 +16,7 @@ mod benchmarks {
 
     type CurrencyOf<T> = <T as Config>::Currency;
     type BalanceOf<T> =
-        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+        <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
     benchmarks! {
         on_initialize {

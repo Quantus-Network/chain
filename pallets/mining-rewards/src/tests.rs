@@ -27,7 +27,6 @@ fn miner_reward_works() {
         // Check the event was emitted
         System::assert_has_event(
             Event::MinerRewarded {
-                block: 1,
                 miner: MINER,
                 reward: 50,
             }
@@ -71,7 +70,6 @@ fn miner_reward_with_transaction_fees_works() {
         // Check the event was emitted with the correct amount
         System::assert_has_event(
             Event::MinerRewarded {
-                block: 1,
                 miner: MINER,
                 reward: 50 + 23, // base + (fees - treasury_cut)
             }
@@ -339,7 +337,6 @@ fn test_fees_split_between_treasury_and_miner() {
 
         System::assert_has_event(
             Event::MinerRewarded {
-                block: 1,
                 miner,
                 reward: expected_reward_component_for_miner, // This is the reward component, not the final balance change
             }

@@ -24,79 +24,103 @@ pub mod pallet {
     use sp_core::U512;
     use sp_std::prelude::*;
 
+    /// Type definitions for QPoW pallet
+    pub type NonceType = [u8; 64];
+    pub type HeaderType = [u8; 32];
+    pub type DistanceThreshold = U512;
+    pub type WorkValue = U512;
+    pub type Timestamp = u64;
+    pub type BlockDuration = u64;
+    pub type PeriodCount = u32;
+    pub type HistoryIndexType = u32;
+    pub type HistorySizeType = u32;
+    pub type BlockCount = u32;
+    pub type PercentageClamp = u8;
+    pub type ThresholdExponent = u32;
+
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     #[pallet::storage]
     pub type BlockDistanceThresholds<T: Config> =
-        StorageMap<_, Twox64Concat, BlockNumberFor<T>, U512, ValueQuery>;
+        StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn latest_nonce)]
-    pub type LatestNonce<T> = StorageValue<_, [u8; 64]>;
+    pub type LatestNonce<T> = StorageValue<_, NonceType>;
 
     #[pallet::storage]
-    pub type LastBlockTime<T: Config> = StorageValue<_, u64, ValueQuery>;
+    pub type LastBlockTime<T: Config> = StorageValue<_, Timestamp, ValueQuery>;
 
     #[pallet::storage]
-    pub type LastBlockDuration<T: Config> = StorageValue<_, u64, ValueQuery>;
+    pub type LastBlockDuration<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
 
     #[pallet::storage]
-    pub type CurrentDistanceThreshold<T: Config> = StorageValue<_, U512, ValueQuery>;
+    pub type CurrentDistanceThreshold<T: Config> = StorageValue<_, DistanceThreshold, ValueQuery>;
 
     #[pallet::storage]
-    pub type TotalWork<T: Config> = StorageValue<_, U512, ValueQuery>;
+    pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
 
     #[pallet::storage]
-    pub type BlocksInPeriod<T: Config> = StorageValue<_, u32, ValueQuery>;
+    pub type BlocksInPeriod<T: Config> = StorageValue<_, PeriodCount, ValueQuery>;
 
     #[pallet::storage]
-    pub type BlockTimeHistory<T: Config> = StorageMap<_, Twox64Concat, u32, u64, ValueQuery>;
+    pub type BlockTimeHistory<T: Config> =
+        StorageMap<_, Twox64Concat, HistoryIndexType, BlockDuration, ValueQuery>;
 
     // Index for current position in ring buffer
     #[pallet::storage]
-    pub type HistoryIndex<T: Config> = StorageValue<_, u32, ValueQuery>;
+    pub type HistoryIndex<T: Config> = StorageValue<_, HistoryIndexType, ValueQuery>;
 
     // Current history size
     #[pallet::storage]
-    pub type HistorySize<T: Config> = StorageValue<_, u32, ValueQuery>;
+    pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_timestamp::Config {
+        /// Overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-        type WeightInfo: WeightInfo;
 
+        /// Pallet's weight info
         #[pallet::constant]
         type InitialDistanceThresholdExponent: Get<u32>;
 
         #[pallet::constant]
-        type DifficultyAdjustPercentClamp: Get<u8>;
+        type DifficultyAdjustPercentClamp: Get<PercentageClamp>;
 
         #[pallet::constant]
-        type TargetBlockTime: Get<u64>;
+        type TargetBlockTime: Get<BlockDuration>;
 
         #[pallet::constant]
-        type AdjustmentPeriod: Get<u32>;
+        type AdjustmentPeriod: Get<PeriodCount>;
 
         #[pallet::constant]
-        type BlockTimeHistorySize: Get<u32>;
+        type BlockTimeHistorySize: Get<HistorySizeType>;
 
         #[pallet::constant]
-        type MaxReorgDepth: Get<u32>;
+        type MaxReorgDepth: Get<BlockCount>;
+
+        /// Fixed point scale for calculations (default: 10^18)
+        #[pallet::constant]
+        type FixedU128Scale: Get<u128>;
+
+        /// Maximum distance threshold multiplier (default: 4)
+        #[pallet::constant]
+        type MaxDistanceMultiplier: Get<u32>;
     }
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
-        pub initial_distance: U512,
+        pub initial_distance: DistanceThreshold,
         #[serde(skip)]
         pub _phantom: PhantomData<T>,
     }
 
-    //#[cfg(feature = "std")]
     impl<T: Config> Default for GenesisConfig<T> {
         fn default() -> Self {
             Self {
-                initial_distance: U512::one().shl(T::InitialDistanceThresholdExponent::get()),
+                initial_distance: DistanceThreshold::one()
+                    .shl(T::InitialDistanceThresholdExponent::get()),
                 _phantom: PhantomData,
             }
         }
@@ -117,7 +141,7 @@ pub mod pallet {
             <BlockDistanceThresholds<T>>::insert(genesis_block_number, initial_distance_threshold);
 
             // Initialize the total distance_threshold with the genesis block's distance_threshold
-            <TotalWork<T>>::put(U512::one());
+            <TotalWork<T>>::put(WorkValue::one());
         }
     }
 
@@ -139,12 +163,12 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         ProofSubmitted {
-            nonce: [u8; 64],
+            nonce: NonceType,
         },
         DistanceThresholdAdjusted {
-            old_distance_threshold: U512,
-            new_distance_threshold: U512,
-            observed_block_time: u64,
+            old_distance_threshold: DistanceThreshold,
+            new_distance_threshold: DistanceThreshold,
+            observed_block_time: BlockDuration,
         },
     }
 
@@ -154,8 +178,8 @@ pub mod pallet {
         ArithmeticOverflow,
     }
 
-    pub fn get_initial_distance_threshold<T: Config>() -> U512 {
-        U512::one().shl(T::InitialDistanceThresholdExponent::get())
+    pub fn get_initial_distance_threshold<T: Config>() -> DistanceThreshold {
+        DistanceThreshold::one().shl(T::InitialDistanceThresholdExponent::get())
     }
 
     #[pallet::hooks]
@@ -180,19 +204,17 @@ pub mod pallet {
         fn on_finalize(block_number: BlockNumberFor<T>) {
             let blocks = <BlocksInPeriod<T>>::get();
             let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
-            log::info!(
-				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_distance_threshold={}",
-				block_number,
-				blocks,
-				current_distance_threshold
-			);
+            log::trace!(target: "qpow",
+                "📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_distance_threshold={}",
+                block_number,
+                blocks,
+                current_distance_threshold
+            );
             Self::adjust_distance_threshold();
         }
     }
 
     impl<T: Config> Pallet<T> {
-        const FIXED_U128_SCALE: u128 = 1_000_000_000_000_000_000; // 10^18
-
         // Block time recording for median calculation
         fn record_block_time(block_time: u64) {
             // History size limiter
@@ -214,7 +236,7 @@ pub mod pallet {
             <HistoryIndex<T>>::put(index);
             <HistorySize<T>>::put(new_size);
 
-            log::info!(
+            log::trace!(target: "qpow",
                 "📊 Recorded block time: {}ms, history size: {}/{}",
                 block_time,
                 new_size,
@@ -236,7 +258,7 @@ pub mod pallet {
                 sum = sum.saturating_add(<BlockTimeHistory<T>>::get(i));
             }
 
-            log::info!(
+            log::trace!(target: "qpow",
                 "📊 Calculated total adjustment period time: {}ms from {} samples",
                 sum,
                 size
@@ -259,7 +281,7 @@ pub mod pallet {
                 times.push(<BlockTimeHistory<T>>::get(i));
             }
 
-            log::info!("📊 Block times: {:?}", times);
+            log::trace!(target: "qpow", "📊 Block times: {:?}", times);
 
             // Sort it
             times.sort();
@@ -270,7 +292,7 @@ pub mod pallet {
                 times[times.len() / 2]
             };
 
-            log::info!(
+            log::trace!(target: "qpow",
                 "📊 Calculated median block time: {}ms from {} samples",
                 median_time,
                 times.len()
@@ -305,7 +327,7 @@ pub mod pallet {
             let current_work = Self::get_difficulty();
             let new_total_work = old_total_work.saturating_add(current_work);
             <TotalWork<T>>::put(new_total_work);
-            log::info!(
+            log::trace!(target: "qpow",
                 "Total work: now={}, last_time={}, diff={}",
                 new_total_work,
                 old_total_work,
@@ -319,7 +341,7 @@ pub mod pallet {
             if current_block_number > One::one() {
                 let block_time = now.saturating_sub(last_time);
 
-                log::info!(
+                log::trace!(target: "qpow",
                     "Time calculation: now={}, last_time={}, diff={}ms",
                     now,
                     last_time,
@@ -362,15 +384,15 @@ pub mod pallet {
                     let (pct_change, is_positive) =
                         Self::percentage_change(current_distance_threshold, new_distance_threshold);
 
-                    log::info!(
-						"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
-						if is_positive {"+"} else {"-"},
-						pct_change,
-						current_distance_threshold.shr(300),
-						new_distance_threshold.shr(300),
-						observed_block_time,
-						target_time
-					);
+                    log::trace!(target: "qpow",
+                        "🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
+                        if is_positive {"+"} else {"-"},
+                        pct_change,
+                        current_distance_threshold.shr(300),
+                        new_distance_threshold.shr(300),
+                        observed_block_time,
+                        target_time
+                    );
                 }
 
                 // Reset counters before new iteration
@@ -386,16 +408,16 @@ pub mod pallet {
             observed_block_time: u64,
             target_block_time: u64,
         ) -> U512 {
-            log::info!("📊 Calculating new distance_threshold ---------------------------------------------");
+            log::trace!(target: "qpow", "📊 Calculating new distance_threshold ---------------------------------------------");
             // Calculate ratio using FixedU128
             let clamp =
                 FixedU128::from_rational(T::DifficultyAdjustPercentClamp::get() as u128, 100u128);
-            let one = FixedU128::from_rational(1u128, 1u128);
+            let one = FixedU128::one();
             let ratio =
                 FixedU128::from_rational(observed_block_time as u128, target_block_time as u128)
                     .min(one.saturating_add(clamp))
                     .max(one.saturating_sub(clamp));
-            log::info!("💧 Clamped block_time ratio as FixedU128: {} ", ratio);
+            log::trace!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
 
             // Calculate adjusted distance_threshold
             let mut adjusted = if ratio == one {
@@ -405,11 +427,11 @@ pub mod pallet {
 
                 // Apply to current distance_threshold, divide first because it's too big already
                 let adj =
-                    current_distance_threshold.checked_div(U512::from(Self::FIXED_U128_SCALE));
+                    current_distance_threshold.checked_div(U512::from(T::FixedU128Scale::get()));
                 match adj {
                     Some(value) => value.saturating_mul(ratio_512),
                     None => {
-                        log::warn!(
+                        log::trace!(target: "qpow",
                             "Division by zero or overflow in distance_threshold calculation"
                         );
                         return current_distance_threshold;
@@ -427,40 +449,49 @@ pub mod pallet {
                 }
             }
 
-            log::info!(
+            log::trace!(target: "qpow",
                 "🟢 Current Distance Threshold: {}..",
                 current_distance_threshold.shr(100)
             );
-            log::info!("🟢 Next Distance Threshold:    {}..", adjusted.shr(100));
-            log::info!("🕒 Observed Block Time Sum: {}ms", observed_block_time);
-            log::info!("🎯 Target Block Time Sum:   {}ms", target_block_time);
+            log::trace!(target: "qpow", "🟢 Next Distance Threshold:    {}..", adjusted.shr(100));
+            log::trace!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
+            log::trace!(target: "qpow", "🎯 Target Block Time Sum:   {}ms", target_block_time);
 
             adjusted
         }
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> bool {
+        pub fn is_valid_nonce(
+            header: HeaderType,
+            nonce: NonceType,
+            threshold: DistanceThreshold,
+        ) -> bool {
             is_valid_nonce(header, nonce, threshold)
         }
 
         pub fn get_nonce_distance(
-            header: [u8; 32], // 256-bit header
-            nonce: [u8; 64],  // 512-bit nonce
-        ) -> U512 {
+            header: HeaderType, // 256-bit header
+            nonce: NonceType,   // 512-bit nonce
+        ) -> DistanceThreshold {
             get_nonce_distance(header, nonce)
         }
 
-        pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
+        pub fn get_random_rsa(header: &HeaderType) -> (DistanceThreshold, DistanceThreshold) {
             get_random_rsa(header)
         }
 
-        pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
+        pub fn hash_to_group_bigint(
+            h: &DistanceThreshold,
+            m: &DistanceThreshold,
+            n: &DistanceThreshold,
+            solution: &DistanceThreshold,
+        ) -> DistanceThreshold {
             hash_to_group_bigint(h, m, n, solution)
         }
 
         // Function used during block import from the network
-        pub fn verify_for_import(header: [u8; 32], nonce: [u8; 64]) -> bool {
+        pub fn verify_for_import(header: HeaderType, nonce: NonceType) -> bool {
             // During import, we use the current network distance_threshold
             // This value will be correct because we're importing at the appropriate point in the chain
             let current_distance_threshold = Self::get_distance_threshold();
@@ -471,7 +502,6 @@ pub mod pallet {
             if valid {
                 // Store the proof but don't emit event - imported blocks shouldn't trigger events
                 <LatestNonce<T>>::put(nonce);
-                // No new events for imported blocks
             }
 
             valid
@@ -479,8 +509,8 @@ pub mod pallet {
 
         // Function used to verify a block that's already in the chain
         pub fn verify_historical_block(
-            header: [u8; 32],
-            nonce: [u8; 64],
+            header: HeaderType,
+            nonce: NonceType,
             block_number: BlockNumberFor<T>,
         ) -> bool {
             // Get the stored distance_threshold for this specific block
@@ -496,7 +526,7 @@ pub mod pallet {
         }
 
         // Function for local mining
-        pub fn submit_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
+        pub fn submit_nonce(header: HeaderType, nonce: NonceType) -> bool {
             let distance_threshold = Self::get_distance_threshold();
             let valid = Self::is_valid_nonce(header, nonce, distance_threshold);
 
@@ -508,7 +538,7 @@ pub mod pallet {
             valid
         }
 
-        pub fn get_distance_threshold() -> U512 {
+        pub fn get_distance_threshold() -> DistanceThreshold {
             let stored = <CurrentDistanceThreshold<T>>::get();
             if stored == U512::zero() {
                 return get_initial_distance_threshold::<T>();
@@ -516,35 +546,37 @@ pub mod pallet {
             stored
         }
 
-        pub fn get_min_distance() -> U512 {
-            U512::one()
+        pub fn get_min_distance() -> DistanceThreshold {
+            DistanceThreshold::one()
         }
 
-        pub fn get_max_distance() -> U512 {
-            get_initial_distance_threshold::<T>().shl(2)
+        pub fn get_max_distance() -> DistanceThreshold {
+            get_initial_distance_threshold::<T>().shl(T::MaxDistanceMultiplier::get())
         }
 
-        pub fn get_difficulty() -> U512 {
+        pub fn get_difficulty() -> DistanceThreshold {
             Self::get_max_distance() / Self::get_distance_threshold()
         }
 
-        pub fn get_distance_threshold_at_block(block_number: BlockNumberFor<T>) -> U512 {
+        pub fn get_distance_threshold_at_block(
+            block_number: BlockNumberFor<T>,
+        ) -> DistanceThreshold {
             <BlockDistanceThresholds<T>>::get(block_number)
         }
 
-        pub fn get_total_work() -> U512 {
+        pub fn get_total_work() -> WorkValue {
             <TotalWork<T>>::get()
         }
 
-        pub fn get_last_block_time() -> u64 {
+        pub fn get_last_block_time() -> Timestamp {
             <LastBlockTime<T>>::get()
         }
 
-        pub fn get_last_block_duration() -> u64 {
+        pub fn get_last_block_duration() -> BlockDuration {
             <LastBlockDuration<T>>::get()
         }
 
-        pub fn get_max_reorg_depth() -> u32 {
+        pub fn get_max_reorg_depth() -> BlockCount {
             T::MaxReorgDepth::get()
         }
     }

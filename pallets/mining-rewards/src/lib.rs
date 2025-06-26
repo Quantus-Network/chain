@@ -18,21 +18,24 @@ pub mod pallet {
     use super::*;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{DecreaseIssuance, IncreaseIssuance};
-    use frame_support::traits::{Currency, Get, Imbalance, OnUnbalanced};
+    use frame_support::traits::fungible::{
+        DecreaseIssuance, IncreaseIssuance, Inspect, Mutate, Unbalanced,
+    };
+    use frame_support::traits::Defensive;
+    use frame_support::traits::{Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
     use sp_runtime::traits::{AccountIdConversion, Saturating};
     use sp_runtime::Permill;
 
-    pub type BalanceOf<T> =
-        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+    type BalanceOf<T> =
+        <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
-    pub type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
-        u128,
-        DecreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T>>,
-        IncreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T>>,
+    type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
+        BalanceOf<T>,
+        DecreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
+        IncreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
     >;
 
     #[pallet::pallet]
@@ -49,8 +52,9 @@ pub mod pallet {
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+
         /// The currency in which fees are paid and rewards are issued
-        type Currency: Currency<Self::AccountId>;
+        type Currency: Mutate<Self::AccountId> + Unbalanced<Self::AccountId>;
 
         /// The base block reward given to miners
         #[pallet::constant]
@@ -70,8 +74,6 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// A miner has been identified for a block
         MinerRewarded {
-            /// Block number
-            block: BlockNumberFor<T>,
             /// Miner account
             miner: T::AccountId,
             /// Total reward (base + fees)
@@ -103,35 +105,31 @@ pub mod pallet {
             Weight::from_parts(10_000, 0)
         }
 
-        fn on_finalize(block_number: BlockNumberFor<T>) {
+        fn on_finalize(_block_number: BlockNumberFor<T>) {
+            // Get Treasury account
+            let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
+
             // Extract miner ID from the pre-runtime digest
             if let Some(miner) = Self::extract_miner_from_digest() {
                 // Get the block reward
                 let base_reward = T::BlockReward::get();
                 let mut tx_fees = <CollectedFees<T>>::take();
 
-                log::info!("💰 Base reward: {:?}", base_reward);
-                log::info!("💰 Original Tx_fees: {:?}", tx_fees);
+                log::trace!(target: "mining-rewards", "💰 Base reward: {:?}", base_reward);
+                log::trace!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
 
                 // Calculate fees for Treasury
                 let fees_to_treasury_percentage = T::FeesToTreasuryPermill::get();
                 let fees_for_treasury = fees_to_treasury_percentage.mul_floor(tx_fees);
 
-                // Get Treasury account
-                let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
-
                 // Send fees to Treasury if any
                 if fees_for_treasury > Zero::zero() {
-                    let treasury_imbalance = T::Currency::issue(fees_for_treasury);
-                    T::Currency::resolve_creating(&treasury_account, treasury_imbalance);
+                    let _ =
+                        T::Currency::mint_into(&treasury_account, fees_for_treasury).defensive();
+
                     Self::deposit_event(Event::FeesRedirectedToTreasury {
                         amount: fees_for_treasury,
                     });
-                    log::info!(
-                        target: "mining-rewards",
-                        "💰 Fees sent to Treasury: {:?}",
-                        fees_for_treasury
-                    );
                     // Subtract fees sent to treasury from the total tx_fees
                     tx_fees = tx_fees.saturating_sub(fees_for_treasury);
                 }
@@ -140,25 +138,13 @@ pub mod pallet {
 
                 // Create imbalance for miner's reward
                 if reward_for_miner > Zero::zero() {
-                    let miner_reward_imbalance = T::Currency::issue(reward_for_miner);
-                    T::Currency::resolve_creating(&miner, miner_reward_imbalance);
+                    let _ = T::Currency::mint_into(&miner, reward_for_miner).defensive();
 
                     // Emit an event for miner's reward
                     Self::deposit_event(Event::MinerRewarded {
-                        block: block_number,
                         miner: miner.clone(),
                         reward: reward_for_miner, // Actual reward for miner
                     });
-
-                    log::info!(
-                        target: "mining-rewards",
-                        "💰 Miner rewarded: {:?}",
-                        reward_for_miner
-                    );
-                    let miner_balance = T::Currency::free_balance(&miner);
-                    log::info!(target: "mining-rewards",
-                        "🏦 Miner balance: {:?}",
-                        miner_balance);
                 }
             } else {
                 // No miner specified, send all rewards (base + all fees) to Treasury
@@ -167,21 +153,15 @@ pub mod pallet {
                 let total_reward_for_treasury = base_reward.saturating_add(tx_fees);
 
                 if total_reward_for_treasury > BalanceOf::<T>::from(0u32) {
-                    // Get Treasury account
-                    let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
-
-                    // Create imbalance for block reward
-                    let reward_imbalance = T::Currency::issue(total_reward_for_treasury);
-
-                    // Send rewards to Treasury
-                    T::Currency::resolve_creating(&treasury_account, reward_imbalance);
+                    let _ = T::Currency::mint_into(&treasury_account, total_reward_for_treasury)
+                        .defensive();
 
                     // Emit an event
                     Self::deposit_event(Event::TreasuryRewarded {
                         reward: total_reward_for_treasury,
                     });
 
-                    log::info!(
+                    log::trace!(
                         target: "mining-rewards",
                         "💰 No miner specified, all rewards sent to Treasury: {:?}",
                         total_reward_for_treasury
@@ -230,11 +210,7 @@ pub mod pallet {
         BalanceOf<T>: From<u128>,
     {
         fn on_nonzero_unbalanced(amount: NegativeImbalanceOf<T>) {
-            let value_u128 = amount.peek();
-
-            Pallet::<T>::collect_transaction_fees(BalanceOf::<T>::from(value_u128));
-
-            drop(amount);
+            Pallet::<T>::collect_transaction_fees(amount.peek());
         }
     }
 }
