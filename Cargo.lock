@@ -622,19 +622,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asynchronous-codec"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a860072022177f903e59730004fb5dc13db9275b79bb2aef7ba8ce831956c233"
-dependencies = [
- "bytes 1.10.1",
- "futures-sink",
- "futures-util",
- "memchr",
- "pin-project-lite 0.2.16",
-]
-
-[[package]]
 name = "atomic-take"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -978,9 +965,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.18.1"
+version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db76d6187cd04dff33004d8e6c9cc4e05cd330500379d2394209271b4aeee"
+checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 
 [[package]]
 name = "byte-slice-cast"
@@ -1653,9 +1640,9 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "crunchy"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
+checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "crypto-bigint"
@@ -3129,16 +3116,6 @@ name = "futures-bounded"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b07bbbe7d7e78809544c6f718d875627addc73a7c3582447abc052cd3dc67e0"
-dependencies = [
- "futures-timer",
- "futures-util",
-]
-
-[[package]]
-name = "futures-bounded"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91f328e7fb845fc832912fb6a34f40cf6d1888c92f974d1893a54e97b5ff542e"
 dependencies = [
  "futures-timer",
  "futures-util",
@@ -4817,7 +4794,7 @@ dependencies = [
  "libp2p-dns 0.40.1",
  "libp2p-identify",
  "libp2p-identity",
- "libp2p-kad 0.44.6",
+ "libp2p-kad",
  "libp2p-mdns 0.44.0",
  "libp2p-metrics",
  "libp2p-noise",
@@ -5005,10 +4982,10 @@ version = "0.43.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45a96638a0a176bec0a4bcaebc1afa8cf909b114477209d7456ade52c61cd9cd"
 dependencies = [
- "asynchronous-codec 0.6.2",
+ "asynchronous-codec",
  "either",
  "futures 0.3.31",
- "futures-bounded 0.1.0",
+ "futures-bounded",
  "futures-timer",
  "libp2p-core 0.40.1",
  "libp2p-identity",
@@ -5016,7 +4993,7 @@ dependencies = [
  "log",
  "lru",
  "quick-protobuf",
- "quick-protobuf-codec 0.2.0",
+ "quick-protobuf-codec",
  "smallvec",
  "thiserror 1.0.69",
  "void",
@@ -5047,7 +5024,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16ea178dabba6dde6ffc260a8e0452ccdc8f79becf544946692fff9d412fc29d"
 dependencies = [
  "arrayvec 0.7.6",
- "asynchronous-codec 0.6.2",
+ "asynchronous-codec",
  "bytes 1.10.1",
  "either",
  "fnv",
@@ -5059,7 +5036,7 @@ dependencies = [
  "libp2p-swarm 0.43.7",
  "log",
  "quick-protobuf",
- "quick-protobuf-codec 0.2.0",
+ "quick-protobuf-codec",
  "rand 0.8.5",
  "sha2 0.10.9",
  "smallvec",
@@ -5067,35 +5044,6 @@ dependencies = [
  "uint 0.9.5",
  "unsigned-varint 0.7.2",
  "void",
-]
-
-[[package]]
-name = "libp2p-kad"
-version = "0.46.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced237d0bd84bbebb7c2cad4c073160dacb4fe40534963c32ed6d4c6bb7702a3"
-dependencies = [
- "arrayvec 0.7.6",
- "asynchronous-codec 0.7.0",
- "bytes 1.10.1",
- "either",
- "fnv",
- "futures 0.3.31",
- "futures-bounded 0.2.4",
- "futures-timer",
- "libp2p-core 0.42.0",
- "libp2p-identity",
- "libp2p-swarm 0.45.1",
- "quick-protobuf",
- "quick-protobuf-codec 0.3.1",
- "rand 0.8.5",
- "sha2 0.10.9",
- "smallvec",
- "thiserror 1.0.69",
- "tracing",
- "uint 0.9.5",
- "void",
- "web-time",
 ]
 
 [[package]]
@@ -5150,7 +5098,7 @@ dependencies = [
  "libp2p-core 0.40.1",
  "libp2p-identify",
  "libp2p-identity",
- "libp2p-kad 0.44.6",
+ "libp2p-kad",
  "libp2p-ping",
  "libp2p-swarm 0.43.7",
  "once_cell",
@@ -5162,7 +5110,7 @@ name = "libp2p-noise"
 version = "0.43.2"
 source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc#2c6e128dc16e14b500e49b7e1d9c00543d60b52e"
 dependencies = [
- "asynchronous-codec 0.6.2",
+ "asynchronous-codec",
  "bytes 1.10.1",
  "clatter",
  "futures 0.3.31",
@@ -5484,9 +5432,9 @@ dependencies = [
 
 [[package]]
 name = "libredox"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
+checksum = "1580801010e535496706ba011c15f8532df6b42297d2e471fec38ceadd8c0638"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
@@ -7724,8 +7672,8 @@ dependencies = [
 
 [[package]]
 name = "poseidon-resonance"
-version = "0.6.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance#fce507b40c166d9acae1a8885898eea83d0d3780"
+version = "0.7.0"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#5869b62c0644791e42d15a10c228905cfdb93d32"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -8291,24 +8239,11 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ededb1cd78531627244d51dd0c7139fbe736c7d57af0092a76f0ffb2f56e98"
 dependencies = [
- "asynchronous-codec 0.6.2",
+ "asynchronous-codec",
  "bytes 1.10.1",
  "quick-protobuf",
  "thiserror 1.0.69",
  "unsigned-varint 0.7.2",
-]
-
-[[package]]
-name = "quick-protobuf-codec"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15a0580ab32b169745d7a39db2ba969226ca16738931be152a3209b409de2474"
-dependencies = [
- "asynchronous-codec 0.7.0",
- "bytes 1.10.1",
- "quick-protobuf",
- "thiserror 1.0.69",
- "unsigned-varint 0.8.0",
 ]
 
 [[package]]
@@ -9359,9 +9294,9 @@ dependencies = [
 
 [[package]]
 name = "sc-cli"
-version = "0.50.1"
+version = "0.50.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "792411fa02396d2fa8d932b92d4a2e936ef1c670a427820deb2832d75a2e7e4a"
+checksum = "57edff640006631f2d7461aa67f4ed70417d68b9f5470bc24dd4be7d8f84b892"
 dependencies = [
  "array-bytes",
  "chrono",
@@ -9661,13 +9596,13 @@ dependencies = [
 
 [[package]]
 name = "sc-network"
-version = "0.48.4"
-source = "git+https://github.com/Quantus-Network/sc-network-pqc#fbcf83bcc6c89b1e7f2240c95572adac3e2aabc6"
+version = "0.48.5"
+source = "git+https://github.com/Quantus-Network/sc-network-pqc?branch=pqc#f3a35e58f9a349f8ee14aa13fb4efabe305b2244"
 dependencies = [
  "array-bytes",
  "async-channel 1.9.0",
  "async-trait",
- "asynchronous-codec 0.6.2",
+ "asynchronous-codec",
  "bytes 1.10.1",
  "cid 0.9.0",
  "either",
@@ -9810,15 +9745,13 @@ dependencies = [
 
 [[package]]
 name = "sc-network-types"
-version = "0.15.4"
+version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "149445bdb01a539d50d560468407a9a927938949b115ff5fd0cd04cca9349f42"
+checksum = "5432f4f7d0b9608be6650cb35c04dd8db3a982ce63fb643df974e2ec088dccda"
 dependencies = [
  "bs58",
- "bytes 1.10.1",
  "ed25519-dalek",
  "libp2p-identity",
- "libp2p-kad 0.46.2",
  "litep2p",
  "log",
  "multiaddr 0.18.2",
@@ -9830,9 +9763,9 @@ dependencies = [
 
 [[package]]
 name = "sc-offchain"
-version = "43.0.0"
+version = "43.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc5e0b1ad78caf4b34d4acbb3dbe4d13fbbdaafcf8cbed26766e028ac7393275"
+checksum = "bf2f9353ac3c9f5b6ded20ae15c8ca5794cb4236ac2f2f683304170a937da6b5"
 dependencies = [
  "array-bytes",
  "bytes 1.10.1",
@@ -12998,7 +12931,7 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6889a77d49f1f013504cec6bf97a2c730394adedaeb1deb5ea08949a50541105"
 dependencies = [
- "asynchronous-codec 0.6.2",
+ "asynchronous-codec",
  "bytes 1.10.1",
  "futures-io",
  "futures-util",

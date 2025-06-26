@@ -17,7 +17,7 @@ use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
-use std::path::PathBuf;
+
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
     pub address: String,
@@ -403,7 +403,7 @@ pub fn run() -> sc_cli::Result<()> {
 
                 config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
-                match config.network.network_backend.unwrap_or_default() {
+                match config.network.network_backend.unwrap() {
                     sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
                         sc_network::NetworkWorker<
                             quantus_runtime::opaque::Block,
