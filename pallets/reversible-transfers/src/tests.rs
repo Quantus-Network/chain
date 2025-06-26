@@ -24,7 +24,7 @@ fn calculate_tx_id(who: AccountId, call: &RuntimeCall) -> H256 {
 }
 
 // Helper to run to the next block
-fn run_to_block(n: u64) {
+fn run_to_block(n: u32) {
     while System::block_number() < n {
         // Finalize previous block
         Scheduler::on_finalize(System::block_number());

@@ -11,7 +11,7 @@ use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::{ConstU128, ConstU32};
 use sp_runtime::{BuildStorage, Perbill, Weight};
 
-type Block = frame_system::mocking::MockBlock<Test>;
+type Block = frame_system::mocking::MockBlockU32<Test>;
 pub type Balance = u128;
 pub type AccountId = u64;
 
@@ -108,8 +108,8 @@ impl<T> Time for MockTimestamp<T> {
 
 parameter_types! {
     pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
-    pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(10);
-    pub const MinDelayPeriodBlocks: u64 = 2;
+    pub const DefaultDelay: BlockNumberOrTimestamp<u32, u64> = BlockNumberOrTimestamp::BlockNumber(10);
+    pub const MinDelayPeriodBlocks: u32 = 2;
     pub const MinDelayPeriodMoment: u64 = 2000;
     pub const MaxReversibleTransfers: u32 = 100;
 }

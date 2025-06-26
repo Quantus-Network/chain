@@ -49,7 +49,7 @@ mod fungible_tests;
 mod general_tests;
 mod reentrancy_tests;
 
-type Block = frame_system::mocking::MockBlock<Test>;
+type Block = frame_system::mocking::MockBlockU32<Test>;
 
 #[derive(
     Encode,
@@ -81,7 +81,6 @@ frame_support::construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
     }
 );
-
 type Balance = u128;
 
 parameter_types! {

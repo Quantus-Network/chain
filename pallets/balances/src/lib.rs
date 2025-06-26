@@ -576,7 +576,13 @@ pub mod pallet {
     pub type TransferProof<T: Config<I>, I: 'static = ()> = StorageMap<
         _,
         PoseidonStorageHasher<T::AccountId>,
-        (T::Nonce, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
+        (
+            BlockNumberFor<T>,
+            T::Nonce,
+            T::AccountId,
+            T::AccountId,
+            T::Balance,
+        ), // (tx_count, from, to, amount)
         (),
         OptionQuery, // Returns None if not present
     >;
@@ -934,17 +940,22 @@ pub mod pallet {
         fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
             if from != to {
                 let nonce = <frame_system::Pallet<T>>::account_nonce(from);
-                TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), ());
+                let current_block = <frame_system::Pallet<T>>::block_number();
+                TransferProof::<T, I>::insert(
+                    (current_block, nonce, from.clone(), to.clone(), value),
+                    (),
+                );
             }
         }
 
         pub fn transfer_proof_storage_key(
+            block_number: BlockNumberFor<T>,
             nonce: T::Nonce,
             from: T::AccountId,
             to: T::AccountId,
             amount: T::Balance,
         ) -> Vec<u8> {
-            let key = (nonce, from, to, amount);
+            let key = (block_number, nonce, from, to, amount);
             TransferProof::<T, I>::hashed_key_for(&key)
         }
     }

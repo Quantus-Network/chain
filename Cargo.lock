@@ -2175,7 +2175,7 @@ dependencies = [
  "hdwallet",
  "log",
  "parity-scale-codec",
- "poseidon-resonance",
+ "poseidon-resonance 0.7.0",
  "rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
@@ -6612,7 +6612,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "paste",
- "poseidon-resonance",
+ "poseidon-resonance 0.7.0",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -6681,7 +6681,7 @@ dependencies = [
  "pallet-balances 40.0.1",
  "pallet-vesting",
  "parity-scale-codec",
- "poseidon-resonance",
+ "poseidon-resonance 0.7.0",
  "scale-info",
  "sha2 0.10.9",
  "sp-core",
@@ -7738,6 +7738,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "poseidon-resonance"
+version = "0.7.0"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=bigger-transfer-proof#1c7eeb02e26530da2e32379f41f15d6b511815c2"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "plonky2",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-runtime",
+ "sp-storage",
+ "sp-trie",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8250,7 +8266,7 @@ dependencies = [
  "pallet-vesting",
  "pallet-wormhole",
  "parity-scale-codec",
- "poseidon-resonance",
+ "poseidon-resonance 0.7.0",
  "primitive-types 0.13.1",
  "qp-scheduler",
  "scale-info",
@@ -9178,7 +9194,7 @@ dependencies = [
  "bip39",
  "hex-literal",
  "hmac 0.12.1",
- "poseidon-resonance",
+ "poseidon-resonance 0.6.0",
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",

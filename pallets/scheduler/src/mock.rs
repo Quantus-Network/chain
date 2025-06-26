@@ -111,7 +111,7 @@ pub mod logger {
     }
 }
 
-type Block = frame_system::mocking::MockBlock<Test>;
+type Block = frame_system::mocking::MockBlockU32<Test>;
 
 frame_support::construct_runtime!(
     pub enum Test
@@ -280,7 +280,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     t.into()
 }
 
-pub fn run_to_block(n: u64) {
+pub fn run_to_block(n: u32) {
     while System::block_number() < n {
         Scheduler::on_finalize(System::block_number());
         System::set_block_number(System::block_number() + 1);
