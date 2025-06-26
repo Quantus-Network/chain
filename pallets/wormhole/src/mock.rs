@@ -13,7 +13,7 @@
 // use pallet_balances;
 // use pallet_balances::AccountData;
 
-// type Block = MockBlockU32<Test>;
+// type Block = MockBlock<Test>;
 // type Balance = u64;
 
 // parameter_types! {
