@@ -17,6 +17,7 @@ use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
+use std::path::PathBuf;
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
     pub address: String,
@@ -378,20 +379,26 @@ pub fn run() -> sc_cli::Result<()> {
                 config.state_pruning = Some(PruningMode::ArchiveCanonical);
                 // NOTE: at this point the net_config_path is a pointer to a file that does not yet exist
                 // so it is safe to change it here
-                let key_path = config
-                    .network
-                    .net_config_path
-                    .clone()
-                    .unwrap()
-                    .join("secret_dilithium");
-                // log::info!("Node Key: {:?}, dir: {:?}, path: {:?}, contents: {:?}",
-                //     config.network.node_key,
-                //     config.network.net_config_path,
-                //     p,
-                //     std::fs::read_to_string(
-                //         config.network.net_config_path.clone().unwrap().join("secret_ed25519")
-                //     )
-                // );
+                let key_path =
+                    if let Some(path_str) = &cli.run.network_params.node_key_params.node_key_file {
+                        let path = std::path::Path::new(path_str);
+                        if path.is_absolute() {
+                            path.to_path_buf()
+                        } else {
+                            // This is a valid assumption because the node is run from the shell
+                            std::env::current_dir().unwrap().join(path)
+                        }
+                    } else {
+                        config
+                            .network
+                            .net_config_path
+                            .clone()
+                            .unwrap()
+                            .join("secret_dilithium")
+                    };
+
+                log::debug!(target: "network", "node identity file: {:?}", key_path);
+
                 config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
                 match config.network.network_backend.unwrap_or_default() {
