@@ -582,7 +582,7 @@ pub mod pallet {
             T::AccountId,
             T::AccountId,
             T::Balance,
-        ), // (tx_count, from, to, amount)
+        ), // (block_number, tx_count, from, to, amount)
         (),
         OptionQuery, // Returns None if not present
     >;
