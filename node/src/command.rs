@@ -377,8 +377,10 @@ pub fn run() -> sc_cli::Result<()> {
                 //Obligatory configuration for all node holders
                 config.blocks_pruning = BlocksPruning::KeepFinalized;
                 config.state_pruning = Some(PruningMode::ArchiveCanonical);
-                // NOTE: at this point the net_config_path is a pointer to a file that does not yet exist
-                // so it is safe to change it here
+
+                // Note: We parse node_key_file here to make a Dilithium keypair.
+                // We then override the net config object parsed by sc_cli so we don't have to
+                // fork sc_cli.
                 let key_path =
                     if let Some(path_str) = &cli.run.network_params.node_key_params.node_key_file {
                         let path = std::path::Path::new(path_str);
