@@ -464,6 +464,7 @@ parameter_types! {
     pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
     pub const MinDelayPeriodBlocks: BlockNumber = 2;
     pub const MaxReversibleTransfers: u32 = 10;
+    pub const MaxInterceptorAccounts: u32 = 32;
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
@@ -481,6 +482,7 @@ impl pallet_reversible_transfers::Config for Runtime {
     type RuntimeHoldReason = RuntimeHoldReason;
     type Moment = Moment;
     type TimeProvider = Timestamp;
+    type MaxInterceptorAccounts = MaxInterceptorAccounts;
 }
 
 impl pallet_merkle_airdrop::Config for Runtime {

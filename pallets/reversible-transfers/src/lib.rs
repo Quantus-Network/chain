@@ -130,6 +130,10 @@ pub mod pallet {
         #[pallet::constant]
         type MaxPendingPerAccount: Get<u32>;
 
+        /// Maximum number of accounts an interceptor can intercept for. Used for BoundedVec.
+        #[pallet::constant]
+        type MaxInterceptorAccounts: Get<u32>;
+
         /// The default delay period for reversible transactions if none is specified.
         ///
         /// NOTE: default delay is always in blocks.
@@ -223,6 +227,18 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Maps interceptor accounts to the list of accounts they can intercept for.
+    /// This allows the UI to efficiently query all accounts for which a given account is an interceptor.
+    #[pallet::storage]
+    #[pallet::getter(fn interceptor_index)]
+    pub type InterceptorIndex<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::AccountId, T::MaxInterceptorAccounts>,
+        ValueQuery,
+    >;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -280,6 +296,8 @@ pub mod pallet {
         InvalidReverser,
         /// Cannot schedule one time reversible transaction when account is reversible (theft deterrence)
         AccountAlreadyReversibleCannotScheduleOneTime,
+        /// The interceptor has reached the maximum number of accounts they can intercept for.
+        TooManyInterceptorAccounts,
     }
 
     #[pallet::call]
@@ -315,12 +333,25 @@ pub mod pallet {
             Self::validate_delay(&delay)?;
 
             let reversible_account_data = ReversibleAccountData {
-                explicit_reverser: reverser,
+                explicit_reverser: reverser.clone(),
                 delay,
                 policy: policy.clone(),
             };
 
-            ReversibleAccounts::<T>::insert(&who, reversible_account_data.clone());
+            // Update interceptor index if there's an explicit reverser
+            if let Some(ref interceptor) = reverser {
+                InterceptorIndex::<T>::try_mutate(interceptor, |accounts| {
+                    if !accounts.contains(&who) {
+                        accounts
+                            .try_push(who.clone())
+                            .map_err(|_| Error::<T>::TooManyInterceptorAccounts)
+                    } else {
+                        Ok(())
+                    }
+                })?;
+            }
+
+            ReversibleAccounts::<T>::insert(who.clone(), &reversible_account_data);
             Self::deposit_event(Event::ReversibilitySet {
                 who,
                 data: reversible_account_data,

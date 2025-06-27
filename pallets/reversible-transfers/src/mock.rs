@@ -121,6 +121,7 @@ parameter_types! {
     pub const MinDelayPeriodBlocks: u64 = 2;
     pub const MinDelayPeriodMoment: u64 = 2000;
     pub const MaxReversibleTransfers: u32 = 100;
+    pub const MaxInterceptorAccounts: u32 = 10;
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -138,6 +139,7 @@ impl pallet_reversible_transfers::Config for Test {
     type WeightInfo = ();
     type Moment = Moment;
     type TimeProvider = MockTimestamp<Test>;
+    type MaxInterceptorAccounts = MaxInterceptorAccounts;
 }
 
 impl pallet_preimage::Config for Test {
