@@ -1370,8 +1370,8 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
         assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 
         // Verify storage indexes are properly updated after scheduling
-        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
-        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+        let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
         assert_eq!(sender_pending.len(), 1);
         assert_eq!(sender_pending[0], tx_id);
         assert_eq!(recipient_pending.len(), 1);
@@ -1418,11 +1418,11 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 
         // Verify storage indexes are cleaned up after execution
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             0
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             0
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
@@ -1449,11 +1449,11 @@ fn storage_indexes_maintained_correctly_on_schedule() {
 
         // Initially no pending transfers
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             0
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             0
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
@@ -1469,8 +1469,8 @@ fn storage_indexes_maintained_correctly_on_schedule() {
         let tx_id = calculate_tx_id(sender, &call);
 
         // Verify storage indexes are properly updated
-        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
-        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+        let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
 
         assert_eq!(sender_pending.len(), 1);
         assert_eq!(sender_pending[0], tx_id);
@@ -1498,8 +1498,8 @@ fn storage_indexes_maintained_correctly_on_schedule() {
         let tx_id2 = calculate_tx_id(sender, &call2);
 
         // Verify both transfers are indexed
-        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
-        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+        let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
 
         assert_eq!(sender_pending.len(), 2);
         assert!(sender_pending.contains(&tx_id));
@@ -1535,11 +1535,11 @@ fn storage_indexes_maintained_correctly_on_execution() {
 
         // Verify storage indexes are populated
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             1
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             1
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
@@ -1549,11 +1549,11 @@ fn storage_indexes_maintained_correctly_on_execution() {
 
         // Verify storage indexes are cleaned up
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             0
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             0
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
@@ -1583,11 +1583,11 @@ fn storage_indexes_maintained_correctly_on_cancel() {
 
         // Verify storage indexes are populated
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             1
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             1
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
@@ -1600,11 +1600,11 @@ fn storage_indexes_maintained_correctly_on_cancel() {
 
         // Verify storage indexes are cleaned up
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             0
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             0
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
@@ -1639,8 +1639,8 @@ fn storage_indexes_handle_multiple_identical_transfers_correctly() {
         let tx_id = calculate_tx_id(sender, &call);
 
         // Should only have one entry in indexes (since identical transfers share the same tx_id)
-        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
-        let recipient_pending = ReversibleTransfers::get_pending_transfers_by_recipient(&recipient);
+        let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
+        let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
 
         assert_eq!(sender_pending.len(), 1);
         assert_eq!(sender_pending[0], tx_id);
@@ -1662,11 +1662,11 @@ fn storage_indexes_handle_multiple_identical_transfers_correctly() {
 
         // Indexes should still contain the transfer (since count > 1)
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             1
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             1
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
@@ -1683,11 +1683,11 @@ fn storage_indexes_handle_multiple_identical_transfers_correctly() {
 
         // Now indexes should be completely cleaned up
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_sender(&sender).len(),
+            ReversibleTransfers::pending_transfers_by_sender(&sender).len(),
             0
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(),
             0
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
@@ -1723,16 +1723,14 @@ fn storage_indexes_handle_multiple_recipients_correctly() {
         let tx_id2 = calculate_tx_id(sender, &call2);
 
         // Sender should have both transfers
-        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
         assert_eq!(sender_pending.len(), 2);
         assert!(sender_pending.contains(&tx_id1));
         assert!(sender_pending.contains(&tx_id2));
 
         // Each recipient should have their own transfer
-        let recipient1_pending =
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient1);
-        let recipient2_pending =
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient2);
+        let recipient1_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient1);
+        let recipient2_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient2);
 
         assert_eq!(recipient1_pending.len(), 1);
         assert_eq!(recipient1_pending[0], tx_id1);
@@ -1749,16 +1747,16 @@ fn storage_indexes_handle_multiple_recipients_correctly() {
         ));
 
         // Verify selective cleanup
-        let sender_pending = ReversibleTransfers::get_pending_transfers_by_sender(&sender);
+        let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
         assert_eq!(sender_pending.len(), 1);
         assert_eq!(sender_pending[0], tx_id2);
 
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient1).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient1).len(),
             0
         );
         assert_eq!(
-            ReversibleTransfers::get_pending_transfers_by_recipient(&recipient2).len(),
+            ReversibleTransfers::pending_transfers_by_recipient(&recipient2).len(),
             1
         );
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);

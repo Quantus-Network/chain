@@ -435,20 +435,6 @@ pub mod pallet {
             ReversibleAccounts::<T>::get(who)
         }
 
-        /// Get all pending outgoing transfers for an account
-        pub fn get_pending_transfers_by_sender(
-            sender: &T::AccountId,
-        ) -> BoundedVec<T::Hash, T::MaxPendingPerAccount> {
-            PendingTransfersBySender::<T>::get(sender)
-        }
-
-        /// Get all pending incoming transfers for an account
-        pub fn get_pending_transfers_by_recipient(
-            recipient: &T::AccountId,
-        ) -> BoundedVec<T::Hash, T::MaxPendingPerAccount> {
-            PendingTransfersByRecipient::<T>::get(recipient)
-        }
-
         /// Get full details of a pending transfer by its ID
         pub fn get_pending_transfer_details(
             tx_id: &T::Hash,
