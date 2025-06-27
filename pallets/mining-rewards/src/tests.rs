@@ -1,7 +1,7 @@
+use crate::weights::WeightInfo;
 use crate::{mock::*, Event};
 use frame_support::traits::Currency;
 use frame_support::traits::Hooks;
-use frame_support::weights::Weight;
 use sp_runtime::traits::AccountIdConversion;
 
 const UNIT: u128 = 1_000_000_000_000;
@@ -206,7 +206,7 @@ fn block_lifecycle_works() {
 
         // 1. on_initialize - should return correct weight
         let weight = MiningRewards::on_initialize(1);
-        assert_eq!(weight, Weight::from_parts(10_000, 0));
+        assert_eq!(weight, <()>::on_finalize_rewarded_miner());
 
         // 2. Add some transaction fees during block execution
         MiningRewards::collect_transaction_fees(15);

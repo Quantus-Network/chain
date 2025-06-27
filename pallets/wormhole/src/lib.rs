@@ -8,6 +8,9 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
 #[frame_support::pallet]
 pub mod pallet {
     use codec::{Decode, Encode};
@@ -38,13 +41,23 @@ pub mod pallet {
 
     pub trait WeightInfo {
         fn verify_wormhole_proof() -> Weight;
+        fn verify_wormhole_proof_with_used_nullifier() -> Weight;
+        fn verify_wormhole_proof_deserialization_failure() -> Weight;
+        fn verify_wormhole_proof_empty_data() -> Weight;
     }
 
-    pub struct DefaultWeightInfo;
-
-    impl WeightInfo for DefaultWeightInfo {
+    impl WeightInfo for () {
         fn verify_wormhole_proof() -> Weight {
-            Weight::from_parts(10_000, 0)
+            Weight::zero()
+        }
+        fn verify_wormhole_proof_with_used_nullifier() -> Weight {
+            Weight::zero()
+        }
+        fn verify_wormhole_proof_deserialization_failure() -> Weight {
+            Weight::zero()
+        }
+        fn verify_wormhole_proof_empty_data() -> Weight {
+            Weight::zero()
         }
     }
 

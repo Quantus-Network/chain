@@ -1,5 +1,4 @@
 use crate as pallet_qpow;
-use crate::DefaultWeightInfo;
 use frame_support::pallet_prelude::{ConstU32, TypedGet};
 use frame_support::traits::{ConstU64, ConstU8};
 use frame_support::{parameter_types, traits::Everything};
@@ -69,7 +68,7 @@ impl pallet_timestamp::Config for Test {
 
 impl pallet_qpow::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = DefaultWeightInfo;
+    type WeightInfo = ();
     type InitialDistanceThresholdExponent = ConstU32<508>;
     type DifficultyAdjustPercentClamp = ConstU8<10>;
     type TargetBlockTime = ConstU64<1000>;

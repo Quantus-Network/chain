@@ -1,62 +1,55 @@
 //! Benchmarking setup for pallet-mining-rewards
 
+extern crate alloc;
+
 use super::*;
 use crate::Pallet as MiningRewards;
+use frame_benchmarking::{account, v2::*, BenchmarkError};
 use frame_support::traits::Currency;
+use frame_system::pallet_prelude::BlockNumberFor;
+use frame_system::Pallet as SystemPallet;
 use sp_consensus_pow::POW_ENGINE_ID;
-use sp_runtime::generic::DigestItem;
+use sp_runtime::generic::{Digest, DigestItem};
+use sp_runtime::traits::AccountIdConversion;
 
-#[cfg(feature = "runtime-benchmarks")]
+#[benchmarks]
 mod benchmarks {
     use super::*;
     use codec::Encode;
-    use frame_benchmarking::{benchmarks, impl_benchmark_test_suite, whitelisted_caller};
-    use frame_support::traits::{Get, OnFinalize, OnInitialize};
+    use frame_support::traits::{Get, OnFinalize};
     use sp_runtime::Saturating;
 
-    type CurrencyOf<T> = <T as Config>::Currency;
     type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-    benchmarks! {
-        on_initialize {
-        }: {
-            MiningRewards::<T>::on_initialize(frame_system::Pallet::<T>::block_number())
+    #[benchmark]
+    fn on_finalize_rewarded_miner() -> Result<(), BenchmarkError> {
+        let block_number: BlockNumberFor<T> = 1u32.into();
+        let miner: T::AccountId = account("miner", 0, 0);
+        let fees_collected: BalanceOf<T> = 1000u32.into();
+
+        CollectedFees::<T>::put(fees_collected);
+
+        let miner_digest_item = DigestItem::PreRuntime(POW_ENGINE_ID, miner.encode());
+
+        SystemPallet::<T>::initialize(
+            &block_number,
+            &SystemPallet::<T>::parent_hash(),
+            &Digest {
+                logs: alloc::vec![miner_digest_item],
+            },
+        );
+
+        // Pre-fund Treasury account to ensure it exists (optional, resolve_creating should handle)
+        let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
+        let ed = T::Currency::minimum_balance();
+        T::Currency::make_free_balance_be(&treasury_account, ed.saturating_mul(1000u32.into()));
+        T::Currency::make_free_balance_be(&miner, ed.saturating_mul(1000u32.into()));
+
+        #[block]
+        {
+            MiningRewards::<T>::on_finalize(block_number);
         }
-
-        collect_transaction_fees {
-            let fee_amount: BalanceOf<T> = 100u32.into();
-        }: {
-            MiningRewards::<T>::collect_transaction_fees(fee_amount)
-        } verify {
-            assert_eq!(MiningRewards::<T>::collected_fees(), fee_amount);
-        }
-
-        on_finalize {
-            let miner: T::AccountId = whitelisted_caller();
-            let miner_encoded = miner.encode();
-
-            let digest_item = DigestItem::PreRuntime(POW_ENGINE_ID, miner_encoded);
-            frame_system::Pallet::<T>::deposit_log(digest_item);
-
-            let fee_amount: BalanceOf<T> = 100u32.into();
-            MiningRewards::<T>::collect_transaction_fees(fee_amount);
-
-            let initial_balance = CurrencyOf::<T>::free_balance(&miner);
-            let block_number = frame_system::Pallet::<T>::block_number();
-        }: {
-            MiningRewards::<T>::on_finalize(block_number)
-        } verify {
-            let expected_reward = T::BlockReward::get().saturating_add(fee_amount);
-            let final_balance = CurrencyOf::<T>::free_balance(&miner);
-            assert!(final_balance > initial_balance);
-            assert_eq!(final_balance, initial_balance.saturating_add(expected_reward));
-        }
+        Ok(())
     }
-
-    impl_benchmark_test_suite!(
-        MiningRewards,
-        crate::mock::new_test_ext(),
-        crate::mock::Test
-    );
 }

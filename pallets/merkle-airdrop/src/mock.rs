@@ -109,7 +109,6 @@ parameter_types! {
 
 impl pallet_merkle_airdrop::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type Currency = Balances;
     type Vesting = Vesting;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;
