@@ -37,6 +37,10 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type WeightInfo: WeightInfo;
+
+        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
+        #[pallet::constant]
+        type MintingAccount: Get<Self::AccountId>;
     }
 
     pub trait WeightInfo {
@@ -207,6 +211,14 @@ pub mod pallet {
             // Mint new tokens to the exit account
             let _ =
                 BalancesPallet::<T>::deposit_creating(&public_inputs.exit_account, exit_balance);
+
+            // Create a transfer proof for the minted tokens
+            let mint_account = T::MintingAccount::get();
+            BalancesPallet::<T>::store_transfer_proof(
+                &mint_account,
+                &public_inputs.exit_account,
+                exit_balance,
+            );
 
             // // Emit event
             Self::deposit_event(Event::ProofVerified {

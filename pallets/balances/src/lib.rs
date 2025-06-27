@@ -935,7 +935,7 @@ pub mod pallet {
     }
 
     impl<T: Config<I>, I: 'static> Pallet<T, I> {
-        fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
+        pub fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
             if from != to {
                 let current_count = Self::transfer_count();
                 <TransferCount<T, I>>::put(current_count.saturating_add(1));

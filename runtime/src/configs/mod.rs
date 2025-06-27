@@ -153,9 +153,14 @@ impl pallet_qpow::Config for Runtime {
     type MaxReorgDepth = ConstU32<10>;
 }
 
+parameter_types! {
+     pub const WormholeMintingAccount: AccountId = AccountId::new([1u8; 32]);
+}
+
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
+    type MintingAccount = WormholeMintingAccount;
 }
 
 type Moment = u64;
