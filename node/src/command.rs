@@ -17,7 +17,6 @@ use sp_core::crypto::AccountId32;
 use sp_core::crypto::Ss58Codec;
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
-use std::path::PathBuf;
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
     pub address: String,
