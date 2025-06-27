@@ -17,10 +17,10 @@
 
 //! Tests for the global transfer counter functionality.
 
-use sp_runtime::ArithmeticError::Underflow;
-use sp_runtime::DispatchError::Arithmetic;
 use super::*;
 use crate::{TransferCount, TransferProof};
+use sp_runtime::ArithmeticError::Underflow;
+use sp_runtime::DispatchError::Arithmetic;
 
 /// Alice account ID for more readable tests.
 const ALICE: u64 = 1;
