@@ -79,8 +79,8 @@ use frame_support::{
     ensure,
     traits::{
         schedule::{self, DispatchTime as DispatchBlock, MaybeHashed},
-        Bounded, CallerTrait, EnsureOrigin, Get, IsType, OnTimestampSet, OriginTrait, PrivilegeCmp,
-        QueryPreimage, StorageVersion, StorePreimage, Time,
+        Bounded, CallerTrait, EnsureOrigin, Get, IsType, OriginTrait, PrivilegeCmp, QueryPreimage,
+        StorageVersion, StorePreimage, Time,
     },
     weights::{Weight, WeightMeter},
 };
@@ -91,7 +91,7 @@ use frame_system::{
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
 use scale_info::TypeInfo;
 use sp_runtime::{
-    traits::{BadOrigin, Dispatchable, One, Saturating},
+    traits::{BadOrigin, Dispatchable, One, Saturating, Zero},
     BoundedVec, DispatchError, RuntimeDebug,
 };
 
@@ -263,7 +263,9 @@ pub mod pallet {
             + Parameter
             + AtLeast32Bit
             + Scale<BlockNumberFor<Self>, Output = Self::Moment>
-            + MaxEncodedLen;
+            + MaxEncodedLen
+            + Default
+            + sp_runtime::traits::Zero;
 
         /// Time provider, usually timestamp pallet.
         type TimeProvider: Time<Moment = Self::Moment>;
@@ -277,6 +279,10 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type IncompleteSince<T: Config> = StorageValue<_, BlockNumberOrTimestampOf<T>>;
+
+    /// Last processed timestamp bucket to prevent skipping buckets due to long block times.
+    #[pallet::storage]
+    pub type LastProcessedTimestamp<T: Config> = StorageValue<_, T::Moment, ValueQuery>;
 
     /// Items to be executed, indexed by the block number that they should be executed on.
     #[pallet::storage]
@@ -382,11 +388,23 @@ pub mod pallet {
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             log::debug!(target: "scheduler", "Scheduler on_initialize hook called");
             let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
+
+            // Process block-based agendas
             Self::service_agendas(
                 &mut weight_counter,
                 BlockNumberOrTimestamp::BlockNumber(now),
                 u32::max_value(),
             );
+
+            // Process timestamp-based agendas using current system time
+            // This prevents skipped timestamp buckets since we always process up to current time
+            let current_timestamp = T::TimeProvider::now();
+            Self::service_timestamp_agendas(
+                &mut weight_counter,
+                current_timestamp,
+                u32::max_value(),
+            );
+
             weight_counter.consumed()
         }
     }
@@ -627,6 +645,53 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Service timestamp-based agendas, ensuring no buckets are skipped due to long block times.
+    fn service_timestamp_agendas(weight: &mut WeightMeter, current_timestamp: T::Moment, max: u32) {
+        log::debug!(target: "scheduler", "Processing timestamp agendas up to {:?}", current_timestamp);
+
+        let normalized_now: BlockNumberOrTimestampOf<T> =
+            BlockNumberOrTimestamp::Timestamp(current_timestamp)
+                .normalize(T::TimestampBucketSize::get());
+
+        // Get the last processed timestamp bucket
+        let last_processed = LastProcessedTimestamp::<T>::get();
+
+        // Only process buckets that are due (current_timestamp >= bucket_time)
+        let end_bucket_time = match normalized_now {
+            BlockNumberOrTimestamp::Timestamp(t) => t,
+            _ => return, // Should not happen for timestamp processing
+        };
+
+        // Don't process anything if current time is before any bucket, but still update last_processed
+        if current_timestamp < T::TimestampBucketSize::get() && last_processed.is_zero() {
+            LastProcessedTimestamp::<T>::put(current_timestamp);
+            return;
+        }
+
+        // Start from the next bucket after last processed, or from the first due bucket
+        let start_bucket_time = if last_processed.is_zero() {
+            // Find the first bucket that should be processed (bucket 0 if current_timestamp >= 0)
+            T::Moment::zero()
+        } else {
+            // Start from the next bucket after the last processed one
+            last_processed.saturating_add(T::TimestampBucketSize::get())
+        };
+
+        // Process all due buckets from start_bucket_time to end_bucket_time
+        let mut current_bucket_time = start_bucket_time;
+        while current_bucket_time <= end_bucket_time {
+            let current_bucket = BlockNumberOrTimestamp::Timestamp(current_bucket_time);
+            log::debug!(target: "scheduler", "Processing timestamp bucket {:?}", current_bucket_time);
+            Self::service_agendas(weight, current_bucket, max);
+
+            // Move to next bucket
+            current_bucket_time = current_bucket_time.saturating_add(T::TimestampBucketSize::get());
+        }
+
+        // Update last processed timestamp to the current normalized time
+        LastProcessedTimestamp::<T>::put(end_bucket_time);
+    }
+
     fn resolve_time(
         when: DispatchTime<BlockNumberFor<T>, T::Moment>,
     ) -> Result<BlockNumberOrTimestampOf<T>, DispatchError> {
@@ -950,6 +1015,7 @@ impl<T: Config> Pallet<T> {
                 BlockNumberOrTimestamp::Timestamp(x.saturating_add(T::TimestampBucketSize::get()))
             }
         };
+
         let mut when = IncompleteSince::<T>::take().unwrap_or(normalized_now);
 
         log::debug!(target: "scheduler", " incomplete_since {:?}", incomplete_since);

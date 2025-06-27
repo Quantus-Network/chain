@@ -3550,7 +3550,7 @@ fn time_based_agenda_is_processed_correctly() {
 
         // First block is at 0ms.
         MockTimestamp::set_timestamp(0);
-        Scheduler::on_timestamp_set(0);
+        run_to_block(1);  // This will trigger on_initialize which processes timestamp agendas
 
         // Assert nothing is logged yet.
         assert_eq!(logger::log(), vec![]);
@@ -3559,7 +3559,7 @@ fn time_based_agenda_is_processed_correctly() {
         let future_time_ms = 10_000;
         MockTimestamp::set_timestamp(future_time_ms);
         // Process the block at the future time.
-        Scheduler::on_timestamp_set(future_time_ms);
+        run_to_block(2);  // This will trigger on_initialize which processes timestamp agendas
 
         assert_eq!(logger::log().len(), 1);
         assert_eq!(logger::log()[0].1, 1);
@@ -3567,7 +3567,7 @@ fn time_based_agenda_is_processed_correctly() {
 }
 
 #[test]
-fn time_based_agenda_is_processed_correctly_after_time_skip() {
+fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
     new_test_ext().execute_with(|| {
         // Bucket size is 10_000ms.
         // Schedule a task in bucket 10_000
@@ -3586,7 +3586,7 @@ fn time_based_agenda_is_processed_correctly_after_time_skip() {
 
         // First block is at 0ms.
         MockTimestamp::set_timestamp(0);
-        Scheduler::on_timestamp_set(0);
+        run_to_block(1);  // This will trigger on_initialize which processes timestamp agendas
 
         // Assert nothing is logged yet.
         assert_eq!(logger::log(), vec![]);
@@ -3595,9 +3595,9 @@ fn time_based_agenda_is_processed_correctly_after_time_skip() {
         let future_time_ms = 30_000;
         MockTimestamp::set_timestamp(future_time_ms);
         // Process the block at the future time.
-        Scheduler::on_timestamp_set(future_time_ms);
+        run_to_block(2);  // This will trigger on_initialize which processes timestamp agendas
 
-        // Fails due to bucket skipping
+        // With our fix, bucket skipping is prevented and the task SHOULD execute
         assert_eq!(logger::log().len(), 1);
         assert_eq!(logger::log()[0].1, 1);
     });
