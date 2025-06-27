@@ -8,9 +8,7 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-pub type BalanceOf<T> = <<T as Config>::Currency as frame_support::traits::fungible::Inspect<
-    <T as frame_system::Config>::AccountId,
->>::Balance;
+pub type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -23,6 +21,7 @@ pub mod pallet {
     use frame_support::{pallet_prelude::*, traits::fungible::Mutate};
     use frame_system::pallet_prelude::*;
     use lazy_static::lazy_static;
+    use pallet_balances::Pallet as BalancesPallet;
     use plonky2::{
         field::{goldilocks_field::GoldilocksField, types::PrimeField64},
         plonk::{
@@ -37,15 +36,16 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         /// Overarching runtime event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Currency type for minting
-        type Currency: Mutate<Self::AccountId>;
-
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
+
+        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
+        #[pallet::constant]
+        type MintingAccount: Get<Self::AccountId>;
     }
 
     pub trait WeightInfo {
@@ -205,8 +205,17 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| "Conversion from u64 to Balance failed")?;
 
-            T::Currency::mint_into(&public_inputs.exit_account, exit_balance)?;
+            BalancesPallet::<T, ()>::mint_into(&public_inputs.exit_account, exit_balance)?;
 
+            // Create a transfer proof for the minted tokens
+            let mint_account = T::MintingAccount::get();
+            BalancesPallet::<T, ()>::store_transfer_proof(
+                &mint_account,
+                &public_inputs.exit_account,
+                exit_balance,
+            );
+
+            // Emit event
             Self::deposit_event(Event::ProofVerified {
                 exit_amount: exit_balance,
             });

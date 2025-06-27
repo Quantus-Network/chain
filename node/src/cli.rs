@@ -434,7 +434,7 @@ mod tests {
     fn inspect_node_key() {
         let path = tempfile::tempdir()
             .unwrap()
-            .into_path()
+            .keep()
             .join("node-id")
             .into_os_string();
         let path = path.to_str().unwrap();

@@ -576,10 +576,14 @@ pub mod pallet {
     pub type TransferProof<T: Config<I>, I: 'static = ()> = StorageMap<
         _,
         PoseidonStorageHasher<T::AccountId>,
-        (T::Nonce, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
+        (u64, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
         (),
         OptionQuery, // Returns None if not present
     >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn transfer_count)]
+    pub type TransferCount<T: Config<I>, I: 'static = ()> = StorageValue<_, u64, ValueQuery>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
@@ -931,20 +935,22 @@ pub mod pallet {
     }
 
     impl<T: Config<I>, I: 'static> Pallet<T, I> {
-        fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
+        pub fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
             if from != to {
-                let nonce = <frame_system::Pallet<T>>::account_nonce(from);
-                TransferProof::<T, I>::insert((nonce, from.clone(), to.clone(), value), ());
+                let current_count = Self::transfer_count();
+                <TransferCount<T, I>>::put(current_count.saturating_add(1));
+
+                TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
             }
         }
 
         pub fn transfer_proof_storage_key(
-            nonce: T::Nonce,
+            transfer_count: u64,
             from: T::AccountId,
             to: T::AccountId,
             amount: T::Balance,
         ) -> Vec<u8> {
-            let key = (nonce, from, to, amount);
+            let key = (transfer_count, from, to, amount);
             TransferProof::<T, I>::hashed_key_for(&key)
         }
     }
