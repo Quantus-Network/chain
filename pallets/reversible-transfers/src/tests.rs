@@ -1762,3 +1762,249 @@ fn storage_indexes_handle_multiple_recipients_correctly() {
         assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
     });
 }
+
+#[test]
+fn interceptor_index_works_with_explicit_reverser() {
+    new_test_ext().execute_with(|| {
+        let reversible_account = 100;
+        let interceptor = 101;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Initially, interceptor should have empty list
+        assert_eq!(
+            ReversibleTransfers::interceptor_index(&interceptor).len(),
+            0
+        );
+
+        // Set up reversibility with explicit reverser
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(reversible_account),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor),
+        ));
+
+        // Verify interceptor index is updated
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 1);
+        assert_eq!(interceptor_accounts[0], reversible_account);
+
+        // Verify account has correct reversibility data
+        assert_eq!(
+            ReversibleTransfers::is_reversible(&reversible_account),
+            Some(ReversibleAccountData {
+                delay,
+                policy: DelayPolicy::Explicit,
+                explicit_reverser: Some(interceptor),
+            })
+        );
+    });
+}
+
+#[test]
+fn interceptor_index_handles_multiple_accounts() {
+    new_test_ext().execute_with(|| {
+        let interceptor = 100;
+        let account1 = 101;
+        let account2 = 102;
+        let account3 = 103;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Set up multiple accounts with same interceptor
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(account1),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor),
+        ));
+
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(account2),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor),
+        ));
+
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(account3),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor),
+        ));
+
+        // Verify interceptor index contains all accounts
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 3);
+        assert!(interceptor_accounts.contains(&account1));
+        assert!(interceptor_accounts.contains(&account2));
+        assert!(interceptor_accounts.contains(&account3));
+    });
+}
+
+#[test]
+fn interceptor_index_prevents_duplicates() {
+    new_test_ext().execute_with(|| {
+        let reversible_account = 100;
+        let interceptor = 101;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Set up reversibility with explicit reverser
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(reversible_account),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor),
+        ));
+
+        // Verify initial state
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 1);
+        assert_eq!(interceptor_accounts[0], reversible_account);
+
+        // Try to add the same account again (this should fail due to AccountAlreadyReversible)
+        assert_err!(
+            ReversibleTransfers::set_reversibility(
+                RuntimeOrigin::signed(reversible_account),
+                Some(delay),
+                DelayPolicy::Explicit,
+                Some(interceptor),
+            ),
+            Error::<Test>::AccountAlreadyReversible
+        );
+
+        // Verify no duplicates in interceptor index
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 1);
+    });
+}
+
+#[test]
+fn interceptor_index_respects_max_limit() {
+    new_test_ext().execute_with(|| {
+        let interceptor = 100;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Add accounts up to the limit (MaxInterceptorAccounts = 10 in mock)
+        for i in 101..=110 {
+            assert_ok!(ReversibleTransfers::set_reversibility(
+                RuntimeOrigin::signed(i),
+                Some(delay),
+                DelayPolicy::Explicit,
+                Some(interceptor),
+            ));
+        }
+
+        // Verify we have the maximum number of accounts
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 10);
+
+        // Try to add one more account - should fail
+        assert_err!(
+            ReversibleTransfers::set_reversibility(
+                RuntimeOrigin::signed(111),
+                Some(delay),
+                DelayPolicy::Explicit,
+                Some(interceptor),
+            ),
+            Error::<Test>::TooManyInterceptorAccounts
+        );
+
+        // Verify count didn't change
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 10);
+    });
+}
+
+#[test]
+fn interceptor_index_empty_for_non_interceptors() {
+    new_test_ext().execute_with(|| {
+        let non_interceptor = 100;
+        let reversible_account = 101;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Set up account without explicit reverser
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(reversible_account),
+            Some(delay),
+            DelayPolicy::Explicit,
+            None,
+        ));
+
+        // Verify non-interceptor has empty list
+        assert_eq!(
+            ReversibleTransfers::interceptor_index(&non_interceptor).len(),
+            0
+        );
+        assert_eq!(
+            ReversibleTransfers::interceptor_index(&reversible_account).len(),
+            0
+        );
+    });
+}
+
+#[test]
+fn interceptor_index_different_interceptors_separate_lists() {
+    new_test_ext().execute_with(|| {
+        let interceptor1 = 100;
+        let interceptor2 = 101;
+        let account1 = 102;
+        let account2 = 103;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Set up accounts with different interceptors
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(account1),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor1),
+        ));
+
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(account2),
+            Some(delay),
+            DelayPolicy::Explicit,
+            Some(interceptor2),
+        ));
+
+        // Verify each interceptor has their own separate list
+        let interceptor1_accounts = ReversibleTransfers::interceptor_index(&interceptor1);
+        assert_eq!(interceptor1_accounts.len(), 1);
+        assert_eq!(interceptor1_accounts[0], account1);
+
+        let interceptor2_accounts = ReversibleTransfers::interceptor_index(&interceptor2);
+        assert_eq!(interceptor2_accounts.len(), 1);
+        assert_eq!(interceptor2_accounts[0], account2);
+    });
+}
+
+#[test]
+fn interceptor_index_works_with_intercept_policy() {
+    new_test_ext().execute_with(|| {
+        let reversible_account = 100;
+        let interceptor = 101;
+        let delay = BlockNumberOrTimestamp::BlockNumber(10);
+
+        // Set up reversibility with Intercept policy and explicit reverser
+        assert_ok!(ReversibleTransfers::set_reversibility(
+            RuntimeOrigin::signed(reversible_account),
+            Some(delay),
+            DelayPolicy::Intercept,
+            Some(interceptor),
+        ));
+
+        // Verify interceptor index is updated regardless of policy
+        let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
+        assert_eq!(interceptor_accounts.len(), 1);
+        assert_eq!(interceptor_accounts[0], reversible_account);
+
+        // Verify account has correct policy
+        assert_eq!(
+            ReversibleTransfers::is_reversible(&reversible_account),
+            Some(ReversibleAccountData {
+                delay,
+                policy: DelayPolicy::Intercept,
+                explicit_reverser: Some(interceptor),
+            })
+        );
+    });
+}
