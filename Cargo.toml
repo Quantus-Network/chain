@@ -109,7 +109,7 @@ sc-cli = { version = "0.50.1", default-features = false }
 sc-client-api = { version = "38.0.0", default-features = false }
 sc-consensus = { version = "0.47.0", default-features = false }
 sc-executor = { version = "0.41.0", default-features = false }
-sc-network = { version = "0.48.5", default-features = false }
+sc-network = { version = "=0.48.4", default-features = false }
 sc-offchain = { version = "43.0.0", default-features = false }
 sc-service = { version = "0.49.0", default-features = false }
 sc-telemetry = { version = "28.0.0", default-features = false }
@@ -144,6 +144,6 @@ substrate-wasm-builder = { version = "25.0.0", default-features = false }
 [patch.crates-io]
 sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
 sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
-sc-network = { git = "https://github.com/Quantus-Network/sc-network-pqc", branch = "pqc", version = "0.48.5" }
+sc-network = { git = "https://github.com/Quantus-Network/sc-network-pqc" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/libp2p-noise-pqc" }

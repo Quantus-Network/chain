@@ -9294,9 +9294,9 @@ dependencies = [
 
 [[package]]
 name = "sc-cli"
-version = "0.50.2"
+version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57edff640006631f2d7461aa67f4ed70417d68b9f5470bc24dd4be7d8f84b892"
+checksum = "792411fa02396d2fa8d932b92d4a2e936ef1c670a427820deb2832d75a2e7e4a"
 dependencies = [
  "array-bytes",
  "chrono",
@@ -9596,8 +9596,8 @@ dependencies = [
 
 [[package]]
 name = "sc-network"
-version = "0.48.5"
-source = "git+https://github.com/Quantus-Network/sc-network-pqc?branch=pqc#f3a35e58f9a349f8ee14aa13fb4efabe305b2244"
+version = "0.48.4"
+source = "git+https://github.com/Quantus-Network/sc-network-pqc#fbcf83bcc6c89b1e7f2240c95572adac3e2aabc6"
 dependencies = [
  "array-bytes",
  "async-channel 1.9.0",
@@ -9763,9 +9763,9 @@ dependencies = [
 
 [[package]]
 name = "sc-offchain"
-version = "43.0.1"
+version = "43.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf2f9353ac3c9f5b6ded20ae15c8ca5794cb4236ac2f2f683304170a937da6b5"
+checksum = "cc5e0b1ad78caf4b34d4acbb3dbe4d13fbbdaafcf8cbed26766e028ac7393275"
 dependencies = [
  "array-bytes",
  "bytes 1.10.1",
