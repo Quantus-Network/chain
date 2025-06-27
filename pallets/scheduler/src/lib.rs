@@ -79,8 +79,8 @@ use frame_support::{
     ensure,
     traits::{
         schedule::{self, DispatchTime as DispatchBlock, MaybeHashed},
-        Bounded, CallerTrait, EnsureOrigin, Get, IsType, OnTimestampSet, OriginTrait, PrivilegeCmp,
-        QueryPreimage, StorageVersion, StorePreimage, Time,
+        Bounded, CallerTrait, EnsureOrigin, Get, IsType, OriginTrait, PrivilegeCmp, QueryPreimage,
+        StorageVersion, StorePreimage, Time,
     },
     weights::{Weight, WeightMeter},
 };
@@ -91,7 +91,7 @@ use frame_system::{
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
 use scale_info::TypeInfo;
 use sp_runtime::{
-    traits::{BadOrigin, Dispatchable, One, Saturating},
+    traits::{BadOrigin, Dispatchable, One, Saturating, Zero},
     BoundedVec, DispatchError, RuntimeDebug,
 };
 
@@ -263,7 +263,9 @@ pub mod pallet {
             + Parameter
             + AtLeast32Bit
             + Scale<BlockNumberFor<Self>, Output = Self::Moment>
-            + MaxEncodedLen;
+            + MaxEncodedLen
+            + Default
+            + sp_runtime::traits::Zero;
 
         /// Time provider, usually timestamp pallet.
         type TimeProvider: Time<Moment = Self::Moment>;
@@ -275,8 +277,18 @@ pub mod pallet {
         type TimestampBucketSize: Get<Self::Moment>;
     }
 
+    /// Tracks incomplete block-based agendas that need to be processed in a later block.
     #[pallet::storage]
-    pub type IncompleteSince<T: Config> = StorageValue<_, BlockNumberOrTimestampOf<T>>;
+    pub type IncompleteBlockSince<T: Config> = StorageValue<_, BlockNumberFor<T>>;
+
+    /// Tracks incomplete timestamp-based agendas that need to be processed in a later block.
+    #[pallet::storage]
+    pub type IncompleteTimestampSince<T: Config> = StorageValue<_, T::Moment>;
+
+    /// Tracks the last timestamp bucket that was fully processed.
+    /// Used to avoid reprocessing all buckets from 0 on every run.
+    #[pallet::storage]
+    pub type LastProcessedTimestamp<T: Config> = StorageValue<_, T::Moment>;
 
     /// Items to be executed, indexed by the block number that they should be executed on.
     #[pallet::storage]
@@ -381,11 +393,25 @@ pub mod pallet {
         /// Execute the scheduled calls
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
+
+            // Process block-based agendas
             Self::service_agendas(
                 &mut weight_counter,
                 BlockNumberOrTimestamp::BlockNumber(now),
                 u32::max_value(),
             );
+
+            // Process timestamp-based agendas using current system time
+            // This ensures no buckets are skipped if block times are longer than bucket intervals
+            let current_timestamp = T::TimeProvider::now();
+            if current_timestamp > T::Moment::zero() {
+                Self::service_agendas(
+                    &mut weight_counter,
+                    BlockNumberOrTimestamp::Timestamp(current_timestamp),
+                    u32::max_value(),
+                );
+            }
+
             weight_counter.consumed()
         }
     }
@@ -932,15 +958,35 @@ impl<T: Config> Pallet<T> {
 
         let normalized_now = now.normalize(T::TimestampBucketSize::get());
 
-        let mut incomplete_since = match normalized_now {
-            BlockNumberOrTimestamp::BlockNumber(x) => {
-                BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()))
+        // Use separate incomplete tracking based on agenda type
+        let (mut when, mut incomplete_since) = match normalized_now {
+            BlockNumberOrTimestamp::BlockNumber(current_block) => {
+                let next_block = current_block.saturating_add(One::one());
+                let start_block = IncompleteBlockSince::<T>::take().unwrap_or(current_block);
+                (
+                    BlockNumberOrTimestamp::BlockNumber(start_block),
+                    BlockNumberOrTimestamp::BlockNumber(next_block),
+                )
             }
-            BlockNumberOrTimestamp::Timestamp(x) => {
-                BlockNumberOrTimestamp::Timestamp(x.saturating_add(T::TimestampBucketSize::get()))
+            BlockNumberOrTimestamp::Timestamp(current_time) => {
+                let next_bucket = current_time.saturating_add(T::TimestampBucketSize::get());
+
+                // Start from incomplete timestamp if exists, otherwise from last processed timestamp
+                let start_time = if let Some(incomplete) = IncompleteTimestampSince::<T>::take() {
+                    incomplete
+                } else {
+                    // Use last processed timestamp, but for safety, always check from the start
+                    // on the very first processing cycle to ensure no tasks are missed
+                    LastProcessedTimestamp::<T>::get().unwrap_or(T::Moment::zero())
+                };
+
+                (
+                    BlockNumberOrTimestamp::Timestamp(start_time),
+                    BlockNumberOrTimestamp::Timestamp(next_bucket),
+                )
             }
         };
-        let mut when = IncompleteSince::<T>::take().unwrap_or(normalized_now);
+
         let mut executed = 0;
 
         let max_items = T::MaxScheduledPerBlock::get();
@@ -969,11 +1015,30 @@ impl<T: Config> Pallet<T> {
                     );
                 }
             };
+
             count_down.saturating_dec();
         }
+
+        // Store incomplete since in the appropriate storage
         incomplete_since = incomplete_since.min(when);
+
         if incomplete_since <= normalized_now {
-            IncompleteSince::<T>::put(incomplete_since);
+            match incomplete_since {
+                BlockNumberOrTimestamp::BlockNumber(block) => {
+                    IncompleteBlockSince::<T>::put(block);
+                }
+                BlockNumberOrTimestamp::Timestamp(time) => {
+                    IncompleteTimestampSince::<T>::put(time);
+                }
+            }
+        } else {
+            // If we completed all processing up to normalized_now, update last processed timestamp
+            match normalized_now {
+                BlockNumberOrTimestamp::Timestamp(time) => {
+                    LastProcessedTimestamp::<T>::put(time);
+                }
+                _ => {} // Block processing doesn't need this tracking
+            }
         }
     }
 

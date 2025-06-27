@@ -95,8 +95,6 @@ where
         MOCKED_TIME.with(|v| {
             *v.borrow_mut() = now;
         });
-
-        pallet_scheduler::Pallet::<T>::on_timestamp_set(now.into());
     }
 
     /// Resets the timestamp to a default value (e.g., 0 or a specific starting time).

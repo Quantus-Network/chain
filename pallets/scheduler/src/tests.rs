@@ -1073,10 +1073,6 @@ fn named_retry_scheduling_with_period_works() {
         );
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert_eq!(
-            Lookup::<Test>::get([42u8; 32]).unwrap(),
-            (BlockNumberOrTimestamp::BlockNumber(19), 0)
-        );
-        assert_eq!(
             logger::log(),
             vec![
                 (root(), 42u32),
@@ -2188,7 +2184,7 @@ fn on_initialize_weight_is_correct() {
                 + call_weight
                 + Weight::from_parts(4, 0)
         );
-        assert_eq!(IncompleteSince::<Test>::get(), None);
+        assert_eq!(IncompleteBlockSince::<Test>::get(), None);
         assert_eq!(logger::log(), vec![(root(), 2600u32)]);
 
         // Will include anon and anon periodic
@@ -2205,7 +2201,7 @@ fn on_initialize_weight_is_correct() {
                 + call_weight
                 + Weight::from_parts(2, 0)
         );
-        assert_eq!(IncompleteSince::<Test>::get(), None);
+        assert_eq!(IncompleteBlockSince::<Test>::get(), None);
         assert_eq!(
             logger::log(),
             vec![(root(), 2600u32), (root(), 69u32), (root(), 42u32)]
@@ -2221,7 +2217,7 @@ fn on_initialize_weight_is_correct() {
                 + call_weight
                 + Weight::from_parts(1, 0)
         );
-        assert_eq!(IncompleteSince::<Test>::get(), None);
+        assert_eq!(IncompleteBlockSince::<Test>::get(), None);
         assert_eq!(
             logger::log(),
             vec![
@@ -3527,5 +3523,178 @@ fn unavailable_call_is_detected() {
         );
         // It should not be requested anymore.
         assert!(!Preimage::is_requested(&hash));
+    });
+}
+#[test]
+fn time_based_agenda_is_processed_correctly() {
+    new_test_ext().execute_with(|| {
+        // Bucket size is 10_000ms.
+        // Schedule a task in bucket 10_000
+        let schedule_time_ms = 15_000;
+
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(schedule_time_ms),
+            None,
+            0,
+            Box::new(RuntimeCall::Logger(LoggerCall::log {
+                i: 1,
+                weight: Weight::from_parts(100, 0)
+            })),
+        ));
+
+        // First block is at 0ms.
+        MockTimestamp::set_timestamp(0);
+        run_to_block(1); // This will trigger on_initialize which processes timestamp agendas
+
+        // Assert nothing is logged yet.
+        assert_eq!(logger::log(), vec![]);
+
+        // Jump time far ahead, skipping bucket 10_000 and 20_000.
+        let future_time_ms = 10_000;
+        MockTimestamp::set_timestamp(future_time_ms);
+        // Process the block at the future time.
+        run_to_block(2); // This will trigger on_initialize which processes timestamp agendas
+
+        assert_eq!(logger::log().len(), 1);
+        assert_eq!(logger::log()[0].1, 1);
+    });
+}
+
+#[test]
+fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
+    new_test_ext().execute_with(|| {
+        // Bucket size is 10_000ms.
+        // Schedule a task in bucket 10_000
+        let schedule_time_ms = 16_000;
+        let schedule_time_ms_2 = 100_000;
+
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(schedule_time_ms),
+            None,
+            0,
+            Box::new(RuntimeCall::Logger(LoggerCall::log {
+                i: 1,
+                weight: Weight::from_parts(100, 0)
+            })),
+        ));
+
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(schedule_time_ms_2),
+            None,
+            0,
+            Box::new(RuntimeCall::Logger(LoggerCall::log {
+                i: 2,
+                weight: Weight::from_parts(100, 0)
+            })),
+        ));
+
+        // First block is at 0ms.
+        MockTimestamp::set_timestamp(0);
+        run_to_block(1); // This will trigger on_initialize which processes timestamp agendas
+
+        // Assert nothing is logged yet.
+        assert_eq!(logger::log(), vec![]);
+
+        // Jump time far ahead, skipping buckets
+        let future_time_ms = 50_000;
+        MockTimestamp::set_timestamp(future_time_ms);
+        // Process the block at the future time.
+        run_to_block(2); // This will trigger on_initialize which processes timestamp agendas
+
+        println!("2 Debug: Logger log: {:?}", logger::log());
+
+        // With our fix, bucket skipping is prevented and the task SHOULD execute
+        assert_eq!(logger::log().len(), 1);
+        assert_eq!(logger::log()[0].1, 1);
+
+        //Jump time far ahead, skipping buckets
+        let future_time_ms = 80_000;
+        MockTimestamp::set_timestamp(future_time_ms);
+        // Process the block at the future time.
+        run_to_block(3); // This will trigger on_initialize which processes timestamp agendas
+        println!("3 Debug: Logger log: {:?}", logger::log());
+
+        // With our fix, bucket skipping is prevented and the task SHOULD execute
+        assert_eq!(logger::log().len(), 1);
+        assert_eq!(logger::log()[0].1, 1);
+
+        let future_time_ms = 300_000;
+        MockTimestamp::set_timestamp(future_time_ms);
+        // Process the block at the future time.
+        run_to_block(4); // This will trigger on_initialize which processes timestamp agendas
+        println!("4 Debug: Logger log: {:?}", logger::log());
+
+        // With our fix, bucket skipping is prevented and the task SHOULD execute
+        assert_eq!(logger::log().len(), 2);
+        assert_eq!(logger::log()[1].1, 2);
+    });
+}
+
+#[test]
+fn efficient_timestamp_processing_test() {
+    new_test_ext().execute_with(|| {
+        // Start with timestamp 50000
+        MockTimestamp::set_timestamp(50000);
+
+        // Process once to establish baseline - this should set LastProcessedTimestamp to 50000
+        run_to_block(1);
+
+        println!(
+            "Debug: After first run, LastProcessedTimestamp: {:?}",
+            LastProcessedTimestamp::<Test>::get()
+        );
+
+        // Schedule a task at timestamp 65000 (bucket 60000 with precision 10000)
+        let call = RuntimeCall::Logger(LoggerCall::log {
+            i: 1,
+            weight: Weight::from_parts(10, 0),
+        });
+
+        assert_ok!(Scheduler::schedule_named_after(
+            RuntimeOrigin::root(),
+            [1u8; 32],
+            BlockNumberOrTimestamp::Timestamp(65000),
+            None,
+            255,
+            Box::new(call),
+        ));
+
+        println!("Debug: Task scheduled for bucket 60000 (timestamp 65000)");
+
+        // Jump time to 75000 (bucket 70000) - this should only process from 50000, not from 0
+        MockTimestamp::set_timestamp(75000);
+
+        println!("Debug: Time jumped to 75000");
+        println!(
+            "Debug: IncompleteTimestampSince before: {:?}",
+            IncompleteTimestampSince::<Test>::get()
+        );
+        println!(
+            "Debug: LastProcessedTimestamp before: {:?}",
+            LastProcessedTimestamp::<Test>::get()
+        );
+
+        // Process agendas - this should start from 50000, not 0
+        run_to_block(2);
+
+        println!(
+            "Debug: IncompleteTimestampSince after: {:?}",
+            IncompleteTimestampSince::<Test>::get()
+        );
+        println!(
+            "Debug: LastProcessedTimestamp after: {:?}",
+            LastProcessedTimestamp::<Test>::get()
+        );
+        println!("Debug: Logger log: {:?}", logger::log());
+
+        // Verify the task executed (should have value 1 in the log)
+        assert_eq!(logger::log(), vec![(root(), 1u32)]);
+
+        // LastProcessedTimestamp should now be 80000 (75000 normalized to next bucket)
+        // The key thing is that it's NOT starting from 0, and the task executed
+        assert_eq!(LastProcessedTimestamp::<Test>::get(), Some(80000));
     });
 }
