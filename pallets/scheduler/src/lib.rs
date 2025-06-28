@@ -394,20 +394,24 @@ pub mod pallet {
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
 
+            // Consume base weight for agenda processing
+            if weight_counter
+                .try_consume(T::WeightInfo::service_agendas_base())
+                .is_err()
+            {
+                return weight_counter.consumed();
+            }
+
             // Process block-based agendas
-            Self::service_agendas(
-                &mut weight_counter,
-                BlockNumberOrTimestamp::BlockNumber(now),
-                u32::max_value(),
-            );
+            Self::service_block_agendas(&mut weight_counter, now, u32::max_value());
 
             // Process timestamp-based agendas using current system time
             // This ensures no buckets are skipped if block times are longer than bucket intervals
             let current_timestamp = T::TimeProvider::now();
             if current_timestamp > T::Moment::zero() {
-                Self::service_agendas(
+                Self::service_timestamp_agendas(
                     &mut weight_counter,
-                    BlockNumberOrTimestamp::Timestamp(current_timestamp),
+                    current_timestamp,
                     u32::max_value(),
                 );
             }
@@ -947,98 +951,93 @@ enum ServiceTaskError {
 use ServiceTaskError::*;
 
 impl<T: Config> Pallet<T> {
-    /// Service up to `max` agendas queue starting from earliest incompletely executed agenda.
-    fn service_agendas(weight: &mut WeightMeter, now: BlockNumberOrTimestampOf<T>, max: u32) {
-        if weight
-            .try_consume(T::WeightInfo::service_agendas_base())
-            .is_err()
-        {
-            return;
-        }
-
-        let normalized_now = now.normalize(T::TimestampBucketSize::get());
-
-        // Use separate incomplete tracking based on agenda type
-        let (mut when, mut incomplete_since) = match normalized_now {
-            BlockNumberOrTimestamp::BlockNumber(current_block) => {
-                let next_block = current_block.saturating_add(One::one());
-                let start_block = IncompleteBlockSince::<T>::take().unwrap_or(current_block);
-                (
-                    BlockNumberOrTimestamp::BlockNumber(start_block),
-                    BlockNumberOrTimestamp::BlockNumber(next_block),
-                )
-            }
-            BlockNumberOrTimestamp::Timestamp(current_time) => {
-                let next_bucket = current_time.saturating_add(T::TimestampBucketSize::get());
-
-                // Start from incomplete timestamp if exists, otherwise from last processed timestamp
-                let start_time = if let Some(incomplete) = IncompleteTimestampSince::<T>::take() {
-                    incomplete
-                } else {
-                    // Use last processed timestamp, but for safety, always check from the start
-                    // on the very first processing cycle to ensure no tasks are missed
-                    LastProcessedTimestamp::<T>::get().unwrap_or(T::Moment::zero())
-                };
-
-                (
-                    BlockNumberOrTimestamp::Timestamp(start_time),
-                    BlockNumberOrTimestamp::Timestamp(next_bucket),
-                )
-            }
-        };
-
+    /// Service up to `max` block-based agendas starting from earliest incompletely executed agenda.
+    fn service_block_agendas(weight: &mut WeightMeter, current_block: BlockNumberFor<T>, max: u32) {
+        let next_block = current_block.saturating_add(One::one());
+        let start_block = IncompleteBlockSince::<T>::take().unwrap_or(current_block);
+        let mut when = start_block;
+        let mut incomplete_since = next_block;
         let mut executed = 0;
 
         let max_items = T::MaxScheduledPerBlock::get();
         let mut count_down = max;
         let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
+
         while count_down > 0
-            && when <= normalized_now
+            && when <= current_block
             && weight.can_consume(service_agenda_base_weight)
         {
             if !Self::service_agenda(
                 weight,
                 &mut executed,
-                normalized_now,
-                when,
+                BlockNumberOrTimestamp::BlockNumber(current_block),
+                BlockNumberOrTimestamp::BlockNumber(when),
                 u32::max_value(),
             ) {
                 incomplete_since = incomplete_since.min(when);
             }
-            match when {
-                BlockNumberOrTimestamp::BlockNumber(x) => {
-                    when = BlockNumberOrTimestamp::BlockNumber(x.saturating_add(One::one()));
-                }
-                BlockNumberOrTimestamp::Timestamp(x) => {
-                    when = BlockNumberOrTimestamp::Timestamp(
-                        x.saturating_add(T::TimestampBucketSize::get()),
-                    );
-                }
-            };
-
+            when = when.saturating_add(One::one());
             count_down.saturating_dec();
         }
 
-        // Store incomplete since in the appropriate storage
+        // Store incomplete since if needed
         incomplete_since = incomplete_since.min(when);
+        if incomplete_since <= current_block {
+            IncompleteBlockSince::<T>::put(incomplete_since);
+        }
+    }
 
-        if incomplete_since <= normalized_now {
-            match incomplete_since {
-                BlockNumberOrTimestamp::BlockNumber(block) => {
-                    IncompleteBlockSince::<T>::put(block);
-                }
-                BlockNumberOrTimestamp::Timestamp(time) => {
-                    IncompleteTimestampSince::<T>::put(time);
-                }
-            }
+    /// Service up to `max` timestamp-based agendas starting from earliest incompletely executed agenda.
+    fn service_timestamp_agendas(weight: &mut WeightMeter, current_time: T::Moment, max: u32) {
+        let normalized_time =
+            BlockNumberOrTimestamp::<BlockNumberFor<T>, T::Moment>::Timestamp(current_time)
+                .normalize(T::TimestampBucketSize::get())
+                .as_timestamp()
+                .unwrap();
+
+        let next_bucket = normalized_time.saturating_add(T::TimestampBucketSize::get());
+
+        // Start from incomplete timestamp if exists, otherwise from last processed timestamp
+        let start_time = if let Some(incomplete) = IncompleteTimestampSince::<T>::take() {
+            incomplete
         } else {
-            // If we completed all processing up to normalized_now, update last processed timestamp
-            match normalized_now {
-                BlockNumberOrTimestamp::Timestamp(time) => {
-                    LastProcessedTimestamp::<T>::put(time);
-                }
-                _ => {} // Block processing doesn't need this tracking
+            // Use last processed timestamp, but for safety, always check from the start
+            // on the very first processing cycle to ensure no tasks are missed
+            LastProcessedTimestamp::<T>::get().unwrap_or(T::Moment::zero())
+        };
+
+        let mut when = start_time;
+        let mut incomplete_since = next_bucket;
+        let mut executed = 0;
+
+        let max_items = T::MaxScheduledPerBlock::get();
+        let mut count_down = max;
+        let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
+
+        while count_down > 0
+            && when <= normalized_time
+            && weight.can_consume(service_agenda_base_weight)
+        {
+            if !Self::service_agenda(
+                weight,
+                &mut executed,
+                BlockNumberOrTimestamp::Timestamp(normalized_time),
+                BlockNumberOrTimestamp::Timestamp(when),
+                u32::max_value(),
+            ) {
+                incomplete_since = incomplete_since.min(when);
             }
+            when = when.saturating_add(T::TimestampBucketSize::get());
+            count_down.saturating_dec();
+        }
+
+        // Store incomplete since if needed
+        incomplete_since = incomplete_since.min(when);
+        if incomplete_since <= normalized_time {
+            IncompleteTimestampSince::<T>::put(incomplete_since);
+        } else {
+            // If we completed all processing up to normalized_time, update last processed timestamp
+            LastProcessedTimestamp::<T>::put(normalized_time);
         }
     }
 
