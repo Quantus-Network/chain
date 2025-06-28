@@ -3721,7 +3721,7 @@ fn timestamp_scheduler_does_not_delete_permanently_overweight_call() {
 fn timestamp_on_initialize_weight_is_correct() {
     new_test_ext().execute_with(|| {
         let call_weight = Weight::from_parts(25, 0);
-        
+
         // === TASK DEFINITIONS ===
         // All tasks scheduled at timestamp 0
         MockTimestamp::set_timestamp(0);
@@ -3752,7 +3752,7 @@ fn timestamp_on_initialize_weight_is_correct() {
             127,
             Box::new(call_b),
         ));
-        
+
         // Task C: i=42, scheduled for bucket 20000 (timestamp 15000 -> bucket 20000)
         let call_c = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3785,43 +3785,55 @@ fn timestamp_on_initialize_weight_is_correct() {
         //   - Process buckets 0, 10000, 20000
         //   - Execute: Task A (2600) from bucket 10000, Tasks B (69) and C (42) from bucket 20000
         //   - LastProcessedTimestamp should be set to 20000
-        
+
         // Block 2 at timestamp 25000 (normalized to bucket 30000):
         //   - Process buckets from 20000 to 30000 (only bucket 30000 has tasks)
         //   - Execute: Task D (3) from bucket 30000
         //   - LastProcessedTimestamp should be set to 30000
-        
+
         // Block 3 at timestamp 35000 (normalized to bucket 40000):
         //   - Process buckets from 30000 to 40000 (no tasks)
         //   - Execute: nothing
         //   - LastProcessedTimestamp should be set to 40000
 
         // === EXECUTION AND VERIFICATION ===
-        
+
         println!("=== Block 1: Jump to timestamp 15000 ===");
         MockTimestamp::set_timestamp(15000);
         let weight_1 = Scheduler::on_initialize(1);
-        
+
         println!("Executed tasks: {:?}", logger::log());
-        println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
-        println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
-        
+        println!(
+            "IncompleteTimestampSince: {:?}",
+            IncompleteTimestampSince::<Test>::get()
+        );
+        println!(
+            "LastProcessedTimestamp: {:?}",
+            LastProcessedTimestamp::<Test>::get()
+        );
+
         // Verify all three tasks from buckets 10000 and 20000 executed
         let logs_after_block1 = logger::log();
         assert_eq!(logs_after_block1.len(), 3);
         assert!(logs_after_block1.contains(&(root(), 2600u32))); // Task A
-        assert!(logs_after_block1.contains(&(root(), 69u32)));   // Task B  
-        assert!(logs_after_block1.contains(&(root(), 42u32)));   // Task C
+        assert!(logs_after_block1.contains(&(root(), 69u32))); // Task B
+        assert!(logs_after_block1.contains(&(root(), 42u32))); // Task C
         assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
 
         println!("\n=== Block 2: Jump to timestamp 25000 ===");
         MockTimestamp::set_timestamp(25000);
         let weight_2 = Scheduler::on_initialize(2);
-        
+
         println!("Executed tasks: {:?}", logger::log());
-        println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
-        println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
-        
+        println!(
+            "IncompleteTimestampSince: {:?}",
+            IncompleteTimestampSince::<Test>::get()
+        );
+        println!(
+            "LastProcessedTimestamp: {:?}",
+            LastProcessedTimestamp::<Test>::get()
+        );
+
         // Verify Task D from bucket 30000 executed
         let logs_after_block2 = logger::log();
         assert_eq!(logs_after_block2.len(), 4);
@@ -3831,11 +3843,17 @@ fn timestamp_on_initialize_weight_is_correct() {
         println!("\n=== Block 3: Jump to timestamp 35000 ===");
         MockTimestamp::set_timestamp(35000);
         let weight_3 = Scheduler::on_initialize(3);
-        
+
         println!("Executed tasks: {:?}", logger::log());
-        println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
-        println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
-        
+        println!(
+            "IncompleteTimestampSince: {:?}",
+            IncompleteTimestampSince::<Test>::get()
+        );
+        println!(
+            "LastProcessedTimestamp: {:?}",
+            LastProcessedTimestamp::<Test>::get()
+        );
+
         // No new tasks should execute
         let logs_after_block3 = logger::log();
         assert_eq!(logs_after_block3.len(), 4); // Same as before
@@ -3855,13 +3873,19 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
         // === TASK DEFINITIONS ===
         // Start at timestamp 0
         MockTimestamp::set_timestamp(0);
-        
+
         println!("=== SETUP ===");
         println!("Max weight: {:?}", max_weight);
         println!("Task weight (1/4 max): {:?}", max_weight / 4);
-        println!("Service agendas base weight: {:?}", TestWeightInfo::service_agendas_base());
-        println!("Service agenda base weight: {:?}", TestWeightInfo::service_agenda_base(5));
-        
+        println!(
+            "Service agendas base weight: {:?}",
+            TestWeightInfo::service_agendas_base()
+        );
+        println!(
+            "Service agenda base weight: {:?}",
+            TestWeightInfo::service_agenda_base(5)
+        );
+
         // Schedule 5 heavy tasks across different buckets
         // Each task takes 1/4 of max weight, so theoretically 4 should fit
         // But there's overhead, so let's see what actually happens
@@ -3879,86 +3903,133 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
             ));
             println!("Scheduled task {} in bucket {}", i + 100, 20000 + i * 10000);
         }
-        
+
         // === EXPECTED BEHAVIOR ===
         // Jump to timestamp 65000 (bucket 70000) - should process all buckets 20000-60000
         // Weight limits should cause tasks to be spread across multiple blocks
         // Why not 4 tasks in first block? Because of overhead:
         // - service_agendas_base() weight
-        // - service_agenda_base() weight for each bucket processed  
+        // - service_agenda_base() weight for each bucket processed
         // - dispatch overhead for each task
         // - storage read/write overhead
-        
+
         println!("\n=== EXECUTION ===");
         MockTimestamp::set_timestamp(65000);
-        
+
         let mut total_executed = 0;
         let mut block = 1;
-        
+
         // Process blocks until all tasks are executed
         while total_executed < 5 && block < 10 {
             let logs_before = logger::log().len();
             let incomplete_before = IncompleteTimestampSince::<Test>::get();
-            
+
             println!("\n--- Block {} ---", block);
-            println!("Before: {} tasks executed, IncompleteTimestampSince: {:?}", logs_before, incomplete_before);
-            
+            println!(
+                "Before: {} tasks executed, IncompleteTimestampSince: {:?}",
+                logs_before, incomplete_before
+            );
+
             let consumed_weight = Scheduler::on_initialize(block);
-            
+
             let logs_after = logger::log().len();
             let incomplete_after = IncompleteTimestampSince::<Test>::get();
             let tasks_executed_this_block = logs_after - logs_before;
             total_executed = logs_after;
-            
-            println!("After: {} tasks executed this block, total: {}", tasks_executed_this_block, total_executed);
+
+            println!(
+                "After: {} tasks executed this block, total: {}",
+                tasks_executed_this_block, total_executed
+            );
             println!("Weight consumed: {:?}", consumed_weight);
             println!("IncompleteTimestampSince: {:?}", incomplete_after);
-            
+
             // Add assertions based on what we expect
             if block == 1 {
                 // First block: should execute some tasks but hit weight limit
-                assert!(tasks_executed_this_block > 0, "First block should execute at least one task");
-                assert!(tasks_executed_this_block < 5, "First block shouldn't execute all tasks due to weight limits");
-                
+                assert!(
+                    tasks_executed_this_block > 0,
+                    "First block should execute at least one task"
+                );
+                assert!(
+                    tasks_executed_this_block < 5,
+                    "First block shouldn't execute all tasks due to weight limits"
+                );
+
                 if tasks_executed_this_block < 5 {
-                    assert!(incomplete_after.is_some(), "Should have incomplete timestamp since if not all tasks executed");
+                    assert!(
+                        incomplete_after.is_some(),
+                        "Should have incomplete timestamp since if not all tasks executed"
+                    );
                 }
-                
+
                 // Based on the output, we expect 3 tasks in first block
-                assert_eq!(tasks_executed_this_block, 3, "Expected 3 tasks in first block based on weight limits");
-                assert_eq!(incomplete_after, Some(50000), "Should be incomplete at bucket 50000");
+                assert_eq!(
+                    tasks_executed_this_block, 3,
+                    "Expected 3 tasks in first block based on weight limits"
+                );
+                assert_eq!(
+                    incomplete_after,
+                    Some(50000),
+                    "Should be incomplete at bucket 50000"
+                );
             } else if block == 2 {
                 // Second block: should complete remaining tasks
-                assert_eq!(tasks_executed_this_block, 2, "Expected 2 remaining tasks in second block");
-                assert_eq!(total_executed, 5, "Should have executed all 5 tasks by second block");
-                assert_eq!(incomplete_after, None, "Should have no incomplete timestamp after all tasks executed");
+                assert_eq!(
+                    tasks_executed_this_block, 2,
+                    "Expected 2 remaining tasks in second block"
+                );
+                assert_eq!(
+                    total_executed, 5,
+                    "Should have executed all 5 tasks by second block"
+                );
+                assert_eq!(
+                    incomplete_after, None,
+                    "Should have no incomplete timestamp after all tasks executed"
+                );
             }
-            
+
             // Weight should never exceed maximum
-            assert!(consumed_weight.ref_time() <= max_weight.ref_time(), "Consumed weight should not exceed maximum");
-            
+            assert!(
+                consumed_weight.ref_time() <= max_weight.ref_time(),
+                "Consumed weight should not exceed maximum"
+            );
+
             block += 1;
         }
-        
+
         // === FINAL VERIFICATION ===
         println!("\n=== FINAL VERIFICATION ===");
-        
+
         // All tasks should eventually execute
         assert_eq!(total_executed, 5, "All 5 tasks should eventually execute");
-        assert!(block <= 3, "Should complete within 2 blocks (block counter is 3 after 2 executions)");
-        
+        assert!(
+            block <= 3,
+            "Should complete within 2 blocks (block counter is 3 after 2 executions)"
+        );
+
         // After all processing is complete, IncompleteTimestampSince should be None
-        assert_eq!(IncompleteTimestampSince::<Test>::get(), None, "No incomplete processing should remain");
-        
+        assert_eq!(
+            IncompleteTimestampSince::<Test>::get(),
+            None,
+            "No incomplete processing should remain"
+        );
+
         // Verify all expected values were logged
         let logs = logger::log();
         let mut expected_values: Vec<u32> = (100..105).collect();
         expected_values.sort();
         let mut actual_values: Vec<u32> = logs.iter().map(|(_, v)| *v).collect();
         actual_values.sort();
-        assert_eq!(actual_values, expected_values, "All expected task values should be logged");
-        
-        println!("✅ All tasks executed correctly across {} blocks", block - 1);
+        assert_eq!(
+            actual_values, expected_values,
+            "All expected task values should be logged"
+        );
+
+        println!(
+            "✅ All tasks executed correctly across {} blocks",
+            block - 1
+        );
         println!("✅ Weight limits respected");
         println!("✅ Incomplete processing worked correctly");
     });
