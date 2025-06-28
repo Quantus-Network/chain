@@ -1,4 +1,5 @@
 cargo fix --all
+cargo fmt
 
 taplo format --check --config taplo.toml
 
