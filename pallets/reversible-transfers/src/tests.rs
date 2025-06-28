@@ -425,6 +425,7 @@ fn schedule_transfer_with_timestamp_works() {
 
         // Skip to the delay timestamp
         MockTimestamp::<Test>::set_timestamp(expected_raw_timestamp);
+        run_to_block(2);
 
         // Check that the transfer is executed
         assert_eq!(Balances::free_balance(user), user_balance - amount);
@@ -768,11 +769,14 @@ fn schedule_transfer_with_timestamp_delay_executes() {
         MockTimestamp::<Test>::set_timestamp(
             expected_execution_time.as_timestamp().unwrap() - bucket_size - 1,
         );
+        run_to_block(2);
+
         assert_eq!(Balances::free_balance(user), user_balance_before - amount);
         assert_eq!(Balances::free_balance(dest_user), dest_balance_before);
 
         // Advance time to the exact execution moment
         MockTimestamp::<Test>::set_timestamp(expected_execution_time.as_timestamp().unwrap() - 1);
+        run_to_block(3);
 
         // Check that the transfer is executed
         assert_eq!(Balances::free_balance(user), user_balance_before - amount);
@@ -890,6 +894,7 @@ fn full_flow_execute_with_timestamp_delay_works() {
 
         // Advance time to execution
         MockTimestamp::<Test>::set_timestamp(expected_execution_time.as_timestamp().unwrap() - 1);
+        run_to_block(2);
 
         let expected_event = Event::TransactionExecuted {
             tx_id,
@@ -1019,6 +1024,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 
         // Cancel before execution time
         MockTimestamp::<Test>::set_timestamp(initial_mock_time + user_delay_duration / 2);
+        run_to_block(1);
 
         assert_ok!(ReversibleTransfers::cancel(
             RuntimeOrigin::signed(user),
@@ -1038,6 +1044,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
         // Run past the original execution time
         let original_execution_time = initial_mock_time + user_delay_duration;
         MockTimestamp::<Test>::set_timestamp(original_execution_time + TimestampBucketSize::get());
+        run_to_block(2);
 
         assert_eq!(Balances::free_balance(user), initial_user_balance);
         assert_eq!(Balances::free_balance(dest), initial_dest_balance);
