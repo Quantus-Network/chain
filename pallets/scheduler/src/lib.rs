@@ -408,13 +408,11 @@ pub mod pallet {
             // Process timestamp-based agendas using current system time
             // This ensures no buckets are skipped if block times are longer than bucket intervals
             let current_timestamp = T::TimeProvider::now();
-            if current_timestamp > T::Moment::zero() {
-                Self::service_timestamp_agendas(
-                    &mut weight_counter,
-                    current_timestamp,
-                    u32::max_value(),
-                );
-            }
+            Self::service_timestamp_agendas(
+                &mut weight_counter,
+                current_timestamp,
+                u32::max_value(),
+            );
 
             weight_counter.consumed()
         }

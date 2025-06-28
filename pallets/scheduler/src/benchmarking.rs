@@ -147,14 +147,14 @@ fn make_origin<T: Config>(signed: bool) -> <T as Config>::PalletsOrigin {
 }
 
 benchmarks! {
-    // `service_agendas` when no work is done.
+    // `service_block_agendas` when no work is done.
     service_agendas_base {
         let now = BlockNumberFor::<T>::from(BLOCK_NUMBER);
-        IncompleteSince::<T>::put(BlockNumberOrTimestamp::BlockNumber(now - One::one()));
+        IncompleteBlockSince::<T>::put(now - One::one());
     }: {
-        Scheduler::<T>::service_agendas(&mut WeightMeter::new(), BlockNumberOrTimestamp::BlockNumber(now), 0);
+        Scheduler::<T>::service_block_agendas(&mut WeightMeter::new(), now, 0);
     } verify {
-        assert_eq!(IncompleteSince::<T>::get(), Some(BlockNumberOrTimestamp::BlockNumber(now - One::one())));
+        assert_eq!(IncompleteBlockSince::<T>::get(), Some(now - One::one()));
     }
 
     // `service_agenda` when no work is done.
