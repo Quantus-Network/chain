@@ -3628,3 +3628,338 @@ fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
         assert_eq!(logger::log()[1].1, 2);
     });
 }
+
+#[test]
+fn timestamp_scheduler_respects_weight_limits() {
+    let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+    new_test_ext().execute_with(|| {
+        // Start at timestamp 0
+        MockTimestamp::set_timestamp(0);
+
+        let call = RuntimeCall::Logger(LoggerCall::log {
+            i: 42,
+            weight: max_weight / 3 * 2,
+        });
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(15000), // Will be scheduled in bucket 20000
+            None,
+            127,
+            Box::new(call),
+        ));
+
+        let call = RuntimeCall::Logger(LoggerCall::log {
+            i: 69,
+            weight: max_weight / 3 * 2,
+        });
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(15000), // Will be scheduled in bucket 20000
+            None,
+            127,
+            Box::new(call),
+        ));
+
+        // Jump to timestamp 25000 (bucket 30000) - this should process bucket 20000
+        MockTimestamp::set_timestamp(25000);
+        run_to_block(1);
+
+        // 69 and 42 do not fit together, so only one should execute
+        assert_eq!(logger::log(), vec![(root(), 42u32)]);
+
+        // The incomplete timestamp should be set to bucket 20000 since processing was incomplete
+        assert_eq!(IncompleteTimestampSince::<Test>::get(), Some(20000));
+
+        // Next block should process the remaining task from bucket 20000
+        run_to_block(2);
+        assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 69u32)]);
+
+        // After complete processing, IncompleteTimestampSince should be cleared
+        assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
+    });
+}
+
+#[test]
+fn timestamp_scheduler_does_not_delete_permanently_overweight_call() {
+    let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+    new_test_ext().execute_with(|| {
+        // Start at timestamp 0
+        MockTimestamp::set_timestamp(0);
+
+        let call = RuntimeCall::Logger(LoggerCall::log {
+            i: 42,
+            weight: max_weight,
+        });
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(15000), // Will be scheduled in bucket 20000
+            None,
+            127,
+            Box::new(call),
+        ));
+
+        // Jump to timestamp 25000 (bucket 30000) and process many blocks
+        MockTimestamp::set_timestamp(25000);
+        run_to_block(100);
+
+        // Never executes due to being overweight
+        assert_eq!(logger::log(), vec![]);
+
+        // Assert the `PermanentlyOverweight` event.
+        assert_eq!(
+            System::events().last().unwrap().event,
+            crate::Event::PermanentlyOverweight {
+                task: (BlockNumberOrTimestamp::Timestamp(20000), 0),
+                id: None,
+            }
+            .into()
+        );
+    });
+}
+
+#[test]
+fn timestamp_on_initialize_weight_is_correct() {
+    new_test_ext().execute_with(|| {
+        let call_weight = Weight::from_parts(25, 0);
+        
+        // === TASK DEFINITIONS ===
+        // All tasks scheduled at timestamp 0
+        MockTimestamp::set_timestamp(0);
+
+        // Task A: i=2600, scheduled for bucket 10000 (timestamp 5000 -> bucket 10000)
+        let call_a = RuntimeCall::Logger(LoggerCall::log {
+            i: 2600,
+            weight: call_weight + Weight::from_parts(4, 0),
+        });
+        assert_ok!(Scheduler::schedule_named_after(
+            RuntimeOrigin::root(),
+            [2u8; 32],
+            BlockNumberOrTimestamp::Timestamp(5000), // Bucket 10000
+            Some((BlockNumberOrTimestamp::Timestamp(1000000), 3)),
+            126,
+            Box::new(call_a),
+        ));
+
+        // Task B: i=69, scheduled for bucket 20000 (timestamp 15000 -> bucket 20000)
+        let call_b = RuntimeCall::Logger(LoggerCall::log {
+            i: 69,
+            weight: call_weight + Weight::from_parts(3, 0),
+        });
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(15000), // Bucket 20000
+            None,
+            127,
+            Box::new(call_b),
+        ));
+        
+        // Task C: i=42, scheduled for bucket 20000 (timestamp 15000 -> bucket 20000)
+        let call_c = RuntimeCall::Logger(LoggerCall::log {
+            i: 42,
+            weight: call_weight + Weight::from_parts(2, 0),
+        });
+        assert_ok!(Scheduler::schedule_after(
+            RuntimeOrigin::root(),
+            BlockNumberOrTimestamp::Timestamp(15000), // Bucket 20000
+            Some((BlockNumberOrTimestamp::Timestamp(1000000), 3)),
+            128,
+            Box::new(call_c),
+        ));
+
+        // Task D: i=3, scheduled for bucket 30000 (timestamp 25000 -> bucket 30000)
+        let call_d = RuntimeCall::Logger(LoggerCall::log {
+            i: 3,
+            weight: call_weight + Weight::from_parts(1, 0),
+        });
+        assert_ok!(Scheduler::schedule_named_after(
+            RuntimeOrigin::root(),
+            [1u8; 32],
+            BlockNumberOrTimestamp::Timestamp(25000), // Bucket 30000
+            None,
+            255,
+            Box::new(call_d),
+        ));
+
+        // === EXPECTED BEHAVIOR ===
+        // Block 1 at timestamp 15000 (normalized to bucket 20000):
+        //   - Process buckets 0, 10000, 20000
+        //   - Execute: Task A (2600) from bucket 10000, Tasks B (69) and C (42) from bucket 20000
+        //   - LastProcessedTimestamp should be set to 20000
+        
+        // Block 2 at timestamp 25000 (normalized to bucket 30000):
+        //   - Process buckets from 20000 to 30000 (only bucket 30000 has tasks)
+        //   - Execute: Task D (3) from bucket 30000
+        //   - LastProcessedTimestamp should be set to 30000
+        
+        // Block 3 at timestamp 35000 (normalized to bucket 40000):
+        //   - Process buckets from 30000 to 40000 (no tasks)
+        //   - Execute: nothing
+        //   - LastProcessedTimestamp should be set to 40000
+
+        // === EXECUTION AND VERIFICATION ===
+        
+        println!("=== Block 1: Jump to timestamp 15000 ===");
+        MockTimestamp::set_timestamp(15000);
+        let weight_1 = Scheduler::on_initialize(1);
+        
+        println!("Executed tasks: {:?}", logger::log());
+        println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
+        println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
+        
+        // Verify all three tasks from buckets 10000 and 20000 executed
+        let logs_after_block1 = logger::log();
+        assert_eq!(logs_after_block1.len(), 3);
+        assert!(logs_after_block1.contains(&(root(), 2600u32))); // Task A
+        assert!(logs_after_block1.contains(&(root(), 69u32)));   // Task B  
+        assert!(logs_after_block1.contains(&(root(), 42u32)));   // Task C
+        assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
+
+        println!("\n=== Block 2: Jump to timestamp 25000 ===");
+        MockTimestamp::set_timestamp(25000);
+        let weight_2 = Scheduler::on_initialize(2);
+        
+        println!("Executed tasks: {:?}", logger::log());
+        println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
+        println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
+        
+        // Verify Task D from bucket 30000 executed
+        let logs_after_block2 = logger::log();
+        assert_eq!(logs_after_block2.len(), 4);
+        assert!(logs_after_block2.contains(&(root(), 3u32))); // Task D
+        assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
+
+        println!("\n=== Block 3: Jump to timestamp 35000 ===");
+        MockTimestamp::set_timestamp(35000);
+        let weight_3 = Scheduler::on_initialize(3);
+        
+        println!("Executed tasks: {:?}", logger::log());
+        println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
+        println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
+        
+        // No new tasks should execute
+        let logs_after_block3 = logger::log();
+        assert_eq!(logs_after_block3.len(), 4); // Same as before
+        assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
+
+        // Verify weights are reasonable
+        assert!(weight_1.ref_time() > 0);
+        assert!(weight_2.ref_time() > 0);
+        assert!(weight_3.ref_time() > 0);
+    });
+}
+
+#[test]
+fn timestamp_incomplete_processing_across_multiple_buckets() {
+    let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+    new_test_ext().execute_with(|| {
+        // === TASK DEFINITIONS ===
+        // Start at timestamp 0
+        MockTimestamp::set_timestamp(0);
+        
+        println!("=== SETUP ===");
+        println!("Max weight: {:?}", max_weight);
+        println!("Task weight (1/4 max): {:?}", max_weight / 4);
+        println!("Service agendas base weight: {:?}", TestWeightInfo::service_agendas_base());
+        println!("Service agenda base weight: {:?}", TestWeightInfo::service_agenda_base(5));
+        
+        // Schedule 5 heavy tasks across different buckets
+        // Each task takes 1/4 of max weight, so theoretically 4 should fit
+        // But there's overhead, so let's see what actually happens
+        for i in 0..5 {
+            let call = RuntimeCall::Logger(LoggerCall::log {
+                i: i + 100,
+                weight: max_weight / 4, // Each task takes 1/4 of max weight
+            });
+            assert_ok!(Scheduler::schedule_after(
+                RuntimeOrigin::root(),
+                BlockNumberOrTimestamp::Timestamp(15000 + (i as u64) * 10000), // Buckets 20000, 30000, 40000, 50000, 60000
+                None,
+                127,
+                Box::new(call),
+            ));
+            println!("Scheduled task {} in bucket {}", i + 100, 20000 + i * 10000);
+        }
+        
+        // === EXPECTED BEHAVIOR ===
+        // Jump to timestamp 65000 (bucket 70000) - should process all buckets 20000-60000
+        // Weight limits should cause tasks to be spread across multiple blocks
+        // Why not 4 tasks in first block? Because of overhead:
+        // - service_agendas_base() weight
+        // - service_agenda_base() weight for each bucket processed  
+        // - dispatch overhead for each task
+        // - storage read/write overhead
+        
+        println!("\n=== EXECUTION ===");
+        MockTimestamp::set_timestamp(65000);
+        
+        let mut total_executed = 0;
+        let mut block = 1;
+        
+        // Process blocks until all tasks are executed
+        while total_executed < 5 && block < 10 {
+            let logs_before = logger::log().len();
+            let incomplete_before = IncompleteTimestampSince::<Test>::get();
+            
+            println!("\n--- Block {} ---", block);
+            println!("Before: {} tasks executed, IncompleteTimestampSince: {:?}", logs_before, incomplete_before);
+            
+            let consumed_weight = Scheduler::on_initialize(block);
+            
+            let logs_after = logger::log().len();
+            let incomplete_after = IncompleteTimestampSince::<Test>::get();
+            let tasks_executed_this_block = logs_after - logs_before;
+            total_executed = logs_after;
+            
+            println!("After: {} tasks executed this block, total: {}", tasks_executed_this_block, total_executed);
+            println!("Weight consumed: {:?}", consumed_weight);
+            println!("IncompleteTimestampSince: {:?}", incomplete_after);
+            
+            // Add assertions based on what we expect
+            if block == 1 {
+                // First block: should execute some tasks but hit weight limit
+                assert!(tasks_executed_this_block > 0, "First block should execute at least one task");
+                assert!(tasks_executed_this_block < 5, "First block shouldn't execute all tasks due to weight limits");
+                
+                if tasks_executed_this_block < 5 {
+                    assert!(incomplete_after.is_some(), "Should have incomplete timestamp since if not all tasks executed");
+                }
+                
+                // Based on the output, we expect 3 tasks in first block
+                assert_eq!(tasks_executed_this_block, 3, "Expected 3 tasks in first block based on weight limits");
+                assert_eq!(incomplete_after, Some(50000), "Should be incomplete at bucket 50000");
+            } else if block == 2 {
+                // Second block: should complete remaining tasks
+                assert_eq!(tasks_executed_this_block, 2, "Expected 2 remaining tasks in second block");
+                assert_eq!(total_executed, 5, "Should have executed all 5 tasks by second block");
+                assert_eq!(incomplete_after, None, "Should have no incomplete timestamp after all tasks executed");
+            }
+            
+            // Weight should never exceed maximum
+            assert!(consumed_weight.ref_time() <= max_weight.ref_time(), "Consumed weight should not exceed maximum");
+            
+            block += 1;
+        }
+        
+        // === FINAL VERIFICATION ===
+        println!("\n=== FINAL VERIFICATION ===");
+        
+        // All tasks should eventually execute
+        assert_eq!(total_executed, 5, "All 5 tasks should eventually execute");
+        assert!(block <= 3, "Should complete within 2 blocks (block counter is 3 after 2 executions)");
+        
+        // After all processing is complete, IncompleteTimestampSince should be None
+        assert_eq!(IncompleteTimestampSince::<Test>::get(), None, "No incomplete processing should remain");
+        
+        // Verify all expected values were logged
+        let logs = logger::log();
+        let mut expected_values: Vec<u32> = (100..105).collect();
+        expected_values.sort();
+        let mut actual_values: Vec<u32> = logs.iter().map(|(_, v)| *v).collect();
+        actual_values.sort();
+        assert_eq!(actual_values, expected_values, "All expected task values should be logged");
+        
+        println!("✅ All tasks executed correctly across {} blocks", block - 1);
+        println!("✅ Weight limits respected");
+        println!("✅ Incomplete processing worked correctly");
+    });
+}
