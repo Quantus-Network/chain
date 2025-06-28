@@ -21,6 +21,10 @@ use sp_runtime::{
 /// is considered finished and removed.
 pub type Period<BlockNumber, Moment> = (BlockNumberOrTimestamp<BlockNumber, Moment>, u32);
 
+/// Error type for incompatible types in saturating_add
+#[derive(Debug, PartialEq, Eq)]
+pub struct IncompatibleTypesError;
+
 /// Block number or timestamp.
 #[derive(
     Encode,
@@ -48,7 +52,7 @@ where
     /// Normalize timestamp value
     pub fn normalize(&self, precision: Moment) -> Self {
         match self {
-            BlockNumberOrTimestamp::BlockNumber(_) => self.clone(),
+            BlockNumberOrTimestamp::BlockNumber(_) => *self,
             BlockNumberOrTimestamp::Timestamp(t) => {
                 let stripped_t = t
                     .checked_div(&precision)
@@ -88,7 +92,7 @@ where
     pub fn saturating_add(
         &self,
         other: &BlockNumberOrTimestamp<BlockNumber, Moment>,
-    ) -> Result<BlockNumberOrTimestamp<BlockNumber, Moment>, ()> {
+    ) -> Result<BlockNumberOrTimestamp<BlockNumber, Moment>, IncompatibleTypesError> {
         match (self, other) {
             (BlockNumberOrTimestamp::BlockNumber(x), BlockNumberOrTimestamp::BlockNumber(y)) => {
                 Ok(BlockNumberOrTimestamp::BlockNumber(x.saturating_add(*y)))
@@ -96,7 +100,7 @@ where
             (BlockNumberOrTimestamp::Timestamp(x), BlockNumberOrTimestamp::Timestamp(y)) => {
                 Ok(BlockNumberOrTimestamp::Timestamp(x.saturating_add(*y)))
             }
-            _ => Err(()),
+            _ => Err(IncompatibleTypesError),
         }
     }
 }
