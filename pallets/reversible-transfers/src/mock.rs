@@ -3,7 +3,7 @@ use core::{cell::RefCell, marker::PhantomData};
 use crate as pallet_reversible_transfers;
 use frame_support::{
     derive_impl, ord_parameter_types, parameter_types,
-    traits::{EitherOfDiverse, EqualPrivilegeOnly, OnTimestampSet, Time},
+    traits::{EitherOfDiverse, EqualPrivilegeOnly, Time},
     PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
