@@ -61,7 +61,6 @@
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
-pub mod impls;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -957,7 +956,9 @@ impl<T: Config> Pallet<T> {
         let mut incomplete_since = next_block;
         let mut executed = 0;
 
-        let max_items = T::MaxScheduledPerBlock::get();
+        let max_items = T::MaxScheduledPerBlock::get()
+            .checked_div(2)
+            .unwrap_or(One::one());
         let mut count_down = max;
         let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
 
@@ -991,7 +992,7 @@ impl<T: Config> Pallet<T> {
             BlockNumberOrTimestamp::<BlockNumberFor<T>, T::Moment>::Timestamp(current_time)
                 .normalize(T::TimestampBucketSize::get())
                 .as_timestamp()
-                .unwrap();
+                .unwrap_or(T::Moment::zero());
 
         let next_bucket = normalized_time.saturating_add(T::TimestampBucketSize::get());
 
@@ -1008,7 +1009,9 @@ impl<T: Config> Pallet<T> {
         let mut incomplete_since = next_bucket;
         let mut executed = 0;
 
-        let max_items = T::MaxScheduledPerBlock::get();
+        let max_items = T::MaxScheduledPerBlock::get()
+            .checked_div(2)
+            .unwrap_or(One::one());
         let mut count_down = max;
         let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
 
