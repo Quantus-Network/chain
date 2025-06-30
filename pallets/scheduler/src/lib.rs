@@ -956,9 +956,7 @@ impl<T: Config> Pallet<T> {
         let mut incomplete_since = next_block;
         let mut executed = 0;
 
-        let max_items = T::MaxScheduledPerBlock::get()
-            .checked_div(2)
-            .unwrap_or(One::one());
+        let max_items = T::MaxScheduledPerBlock::get();
         let mut count_down = max;
         let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
 
@@ -1009,9 +1007,7 @@ impl<T: Config> Pallet<T> {
         let mut incomplete_since = next_bucket;
         let mut executed = 0;
 
-        let max_items = T::MaxScheduledPerBlock::get()
-            .checked_div(2)
-            .unwrap_or(One::one());
+        let max_items = T::MaxScheduledPerBlock::get();
         let mut count_down = max;
         let service_agenda_base_weight = T::WeightInfo::service_agenda_base(max_items);
 
