@@ -2,6 +2,9 @@
 
 extern crate alloc;
 
+use lazy_static::lazy_static;
+use wormhole_verifier::WormholeVerifier;
+
 pub use pallet::*;
 
 #[cfg(test)]
@@ -13,6 +16,16 @@ pub type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+
+// Define the verifier as a lazy static constant
+lazy_static! {
+    static ref WORMHOLE_VERIFIER: WormholeVerifier = {
+        let verifier_bytes = include_bytes!("../verifier.bin");
+        let common_bytes = include_bytes!("../common.bin");
+        WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes)
+            .expect("Failed to create verifier from compile-time data")
+    };
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -30,7 +43,7 @@ pub mod pallet {
         traits::{Saturating, Zero},
         Perbill,
     };
-    use wormhole_verifier::{ProofWithPublicInputs, WormholeVerifier};
+    use wormhole_verifier::ProofWithPublicInputs;
     use zk_circuits_common::{
         circuit::{C, D, F},
         utils::{felts_to_bytes, felts_to_u128},
@@ -46,9 +59,6 @@ pub mod pallet {
 
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
-
-        #[pallet::constant]
-        type MaxVerifierDataSize: Get<u32>;
 
         type WeightToFee: WeightToFee<Balance = <Self as BalancesConfig>::Balance>;
 
@@ -84,16 +94,6 @@ pub mod pallet {
     pub(super) type UsedNullifiers<T: Config> =
         StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
-    #[pallet::storage]
-    #[pallet::getter(fn verifier_data)]
-    pub(super) type VerifierData<T: Config> =
-        StorageValue<_, BoundedVec<u8, T::MaxVerifierDataSize>, ValueQuery>;
-
-    #[pallet::storage]
-    #[pallet::getter(fn common_data)]
-    pub(super) type CommonData<T: Config> =
-        StorageValue<_, BoundedVec<u8, T::MaxVerifierDataSize>, ValueQuery>;
-
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -104,64 +104,20 @@ pub mod pallet {
     pub enum Error<T> {
         InvalidProof,
         ProofDeserializationFailed,
-        InvalidVerificationKey,
-        NotInitialized,
-        AlreadyInitialized,
         VerificationFailed,
-        VerifierNotFound,
         InvalidPublicInputs,
         NullifierAlreadyUsed,
-        VerifierDataTooLarge,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
-        pub fn initialize_verifier(
-            origin: OriginFor<T>,
-            verifier_data: Vec<u8>,
-            common_data: Vec<u8>,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            ensure!(
-                !verifier_data.is_empty(),
-                Error::<T>::InvalidVerificationKey
-            );
-            ensure!(!common_data.is_empty(), Error::<T>::InvalidVerificationKey);
-            ensure!(
-                VerifierData::<T>::get().is_empty(),
-                Error::<T>::AlreadyInitialized
-            );
-            ensure!(
-                CommonData::<T>::get().is_empty(),
-                Error::<T>::AlreadyInitialized
-            );
-
-            let bounded_verifier_data: BoundedVec<u8, T::MaxVerifierDataSize> = verifier_data
-                .try_into()
-                .map_err(|_| Error::<T>::VerifierDataTooLarge)?;
-            let bounded_common_data: BoundedVec<u8, T::MaxVerifierDataSize> = common_data
-                .try_into()
-                .map_err(|_| Error::<T>::VerifierDataTooLarge)?;
-
-            VerifierData::<T>::put(bounded_verifier_data);
-            CommonData::<T>::put(bounded_common_data);
-            Ok(())
-        }
-
-        #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
 
-            let verifier_bytes = VerifierData::<T>::get();
-            let common_bytes = CommonData::<T>::get();
-            ensure!(!verifier_bytes.is_empty(), Error::<T>::NotInitialized);
-            ensure!(!common_bytes.is_empty(), Error::<T>::NotInitialized);
+            let verifier = &*super::WORMHOLE_VERIFIER;
 
-            let verifier = WormholeVerifier::new_from_bytes(&verifier_bytes, &common_bytes)
-                .map_err(|_| Error::<T>::InvalidVerificationKey)?;
             let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
                 proof_bytes,
                 &verifier.circuit_data.common,
@@ -237,6 +193,7 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
             log::debug!("Decoded exit account: {:?}", exit_account);
             log::debug!("Exit balance to mint: {:?}", exit_balance);
+
             let _ = BalancesPallet::<T>::deposit_creating(&exit_account, exit_balance);
             log::debug!(
                 "After deposit_creating, account balance: {:?}",

@@ -105,7 +105,6 @@ impl OnUnbalanced<pallet_balances::NegativeImbalance<Test>> for DealWithFees {
 impl pallet_wormhole::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
-    type MaxVerifierDataSize = ConstU32<4294967295>;
     type WeightToFee = IdentityFee<Balance>;
     type FeeReceiver = DealWithFees;
 }
