@@ -65,6 +65,13 @@ fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value 
 pub fn development_config_genesis() -> Value {
     let mut endowed_accounts = vec![];
     endowed_accounts.extend(dilithium_default_accounts());
+    let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+    for account in endowed_accounts.iter() {
+        log::info!(
+            "endowed account: {:?}",
+            account.to_ss58check_with_version(ss58_version.clone())
+        );
+    }
 
     genesis_template(endowed_accounts, crystal_alice().into_account())
 }
@@ -74,7 +81,11 @@ pub fn development_config_genesis() -> Value {
 /// Endows only the specified test account and sets it as Sudo.
 pub fn live_testnet_config_genesis() -> Value {
     let endowed_accounts = vec![test_root_account()];
-    log::info!("endowed account: {:?}", test_root_account().to_ss58check());
+    let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+    log::info!(
+        "endowed account: {:?}",
+        test_root_account().to_ss58check_with_version(ss58_version)
+    );
 
     genesis_template(endowed_accounts, test_root_account())
 }
