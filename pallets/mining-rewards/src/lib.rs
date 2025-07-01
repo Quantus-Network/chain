@@ -23,7 +23,7 @@ pub mod pallet {
         DecreaseIssuance, IncreaseIssuance, Inspect, Mutate, Unbalanced,
     };
     use frame_support::traits::Defensive;
-    use frame_support::traits::{Currency, Get, Imbalance, OnUnbalanced};
+    use frame_support::traits::{Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
@@ -32,12 +32,6 @@ pub mod pallet {
 
     type BalanceOf<T> =
         <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
-
-    type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
-        BalanceOf<T>,
-        DecreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
-        IncreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
-    >;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -205,7 +199,6 @@ pub mod pallet {
 
     pub struct TransactionFeesCollector<T>(PhantomData<T>);
 
-    // Additional implementation for old Currency trait compatibility
     impl<T, I> OnUnbalanced<I> for TransactionFeesCollector<T>
     where
         T: Config,

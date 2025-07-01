@@ -2,7 +2,6 @@
 mod wormhole_tests {
     use crate::{mock::*, Error};
     use frame_support::{assert_noop, assert_ok};
-    use hex;
 
     // Helper function to generate proof and inputs for a given n
     fn get_test_proof() -> Vec<u8> {

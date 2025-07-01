@@ -1,7 +1,7 @@
 use crate as pallet_wormhole;
 use frame_support::{
     construct_runtime, parameter_types,
-    traits::{ConstU32, Everything, Imbalance, OnUnbalanced},
+    traits::{ConstU32, ConstU64, Everything, Imbalance, OnUnbalanced},
     weights::IdentityFee,
 };
 use sp_core::H256;
@@ -104,7 +104,8 @@ impl OnUnbalanced<pallet_balances::NegativeImbalance<Test>> for DealWithFees {
 
 impl pallet_wormhole::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_wormhole::DefaultWeightInfo;
+    type WeightInfo = ();
+    type MintingAccount = ConstU64<1>;
     type MaxVerifierDataSize = ConstU32<4294967295>;
     type WeightToFee = IdentityFee<Balance>;
     type FeeReceiver = DealWithFees;
