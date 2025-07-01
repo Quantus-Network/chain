@@ -19,7 +19,7 @@ OUTPUT_FILE="node/src/chain-specs/live-resonance.json" # Directly overwrite the 
 QUANTUS_NODE_BIN="./target/release/quantus-node"
 # This is the chain spec identifier that builds the genesis state from code, rather than loading from a file.
 CHAIN_ID="live_resonance_local"
-GITHUB_REPO="Quantus-Network/chain-ru-test"
+GITHUB_REPO="Quantus-Network/chain"
 
 echo "🔄 Checking current git status..."
 if ! git diff-index --quiet HEAD --; then

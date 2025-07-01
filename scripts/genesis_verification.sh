@@ -6,7 +6,7 @@
 set -e
 
 # --- Configuration ---
-GITHUB_REPO="Quantus-Network/chain-ru-test" # Change if the repository owner/name is different.
+GITHUB_REPO="Quantus-Network/chain" # Change if the repository owner/name is different.
 
 # --- Helper Functions ---
 print_usage() {
