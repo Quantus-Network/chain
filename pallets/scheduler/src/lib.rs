@@ -1032,10 +1032,12 @@ impl<T: Config> Pallet<T> {
         incomplete_since = incomplete_since.min(when);
         if incomplete_since <= normalized_time {
             IncompleteTimestampSince::<T>::put(incomplete_since);
-        } else {
-            // If we completed all processing up to normalized_time, update last processed timestamp
-            LastProcessedTimestamp::<T>::put(normalized_time);
         }
+
+        // Always update the last processed timestamp to the current block's normalized time.
+        // The scheduler's correctness is maintained by `IncompleteTimestampSince`,
+        // which is always checked first and takes priority.
+        LastProcessedTimestamp::<T>::put(normalized_time);
     }
 
     /// Returns `true` if the agenda was fully completed, `false` if it should be revisited at a

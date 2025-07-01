@@ -4039,3 +4039,77 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
         println!("✅ Incomplete processing worked correctly");
     });
 }
+
+#[test]
+fn last_processed_timestamp_updates_on_each_block() {
+    new_test_ext().execute_with(|| {
+        // In our mock runtime, the timestamp bucket size is 10_000ms.
+        // The bucket for a given timestamp is calculated to be the next multiple
+        // of the bucket size. For example, timestamps 0-9999ms fall into bucket 10000.
+
+        // Block 1: Initial state check
+        MockTimestamp::set_timestamp(0);
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            None,
+            "Should be None initially"
+        );
+        run_to_block(1);
+        // `on_initialize` runs. Current timestamp is 0, so it processes up to bucket 10000.
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(10000),
+            "Should be initialized to the first bucket"
+        );
+
+        // Block 2: Advance time into the next bucket
+        MockTimestamp::set_timestamp(12000);
+        run_to_block(2);
+        // Current timestamp 12000 is in bucket 20000. `on_initialize` processes up to 20000.
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(20000),
+            "Should advance to the new current bucket"
+        );
+
+        // Block 3: Advance time, but stay within the same bucket
+        MockTimestamp::set_timestamp(18000);
+        run_to_block(3);
+        // Current timestamp 18000 is still in bucket 20000. No change expected.
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(20000),
+            "Should not change when in the same bucket"
+        );
+
+        // Block 4: Time advances to a new bucket
+        MockTimestamp::set_timestamp(25000);
+        run_to_block(4);
+        // Current timestamp 25000 is in bucket 30000.
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(30000),
+            "Should advance to the next bucket"
+        );
+
+        // Block 5: Time jumps several buckets ahead
+        MockTimestamp::set_timestamp(105000);
+        run_to_block(5);
+        // Current timestamp 105000 is in bucket 110000.
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(110000),
+            "Should jump to the correct bucket after a large time skip"
+        );
+
+        // Block 6: No time change, LastProcessedTimestamp should not change.
+        // `run_to_block` advances the block number, but the timestamp remains 105000.
+        run_to_block(6);
+        // Current timestamp is still 105000 (bucket 110000).
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(110000),
+            "Should not change if timestamp does not change"
+        );
+    });
+}
