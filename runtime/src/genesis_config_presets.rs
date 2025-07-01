@@ -15,14 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
+use crate::configs::TreasuryPalletId;
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
 use alloc::{vec, vec::Vec};
 use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::AccountKeyring;
-use sp_runtime::traits::IdentifyAccount;
+use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
 /// Identifier for the live testnet runtime preset.
 pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
@@ -39,14 +40,18 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 }
 // Returns the genesis config presets populated with given parameters.
 fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
+    let mut balances = endowed_accounts
+        .iter()
+        .cloned()
+        .map(|k| (k, 1u128 << 60))
+        .collect::<Vec<_>>();
+
+    const ONE_BILLION: u128 = 1_000_000_000;
+    let treasury_account = TreasuryPalletId::get().into_account_truncating();
+    balances.push((treasury_account, ONE_BILLION * UNIT));
+
     let config = RuntimeGenesisConfig {
-        balances: BalancesConfig {
-            balances: endowed_accounts
-                .iter()
-                .cloned()
-                .map(|k| (k, 1u128 << 60))
-                .collect::<Vec<_>>(),
-        },
+        balances: BalancesConfig { balances },
         sudo: SudoConfig {
             key: Some(root.clone()),
         },
