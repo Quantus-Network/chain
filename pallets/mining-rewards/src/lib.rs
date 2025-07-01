@@ -19,9 +19,7 @@ pub mod pallet {
     use codec::Decode;
     use core::marker::PhantomData;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{
-        DecreaseIssuance, IncreaseIssuance, Inspect, Mutate, Unbalanced,
-    };
+    use frame_support::traits::fungible::{Inspect, Mutate, Unbalanced};
     use frame_support::traits::Defensive;
     use frame_support::traits::{Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;

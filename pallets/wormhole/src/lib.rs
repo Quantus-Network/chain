@@ -19,7 +19,7 @@ pub mod pallet {
     use super::BalanceOf;
     use alloc::vec::Vec;
     use codec::Decode;
-    use frame_support::{pallet_prelude::*, traits::fungible::Mutate};
+    use frame_support::pallet_prelude::*;
     use frame_support::{
         traits::{Currency, ExistenceRequirement, OnUnbalanced, WithdrawReasons},
         weights::WeightToFee,
@@ -46,10 +46,6 @@ pub mod pallet {
 
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
-
-        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
-        #[pallet::constant]
-        type MintingAccount: Get<Self::AccountId>;
 
         #[pallet::constant]
         type MaxVerifierDataSize: Get<u32>;
@@ -236,9 +232,16 @@ pub mod pallet {
             let exit_account_bytes = felts_to_bytes(
                 &proof.public_inputs[EXIT_ACCOUNT_START_INDEX..EXIT_ACCOUNT_END_INDEX],
             );
+            log::debug!("Exit account bytes: {:?}", exit_account_bytes);
             let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
+            log::debug!("Decoded exit account: {:?}", exit_account);
+            log::debug!("Exit balance to mint: {:?}", exit_balance);
             let _ = BalancesPallet::<T>::deposit_creating(&exit_account, exit_balance);
+            log::debug!(
+                "After deposit_creating, account balance: {:?}",
+                BalancesPallet::<T>::free_balance(&exit_account)
+            );
 
             // Calculate and withdraw fee
             let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
@@ -255,16 +258,6 @@ pub mod pallet {
                 )?;
                 T::FeeReceiver::on_unbalanced(fee_imbalance);
             }
-
-            BalancesPallet::<T, ()>::mint_into(&exit_account, exit_balance)?;
-
-            // Create a transfer proof for the minted tokens
-            let mint_account = T::MintingAccount::get();
-            BalancesPallet::<T, ()>::store_transfer_proof(
-                &mint_account,
-                &exit_account,
-                exit_balance,
-            );
 
             // Emit event
             Self::deposit_event(Event::ProofVerified {
