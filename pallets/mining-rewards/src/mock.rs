@@ -25,7 +25,7 @@ pub type Block = frame_system::mocking::MockBlock<Test>;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
-    pub const SS58Prefix: u8 = 42;
+    pub const SS58Prefix: u8 = 189;
     pub const BlockReward: u128 = 50;
     pub const ExistentialDeposit: Balance = 1;
     pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");

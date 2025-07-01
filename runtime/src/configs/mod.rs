@@ -74,7 +74,7 @@ parameter_types! {
         NORMAL_DISPATCH_RATIO,
     );
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
-    pub const SS58Prefix: u8 = 42;
+    pub const SS58Prefix: u8 = 189;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
     pub const MaxProofs: u32 = 100;
     pub const UnsignedClaimPriority: u32 = 100;
