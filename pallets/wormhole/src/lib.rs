@@ -1,5 +1,4 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
 
 pub use pallet::*;
 
@@ -92,6 +91,11 @@ pub mod pallet {
     pub(super) type VerifierData<T: Config> =
         StorageValue<_, BoundedVec<u8, T::MaxVerifierDataSize>, ValueQuery>;
 
+    #[pallet::storage]
+    #[pallet::getter(fn common_data)]
+    pub(super) type CommonData<T: Config> =
+        StorageValue<_, BoundedVec<u8, T::MaxVerifierDataSize>, ValueQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -116,20 +120,35 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(Weight::from_parts(10_000, 0))]
-        pub fn initialize_verifier(origin: OriginFor<T>, verifier_data: Vec<u8>) -> DispatchResult {
+        pub fn initialize_verifier(
+            origin: OriginFor<T>,
+            verifier_data: Vec<u8>,
+            common_data: Vec<u8>,
+        ) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(
                 !verifier_data.is_empty(),
                 Error::<T>::InvalidVerificationKey
             );
+            ensure!(!common_data.is_empty(), Error::<T>::InvalidVerificationKey);
             ensure!(
                 VerifierData::<T>::get().is_empty(),
                 Error::<T>::AlreadyInitialized
             );
+            ensure!(
+                CommonData::<T>::get().is_empty(),
+                Error::<T>::AlreadyInitialized
+            );
+
             let bounded_verifier_data: BoundedVec<u8, T::MaxVerifierDataSize> = verifier_data
                 .try_into()
                 .map_err(|_| Error::<T>::VerifierDataTooLarge)?;
+            let bounded_common_data: BoundedVec<u8, T::MaxVerifierDataSize> = common_data
+                .try_into()
+                .map_err(|_| Error::<T>::VerifierDataTooLarge)?;
+
             VerifierData::<T>::put(bounded_verifier_data);
+            CommonData::<T>::put(bounded_common_data);
             Ok(())
         }
 
@@ -139,14 +158,20 @@ pub mod pallet {
             ensure_none(origin)?;
 
             let verifier_bytes = VerifierData::<T>::get();
+            let common_bytes = CommonData::<T>::get();
             ensure!(!verifier_bytes.is_empty(), Error::<T>::NotInitialized);
-            let verifier = WormholeVerifier::from_bytes(&verifier_bytes)
+            ensure!(!common_bytes.is_empty(), Error::<T>::NotInitialized);
+
+            let verifier = WormholeVerifier::new_from_bytes(&verifier_bytes, &common_bytes)
                 .map_err(|_| Error::<T>::InvalidVerificationKey)?;
             let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
                 proof_bytes,
                 &verifier.circuit_data.common,
             )
-            .map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+            .map_err(|e| {
+                log::error!("Proof deserialization failed. Error: {:?}", e);
+                Error::<T>::ProofDeserializationFailed
+            })?;
 
             // Public inputs are ordered as follows:
             // Nullifier.hash: 4 felts

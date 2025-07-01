@@ -35,6 +35,9 @@ zk-circuits-common = { workspace = true, default-features = false, features = [
 	"no_std",
 ] }
 
+[dev-dependencies]
+hex = { workspace = true, features = ["alloc"] }
+
 [features]
 default = ["std"]
 runtime-benchmarks = [

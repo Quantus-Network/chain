@@ -6929,6 +6929,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "hex",
  "lazy_static",
  "log",
  "pallet-balances 40.0.1",
@@ -14030,7 +14031,7 @@ dependencies = [
 [[package]]
 name = "wormhole-circuit"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-bin#159e73a0ff904e02b65aee515a60e9f3b4460bc9"
+source = "git+https://github.com/Quantus-Network/zk-circuits#31b6ee270ace294ba3ec68916b33bffb5e888f8a"
 dependencies = [
  "anyhow",
  "hex",
@@ -14041,7 +14042,7 @@ dependencies = [
 [[package]]
 name = "wormhole-verifier"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-bin#159e73a0ff904e02b65aee515a60e9f3b4460bc9"
+source = "git+https://github.com/Quantus-Network/zk-circuits#31b6ee270ace294ba3ec68916b33bffb5e888f8a"
 dependencies = [
  "anyhow",
  "plonky2",
@@ -14321,7 +14322,7 @@ dependencies = [
 [[package]]
 name = "zk-circuits-common"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-bin#159e73a0ff904e02b65aee515a60e9f3b4460bc9"
+source = "git+https://github.com/Quantus-Network/zk-circuits#31b6ee270ace294ba3ec68916b33bffb5e888f8a"
 dependencies = [
  "anyhow",
  "plonky2",
