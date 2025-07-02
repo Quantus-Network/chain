@@ -305,7 +305,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             delay: BlockNumberOrTimestampOf<T>,
             interceptor: T::AccountId,
-            recoverer: T::AccountId
+            recoverer: T::AccountId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -313,10 +313,7 @@ pub mod pallet {
                 interceptor != who.clone(),
                 Error::<T>::InterceptorCannotBeSelf
             );
-            ensure!(
-                recoverer != who.clone(),
-                Error::<T>::RecovererCannotBeSelf
-            );
+            ensure!(recoverer != who.clone(), Error::<T>::RecovererCannotBeSelf);
             ensure!(
                 !HighSecurityAccounts::<T>::contains_key(&who),
                 Error::<T>::AccountAlreadyHighSecurity
@@ -656,7 +653,7 @@ pub mod pallet {
 
             let dispatch_time = match delay {
                 BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
-                    BlockNumberProvider::current_block_number().saturating_add(blocks),
+                    T::BlockNumberProvider::current_block_number().saturating_add(blocks),
                 ),
                 BlockNumberOrTimestamp::Timestamp(millis) => {
                     DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
@@ -681,7 +678,7 @@ pub mod pallet {
                 PendingTransfer {
                     from: from.clone(),
                     to: recipient.clone(),
-                    interceptor,
+                    interceptor: interceptor.clone(),
                     call,
                     amount,
                     count: 1,
@@ -735,8 +732,9 @@ pub mod pallet {
             amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let HighSecurityAccountData { delay, interceptor, .. } =
-                Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
+            let HighSecurityAccountData {
+                delay, interceptor, ..
+            } = Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
 
             Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay)
         }
@@ -788,7 +786,8 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         /// Configure initial reversible accounts. [AccountId, Delay]
         /// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block numbers
-        pub initial_high_security_accounts: Vec<(T::AccountId, T::AccountId, T::AccountId, BlockNumberFor<T>)>,
+        pub initial_high_security_accounts:
+            Vec<(T::AccountId, T::AccountId, T::AccountId, BlockNumberFor<T>)>,
     }
 
     #[pallet::genesis_build]
@@ -802,9 +801,9 @@ pub mod pallet {
                     HighSecurityAccounts::<T>::insert(
                         who,
                         HighSecurityAccountData {
-                            interceptor,
-                            recoverer,
-                            delay: wrapped_delay
+                            interceptor: interceptor.clone(),
+                            recoverer: recoverer.clone(),
+                            delay: wrapped_delay,
                         },
                     );
                 } else {

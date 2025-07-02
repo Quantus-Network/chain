@@ -6,7 +6,6 @@ use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 use frame_support::traits::fungible::Inspect;
 use frame_support::traits::tokens::Preservation;
 use frame_system::ensure_signed;
-use pallet_reversible_transfers::DelayPolicy;
 use pallet_reversible_transfers::WeightInfo;
 use scale_info::TypeInfo;
 use sp_core::Get;
@@ -78,73 +77,20 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
         })?;
 
         if let Some(data) = ReversibleTransfers::is_high_security(&who) {
-            match data.policy {
-                // If explicit, do not allow Transfer calls
-                DelayPolicy::Explicit => {
-                    if matches!(
-                        call,
-                        RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
-                            | RuntimeCall::Balances(
-                                pallet_balances::Call::transfer_allow_death { .. }
-                            )
-                            | RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
-                    ) {
-                        return Err(
-                            frame_support::pallet_prelude::TransactionValidityError::Invalid(
-                                InvalidTransaction::Custom(0),
-                            ),
-                        );
-                    }
-                }
-                DelayPolicy::Intercept => {
-                    // Only intercept token transfers
-                    let (dest, amount) = match call {
-                        RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-                            dest,
-                            value,
-                        }) => (dest, value),
-                        RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-                            dest,
-                            value,
-                        }) => (dest, value),
-                        RuntimeCall::Balances(pallet_balances::Call::transfer_all {
-                            dest,
-                            keep_alive,
-                        }) => (
-                            dest,
-                            &Balances::reducible_balance(
-                                &who,
-                                if *keep_alive {
-                                    Preservation::Preserve
-                                } else {
-                                    Preservation::Expendable
-                                },
-                                frame_support::traits::tokens::Fortitude::Polite,
-                            ),
-                        ),
-                        _ => return Ok((ValidTransaction::default(), (), origin)),
-                    };
-
-                    // Schedule the transfer
-
-                    ReversibleTransfers::do_schedule_transfer(
-                        origin.clone(),
-                        dest.clone(),
-                        *amount,
+            // do not allow Transfer calls
+            if matches!(
+                call,
+                RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
+                    | RuntimeCall::Balances(
+                        pallet_balances::Call::transfer_allow_death { .. }
                     )
-                    .map_err(|e| {
-                        log::error!("Failed to schedule transfer: {:?}", e);
-                        frame_support::pallet_prelude::TransactionValidityError::Invalid(
-                            InvalidTransaction::Custom(1),
-                        )
-                    })?;
-
-                    return Err(
-                        frame_support::pallet_prelude::TransactionValidityError::Unknown(
-                            frame_support::pallet_prelude::UnknownTransaction::Custom(u8::MAX),
-                        ),
-                    );
-                }
+                    | RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
+            ) {
+                return Err(
+                    frame_support::pallet_prelude::TransactionValidityError::Invalid(
+                        InvalidTransaction::Custom(0),
+                    ),
+                );
             }
         }
 
