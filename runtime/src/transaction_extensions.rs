@@ -3,8 +3,7 @@ use crate::*;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
-use frame_support::traits::fungible::Inspect;
-use frame_support::traits::tokens::Preservation;
+
 use frame_system::ensure_signed;
 use pallet_reversible_transfers::WeightInfo;
 use scale_info::TypeInfo;
@@ -76,22 +75,34 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
             )
         })?;
 
-        if let Some(data) = ReversibleTransfers::is_high_security(&who) {
-            // do not allow Transfer calls
-            if matches!(
-                call,
-                RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
-                    | RuntimeCall::Balances(
-                        pallet_balances::Call::transfer_allow_death { .. }
-                    )
-                    | RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
-            ) {
-                return Err(
+        if let Some(_data) = ReversibleTransfers::is_high_security(&who) {
+            // Only intercept token transfers
+            let (dest, amount) = match call {
+                RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+                    dest,
+                    value,
+                }) => (dest, value),
+                RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                    dest,
+                    value,
+                }) => (dest, value),
+                _ => return Ok((ValidTransaction::default(), (), origin)),
+            };
+
+            // Schedule the transfer
+            ReversibleTransfers::do_schedule_transfer(origin.clone(), dest.clone(), *amount)
+                .map_err(|e| {
+                    log::error!("Failed to schedule transfer: {:?}", e);
                     frame_support::pallet_prelude::TransactionValidityError::Invalid(
                         InvalidTransaction::Custom(0),
-                    ),
-                );
-            }
+                    )
+                })?;
+
+            return Err(
+                frame_support::pallet_prelude::TransactionValidityError::Unknown(
+                    frame_support::pallet_prelude::UnknownTransaction::Custom(u8::MAX),
+                ),
+            );
         }
 
         Ok((ValidTransaction::default(), (), origin))
@@ -132,7 +143,7 @@ mod tests {
         .unwrap();
 
         pallet_reversible_transfers::GenesisConfig::<Runtime> {
-            initial_reversible_accounts: vec![(alice(), 10)],
+            initial_high_security_accounts: vec![(charlie(), alice(), bob(), 10)],
         }
         .assimilate_storage(&mut t)
         .unwrap();
@@ -188,23 +199,14 @@ mod tests {
                 &TxBaseImplication::<()>(()),
                 frame_support::pallet_prelude::TransactionSource::External,
             );
-            // we should fail here with `InvalidTransaction::Custom(0)` since default policy is
-            // `DelayPolicy::Explicit`
-            assert_eq!(
-                result.unwrap_err(),
-                TransactionValidityError::Invalid(InvalidTransaction::Custom(0))
-            );
+            // Alice is not high-security, so this should succeed
+            assert!(result.is_ok());
             // Pending transactions should be empty
             assert_eq!(PendingTransfers::<Runtime>::iter().count(), 0);
 
-            // Charlie opts in for intercept
-            ReversibleTransfers::set_high_security(
-                RuntimeOrigin::signed(charlie()),
-                None,
-                DelayPolicy::Intercept,
-                None,
-            )
-            .unwrap();
+            // Charlie is already configured as high-security from genesis
+            // Verify Charlie is high-security
+            assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
 
             // Charlie sends bob a transaction
             let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
@@ -231,8 +233,7 @@ mod tests {
                 &TxBaseImplication::<()>(()),
                 frame_support::pallet_prelude::TransactionSource::External,
             );
-            // we should fail here with `UnknownTransaction::Custom(u8::MAX)` since default policy is
-            // `DelayPolicy::Explicit`
+            // we should fail here with `UnknownTransaction::Custom(u8::MAX)`
             assert_eq!(
                 result.unwrap_err(),
                 TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
