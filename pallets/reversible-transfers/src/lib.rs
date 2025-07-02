@@ -32,42 +32,26 @@ use sp_runtime::traits::StaticLookup;
 pub type BlockNumberOrTimestampOf<T> =
     BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
 
-/// How to delay transactions
-/// - `Explicit`: Only delay transactions explicitly using this pallet's `schedule_transfer` extrinsic.
-/// - `Intercept`: Intercept and delay transactions at the `TransactionExtension` level.
-///
-/// For example, for a reversible account with `DelayPolicy::Intercept`, the transaction
-/// will be delayed even if the user doesn't explicitly call `schedule_transfer`. And for `DelayPolicy::Explicit`,
-/// the transaction will be delayed only if the user explicitly calls this pallet's `schedule_transfer` extrinsic.
+/// High security account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
-pub enum DelayPolicy {
-    /// Only explicitly delay transactions using `schedule_transfer` call
-    #[default]
-    Explicit,
-    /// Intercept and delay transactions at `TransactionExtension` level. This is not UX friendly
-    /// since it will return `TransactionValidityError` to the caller, but will still manage
-    /// to delay the transaction.
-    ///
-    /// This is an opt-in feature and will not be enabled by default.
-    Intercept,
-}
-
-/// Reversible account details
-#[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
-pub struct ReversibleAccountData<AccountId, Delay> {
-    /// The account that can reverse the transaction. `None` means the account itself.
-    pub explicit_reverser: Option<AccountId>,
+pub struct HighSecurityAccountData<AccountId, Delay> {
+    /// The account that can reverse the transaction
+    pub interceptor: AccountId,
+    /// The account that is able to do recovery
+    pub recoverer: AccountId,
     /// The delay period for the account
     pub delay: Delay,
-    /// The policy for the account
-    pub policy: DelayPolicy,
 }
 
 /// Pending transfer details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub struct PendingTransfer<AccountId, Balance, Call> {
     /// The account that scheduled the transaction
-    pub who: AccountId,
+    pub from: AccountId,
+    /// The account that the transfer is to
+    pub to: AccountId,
+    /// The account that can intercept the transaction
+    pub interceptor: AccountId,
     /// The call
     pub call: Call,
     /// Amount frozen for the transaction
@@ -175,12 +159,12 @@ pub mod pallet {
     /// Maps accounts to their chosen reversibility delay period (in milliseconds).
     /// Accounts present in this map have reversibility enabled.
     #[pallet::storage]
-    #[pallet::getter(fn reversible_accounts)]
-    pub type ReversibleAccounts<T: Config> = StorageMap<
+    #[pallet::getter(fn high_security_accounts)]
+    pub type HighSecurityAccounts<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        ReversibleAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>,
+        HighSecurityAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>,
         OptionQuery,
     >;
 
@@ -242,16 +226,21 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A user has enabled or updated their reversibility settings.
-        /// [who, maybe_delay: None means disabled]
-        ReversibilitySet {
+        /// A user has enabled their high-security settings.
+        /// [who, interceptor, recoverer, delay]
+        HighSecuritySet {
             who: T::AccountId,
-            data: ReversibleAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>,
+            interceptor: T::AccountId,
+            recoverer: T::AccountId,
+            delay: BlockNumberOrTimestampOf<T>,
         },
         /// A transaction has been intercepted and scheduled for delayed execution.
-        /// [who, tx_id, execute_at_moment]
+        /// [from, to, interceptor, amount, tx_id, execute_at_moment]
         TransactionScheduled {
-            who: T::AccountId,
+            from: T::AccountId,
+            to: T::AccountId,
+            interceptor: T::AccountId,
+            amount: T::Balance,
             tx_id: T::Hash,
             execute_at: DispatchTime<BlockNumberFor<T>, T::Moment>,
         },
@@ -269,11 +258,13 @@ pub mod pallet {
     #[pallet::error]
     pub enum Error<T> {
         /// The account attempting to enable reversibility is already marked as reversible.
-        AccountAlreadyReversible,
-        /// The account attempting the action is not marked as reversible.
-        AccountNotReversible,
-        /// Reverser can not be the account itself, because it is redundant.
-        ExplicitReverserCanNotBeSelf,
+        AccountAlreadyHighSecurity,
+        /// The account attempting the action is not marked as high security.
+        AccountNotHighSecurity,
+        /// Interceptor can not be the account itself, because it is redundant.
+        InterceptorCannotBeSelf,
+        /// Recoverer cannot be the account itself, because it is redundant.
+        RecovererCannotBeSelf,
         /// The specified pending transaction ID was not found.
         PendingTxNotFound,
         /// The caller is not the original submitter of the transaction they are trying to cancel.
@@ -305,56 +296,59 @@ pub mod pallet {
     where
         T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
     {
-        /// Enable reversibility for the calling account with a specified delay, or disable it.
+        /// Enable high-security for the calling account with a specified delay
         ///
         /// - `delay`: The time (in milliseconds) after submission before the transaction executes.
-        ///   If `None`, reversibility is disabled for the account.
-        ///   If `Some`, must be >= `MinDelayPeriod`.
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]
-        pub fn set_reversibility(
+        pub fn set_high_security(
             origin: OriginFor<T>,
-            delay: Option<BlockNumberOrTimestampOf<T>>,
-            policy: DelayPolicy,
-            reverser: Option<T::AccountId>,
+            delay: BlockNumberOrTimestampOf<T>,
+            interceptor: T::AccountId,
+            recoverer: T::AccountId
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             ensure!(
-                reverser != Some(who.clone()),
-                Error::<T>::ExplicitReverserCanNotBeSelf
+                interceptor != who.clone(),
+                Error::<T>::InterceptorCannotBeSelf
             );
             ensure!(
-                !ReversibleAccounts::<T>::contains_key(&who),
-                Error::<T>::AccountAlreadyReversible
+                recoverer != who.clone(),
+                Error::<T>::RecovererCannotBeSelf
             );
-            let delay = delay.unwrap_or(T::DefaultDelay::get());
+            ensure!(
+                !HighSecurityAccounts::<T>::contains_key(&who),
+                Error::<T>::AccountAlreadyHighSecurity
+            );
 
             Self::validate_delay(&delay)?;
 
-            let reversible_account_data = ReversibleAccountData {
-                explicit_reverser: reverser.clone(),
+            // TODO: initiate recovery relationship thru recovery pallet
+            let high_security_account_data = HighSecurityAccountData {
+                interceptor: interceptor.clone(),
+                recoverer: recoverer.clone(),
                 delay,
-                policy: policy.clone(),
             };
 
-            // Update interceptor index if there's an explicit reverser
-            if let Some(ref interceptor) = reverser {
-                InterceptorIndex::<T>::try_mutate(interceptor, |accounts| {
-                    if !accounts.contains(&who) {
-                        accounts
-                            .try_push(who.clone())
-                            .map_err(|_| Error::<T>::TooManyInterceptorAccounts)
-                    } else {
-                        Ok(())
-                    }
-                })?;
-            }
+            // TODO: maybe we don't need these if we put all the info in the events
+            // Update interceptor index
+            InterceptorIndex::<T>::try_mutate(interceptor.clone(), |accounts| {
+                if !accounts.contains(&who) {
+                    accounts
+                        .try_push(who.clone())
+                        .map_err(|_| Error::<T>::TooManyInterceptorAccounts)
+                } else {
+                    Ok(())
+                }
+            })?;
 
-            ReversibleAccounts::<T>::insert(who.clone(), &reversible_account_data);
-            Self::deposit_event(Event::ReversibilitySet {
+            HighSecurityAccounts::<T>::insert(who.clone(), &high_security_account_data);
+            Self::deposit_event(Event::HighSecuritySet {
                 who,
-                data: reversible_account_data,
+                interceptor,
+                recoverer,
+                delay,
             });
 
             Ok(())
@@ -418,14 +412,14 @@ pub mod pallet {
 
             // Accounts with pre-configured reversibility cannot use this extrinsic.
             ensure!(
-                !ReversibleAccounts::<T>::contains_key(&who),
+                !HighSecurityAccounts::<T>::contains_key(&who),
                 Error::<T>::AccountAlreadyReversibleCannotScheduleOneTime
             );
 
             // Validate the provided delay.
             Self::validate_delay(&delay)?;
 
-            Self::do_schedule_transfer_inner(who, dest, amount, delay)
+            Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay)
         }
     }
 
@@ -460,10 +454,10 @@ pub mod pallet {
         T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
     {
         /// Check if an account has reversibility enabled and return its delay.
-        pub fn is_reversible(
+        pub fn is_high_security(
             who: &T::AccountId,
-        ) -> Option<ReversibleAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>> {
-            ReversibleAccounts::<T>::get(who)
+        ) -> Option<HighSecurityAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>> {
+            HighSecurityAccounts::<T>::get(who)
         }
 
         /// Get full details of a pending transfer by its ID
@@ -507,16 +501,16 @@ pub mod pallet {
             // Release the funds
             pallet_balances::Pallet::<T>::release(
                 &HoldReason::ScheduledTransfer.into(),
-                &pending.who,
+                &pending.from,
                 pending.amount,
                 Precision::Exact,
             )?;
 
             // Remove transfer from all storage (handles indexes, account count, etc.)
-            Self::transfer_removed(&pending.who, *tx_id, &pending);
+            Self::transfer_removed(&pending.from, *tx_id, &pending);
 
             let post_info = call
-                .dispatch(frame_support::dispatch::RawOrigin::Signed(pending.who.clone()).into());
+                .dispatch(frame_support::dispatch::RawOrigin::Signed(pending.from.clone()).into());
 
             // Emit event
             Self::deposit_event(Event::TransactionExecuted {
@@ -600,7 +594,9 @@ pub mod pallet {
                 PendingTransfers::<T>::insert(
                     tx_id,
                     PendingTransfer {
-                        who: pending_transfer.who.clone(),
+                        from: pending_transfer.from.clone(),
+                        to: pending_transfer.to.clone(),
+                        interceptor: pending_transfer.interceptor.clone(),
                         call: pending_transfer.call.clone(),
                         amount: pending_transfer.amount,
                         count: new_count,
@@ -636,22 +632,23 @@ pub mod pallet {
 
         /// Internal logic to schedule a transfer with a given delay.
         fn do_schedule_transfer_inner(
-            who: T::AccountId,
-            dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+            from: T::AccountId,
+            to: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+            interceptor: T::AccountId,
             amount: BalanceOf<T>,
             delay: BlockNumberOrTimestampOf<T>,
         ) -> DispatchResult {
-            let recipient = T::Lookup::lookup(dest.clone())?;
+            let recipient = T::Lookup::lookup(to.clone())?;
             let transfer_call: T::RuntimeCall = pallet_balances::Call::<T>::transfer_keep_alive {
-                dest: dest.clone(),
+                dest: to.clone(),
                 value: amount,
             }
             .into();
 
-            let tx_id = T::Hashing::hash_of(&(who.clone(), transfer_call.clone()).encode());
+            let tx_id = T::Hashing::hash_of(&(from.clone(), transfer_call.clone()).encode());
 
             // Check if the account can accommodate another pending transaction
-            let current_count = AccountPendingIndex::<T>::get(&who);
+            let current_count = AccountPendingIndex::<T>::get(&from);
             ensure!(
                 current_count < T::MaxPendingPerAccount::get(),
                 Error::<T>::TooManyPendingTransactions
@@ -659,7 +656,7 @@ pub mod pallet {
 
             let dispatch_time = match delay {
                 BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
-                    T::BlockNumberProvider::current_block_number().saturating_add(blocks),
+                    BlockNumberProvider::current_block_number().saturating_add(blocks),
                 ),
                 BlockNumberOrTimestamp::Timestamp(millis) => {
                     DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
@@ -673,14 +670,18 @@ pub mod pallet {
             // Store details before scheduling
             let new_pending = if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
                 PendingTransfer {
-                    who: who.clone(),
+                    from: pending.from,
+                    to: pending.to,
+                    interceptor: pending.interceptor,
                     call,
                     amount,
                     count: pending.count.saturating_add(1),
                 }
             } else {
                 PendingTransfer {
-                    who: who.clone(),
+                    from: from.clone(),
+                    to: recipient.clone(),
+                    interceptor,
                     call,
                     amount,
                     count: 1,
@@ -689,7 +690,7 @@ pub mod pallet {
             let schedule_id = Self::make_schedule_id(&tx_id, new_pending.count)?;
 
             // Add transfer to all storage (handles indexes, account count, etc.)
-            Self::transfer_added(&who, &recipient, tx_id, new_pending)?;
+            Self::transfer_added(&from, &recipient, tx_id, new_pending)?;
 
             let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
@@ -710,14 +711,17 @@ pub mod pallet {
             // Hold the funds for the delay period
             pallet_balances::Pallet::<T>::hold(
                 &HoldReason::ScheduledTransfer.into(),
-                &who,
+                &from,
                 amount,
             )?;
 
             Self::deposit_event(Event::TransactionScheduled {
-                who,
+                from,
+                to: recipient,
+                interceptor,
                 tx_id,
                 execute_at: dispatch_time,
+                amount,
             });
 
             Ok(())
@@ -731,10 +735,10 @@ pub mod pallet {
             amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let ReversibleAccountData { delay, .. } =
-                Self::reversible_accounts(&who).ok_or(Error::<T>::AccountNotReversible)?;
+            let HighSecurityAccountData { delay, interceptor, .. } =
+                Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
 
-            Self::do_schedule_transfer_inner(who, dest, amount, delay)
+            Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay)
         }
 
         /// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
@@ -742,48 +746,35 @@ pub mod pallet {
             // Retrieve owner from storage to verify ownership
             let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
-            let reversible_account_data = ReversibleAccounts::<T>::get(&pending.who);
+            let high_security_account_data = HighSecurityAccounts::<T>::get(&pending.from);
 
-            let maybe_reverser = if let Some(ref data) = reversible_account_data {
-                if let Some(ref explicit_reverser) = data.explicit_reverser {
-                    ensure!(who == explicit_reverser, Error::<T>::InvalidReverser);
-                    Some(explicit_reverser.clone())
-                } else {
-                    ensure!(&pending.who == who, Error::<T>::NotOwner);
-                    None
-                }
+            // if high-security account, interceptor is third party, else it is owner
+            let interceptor = if let Some(ref data) = high_security_account_data {
+                ensure!(who == &data.interceptor, Error::<T>::InvalidReverser);
+                data.interceptor.clone()
             } else {
-                ensure!(&pending.who == who, Error::<T>::NotOwner);
-                None
+                ensure!(who == &pending.from, Error::<T>::NotOwner);
+                pending.from.clone()
             };
 
             // Remove transfer from all storage (handles indexes, account count, etc.)
-            Self::transfer_removed(&pending.who, tx_id, &pending);
+            Self::transfer_removed(&pending.from, tx_id, &pending);
 
             let schedule_id = Self::make_schedule_id(&tx_id, pending.count)?;
 
             // Cancel the scheduled task
             T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-            if let Some(reverser) = maybe_reverser {
-                pallet_balances::Pallet::<T>::transfer_on_hold(
-                    &HoldReason::ScheduledTransfer.into(),
-                    &pending.who,
-                    &reverser,
-                    pending.amount,
-                    Precision::Exact,
-                    Restriction::Free,
-                    Fortitude::Polite,
-                )?;
-            } else {
-                // Release the funds
-                pallet_balances::Pallet::<T>::release(
-                    &HoldReason::ScheduledTransfer.into(),
-                    &pending.who,
-                    pending.amount,
-                    Precision::Exact,
-                )?;
-            }
+            pallet_balances::Pallet::<T>::transfer_on_hold(
+                &HoldReason::ScheduledTransfer.into(),
+                &pending.from,
+                &interceptor,
+                pending.amount,
+                Precision::Exact,
+                Restriction::Free,
+                Fortitude::Polite,
+            )?;
+
             Self::deposit_event(Event::TransactionCancelled {
                 who: who.clone(),
                 tx_id,
@@ -797,23 +788,23 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         /// Configure initial reversible accounts. [AccountId, Delay]
         /// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block numbers
-        pub initial_reversible_accounts: Vec<(T::AccountId, BlockNumberFor<T>)>,
+        pub initial_high_security_accounts: Vec<(T::AccountId, T::AccountId, T::AccountId, BlockNumberFor<T>)>,
     }
 
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            for (who, delay) in &self.initial_reversible_accounts {
+            for (who, interceptor, recoverer, delay) in &self.initial_high_security_accounts {
                 // Basic validation, ensure delay is reasonable if needed
                 let wrapped_delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
 
                 if delay >= &T::MinDelayPeriodBlocks::get() {
-                    ReversibleAccounts::<T>::insert(
+                    HighSecurityAccounts::<T>::insert(
                         who,
-                        ReversibleAccountData {
-                            explicit_reverser: None,
-                            delay: wrapped_delay,
-                            policy: DelayPolicy::Explicit,
+                        HighSecurityAccountData {
+                            interceptor,
+                            recoverer,
+                            delay: wrapped_delay
                         },
                     );
                 } else {

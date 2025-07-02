@@ -77,7 +77,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
             )
         })?;
 
-        if let Some(data) = ReversibleTransfers::is_reversible(&who) {
+        if let Some(data) = ReversibleTransfers::is_high_security(&who) {
             match data.policy {
                 // If explicit, do not allow Transfer calls
                 DelayPolicy::Explicit => {
@@ -252,7 +252,7 @@ mod tests {
             assert_eq!(PendingTransfers::<Runtime>::iter().count(), 0);
 
             // Charlie opts in for intercept
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(charlie()),
                 None,
                 DelayPolicy::Intercept,

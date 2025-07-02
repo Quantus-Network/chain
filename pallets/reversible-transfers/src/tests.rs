@@ -45,7 +45,7 @@ fn set_reversibility_works() {
 
         // Check initial state
         assert_eq!(
-            ReversibleTransfers::is_reversible(&genesis_user),
+            ReversibleTransfers::is_high_security(&genesis_user),
             Some(ReversibleAccountData {
                 delay: DefaultDelay::get(),
                 policy: DelayPolicy::Explicit,
@@ -56,14 +56,14 @@ fn set_reversibility_works() {
         // Set the delay
         let another_user = 3;
         let delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(5);
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(another_user),
             Some(delay),
             DelayPolicy::Intercept,
             None,
         ));
         assert_eq!(
-            ReversibleTransfers::is_reversible(&another_user),
+            ReversibleTransfers::is_high_security(&another_user),
             Some(ReversibleAccountData {
                 delay,
                 policy: DelayPolicy::Intercept,
@@ -84,25 +84,25 @@ fn set_reversibility_works() {
 
         // Calling this again should err
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(another_user),
                 Some(delay),
                 DelayPolicy::Intercept,
                 None,
             ),
-            Error::<Test>::AccountAlreadyReversible
+            Error::<Test>::AccountAlreadyHighSecurity
         );
 
         // Use default delay
         let default_user = 5;
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(default_user),
             None,
             DelayPolicy::Explicit,
             None,
         ));
         assert_eq!(
-            ReversibleTransfers::is_reversible(&default_user),
+            ReversibleTransfers::is_high_security(&default_user),
             Some(ReversibleAccountData {
                 delay: DefaultDelay::get(),
                 policy: DelayPolicy::Explicit,
@@ -126,7 +126,7 @@ fn set_reversibility_works() {
 
         let new_user = 4;
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(new_user),
                 Some(short_delay),
                 DelayPolicy::Explicit,
@@ -137,28 +137,28 @@ fn set_reversibility_works() {
 
         // Explicit reverse can not be self
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(new_user),
                 Some(delay),
                 DelayPolicy::Explicit,
                 Some(new_user),
             ),
-            Error::<Test>::ExplicitReverserCanNotBeSelf
+            Error::<Test>::InterceptorCannotBeSelf
         );
 
-        assert_eq!(ReversibleTransfers::is_reversible(&new_user), None);
+        assert_eq!(ReversibleTransfers::is_high_security(&new_user), None);
 
         // Use explicit reverser
         let reversible_account = 6;
         let explicit_reverser = 7;
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(delay),
             DelayPolicy::Explicit,
             Some(explicit_reverser),
         ));
         assert_eq!(
-            ReversibleTransfers::is_reversible(&reversible_account),
+            ReversibleTransfers::is_high_security(&reversible_account),
             Some(ReversibleAccountData {
                 delay,
                 policy: DelayPolicy::Explicit,
@@ -180,14 +180,14 @@ fn set_reversibility_with_timestamp_delay_works() {
         // A delay of 5 * TimestampBucketSize = 5000.
         let delay = BlockNumberOrTimestamp::Timestamp(5 * TimestampBucketSize::get());
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(user),
             Some(delay),
             DelayPolicy::Intercept,
             None,
         ));
         assert_eq!(
-            ReversibleTransfers::is_reversible(&user),
+            ReversibleTransfers::is_high_security(&user),
             Some(ReversibleAccountData {
                 delay,
                 policy: DelayPolicy::Intercept,
@@ -214,7 +214,7 @@ fn set_reversibility_with_timestamp_delay_works() {
         let another_user = 5;
 
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(another_user),
                 Some(short_delay_ts),
                 DelayPolicy::Explicit,
@@ -232,7 +232,7 @@ fn set_reversibility_fails_delay_too_short() {
         let short_delay = BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get() - 1);
 
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(user),
                 Some(short_delay),
                 DelayPolicy::Explicit,
@@ -240,7 +240,7 @@ fn set_reversibility_fails_delay_too_short() {
             ),
             Error::<Test>::DelayTooShort
         );
-        assert_eq!(ReversibleTransfers::is_reversible(&user), None);
+        assert_eq!(ReversibleTransfers::is_high_security(&user), None);
     });
 }
 
@@ -258,7 +258,7 @@ fn schedule_transfer_works() {
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData {
             delay: user_delay, ..
-        } = ReversibleTransfers::is_reversible(&user).unwrap();
+        } = ReversibleTransfers::is_high_security(&user).unwrap();
         let expected_block = System::block_number() + user_delay.as_block_number().unwrap();
         let bounded = Preimage::bound(call.clone()).unwrap();
         let expected_block = BlockNumberOrTimestamp::BlockNumber(expected_block);
@@ -301,7 +301,7 @@ fn schedule_transfer_works() {
         let explicit_reverser = user;
 
         // Set reversibility
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(BlockNumberOrTimestamp::BlockNumber(10)),
             DelayPolicy::Explicit,
@@ -381,7 +381,7 @@ fn schedule_transfer_with_timestamp_works() {
         let tx_id = calculate_tx_id(user, &call);
 
         // Set reversibility
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(user),
             Some(BlockNumberOrTimestamp::Timestamp(10_000)),
             DelayPolicy::Explicit,
@@ -392,7 +392,7 @@ fn schedule_transfer_with_timestamp_works() {
         let current_time = MockTimestamp::<Test>::now();
         let ReversibleAccountData {
             delay: user_delay, ..
-        } = ReversibleTransfers::is_reversible(&user).unwrap();
+        } = ReversibleTransfers::is_high_security(&user).unwrap();
         let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size
             + user_delay.as_timestamp().unwrap();
 
@@ -439,7 +439,7 @@ fn schedule_transfer_with_timestamp_works() {
         let explicit_reverser = 1;
 
         // Set reversibility
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(BlockNumberOrTimestamp::BlockNumber(10)),
             DelayPolicy::Explicit,
@@ -512,7 +512,7 @@ fn schedule_transfer_fails_not_reversible() {
 
         assert_err!(
             ReversibleTransfers::schedule_transfer(RuntimeOrigin::signed(user), 3, 50),
-            Error::<Test>::AccountNotReversible
+            Error::<Test>::AccountNotHighSecurity
         );
     });
 }
@@ -598,7 +598,7 @@ fn cancel_dispatch_works() {
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData {
             delay: user_delay, ..
-        } = ReversibleTransfers::is_reversible(&user).unwrap();
+        } = ReversibleTransfers::is_high_security(&user).unwrap();
         let execute_block = BlockNumberOrTimestamp::BlockNumber(
             System::block_number() + user_delay.as_block_number().unwrap(),
         );
@@ -683,7 +683,7 @@ fn execute_transfer_works() {
         let call = transfer_call(dest, amount);
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData { delay, .. } =
-            ReversibleTransfers::is_reversible(&user).unwrap();
+            ReversibleTransfers::is_high_security(&user).unwrap();
         let execute_block = BlockNumberOrTimestampOf::<Test>::BlockNumber(
             System::block_number() + delay.as_block_number().unwrap(),
         );
@@ -730,7 +730,7 @@ fn schedule_transfer_with_timestamp_delay_executes() {
         let user_delay_duration = 5 * bucket_size; // e.g., 5000ms if bucket is 1000ms
         let user_timestamp_delay = BlockNumberOrTimestamp::Timestamp(user_delay_duration);
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(user),
             Some(user_timestamp_delay),
             DelayPolicy::Explicit,
@@ -816,7 +816,7 @@ fn full_flow_execute_works() {
         let call = transfer_call(dest, amount);
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData { delay, .. } =
-            ReversibleTransfers::is_reversible(&user).unwrap();
+            ReversibleTransfers::is_high_security(&user).unwrap();
         let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
         let execute_block = start_block.saturating_add(&delay).unwrap();
 
@@ -866,7 +866,7 @@ fn full_flow_execute_with_timestamp_delay_works() {
         let user_delay_duration = 10 * TimestampBucketSize::get(); // e.g. 10s
         let user_timestamp_delay = BlockNumberOrTimestamp::Timestamp(user_delay_duration);
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(user),
             Some(user_timestamp_delay),
             DelayPolicy::Explicit,
@@ -926,7 +926,7 @@ fn full_flow_cancel_prevents_execution() {
         let call = transfer_call(dest, amount);
         let tx_id = calculate_tx_id(user, &call);
         let ReversibleAccountData { delay, .. } =
-            ReversibleTransfers::is_reversible(&user).unwrap();
+            ReversibleTransfers::is_high_security(&user).unwrap();
         let start_block = System::block_number();
         let execute_block = BlockNumberOrTimestampOf::<Test>::BlockNumber(
             start_block + delay.as_block_number().unwrap(),
@@ -997,7 +997,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 
         let user_delay_duration = 10 * TimestampBucketSize::get();
         let user_timestamp_delay = BlockNumberOrTimestamp::Timestamp(user_delay_duration);
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(user),
             Some(user_timestamp_delay),
             DelayPolicy::Explicit,
@@ -1085,7 +1085,7 @@ fn freeze_amount_is_consistent_with_multiple_transfers() {
         let amount3 = 300;
 
         let ReversibleAccountData { delay, .. } =
-            ReversibleTransfers::is_reversible(&user).unwrap();
+            ReversibleTransfers::is_high_security(&user).unwrap();
         let delay_blocks = delay.as_block_number().unwrap();
         let execute_block1 =
             BlockNumberOrTimestampOf::<Test>::BlockNumber(System::block_number() + delay_blocks);
@@ -1210,7 +1210,7 @@ fn schedule_transfer_with_delay_works() {
         let custom_delay = BlockNumberOrTimestamp::BlockNumber(10); // A custom delay
 
         // Ensure the sender is not reversible initially
-        assert_eq!(ReversibleTransfers::is_reversible(&sender), None);
+        assert_eq!(ReversibleTransfers::is_high_security(&sender), None);
 
         // --- Test Happy Path ---
         assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
@@ -1784,7 +1784,7 @@ fn interceptor_index_works_with_explicit_reverser() {
         );
 
         // Set up reversibility with explicit reverser
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(delay),
             DelayPolicy::Explicit,
@@ -1798,7 +1798,7 @@ fn interceptor_index_works_with_explicit_reverser() {
 
         // Verify account has correct reversibility data
         assert_eq!(
-            ReversibleTransfers::is_reversible(&reversible_account),
+            ReversibleTransfers::is_high_security(&reversible_account),
             Some(ReversibleAccountData {
                 delay,
                 policy: DelayPolicy::Explicit,
@@ -1818,21 +1818,21 @@ fn interceptor_index_handles_multiple_accounts() {
         let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
         // Set up multiple accounts with same interceptor
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(account1),
             Some(delay),
             DelayPolicy::Explicit,
             Some(interceptor),
         ));
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(account2),
             Some(delay),
             DelayPolicy::Explicit,
             Some(interceptor),
         ));
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(account3),
             Some(delay),
             DelayPolicy::Explicit,
@@ -1856,7 +1856,7 @@ fn interceptor_index_prevents_duplicates() {
         let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
         // Set up reversibility with explicit reverser
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(delay),
             DelayPolicy::Explicit,
@@ -1870,13 +1870,13 @@ fn interceptor_index_prevents_duplicates() {
 
         // Try to add the same account again (this should fail due to AccountAlreadyReversible)
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(reversible_account),
                 Some(delay),
                 DelayPolicy::Explicit,
                 Some(interceptor),
             ),
-            Error::<Test>::AccountAlreadyReversible
+            Error::<Test>::AccountAlreadyHighSecurity
         );
 
         // Verify no duplicates in interceptor index
@@ -1893,7 +1893,7 @@ fn interceptor_index_respects_max_limit() {
 
         // Add accounts up to the limit (MaxInterceptorAccounts = 10 in mock)
         for i in 101..=110 {
-            assert_ok!(ReversibleTransfers::set_reversibility(
+            assert_ok!(ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(i),
                 Some(delay),
                 DelayPolicy::Explicit,
@@ -1907,7 +1907,7 @@ fn interceptor_index_respects_max_limit() {
 
         // Try to add one more account - should fail
         assert_err!(
-            ReversibleTransfers::set_reversibility(
+            ReversibleTransfers::set_high_security(
                 RuntimeOrigin::signed(111),
                 Some(delay),
                 DelayPolicy::Explicit,
@@ -1930,7 +1930,7 @@ fn interceptor_index_empty_for_non_interceptors() {
         let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
         // Set up account without explicit reverser
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(delay),
             DelayPolicy::Explicit,
@@ -1959,14 +1959,14 @@ fn interceptor_index_different_interceptors_separate_lists() {
         let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
         // Set up accounts with different interceptors
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(account1),
             Some(delay),
             DelayPolicy::Explicit,
             Some(interceptor1),
         ));
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(account2),
             Some(delay),
             DelayPolicy::Explicit,
@@ -1992,7 +1992,7 @@ fn interceptor_index_works_with_intercept_policy() {
         let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
         // Set up reversibility with Intercept policy and explicit reverser
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
             Some(delay),
             DelayPolicy::Intercept,
@@ -2006,7 +2006,7 @@ fn interceptor_index_works_with_intercept_policy() {
 
         // Verify account has correct policy
         assert_eq!(
-            ReversibleTransfers::is_reversible(&reversible_account),
+            ReversibleTransfers::is_high_security(&reversible_account),
             Some(ReversibleAccountData {
                 delay,
                 policy: DelayPolicy::Intercept,
