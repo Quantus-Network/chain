@@ -151,7 +151,7 @@ impl pallet_qpow::Config for Runtime {
     type AdjustmentPeriod = ConstU32<1>;
     type BlockTimeHistorySize = ConstU32<10>;
     type MaxReorgDepth = ConstU32<10>;
-    type FixedU128Scale = ConstU128<1_000_000_000_000>;
+    type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
     type MaxDistanceMultiplier = ConstU32<2>;
 }
 
