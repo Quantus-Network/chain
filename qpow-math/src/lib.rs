@@ -14,7 +14,7 @@ pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> boo
     }
 
     let distance = get_nonce_distance(header, nonce);
-    log::debug!("difficulty = {}, threshold = {}", distance, threshold);
+    log::debug!(target: "math", "difficulty = {}..., threshold = {}...", distance, threshold);
     distance <= threshold
 }
 
