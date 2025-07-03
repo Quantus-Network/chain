@@ -8107,7 +8107,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.0.8"
+version = "0.0.9-qpow-params-fix"
 dependencies = [
  "async-trait",
  "clap",
@@ -8166,7 +8166,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.0.7-test-genesis"
+version = "0.0.9-qpow-params-fix"
 dependencies = [
  "dilithium-crypto",
  "env_logger 0.11.8",
