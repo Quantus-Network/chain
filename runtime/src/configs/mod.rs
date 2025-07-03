@@ -78,7 +78,6 @@ parameter_types! {
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
     pub const MaxProofs: u32 = 100;
     pub const UnsignedClaimPriority: u32 = 100;
-    pub MiningRewardsFeesToTreasury: Permill = Permill::from_percent(10);
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -133,7 +132,6 @@ impl pallet_mining_rewards::Config for Runtime {
     type MinerBlockReward = ConstU128<10_000_000_000_000>; // 10 tokens
     type TreasuryBlockReward = ConstU128<1_000_000_000_000>; // 1 token
     type TreasuryPalletId = TreasuryPalletId;
-    type FeesToTreasuryPermill = MiningRewardsFeesToTreasury;
     type MintingAccount = MintingAccount;
 }
 

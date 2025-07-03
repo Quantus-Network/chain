@@ -25,7 +25,6 @@ pub mod pallet {
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
     use sp_runtime::traits::{AccountIdConversion, Saturating};
-    use sp_runtime::Permill;
 
     type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
@@ -61,10 +60,6 @@ pub mod pallet {
         /// The treasury pallet ID
         #[pallet::constant]
         type TreasuryPalletId: Get<frame_support::PalletId>;
-
-        /// The percentage of transaction fees that should go to the Treasury.
-        #[pallet::constant]
-        type FeesToTreasuryPermill: Get<Permill>;
 
         /// Account ID used as the "from" account when creating transfer proofs for minted tokens
         #[pallet::constant]
@@ -114,7 +109,6 @@ pub mod pallet {
             let tx_fees = <CollectedFees<T>>::take();
 
             // Extract miner ID from the pre-runtime digest
-            // TODO: require miner use wormhole here? we can just hash the "miner address" with poseidon
             let miner = Self::extract_miner_from_digest();
 
             log::debug!(target: "mining-rewards", "💰 Base reward: {:?}", miner_reward);
