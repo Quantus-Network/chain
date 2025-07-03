@@ -1008,7 +1008,7 @@ impl<T: Config> Pallet<T> {
             incomplete
         } else {
             // on the very first processing cycle just set this to current time
-            LastProcessedTimestamp::<T>::get().unwrap_or(current_time)
+            LastProcessedTimestamp::<T>::get().unwrap_or(normalized_time)
         };
         log::debug!(target: "scheduler", "service_timestamp_agendas: start_time: {:?}", start_time);
 

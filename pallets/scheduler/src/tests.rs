@@ -2122,8 +2122,7 @@ fn scheduler_respects_priority_ordering_with_soft_deadlines() {
 fn on_initialize_weight_is_correct() {
     new_test_ext().execute_with(|| {
         MockTimestamp::set_timestamp(10000);
-        // run_to_block(1);
-        
+
         let call_weight = Weight::from_parts(25, 0);
 
         // Named
@@ -2186,7 +2185,7 @@ fn on_initialize_weight_is_correct() {
                 + TestWeightInfo::execute_dispatch_unsigned()
                 + call_weight
                 + Weight::from_parts(4, 0)
-                + Weight::from_parts(4, 0) // add for time based
+                + Weight::from_parts(2, 0) // add for time based
         );
         assert_eq!(IncompleteBlockSince::<Test>::get(), None);
         assert_eq!(logger::log(), vec![(root(), 2600u32)]);
@@ -2547,9 +2546,11 @@ fn cancel_removes_retry_entry() {
 
         // even though 42 is being retried, the tasks scheduled for retries are not named
         assert_eq!(Lookup::<Test>::iter().count(), 0);
-        assert!(
-            Scheduler::cancel(root().into(), BlockNumberOrTimestamp::BlockNumber(6), 0).is_ok()
-        );
+        assert_ok!(Scheduler::cancel(
+            root().into(),
+            BlockNumberOrTimestamp::BlockNumber(6),
+            0
+        ));
 
         // 20 is removed, 42 still fails
         run_to_block(6);
@@ -2566,9 +2567,11 @@ fn cancel_removes_retry_entry() {
         assert_eq!(Retries::<Test>::iter().count(), 1);
         assert!(logger::log().is_empty());
 
-        assert!(
-            Scheduler::cancel(root().into(), BlockNumberOrTimestamp::BlockNumber(7), 0).is_ok()
-        );
+        assert_ok!(Scheduler::cancel(
+            root().into(),
+            BlockNumberOrTimestamp::BlockNumber(7),
+            0
+        ));
 
         // both tasks are canceled, everything is removed now
         run_to_block(7);
@@ -4119,6 +4122,39 @@ fn last_processed_timestamp_updates_on_each_block() {
             LastProcessedTimestamp::<Test>::get(),
             Some(110000),
             "Should not change if timestamp does not change"
+        );
+    });
+}
+
+#[test]
+fn last_processed_timestamp_initialization_and_update_works() {
+    new_test_ext().execute_with(|| {
+        // Timestamp is 0, so service_timestamp_agendas should not run.
+        run_to_block(1);
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            None,
+            "Should not be initialized at timestamp 0"
+        );
+
+        // Run a subsequent block with a realistic timestamp
+        MockTimestamp::set_timestamp(123_000);
+        run_to_block(2);
+        let normalized_time = 130_000; // 123_000 rounded down to bucket size of 10_000
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(normalized_time),
+            "Should be initialized to the current normalized time on first run"
+        );
+
+        // Run another block, it should advance the timestamp
+        MockTimestamp::set_timestamp(135_000);
+        run_to_block(3);
+        let normalized_time_2 = 140_000;
+        assert_eq!(
+            LastProcessedTimestamp::<Test>::get(),
+            Some(normalized_time_2),
+            "Should advance to the new normalized time"
         );
     });
 }
