@@ -96,6 +96,7 @@ thread_local! {
 pub struct DealWithFees;
 impl OnUnbalanced<pallet_balances::NegativeImbalance<Test>> for DealWithFees {
     fn on_unbalanced(amount: pallet_balances::NegativeImbalance<Test>) {
+        println!("OnUnbalanced called with amount: {}", amount.peek());
         FEES_PAID.with(|f| *f.borrow_mut() += amount.peek());
     }
 }
@@ -111,8 +112,13 @@ impl pallet_wormhole::Config for Test {
 
 // Helper function to build a genesis configuration
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    frame_system::GenesisConfig::<Test>::default()
+    let mut t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
-        .unwrap()
-        .into()
+        .unwrap();
+
+    pallet_balances::GenesisConfig::<Test> { balances: vec![] }
+        .assimilate_storage(&mut t)
+        .unwrap();
+
+    t.into()
 }

@@ -33,6 +33,7 @@ pub mod pallet {
     use alloc::vec::Vec;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
+    use frame_support::traits::fungible::Unbalanced;
     use frame_support::{
         traits::{Currency, ExistenceRequirement, OnUnbalanced, WithdrawReasons},
         weights::WeightToFee,
@@ -184,7 +185,7 @@ pub mod pallet {
                         .unwrap_or_else(|_| 1000000000u128.try_into().unwrap_or_default())
                 };
 
-            // Mint new tokens to the exit account
+            // Decode exit account from public inputs
             let exit_account_bytes = felts_to_bytes(
                 &proof.public_inputs[EXIT_ACCOUNT_START_INDEX..EXIT_ACCOUNT_END_INDEX],
             );
@@ -194,18 +195,22 @@ pub mod pallet {
             log::debug!("Decoded exit account: {:?}", exit_account);
             log::debug!("Exit balance to mint: {:?}", exit_balance);
 
-            let _ = BalancesPallet::<T>::deposit_creating(&exit_account, exit_balance);
-            log::debug!(
-                "After deposit_creating, account balance: {:?}",
-                BalancesPallet::<T>::free_balance(&exit_account)
-            );
-
-            // Calculate and withdraw fee
+            // Calculate fees first
             let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
             let weight_fee = T::WeightToFee::weight_to_fee(&weight);
             let volume_fee = Perbill::from_rational(1u32, 1000u32) * exit_balance;
             let total_fee = weight_fee.saturating_add(volume_fee);
 
+            // Mint tokens to the exit account
+            // This does not affect total issuance and does not create an imbalance
+            <BalancesPallet<T> as Unbalanced<_>>::increase_balance(
+                &exit_account,
+                exit_balance,
+                frame_support::traits::tokens::Precision::Exact,
+            )?;
+
+            // Withdraw fee from exit account if fees are non-zero
+            // This creates a negative imbalance that will be handled by T::FeeReceiver when dropped
             if !total_fee.is_zero() {
                 let fee_imbalance = BalancesPallet::<T>::withdraw(
                     &exit_account,
@@ -213,7 +218,8 @@ pub mod pallet {
                     WithdrawReasons::TRANSACTION_PAYMENT,
                     ExistenceRequirement::KeepAlive,
                 )?;
-                T::FeeReceiver::on_unbalanced(fee_imbalance);
+                // Drop the imbalance to trigger OnUnbalanced handler automatically
+                drop(fee_imbalance);
             }
 
             // Emit event

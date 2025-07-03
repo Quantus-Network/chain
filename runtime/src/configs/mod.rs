@@ -155,10 +155,6 @@ impl pallet_qpow::Config for Runtime {
     type MaxDistanceMultiplier = ConstU32<2>;
 }
 
-parameter_types! {
-     pub const WormholeMintingAccount: AccountId = AccountId::new([1u8; 32]);
-}
-
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
