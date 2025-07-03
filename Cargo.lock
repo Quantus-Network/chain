@@ -8163,6 +8163,7 @@ dependencies = [
  "substrate-frame-rpc-system",
  "tempfile",
  "uuid",
+ "wormhole-verifier",
 ]
 
 [[package]]

@@ -1,12 +1,28 @@
 #[cfg(test)]
 mod wormhole_tests {
-    use crate::{mock::*, Error};
+    use crate::{get_wormhole_verifier, mock::*, Error};
     use frame_support::{assert_noop, assert_ok};
 
     // Helper function to generate proof and inputs for a given n
     fn get_test_proof() -> Vec<u8> {
         let hex_proof = include_str!("../proof_from_bins.hex");
         hex::decode(hex_proof.trim()).expect("Failed to decode hex proof")
+    }
+
+    #[test]
+    fn test_verifier_availability() {
+        new_test_ext().execute_with(|| {
+            let verifier = get_wormhole_verifier();
+            assert!(verifier.is_ok(), "Verifier should be available in tests");
+
+            // Verify the verifier can be used
+            let verifier = verifier.unwrap();
+            // Check that the circuit data is valid by checking gates
+            assert!(
+                !verifier.circuit_data.common.gates.is_empty(),
+                "Circuit should have gates"
+            );
+        });
     }
 
     #[test]

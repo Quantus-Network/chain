@@ -17,14 +17,19 @@ pub type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
-// Define the verifier as a lazy static constant
 lazy_static! {
-    static ref WORMHOLE_VERIFIER: WormholeVerifier = {
+    static ref WORMHOLE_VERIFIER: Option<WormholeVerifier> = {
         let verifier_bytes = include_bytes!("../verifier.bin");
         let common_bytes = include_bytes!("../common.bin");
-        WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes)
-            .expect("Failed to create verifier from compile-time data")
+        WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
     };
+}
+
+// Add a safe getter function
+pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+    WORMHOLE_VERIFIER
+        .as_ref()
+        .ok_or("Wormhole verifier not available")
 }
 
 #[frame_support::pallet]
@@ -106,6 +111,7 @@ pub mod pallet {
         VerificationFailed,
         InvalidPublicInputs,
         NullifierAlreadyUsed,
+        VerifierNotAvailable,
     }
 
     #[pallet::call]
@@ -115,7 +121,12 @@ pub mod pallet {
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
 
-            let verifier = &*super::WORMHOLE_VERIFIER;
+            let verifier = crate::get_wormhole_verifier().map_err(|_| {
+                log::error!(
+                    "Wormhole verifier not available - this should not happen in production"
+                );
+                Error::<T>::VerifierNotAvailable
+            })?;
 
             let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
                 proof_bytes,

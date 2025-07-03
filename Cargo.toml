@@ -81,16 +81,13 @@ plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
 rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
-# wormhole-circuit = { path = "../wormhole-circuit/wormhole/circuit", default-features = false, features = [
 wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false, features = [
 	"no_std",
 ] }
-# wormhole-verifier = { path = "../wormhole-circuit/wormhole/verifier", default-features = false, features = [
 wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-verifier", default-features = false, features = [
 	"no_random",
 	"no_std",
 ] }
-# zk-circuits-common = { path = "../wormhole-circuit/common", default-features = false, features = [
 zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", package = "zk-circuits-common", default-features = false, features = [
 	"no_random",
 	"no_std",
