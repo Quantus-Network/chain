@@ -44,11 +44,9 @@ pub mod pallet {
         traits::{Saturating, Zero},
         Perbill,
     };
+    use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
     use wormhole_verifier::ProofWithPublicInputs;
-    use zk_circuits_common::{
-        circuit::{C, D, F},
-        utils::{felts_to_bytes, felts_to_u128},
-    };
+    use zk_circuits_common::circuit::{C, D, F};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -128,31 +126,18 @@ pub mod pallet {
                 Error::<T>::ProofDeserializationFailed
             })?;
 
-            // Public inputs are ordered as follows:
-            // Nullifier.hash: 4 felts
-            // StorageProof.funding_amount: 2 felts
-            // StorageProof.root_hash: 4 felts
-            // ExitAccount.address: 4 felts
-            //
-            // TODO: These constants should be exposed from the common crate.
-            const PUBLIC_INPUTS_FELTS_LEN: usize = 14;
-            const NULLIFIER_START_INDEX: usize = 0;
-            const NULLIFIER_END_INDEX: usize = 4;
-            const FUNDING_AMOUNT_START_INDEX: usize = 4;
-            const FUNDING_AMOUNT_END_INDEX: usize = 6;
-            const EXIT_ACCOUNT_START_INDEX: usize = 10;
-            const EXIT_ACCOUNT_END_INDEX: usize = 14;
-
             ensure!(
                 proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
                 Error::<T>::InvalidPublicInputs
             );
 
-            let nullifier_bytes_vec =
-                felts_to_bytes(&proof.public_inputs[NULLIFIER_START_INDEX..NULLIFIER_END_INDEX]);
-            let nullifier_bytes: [u8; 32] = nullifier_bytes_vec
-                .try_into()
-                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
+            // Parse public inputs using the existing parser
+            let public_inputs = PublicCircuitInputs::try_from(proof.clone()).map_err(|e| {
+                log::error!("Failed to parse public inputs: {:?}", e);
+                Error::<T>::InvalidPublicInputs
+            })?;
+
+            let nullifier_bytes = *public_inputs.nullifier;
 
             // Verify nullifier hasn't been used
             ensure!(
@@ -167,12 +152,7 @@ pub mod pallet {
             // Mark nullifier as used
             UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
-            let exit_balance_u128 = felts_to_u128(
-                <[F; 2]>::try_from(
-                    &proof.public_inputs[FUNDING_AMOUNT_START_INDEX..FUNDING_AMOUNT_END_INDEX],
-                )
-                .map_err(|_| Error::<T>::InvalidPublicInputs)?,
-            );
+            let exit_balance_u128 = public_inputs.funding_amount;
 
             // Check for overflow before converting to Balance type
             let exit_balance: <T as BalancesConfig>::Balance =
@@ -186,9 +166,7 @@ pub mod pallet {
                 };
 
             // Decode exit account from public inputs
-            let exit_account_bytes = felts_to_bytes(
-                &proof.public_inputs[EXIT_ACCOUNT_START_INDEX..EXIT_ACCOUNT_END_INDEX],
-            );
+            let exit_account_bytes = *public_inputs.exit_account;
             log::debug!("Exit account bytes: {:?}", exit_account_bytes);
             let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
