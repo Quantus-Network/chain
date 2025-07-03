@@ -2121,6 +2121,9 @@ fn scheduler_respects_priority_ordering_with_soft_deadlines() {
 #[test]
 fn on_initialize_weight_is_correct() {
     new_test_ext().execute_with(|| {
+        MockTimestamp::set_timestamp(10000);
+        // run_to_block(1);
+        
         let call_weight = Weight::from_parts(25, 0);
 
         // Named
@@ -3597,8 +3600,8 @@ fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
         ));
 
         // First block is at 0ms.
-        MockTimestamp::set_timestamp(0);
-        run_to_block(1); // This will trigger on_initialize which processes timestamp agendas
+        MockTimestamp::set_timestamp(1000);
+        run_to_block(2); // This will trigger on_initialize which processes timestamp agendas
 
         // Assert nothing is logged yet.
         assert_eq!(logger::log(), vec![]);
@@ -3607,7 +3610,7 @@ fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
         let future_time_ms = 50_000;
         MockTimestamp::set_timestamp(future_time_ms);
         // Process the block at the future time.
-        run_to_block(2); // This will trigger on_initialize which processes timestamp agendas
+        run_to_block(3); // This will trigger on_initialize which processes timestamp agendas
 
         // With our fix, bucket skipping is prevented and the task SHOULD execute
         assert_eq!(logger::log().len(), 1);
@@ -3617,7 +3620,7 @@ fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
         let future_time_ms = 80_000;
         MockTimestamp::set_timestamp(future_time_ms);
         // Process the block at the future time.
-        run_to_block(3); // This will trigger on_initialize which processes timestamp agendas
+        run_to_block(4); // This will trigger on_initialize which processes timestamp agendas
 
         // With our fix, bucket skipping is prevented and the task SHOULD execute
         assert_eq!(logger::log().len(), 1);
@@ -3626,7 +3629,7 @@ fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
         let future_time_ms = 300_000;
         MockTimestamp::set_timestamp(future_time_ms);
         // Process the block at the future time.
-        run_to_block(4); // This will trigger on_initialize which processes timestamp agendas
+        run_to_block(5); // This will trigger on_initialize which processes timestamp agendas
 
         // With our fix, bucket skipping is prevented and the task SHOULD execute
         assert_eq!(logger::log().len(), 2);
@@ -3639,7 +3642,8 @@ fn timestamp_scheduler_respects_weight_limits() {
     let max_weight: Weight = <Test as Config>::MaximumWeight::get();
     new_test_ext().execute_with(|| {
         // Start at timestamp 0
-        MockTimestamp::set_timestamp(0);
+        MockTimestamp::set_timestamp(1);
+        run_to_block(1);
 
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3667,7 +3671,7 @@ fn timestamp_scheduler_respects_weight_limits() {
 
         // Jump to timestamp 25000 (bucket 30000) - this should process bucket 20000
         MockTimestamp::set_timestamp(25000);
-        run_to_block(1);
+        run_to_block(2);
 
         // 69 and 42 do not fit together, so only one should execute
         assert_eq!(logger::log(), vec![(root(), 42u32)]);
@@ -3676,7 +3680,7 @@ fn timestamp_scheduler_respects_weight_limits() {
         assert_eq!(IncompleteTimestampSince::<Test>::get(), Some(20000));
 
         // Next block should process the remaining task from bucket 20000
-        run_to_block(2);
+        run_to_block(3);
         assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 69u32)]);
 
         // After complete processing, IncompleteTimestampSince should be cleared
@@ -3689,7 +3693,8 @@ fn timestamp_scheduler_does_not_delete_permanently_overweight_call() {
     let max_weight: Weight = <Test as Config>::MaximumWeight::get();
     new_test_ext().execute_with(|| {
         // Start at timestamp 0
-        MockTimestamp::set_timestamp(0);
+        MockTimestamp::set_timestamp(1);
+        run_to_block(1);
 
         let call = RuntimeCall::Logger(LoggerCall::log {
             i: 42,
@@ -3729,7 +3734,8 @@ fn timestamp_on_initialize_weight_is_correct() {
 
         // === TASK DEFINITIONS ===
         // All tasks scheduled at timestamp 0
-        MockTimestamp::set_timestamp(0);
+        MockTimestamp::set_timestamp(100);
+        run_to_block(1);
 
         // Task A: i=2600, scheduled for bucket 10000 (timestamp 5000 -> bucket 10000)
         let call_a = RuntimeCall::Logger(LoggerCall::log {
@@ -3877,7 +3883,8 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
     new_test_ext().execute_with(|| {
         // === TASK DEFINITIONS ===
         // Start at timestamp 0
-        MockTimestamp::set_timestamp(0);
+        MockTimestamp::set_timestamp(1);
+        run_to_block(1);
 
         println!("=== SETUP ===");
         println!("Max weight: {:?}", max_weight);
@@ -4054,17 +4061,19 @@ fn last_processed_timestamp_updates_on_each_block() {
             None,
             "Should be None initially"
         );
-        run_to_block(1);
+        MockTimestamp::set_timestamp(10000);
+        run_to_block(2);
+
         // `on_initialize` runs. Current timestamp is 0, so it processes up to bucket 10000.
         assert_eq!(
             LastProcessedTimestamp::<Test>::get(),
-            Some(10000),
+            Some(20000),
             "Should be initialized to the first bucket"
         );
 
         // Block 2: Advance time into the next bucket
         MockTimestamp::set_timestamp(12000);
-        run_to_block(2);
+        run_to_block(3);
         // Current timestamp 12000 is in bucket 20000. `on_initialize` processes up to 20000.
         assert_eq!(
             LastProcessedTimestamp::<Test>::get(),
@@ -4074,7 +4083,7 @@ fn last_processed_timestamp_updates_on_each_block() {
 
         // Block 3: Advance time, but stay within the same bucket
         MockTimestamp::set_timestamp(18000);
-        run_to_block(3);
+        run_to_block(4);
         // Current timestamp 18000 is still in bucket 20000. No change expected.
         assert_eq!(
             LastProcessedTimestamp::<Test>::get(),
@@ -4084,7 +4093,7 @@ fn last_processed_timestamp_updates_on_each_block() {
 
         // Block 4: Time advances to a new bucket
         MockTimestamp::set_timestamp(25000);
-        run_to_block(4);
+        run_to_block(5);
         // Current timestamp 25000 is in bucket 30000.
         assert_eq!(
             LastProcessedTimestamp::<Test>::get(),
@@ -4094,7 +4103,7 @@ fn last_processed_timestamp_updates_on_each_block() {
 
         // Block 5: Time jumps several buckets ahead
         MockTimestamp::set_timestamp(105000);
-        run_to_block(5);
+        run_to_block(6);
         // Current timestamp 105000 is in bucket 110000.
         assert_eq!(
             LastProcessedTimestamp::<Test>::get(),
@@ -4104,7 +4113,7 @@ fn last_processed_timestamp_updates_on_each_block() {
 
         // Block 6: No time change, LastProcessedTimestamp should not change.
         // `run_to_block` advances the block number, but the timestamp remains 105000.
-        run_to_block(6);
+        run_to_block(7);
         // Current timestamp is still 105000 (bucket 110000).
         assert_eq!(
             LastProcessedTimestamp::<Test>::get(),

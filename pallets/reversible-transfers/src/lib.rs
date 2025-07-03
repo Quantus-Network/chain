@@ -406,6 +406,7 @@ pub mod pallet {
             delay: BlockNumberOrTimestampOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+            log::debug!(target: "reversible-transfers", "schedule_transfer_with_delay with delay: {:?}", delay);
 
             // Accounts with pre-configured reversibility cannot use this extrinsic.
             ensure!(
@@ -644,6 +645,9 @@ pub mod pallet {
 
             let tx_id = T::Hashing::hash_of(&(from.clone(), transfer_call.clone()).encode());
 
+            log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {:?}", delay);
+            log::debug!(target: "reversible-transfers", "Reversible transfer tx_id: {:?}", tx_id);
+
             // Check if the account can accommodate another pending transaction
             let current_count = AccountPendingIndex::<T>::get(&from);
             ensure!(
@@ -661,6 +665,8 @@ pub mod pallet {
                     ))
                 }
             };
+            log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
+            log::debug!(target: "reversible-transfers", "dispatch_time: {:?}", dispatch_time);
 
             let call = T::Preimages::bound(transfer_call)?;
 

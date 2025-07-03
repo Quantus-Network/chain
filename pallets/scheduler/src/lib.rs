@@ -393,6 +393,8 @@ pub mod pallet {
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let mut weight_counter = WeightMeter::with_limit(T::MaximumWeight::get());
 
+            log::debug!(target: "scheduler", "on_initialize: now: {:?}", now);
+
             // Consume base weight for agenda processing
             if weight_counter
                 .try_consume(T::WeightInfo::service_agendas_base())
@@ -407,11 +409,15 @@ pub mod pallet {
             // Process timestamp-based agendas using current system time
             // This ensures no buckets are skipped if block times are longer than bucket intervals
             let current_timestamp = T::TimeProvider::now();
-            Self::service_timestamp_agendas(
-                &mut weight_counter,
-                current_timestamp,
-                u32::max_value(),
-            );
+
+            log::debug!(target: "scheduler", "on_initialize: current_timestamp: {:?}", current_timestamp);
+            if current_timestamp > T::Moment::zero() {
+                Self::service_timestamp_agendas(
+                    &mut weight_counter,
+                    current_timestamp,
+                    u32::max_value(),
+                );
+            }
 
             weight_counter.consumed()
         }
@@ -686,6 +692,7 @@ impl<T: Config> Pallet<T> {
                 ensure!(x > now, Error::<T>::TargetTimestampInPast);
             }
         };
+        log::debug!(target: "scheduler", "resolve time: when: {:?}, now: {:?}", when, now);
 
         Ok(when)
     }
@@ -992,16 +999,18 @@ impl<T: Config> Pallet<T> {
                 .as_timestamp()
                 .unwrap_or(T::Moment::zero());
 
+        log::debug!(target: "scheduler", "service_timestamp_agendas: normalized_time: {:?}", normalized_time);
+
         let next_bucket = normalized_time.saturating_add(T::TimestampBucketSize::get());
 
         // Start from incomplete timestamp if exists, otherwise from last processed timestamp
         let start_time = if let Some(incomplete) = IncompleteTimestampSince::<T>::take() {
             incomplete
         } else {
-            // Use last processed timestamp, but for safety, always check from the start
-            // on the very first processing cycle to ensure no tasks are missed
-            LastProcessedTimestamp::<T>::get().unwrap_or(T::Moment::zero())
+            // on the very first processing cycle just set this to current time
+            LastProcessedTimestamp::<T>::get().unwrap_or(current_time)
         };
+        log::debug!(target: "scheduler", "service_timestamp_agendas: start_time: {:?}", start_time);
 
         let mut when = start_time;
         let mut incomplete_since = next_bucket;
@@ -1015,6 +1024,7 @@ impl<T: Config> Pallet<T> {
             && when <= normalized_time
             && weight.can_consume(service_agenda_base_weight)
         {
+            log::debug!(target: "scheduler", "service_timestamp_agendas: when: {:?}", when);
             if !Self::service_agenda(
                 weight,
                 &mut executed,
@@ -1050,6 +1060,7 @@ impl<T: Config> Pallet<T> {
         max: u32,
     ) -> bool {
         let mut agenda = Agenda::<T>::get(when);
+        log::debug!(target: "scheduler", "service_agenda: agenda: {:?}", agenda);
         let mut ordered = agenda
             .iter()
             .enumerate()
@@ -1068,6 +1079,7 @@ impl<T: Config> Pallet<T> {
             "weight limit should have been checked in advance"
         );
 
+        log::debug!(target: "scheduler", "service_agenda: iterating over items: {:?}", ordered.len());
         // Items which we know can be executed and have postponed for execution in a later block.
         let mut postponed = (ordered.len() as u32).saturating_sub(max);
         // Items which we don't know can ever be executed.
