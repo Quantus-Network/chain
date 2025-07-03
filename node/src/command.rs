@@ -214,6 +214,10 @@ pub fn run() -> sc_cli::Result<()> {
                                         "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
                                     );
                                     println!("Address: {}", details.address);
+                                    println!(
+                                        "Inner Hash: 0x{}",
+                                        details.inner_hash.unwrap_or_default()
+                                    );
                                     println!("Wormhole Address: {}", details.public_key_hex);
                                     println!("Secret: {}", details.secret_key_hex);
                                     // Pub key and Seed are N/A for wormhole as per QuantusKeyDetails
