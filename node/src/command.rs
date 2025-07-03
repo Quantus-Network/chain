@@ -26,7 +26,7 @@ pub struct QuantusKeyDetails {
     pub secret_key_hex: String, // Secret key, hex encoded with "0x" prefix
     pub seed_hex: String,       // Derived seed, hex encoded with "0x" prefix
     pub secret_phrase: Option<String>, // Mnemonic phrase
-    pub inner_hash: Option<String> // If wormhole key, this is first hash
+    pub inner_hash: Option<String>, // If wormhole key, this is first hash
 }
 
 pub fn generate_quantus_key(
@@ -94,7 +94,7 @@ pub fn generate_quantus_key(
                 secret_key_hex: format!("0x{}", hex::encode(resonance_pair.secret)),
                 seed_hex: format!("0x{}", hex::encode(&actual_seed_for_pair)),
                 secret_phrase: words_to_print,
-                inner_hash: None
+                inner_hash: None,
             })
         }
         QuantusAddressType::Wormhole => {
@@ -114,7 +114,7 @@ pub fn generate_quantus_key(
                 secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
                 seed_hex: "N/A (Wormhole)".to_string(),
                 secret_phrase: None,
-                inner_hash: Some(hex::encode(wormhole_pair.first_hash))
+                inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
             })
         }
     }

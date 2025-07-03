@@ -82,13 +82,19 @@ impl pallet_balances::Config for Test {
     type DoneSlashHandler = ();
 }
 
+parameter_types! {
+    pub const TreasuryBlockReward: u128 = 50;
+    pub const MintingAccount: u64 = 999;
+}
+
 impl pallet_mining_rewards::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
-    type Currency = Balances;
     type MinerBlockReward = BlockReward;
+    type TreasuryBlockReward = TreasuryBlockReward;
     type TreasuryPalletId = TreasuryPalletId;
     type FeesToTreasuryPermill = FeesToTreasuryPermill;
+    type MintingAccount = MintingAccount;
 }
 
 // Configure a default miner account for tests
