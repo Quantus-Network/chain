@@ -165,16 +165,10 @@ pub mod pallet {
 
             let exit_balance_u128 = public_inputs.funding_amount;
 
-            // Check for overflow before converting to Balance type
-            let exit_balance: <T as BalancesConfig>::Balance =
-                if exit_balance_u128 > u64::MAX as u128 {
-                    // If the value is too large, use a reasonable default for testing
-                    1000000000u128.try_into().unwrap_or_default()
-                } else {
-                    exit_balance_u128
-                        .try_into()
-                        .unwrap_or_else(|_| 1000000000u128.try_into().unwrap_or_default())
-                };
+            // Convert to Balance type
+            let exit_balance: <T as BalancesConfig>::Balance = exit_balance_u128
+                .try_into()
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
             // Decode exit account from public inputs
             let exit_account_bytes = *public_inputs.exit_account;
