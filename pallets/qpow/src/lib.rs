@@ -318,6 +318,7 @@ pub mod pallet {
             // Update TotalWork
             let old_total_work = <TotalWork<T>>::get();
             let current_work = Self::get_difficulty();
+            // TODO: we should record the actual distance achieved somewhere
             let new_total_work = old_total_work.saturating_add(current_work);
             <TotalWork<T>>::put(new_total_work);
             log::debug!(target: "qpow",

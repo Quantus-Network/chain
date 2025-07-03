@@ -86,7 +86,7 @@ impl pallet_mining_rewards::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
     type Currency = Balances;
-    type BlockReward = BlockReward;
+    type MinerBlockReward = BlockReward;
     type TreasuryPalletId = TreasuryPalletId;
     type FeesToTreasuryPermill = FeesToTreasuryPermill;
 }
