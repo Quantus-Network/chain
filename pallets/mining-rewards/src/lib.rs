@@ -18,9 +18,7 @@ pub mod pallet {
     use super::*;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{
-        DecreaseIssuance, IncreaseIssuance, Inspect, Mutate, Unbalanced,
-    };
+    use frame_support::traits::fungible::{DecreaseIssuance, IncreaseIssuance, Mutate};
     use frame_support::traits::Defensive;
     use frame_support::traits::{Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;
@@ -29,13 +27,12 @@ pub mod pallet {
     use sp_runtime::traits::{AccountIdConversion, Saturating};
     use sp_runtime::Permill;
 
-    type BalanceOf<T> =
-        <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
+    type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
     type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
         BalanceOf<T>,
-        DecreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
-        IncreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
+        DecreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T, ()>>,
+        IncreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T, ()>>,
     >;
 
     #[pallet::pallet]
@@ -46,15 +43,12 @@ pub mod pallet {
     pub(super) type CollectedFees<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
-
-        /// The currency in which fees are paid and rewards are issued
-        type Currency: Mutate<Self::AccountId> + Unbalanced<Self::AccountId>;
 
         /// The base block reward given to miners
         #[pallet::constant]
@@ -71,6 +65,10 @@ pub mod pallet {
         /// The percentage of transaction fees that should go to the Treasury.
         #[pallet::constant]
         type FeesToTreasuryPermill: Get<Permill>;
+
+        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
+        #[pallet::constant]
+        type MintingAccount: Get<Self::AccountId>;
     }
 
     #[pallet::event]
@@ -106,14 +104,14 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
             // Return weight consumed for on finalize hook
-            T::WeightInfo::on_finalize_rewarded_miner()
+            <T as crate::pallet::Config>::WeightInfo::on_finalize_rewarded_miner()
         }
 
         fn on_finalize(_block_number: BlockNumberFor<T>) {
             // Get the block rewards
             let miner_reward = T::MinerBlockReward::get();
             let treasury_reward = T::TreasuryBlockReward::get();
-            let mut tx_fees = <CollectedFees<T>>::take();
+            let tx_fees = <CollectedFees<T>>::take();
 
             // Extract miner ID from the pre-runtime digest
             // TODO: require miner use wormhole here? we can just hash the "miner address" with poseidon
@@ -166,15 +164,14 @@ pub mod pallet {
             });
         }
 
-
         fn mint_reward(maybe_miner: Option<T::AccountId>, reward: BalanceOf<T>) {
             let mint_account = T::MintingAccount::get();
 
             match maybe_miner {
                 Some(miner) => {
-                    let _ = T::Currency::mint_into(&miner, reward).defensive();
+                    let _ = pallet_balances::Pallet::<T, ()>::mint_into(&miner, reward).defensive();
 
-                    BalancesPallet::<T, ()>::store_transfer_proof(
+                    pallet_balances::Pallet::<T, ()>::store_transfer_proof(
                         &mint_account,
                         &miner,
                         reward,
@@ -191,32 +188,27 @@ pub mod pallet {
                         reward,
                         miner
                     );
-
-                },
+                }
                 None => {
                     let treasury = T::TreasuryPalletId::get().into_account_truncating();
-                    let _ = T::Currency::mint_into(&treasury, reward).defensive();
+                    let _ =
+                        pallet_balances::Pallet::<T, ()>::mint_into(&treasury, reward).defensive();
 
-                    BalancesPallet::<T, ()>::store_transfer_proof(
+                    pallet_balances::Pallet::<T, ()>::store_transfer_proof(
                         &mint_account,
                         &treasury,
                         reward,
                     );
 
-                    Self::deposit_event(Event::TreasuryRewarded {
-                        reward,
-                    });
+                    Self::deposit_event(Event::TreasuryRewarded { reward });
 
                     log::debug!(
                         target: "mining-rewards",
                         "💰 Rewards sent to Treasury: {:?}",
                         reward
                     );
-
                 }
             };
-
-
         }
     }
 
@@ -224,8 +216,7 @@ pub mod pallet {
 
     impl<T> OnUnbalanced<NegativeImbalanceOf<T>> for TransactionFeesCollector<T>
     where
-        T: Config + pallet_balances::Config<Balance = u128>,
-        BalanceOf<T>: From<u128>,
+        T: Config,
     {
         fn on_nonzero_unbalanced(amount: NegativeImbalanceOf<T>) {
             Pallet::<T>::collect_transaction_fees(amount.peek());
