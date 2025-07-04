@@ -19,8 +19,7 @@ mod benchmarks {
     use frame_support::traits::{Get, OnFinalize};
     use sp_runtime::Saturating;
 
-    type BalanceOf<T> =
-        <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
+    type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
     #[benchmark]
     fn on_finalize_rewarded_miner() -> Result<(), BenchmarkError> {
@@ -42,9 +41,13 @@ mod benchmarks {
 
         // Pre-fund Treasury account to ensure it exists
         let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
-        let ed = T::Currency::minimum_balance();
-        let _ = T::Currency::mint_into(&treasury_account, ed.saturating_mul(1000u32.into()));
-        let _ = T::Currency::mint_into(&miner, ed.saturating_mul(1000u32.into()));
+        let ed = pallet_balances::Pallet::<T, ()>::minimum_balance();
+        let _ = pallet_balances::Pallet::<T, ()>::mint_into(
+            &treasury_account,
+            ed.saturating_mul(1000u32.into()),
+        );
+        let _ =
+            pallet_balances::Pallet::<T, ()>::mint_into(&miner, ed.saturating_mul(1000u32.into()));
 
         #[block]
         {
