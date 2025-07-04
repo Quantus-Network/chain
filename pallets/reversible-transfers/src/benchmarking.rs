@@ -120,7 +120,8 @@ mod benchmarks {
         setup_reversible_account::<T>(caller.clone(), delay.clone(), DelayPolicy::Explicit, None);
 
         let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
-        let tx_id = T::Hashing::hash_of(&(caller.clone(), call).encode());
+        let global_nonce = GlobalNonce::<T>::get();
+        let tx_id = T::Hashing::hash_of(&(caller.clone(), call, global_nonce).encode());
 
         let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
         // Schedule the dispatch
@@ -139,7 +140,7 @@ mod benchmarks {
                 .as_block_number()
                 .expect("Timestamp delay not supported in benchmark"),
         );
-        let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id, 1)?;
+        let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
         assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
 
         Ok(())
@@ -171,12 +172,14 @@ mod benchmarks {
 
         // Call the *internal* scheduling logic here for setup
         let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
+        let global_nonce = GlobalNonce::<T>::get();
+        let tx_id = T::Hashing::hash_of(&(caller.clone(), call, global_nonce).encode());
+
         ReversibleTransfers::<T>::do_schedule_transfer(
             origin,
             recipient_lookup,
             transfer_amount.into(),
         )?;
-        let tx_id = T::Hashing::hash_of(&(caller.clone(), call).encode());
 
         // Ensure setup worked before benchmarking cancel
         assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
@@ -189,7 +192,7 @@ mod benchmarks {
         assert_eq!(AccountPendingIndex::<T>::get(&caller), 0);
         assert!(!PendingTransfers::<T>::contains_key(&tx_id));
         // Check scheduler cancelled (agenda item removed)
-        let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id, 1)?;
+        let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
         assert!(T::Scheduler::next_dispatch_time(task_name).is_err());
 
         Ok(())
@@ -210,12 +213,14 @@ mod benchmarks {
 
         let owner_origin = RawOrigin::Signed(owner.clone()).into();
         let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient.clone());
+        let global_nonce = GlobalNonce::<T>::get();
+        let tx_id = T::Hashing::hash_of(&(owner.clone(), call, global_nonce).encode());
+
         ReversibleTransfers::<T>::do_schedule_transfer(
             owner_origin,
             recipient_lookup,
             transfer_amount.into(),
         )?;
-        let tx_id = T::Hashing::hash_of(&(owner.clone(), call).encode());
 
         // Ensure setup worked
         assert_eq!(AccountPendingIndex::<T>::get(&owner), 1);

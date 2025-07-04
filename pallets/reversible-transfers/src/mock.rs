@@ -15,6 +15,8 @@ type Block = frame_system::mocking::MockBlock<Test>;
 pub type Balance = u128;
 pub type AccountId = u64;
 
+pub(crate) type ReversibleTransfersCall = pallet_reversible_transfers::Call<Test>;
+
 #[frame_support::runtime]
 mod runtime {
     // The main runtime
@@ -47,6 +49,9 @@ mod runtime {
 
     #[runtime::pallet_index(4)]
     pub type Balances = pallet_balances::Pallet<Test>;
+
+    #[runtime::pallet_index(5)]
+    pub type Utility = pallet_utility::Pallet<Test>;
 }
 
 impl From<RuntimeCall> for pallet_balances::Call<Test> {
@@ -173,6 +178,13 @@ impl pallet_scheduler::Config for Test {
     type Moment = Moment;
     type TimeProvider = MockTimestamp<Test>;
     type TimestampBucketSize = TimestampBucketSize;
+}
+
+impl pallet_utility::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type PalletsOrigin = OriginCaller;
+    type WeightInfo = ();
 }
 
 // Build genesis storage according to the mock runtime.
