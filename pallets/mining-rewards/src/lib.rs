@@ -27,7 +27,7 @@ pub mod pallet {
     use sp_runtime::generic::DigestItem;
     use sp_runtime::traits::{AccountIdConversion, Saturating};
 
-    type BalanceOf<T> =
+    pub(crate) type BalanceOf<T> =
         <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
     #[pallet::pallet]
