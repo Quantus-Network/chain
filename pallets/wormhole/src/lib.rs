@@ -111,21 +111,14 @@ pub mod pallet {
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
 
-            let verifier = crate::get_wormhole_verifier().map_err(|_| {
-                log::error!(
-                    "Wormhole verifier not available - this should not happen in production"
-                );
-                Error::<T>::VerifierNotAvailable
-            })?;
+            let verifier =
+                crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 
             let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
                 proof_bytes,
                 &verifier.circuit_data.common,
             )
-            .map_err(|e| {
-                log::error!("Proof deserialization failed. Error: {:?}", e);
-                Error::<T>::ProofDeserializationFailed
-            })?;
+            .map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
             ensure!(
                 proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
@@ -133,10 +126,8 @@ pub mod pallet {
             );
 
             // Parse public inputs using the existing parser
-            let public_inputs = PublicCircuitInputs::try_from(proof.clone()).map_err(|e| {
-                log::error!("Failed to parse public inputs: {:?}", e);
-                Error::<T>::InvalidPublicInputs
-            })?;
+            let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
             let nullifier_bytes = *public_inputs.nullifier;
 
@@ -162,11 +153,8 @@ pub mod pallet {
 
             // Decode exit account from public inputs
             let exit_account_bytes = *public_inputs.exit_account;
-            log::debug!("Exit account bytes: {:?}", exit_account_bytes);
             let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
-            log::debug!("Decoded exit account: {:?}", exit_account);
-            log::debug!("Exit balance to mint: {:?}", exit_balance);
 
             // Calculate fees first
             let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
@@ -186,14 +174,12 @@ pub mod pallet {
             // Withdraw fee from exit account if fees are non-zero
             // This creates a negative imbalance that will be handled by the transaction payment pallet
             if !total_fee.is_zero() {
-                let fee_imbalance = T::Currency::withdraw(
+                let _fee_imbalance = T::Currency::withdraw(
                     &exit_account,
                     total_fee,
                     WithdrawReasons::TRANSACTION_PAYMENT,
                     ExistenceRequirement::KeepAlive,
                 )?;
-                // Drop the imbalance to trigger OnUnbalanced handler automatically
-                drop(fee_imbalance);
             }
 
             // Emit event
