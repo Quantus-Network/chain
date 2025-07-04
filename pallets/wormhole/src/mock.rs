@@ -1,7 +1,7 @@
 use crate as pallet_wormhole;
 use frame_support::{
     construct_runtime, parameter_types,
-    traits::{ConstU32, Everything, Imbalance, OnUnbalanced},
+    traits::{ConstU32, Everything},
     weights::IdentityFee,
 };
 use sp_core::H256;
@@ -9,7 +9,6 @@ use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
-use std::cell::RefCell;
 
 // --- MOCK RUNTIME ---
 
@@ -87,27 +86,12 @@ impl pallet_balances::Config for Test {
     type DoneSlashHandler = ();
 }
 
-// --- FEE COLLECTOR ---
-
-thread_local! {
-    pub static FEES_PAID: RefCell<Balance> = RefCell::new(0);
-}
-
-pub struct DealWithFees;
-impl OnUnbalanced<pallet_balances::NegativeImbalance<Test>> for DealWithFees {
-    fn on_unbalanced(amount: pallet_balances::NegativeImbalance<Test>) {
-        println!("OnUnbalanced called with amount: {}", amount.peek());
-        FEES_PAID.with(|f| *f.borrow_mut() += amount.peek());
-    }
-}
-
 // --- PALLET WORMHOLE ---
 
 impl pallet_wormhole::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
     type WeightToFee = IdentityFee<Balance>;
-    type FeeReceiver = DealWithFees;
 }
 
 // Helper function to build a genesis configuration

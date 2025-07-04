@@ -40,7 +40,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::traits::fungible::Unbalanced;
     use frame_support::{
-        traits::{Currency, ExistenceRequirement, OnUnbalanced, WithdrawReasons},
+        traits::{Currency, ExistenceRequirement, WithdrawReasons},
         weights::WeightToFee,
     };
     use frame_system::pallet_prelude::*;
@@ -65,10 +65,6 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
 
         type WeightToFee: WeightToFee<Balance = <Self as BalancesConfig>::Balance>;
-
-        type FeeReceiver: OnUnbalanced<
-            <BalancesPallet<Self> as Currency<Self::AccountId>>::NegativeImbalance,
-        >;
     }
 
     pub trait WeightInfo {

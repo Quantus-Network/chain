@@ -81,8 +81,6 @@ mod wormhole_tests {
     #[test]
     fn test_wormhole_exit_balance_and_fees() {
         new_test_ext().execute_with(|| {
-            crate::mock::FEES_PAID.with(|f| *f.borrow_mut() = 0);
-
             let proof = get_test_proof();
             let expected_exit_account = 8226349481601990196u64;
 
@@ -111,7 +109,6 @@ mod wormhole_tests {
             let final_exit_balance =
                 pallet_balances::Pallet::<Test>::free_balance(expected_exit_account);
 
-            // let fees_paid = crate::mock::FEES_PAID.with(|f| *f.borrow());
             let balance_increase = final_exit_balance - initial_exit_balance;
 
             // Assert the exact expected balance increase

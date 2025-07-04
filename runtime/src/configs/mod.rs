@@ -159,7 +159,6 @@ impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
     type WeightToFee = IdentityFee<Balance>;
-    type FeeReceiver = pallet_mining_rewards::TransactionFeesCollector<Runtime>;
 }
 
 type Moment = u64;
