@@ -2,9 +2,9 @@
 mod wormhole_tests {
     use crate::{get_wormhole_verifier, mock::*, Error};
     use frame_support::{assert_noop, assert_ok};
-    use wormhole_verifier::ProofWithPublicInputs;
-    use wormhole_circuit::inputs::PublicCircuitInputs;
     use sp_runtime::Perbill;
+    use wormhole_circuit::inputs::PublicCircuitInputs;
+    use wormhole_verifier::ProofWithPublicInputs;
 
     // Helper function to generate proof and inputs for a given n
     fn get_test_proof() -> Vec<u8> {
@@ -90,12 +90,12 @@ mod wormhole_tests {
             let verifier = get_wormhole_verifier().expect("Verifier should be available");
             let proof_with_inputs = ProofWithPublicInputs::from_bytes(proof.clone(), &verifier.circuit_data.common)
                 .expect("Should be able to parse test proof");
-            
+
             let public_inputs = PublicCircuitInputs::try_from(proof_with_inputs)
                 .expect("Should be able to parse public inputs");
-            
+
             let expected_funding_amount = public_inputs.funding_amount;
-            
+
             // Calculate expected fees (matching lib.rs logic exactly)
             let weight_fee = 0u128; // IdentityFee with zero weight in tests
             let volume_fee = Perbill::from_rational(1u32, 1000u32) * expected_funding_amount;
@@ -116,13 +116,13 @@ mod wormhole_tests {
 
             // Assert the exact expected balance increase
             assert_eq!(
-                balance_increase, 
-                expected_net_balance_increase,
-                "Balance increase should equal funding amount minus fees. Funding: {}, Fees: {}, Expected net: {}, Actual: {}",
-                expected_funding_amount,
-                expected_total_fee,
-                expected_net_balance_increase,
                 balance_increase
+                , expected_net_balance_increase,
+                "Balance increase should equal funding amount minus fees. Funding: {}, Fees: {}, Expected net: {}, Actual: {}"
+                , expected_funding_amount
+                , expected_total_fee
+                , expected_net_balance_increase
+                , balance_increase
             );
 
             // NOTE: In this mock/test context, the OnUnbalanced handler is not triggered for this withdrawal.
