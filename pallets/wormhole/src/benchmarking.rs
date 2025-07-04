@@ -6,6 +6,7 @@ use super::*;
 use alloc::vec::Vec;
 use frame_benchmarking::v2::*;
 use frame_support::ensure;
+use frame_support::traits::fungible::Inspect;
 use frame_system::RawOrigin;
 use wormhole_circuit::inputs::PublicCircuitInputs;
 use wormhole_verifier::ProofWithPublicInputs;
@@ -19,7 +20,8 @@ fn get_benchmark_proof() -> Vec<u8> {
 #[benchmarks(
     where
     T: Send + Sync,
-    T: Config + pallet_balances::Config,
+    T: Config,
+    BalanceOf<T>: Into<<<T as Config>::Currency as Inspect<T::AccountId>>::Balance>,
 )]
 mod benchmarks {
     use super::*;

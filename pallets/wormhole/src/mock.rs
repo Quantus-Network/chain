@@ -92,6 +92,7 @@ impl pallet_wormhole::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
     type WeightToFee = IdentityFee<Balance>;
+    type Currency = Balances;
 }
 
 // Helper function to build a genesis configuration

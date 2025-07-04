@@ -12,8 +12,6 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-pub type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
-
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
@@ -34,17 +32,16 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 
 #[frame_support::pallet]
 pub mod pallet {
-    use super::BalanceOf;
     use alloc::vec::Vec;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
+    use frame_support::traits::fungible::Inspect;
     use frame_support::traits::fungible::Unbalanced;
     use frame_support::{
         traits::{Currency, ExistenceRequirement, WithdrawReasons},
         weights::WeightToFee,
     };
     use frame_system::pallet_prelude::*;
-    use pallet_balances::{Config as BalancesConfig, Pallet as BalancesPallet};
     use sp_runtime::{
         traits::{Saturating, Zero},
         Perbill,
@@ -53,18 +50,24 @@ pub mod pallet {
     use wormhole_verifier::ProofWithPublicInputs;
     use zk_circuits_common::circuit::{C, D, F};
 
+    pub type BalanceOf<T> =
+        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config {
         /// Overarching runtime event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
 
-        type WeightToFee: WeightToFee<Balance = <Self as BalancesConfig>::Balance>;
+        type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
+
+        /// Currency type for handling tokens
+        type Currency: Currency<Self::AccountId> + Unbalanced<Self::AccountId>;
     }
 
     pub trait WeightInfo {
@@ -99,7 +102,10 @@ pub mod pallet {
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T> {
+    impl<T: Config> Pallet<T>
+    where
+        BalanceOf<T>: Into<<<T as Config>::Currency as Inspect<T::AccountId>>::Balance>,
+    {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
@@ -150,7 +156,7 @@ pub mod pallet {
             let exit_balance_u128 = public_inputs.funding_amount;
 
             // Convert to Balance type
-            let exit_balance: <T as BalancesConfig>::Balance = exit_balance_u128
+            let exit_balance: BalanceOf<T> = exit_balance_u128
                 .try_into()
                 .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
@@ -165,21 +171,22 @@ pub mod pallet {
             // Calculate fees first
             let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
             let weight_fee = T::WeightToFee::weight_to_fee(&weight);
-            let volume_fee = Perbill::from_rational(1u32, 1000u32) * exit_balance;
+            let volume_fee_perbill = Perbill::from_rational(1u32, 1000u32);
+            let volume_fee = volume_fee_perbill * exit_balance;
             let total_fee = weight_fee.saturating_add(volume_fee);
 
             // Mint tokens to the exit account
             // This does not affect total issuance and does not create an imbalance
-            <BalancesPallet<T> as Unbalanced<_>>::increase_balance(
+            <T::Currency as Unbalanced<_>>::increase_balance(
                 &exit_account,
-                exit_balance,
+                exit_balance.into(),
                 frame_support::traits::tokens::Precision::Exact,
             )?;
 
             // Withdraw fee from exit account if fees are non-zero
-            // This creates a negative imbalance that will be handled by T::FeeReceiver when dropped
+            // This creates a negative imbalance that will be handled by the transaction payment pallet
             if !total_fee.is_zero() {
-                let fee_imbalance = BalancesPallet::<T>::withdraw(
+                let fee_imbalance = T::Currency::withdraw(
                     &exit_account,
                     total_fee,
                     WithdrawReasons::TRANSACTION_PAYMENT,
