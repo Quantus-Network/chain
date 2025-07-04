@@ -28,6 +28,7 @@ pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage.workspace = true
 pallet-scheduler.workspace = true
 pallet-timestamp.workspace = true
+pallet-utility.workspace = true
 qp-scheduler.workspace = true
 sp-core.workspace = true
 sp-io.workspace = true
