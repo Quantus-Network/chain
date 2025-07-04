@@ -1,38 +1,61 @@
-// //! Benchmarking setup for pallet-wormhole
+//! Benchmarking setup for pallet-wormhole
 
-// use super::*;
-// use crate::Pallet as Wormhole;
-// use frame_benchmarking::v2::*;
-// use frame_system::RawOrigin;
+#![cfg(feature = "runtime-benchmarks")]
 
-// #[benchmarks(
-//     where
-//     T: Send + Sync,
-//     T: Config + pallet_balances::Config,
-// )]
-// mod benchmarks {
-//     use super::*;
+use super::*;
+use alloc::vec::Vec;
+use frame_benchmarking::v2::*;
+use frame_support::ensure;
+use frame_system::RawOrigin;
+use wormhole_circuit::inputs::PublicCircuitInputs;
+use wormhole_verifier::ProofWithPublicInputs;
+use zk_circuits_common::circuit::{C, D, F};
 
-//     #[benchmark]
-//     fn verify_wormhole_proof() {
-//         // Load a valid proof from the test file
-//         let proof_bytes = include_bytes!("../proof.hex").to_vec();
+fn get_benchmark_proof() -> Vec<u8> {
+    let hex_proof = include_str!("../proof_from_bins.hex");
+    hex::decode(hex_proof.trim()).expect("Failed to decode hex proof")
+}
 
-//         // Ensure the origin account has sufficient balance for potential operations
-//         let caller: T::AccountId = whitelisted_caller();
+#[benchmarks(
+    where
+    T: Send + Sync,
+    T: Config + pallet_balances::Config,
+)]
+mod benchmarks {
+    use super::*;
 
-//         // Set up any necessary initial state
-//         // Make sure no nullifier conflicts exist by using a unique test nullifier
-//         let test_nullifier = [1u8; 64];
-//         // Ensure this nullifier is not already used
-//         UsedNullifiers::<T>::remove(test_nullifier);
+    #[benchmark]
+    fn verify_wormhole_proof() -> Result<(), BenchmarkError> {
+        let proof_bytes = get_benchmark_proof();
 
-//         #[extrinsic_call]
-//         verify_wormhole_proof(RawOrigin::None, proof_bytes);
+        let verifier = crate::get_wormhole_verifier()
+            .map_err(|_| BenchmarkError::Stop("Verifier not available"))?;
 
-//         // Verify that the proof was processed (though specific verification depends on the actual proof content)
-//         // The function should complete without error if the proof is valid
-//     }
+        let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+            proof_bytes.clone(),
+            &verifier.circuit_data.common,
+        )
+        .map_err(|_| BenchmarkError::Stop("Invalid proof data"))?;
 
-//     impl_benchmark_test_suite!(Wormhole, crate::mock::new_test_ext(), crate::mock::Test);
-// }
+        let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+            .map_err(|_| BenchmarkError::Stop("Invalid public inputs"))?;
+
+        let nullifier_bytes = *public_inputs.nullifier;
+
+        ensure!(
+            !UsedNullifiers::<T>::contains_key(nullifier_bytes),
+            BenchmarkError::Stop("Nullifier already used")
+        );
+
+        verifier
+            .verify(proof)
+            .map_err(|_| BenchmarkError::Stop("Proof verification failed"))?;
+
+        #[extrinsic_call]
+        verify_wormhole_proof(RawOrigin::None, proof_bytes);
+
+        Ok(())
+    }
+
+    impl_benchmark_test_suite!(Wormhole, crate::mock::new_test_ext(), crate::mock::Test);
+}

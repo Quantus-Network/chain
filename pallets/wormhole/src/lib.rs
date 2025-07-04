@@ -73,22 +73,10 @@ pub mod pallet {
 
     pub trait WeightInfo {
         fn verify_wormhole_proof() -> Weight;
-        fn verify_wormhole_proof_with_used_nullifier() -> Weight;
-        fn verify_wormhole_proof_deserialization_failure() -> Weight;
-        fn verify_wormhole_proof_empty_data() -> Weight;
     }
 
     impl WeightInfo for () {
         fn verify_wormhole_proof() -> Weight {
-            Weight::zero()
-        }
-        fn verify_wormhole_proof_with_used_nullifier() -> Weight {
-            Weight::zero()
-        }
-        fn verify_wormhole_proof_deserialization_failure() -> Weight {
-            Weight::zero()
-        }
-        fn verify_wormhole_proof_empty_data() -> Weight {
             Weight::zero()
         }
     }
