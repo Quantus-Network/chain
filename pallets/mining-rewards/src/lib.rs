@@ -18,21 +18,17 @@ pub mod pallet {
     use super::*;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{DecreaseIssuance, IncreaseIssuance, Mutate};
-    use frame_support::traits::Defensive;
-    use frame_support::traits::{Get, Imbalance, OnUnbalanced};
+    use frame_support::traits::fungible::{Inspect, Mutate};
+    use frame_support::traits::{Defensive, Imbalance};
+    use frame_support::traits::{Get, OnUnbalanced};
     use frame_system::pallet_prelude::*;
+    use qp_wormhole::TransferProofs;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
     use sp_runtime::traits::{AccountIdConversion, Saturating};
 
-    type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
-
-    type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
-        BalanceOf<T>,
-        DecreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T, ()>>,
-        IncreaseIssuance<<T as frame_system::Config>::AccountId, pallet_balances::Pallet<T, ()>>,
-    >;
+    type BalanceOf<T> =
+        <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -42,12 +38,16 @@ pub mod pallet {
     pub(super) type CollectedFees<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
+
+        /// Currency type that also stores zk proofs
+        type Currency: Mutate<Self::AccountId>
+            + qp_wormhole::TransferProofs<BalanceOf<Self>, Self::AccountId>;
 
         /// The base block reward given to miners
         #[pallet::constant]
@@ -163,13 +163,9 @@ pub mod pallet {
 
             match maybe_miner {
                 Some(miner) => {
-                    let _ = pallet_balances::Pallet::<T, ()>::mint_into(&miner, reward).defensive();
+                    let _ = T::Currency::mint_into(&miner, reward).defensive();
 
-                    pallet_balances::Pallet::<T, ()>::store_transfer_proof(
-                        &mint_account,
-                        &miner,
-                        reward,
-                    );
+                    T::Currency::store_transfer_proof(&mint_account, &miner, reward);
 
                     Self::deposit_event(Event::MinerRewarded {
                         miner: miner.clone(),
@@ -185,14 +181,9 @@ pub mod pallet {
                 }
                 None => {
                     let treasury = T::TreasuryPalletId::get().into_account_truncating();
-                    let _ =
-                        pallet_balances::Pallet::<T, ()>::mint_into(&treasury, reward).defensive();
+                    let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
-                    pallet_balances::Pallet::<T, ()>::store_transfer_proof(
-                        &mint_account,
-                        &treasury,
-                        reward,
-                    );
+                    T::Currency::store_transfer_proof(&mint_account, &treasury, reward);
 
                     Self::deposit_event(Event::TreasuryRewarded { reward });
 
@@ -208,11 +199,12 @@ pub mod pallet {
 
     pub struct TransactionFeesCollector<T>(PhantomData<T>);
 
-    impl<T> OnUnbalanced<NegativeImbalanceOf<T>> for TransactionFeesCollector<T>
+    impl<T, I> OnUnbalanced<I> for TransactionFeesCollector<T>
     where
         T: Config,
+        I: Imbalance<BalanceOf<T>>,
     {
-        fn on_nonzero_unbalanced(amount: NegativeImbalanceOf<T>) {
+        fn on_nonzero_unbalanced(amount: I) {
             Pallet::<T>::collect_transaction_fees(amount.peek());
         }
     }

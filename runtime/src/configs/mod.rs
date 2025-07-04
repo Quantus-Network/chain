@@ -128,6 +128,7 @@ impl pallet_faucet::Config for Runtime {
 
 impl pallet_mining_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
     type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
     type MinerBlockReward = ConstU128<10_000_000_000_000>; // 10 tokens
     type TreasuryBlockReward = ConstU128<1_000_000_000_000>; // 1 token
@@ -160,6 +161,7 @@ parameter_types! {
 
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
     type WeightInfo = ();
     type MintingAccount = MintingAccount;
 }

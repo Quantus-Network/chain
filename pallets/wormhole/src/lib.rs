@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+use frame_support::traits::fungible::Inspect;
 pub use pallet::*;
 
 #[cfg(test)]
@@ -8,7 +9,8 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-pub type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
+pub type BalanceOf<T> =
+    <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -21,7 +23,6 @@ pub mod pallet {
     use frame_support::{pallet_prelude::*, traits::fungible::Mutate};
     use frame_system::pallet_prelude::*;
     use lazy_static::lazy_static;
-    use pallet_balances::Pallet as BalancesPallet;
     use plonky2::{
         field::{goldilocks_field::GoldilocksField, types::PrimeField64},
         plonk::{
@@ -31,14 +32,18 @@ pub mod pallet {
         },
         util::serialization::DefaultGateSerializer,
     };
+    use qp_wormhole::TransferProofs;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config {
         /// Overarching runtime event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+        /// Currency type used for minting tokens and handling wormhole transfers
+        type Currency: Mutate<Self::AccountId> + TransferProofs<BalanceOf<Self>, Self::AccountId>;
 
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
@@ -205,11 +210,11 @@ pub mod pallet {
                 .try_into()
                 .map_err(|_| "Conversion from u64 to Balance failed")?;
 
-            BalancesPallet::<T, ()>::mint_into(&public_inputs.exit_account, exit_balance)?;
+            T::Currency::mint_into(&public_inputs.exit_account, exit_balance)?;
 
             // Create a transfer proof for the minted tokens
             let mint_account = T::MintingAccount::get();
-            BalancesPallet::<T, ()>::store_transfer_proof(
+            T::Currency::store_transfer_proof(
                 &mint_account,
                 &public_inputs.exit_account,
                 exit_balance,

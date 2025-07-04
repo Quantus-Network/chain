@@ -66,6 +66,7 @@ pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
+qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
 quantus-runtime = { path = "./runtime", default-features = false }
 sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
