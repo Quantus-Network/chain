@@ -128,12 +128,8 @@ mod benchmarks {
         );
 
         let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
-<<<<<<< HEAD
         let global_nonce = GlobalNonce::<T>::get();
         let tx_id = T::Hashing::hash_of(&(caller.clone(), call, global_nonce).encode());
-=======
-        let tx_id = T::Hashing::hash_of(&(caller.clone(), call.clone()).encode());
->>>>>>> 3be878b2a003705ce7ba5e203ff19e831a3034ee
 
         let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
         // Schedule the dispatch

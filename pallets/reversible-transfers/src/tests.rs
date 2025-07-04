@@ -1704,7 +1704,7 @@ fn storage_indexes_handle_multiple_identical_transfers_correctly() {
 
         // Cancel the last instance
         assert_ok!(ReversibleTransfers::cancel(
-            RuntimeOrigin::signed(sender),
+            RuntimeOrigin::signed(2),
             tx_id1
         ));
 
@@ -2049,11 +2049,12 @@ fn global_nonce_works() {
         let amount = 100;
         let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
-        assert_ok!(ReversibleTransfers::set_reversibility(
+        let interceptor = reversible_account + 1;
+        assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(reversible_account),
-            Some(delay),
-            DelayPolicy::Intercept,
-            None,
+            delay,
+            interceptor,
+            receiver,
         ));
 
         assert_ok!(ReversibleTransfers::schedule_transfer(

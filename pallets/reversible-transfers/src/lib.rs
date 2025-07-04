@@ -581,9 +581,6 @@ pub mod pallet {
                 *count = count.saturating_sub(1);
             });
 
-            // This was the last instance (new_count == 0), remove completely and clean up indexes
-            PendingTransfers::<T>::remove(tx_id);
-
             PendingTransfers::<T>::remove(tx_id);
 
             // Clean up sender index
@@ -622,7 +619,7 @@ pub mod pallet {
             .into();
 
             let tx_id = T::Hashing::hash_of(
-                &(who.clone(), transfer_call.clone(), GlobalNonce::<T>::get()).encode(),
+                &(from.clone(), transfer_call.clone(), GlobalNonce::<T>::get()).encode(),
             );
 
             log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {:?}", delay);
@@ -658,7 +655,6 @@ pub mod pallet {
                 interceptor: interceptor.clone(),
                 call,
                 amount,
-                count: 1,
             };
 
             let schedule_id = Self::make_schedule_id(&tx_id)?;
