@@ -1,6 +1,10 @@
 # all options https://taplo.tamasfe.dev/configuration/formatter-options.html
 
-# global rules
+# This is a taplo configuration file.
+# For more information, see: https://taplo.tamasfe.dev/configuration/
+include = ["**/*.toml"]
+exclude = ["**/target/**"]
+
 [formatting]
 reorder_arrays = true
 inline_table_expand = false
