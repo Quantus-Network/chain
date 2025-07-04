@@ -56,9 +56,6 @@ pub struct PendingTransfer<AccountId, Balance, Call> {
     pub call: Call,
     /// Amount frozen for the transaction
     pub amount: Balance,
-    /// Count of this pending transaction for the account. Used to track number of identical
-    /// transactions scheduled by the same account.
-    pub count: u32,
 }
 
 /// Balance type
@@ -185,6 +182,12 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn account_pending_index)]
     pub type AccountPendingIndex<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
+    /// Nonce for each account to ensure unique transaction hashes.
+    #[pallet::storage]
+    #[pallet::getter(fn account_nonce)]
+    pub type AccountNonce<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
     /// Maps sender accounts to their list of pending transaction IDs.
@@ -520,8 +523,8 @@ pub mod pallet {
         }
 
         /// Simply converts hash output to a `TaskName`
-        pub fn make_schedule_id(tx_id: &T::Hash, nonce: u32) -> Result<TaskName, DispatchError> {
-            let task_name = T::Hashing::hash_of(&(tx_id, nonce).encode())
+        pub fn make_schedule_id(tx_id: &T::Hash) -> Result<TaskName, DispatchError> {
+            let task_name = T::Hashing::hash_of(tx_id.encode())
                 .clone()
                 .as_ref()
                 .try_into()
@@ -541,8 +544,6 @@ pub mod pallet {
                 Bounded<T::RuntimeCall, T::Hashing>,
             >,
         ) -> DispatchResult {
-            let is_new_transfer = pending_transfer.count == 1;
-
             // Store the pending transfer
             PendingTransfers::<T>::insert(tx_id, pending_transfer);
 
@@ -551,20 +552,17 @@ pub mod pallet {
                 *count = count.saturating_add(1);
             });
 
-            // Update indexes only for new transactions (count == 1)
-            if is_new_transfer {
-                // Add to sender's pending list
-                PendingTransfersBySender::<T>::try_mutate(sender, |list| {
-                    list.try_push(tx_id)
-                        .map_err(|_| Error::<T>::TooManyPendingTransactions)
-                })?;
+            // Add to sender's pending list
+            PendingTransfersBySender::<T>::try_mutate(sender, |list| {
+                list.try_push(tx_id)
+                    .map_err(|_| Error::<T>::TooManyPendingTransactions)
+            })?;
 
-                // Add to recipient's pending list
-                PendingTransfersByRecipient::<T>::try_mutate(recipient, |list| {
-                    list.try_push(tx_id)
-                        .map_err(|_| Error::<T>::TooManyPendingTransactions)
-                })?;
-            }
+            // Add to recipient's pending list
+            PendingTransfersByRecipient::<T>::try_mutate(recipient, |list| {
+                list.try_push(tx_id)
+                    .map_err(|_| Error::<T>::TooManyPendingTransactions)
+            })?;
 
             Ok(())
         }
@@ -584,44 +582,23 @@ pub mod pallet {
                 *count = count.saturating_sub(1);
             });
 
-            // Calculate new count after removing this instance
-            let new_count = pending_transfer.count.saturating_sub(1);
+            // This was the last instance (new_count == 0), remove completely and clean up indexes
+            PendingTransfers::<T>::remove(tx_id);
 
-            if new_count > 0 {
-                // Still have remaining instances, just decrement the count
-                PendingTransfers::<T>::insert(
-                    tx_id,
-                    PendingTransfer {
-                        from: pending_transfer.from.clone(),
-                        to: pending_transfer.to.clone(),
-                        interceptor: pending_transfer.interceptor.clone(),
-                        call: pending_transfer.call.clone(),
-                        amount: pending_transfer.amount,
-                        count: new_count,
-                    },
-                );
-            } else {
-                // This was the last instance (new_count == 0), remove completely and clean up indexes
-                PendingTransfers::<T>::remove(tx_id);
+            // Clean up sender index
+            PendingTransfersBySender::<T>::mutate(sender, |list| {
+                list.retain(|&x| x != tx_id);
+            });
 
-                // Clean up sender index
-                PendingTransfersBySender::<T>::mutate(sender, |list| {
-                    list.retain(|&x| x != tx_id);
-                });
-
-                // Extract recipient from the call and clean up recipient index efficiently
-                if let Ok((call, _)) = T::Preimages::peek::<T::RuntimeCall>(&pending_transfer.call)
-                {
-                    if let Ok(balance_call) = call.try_into() {
-                        if let pallet_balances::Call::transfer_keep_alive { dest, .. } =
-                            balance_call
-                        {
-                            if let Ok(recipient) = T::Lookup::lookup(dest) {
-                                // Clean up recipient index efficiently
-                                PendingTransfersByRecipient::<T>::mutate(&recipient, |list| {
-                                    list.retain(|&x| x != tx_id);
-                                });
-                            }
+            // Extract recipient from the call and clean up recipient index efficiently
+            if let Ok((call, _)) = T::Preimages::peek::<T::RuntimeCall>(&pending_transfer.call) {
+                if let Ok(balance_call) = call.try_into() {
+                    if let pallet_balances::Call::transfer_keep_alive { dest, .. } = balance_call {
+                        if let Ok(recipient) = T::Lookup::lookup(dest) {
+                            // Clean up recipient index efficiently
+                            PendingTransfersByRecipient::<T>::mutate(&recipient, |list| {
+                                list.retain(|&x| x != tx_id);
+                            });
                         }
                     }
                 }
@@ -643,7 +620,10 @@ pub mod pallet {
             }
             .into();
 
-            let tx_id = T::Hashing::hash_of(&(from.clone(), transfer_call.clone()).encode());
+            // Use a nonce to ensure tx_id is unique
+            let nonce = Self::account_nonce(&from);
+            let tx_id = T::Hashing::hash_of(&(from.clone(), transfer_call.clone(), nonce).encode());
+            AccountNonce::<T>::mutate(&from, |n| *n = n.saturating_add(1));
 
             log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {:?}", delay);
             log::debug!(target: "reversible-transfers", "Reversible transfer tx_id: {:?}", tx_id);
@@ -671,26 +651,15 @@ pub mod pallet {
             let call = T::Preimages::bound(transfer_call)?;
 
             // Store details before scheduling
-            let new_pending = if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
-                PendingTransfer {
-                    from: pending.from,
-                    to: pending.to,
-                    interceptor: pending.interceptor,
-                    call,
-                    amount,
-                    count: pending.count.saturating_add(1),
-                }
-            } else {
-                PendingTransfer {
-                    from: from.clone(),
-                    to: recipient.clone(),
-                    interceptor: interceptor.clone(),
-                    call,
-                    amount,
-                    count: 1,
-                }
+            let new_pending = PendingTransfer {
+                from: from.clone(),
+                to: recipient.clone(),
+                interceptor: interceptor.clone(),
+                call,
+                amount,
             };
-            let schedule_id = Self::make_schedule_id(&tx_id, new_pending.count)?;
+
+            let schedule_id = Self::make_schedule_id(&tx_id)?;
 
             // Add transfer to all storage (handles indexes, account count, etc.)
             Self::transfer_added(&from, &recipient, tx_id, new_pending)?;
@@ -764,7 +733,7 @@ pub mod pallet {
             // Remove transfer from all storage (handles indexes, account count, etc.)
             Self::transfer_removed(&pending.from, tx_id, &pending);
 
-            let schedule_id = Self::make_schedule_id(&tx_id, pending.count)?;
+            let schedule_id = Self::make_schedule_id(&tx_id)?;
 
             // Cancel the scheduled task
             T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
