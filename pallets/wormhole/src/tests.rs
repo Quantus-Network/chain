@@ -2,6 +2,9 @@
 mod wormhole_tests {
     use crate::{get_wormhole_verifier, mock::*, Error};
     use frame_support::{assert_noop, assert_ok};
+    use wormhole_verifier::ProofWithPublicInputs;
+    use wormhole_circuit::inputs::PublicCircuitInputs;
+    use sp_runtime::Perbill;
 
     // Helper function to generate proof and inputs for a given n
     fn get_test_proof() -> Vec<u8> {
@@ -83,6 +86,22 @@ mod wormhole_tests {
             let proof = get_test_proof();
             let expected_exit_account = 8226349481601990196u64;
 
+            // Parse the proof to get expected funding amount
+            let verifier = get_wormhole_verifier().expect("Verifier should be available");
+            let proof_with_inputs = ProofWithPublicInputs::from_bytes(proof.clone(), &verifier.circuit_data.common)
+                .expect("Should be able to parse test proof");
+            
+            let public_inputs = PublicCircuitInputs::try_from(proof_with_inputs)
+                .expect("Should be able to parse public inputs");
+            
+            let expected_funding_amount = public_inputs.funding_amount;
+            
+            // Calculate expected fees (matching lib.rs logic exactly)
+            let weight_fee = 0u128; // IdentityFee with zero weight in tests
+            let volume_fee = Perbill::from_rational(1u32, 1000u32) * expected_funding_amount;
+            let expected_total_fee = weight_fee.saturating_add(volume_fee);
+            let expected_net_balance_increase = expected_funding_amount.saturating_sub(expected_total_fee);
+
             let initial_exit_balance =
                 pallet_balances::Pallet::<Test>::free_balance(expected_exit_account);
 
@@ -95,8 +114,16 @@ mod wormhole_tests {
             // let fees_paid = crate::mock::FEES_PAID.with(|f| *f.borrow());
             let balance_increase = final_exit_balance - initial_exit_balance;
 
-            // The exit account should have received tokens
-            assert!(balance_increase > 0);
+            // Assert the exact expected balance increase
+            assert_eq!(
+                balance_increase, 
+                expected_net_balance_increase,
+                "Balance increase should equal funding amount minus fees. Funding: {}, Fees: {}, Expected net: {}, Actual: {}",
+                expected_funding_amount,
+                expected_total_fee,
+                expected_net_balance_increase,
+                balance_increase
+            );
 
             // NOTE: In this mock/test context, the OnUnbalanced handler is not triggered for this withdrawal.
             // In production, the fee will be routed to the handler as expected.
