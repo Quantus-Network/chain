@@ -17,10 +17,9 @@ pub use weights::*;
 pub mod pallet {
     use super::*;
     use codec::Decode;
+    use core::marker::PhantomData;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{
-        DecreaseIssuance, IncreaseIssuance, Inspect, Mutate, Unbalanced,
-    };
+    use frame_support::traits::fungible::{Inspect, Mutate, Unbalanced};
     use frame_support::traits::Defensive;
     use frame_support::traits::{Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;
@@ -31,12 +30,6 @@ pub mod pallet {
 
     type BalanceOf<T> =
         <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
-
-    type NegativeImbalanceOf<T> = frame_support::traits::fungible::Imbalance<
-        BalanceOf<T>,
-        DecreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
-        IncreaseIssuance<<T as frame_system::Config>::AccountId, <T as Config>::Currency>,
-    >;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -204,13 +197,14 @@ pub mod pallet {
 
     pub struct TransactionFeesCollector<T>(PhantomData<T>);
 
-    impl<T> OnUnbalanced<NegativeImbalanceOf<T>> for TransactionFeesCollector<T>
+    impl<T, I> OnUnbalanced<I> for TransactionFeesCollector<T>
     where
-        T: Config + pallet_balances::Config<Balance = u128>,
-        BalanceOf<T>: From<u128>,
+        T: Config,
+        I: Imbalance<BalanceOf<T>>,
     {
-        fn on_nonzero_unbalanced(amount: NegativeImbalanceOf<T>) {
-            Pallet::<T>::collect_transaction_fees(amount.peek());
+        fn on_nonzero_unbalanced(amount: I) {
+            let value = amount.peek();
+            Pallet::<T>::collect_transaction_fees(value);
         }
     }
 }

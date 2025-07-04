@@ -36,4 +36,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_scheduler, Scheduler]
     [pallet_qpow, QPoW]
     [pallet_faucet, Faucet]
+    [pallet_wormhole, Wormhole]
 );

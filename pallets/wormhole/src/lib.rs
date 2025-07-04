@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+
 extern crate alloc;
+
+use lazy_static::lazy_static;
+use wormhole_verifier::WormholeVerifier;
 
 pub use pallet::*;
 
@@ -8,149 +12,78 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-pub type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
-
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+lazy_static! {
+    static ref WORMHOLE_VERIFIER: Option<WormholeVerifier> = {
+        let verifier_bytes = include_bytes!("../verifier.bin");
+        let common_bytes = include_bytes!("../common.bin");
+        WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+    };
+}
+
+// Add a safe getter function
+pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+    WORMHOLE_VERIFIER
+        .as_ref()
+        .ok_or("Wormhole verifier not available")
+}
+
 #[frame_support::pallet]
 pub mod pallet {
-    use super::BalanceOf;
     use alloc::vec::Vec;
-    use codec::{Decode, Encode};
-    use frame_support::{pallet_prelude::*, traits::fungible::Mutate};
-    use frame_system::pallet_prelude::*;
-    use lazy_static::lazy_static;
-    use pallet_balances::Pallet as BalancesPallet;
-    use plonky2::{
-        field::{goldilocks_field::GoldilocksField, types::PrimeField64},
-        plonk::{
-            circuit_data::{CommonCircuitData, VerifierCircuitData},
-            config::{GenericConfig, PoseidonGoldilocksConfig},
-            proof::ProofWithPublicInputs,
-        },
-        util::serialization::DefaultGateSerializer,
+    use codec::Decode;
+    use frame_support::pallet_prelude::*;
+    use frame_support::traits::fungible::Inspect;
+    use frame_support::traits::fungible::Unbalanced;
+    use frame_support::{
+        traits::{Currency, ExistenceRequirement, WithdrawReasons},
+        weights::WeightToFee,
     };
+    use frame_system::pallet_prelude::*;
+    use sp_runtime::{
+        traits::{Saturating, Zero},
+        Perbill,
+    };
+    use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
+    use wormhole_verifier::ProofWithPublicInputs;
+    use zk_circuits_common::circuit::{C, D, F};
+
+    pub type BalanceOf<T> =
+        <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config {
         /// Overarching runtime event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
 
-        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
-        #[pallet::constant]
-        type MintingAccount: Get<Self::AccountId>;
+        type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
+
+        /// Currency type for handling tokens
+        type Currency: Currency<Self::AccountId> + Unbalanced<Self::AccountId>;
     }
 
     pub trait WeightInfo {
         fn verify_wormhole_proof() -> Weight;
-        fn verify_wormhole_proof_with_used_nullifier() -> Weight;
-        fn verify_wormhole_proof_deserialization_failure() -> Weight;
-        fn verify_wormhole_proof_empty_data() -> Weight;
     }
 
     impl WeightInfo for () {
         fn verify_wormhole_proof() -> Weight {
             Weight::zero()
         }
-        fn verify_wormhole_proof_with_used_nullifier() -> Weight {
-            Weight::zero()
-        }
-        fn verify_wormhole_proof_deserialization_failure() -> Weight {
-            Weight::zero()
-        }
-        fn verify_wormhole_proof_empty_data() -> Weight {
-            Weight::zero()
-        }
-    }
-
-    const D: usize = 2;
-    type C = PoseidonGoldilocksConfig;
-    type F = <C as GenericConfig<D>>::F;
-
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
-    pub struct WormholePublicInputs<T: Config> {
-        pub nullifier: [u8; 64],
-        pub exit_account: T::AccountId,
-        pub exit_amount: u64,
-        pub fee_amount: u64,
-        pub storage_root: [u8; 32],
-    }
-
-    impl<T: Config> WormholePublicInputs<T> {
-        // Convert from a vector of GoldilocksField elements
-        pub fn from_fields(fields: &[GoldilocksField]) -> Result<Self, Error<T>> {
-            if fields.len() < 16 {
-                // Ensure we have enough fields
-                return Err(Error::<T>::InvalidPublicInputs);
-            }
-
-            // Convert fields to bytes, each GoldilocksField is 8 bytes (u64)
-            let mut nullifier = [0u8; 64];
-            let mut account_bytes = [0u8; 32];
-            let mut storage_root = [0u8; 32];
-
-            // First 8 fields (64 bytes) are the nullifier
-            for i in 0..8 {
-                nullifier[i * 8..(i + 1) * 8]
-                    .copy_from_slice(&fields[i].to_canonical_u64().to_le_bytes());
-            }
-
-            // Next 4 fields (32 bytes) are the exit account
-            for i in 0..4 {
-                account_bytes[i * 8..(i + 1) * 8]
-                    .copy_from_slice(&fields[i + 8].to_canonical_u64().to_le_bytes());
-            }
-
-            // Next field is exit amount
-            let exit_amount = fields[12].to_canonical_u64();
-
-            // Next field is fee amount
-            let fee_amount = fields[13].to_canonical_u64();
-
-            // Last 2 fields are storage root
-            for i in 0..4 {
-                storage_root[i * 8..(i + 1) * 8]
-                    .copy_from_slice(&fields[i + 14].to_canonical_u64().to_le_bytes());
-            }
-
-            let exit_account = T::AccountId::decode(&mut &account_bytes[..])
-                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-            Ok(WormholePublicInputs {
-                nullifier,
-                exit_account,
-                exit_amount,
-                fee_amount,
-                storage_root,
-            })
-        }
-    }
-
-    // Define the circuit data as a lazy static constant
-    lazy_static! {
-        static ref CIRCUIT_DATA: CommonCircuitData<F, D> = {
-            let bytes = include_bytes!("../common.hex");
-            CommonCircuitData::from_bytes(bytes.to_vec(), &DefaultGateSerializer)
-                .expect("Failed to parse circuit data")
-        };
-        static ref VERIFIER_DATA: VerifierCircuitData<F, C, D> = {
-            let bytes = include_bytes!("../verifier.hex");
-            VerifierCircuitData::from_bytes(bytes.to_vec(), &DefaultGateSerializer)
-                .expect("Failed to parse verifier data")
-        };
     }
 
     #[pallet::storage]
     #[pallet::getter(fn used_nullifiers)]
     pub(super) type UsedNullifiers<T: Config> =
-        StorageMap<_, Blake2_128Concat, [u8; 64], bool, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -162,58 +95,92 @@ pub mod pallet {
     pub enum Error<T> {
         InvalidProof,
         ProofDeserializationFailed,
-        InvalidVerificationKey,
-        NotInitialized,
-        AlreadyInitialized,
         VerificationFailed,
-        VerifierNotFound,
         InvalidPublicInputs,
         NullifierAlreadyUsed,
+        VerifierNotAvailable,
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T> {
+    impl<T: Config> Pallet<T>
+    where
+        BalanceOf<T>: Into<<<T as Config>::Currency as Inspect<T::AccountId>>::Balance>,
+    {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
 
-            let proof = ProofWithPublicInputs::from_bytes(proof_bytes.clone(), &*CIRCUIT_DATA)
-                .map_err(|_e| {
-                    // log::error!("Proof deserialization failed: {:?}", e.to_string());
-                    Error::<T>::ProofDeserializationFailed
-                })?;
+            let verifier =
+                crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
 
-            let public_inputs = WormholePublicInputs::<T>::from_fields(&proof.public_inputs)?;
+            let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+                proof_bytes,
+                &verifier.circuit_data.common,
+            )
+            .map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+
+            ensure!(
+                proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
+                Error::<T>::InvalidPublicInputs
+            );
+
+            // Parse public inputs using the existing parser
+            let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
+            let nullifier_bytes = *public_inputs.nullifier;
 
             // Verify nullifier hasn't been used
             ensure!(
-                !UsedNullifiers::<T>::contains_key(public_inputs.nullifier),
+                !UsedNullifiers::<T>::contains_key(nullifier_bytes),
                 Error::<T>::NullifierAlreadyUsed
             );
 
-            VERIFIER_DATA.verify(proof).map_err(|_e| {
-                // log::error!("Verification failed: {:?}", e.to_string());
-                Error::<T>::VerificationFailed
-            })?;
+            verifier
+                .verify(proof.clone())
+                .map_err(|_| Error::<T>::VerificationFailed)?;
 
             // Mark nullifier as used
-            UsedNullifiers::<T>::insert(public_inputs.nullifier, true);
+            UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
-            let exit_balance = public_inputs
-                .exit_amount
+            let exit_balance_u128 = public_inputs.funding_amount;
+
+            // Convert to Balance type
+            let exit_balance: BalanceOf<T> = exit_balance_u128
                 .try_into()
-                .map_err(|_| "Conversion from u64 to Balance failed")?;
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
-            BalancesPallet::<T, ()>::mint_into(&public_inputs.exit_account, exit_balance)?;
+            // Decode exit account from public inputs
+            let exit_account_bytes = *public_inputs.exit_account;
+            let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
+                .map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
-            // Create a transfer proof for the minted tokens
-            let mint_account = T::MintingAccount::get();
-            BalancesPallet::<T, ()>::store_transfer_proof(
-                &mint_account,
-                &public_inputs.exit_account,
-                exit_balance,
-            );
+            // Calculate fees first
+            let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
+            let weight_fee = T::WeightToFee::weight_to_fee(&weight);
+            let volume_fee_perbill = Perbill::from_rational(1u32, 1000u32);
+            let volume_fee = volume_fee_perbill * exit_balance;
+            let total_fee = weight_fee.saturating_add(volume_fee);
+
+            // Mint tokens to the exit account
+            // This does not affect total issuance and does not create an imbalance
+            <T::Currency as Unbalanced<_>>::increase_balance(
+                &exit_account,
+                exit_balance.into(),
+                frame_support::traits::tokens::Precision::Exact,
+            )?;
+
+            // Withdraw fee from exit account if fees are non-zero
+            // This creates a negative imbalance that will be handled by the transaction payment pallet
+            if !total_fee.is_zero() {
+                let _fee_imbalance = T::Currency::withdraw(
+                    &exit_account,
+                    total_fee,
+                    WithdrawReasons::TRANSACTION_PAYMENT,
+                    ExistenceRequirement::KeepAlive,
+                )?;
+            }
 
             // Emit event
             Self::deposit_event(Event::ProofVerified {
