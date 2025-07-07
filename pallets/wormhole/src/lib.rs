@@ -37,7 +37,7 @@ pub mod pallet {
     use alloc::vec::Vec;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{Inspect, Mutate, Unbalanced};
+    use frame_support::traits::fungible::{Mutate, Unbalanced};
     use frame_support::{
         traits::{Currency, ExistenceRequirement, WithdrawReasons},
         weights::WeightToFee,
@@ -64,7 +64,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Currency type used for minting tokens and handling wormhole transfers
-        type Currency: Mutate<Self::AccountId>
+        type Currency: Mutate<Self::AccountId, Balance = BalanceOf<Self>>
             + TransferProofs<BalanceOf<Self>, Self::AccountId>
             + Unbalanced<Self::AccountId>
             + Currency<Self::AccountId>;
@@ -101,10 +101,7 @@ pub mod pallet {
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        BalanceOf<T>: Into<<<T as Config>::Currency as Inspect<T::AccountId>>::Balance>,
-    {
+    impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
         pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
