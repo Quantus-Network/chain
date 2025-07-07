@@ -456,6 +456,12 @@ pub mod pallet {
         },
         /// The `TotalIssuance` was forcefully changed.
         TotalIssuanceForced { old: T::Balance, new: T::Balance },
+        TransferProof {
+            counter: u64,
+            from: T::AccountId,
+            to: T::AccountId,
+            amount: T::Balance,
+        },
     }
 
     #[pallet::error]
@@ -949,6 +955,13 @@ pub mod pallet {
                 TransferCount::<T, I>::put(current_count.saturating_add(One::one()));
 
                 TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
+
+                Self::deposit_event(Event::TransferProof {
+                    counter: current_count,
+                    from: from.clone(),
+                    to: to.clone(),
+                    amount: value,
+                });
             }
         }
 
