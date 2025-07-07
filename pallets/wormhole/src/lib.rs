@@ -33,6 +33,7 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::WeightInfo;
     use alloc::vec::Vec;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
@@ -50,8 +51,7 @@ pub mod pallet {
     use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
     use wormhole_verifier::ProofWithPublicInputs;
     use zk_circuits_common::circuit::{C, D, F};
-    use crate::WeightInfo;
-    
+
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 

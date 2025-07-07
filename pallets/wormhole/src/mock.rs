@@ -9,7 +9,6 @@ use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
-
 // --- MOCK RUNTIME ---
 
 construct_runtime!(
@@ -94,7 +93,7 @@ parameter_types! {
 
 impl pallet_wormhole::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = ();
+    type WeightInfo = crate::weights::SubstrateWeight<Test>;
     type WeightToFee = IdentityFee<Balance>;
     type Currency = Balances;
     type MintingAccount = MintingAccount;

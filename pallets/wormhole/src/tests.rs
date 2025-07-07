@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod wormhole_tests {
-    use crate::{get_wormhole_verifier, mock::*, Error};
+    use crate::{get_wormhole_verifier, mock::*, weights, Config, Error, WeightInfo};
+    use frame_support::weights::WeightToFee;
     use frame_support::{assert_noop, assert_ok};
     use sp_runtime::Perbill;
     use wormhole_circuit::inputs::PublicCircuitInputs;
@@ -95,7 +96,8 @@ mod wormhole_tests {
             let expected_funding_amount = public_inputs.funding_amount;
 
             // Calculate expected fees (matching lib.rs logic exactly)
-            let weight_fee = 0u128; // IdentityFee with zero weight in tests
+            let weight = <weights::SubstrateWeight<Test> as WeightInfo>::verify_wormhole_proof();
+            let weight_fee: u128 = <Test as Config>::WeightToFee::weight_to_fee(&weight);
             let volume_fee = Perbill::from_rational(1u32, 1000u32) * expected_funding_amount;
             let expected_total_fee = weight_fee.saturating_add(volume_fee);
             let expected_net_balance_increase = expected_funding_amount.saturating_sub(expected_total_fee);
