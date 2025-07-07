@@ -19,9 +19,6 @@ mod benchmarks {
     use frame_support::traits::{Get, OnFinalize};
     use sp_runtime::Saturating;
 
-    type BalanceOf<T> =
-        <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
-
     #[benchmark]
     fn on_finalize_rewarded_miner() -> Result<(), BenchmarkError> {
         let block_number: BlockNumberFor<T> = 1u32.into();

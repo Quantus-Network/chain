@@ -8,7 +8,7 @@ use sp_runtime::app_crypto::sp_core;
 use sp_runtime::testing::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
-    BuildStorage, Digest, DigestItem, Permill,
+    BuildStorage, Digest, DigestItem,
 };
 
 // Configure a mock runtime to test the pallet
@@ -25,11 +25,10 @@ pub type Block = frame_system::mocking::MockBlock<Test>;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
-    pub const SS58Prefix: u8 = 42;
+    pub const SS58Prefix: u8 = 189;
     pub const BlockReward: u128 = 50;
     pub const ExistentialDeposit: Balance = 1;
     pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
-    pub FeesToTreasuryPermill: Permill = Permill::from_percent(10);
 }
 
 impl frame_system::Config for Test {
@@ -82,13 +81,19 @@ impl pallet_balances::Config for Test {
     type DoneSlashHandler = ();
 }
 
+parameter_types! {
+    pub const TreasuryBlockReward: u128 = 50;
+    pub const MintingAccount: u64 = 999;
+}
+
 impl pallet_mining_rewards::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = ();
     type Currency = Balances;
-    type BlockReward = BlockReward;
+    type WeightInfo = ();
+    type MinerBlockReward = BlockReward;
+    type TreasuryBlockReward = TreasuryBlockReward;
     type TreasuryPalletId = TreasuryPalletId;
-    type FeesToTreasuryPermill = FeesToTreasuryPermill;
+    type MintingAccount = MintingAccount;
 }
 
 // Configure a default miner account for tests

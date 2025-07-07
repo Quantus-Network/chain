@@ -74,11 +74,10 @@ parameter_types! {
         NORMAL_DISPATCH_RATIO,
     );
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
-    pub const SS58Prefix: u8 = 42;
+    pub const SS58Prefix: u8 = 189;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
     pub const MaxProofs: u32 = 100;
     pub const UnsignedClaimPriority: u32 = 100;
-    pub MiningRewardsFeesToTreasury: Permill = Permill::from_percent(10);
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -129,11 +128,12 @@ impl pallet_faucet::Config for Runtime {
 
 impl pallet_mining_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
     type Currency = Balances;
-    type BlockReward = ConstU128<1_000_000_000_000>; // 1 token
+    type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
+    type MinerBlockReward = ConstU128<10_000_000_000_000>; // 10 tokens
+    type TreasuryBlockReward = ConstU128<1_000_000_000_000>; // 1 token
     type TreasuryPalletId = TreasuryPalletId;
-    type FeesToTreasuryPermill = MiningRewardsFeesToTreasury;
+    type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
@@ -151,15 +151,20 @@ impl pallet_qpow::Config for Runtime {
     type AdjustmentPeriod = ConstU32<1>;
     type BlockTimeHistorySize = ConstU32<10>;
     type MaxReorgDepth = ConstU32<10>;
-    type FixedU128Scale = ConstU128<1_000_000_000_000>;
+    type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
     type MaxDistanceMultiplier = ConstU32<2>;
+}
+
+parameter_types! {
+     pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
 }
 
 impl pallet_wormhole::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
     type WeightInfo = ();
     type WeightToFee = IdentityFee<Balance>;
-    type Currency = Balances;
+    type MintingAccount = MintingAccount;
 }
 
 type Moment = u64;

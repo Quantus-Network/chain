@@ -3,9 +3,8 @@
 extern crate alloc;
 
 use lazy_static::lazy_static;
-use wormhole_verifier::WormholeVerifier;
-
 pub use pallet::*;
+use wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
 mod mock;
@@ -35,13 +34,13 @@ pub mod pallet {
     use alloc::vec::Vec;
     use codec::Decode;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::Inspect;
-    use frame_support::traits::fungible::Unbalanced;
+    use frame_support::traits::fungible::{Inspect, Mutate, Unbalanced};
     use frame_support::{
         traits::{Currency, ExistenceRequirement, WithdrawReasons},
         weights::WeightToFee,
     };
     use frame_system::pallet_prelude::*;
+    use qp_wormhole::TransferProofs;
     use sp_runtime::{
         traits::{Saturating, Zero},
         Perbill,
@@ -61,13 +60,20 @@ pub mod pallet {
         /// Overarching runtime event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
+        /// Currency type used for minting tokens and handling wormhole transfers
+        type Currency: Mutate<Self::AccountId>
+            + TransferProofs<BalanceOf<Self>, Self::AccountId>
+            + Unbalanced<Self::AccountId>
+            + Currency<Self::AccountId>;
+
+        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
+        #[pallet::constant]
+        type MintingAccount: Get<Self::AccountId>;
+
         /// Weight information for pallet operations.
         type WeightInfo: WeightInfo;
 
         type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
-
-        /// Currency type for handling tokens
-        type Currency: Currency<Self::AccountId> + Unbalanced<Self::AccountId>;
     }
 
     pub trait WeightInfo {
@@ -181,6 +187,10 @@ pub mod pallet {
                     ExistenceRequirement::KeepAlive,
                 )?;
             }
+
+            // Create a transfer proof for the minted tokens
+            let mint_account = T::MintingAccount::get();
+            T::Currency::store_transfer_proof(&mint_account, &exit_account, exit_balance);
 
             // Emit event
             Self::deposit_event(Event::ProofVerified {

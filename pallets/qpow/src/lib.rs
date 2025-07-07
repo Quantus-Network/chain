@@ -197,11 +197,11 @@ pub mod pallet {
         fn on_finalize(block_number: BlockNumberFor<T>) {
             let blocks = <BlocksInPeriod<T>>::get();
             let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
-            log::trace!(target: "qpow",
+            log::debug!(target: "qpow",
                 "📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_distance_threshold={}",
                 block_number,
                 blocks,
-                current_distance_threshold
+                current_distance_threshold.shr(300)
             );
             Self::adjust_distance_threshold();
         }
@@ -229,7 +229,7 @@ pub mod pallet {
             <HistoryIndex<T>>::put(index);
             <HistorySize<T>>::put(new_size);
 
-            log::trace!(target: "qpow",
+            log::debug!(target: "qpow",
                 "📊 Recorded block time: {}ms, history size: {}/{}",
                 block_time,
                 new_size,
@@ -251,7 +251,7 @@ pub mod pallet {
                 sum = sum.saturating_add(<BlockTimeHistory<T>>::get(i));
             }
 
-            log::trace!(target: "qpow",
+            log::debug!(target: "qpow",
                 "📊 Calculated total adjustment period time: {}ms from {} samples",
                 sum,
                 size
@@ -274,7 +274,7 @@ pub mod pallet {
                 times.push(<BlockTimeHistory<T>>::get(i));
             }
 
-            log::trace!(target: "qpow", "📊 Block times: {:?}", times);
+            log::debug!(target: "qpow", "📊 Block times: {:?}", times);
 
             // Sort it
             times.sort();
@@ -285,7 +285,7 @@ pub mod pallet {
                 times[times.len() / 2]
             };
 
-            log::trace!(target: "qpow",
+            log::debug!(target: "qpow",
                 "📊 Calculated median block time: {}ms from {} samples",
                 median_time,
                 times.len()
@@ -318,9 +318,10 @@ pub mod pallet {
             // Update TotalWork
             let old_total_work = <TotalWork<T>>::get();
             let current_work = Self::get_difficulty();
+            // TODO: we should record the actual distance achieved somewhere
             let new_total_work = old_total_work.saturating_add(current_work);
             <TotalWork<T>>::put(new_total_work);
-            log::trace!(target: "qpow",
+            log::debug!(target: "qpow",
                 "Total work: now={}, last_time={}, diff={}",
                 new_total_work,
                 old_total_work,
@@ -334,7 +335,7 @@ pub mod pallet {
             if current_block_number > One::one() {
                 let block_time = now.saturating_sub(last_time);
 
-                log::trace!(target: "qpow",
+                log::debug!(target: "qpow",
                     "Time calculation: now={}, last_time={}, diff={}ms",
                     now,
                     last_time,
@@ -377,7 +378,7 @@ pub mod pallet {
                     let (pct_change, is_positive) =
                         Self::percentage_change(current_distance_threshold, new_distance_threshold);
 
-                    log::trace!(target: "qpow",
+                    log::debug!(target: "qpow",
                         "🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
                         if is_positive {"+"} else {"-"},
                         pct_change,
@@ -401,7 +402,7 @@ pub mod pallet {
             observed_block_time: u64,
             target_block_time: u64,
         ) -> U512 {
-            log::trace!(target: "qpow", "📊 Calculating new distance_threshold ---------------------------------------------");
+            log::debug!(target: "qpow", "📊 Calculating new distance_threshold ---------------------------------------------");
             // Calculate ratio using FixedU128
             let clamp =
                 FixedU128::from_rational(T::DifficultyAdjustPercentClamp::get() as u128, 100u128);
@@ -410,7 +411,7 @@ pub mod pallet {
                 FixedU128::from_rational(observed_block_time as u128, target_block_time as u128)
                     .min(one.saturating_add(clamp))
                     .max(one.saturating_sub(clamp));
-            log::trace!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
+            log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
 
             // Calculate adjusted distance_threshold
             let mut adjusted = if ratio == one {
@@ -424,7 +425,7 @@ pub mod pallet {
                 match adj {
                     Some(value) => value.saturating_mul(ratio_512),
                     None => {
-                        log::trace!(target: "qpow",
+                        log::warn!(target: "qpow",
                             "Division by zero or overflow in distance_threshold calculation"
                         );
                         return current_distance_threshold;
@@ -442,13 +443,13 @@ pub mod pallet {
                 }
             }
 
-            log::trace!(target: "qpow",
+            log::debug!(target: "qpow",
                 "🟢 Current Distance Threshold: {}..",
-                current_distance_threshold.shr(100)
+                current_distance_threshold.shr(300)
             );
-            log::trace!(target: "qpow", "🟢 Next Distance Threshold:    {}..", adjusted.shr(100));
-            log::trace!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
-            log::trace!(target: "qpow", "🎯 Target Block Time Sum:   {}ms", target_block_time);
+            log::debug!(target: "qpow", "🟢 Next Distance Threshold:    {}..", adjusted.shr(300));
+            log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
+            log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {}ms", target_block_time);
 
             adjusted
         }

@@ -20,12 +20,14 @@ frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
 poseidon-resonance = { workspace = true, features = ["serde"] }
+qp-wormhole = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
 
 [dev-dependencies]
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
 pallet-transaction-payment.workspace = true
+pallet-transaction-payment.features = ["std"]
 paste.workspace = true
 sp-core.workspace = true
 sp-io.workspace = true
@@ -38,6 +40,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
+	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-runtime/std",
 ]

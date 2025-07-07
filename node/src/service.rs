@@ -374,7 +374,7 @@ pub fn new_full<
                     let metadata = match worker_handle.metadata() {
                         Some(m) => m,
                         None => {
-                            log::warn!(target: "pow", "No mining metadata available");
+                            log::debug!(target: "pow", "No mining metadata available");
                             tokio::time::sleep(Duration::from_millis(250)).await;
                             continue;
                         }

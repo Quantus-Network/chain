@@ -19,16 +19,15 @@ pub mod pallet {
     use codec::Decode;
     use core::marker::PhantomData;
     use frame_support::pallet_prelude::*;
-    use frame_support::traits::fungible::{Inspect, Mutate, Unbalanced};
-    use frame_support::traits::Defensive;
-    use frame_support::traits::{Get, Imbalance, OnUnbalanced};
+    use frame_support::traits::fungible::{Inspect, Mutate};
+    use frame_support::traits::{Defensive, Get, Imbalance, OnUnbalanced};
     use frame_system::pallet_prelude::*;
+    use qp_wormhole::TransferProofs;
     use sp_consensus_pow::POW_ENGINE_ID;
     use sp_runtime::generic::DigestItem;
     use sp_runtime::traits::{AccountIdConversion, Saturating};
-    use sp_runtime::Permill;
 
-    type BalanceOf<T> =
+    pub(crate) type BalanceOf<T> =
         <<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
     #[pallet::pallet]
@@ -46,20 +45,25 @@ pub mod pallet {
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
 
-        /// The currency in which fees are paid and rewards are issued
-        type Currency: Mutate<Self::AccountId> + Unbalanced<Self::AccountId>;
+        /// Currency type that also stores zk proofs
+        type Currency: Mutate<Self::AccountId>
+            + qp_wormhole::TransferProofs<BalanceOf<Self>, Self::AccountId>;
 
         /// The base block reward given to miners
         #[pallet::constant]
-        type BlockReward: Get<BalanceOf<Self>>;
+        type MinerBlockReward: Get<BalanceOf<Self>>;
+
+        /// The base block reward given to treasury
+        #[pallet::constant]
+        type TreasuryBlockReward: Get<BalanceOf<Self>>;
 
         /// The treasury pallet ID
         #[pallet::constant]
         type TreasuryPalletId: Get<frame_support::PalletId>;
 
-        /// The percentage of transaction fees that should go to the Treasury.
+        /// Account ID used as the "from" account when creating transfer proofs for minted tokens
         #[pallet::constant]
-        type FeesToTreasuryPermill: Get<Permill>;
+        type MintingAccount: Get<Self::AccountId>;
     }
 
     #[pallet::event]
@@ -95,72 +99,31 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
             // Return weight consumed for on finalize hook
-            T::WeightInfo::on_finalize_rewarded_miner()
+            <T as crate::pallet::Config>::WeightInfo::on_finalize_rewarded_miner()
         }
 
         fn on_finalize(_block_number: BlockNumberFor<T>) {
-            // Get Treasury account
-            let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
+            // Get the block rewards
+            let miner_reward = T::MinerBlockReward::get();
+            let treasury_reward = T::TreasuryBlockReward::get();
+            let tx_fees = <CollectedFees<T>>::take();
 
             // Extract miner ID from the pre-runtime digest
-            if let Some(miner) = Self::extract_miner_from_digest() {
-                // Get the block reward
-                let base_reward = T::BlockReward::get();
-                let mut tx_fees = <CollectedFees<T>>::take();
+            let miner = Self::extract_miner_from_digest();
 
-                log::trace!(target: "mining-rewards", "💰 Base reward: {:?}", base_reward);
-                log::trace!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
+            log::debug!(target: "mining-rewards", "💰 Base reward: {:?}", miner_reward);
+            log::debug!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
 
-                // Calculate fees for Treasury
-                let fees_to_treasury_percentage = T::FeesToTreasuryPermill::get();
-                let fees_for_treasury = fees_to_treasury_percentage.mul_floor(tx_fees);
-
-                // Send fees to Treasury if any
-                if fees_for_treasury > Zero::zero() {
-                    let _ =
-                        T::Currency::mint_into(&treasury_account, fees_for_treasury).defensive();
-
-                    Self::deposit_event(Event::FeesRedirectedToTreasury {
-                        amount: fees_for_treasury,
-                    });
-                    // Subtract fees sent to treasury from the total tx_fees
-                    tx_fees = tx_fees.saturating_sub(fees_for_treasury);
-                }
-
-                let reward_for_miner = base_reward.saturating_add(tx_fees);
-
-                // Create imbalance for miner's reward
-                if reward_for_miner > Zero::zero() {
-                    let _ = T::Currency::mint_into(&miner, reward_for_miner).defensive();
-
-                    // Emit an event for miner's reward
-                    Self::deposit_event(Event::MinerRewarded {
-                        miner: miner.clone(),
-                        reward: reward_for_miner, // Actual reward for miner
-                    });
-                }
-            } else {
-                // No miner specified, send all rewards (base + all fees) to Treasury
-                let base_reward = T::BlockReward::get();
-                let tx_fees = <CollectedFees<T>>::take();
-                let total_reward_for_treasury = base_reward.saturating_add(tx_fees);
-
-                if total_reward_for_treasury > BalanceOf::<T>::from(0u32) {
-                    let _ = T::Currency::mint_into(&treasury_account, total_reward_for_treasury)
-                        .defensive();
-
-                    // Emit an event
-                    Self::deposit_event(Event::TreasuryRewarded {
-                        reward: total_reward_for_treasury,
-                    });
-
-                    log::trace!(
-                        target: "mining-rewards",
-                        "💰 No miner specified, all rewards sent to Treasury: {:?}",
-                        total_reward_for_treasury
-                    );
-                }
+            // Send fees to miner if any
+            if tx_fees > Zero::zero() {
+                Self::mint_reward(miner.clone(), tx_fees);
             }
+
+            // Send rewards separately for accounting
+            Self::mint_reward(miner, miner_reward);
+
+            // Send treasury reward
+            Self::mint_reward(None, treasury_reward);
         }
     }
 
@@ -174,7 +137,8 @@ pub mod pallet {
             for log in digest.logs.iter() {
                 if let DigestItem::PreRuntime(engine_id, data) = log {
                     if engine_id == &POW_ENGINE_ID {
-                        // Try to decode the miner account ID
+                        // Try to decode the accountId
+                        // TODO: to enforce miner wormholes, decode inner hash here
                         if let Ok(miner) = T::AccountId::decode(&mut &data[..]) {
                             return Some(miner);
                         }
@@ -193,6 +157,44 @@ pub mod pallet {
                 total: <CollectedFees<T>>::get(),
             });
         }
+
+        fn mint_reward(maybe_miner: Option<T::AccountId>, reward: BalanceOf<T>) {
+            let mint_account = T::MintingAccount::get();
+
+            match maybe_miner {
+                Some(miner) => {
+                    let _ = T::Currency::mint_into(&miner, reward).defensive();
+
+                    T::Currency::store_transfer_proof(&mint_account, &miner, reward);
+
+                    Self::deposit_event(Event::MinerRewarded {
+                        miner: miner.clone(),
+                        reward,
+                    });
+
+                    log::debug!(
+                        target: "mining-rewards",
+                        "💰 Rewards sent to miner: {:?} {:?}",
+                        reward,
+                        miner
+                    );
+                }
+                None => {
+                    let treasury = T::TreasuryPalletId::get().into_account_truncating();
+                    let _ = T::Currency::mint_into(&treasury, reward).defensive();
+
+                    T::Currency::store_transfer_proof(&mint_account, &treasury, reward);
+
+                    Self::deposit_event(Event::TreasuryRewarded { reward });
+
+                    log::debug!(
+                        target: "mining-rewards",
+                        "💰 Rewards sent to Treasury: {:?}",
+                        reward
+                    );
+                }
+            };
+        }
     }
 
     pub struct TransactionFeesCollector<T>(PhantomData<T>);
@@ -203,8 +205,7 @@ pub mod pallet {
         I: Imbalance<BalanceOf<T>>,
     {
         fn on_nonzero_unbalanced(amount: I) {
-            let value = amount.peek();
-            Pallet::<T>::collect_transaction_fees(value);
+            Pallet::<T>::collect_transaction_fees(amount.peek());
         }
     }
 }

@@ -26,6 +26,7 @@ pub struct QuantusKeyDetails {
     pub secret_key_hex: String, // Secret key, hex encoded with "0x" prefix
     pub seed_hex: String,       // Derived seed, hex encoded with "0x" prefix
     pub secret_phrase: Option<String>, // Mnemonic phrase
+    pub inner_hash: Option<String>, // If wormhole key, this is first hash
 }
 
 pub fn generate_quantus_key(
@@ -93,6 +94,7 @@ pub fn generate_quantus_key(
                 secret_key_hex: format!("0x{}", hex::encode(resonance_pair.secret)),
                 seed_hex: format!("0x{}", hex::encode(&actual_seed_for_pair)),
                 secret_phrase: words_to_print,
+                inner_hash: None,
             })
         }
         QuantusAddressType::Wormhole => {
@@ -112,6 +114,7 @@ pub fn generate_quantus_key(
                 secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
                 seed_hex: "N/A (Wormhole)".to_string(),
                 secret_phrase: None,
+                inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
             })
         }
     }
@@ -165,6 +168,7 @@ impl SubstrateCli for Cli {
 
 /// Parse and run command line arguments
 pub fn run() -> sc_cli::Result<()> {
+    sp_core::crypto::set_default_ss58_version(sp_core::crypto::Ss58AddressFormat::custom(189));
     let cli = Cli::from_args();
     match &cli.subcommand {
         Some(Subcommand::Key(cmd)) => {
@@ -210,6 +214,10 @@ pub fn run() -> sc_cli::Result<()> {
                                         "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
                                     );
                                     println!("Address: {}", details.address);
+                                    println!(
+                                        "Inner Hash: 0x{}",
+                                        details.inner_hash.unwrap_or_default()
+                                    );
                                     println!("Wormhole Address: {}", details.public_key_hex);
                                     println!("Secret: {}", details.secret_key_hex);
                                     // Pub key and Seed are N/A for wormhole as per QuantusKeyDetails

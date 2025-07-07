@@ -145,6 +145,7 @@
 mod benchmarking;
 mod impl_currency;
 mod impl_fungible;
+mod impl_proofs;
 pub mod migration;
 mod tests;
 mod types;
@@ -221,6 +222,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
 
     pub type CreditOf<T, I> = Credit<<T as frame_system::Config>::AccountId, Pallet<T, I>>;
+    pub type TransferCountType = u64;
 
     /// Default implementations of [`DefaultConfig`], which can be used to implement [`Config`].
     pub mod config_preludes {
@@ -571,6 +573,7 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Transfer proofs for a wormhole transfers
     #[pallet::storage]
     #[pallet::getter(fn transfer_proof)]
     pub type TransferProof<T: Config<I>, I: 'static = ()> = StorageMap<
@@ -583,7 +586,8 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn transfer_count)]
-    pub type TransferCount<T: Config<I>, I: 'static = ()> = StorageValue<_, u64, ValueQuery>;
+    pub type TransferCount<T: Config<I>, I: 'static = ()> =
+        StorageValue<_, TransferCountType, ValueQuery>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
@@ -700,7 +704,7 @@ pub mod pallet {
             let source = ensure_signed(origin)?;
             let dest = T::Lookup::lookup(dest)?;
             <Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Expendable)?;
-            Self::store_transfer_proof(&source, &dest, value);
+            Self::do_store_transfer_proof(&source, &dest, value);
             Ok(())
         }
 
@@ -717,7 +721,7 @@ pub mod pallet {
             let source = T::Lookup::lookup(source)?;
             let dest = T::Lookup::lookup(dest)?;
             <Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Expendable)?;
-            Self::store_transfer_proof(&source, &dest, value);
+            Self::do_store_transfer_proof(&source, &dest, value);
             Ok(())
         }
 
@@ -736,7 +740,7 @@ pub mod pallet {
             let source = ensure_signed(origin)?;
             let dest = T::Lookup::lookup(dest)?;
             <Self as fungible::Mutate<_>>::transfer(&source, &dest, value, Preserve)?;
-            Self::store_transfer_proof(&source, &dest, value);
+            Self::do_store_transfer_proof(&source, &dest, value);
             Ok(())
         }
 
@@ -775,7 +779,7 @@ pub mod pallet {
                 reducible_balance,
                 keep_alive,
             )?;
-            Self::store_transfer_proof(&transactor, &dest, reducible_balance);
+            Self::do_store_transfer_proof(&transactor, &dest, reducible_balance);
             Ok(())
         }
 
@@ -935,16 +939,20 @@ pub mod pallet {
     }
 
     impl<T: Config<I>, I: 'static> Pallet<T, I> {
-        pub fn store_transfer_proof(from: &T::AccountId, to: &T::AccountId, value: T::Balance) {
+        pub(crate) fn do_store_transfer_proof(
+            from: &T::AccountId,
+            to: &T::AccountId,
+            value: T::Balance,
+        ) {
             if from != to {
                 let current_count = Self::transfer_count();
-                <TransferCount<T, I>>::put(current_count.saturating_add(1));
+                TransferCount::<T, I>::put(current_count.saturating_add(One::one()));
 
                 TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
             }
         }
 
-        pub fn transfer_proof_storage_key(
+        pub(crate) fn transfer_proof_storage_key(
             transfer_count: u64,
             from: T::AccountId,
             to: T::AccountId,

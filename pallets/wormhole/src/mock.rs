@@ -88,11 +88,16 @@ impl pallet_balances::Config for Test {
 
 // --- PALLET WORMHOLE ---
 
+parameter_types! {
+    pub const MintingAccount: u64 = 999;
+}
+
 impl pallet_wormhole::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
     type WeightToFee = IdentityFee<Balance>;
     type Currency = Balances;
+    type MintingAccount = MintingAccount;
 }
 
 // Helper function to build a genesis configuration

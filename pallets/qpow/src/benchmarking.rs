@@ -6,7 +6,7 @@ use frame_benchmarking::v2::*;
 use frame_support::traits::Hooks;
 use frame_system::pallet_prelude::BlockNumberFor;
 use sp_core::U512;
-use sp_runtime::traits::{Get, One, Zero};
+use sp_runtime::traits::Get;
 
 #[benchmarks(
     where
