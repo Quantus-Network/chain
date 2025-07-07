@@ -10,6 +10,8 @@ use wormhole_verifier::WormholeVerifier;
 mod mock;
 #[cfg(test)]
 mod tests;
+pub mod weights;
+pub use weights::*;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -48,7 +50,8 @@ pub mod pallet {
     use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
     use wormhole_verifier::ProofWithPublicInputs;
     use zk_circuits_common::circuit::{C, D, F};
-
+    use crate::WeightInfo;
+    
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -74,16 +77,6 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
 
         type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
-    }
-
-    pub trait WeightInfo {
-        fn verify_wormhole_proof() -> Weight;
-    }
-
-    impl WeightInfo for () {
-        fn verify_wormhole_proof() -> Weight {
-            Weight::zero()
-        }
     }
 
     #[pallet::storage]
