@@ -211,6 +211,7 @@ pub fn new_full<
     config: Configuration,
     rewards_address: Option<String>,
     external_miner_url: Option<String>,
+    enable_peer_sharing: bool,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -275,11 +276,17 @@ pub fn new_full<
     let rpc_extensions_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
+        let network_for_rpc = if enable_peer_sharing {
+            Some(network.clone())
+        } else {
+            None
+        };
 
         Box::new(move |_| {
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),
                 pool: pool.clone(),
+                network: network_for_rpc.clone(),
             };
             crate::rpc::create_full(deps).map_err(Into::into)
         })

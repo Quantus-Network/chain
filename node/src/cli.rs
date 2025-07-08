@@ -21,6 +21,10 @@ pub struct Cli {
     /// Specify the URL of an external QPoW miner service
     #[arg(long, value_name = "EXTERNAL_MINER_URL")]
     pub external_miner_url: Option<String>,
+
+    /// Enable peer sharing via RPC endpoint
+    #[arg(long)]
+    pub enable_peer_sharing: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]

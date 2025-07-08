@@ -8,13 +8,96 @@
 use std::sync::Arc;
 
 use crate::faucet::{Faucet, FaucetApiServer};
-use jsonrpsee::RpcModule;
+use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
 use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use sc_network::service::traits::{NetworkService, NetworkStateInfo};
 use sc_transaction_pool_api::TransactionPool;
+use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_faucet::FaucetApi;
+
+/// Peer information for RPC response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerInfo {
+    /// Peer ID
+    pub peer_id: String,
+    /// Number of connected peers
+    pub peer_count: usize,
+    /// List of connected peer IDs
+    pub connected_peers: Vec<String>,
+    /// External addresses of this node
+    pub external_addresses: Vec<String>,
+    /// Listen addresses of this node
+    pub listen_addresses: Vec<String>,
+}
+
+/// Peer RPC API
+#[rpc(client, server)]
+pub trait PeerApi {
+    /// Get basic peer information
+    #[method(name = "peer_getBasicInfo")]
+    fn get_basic_info(&self) -> RpcResult<PeerInfo>;
+}
+
+/// Peer RPC implementation
+pub struct Peer {
+    /// Network service instance
+    network: Option<Arc<dyn NetworkService>>,
+}
+
+impl Peer {
+    /// Create new Peer RPC handler
+    pub fn new(network: Option<Arc<dyn NetworkService>>) -> Self {
+        Self { network }
+    }
+}
+
+impl PeerApiServer for Peer {
+    fn get_basic_info(&self) -> RpcResult<PeerInfo> {
+        if let Some(network) = &self.network {
+            // Get network state
+            let network_state =
+                futures::executor::block_on(network.network_state()).map_err(|_| {
+                    jsonrpsee::types::error::ErrorObject::owned(
+                        5001,
+                        "Failed to get network state",
+                        None::<()>,
+                    )
+                })?;
+
+            let connected_peers: Vec<String> =
+                network_state.connected_peers.keys().cloned().collect();
+
+            let external_addresses: Vec<String> = network_state
+                .external_addresses
+                .iter()
+                .map(|addr| addr.to_string())
+                .collect();
+
+            let listen_addresses: Vec<String> = network_state
+                .listened_addresses
+                .iter()
+                .map(|addr| addr.to_string())
+                .collect();
+
+            Ok(PeerInfo {
+                peer_id: network_state.peer_id,
+                peer_count: connected_peers.len(),
+                connected_peers,
+                external_addresses,
+                listen_addresses,
+            })
+        } else {
+            Err(jsonrpsee::types::error::ErrorObject::owned(
+                5000,
+                "Peer sharing is not enabled",
+                None::<()>,
+            ))
+        }
+    }
+}
 
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
@@ -22,6 +105,8 @@ pub struct FullDeps<C, P> {
     pub client: Arc<C>,
     /// Transaction pool instance.
     pub pool: Arc<P>,
+    /// Network service instance (optional, only when peer sharing is enabled).
+    pub network: Option<Arc<dyn NetworkService>>,
 }
 
 /// Instantiate all full RPC extensions.
@@ -42,11 +127,16 @@ where
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut module = RpcModule::new(());
-    let FullDeps { client, pool } = deps;
+    let FullDeps {
+        client,
+        pool,
+        network,
+    } = deps;
 
     module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
     module.merge(Faucet::new(client, pool).into_rpc())?;
+    module.merge(Peer::new(network).into_rpc())?;
 
     Ok(module)
 }

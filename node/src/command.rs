@@ -421,6 +421,7 @@ pub fn run() -> sc_cli::Result<()> {
                         config,
                         cli.rewards_address.clone(),
                         cli.external_miner_url.clone(),
+                        cli.enable_peer_sharing,
                     )
                     .map_err(sc_cli::Error::Service),
                     sc_network::config::NetworkBackendType::Litep2p => {
