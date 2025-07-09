@@ -103,6 +103,7 @@ uuid.workspace = true
 substrate-build-script-utils.workspace = true
 substrate-build-script-utils.default-features = true
 wormhole-verifier.workspace = true
+circuit-builder.workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"
