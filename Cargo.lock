@@ -1206,12 +1206,12 @@ dependencies = [
 [[package]]
 name = "circuit-builder"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-builder-pub-fn#fc56fb4bcc595bda7b8866d3e472c0f64df586eb"
+source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
 dependencies = [
  "anyhow",
  "plonky2",
- "wormhole-circuit 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-builder-pub-fn)",
- "zk-circuits-common 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-builder-pub-fn)",
+ "wormhole-circuit",
+ "zk-circuits-common",
 ]
 
 [[package]]
@@ -6970,9 +6970,9 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "wormhole-circuit 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
+ "wormhole-circuit",
  "wormhole-verifier",
- "zk-circuits-common 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
+ "zk-circuits-common",
 ]
 
 [[package]]
@@ -8270,9 +8270,9 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
- "wormhole-circuit 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
+ "wormhole-circuit",
  "wormhole-verifier",
- "zk-circuits-common 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
+ "zk-circuits-common",
 ]
 
 [[package]]
@@ -14085,34 +14085,23 @@ dependencies = [
 [[package]]
 name = "wormhole-circuit"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-builder-pub-fn#fc56fb4bcc595bda7b8866d3e472c0f64df586eb"
+source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
 dependencies = [
  "anyhow",
  "hex",
  "plonky2",
- "zk-circuits-common 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-builder-pub-fn)",
-]
-
-[[package]]
-name = "wormhole-circuit"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#2c712cf3d257e798f1137b6cf4f0421eef539ca9"
-dependencies = [
- "anyhow",
- "hex",
- "plonky2",
- "zk-circuits-common 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
+ "zk-circuits-common",
 ]
 
 [[package]]
 name = "wormhole-verifier"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#2c712cf3d257e798f1137b6cf4f0421eef539ca9"
+source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
 dependencies = [
  "anyhow",
  "plonky2",
- "wormhole-circuit 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
- "zk-circuits-common 0.1.0 (git+https://github.com/Quantus-Network/zk-circuits)",
+ "wormhole-circuit",
+ "zk-circuits-common",
 ]
 
 [[package]]
@@ -14387,16 +14376,7 @@ dependencies = [
 [[package]]
 name = "zk-circuits-common"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=vrom911%2Fcircuit-builder-pub-fn#fc56fb4bcc595bda7b8866d3e472c0f64df586eb"
-dependencies = [
- "anyhow",
- "plonky2",
-]
-
-[[package]]
-name = "zk-circuits-common"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#2c712cf3d257e798f1137b6cf4f0421eef539ca9"
+source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
 dependencies = [
  "anyhow",
  "plonky2",

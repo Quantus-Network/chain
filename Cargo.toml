@@ -78,7 +78,7 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 sp-faucet = { path = "./primitives/faucet", default-features = false }
 
 # Quantus network dependencies
-circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "vrom911/circuit-builder-pub-fn", package = "circuit-builder", default-features = false }
+circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
 rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
