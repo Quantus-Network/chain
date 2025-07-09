@@ -372,7 +372,9 @@ pub fn new_full<
         let mining_token_clone = mining_cancellation_token.clone();
 
         // Listen for shutdown signals
-        task_manager.spawn_handle().spawn("mining-shutdown-listener", None, async move {
+        task_manager
+            .spawn_handle()
+            .spawn("mining-shutdown-listener", None, async move {
                 tokio::signal::ctrl_c()
                     .await
                     .expect("Failed to listen for Ctrl+C");
