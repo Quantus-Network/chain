@@ -435,10 +435,10 @@ pub fn new_full<
                                     let current_version = worker_handle.version();
                                     if current_version == version {
                                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                                            log::info!("Successfully mined and submitted a new block via external miner");
+                                            log::debug!(target: "miner", "Successfully mined and submitted a new block via external miner");
                                             nonce = U512::zero();
                                         } else {
-                                            log::warn!("Failed to submit mined block from external miner");
+                                            log::warn!(target: "miner", "Failed to submit mined block from external miner");
                                             nonce += U512::one();
                                         }
                                     } else {
@@ -454,7 +454,7 @@ pub fn new_full<
                                     tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
                                 Err(e) => {
-                                    log::warn!("Polling external miner result failed: {}", e);
+                                    log::warn!(target: "miner", "Polling external miner result failed: {}", e);
                                     break;
                                 }
                             }
@@ -464,7 +464,7 @@ pub fn new_full<
                         let miner = QPoWMiner::new(client.clone());
                         let seal: QPoWSeal = match miner.try_nonce::<Block>(metadata.best_hash, metadata.pre_hash, nonce.to_big_endian()) {
                             Ok(s) => {
-                                log::info!("valid nonce: {} ==> {:?}", nonce, s);
+                                log::debug!(target: "miner", "Valid nonce: {} ==> {:?}", nonce, s);
                                 s
                             }
                             Err(_) => {
@@ -476,10 +476,10 @@ pub fn new_full<
                         let current_version = worker_handle.version();
                         if current_version == version {
                             if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                                log::info!("Successfully mined and submitted a new block");
+                                log::debug!(target: "miner", "Successfully mined and submitted a new block");
                                 nonce = U512::zero();
                             } else {
-                                log::warn!("Failed to submit mined block");
+                                log::warn!(target: "miner", "Failed to submit mined block");
                                 nonce += U512::one();
                             }
                         }
@@ -493,16 +493,16 @@ pub fn new_full<
             .spawn("tx-logger", None, async move {
                 while let Some(tx_hash) = tx_stream.next().await {
                     if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
-                        log::info!("New transaction: Hash = {:?}", tx_hash);
+                        log::trace!(target: "miner", "New transaction: Hash = {:?}", tx_hash);
                         let extrinsic = tx.data();
-                        log::info!("Payload: {:?}", extrinsic);
+                        log::trace!(target: "miner", "Payload: {:?}", extrinsic);
                     } else {
-                        log::warn!("Transaction {:?} not found in pool", tx_hash);
+                        log::warn!(target: "miner", "Transaction {:?} not found in pool", tx_hash);
                     }
                 }
             });
 
-        log::info!("⛏️  Pow miner spawned");
+        log::info!(target: "miner", "⛏️  Pow miner spawned");
     }
 
     network_starter.start_network();

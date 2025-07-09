@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::faucet::{Faucet, FaucetApiServer};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
 use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
-use sc_network::service::traits::{NetworkService, NetworkStateInfo};
+use sc_network::service::traits::NetworkService;
 use sc_transaction_pool_api::TransactionPool;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;

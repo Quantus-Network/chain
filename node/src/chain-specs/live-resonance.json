@@ -16,7 +16,7 @@
   "protocolId": "resonance",
   "properties": {
     "ss58Format": 189,
-    "tokenDecimals": 9,
+    "tokenDecimals": 12,
     "tokenSymbol": "RES"
   },
   "codeSubstitutes": {},
