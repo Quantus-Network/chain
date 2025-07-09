@@ -32,7 +32,7 @@ use crate::governance::definitions::{
 use crate::governance::{pallet_custom_origins, Spender};
 use crate::MILLI_UNIT;
 use frame_support::traits::{
-    AsEnsureOriginWithArg, ConstU64, EitherOf, NeverEnsureOrigin, WithdrawReasons,
+    AsEnsureOriginWithArg, EitherOf, NeverEnsureOrigin, WithdrawReasons,
 };
 use frame_support::PalletId;
 use frame_support::{
@@ -65,18 +65,19 @@ use super::{
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
 parameter_types! {
-    pub const BlockHashCount: BlockNumber = 2400;
+    pub const BlockHashCount: BlockNumber = 4096;
     pub const Version: RuntimeVersion = VERSION;
 
-    /// We allow for 2 seconds of compute with a 6 second average block time.
+    /// We allow for 6 seconds of compute with a 20 second average block time.
     pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
-        Weight::from_parts(2u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+        Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
         NORMAL_DISPATCH_RATIO,
     );
+    // We estimate to download 5MB blocks it takes a 100Mbs link 600ms and 200ms for 1Gbs link
+    // To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
     pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 189;
     pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-    pub const MaxProofs: u32 = 100;
     pub const UnsignedClaimPriority: u32 = 100;
 }
 
@@ -130,29 +131,30 @@ impl pallet_mining_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
-    type MinerBlockReward = ConstU128<10_000_000_000_000>; // 10 tokens
-    type TreasuryBlockReward = ConstU128<1_000_000_000_000>; // 1 token
+    type MinerBlockReward = ConstU128<{ 10 * UNIT }>; // 10 tokens
+    type TreasuryBlockReward = ConstU128<UNIT>; // 1 token
     type TreasuryPalletId = TreasuryPalletId;
     type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
-    /// Target block time
-    pub const TargetBlockTime: u64 = 10000;
+    /// Target block time ms
+    pub const TargetBlockTime: u64 = 20000;
+    pub const TimestampBucketSize: u64 = 40000; // Nyquist frequency
 }
 
 impl pallet_qpow::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = ();
     // NOTE: InitialDistance will be shifted left by this amount: higher is easier
     type InitialDistanceThresholdExponent = ConstU32<502>;
     type DifficultyAdjustPercentClamp = ConstU8<10>;
     type TargetBlockTime = TargetBlockTime;
     type AdjustmentPeriod = ConstU32<1>;
     type BlockTimeHistorySize = ConstU32<10>;
-    type MaxReorgDepth = ConstU32<10>;
+    type MaxReorgDepth = ConstU32<180>;
     type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
     type MaxDistanceMultiplier = ConstU32<2>;
+    type WeightInfo = ();
 }
 
 parameter_types! {
@@ -206,8 +208,8 @@ impl pallet_balances::Config for Runtime {
 
 parameter_types! {
     pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
-    pub const MaxVotes: u32 = 512;
-    pub const MaxTurnout: Balance = 60 * UNIT;
+    pub const MaxVotes: u32 = 4096;
+    pub const MaxTurnout: Balance = 1_000_000_000 * UNIT;
     pub const MinimumDeposit: Balance = UNIT;
 }
 
@@ -230,7 +232,7 @@ impl pallet_preimage::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
     type Currency = Balances;
-    type ManagerOrigin = frame_system::EnsureRoot<AccountId>;
+    type ManagerOrigin = EnsureRoot<AccountId>;
     type Consideration = PreimageDeposit;
 }
 
@@ -389,14 +391,14 @@ impl pallet_scheduler::Config for Runtime {
     type PalletsOrigin = OriginCaller;
     type RuntimeCall = RuntimeCall;
     type MaximumWeight = MaximumSchedulerWeight;
-    type ScheduleOrigin = frame_system::EnsureRoot<AccountId>;
+    type ScheduleOrigin = EnsureRoot<AccountId>;
     type MaxScheduledPerBlock = MaxScheduledPerBlock;
     type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
     type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
     type Preimages = Preimage;
     type TimeProvider = Timestamp;
     type Moment = u64;
-    type TimestampBucketSize = ConstU64<2000>; // 2 second
+    type TimestampBucketSize = TimestampBucketSize;
 }
 
 parameter_types! {
@@ -492,6 +494,10 @@ impl pallet_reversible_transfers::Config for Runtime {
     type Moment = Moment;
     type TimeProvider = Timestamp;
     type MaxInterceptorAccounts = MaxInterceptorAccounts;
+}
+
+parameter_types! {
+    pub const MaxProofs: u32 = 4096;
 }
 
 impl pallet_merkle_airdrop::Config for Runtime {
