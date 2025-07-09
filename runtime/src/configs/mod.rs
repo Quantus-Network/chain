@@ -148,7 +148,8 @@ impl pallet_qpow::Config for Runtime {
     type DifficultyAdjustPercentClamp = ConstU8<10>;
     type TargetBlockTime = TargetBlockTime;
     type AdjustmentPeriod = ConstU32<1>;
-    type BlockTimeHistorySize = ConstU32<10>;
+    // This is how many blocks to include for the difficulty adjustment 
+    type BlockTimeHistorySize = ConstU32<25>;
     type MaxReorgDepth = ConstU32<180>;
     type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
     type MaxDistanceMultiplier = ConstU32<2>;

@@ -9,7 +9,7 @@ pub type ChainSpec = sc_service::GenericChainSpec;
 
 pub fn development_chain_spec() -> Result<ChainSpec, String> {
     let mut properties = Properties::new();
-    properties.insert("tokenDecimals".into(), json!(9));
+    properties.insert("tokenDecimals".into(), json!(12));
     properties.insert("tokenSymbol".into(), json!("DEV"));
     properties.insert("ss58Format".into(), json!(189));
 
@@ -28,7 +28,7 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 
 pub fn local_chain_spec() -> Result<ChainSpec, String> {
     let mut properties = Properties::new();
-    properties.insert("tokenDecimals".into(), json!(9));
+    properties.insert("tokenDecimals".into(), json!(12));
     properties.insert("tokenSymbol".into(), json!("RESL"));
     properties.insert("ss58Format".into(), json!(189));
 
@@ -48,7 +48,7 @@ pub fn local_chain_spec() -> Result<ChainSpec, String> {
 /// Configure a new chain spec for the live testnet.
 pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
     let mut properties = Properties::new();
-    properties.insert("tokenDecimals".into(), json!(9));
+    properties.insert("tokenDecimals".into(), json!(12));
     properties.insert("tokenSymbol".into(), json!("RES"));
     properties.insert("ss58Format".into(), json!(189));
 
