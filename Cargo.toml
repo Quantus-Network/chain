@@ -154,6 +154,7 @@ substrate-frame-rpc-system = { version = "42.0.0", default-features = false }
 substrate-prometheus-endpoint = { version = "0.17.1", default-features = false }
 substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "25.0.0", default-features = false }
+tokio-util = { version = "0.7", default-features = false }
 
 [patch.crates-io]
 sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }

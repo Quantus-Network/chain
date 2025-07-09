@@ -879,7 +879,5 @@ impl ChainManagement {
 
                 log::info!("Block import notification stream ended");
             });
-
-        log::info!("Chain finalization task has been spawned");
     }
 }

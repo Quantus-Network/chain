@@ -7,6 +7,7 @@ use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
+use tokio_util::sync::CancellationToken;
 
 use crate::external_miner_client;
 use crate::prometheus::ResonanceBusinessMetrics;
@@ -367,6 +368,18 @@ pub fn new_full<
 
         ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
 
+        let mining_cancellation_token = CancellationToken::new();
+        let mining_token_clone = mining_cancellation_token.clone();
+
+        // Listen for shutdown signals
+        task_manager.spawn_handle().spawn("mining-shutdown-listener", None, async move {
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("Failed to listen for Ctrl+C");
+                log::info!("🛑 Received Ctrl+C signal, shutting down qpow-mining worker");
+                mining_token_clone.cancel();
+            });
+
         task_manager.spawn_essential_handle().spawn(
             "qpow-mining",
             None,
@@ -377,12 +390,30 @@ pub fn new_full<
                 let mut current_job_id: Option<String> = None;
 
                 loop {
+                    // Check for cancellation
+                    if mining_cancellation_token.is_cancelled() {
+                        log::info!("🛑 QPoW Mining task shutting down gracefully");
+
+                        // Cancel any pending external mining job
+                        if let Some(job_id) = &current_job_id {
+                            if let Some(miner_url) = &external_miner_url {
+                                if let Err(e) = external_miner_client::cancel_mining_job(&http_client, miner_url, job_id).await {
+                                    log::warn!("Failed to cancel mining job during shutdown: {}", e);
+                                }
+                            }
+                        }
+
+                        break;
+                    }
                     // Get mining metadata
                     let metadata = match worker_handle.metadata() {
                         Some(m) => m,
                         None => {
                             log::debug!(target: "pow", "No mining metadata available");
-                            tokio::time::sleep(Duration::from_millis(250)).await;
+                            tokio::select! {
+                                _ = tokio::time::sleep(Duration::from_millis(250)) => {},
+                                _ = mining_cancellation_token.cancelled() => continue,
+                            }
                             continue;
                         }
                     };
@@ -402,7 +433,10 @@ pub fn new_full<
                             Ok(d) => d,
                             Err(e) => {
                                 log::warn!("Failed to get distance_threshold: {:?}", e);
-                                tokio::time::sleep(Duration::from_millis(250)).await;
+                                tokio::select! {
+                                    _ = tokio::time::sleep(Duration::from_millis(250)) => {},
+                                    _ = mining_cancellation_token.cancelled() => continue,
+                                }
                                 continue;
                             }
                         };
@@ -424,7 +458,10 @@ pub fn new_full<
                         .await
                         {
                             log::warn!("Failed to submit mining job: {}", e);
-                            tokio::time::sleep(Duration::from_millis(250)).await;
+                            tokio::select! {
+                                _ = tokio::time::sleep(Duration::from_millis(250)) => {},
+                                _ = mining_cancellation_token.cancelled() => continue,
+                            }
                             continue;
                         }
 
@@ -438,7 +475,7 @@ pub fn new_full<
                                             log::debug!(target: "miner", "Successfully mined and submitted a new block via external miner");
                                             nonce = U512::zero();
                                         } else {
-                                            log::warn!(target: "miner", "Failed to submit mined block from external miner");
+                                            log::warn!("Failed to submit mined block from external miner");
                                             nonce += U512::one();
                                         }
                                     } else {
@@ -451,10 +488,13 @@ pub fn new_full<
                                     if worker_handle.metadata().map(|m| m.best_hash != metadata.best_hash).unwrap_or(false) {
                                         break;
                                     }
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    tokio::select! {
+                                        _ = tokio::time::sleep(Duration::from_millis(500)) => {},
+                                        _ = mining_cancellation_token.cancelled() => return,
+                                    }
                                 }
                                 Err(e) => {
-                                    log::warn!(target: "miner", "Polling external miner result failed: {}", e);
+                                    log::warn!("Polling external miner result failed: {}", e);
                                     break;
                                 }
                             }
@@ -479,12 +519,14 @@ pub fn new_full<
                                 log::debug!(target: "miner", "Successfully mined and submitted a new block");
                                 nonce = U512::zero();
                             } else {
-                                log::warn!(target: "miner", "Failed to submit mined block");
+                                log::warn!("Failed to submit mined block");
                                 nonce += U512::one();
                             }
                         }
                     }
                 }
+
+                log::info!(target: "miner", "⚙️  QPoW Mining task terminated");
             },
         );
 
@@ -497,7 +539,7 @@ pub fn new_full<
                         let extrinsic = tx.data();
                         log::trace!(target: "miner", "Payload: {:?}", extrinsic);
                     } else {
-                        log::warn!(target: "miner", "Transaction {:?} not found in pool", tx_hash);
+                        log::warn!("Transaction {:?} not found in pool", tx_hash);
                     }
                 }
             });

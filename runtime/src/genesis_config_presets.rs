@@ -68,7 +68,7 @@ pub fn development_config_genesis() -> Value {
     let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
     for account in endowed_accounts.iter() {
         log::info!(
-            "endowed account: {:?}",
+            "🍆 Endowed account: {:?}",
             account.to_ss58check_with_version(ss58_version.clone())
         );
     }
@@ -83,7 +83,7 @@ pub fn live_testnet_config_genesis() -> Value {
     let endowed_accounts = vec![test_root_account()];
     let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
     log::info!(
-        "endowed account: {:?}",
+        "🍆 Endowed account: {:?}",
         test_root_account().to_ss58check_with_version(ss58_version)
     );
 
