@@ -939,7 +939,7 @@ mod tests {
         TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Set up balances after externality creation - massively increased to meet treasury track support requirements
             set_balance(proposer_account_id.clone(), 50000);
-            set_balance(voter_account_id.clone(), 15000000); // Increased to ~15M UNIT to exceed 10M support threshold  
+            set_balance(voter_account_id.clone(), 15000000); // Increased to ~15M UNIT to exceed 10M support threshold
             set_balance(beneficiary_account_id.clone(), EXISTENTIAL_DEPOSIT);
             set_balance(TreasuryPallet::account_id(), 10); // Reduced from 1000 to 10 to keep total issuance reasonable
 
@@ -1019,7 +1019,7 @@ mod tests {
                 pallet_conviction_voting::AccountVote::Standard {
                     vote: pallet_conviction_voting::Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::Locked3x // Increased from None to Locked3x
+                        conviction: pallet_conviction_voting::Conviction::Locked3x
                     },
                     balance: Balances::free_balance(&voter_account_id),
                 }
@@ -1095,8 +1095,8 @@ mod tests {
             });
 
             match dispatched_block {
-                Some(_block) => {
-                    // Found the dispatched event
+                Some(block) => {
+                    println!("✅ Found Scheduler::Dispatched event at block {}", block);
                 }
                 None => {
                     panic!(

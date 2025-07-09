@@ -416,8 +416,8 @@ mod tests {
 
             // Ensure voters have enough balance for larger votes
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            Balances::make_free_balance_be(&voter1, 2000 * UNIT); // Increased for larger vote
-            Balances::make_free_balance_be(&voter2, 1500 * UNIT); // Increased for larger vote
+            Balances::make_free_balance_be(&voter1, 2000 * UNIT);
+            Balances::make_free_balance_be(&voter2, 1500 * UNIT);
 
             // Prepare origin for the proposal
             let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
@@ -473,9 +473,9 @@ mod tests {
                 Standard {
                     vote: Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::Locked3x, // Increased conviction
+                        conviction: pallet_conviction_voting::Conviction::Locked3x,
                     },
-                    balance: 1000 * UNIT // Increased from 50 to 1000
+                    balance: 1000 * UNIT
                 }
             ));
 
@@ -485,9 +485,9 @@ mod tests {
                 Standard {
                     vote: Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::Locked2x, // Increased conviction
+                        conviction: pallet_conviction_voting::Conviction::Locked2x,
                     },
-                    balance: 800 * UNIT // Increased from 50 to 800
+                    balance: 800 * UNIT
                 }
             ));
 
@@ -600,7 +600,7 @@ mod tests {
                 0, // The class ID (track) to delegate for
                 sp_runtime::MultiAddress::Id(delegate.clone()),
                 pallet_conviction_voting::Conviction::Locked3x,
-                10000 * UNIT // Increased to 10000 UNIT
+                10000 * UNIT
             ));
 
             assert_ok!(ConvictionVoting::delegate(
@@ -608,7 +608,7 @@ mod tests {
                 0, // The class ID (track) to delegate for
                 sp_runtime::MultiAddress::Id(delegate.clone()),
                 pallet_conviction_voting::Conviction::Locked2x,
-                10000 * UNIT // Increased to 10000 UNIT
+                10000 * UNIT
             ));
 
             // Verify delegations are recorded correctly
@@ -654,7 +654,7 @@ mod tests {
                 Standard {
                     vote: Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::Locked3x, // Increased conviction
+                        conviction: pallet_conviction_voting::Conviction::Locked3x,
                     },
                     balance: 10000 * UNIT // Set to 10000 UNIT like others
                 }

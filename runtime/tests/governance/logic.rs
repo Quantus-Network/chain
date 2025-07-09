@@ -558,7 +558,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 15000 * UNIT, // Increased to 15000 to win over 10000 nay
+                    balance: 15000 * UNIT,
                 }
             ));
 
@@ -570,7 +570,7 @@ mod tests {
                         aye: false, // Someone votes against
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 10000 * UNIT, // Increased from 50 to 10000
+                    balance: 10000 * UNIT,
                 }
             ));
 
@@ -720,7 +720,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked3x,
                     },
-                    balance: 10000 * UNIT, // Increased from 300 to 10000
+                    balance: 10000 * UNIT,
                 }
             ));
 
@@ -732,7 +732,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 10000 * UNIT, // Increased from 300 to 10000
+                    balance: 10000 * UNIT,
                 }
             ));
 
