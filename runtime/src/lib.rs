@@ -267,14 +267,11 @@ mod runtime {
     pub type TreasuryPallet = pallet_treasury;
 
     #[runtime::pallet_index(19)]
-    pub type Faucet = pallet_faucet;
-
-    #[runtime::pallet_index(20)]
     pub type Origins = pallet_custom_origins;
 
-    #[runtime::pallet_index(21)]
+    #[runtime::pallet_index(20)]
     pub type Recovery = pallet_recovery;
 
-    #[runtime::pallet_index(22)]
+    #[runtime::pallet_index(21)]
     pub type Assets = pallet_assets;
 }

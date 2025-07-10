@@ -30,8 +30,6 @@ futures = { features = ["thread-pool"], workspace = true }
 hex = { workspace = true, default-features = false }
 jsonrpsee = { features = ["server"], workspace = true }
 log.workspace = true
-pallet-faucet.default-features = false
-pallet-faucet.workspace = true
 pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 pallet-transaction-payment.default-features = true
@@ -82,7 +80,6 @@ sp-blockchain.workspace = true
 sp-consensus-qpow.workspace = true
 sp-core.default-features = true
 sp-core.workspace = true
-sp-faucet = { workspace = true, default-features = false }
 sp-genesis-builder.default-features = true
 sp-genesis-builder.workspace = true
 sp-inherents.default-features = true

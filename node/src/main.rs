@@ -6,7 +6,6 @@ mod chain_spec;
 mod cli;
 mod command;
 mod external_miner_client;
-mod faucet;
 mod prometheus;
 mod rpc;
 mod service;

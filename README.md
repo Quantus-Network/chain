@@ -77,31 +77,6 @@ If this address is not specified, rewards will not be minted.
 ./quantus-node --chain local --validator --rewards-address <NODE_OPERATOR_ADDRESS>
 ```
 
-## Faucet
-
-The faucet allows you to obtain test tokens. You can use it via the following RPC calls:
-
-### Check account balance
-
-To check an account's balance, use the `faucet_getAccountInfo` method:
-
-```bash
-curl -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"faucet_getAccountInfo", "params":["<QUANTUS_ACCOUNT_ADDRESS>"]}' http://localhost:9944
-```
-
-### Request tokens
-
-To request tokens, use the `faucet_requestTokens` method:
-
-```bash
-curl -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"faucet_requestTokens", "params":["<QUANTUS_ACCOUNT_ADDRESS>"]}' http://localhost:9944
-```
-
-Each mint operation adds 10 tokens to your account. The maximum balance an address can have is 1000 tokens. If your
-account already has the maximum amount, new tokens will not be added.
-
-The maximum amount of tokens that can be received in a single request is limited by the network configuration.
-
 ## Local dev run
 
 ---

@@ -13,14 +13,12 @@ members = [
 	"dilithium-crypto/verify",
 	"node",
 	"pallets/balances",
-	"pallets/faucet",
 	"pallets/merkle-airdrop",
 	"pallets/mining-rewards",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/wormhole",
 	"primitives/consensus/qpow",
-	"primitives/faucet",
 	"resonance-miner-api",
 	"runtime",
 ]
@@ -60,7 +58,6 @@ uuid = { version = "1.7.0", features = ["serde", "v4"] }
 dilithium-crypto = { path = "./dilithium-crypto", default-features = false }
 hdwallet = { path = "./dilithium-crypto/hdwallet", default-features = true }
 pallet-balances = { path = "./pallets/balances", default-features = false }
-pallet-faucet = { path = "./pallets/faucet", default-features = false }
 pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
@@ -75,7 +72,7 @@ sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
 sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
-sp-faucet = { path = "./primitives/faucet", default-features = false }
+tokio-util = { version = "0.7.13", default-features = false }
 
 # Quantus network dependencies
 circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
@@ -155,7 +152,6 @@ substrate-frame-rpc-system = { version = "42.0.0", default-features = false }
 substrate-prometheus-endpoint = { version = "0.17.1", default-features = false }
 substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "25.0.0", default-features = false }
-tokio-util = { version = "0.7", default-features = false }
 
 [patch.crates-io]
 sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }

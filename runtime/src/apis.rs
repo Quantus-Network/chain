@@ -205,14 +205,6 @@ impl_runtime_apis! {
         }
     }
 
-    impl sp_faucet::FaucetApi<Block, AccountId, Balance, Nonce> for Runtime {
-        fn account_balance(account: AccountId) -> (Balance, Balance) {
-            let free = pallet_balances::Pallet::<Runtime>::free_balance(&account);
-            let reserved = pallet_balances::Pallet::<Runtime>::reserved_balance(&account);
-            (free, reserved)
-        }
-    }
-
     impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce> for Runtime {
         fn account_nonce(account: AccountId) -> Nonce {
             System::account_nonce(account)

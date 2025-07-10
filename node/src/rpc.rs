@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use crate::faucet::{Faucet, FaucetApiServer};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
 use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
 use sc_network::service::traits::NetworkService;
@@ -16,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use sp_faucet::FaucetApi;
 
 /// Peer information for RPC response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,7 +117,6 @@ where
     C: Send + Sync + 'static,
     C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
-    C::Api: FaucetApi<Block, AccountId, Balance, Nonce>,
     C::Api: BlockBuilder<Block>,
     P: TransactionPool<Block = Block> + 'static,
 {
@@ -135,7 +132,6 @@ where
 
     module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-    module.merge(Faucet::new(client, pool).into_rpc())?;
     module.merge(Peer::new(network).into_rpc())?;
 
     Ok(module)
