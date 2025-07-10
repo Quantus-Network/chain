@@ -35,7 +35,7 @@ use frame_support::traits::{AsEnsureOriginWithArg, EitherOf, NeverEnsureOrigin, 
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
-    traits::{ConstU128, ConstU32, ConstU8, VariantCountOf},
+    traits::{ConstU128, ConstU32, ConstU8, Get, VariantCountOf},
     weights::{
         constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
         IdentityFee, Weight,
@@ -148,7 +148,7 @@ impl pallet_qpow::Config for Runtime {
     type DifficultyAdjustPercentClamp = ConstU8<10>;
     type TargetBlockTime = TargetBlockTime;
     type AdjustmentPeriod = ConstU32<1>;
-    // This is how many blocks to include for the difficulty adjustment 
+    // This is how many blocks to include for the difficulty adjustment
     type BlockTimeHistorySize = ConstU32<25>;
     type MaxReorgDepth = ConstU32<180>;
     type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
@@ -208,8 +208,19 @@ impl pallet_balances::Config for Runtime {
 parameter_types! {
     pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
     pub const MaxVotes: u32 = 4096;
-    pub const MaxTurnout: Balance = 1_000_000_000 * UNIT;
     pub const MinimumDeposit: Balance = UNIT;
+}
+
+/// Dynamic MaxTurnout that uses the current total issuance of tokens
+/// This makes governance support thresholds automatically scale with token supply
+pub struct DynamicMaxTurnout;
+
+impl Get<Balance> for DynamicMaxTurnout {
+    fn get() -> Balance {
+        // Use current total issuance as MaxTurnout
+        // This ensures support thresholds scale with actual token supply
+        Balances::total_issuance()
+    }
 }
 
 impl pallet_conviction_voting::Config for Runtime {
@@ -218,7 +229,7 @@ impl pallet_conviction_voting::Config for Runtime {
     type Currency = Balances;
     type VoteLockingPeriod = VoteLockingPeriod;
     type MaxVotes = MaxVotes;
-    type MaxTurnout = MaxTurnout;
+    type MaxTurnout = DynamicMaxTurnout;
     type Polls = Referenda;
 }
 
@@ -278,7 +289,7 @@ impl pallet_referenda::Config for Runtime {
     type Votes = pallet_conviction_voting::VotesOf<Runtime>;
     /// The method to tally votes and determine referendum outcome.
     /// Uses conviction voting's tally system with a maximum turnout threshold.
-    type Tally = pallet_conviction_voting::Tally<Balance, MaxTurnout>;
+    type Tally = pallet_conviction_voting::Tally<Balance, DynamicMaxTurnout>;
     /// The deposit required to submit a referendum proposal.
     type SubmissionDeposit = ReferendumSubmissionDeposit;
     /// Maximum number of referenda that can be in the deciding phase simultaneously.

@@ -20,11 +20,10 @@ mod tests {
             let voter_for = TestCommons::account_id(2);
             let voter_against = TestCommons::account_id(3);
 
-            // Ensure proposer has enough balance for preimage, submission and decision deposit
-            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            // Ensure voters have enough balance
-            Balances::make_free_balance_be(&voter_for, 20000 * UNIT);
-            Balances::make_free_balance_be(&voter_against, 20000 * UNIT);
+            // Increase balances to support larger votes and deposits
+            Balances::make_free_balance_be(&proposer, 50000 * UNIT);
+            Balances::make_free_balance_be(&voter_for, 50000 * UNIT);
+            Balances::make_free_balance_be(&voter_against, 50000 * UNIT);
 
             // Prepare the proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark {
@@ -79,7 +78,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked6x,
                     },
-                    balance: 300 * UNIT,
+                    balance: 10000 * UNIT,
                 }
             ));
 
@@ -92,7 +91,7 @@ mod tests {
                         aye: false,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 100 * UNIT,
+                    balance: 10000 * UNIT,
                 }
             ));
 
@@ -152,7 +151,7 @@ mod tests {
             let proposer = TestCommons::account_id(1);
             let target = TestCommons::account_id(4);
 
-            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
+            Balances::make_free_balance_be(&proposer, 50000 * UNIT);
             // Give target account some initial balance
             let initial_target_balance = 10 * UNIT;
             Balances::make_free_balance_be(&target, initial_target_balance);
@@ -210,7 +209,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked6x, // Use stronger conviction
                     },
-                    balance: 100 * UNIT, // Vote with more balance
+                    balance: 10000 * UNIT, // Vote with more balance
                 }
             ));
 
@@ -358,8 +357,6 @@ mod tests {
                 len: encoded_call.len() as u32,
             };
 
-            println!("Starting test - submitting referendum");
-
             // Submit referendum
             assert_ok!(Referenda::submit(
                 RuntimeOrigin::signed(proposer.clone()),
@@ -373,17 +370,10 @@ mod tests {
             // Verify referendum was created
             let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index);
             assert!(info.is_some(), "Referendum should be created");
-            println!("Referendum created successfully");
 
             // Instead of waiting for the actual timeout (which would be too long for a test),
             // we'll just verify that we understand how the timeout works
-            let timeout = <Runtime as pallet_referenda::Config>::UndecidingTimeout::get();
-            println!("Current Undeciding Timeout is set to {} blocks", timeout);
-
-            println!(
-                "Test passing - the actual timeout would occur after {} blocks",
-                timeout
-            );
+            let _timeout = <Runtime as pallet_referenda::Config>::UndecidingTimeout::get();
 
             // For an actual integration test, a small hardcoded timeout would be needed
             // in the runtime configuration, but for unit testing, we've verified the logic
@@ -506,10 +496,10 @@ mod tests {
             let voter1 = TestCommons::account_id(2);
             let voter2 = TestCommons::account_id(3);
 
-            // Set up much larger balances to ensure sufficient funds
-            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            Balances::make_free_balance_be(&voter1, 10000 * UNIT);
-            Balances::make_free_balance_be(&voter2, 10000 * UNIT);
+            // Set up sufficient balances for larger votes
+            Balances::make_free_balance_be(&proposer, 50000 * UNIT);
+            Balances::make_free_balance_be(&voter1, 50000 * UNIT);
+            Balances::make_free_balance_be(&voter2, 50000 * UNIT);
 
             // Create a non-binding signaling proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark {
@@ -568,7 +558,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 100 * UNIT,
+                    balance: 15000 * UNIT,
                 }
             ));
 
@@ -580,7 +570,7 @@ mod tests {
                         aye: false, // Someone votes against
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 50 * UNIT,
+                    balance: 10000 * UNIT,
                 }
             ));
 
@@ -631,8 +621,8 @@ mod tests {
             let voter = TestCommons::account_id(2);
 
             // Set up balances
-            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            Balances::make_free_balance_be(&voter, 10000 * UNIT);
+            Balances::make_free_balance_be(&proposer, 50000 * UNIT);
+            Balances::make_free_balance_be(&voter, 50000 * UNIT);
 
             // Create two proposals, one for each track
 
@@ -730,7 +720,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked3x,
                     },
-                    balance: 300 * UNIT,
+                    balance: 10000 * UNIT,
                 }
             ));
 
@@ -742,7 +732,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 300 * UNIT,
+                    balance: 10000 * UNIT,
                 }
             ));
 

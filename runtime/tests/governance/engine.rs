@@ -414,10 +414,10 @@ mod tests {
             let voter1 = TestCommons::account_id(2);
             let voter2 = TestCommons::account_id(3);
 
-            // Ensure voters have enough balance
+            // Ensure voters have enough balance for larger votes
             Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            Balances::make_free_balance_be(&voter1, 1000 * UNIT);
-            Balances::make_free_balance_be(&voter2, 1000 * UNIT);
+            Balances::make_free_balance_be(&voter1, 2000 * UNIT);
+            Balances::make_free_balance_be(&voter2, 1500 * UNIT);
 
             // Prepare origin for the proposal
             let proposal_origin = Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
@@ -466,16 +466,16 @@ mod tests {
                 referendum_index
             ));
 
-            // Vote for the referendum with different vote amounts
+            // Vote for the referendum with larger vote amounts to meet support threshold
             assert_ok!(ConvictionVoting::vote(
                 RuntimeOrigin::signed(voter1.clone()),
                 referendum_index,
                 Standard {
                     vote: Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::None,
+                        conviction: pallet_conviction_voting::Conviction::Locked3x,
                     },
-                    balance: 50 * UNIT
+                    balance: 1000 * UNIT
                 }
             ));
 
@@ -485,9 +485,9 @@ mod tests {
                 Standard {
                     vote: Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::None,
+                        conviction: pallet_conviction_voting::Conviction::Locked2x,
                     },
-                    balance: 50 * UNIT
+                    balance: 800 * UNIT
                 }
             ));
 
@@ -541,11 +541,11 @@ mod tests {
             let delegator1 = TestCommons::account_id(3);
             let delegator2 = TestCommons::account_id(4);
 
-            // Set up sufficient balances for all accounts
-            Balances::make_free_balance_be(&proposer, 10000 * UNIT);
-            Balances::make_free_balance_be(&delegate, 10000 * UNIT);
-            Balances::make_free_balance_be(&delegator1, 5000 * UNIT);
-            Balances::make_free_balance_be(&delegator2, 8000 * UNIT);
+            // Set up sufficient balances for all accounts - increased for 10000 UNIT votes
+            Balances::make_free_balance_be(&proposer, 50000 * UNIT);
+            Balances::make_free_balance_be(&delegate, 50000 * UNIT);
+            Balances::make_free_balance_be(&delegator1, 50000 * UNIT);
+            Balances::make_free_balance_be(&delegator2, 50000 * UNIT);
 
             // Prepare a proposal
             let proposal = RuntimeCall::System(frame_system::Call::remark {
@@ -600,7 +600,7 @@ mod tests {
                 0, // The class ID (track) to delegate for
                 sp_runtime::MultiAddress::Id(delegate.clone()),
                 pallet_conviction_voting::Conviction::Locked3x,
-                300 * UNIT // Delegating 300 UNIT with 3x conviction
+                10000 * UNIT
             ));
 
             assert_ok!(ConvictionVoting::delegate(
@@ -608,7 +608,7 @@ mod tests {
                 0, // The class ID (track) to delegate for
                 sp_runtime::MultiAddress::Id(delegate.clone()),
                 pallet_conviction_voting::Conviction::Locked2x,
-                400 * UNIT // Delegating 400 UNIT with 2x conviction
+                10000 * UNIT
             ));
 
             // Verify delegations are recorded correctly
@@ -627,7 +627,7 @@ mod tests {
                         delegating.conviction,
                         pallet_conviction_voting::Conviction::Locked3x
                     );
-                    assert_eq!(delegating.balance, 300 * UNIT);
+                    assert_eq!(delegating.balance, 10000 * UNIT); // Updated to 10000 UNIT
                 }
                 _ => panic!("Delegator1 should be delegating"),
             }
@@ -642,7 +642,7 @@ mod tests {
                         delegating.conviction,
                         pallet_conviction_voting::Conviction::Locked2x
                     );
-                    assert_eq!(delegating.balance, 400 * UNIT);
+                    assert_eq!(delegating.balance, 10000 * UNIT); // Updated to 10000 UNIT
                 }
                 _ => panic!("Delegator2 should be delegating"),
             }
@@ -654,9 +654,9 @@ mod tests {
                 Standard {
                     vote: Vote {
                         aye: true,
-                        conviction: pallet_conviction_voting::Conviction::Locked1x,
+                        conviction: pallet_conviction_voting::Conviction::Locked3x,
                     },
-                    balance: 200 * UNIT // Delegate's direct vote is 200 UNIT with 1x conviction
+                    balance: 10000 * UNIT // Set to 10000 UNIT like others
                 }
             ));
 
@@ -672,19 +672,17 @@ mod tests {
                 assert!(status.tally.ayes > 0, "Tally should include votes");
 
                 // Calculate expected voting power with conviction
-                // Delegate: 200 UNIT * 1x = 200 UNIT equivalent
-                // Delegator1: 300 UNIT * 3x = 900 UNIT equivalent
-                // Delegator2: 400 UNIT * 2x = 800 UNIT equivalent
-                // Total: 1900 UNIT equivalent
+                // Delegate: 10000 UNIT * 3x = 30000 UNIT equivalent
+                // Delegator1: 10000 UNIT * 3x = 30000 UNIT equivalent
+                // Delegator2: 10000 UNIT * 2x = 20000 UNIT equivalent
+                // Total: 80000 UNIT equivalent
 
                 // We can't directly access the exact vote values due to type abstractions, but we can
                 // verify that total votes are greater than just the delegate's direct vote
                 assert!(
-                    status.tally.ayes > 200 * UNIT,
-                    "Tally should include delegated votes (expected > 200 UNIT equivalent)"
+                    status.tally.ayes > 10000 * UNIT,
+                    "Tally should include delegated votes (expected > 10000 UNIT equivalent)"
                 );
-
-                println!("Referendum tally - ayes: {}", status.tally.ayes);
             } else {
                 panic!("Referendum should be ongoing");
             }
@@ -719,7 +717,7 @@ mod tests {
                         aye: false, // Voting against
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 300 * UNIT
+                    balance: 10000 * UNIT // Set to 10000 UNIT like others
                 }
             ));
 
@@ -728,13 +726,9 @@ mod tests {
                 pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info {
                 // Now we should have:
-                // Ayes: Delegate (200 UNIT * 1x) + Delegator2 (400 UNIT * 2x) = 1000 UNIT equivalent
-                // Nays: Delegator1 (300 UNIT * 1x) = 300 UNIT equivalent
+                // Ayes: Delegate (10000 UNIT * 3x) + Delegator2 (10000 UNIT * 2x) = 50000 UNIT equivalent
+                // Nays: Delegator1 (10000 UNIT * 1x) = 10000 UNIT equivalent
 
-                println!(
-                    "Updated referendum tally - ayes: {}, nays: {}",
-                    status.tally.ayes, status.tally.nays
-                );
                 assert!(status.tally.nays > 0, "Tally should include votes against");
             } else {
                 panic!("Referendum should be ongoing");
@@ -804,7 +798,7 @@ mod tests {
                         aye: true,
                         conviction: pallet_conviction_voting::Conviction::Locked1x,
                     },
-                    balance: 100 * UNIT // Less direct voting power than before
+                    balance: 10000 * UNIT // Set to 10000 UNIT like others
                 }
             ));
 
@@ -817,11 +811,9 @@ mod tests {
             if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info2 {
                 // Should still include delegator2's votes automatically
                 assert!(
-                    status.tally.ayes > 100 * UNIT,
+                    status.tally.ayes > 10000 * UNIT,
                     "Tally should include delegated votes from existing delegations"
                 );
-
-                println!("Second referendum tally - ayes: {}", status.tally.ayes);
             } else {
                 panic!("Second referendum should be ongoing");
             }
