@@ -118,7 +118,6 @@ parameter_types! {
     pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
-
 impl pallet_mining_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
