@@ -8131,7 +8131,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.0.11-summer-romance"
+version = "0.0.12-resonance-alpha"
 dependencies = [
  "async-trait",
  "circuit-builder",
@@ -8191,7 +8191,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.0.11-summer-romance"
+version = "0.0.12-resonance-alpha"
 dependencies = [
  "dilithium-crypto",
  "env_logger 0.11.8",
