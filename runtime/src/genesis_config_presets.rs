@@ -20,7 +20,7 @@ use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT};
 use alloc::{vec, vec::Vec};
 use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
-use sp_core::crypto::Ss58Codec;
+use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::AccountKeyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
@@ -36,6 +36,7 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
         crystal_alice().into_account(),
         dilithium_bob().into_account(),
         crystal_charlie().into_account(),
+        account_from_ss58("qzq3VLu6DHcWDtWRAqWXtTkDMPqz4BdJNvy3e7SYaqhZX49PQ")
     ]
 }
 // Returns the genesis config presets populated with given parameters.
@@ -115,8 +116,9 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
             .into_bytes(),
     )
 }
+
 fn account_from_ss58(ss58: &str) -> AccountId {
-    AccountId::from_ss58check(ss58).expect("Failed to decode SS58 address")
+    AccountId::from_ss58check_with_version(ss58).expect("Failed to decode SS58 address").0
 }
 
 /// List of supported presets.
