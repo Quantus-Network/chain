@@ -36,7 +36,7 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
         crystal_alice().into_account(),
         dilithium_bob().into_account(),
         crystal_charlie().into_account(),
-        account_from_ss58("qzq3VLu6DHcWDtWRAqWXtTkDMPqz4BdJNvy3e7SYaqhZX49PQ")
+        account_from_ss58("qzq3VLu6DHcWDtWRAqWXtTkDMPqz4BdJNvy3e7SYaqhZX49PQ"),
     ]
 }
 // Returns the genesis config presets populated with given parameters.
@@ -118,7 +118,9 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 }
 
 fn account_from_ss58(ss58: &str) -> AccountId {
-    AccountId::from_ss58check_with_version(ss58).expect("Failed to decode SS58 address").0
+    AccountId::from_ss58check_with_version(ss58)
+        .expect("Failed to decode SS58 address")
+        .0
 }
 
 /// List of supported presets.
