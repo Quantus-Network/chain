@@ -1,0 +1,42 @@
+[package]
+authors.workspace = true
+description = "A PoC LayerZero endpoint pallet"
+edition.workspace = true
+homepage.workspace = true
+license = "MIT-0"
+name = "pallet-lz"
+publish = false
+repository.workspace = true
+version = "0.1.0"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { workspace = true, default-features = false, features = ["derive"] }
+frame-support.workspace = true
+frame-system.workspace = true
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
+sp-core.workspace = true
+sp-runtime.workspace = true
+
+[dev-dependencies]
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-runtime/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+]
