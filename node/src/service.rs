@@ -15,7 +15,9 @@ use async_trait::async_trait;
 use codec::Encode;
 use jsonrpsee::tokio;
 use reqwest::Client;
+use sc_cli::TransactionPoolType;
 use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
+use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::ProvideRuntimeApi;
 use sp_api::__private::BlockT;
 use sp_consensus_qpow::QPoWApi;
@@ -23,8 +25,6 @@ use sp_core::crypto::AccountId32;
 use sp_core::{RuntimeDebug, U512};
 use sp_runtime::traits::Header;
 use std::{sync::Arc, time::Duration};
-use sc_cli::TransactionPoolType;
-use sc_transaction_pool::TransactionPoolOptions;
 use uuid::Uuid;
 
 pub(crate) type FullClient = sc_service::TFullClient<
@@ -159,13 +159,16 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         Arc::clone(&client),
         pow_algorithm.clone(),
     );
-    log::info!("transaction pool config: {:?}", config.transaction_pool.clone());
+    log::info!(
+        "transaction pool config: {:?}",
+        config.transaction_pool.clone()
+    );
     let pool_options = TransactionPoolOptions::new_with_params(
         36772, // each tx is about 7300 bytes so if we have 268MB for the pool we can fit this many txs
         268_435_456,
         None,
         TransactionPoolType::ForkAware.into(),
-        false
+        false,
     );
     let transaction_pool = Arc::from(
         sc_transaction_pool::Builder::new(
