@@ -37,6 +37,7 @@ pallet-ranked-collective.workspace = true
 pallet-recovery.workspace = true
 pallet-referenda.workspace = true
 pallet-reversible-transfers.workspace = true
+pallet-revive.workspace = true
 pallet-scheduler.workspace = true
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
@@ -108,6 +109,7 @@ std = [
 	"pallet-recovery/std",
 	"pallet-referenda/std",
 	"pallet-reversible-transfers/std",
+	"pallet-revive/std",
 	"pallet-scheduler/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",
@@ -157,6 +159,7 @@ runtime-benchmarks = [
 	"pallet-recovery/runtime-benchmarks",
 	"pallet-referenda/runtime-benchmarks",
 	"pallet-reversible-transfers/runtime-benchmarks",
+	"pallet-revive/runtime-benchmarks",
 	"pallet-scheduler/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",

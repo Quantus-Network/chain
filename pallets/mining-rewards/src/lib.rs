@@ -133,6 +133,11 @@ pub mod pallet {
             // Get the digest from the current block
             let digest = <frame_system::Pallet<T>>::digest();
 
+            Self::do_extract_miner(digest)
+        }
+
+        /// Do extract miner from digest
+        pub fn do_extract_miner(digest: sp_runtime::Digest) -> Option<T::AccountId> {
             // Look for pre-runtime digest with POW_ENGINE_ID
             for log in digest.logs.iter() {
                 if let DigestItem::PreRuntime(engine_id, data) = log {
