@@ -23,6 +23,8 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
+use core::marker::PhantomData;
+
 // Substrate and Polkadot dependencies
 use crate::governance::definitions::{
     CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
@@ -31,7 +33,9 @@ use crate::governance::definitions::{
 };
 use crate::governance::{pallet_custom_origins, Spender};
 use crate::MILLI_UNIT;
-use frame_support::traits::{AsEnsureOriginWithArg, EitherOf, NeverEnsureOrigin, WithdrawReasons};
+use frame_support::traits::{
+    AsEnsureOriginWithArg, EitherOf, FindAuthor, NeverEnsureOrigin, Nothing, WithdrawReasons,
+};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
@@ -48,6 +52,7 @@ use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
+use sp_core::ConstBool;
 use sp_runtime::traits::ConvertInto;
 use sp_runtime::{traits::One, Perbill, Permill};
 use sp_version::RuntimeVersion;
@@ -602,6 +607,64 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
     fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
         match call {
             RuntimeCall::Balances(c) => Ok(c),
+            _ => Err(()),
+        }
+    }
+}
+
+pub struct FindAuthorImpl<T: pallet_mining_rewards::Config>(PhantomData<T>);
+
+impl<T: pallet_mining_rewards::Config> FindAuthor<T::AccountId> for FindAuthorImpl<T> {
+    fn find_author<'a, I>(digests: I) -> Option<T::AccountId>
+    where
+        I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
+    {
+        pallet_mining_rewards::Pallet::<T>::do_extract_miner(digests.into())
+    }
+}
+
+parameter_types! {
+    pub CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(25);
+    pub const RuntimeMemory: u32 = 128 * 1024 * 1024; // 128 MiB
+    pub const PVFMemory: u32 = 512 * 1024 * 1024; // 512 MiB
+    pub const ChainId: u64 = 42;
+    pub const NativeToEthRatio: u32 = 1;
+    pub const DepositPerItem: Balance = 0;
+    pub const DepositPerByte: Balance = 0;
+}
+
+impl pallet_revive::Config for Runtime {
+    type Time = Timestamp;
+    type Currency = Balances;
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type CallFilter = Nothing;
+    type DepositPerItem = DepositPerByte;
+    type DepositPerByte = DepositPerByte;
+    type WeightPrice = pallet_transaction_payment::Pallet<Self>;
+    type WeightInfo = pallet_revive::weights::SubstrateWeight<Self>;
+    type ChainExtension = ();
+    type AddressMapper = pallet_revive::AccountId32Mapper<Self>;
+    type RuntimeMemory = RuntimeMemory;
+    type PVFMemory = PVFMemory;
+    type UnsafeUnstableInterface = ConstBool<true>;
+    type UploadOrigin = EnsureSigned<Self::AccountId>;
+    type InstantiateOrigin = EnsureSigned<Self::AccountId>;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type CodeHashLockupDepositPercent = CodeHashLockupDepositPercent;
+    type Xcm = ();
+    type ChainId = ChainId;
+    type NativeToEthRatio = NativeToEthRatio;
+    type EthGasEncoder = ();
+    type FindAuthor = FindAuthorImpl<Self>;
+}
+
+impl TryFrom<RuntimeCall> for pallet_revive::Call<Runtime> {
+    type Error = ();
+
+    fn try_from(value: RuntimeCall) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeCall::Revive(call) => Ok(call),
             _ => Err(()),
         }
     }
