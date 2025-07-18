@@ -96,9 +96,9 @@ zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", p
 ] }
 
 # polkadot-sdk dependencies
-frame-benchmarking = { version = "39.0.0", default-features = false }
-frame-benchmarking-cli = { version = "46.1.0", default-features = false }
-frame-executive = { version = "39.1.0", default-features = false }
+frame-benchmarking = { version = "39.1.0", default-features = false }
+frame-benchmarking-cli = { version = "46.2.0", default-features = false }
+frame-executive = { version = "39.1.1", default-features = false }
 frame-metadata-hash-extension = { version = "0.7.0", default-features = false }
 frame-support = { version = "39.1.0", default-features = false }
 frame-system = { version = "39.1.0", default-features = false }
