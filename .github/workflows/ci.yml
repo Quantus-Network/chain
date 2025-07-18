@@ -4,20 +4,20 @@ name: Continuous Integration
 on:
   pull_request:
     paths-ignore:
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "docs/**"
+      - "*.md"
+      - "LICENSE"
   push:
     branches:
       - main
     paths-ignore:
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "docs/**"
+      - "*.md"
+      - "LICENSE"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -45,6 +45,8 @@ jobs:
         run: |
           taplo format --check --config taplo.toml
           cargo fmt --all -- --check
+      - name: Run CVE checks
+        run: cargo audit
 
   build-and-test-matrix:
     name: 🛠️ Build & Test Matrix
