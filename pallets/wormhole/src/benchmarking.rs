@@ -53,8 +53,10 @@ mod benchmarks {
             .verify(proof)
             .map_err(|_| BenchmarkError::Stop("Proof verification failed"))?;
 
+        let block_number = frame_system::Pallet::<T>::block_number();
+
         #[extrinsic_call]
-        verify_wormhole_proof(RawOrigin::None, proof_bytes);
+        verify_wormhole_proof(RawOrigin::None, proof_bytes, block_number);
 
         Ok(())
     }
