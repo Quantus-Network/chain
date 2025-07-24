@@ -9,7 +9,6 @@ edition = "2021"
 members = [
 	"client/consensus/qpow",
 	"dilithium-crypto",
-	"dilithium-crypto/sign",
 	"dilithium-crypto/verify",
 	"node",
 	"pallets/balances",
