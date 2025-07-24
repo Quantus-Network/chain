@@ -76,7 +76,7 @@ substrate-wasm-builder = { optional = true, workspace = true, default-features =
 
 [dev-dependencies]
 env_logger.workspace = true
-hdwallet.workspace = true
+dilithium-crypto.workspace = true
 sp-io.workspace = true
 sp-keyring = { workspace = true, features = ["std"] }
 sp-std.workspace = true

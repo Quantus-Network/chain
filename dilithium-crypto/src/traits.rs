@@ -16,7 +16,27 @@ use sp_runtime::{
     AccountId32, CryptoType,
 };
 use sp_std::vec::Vec;
-use verify::verify;
+
+/// Verifies a Dilithium ML-DSA-87 signature
+///
+/// # Arguments
+/// * `pub_key` - The public key bytes
+/// * `msg` - The message that was signed
+/// * `sig` - The signature bytes
+///
+/// # Returns
+/// `true` if the signature is valid, `false` otherwise
+pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+    use rusty_crystals_dilithium::ml_dsa_87::PublicKey;
+    match PublicKey::from_bytes(pub_key) {
+        Ok(pk) => pk.verify(msg, sig, None),
+        Err(e) => {
+            log::warn!("public key failed to deserialize {:?}", e);
+            false
+        }
+    }
+}
+
 //
 // WrappedPublicBytes
 //
@@ -212,7 +232,7 @@ impl From<ResonancePublic> for AccountId32 {
 
 impl ResonancePair {
     pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
-        let keypair = hdwallet::generate(Some(seed)).map_err(|_| Error::KeyGenerationFailed)?;
+        let keypair = crate::pair::generate(Some(seed)).map_err(|_| Error::KeyGenerationFailed)?;
         Ok(ResonancePair {
             secret: keypair.secret.to_bytes(),
             public: keypair.public.to_bytes(),

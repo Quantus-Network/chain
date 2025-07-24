@@ -1,6 +1,10 @@
 use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSigner};
 
 use super::types::{ResonancePair, ResonancePublic};
+use rusty_crystals_dilithium::{
+    ml_dsa_87::{Keypair, PublicKey, SecretKey},
+    params::SEEDBYTES,
+};
 use sp_core::{
     crypto::{DeriveError, DeriveJunction, SecretStringError},
     ByteArray, Pair,
@@ -54,8 +58,7 @@ impl Pair for ResonancePair {
         // Create keypair struct
 
         use crate::types::ResonanceSignature;
-        let keypair =
-            hdwallet::create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
+        let keypair = create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
         let signature = keypair.sign(message, None, false);
@@ -91,6 +94,42 @@ impl Pair for ResonancePair {
     }
 }
 
+/// Generates a new Dilithium ML-DSA-87 keypair
+///
+/// # Arguments
+/// * `entropy` - Optional entropy bytes for key generation. Must be at least SEEDBYTES long if provided.
+///
+/// # Returns
+/// `Ok(Keypair)` on success, `Err(&'static str)` on failure
+///
+/// # Errors
+/// Returns an error if the provided entropy is shorter than SEEDBYTES
+pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, &'static str> {
+    if entropy.is_some() && entropy.unwrap().len() < SEEDBYTES {
+        return Err("Entropy must be at least SEEDBYTES long");
+    }
+    Ok(Keypair::generate(entropy))
+}
+
+/// Creates a keypair from existing public and secret key bytes
+///
+/// # Arguments
+/// * `public_key` - The public key bytes
+/// * `secret_key` - The secret key bytes
+///
+/// # Returns
+/// `Ok(Keypair)` on success, `Err(&'static str)` on failure
+///
+/// # Errors
+/// Returns an error if either key fails to parse
+pub fn create_keypair(public_key: &[u8], secret_key: &[u8]) -> Result<Keypair, &'static str> {
+    let secret = SecretKey::from_bytes(secret_key).map_err(|_| "Failed to parse secret key")?;
+    let public = PublicKey::from_bytes(public_key).map_err(|_| "Failed to parse public key")?;
+
+    let keypair = Keypair { secret, public };
+    Ok(keypair)
+}
+
 #[cfg(test)]
 mod tests {
     use sp_std::vec;
@@ -122,7 +161,7 @@ mod tests {
         // This should go in a separate unit test where we check the hdwallet crate.
         // this is keypair as hdwallet::generate vs keypair as hdwallet::create_keypair (in pair.sign)
         // TODO: fix this
-        // let keypair = hdwallet::generate(Some(&seed)).expect("Failed to generate keypair");
+        // let keypair = generate(Some(&seed)).expect("Failed to generate keypair");
         // let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
         // assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
 

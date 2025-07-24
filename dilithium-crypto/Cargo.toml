@@ -11,10 +11,8 @@ sp-std = { version = "14.0.0", default-features = false }
 codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 rusty-crystals-dilithium.workspace = true
-verify = { path = "./verify", default-features = false }
 log = { workspace = true }
 sp-runtime-interface = { version = "29.0.0", default-features = false }
-hdwallet = { path = "./hdwallet", default-features = false }
 poseidon-resonance = { workspace = true }
 thiserror = { version = "2.0.12", default-features = false }
 
@@ -25,7 +23,6 @@ env_logger = "0.11.5"
 default = ["std"]
 std = [
 	"codec/std",
-	"hdwallet/std",
 	"poseidon-resonance/std",
 	"scale-info/std",
 	"sp-core/std",
@@ -34,7 +31,7 @@ std = [
 	"sp-runtime/std",
 	"sp-std/std",
 ]
-full_crypto = [ # pass through for "sign" in pair trait. 
+full_crypto = [ # pass through for "sign" in pair trait.
 	"sp-core/full_crypto",
 ]
 serde = [
