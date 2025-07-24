@@ -1,6 +1,6 @@
-use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSigner};
+use crate::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, DilithiumSigner};
 
-use super::types::{ResonancePair, ResonancePublic};
+use super::types::{DilithiumPair, DilithiumPublic};
 use rusty_crystals_dilithium::{
     ml_dsa_87::{Keypair, PublicKey, SecretKey},
     params::SEEDBYTES,
@@ -15,72 +15,72 @@ use sp_runtime::{
 };
 use sp_std::vec::Vec;
 
-pub fn crystal_alice() -> ResonancePair {
+pub fn crystal_alice() -> DilithiumPair {
     let seed = [0u8; 32];
-    ResonancePair::from_seed_slice(&seed).expect("Always succeeds")
+    DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
-pub fn dilithium_bob() -> ResonancePair {
+pub fn dilithium_bob() -> DilithiumPair {
     let seed = [1u8; 32];
-    ResonancePair::from_seed_slice(&seed).expect("Always succeeds")
+    DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
-pub fn crystal_charlie() -> ResonancePair {
+pub fn crystal_charlie() -> DilithiumPair {
     let seed = [2u8; 32];
-    ResonancePair::from_seed_slice(&seed).expect("Always succeeds")
+    DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
 
-impl IdentifyAccount for ResonancePair {
+impl IdentifyAccount for DilithiumPair {
     type AccountId = AccountId32;
     fn into_account(self) -> AccountId32 {
         self.public().into_account()
     }
 }
 
-impl Pair for ResonancePair {
-    type Public = ResonancePublic;
+impl Pair for DilithiumPair {
+    type Public = DilithiumPublic;
     type Seed = Vec<u8>;
-    type Signature = ResonanceSignatureWithPublic;
+    type Signature = DilithiumSignatureWithPublic;
 
     fn derive<Iter: Iterator<Item = DeriveJunction>>(
         &self,
         _path_iter: Iter,
-        _seed: Option<<ResonancePair as Pair>::Seed>,
-    ) -> Result<(Self, Option<<ResonancePair as Pair>::Seed>), DeriveError> {
+        _seed: Option<<DilithiumPair as Pair>::Seed>,
+    ) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
         // Collect the path_iter into a Vec to avoid consuming it prematurely in checks
         unimplemented!("derive not implemented");
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-        ResonancePair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
+        DilithiumPair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
     }
 
     #[cfg(any(feature = "default", feature = "full_crypto"))]
-    fn sign(&self, message: &[u8]) -> ResonanceSignatureWithPublic {
+    fn sign(&self, message: &[u8]) -> DilithiumSignatureWithPublic {
         // Create keypair struct
 
-        use crate::types::ResonanceSignature;
+        use crate::types::DilithiumSignature;
         let keypair = create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
         // Sign the message
         let signature = keypair.sign(message, None, false);
 
         let signature =
-            ResonanceSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
+            DilithiumSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
 
-        ResonanceSignatureWithPublic::new(signature, self.public())
+        DilithiumSignatureWithPublic::new(signature, self.public())
     }
 
     fn verify<M: AsRef<[u8]>>(
-        sig: &ResonanceSignatureWithPublic,
+        sig: &DilithiumSignatureWithPublic,
         message: M,
-        pubkey: &ResonancePublic,
+        pubkey: &DilithiumPublic,
     ) -> bool {
-        let sig_scheme = ResonanceSignatureScheme::Resonance(sig.clone());
-        let signer = ResonanceSigner::Resonance(pubkey.clone());
+        let sig_scheme = DilithiumSignatureScheme::Dilithium(sig.clone());
+        let signer = DilithiumSigner::Dilithium(pubkey.clone());
         sig_scheme.verify(message.as_ref(), &signer.into_account())
     }
 
     fn public(&self) -> Self::Public {
-        ResonancePublic::from_slice(&self.public).expect("Failed to create ResonancePublic")
+        DilithiumPublic::from_slice(&self.public).expect("Failed to create DilithiumPublic")
     }
 
     fn to_raw_vec(&self) -> Vec<u8> {
@@ -148,7 +148,7 @@ mod tests {
 
         let seed = vec![0u8; 32];
 
-        let pair = ResonancePair::from_seed_slice(&seed).expect("Failed to create pair");
+        let pair = DilithiumPair::from_seed_slice(&seed).expect("Failed to create pair");
         let message: Vec<u8> = b"Hello, world!".to_vec();
 
         log::info!("Signing message: {:?}", &message[..10]);
@@ -167,7 +167,7 @@ mod tests {
 
         let public = pair.public();
 
-        let result = ResonancePair::verify(&signature, message, &public);
+        let result = DilithiumPair::verify(&signature, message, &public);
 
         assert!(result, "Signature should verify");
     }
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn test_sign_different_message_fails() {
         let seed = [0u8; 32];
-        let pair = ResonancePair::from_seed(&seed).expect("Failed to create pair");
+        let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
         let message = b"Hello, world!";
         let wrong_message = b"Goodbye, world!";
 
@@ -183,7 +183,7 @@ mod tests {
         let public = pair.public();
 
         assert!(
-            !ResonancePair::verify(&signature, wrong_message, &public),
+            !DilithiumPair::verify(&signature, wrong_message, &public),
             "Signature should not verify with wrong message"
         );
     }
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn test_wrong_signature_fails() {
         let seed = [0u8; 32];
-        let pair = ResonancePair::from_seed(&seed).expect("Failed to create pair");
+        let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
         let message = b"Hello, world!";
 
         let mut signature = pair.sign(message);
@@ -200,12 +200,12 @@ mod tests {
         if let Some(byte) = signature_bytes.get_mut(0) {
             *byte ^= 1;
         }
-        let false_signature = ResonanceSignatureWithPublic::from_slice(signature_bytes)
+        let false_signature = DilithiumSignatureWithPublic::from_slice(signature_bytes)
             .expect("Failed to create signature");
         let public = pair.public();
 
         assert!(
-            !ResonancePair::verify(&false_signature, message, &public),
+            !DilithiumPair::verify(&false_signature, message, &public),
             "Corrupted signature should not verify"
         );
     }
@@ -214,8 +214,8 @@ mod tests {
     fn test_different_seed_different_public() {
         let seed1 = vec![0u8; 32];
         let seed2 = vec![1u8; 32];
-        let pair1 = ResonancePair::from_seed(&seed1).expect("Failed to create pair");
-        let pair2 = ResonancePair::from_seed(&seed2).expect("Failed to create pair");
+        let pair1 = DilithiumPair::from_seed(&seed1).expect("Failed to create pair");
+        let pair2 = DilithiumPair::from_seed(&seed2).expect("Failed to create pair");
 
         let pub1 = pair1.public();
         let pub2 = pair2.public();

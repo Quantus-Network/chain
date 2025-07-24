@@ -9,9 +9,9 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
-pub use dilithium_crypto::ResonancePublic;
-pub use dilithium_crypto::ResonanceSignature;
-pub use dilithium_crypto::ResonanceSignatureScheme;
+pub use dilithium_crypto::DilithiumPublic;
+pub use dilithium_crypto::DilithiumSignature;
+pub use dilithium_crypto::DilithiumSignatureScheme;
 
 use alloc::vec::Vec;
 use sp_runtime::{
@@ -119,7 +119,7 @@ pub fn native_version() -> NativeVersion {
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 // pub type Signature = MultiSignature;
-pub type Signature = ResonanceSignatureScheme;
+pub type Signature = DilithiumSignatureScheme;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.

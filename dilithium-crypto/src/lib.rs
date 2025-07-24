@@ -1,14 +1,18 @@
 #![no_std]
 
-pub mod crypto;
 pub mod pair;
 pub mod traits;
 pub mod types;
 
-pub use crypto::{PUB_KEY_BYTES, SECRET_KEY_BYTES, SIGNATURE_BYTES};
+use rusty_crystals_dilithium::ml_dsa_87;
+
+pub const PUB_KEY_BYTES: usize = ml_dsa_87::PUBLICKEYBYTES;
+pub const SECRET_KEY_BYTES: usize = ml_dsa_87::SECRETKEYBYTES;
+pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
+
 pub use pair::{create_keypair, crystal_alice, crystal_charlie, dilithium_bob, generate};
 pub use traits::verify;
 pub use types::{
-    ResonancePair, ResonancePublic, ResonanceSignature, ResonanceSignatureScheme,
-    ResonanceSignatureWithPublic, ResonanceSigner, WrappedPublicBytes, WrappedSignatureBytes,
+    DilithiumPair, DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme,
+    DilithiumSignatureWithPublic, DilithiumSigner, WrappedPublicBytes, WrappedSignatureBytes,
 };

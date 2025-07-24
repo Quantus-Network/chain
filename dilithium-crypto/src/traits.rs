@@ -1,9 +1,9 @@
 use super::types::{
-    Error, ResonancePair, ResonancePublic, ResonanceSignatureScheme, ResonanceSigner,
+    DilithiumPair, DilithiumPublic, DilithiumSignatureScheme, DilithiumSigner, Error,
     WrappedPublicBytes, WrappedSignatureBytes,
 };
 
-use crate::{ResonanceSignature, ResonanceSignatureWithPublic};
+use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
 use poseidon_resonance::PoseidonHasher;
 use sp_core::H256;
 use sp_core::{
@@ -75,7 +75,7 @@ impl<const N: usize, SubTag> ByteArray for WrappedPublicBytes<N, SubTag> {
     }
 }
 impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
-    type Pair = ResonancePair;
+    type Pair = DilithiumPair;
 }
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
@@ -100,7 +100,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag
     }
 }
 
-impl IdentifyAccount for ResonancePublic {
+impl IdentifyAccount for DilithiumPublic {
     type AccountId = AccountId32;
     fn into_account(self) -> Self::AccountId {
         AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
@@ -154,7 +154,7 @@ impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
     }
 }
 impl<const N: usize, SubTag> CryptoType for WrappedSignatureBytes<N, SubTag> {
-    type Pair = ResonancePair;
+    type Pair = DilithiumPair;
 }
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
@@ -180,19 +180,19 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
     }
 }
 
-impl CryptoType for ResonancePair {
+impl CryptoType for DilithiumPair {
     type Pair = Self;
 }
 
-impl Verify for ResonanceSignatureScheme {
-    type Signer = ResonanceSigner;
+impl Verify for DilithiumSignatureScheme {
+    type Signer = DilithiumSigner;
 
     fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
         &self,
         mut msg: L,
         signer: &<Self::Signer as IdentifyAccount>::AccountId,
     ) -> bool {
-        let Self::Resonance(sig_public) = self;
+        let Self::Dilithium(sig_public) = self;
         let account = sig_public.public().clone().into_account();
         if account != *signer {
             return false;
@@ -209,41 +209,41 @@ impl Verify for ResonanceSignatureScheme {
 //
 // ResonanceSigner
 //
-impl From<ResonancePublic> for ResonanceSigner {
-    fn from(x: ResonancePublic) -> Self {
-        Self::Resonance(x)
+impl From<DilithiumPublic> for DilithiumSigner {
+    fn from(x: DilithiumPublic) -> Self {
+        Self::Dilithium(x)
     }
 }
 
-impl IdentifyAccount for ResonanceSigner {
+impl IdentifyAccount for DilithiumSigner {
     type AccountId = AccountId32;
 
     fn into_account(self) -> AccountId32 {
-        let Self::Resonance(who) = self;
+        let Self::Dilithium(who) = self;
         PoseidonHasher::hash(who.as_ref()).0.into()
     }
 }
 
-impl From<ResonancePublic> for AccountId32 {
-    fn from(public: ResonancePublic) -> Self {
+impl From<DilithiumPublic> for AccountId32 {
+    fn from(public: DilithiumPublic) -> Self {
         public.into_account()
     }
 }
 
-impl ResonancePair {
+impl DilithiumPair {
     pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
         let keypair = crate::pair::generate(Some(seed)).map_err(|_| Error::KeyGenerationFailed)?;
-        Ok(ResonancePair {
+        Ok(DilithiumPair {
             secret: keypair.secret.to_bytes(),
             public: keypair.public.to_bytes(),
         })
     }
-    pub fn public(&self) -> ResonancePublic {
-        ResonancePublic::from_slice(&self.public).unwrap()
+    pub fn public(&self) -> DilithiumPublic {
+        DilithiumPublic::from_slice(&self.public).unwrap()
     }
 }
 
-impl sp_std::fmt::Debug for ResonanceSignatureWithPublic {
+impl sp_std::fmt::Debug for DilithiumSignatureWithPublic {
     #[cfg(feature = "std")]
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
         write!(
@@ -260,37 +260,37 @@ impl sp_std::fmt::Debug for ResonanceSignatureWithPublic {
     }
 }
 
-impl From<ResonanceSignatureWithPublic> for ResonanceSignatureScheme {
-    fn from(x: ResonanceSignatureWithPublic) -> Self {
-        Self::Resonance(x)
+impl From<DilithiumSignatureWithPublic> for DilithiumSignatureScheme {
+    fn from(x: DilithiumSignatureWithPublic) -> Self {
+        Self::Dilithium(x)
     }
 }
 
-impl TryFrom<ResonanceSignatureScheme> for ResonanceSignatureWithPublic {
+impl TryFrom<DilithiumSignatureScheme> for DilithiumSignatureWithPublic {
     type Error = (); // TODO: fix errors
-    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
-        let ResonanceSignatureScheme::Resonance(sig_public) = m;
-        Ok(sig_public)
+    fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
+        let DilithiumSignatureScheme::Dilithium(sig_with_public) = m;
+        Ok(sig_with_public)
     }
 }
 
-impl AsMut<[u8]> for ResonanceSignatureWithPublic {
+impl AsMut<[u8]> for DilithiumSignatureWithPublic {
     fn as_mut(&mut self) -> &mut [u8] {
         self.bytes.as_mut()
     }
 }
-impl TryFrom<&[u8]> for ResonanceSignatureWithPublic {
+impl TryFrom<&[u8]> for DilithiumSignatureWithPublic {
     type Error = ();
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        let (sig_bytes, pub_bytes) = data.split_at(<ResonanceSignature as ByteArray>::LEN);
+        let (sig_bytes, pub_bytes) = data.split_at(<DilithiumSignature as ByteArray>::LEN);
         Ok(Self::new(
-            ResonanceSignature::from_slice(sig_bytes)?,
-            ResonancePublic::from_slice(pub_bytes)?,
+            DilithiumSignature::from_slice(sig_bytes)?,
+            DilithiumPublic::from_slice(pub_bytes)?,
         ))
     }
 }
 
-impl ByteArray for ResonanceSignatureWithPublic {
+impl ByteArray for DilithiumSignatureWithPublic {
     const LEN: usize = Self::TOTAL_LEN;
 
     fn to_raw_vec(&self) -> Vec<u8> {
@@ -309,19 +309,19 @@ impl ByteArray for ResonanceSignatureWithPublic {
         self.bytes.as_slice()
     }
 }
-impl AsRef<[u8; Self::LEN]> for ResonanceSignatureWithPublic {
+impl AsRef<[u8; Self::LEN]> for DilithiumSignatureWithPublic {
     fn as_ref(&self) -> &[u8; Self::LEN] {
         &self.bytes
     }
 }
 
-impl AsRef<[u8]> for ResonanceSignatureWithPublic {
+impl AsRef<[u8]> for DilithiumSignatureWithPublic {
     fn as_ref(&self) -> &[u8] {
         &self.bytes
     }
 }
-impl Signature for ResonanceSignatureWithPublic {}
+impl Signature for DilithiumSignatureWithPublic {}
 
-impl CryptoType for ResonanceSignatureWithPublic {
-    type Pair = ResonancePair;
+impl CryptoType for DilithiumSignatureWithPublic {
+    type Pair = DilithiumPair;
 }
