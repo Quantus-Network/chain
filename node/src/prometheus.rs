@@ -101,8 +101,6 @@ impl ResonanceBusinessMetrics {
                 U512::zero()
             });
 
-        log::warn!("😵 difficulty reported: {:?}", difficulty.low_u64() as f64);
-
         // Update the metrics with the values we retrieved
         gauge
             .with_label_values(&["chain_height"])

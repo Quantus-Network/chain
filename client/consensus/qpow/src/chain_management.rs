@@ -581,17 +581,17 @@ where
     }
 
     async fn best_chain(&self) -> Result<B::Header, sp_consensus::Error> {
-        log::debug!("------ ☝️Starting best chain selection process ------");
+        log::debug!("------ 🍴️Starting best chain selection process ------");
 
         let leaves = self.backend.blockchain().leaves().map_err(|e| {
-            log::error!("☝️ Failed to fetch leaves: {:?}", e);
+            log::error!("🍴️ Failed to fetch leaves: {:?}", e);
             sp_consensus::Error::Other(format!("Failed to fetch leaves: {:?}", e).into())
         })?;
 
-        log::debug!("☝️ Found {} leaves to evaluate", leaves.len());
+        log::debug!("🍴️ Found {} leaves to evaluate", leaves.len());
 
         if leaves.is_empty() {
-            log::error!("☝️ Blockchain has no leaves");
+            log::error!("🍴️ Blockchain has no leaves");
             return Err(sp_consensus::Error::Other(
                 "Blockchain has no leaves".into(),
             ));
@@ -599,31 +599,31 @@ where
 
         // Get info about last finalized block
         let finalized_number = self.client.info().finalized_number;
-        log::debug!("☝️ Current finalized block: #{}", finalized_number);
+        log::debug!("🍴️ Current finalized block: #{}", finalized_number);
 
         // the current head of the chain - will be needed to compare reorg depth
         let current_best = match self.client.info().best_hash {
             hash if hash != Default::default() => {
-                log::debug!("☝️ Current best hash: {:?}", hash);
+                log::debug!("🍴️ Current best hash: {:?}", hash);
 
                 self.client
                     .header(hash)
                     .map_err(|e| {
                         log::error!(
-                            "☝️ Blockchain error when getting header for best hash: {:?}",
+                            "🍴️ Blockchain error when getting header for best hash: {:?}",
                             e
                         );
                         sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
                     })?
                     .ok_or_else(|| {
-                        log::error!("☝️ Missing header for current best hash: {:?}", hash);
+                        log::error!("🍴️ Missing header for current best hash: {:?}", hash);
                         sp_consensus::Error::Other("Missing current best header".into())
                     })?
             }
             _ => {
                 // If there's no current best, we don't need to find reorg depth
                 log::debug!(
-                    "☝️ No current best hash, finding best chain without reorg constraints"
+                    "🍴️ No current best hash, finding best chain without reorg constraints"
                 );
                 return self.find_best_chain(leaves).await;
             }
@@ -631,7 +631,7 @@ where
 
         let current_best_number = *current_best.number();
         log::debug!(
-            "☝️ Current best block: #{} ({:?})",
+            "🍴️ Current best block: #{} ({:?})",
             current_best_number,
             current_best.hash()
         );
@@ -639,18 +639,19 @@ where
         let mut best_header = current_best.clone();
         let mut best_work = self.calculate_chain_work(&current_best)?;
         log::debug!(
-            "☝️ Current best chain: {:?} with work: {:?}",
+            "🍴️ Current best chain: {:?} with work: {:?}",
             best_header.hash(),
             best_work
         );
 
         log::debug!(
-            "☝️ Evaluating {} leaves for potential best chain",
+            "🍴️ Evaluating {} leaves for potential best chain",
             leaves.len()
         );
+
         for (idx, leaf_hash) in leaves.iter().enumerate() {
             log::debug!(
-                "☝️ Evaluating leaf [{}/{}]: {:?}",
+                "🍴️ Evaluating leaf [{}/{}]: {:?}",
                 idx + 1,
                 leaves.len(),
                 leaf_hash
@@ -658,13 +659,13 @@ where
 
             // Skip if it's the current best or already ignored
             if *leaf_hash == best_header.hash() {
-                log::debug!("☝️ Skipping leaf {:?} - it's the current best", leaf_hash);
+                log::debug!("🍴️ Skipping leaf {:?} - it's the current best", leaf_hash);
                 continue;
             }
 
             if self.is_chain_ignored(leaf_hash)? {
                 log::debug!(
-                    "☝️ Skipping leaf {:?} - it's in the ignored list",
+                    "🍴️ Skipping leaf {:?} - it's in the ignored list",
                     leaf_hash
                 );
                 continue;
@@ -674,31 +675,31 @@ where
                 .client
                 .header(*leaf_hash)
                 .map_err(|e| {
-                    log::error!("☝️ Blockchain error when getting header for leaf: {:?}", e);
+                    log::error!("🍴️ Blockchain error when getting header for leaf: {:?}", e);
                     sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
                 })?
                 .ok_or_else(|| {
-                    log::error!("☝️ Missing header for leaf hash: {:?}", leaf_hash);
+                    log::error!("🍴️ Missing header for leaf hash: {:?}", leaf_hash);
                     sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into())
                 })?;
 
             let header_number = *header.number();
-            log::debug!("☝️ Found header for leaf at height #{}", header_number);
+            log::debug!("🍴️ Found header for leaf at height #{}", header_number);
 
             let chain_work = self.calculate_chain_work(&header)?;
-            log::debug!("☝️ Chain work for leaf #{}: {}", header_number, chain_work);
+            log::debug!("🍴️ Chain work for leaf #{}: {}", header_number, chain_work);
 
             let max_reorg_depth = self
                 .client
                 .runtime_api()
                 .get_max_reorg_depth(best_header.hash())
                 .expect("Failed to get max reorg depth");
-            log::debug!("☝️ Max reorg depth from runtime: {}", max_reorg_depth);
+            log::debug!("🍴️ Max reorg depth from runtime: {}", max_reorg_depth);
 
             if chain_work >= best_work {
                 // This chain has more work, but we need to check reorg depth
                 log::debug!(
-                    "☝️ Chain with head #{} ({:?}) has at least as much work ({}) as current best ({}), checking reorg depth",
+                    "🍴️ Chain with head #{} ({:?}) has at least as much work ({}) as current best ({}), checking reorg depth",
                     header_number,
                     leaf_hash,
                     chain_work,
@@ -708,7 +709,7 @@ where
                 let (fork_point, reorg_depth) =
                     self.find_common_ancestor_and_depth(&current_best, &header)?;
                 log::debug!(
-                    "☝️ Found common ancestor with hash {:?} with reorg depth: {}",
+                    "🍴️ Found common ancestor with hash {:?} with reorg depth: {}",
                     fork_point,
                     reorg_depth
                 );
@@ -716,7 +717,7 @@ where
                 if reorg_depth <= max_reorg_depth {
                     // Switch to this chain as it's within the reorg limit
                     log::debug!(
-                        "☝️ Found better chain: {:?} with work: {:?}, reorg depth: {} (within limit of {})",
+                        "🍴️ Found better chain: {:?} with work: {:?}, reorg depth: {} (within limit of {})",
                         header.hash(),
                         chain_work,
                         reorg_depth,
@@ -729,7 +730,7 @@ where
                         let new_block_height = header.number();
 
                         log::debug!(
-                            "☝️ Chain work is equal, comparing block heights: current #{}, new #{}",
+                            "🍴️ Chain work is equal, comparing block heights: current #{}, new #{}",
                             current_block_height,
                             new_block_height
                         );
@@ -737,21 +738,21 @@ where
                         // select the chain with more blocks when chains have equal work
                         if new_block_height > current_block_height {
                             log::debug!(
-                                "☝️ Switching to chain with more blocks: #{} > #{}",
+                                "🍴️ Switching to chain with more blocks: #{} > #{}",
                                 new_block_height,
                                 current_block_height
                             );
                             best_header = header;
                         } else {
                             log::debug!(
-                                "☝️ Keeping current chain as it has at least as many blocks: #{} >= #{}",
+                                "🍴️ Keeping current chain as it has at least as many blocks: #{} >= #{}",
                                 current_block_height,
                                 new_block_height
                             );
                         }
                     } else {
                         log::debug!(
-                            "☝️ Switching to chain with more work: {} > {}",
+                            "🍴️ Switching to chain with more work: {} > {}",
                             chain_work,
                             best_work
                         );
@@ -760,14 +761,14 @@ where
                     }
                 } else {
                     log::debug!(
-                        "☝️ Chain with more work exceeds reorg limit: {} > {}. Adding to ignored chains.",
+                        "🍴️ Chain with more work exceeds reorg limit: {} > {}. Adding to ignored chains.",
                         reorg_depth,
                         max_reorg_depth
                     );
 
                     self.add_ignored_chain(*leaf_hash)?;
                     log::warn!(
-                        "☝️ Permanently ignoring chain with more work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
+                        "🍴️ Permanently ignoring chain with more work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
                         header.hash(),
                         chain_work,
                         reorg_depth,
@@ -777,7 +778,7 @@ where
             } else {
                 // This chain has less work - check if it should be ignored
                 log::debug!(
-                    "☝️ Chain has less work ({} < {}), checking if it should be ignored",
+                    "🍴️ Chain has less work ({} < {}), checking if it should be ignored",
                     chain_work,
                     best_work
                 );
@@ -785,21 +786,21 @@ where
                 let (fork_point, reorg_depth) =
                     self.find_common_ancestor_and_depth(&current_best, &header)?;
                 log::debug!(
-                    "☝️ Found common ancestor with hash {:?} with reorg depth: {}",
+                    "🍴️ Found common ancestor with hash {:?} with reorg depth: {}",
                     fork_point,
                     reorg_depth
                 );
 
                 if reorg_depth > max_reorg_depth {
                     log::debug!(
-                        "☝️ Chain exceeds reorg limit: {} > {}. Adding to ignored chains.",
+                        "🍴️ Chain exceeds reorg limit: {} > {}. Adding to ignored chains.",
                         reorg_depth,
                         max_reorg_depth
                     );
 
                     self.add_ignored_chain(*leaf_hash)?;
                     log::debug!(
-                        "☝️ Permanently ignoring chain with less work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
+                        "🍴️ Permanently ignoring chain with less work: {:?} (work: {:?}) due to excessive reorg depth: {} > {}",
                         leaf_hash,
                         chain_work,
                         reorg_depth,
@@ -807,7 +808,7 @@ where
                     );
                 } else {
                     log::debug!(
-                        "☝️ Chain has less work but is within reorg limit: {} <= {}. Keeping in consideration.",
+                        "🍴️ Chain has less work but is within reorg limit: {} <= {}. Keeping in consideration.",
                         reorg_depth,
                         max_reorg_depth
                     );
@@ -815,12 +816,23 @@ where
             }
         }
 
-        log::info!(
-            "☝️ Finished chain selection. Selected best chain with head: #{} ({:?}) and work: {}",
-            best_header.number(),
-            best_header.hash(),
-            best_work
-        );
+        if leaves.len() > 1 {
+            log::info!(
+                "🍴️ Evaluated {} leaves and selected best chain with head: #{} ({:?}) and work: {}",
+                leaves.len(),
+                best_header.number(),
+                best_header.hash(),
+                best_work
+            );
+        } else {
+            log::debug!(
+                "🍴️ Finished chain selection. Selected best chain with head: #{} ({:?}) and work: {}",
+                best_header.number(),
+                best_header.hash(),
+                best_work
+            );
+        }
+
 
         Ok(best_header)
     }
