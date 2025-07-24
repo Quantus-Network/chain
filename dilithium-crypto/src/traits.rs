@@ -19,13 +19,27 @@ use sp_std::vec::Vec;
 
 /// Verifies a Dilithium ML-DSA-87 signature
 ///
+/// This function performs signature verification using the Dilithium post-quantum
+/// cryptographic signature scheme (ML-DSA-87). It validates that the given signature
+/// was created by the holder of the private key corresponding to the public key.
+///
 /// # Arguments
-/// * `pub_key` - The public key bytes
+/// * `pub_key` - The public key bytes (must be valid Dilithium public key)
 /// * `msg` - The message that was signed
-/// * `sig` - The signature bytes
+/// * `sig` - The signature bytes to verify
 ///
 /// # Returns
-/// `true` if the signature is valid, `false` otherwise
+/// `true` if the signature is valid and verification succeeds, `false` otherwise
+///
+/// # Examples
+/// ```ignore
+/// use dilithium_crypto::verify;
+///
+/// let valid = verify(&public_key_bytes, &message, &signature_bytes);
+/// if valid {
+///     println!("Signature is valid!");
+/// }
+/// ```
 pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
     use rusty_crystals_dilithium::ml_dsa_87::PublicKey;
     match PublicKey::from_bytes(pub_key) {
@@ -38,7 +52,7 @@ pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
 }
 
 //
-// WrappedPublicBytes
+// Trait implementations for WrappedPublicBytes
 //
 
 impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
@@ -118,7 +132,7 @@ impl IdentifyAccount for WormholeAddress {
 }
 
 //
-// WrappedSignatureBytes
+// Trait implementations for WrappedSignatureBytes
 //
 impl<const N: usize, SubTag> Derive for WrappedSignatureBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedSignatureBytes<N, SubTag> {
@@ -180,9 +194,17 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
     }
 }
 
+//
+// Trait implementations for DilithiumPair
+//
+
 impl CryptoType for DilithiumPair {
     type Pair = Self;
 }
+
+//
+// Trait implementations for DilithiumSignatureScheme
+//
 
 impl Verify for DilithiumSignatureScheme {
     type Signer = DilithiumSigner;
@@ -207,7 +229,7 @@ impl Verify for DilithiumSignatureScheme {
 }
 
 //
-// ResonanceSigner
+// Trait implementations for DilithiumSigner
 //
 impl From<DilithiumPublic> for DilithiumSigner {
     fn from(x: DilithiumPublic) -> Self {
@@ -230,16 +252,20 @@ impl From<DilithiumPublic> for AccountId32 {
     }
 }
 
+//
+// Implementation methods for DilithiumPair
+//
+
 impl DilithiumPair {
     pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
-        let keypair = crate::pair::generate(Some(seed)).map_err(|_| Error::KeyGenerationFailed)?;
+        let keypair = crate::pair::generate(Some(seed))?;
         Ok(DilithiumPair {
             secret: keypair.secret.to_bytes(),
             public: keypair.public.to_bytes(),
         })
     }
     pub fn public(&self) -> DilithiumPublic {
-        DilithiumPublic::from_slice(&self.public).unwrap()
+        DilithiumPublic::from_slice(&self.public).expect("Valid public key bytes")
     }
 }
 
@@ -267,7 +293,7 @@ impl From<DilithiumSignatureWithPublic> for DilithiumSignatureScheme {
 }
 
 impl TryFrom<DilithiumSignatureScheme> for DilithiumSignatureWithPublic {
-    type Error = (); // TODO: fix errors
+    type Error = ();
     fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
         let DilithiumSignatureScheme::Dilithium(sig_with_public) = m;
         Ok(sig_with_public)
@@ -282,11 +308,13 @@ impl AsMut<[u8]> for DilithiumSignatureWithPublic {
 impl TryFrom<&[u8]> for DilithiumSignatureWithPublic {
     type Error = ();
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() != Self::TOTAL_LEN {
+            return Err(());
+        }
         let (sig_bytes, pub_bytes) = data.split_at(<DilithiumSignature as ByteArray>::LEN);
-        Ok(Self::new(
-            DilithiumSignature::from_slice(sig_bytes)?,
-            DilithiumPublic::from_slice(pub_bytes)?,
-        ))
+        let signature = DilithiumSignature::from_slice(sig_bytes).map_err(|_| ())?;
+        let public = DilithiumPublic::from_slice(pub_bytes).map_err(|_| ())?;
+        Ok(Self::new(signature, public))
     }
 }
 

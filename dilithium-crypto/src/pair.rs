@@ -45,8 +45,9 @@ impl Pair for DilithiumPair {
         _path_iter: Iter,
         _seed: Option<<DilithiumPair as Pair>::Seed>,
     ) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-        // Collect the path_iter into a Vec to avoid consuming it prematurely in checks
-        unimplemented!("derive not implemented");
+        // Dilithium doesn't support hierarchical derivation like BIP32
+        // This is a fundamental limitation of the post-quantum signature scheme
+        Err(DeriveError::SoftKeyInPath)
     }
 
     fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
@@ -80,7 +81,7 @@ impl Pair for DilithiumPair {
     }
 
     fn public(&self) -> Self::Public {
-        DilithiumPublic::from_slice(&self.public).expect("Failed to create DilithiumPublic")
+        DilithiumPublic::from_slice(&self.public).expect("Valid public key bytes")
     }
 
     fn to_raw_vec(&self) -> Vec<u8> {
@@ -100,13 +101,18 @@ impl Pair for DilithiumPair {
 /// * `entropy` - Optional entropy bytes for key generation. Must be at least SEEDBYTES long if provided.
 ///
 /// # Returns
-/// `Ok(Keypair)` on success, `Err(&'static str)` on failure
+/// `Ok(Keypair)` on success, `Err(Error)` on failure
 ///
 /// # Errors
 /// Returns an error if the provided entropy is shorter than SEEDBYTES
-pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, &'static str> {
-    if entropy.is_some() && entropy.unwrap().len() < SEEDBYTES {
-        return Err("Entropy must be at least SEEDBYTES long");
+pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, crate::types::Error> {
+    if let Some(entropy_bytes) = entropy {
+        if entropy_bytes.len() < SEEDBYTES {
+            return Err(crate::types::Error::InsufficientEntropy {
+                required: SEEDBYTES,
+                actual: entropy_bytes.len(),
+            });
+        }
     }
     Ok(Keypair::generate(entropy))
 }
@@ -118,13 +124,18 @@ pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, &'static str> {
 /// * `secret_key` - The secret key bytes
 ///
 /// # Returns
-/// `Ok(Keypair)` on success, `Err(&'static str)` on failure
+/// `Ok(Keypair)` on success, `Err(Error)` on failure
 ///
 /// # Errors
 /// Returns an error if either key fails to parse
-pub fn create_keypair(public_key: &[u8], secret_key: &[u8]) -> Result<Keypair, &'static str> {
-    let secret = SecretKey::from_bytes(secret_key).map_err(|_| "Failed to parse secret key")?;
-    let public = PublicKey::from_bytes(public_key).map_err(|_| "Failed to parse public key")?;
+pub fn create_keypair(
+    public_key: &[u8],
+    secret_key: &[u8],
+) -> Result<Keypair, crate::types::Error> {
+    let secret =
+        SecretKey::from_bytes(secret_key).map_err(|_| crate::types::Error::InvalidSecretKey)?;
+    let public =
+        PublicKey::from_bytes(public_key).map_err(|_| crate::types::Error::InvalidPublicKey)?;
 
     let keypair = Keypair { secret, public };
     Ok(keypair)
@@ -156,14 +167,6 @@ mod tests {
         let signature = pair.sign(&message);
 
         log::info!("Signature: {:?}", &message[..10]);
-
-        // sanity check
-        // This should go in a separate unit test where we check the hdwallet crate.
-        // this is keypair as hdwallet::generate vs keypair as hdwallet::create_keypair (in pair.sign)
-        // TODO: fix this
-        // let keypair = generate(Some(&seed)).expect("Failed to generate keypair");
-        // let sig_bytes = keypair.sign(&message, None, false).expect("Signing failed");
-        // assert_eq!(signature.as_ref(), sig_bytes, "Signatures should match");
 
         let public = pair.public();
 
