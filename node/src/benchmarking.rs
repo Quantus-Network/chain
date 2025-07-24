@@ -10,8 +10,9 @@ use sc_cli::Result;
 use sc_client_api::BlockBackend;
 use sp_core::{Encode, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
-use sp_keyring::Sr25519Keyring;
-use sp_runtime::{OpaqueExtrinsic, SaturatedConversion};
+use sp_runtime::{traits::IdentifyAccount, OpaqueExtrinsic, SaturatedConversion};
+
+use dilithium_crypto::{self, dilithium_bob};
 
 use std::{sync::Arc, time::Duration};
 
@@ -39,7 +40,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
     }
 
     fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-        let acc = Sr25519Keyring::Bob.pair();
+        let acc = dilithium_bob();
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
@@ -82,7 +83,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
     }
 
     fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-        let acc = Sr25519Keyring::Bob.pair();
+        let acc = dilithium_bob();
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
@@ -104,7 +105,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 /// Note: Should only be used for benchmarking.
 pub fn create_benchmark_extrinsic(
     client: &FullClient,
-    sender: sp_core::sr25519::Pair,
+    sender: dilithium_crypto::ResonancePair,
     call: runtime::RuntimeCall,
     nonce: u32,
 ) -> runtime::UncheckedExtrinsic {
@@ -159,8 +160,8 @@ pub fn create_benchmark_extrinsic(
 
     runtime::UncheckedExtrinsic::new_signed(
         call,
-        sp_runtime::AccountId32::from(sender.public()).into(),
-        runtime::Signature::Sr25519(signature),
+        sender.public().into_account().into(),
+        runtime::Signature::Resonance(signature),
         tx_ext,
     )
 }

@@ -7,7 +7,6 @@ use sp_core::{
     crypto::{PublicBytes, SignatureBytes},
     ByteArray, RuntimeDebug,
 };
-use sp_core::{ecdsa, ed25519, sr25519};
 use thiserror::Error;
 
 ///
@@ -49,12 +48,11 @@ pub type ResonanceSignature =
     WrappedSignatureBytes<{ super::crypto::SIGNATURE_BYTES }, ResonanceCryptoTag>;
 
 // ResonanceSignatureScheme drop-in replacement for MultiSignature
+// For now it's a single scheme but we leave this struct in place so we can easily plug in
+// future signature schemes.
 #[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ResonanceSignatureScheme {
-    Ed25519(ed25519::Signature),
-    Sr25519(sr25519::Signature),
-    Ecdsa(ecdsa::Signature),
     Resonance(ResonanceSignatureWithPublic),
 }
 
@@ -62,9 +60,6 @@ pub enum ResonanceSignatureScheme {
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ResonanceSigner {
-    Ed25519(ed25519::Public),
-    Sr25519(sr25519::Public),
-    Ecdsa(ecdsa::Public),
     Resonance(ResonancePublic),
 }
 

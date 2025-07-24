@@ -5,11 +5,11 @@ use super::types::{
 
 use crate::{ResonanceSignature, ResonanceSignatureWithPublic};
 use poseidon_resonance::PoseidonHasher;
+use sp_core::H256;
 use sp_core::{
     crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
     ByteArray,
 };
-use sp_core::{ecdsa, ed25519, sr25519, H256};
 use sp_runtime::traits::Hash;
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
@@ -164,58 +164,6 @@ impl CryptoType for ResonancePair {
     type Pair = Self;
 }
 
-// Conversions for ResonanceSignatureScheme
-impl From<ed25519::Signature> for ResonanceSignatureScheme {
-    fn from(x: ed25519::Signature) -> Self {
-        Self::Ed25519(x)
-    }
-}
-
-impl TryFrom<ResonanceSignatureScheme> for ed25519::Signature {
-    type Error = ();
-    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
-        if let ResonanceSignatureScheme::Ed25519(x) = m {
-            Ok(x)
-        } else {
-            Err(())
-        }
-    }
-}
-
-impl From<sr25519::Signature> for ResonanceSignatureScheme {
-    fn from(x: sr25519::Signature) -> Self {
-        Self::Sr25519(x)
-    }
-}
-
-impl TryFrom<ResonanceSignatureScheme> for sr25519::Signature {
-    type Error = ();
-    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
-        if let ResonanceSignatureScheme::Sr25519(x) = m {
-            Ok(x)
-        } else {
-            Err(())
-        }
-    }
-}
-
-impl From<ecdsa::Signature> for ResonanceSignatureScheme {
-    fn from(x: ecdsa::Signature) -> Self {
-        Self::Ecdsa(x)
-    }
-}
-
-impl TryFrom<ResonanceSignatureScheme> for ecdsa::Signature {
-    type Error = ();
-    fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
-        if let ResonanceSignatureScheme::Ecdsa(x) = m {
-            Ok(x)
-        } else {
-            Err(())
-        }
-    }
-}
-
 impl Verify for ResonanceSignatureScheme {
     type Signer = ResonanceSigner;
 
@@ -224,49 +172,23 @@ impl Verify for ResonanceSignatureScheme {
         mut msg: L,
         signer: &<Self::Signer as IdentifyAccount>::AccountId,
     ) -> bool {
-        match self {
-            Self::Ed25519(sig) => {
-                let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
-                sig.verify(msg, &pk)
-            }
-            Self::Sr25519(sig) => {
-                let pk = sr25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
-                sig.verify(msg, &pk)
-            }
-
-            Self::Ecdsa(sig) => {
-                let m = sp_io::hashing::blake2_256(msg.get());
-                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m).is_ok_and(
-                    |pubkey| {
-                        sp_io::hashing::blake2_256(&pubkey)
-                            == <AccountId32 as AsRef<[u8]>>::as_ref(signer)
-                    },
-                )
-            }
-            Self::Resonance(sig_public) => {
-                let account = sig_public.public().clone().into_account();
-                if account != *signer {
-                    return false;
-                }
-                let result = verify(
-                    sig_public.public().as_ref(),
-                    msg.get(),
-                    sig_public.signature().as_ref(),
-                );
-                result
-            }
+        let Self::Resonance(sig_public) = self;
+        let account = sig_public.public().clone().into_account();
+        if account != *signer {
+            return false;
         }
+        let result = verify(
+            sig_public.public().as_ref(),
+            msg.get(),
+            sig_public.signature().as_ref(),
+        );
+        result
     }
 }
 
 //
 // ResonanceSigner
 //
-impl From<sr25519::Public> for ResonanceSigner {
-    fn from(x: sr25519::Public) -> Self {
-        Self::Sr25519(x)
-    }
-}
 impl From<ResonancePublic> for ResonanceSigner {
     fn from(x: ResonancePublic) -> Self {
         Self::Resonance(x)
@@ -277,12 +199,8 @@ impl IdentifyAccount for ResonanceSigner {
     type AccountId = AccountId32;
 
     fn into_account(self) -> AccountId32 {
-        match self {
-            Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
-            Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
-            Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
-            Self::Resonance(who) => PoseidonHasher::hash(who.as_ref()).0.into(),
-        }
+        let Self::Resonance(who) = self;
+        PoseidonHasher::hash(who.as_ref()).0.into()
     }
 }
 
@@ -331,11 +249,8 @@ impl From<ResonanceSignatureWithPublic> for ResonanceSignatureScheme {
 impl TryFrom<ResonanceSignatureScheme> for ResonanceSignatureWithPublic {
     type Error = (); // TODO: fix errors
     fn try_from(m: ResonanceSignatureScheme) -> Result<Self, Self::Error> {
-        if let ResonanceSignatureScheme::Resonance(sig_public) = m {
-            Ok(sig_public)
-        } else {
-            Err(())
-        }
+        let ResonanceSignatureScheme::Resonance(sig_public) = m;
+        Ok(sig_public)
     }
 }
 
