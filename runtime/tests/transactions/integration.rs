@@ -24,7 +24,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 mod tests {
     use dilithium_crypto::{ResonancePublic, ResonanceSignature};
     use poseidon_resonance::PoseidonHasher;
-    use sp_keyring::AccountKeyring;
+
     use sp_runtime::traits::Hash;
 
     use super::*;
@@ -109,50 +109,45 @@ mod tests {
         );
 
         // Step 6: Verify the signature using the AccountId from the decoded extrinsic
-        match decoded.preamble {
-            Preamble::Signed(address, signature, extra) => {
-                // Extract components into individual variables for debugging
-                let decoded_address: Address = address;
-                let decoded_signature: ResonanceSignatureScheme = signature;
-                let decoded_extra: SignedExtra = extra;
+        if let Preamble::Signed(address, signature, extra) = decoded.preamble {
+            // Extract components into individual variables for debugging
+            let decoded_address: Address = address;
+            let decoded_signature: ResonanceSignatureScheme = signature;
+            let decoded_extra: SignedExtra = extra;
 
-                // Debug output for each component
-                println!("Decoded Address: {:?}", decoded_address);
-                println!("Decoded Extra: {:?}", decoded_extra);
+            // Debug output for each component
+            println!("Decoded Address: {:?}", decoded_address);
+            println!("Decoded Extra: {:?}", decoded_extra);
 
-                match decoded_signature.clone() {
-                    ResonanceSignatureScheme::Resonance(sig_public) => {
-                        let sig = sig_public.signature();
-                        let sig_bytes = sig.as_slice();
-                        println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
-                        println!(
-                            "Decoded Public Key: {:?}",
-                            format_hex_truncated(sig_public.public().as_ref())
-                        );
-                    }
-                    _ => println!("Decoded Signature: --"),
-                }
-                // Extract AccountId from Address
-                let decoded_account_id = match decoded_address {
-                    Address::Id(id) => id,
-                    _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
-                };
+            let ResonanceSignatureScheme::Resonance(sig_public) = decoded_signature.clone();
+            let sig = sig_public.signature();
+            let sig_bytes = sig.as_slice();
+            println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
+            println!(
+                "Decoded Public Key: {:?}",
+                format_hex_truncated(sig_public.public().as_ref())
+            );
+            // Extract AccountId from Address
+            let decoded_account_id = match decoded_address {
+                Address::Id(id) => id,
+                _ => panic!("Expected Address::Id variant, got {:?}", decoded_address),
+            };
 
-                // Additional debug output for AccountId
-                println!("Decoded AccountId: {:?}", decoded_account_id);
-                println!("Decoded Payload: {:?}", decoded.function);
+            // Additional debug output for AccountId
+            println!("Decoded AccountId: {:?}", decoded_account_id);
+            println!("Decoded Payload: {:?}", decoded.function);
 
-                // Verify the signature
-                let msg_decoded = decoded.function.encode();
-                let is_valid = decoded_signature.verify(&msg_decoded[..], &decoded_account_id);
+            // Verify the signature
+            let msg_decoded = decoded.function.encode();
+            let is_valid = decoded_signature.verify(&msg_decoded[..], &decoded_account_id);
 
-                assert!(
-                    is_valid,
-                    "Signature verification failed for AccountId: {:?}",
-                    decoded_account_id
-                );
-            }
-            _ => panic!("Decoded extrinsic has no signature"),
+            assert!(
+                is_valid,
+                "Signature verification failed for AccountId: {:?}",
+                decoded_account_id
+            );
+        } else {
+            panic!("Decoded extrinsic has no signature")
         }
     }
 
