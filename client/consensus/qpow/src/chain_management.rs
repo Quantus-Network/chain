@@ -833,7 +833,6 @@ where
             );
         }
 
-
         Ok(best_header)
     }
 }
