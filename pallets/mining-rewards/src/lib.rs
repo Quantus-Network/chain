@@ -88,11 +88,6 @@ pub mod pallet {
             /// Total reward (base + fees)
             reward: BalanceOf<T>,
         },
-        /// A portion of transaction fees was redirected to the Treasury.
-        FeesRedirectedToTreasury {
-            /// The amount of fees sent to the Treasury
-            amount: BalanceOf<T>,
-        },
     }
 
     #[pallet::hooks]
