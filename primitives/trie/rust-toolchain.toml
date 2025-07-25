@@ -1,0 +1,13 @@
+[toolchain]
+channel = "nightly-2024-12-24"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
+edition = "2021"
+newline_style = "Unix"
+imports_granularity = "Crate"
+use_small_heuristics = "Off"
+normalize_doc_attributes = true
+normalize_comments = true
+blank_lines_upper_bound = 1
+reorder_imports = true
