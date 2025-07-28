@@ -4,22 +4,18 @@ use super::types::{
 };
 
 use crate::{ResonanceSignature, ResonanceSignatureWithPublic};
+use alloc::vec::Vec;
 use poseidon_resonance::PoseidonHasher;
 use sp_core::H256;
 use sp_core::{
     crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
-    ByteArray,
+    ByteArray, Hasher,
 };
-use sp_runtime::traits::Hash;
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
     AccountId32, CryptoType,
 };
-use sp_std::vec::Vec;
 use verify::verify;
-//
-// WrappedPublicBytes
-//
 
 impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedPublicBytes<N, SubTag> {
@@ -64,9 +60,9 @@ impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
         WrappedPublicBytes(PublicBytes::default())
     }
 }
-impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag> {
+impl<const N: usize, SubTag> core::fmt::Debug for WrappedPublicBytes<N, SubTag> {
     #[cfg(feature = "std")]
-    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
             "{}",
@@ -75,7 +71,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag
     }
 
     #[cfg(not(feature = "std"))]
-    fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+    fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
         Ok(())
     }
 }
@@ -144,9 +140,9 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
     }
 }
 
-impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
+impl<const N: usize, SubTag> core::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
     #[cfg(feature = "std")]
-    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
             "{}",
@@ -155,7 +151,7 @@ impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, Sub
     }
 
     #[cfg(not(feature = "std"))]
-    fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+    fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
         Ok(())
     }
 }
@@ -223,9 +219,9 @@ impl ResonancePair {
     }
 }
 
-impl sp_std::fmt::Debug for ResonanceSignatureWithPublic {
+impl core::fmt::Debug for ResonanceSignatureWithPublic {
     #[cfg(feature = "std")]
-    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
             "ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
@@ -235,7 +231,7 @@ impl sp_std::fmt::Debug for ResonanceSignatureWithPublic {
     }
 
     #[cfg(not(feature = "std"))]
-    fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "ResonanceSignatureWithPublic")
     }
 }

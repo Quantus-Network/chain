@@ -1,6 +1,6 @@
-use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSigner};
-
 use super::types::{ResonancePair, ResonancePublic};
+use crate::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, ResonanceSigner};
+use alloc::vec::Vec;
 use sp_core::{
     crypto::{DeriveError, DeriveJunction, SecretStringError},
     ByteArray, Pair,
@@ -9,7 +9,6 @@ use sp_runtime::{
     traits::{IdentifyAccount, Verify},
     AccountId32,
 };
-use sp_std::vec::Vec;
 
 pub fn crystal_alice() -> ResonancePair {
     let seed = [0u8; 32];
@@ -93,7 +92,7 @@ impl Pair for ResonancePair {
 
 #[cfg(test)]
 mod tests {
-    use sp_std::vec;
+    use alloc::vec::Vec;
 
     use super::*;
 

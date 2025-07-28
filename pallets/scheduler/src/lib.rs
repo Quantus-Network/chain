@@ -205,9 +205,6 @@ pub mod pallet {
     /// `system::Config` should always be included in our implied traits.
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        /// The overarching event type.
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
         /// The aggregated origin which the dispatch will take.
         type RuntimeOrigin: OriginTrait<PalletsOrigin = Self::PalletsOrigin>
             + From<Self::PalletsOrigin>

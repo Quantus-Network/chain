@@ -21,9 +21,9 @@ use core::iter::{DoubleEndedIterator, IntoIterator};
 use hash_db::{HashDB, Hasher};
 use scale_info::TypeInfo;
 
-// Note that `LayoutV1` usage here (proof compaction) is compatible
-// with `LayoutV0`.
-use crate::LayoutV1 as Layout;
+// // Note that `LayoutV1` usage here (proof compaction) is compatible
+// // with `LayoutV0`.
+// use crate::LayoutV1 as Layout;
 
 /// Error associated with the `storage_proof` module.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Debug, TypeInfo)]

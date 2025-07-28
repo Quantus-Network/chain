@@ -100,7 +100,6 @@ impl frame_system::Config for Test {
 
 #[derive_impl(pallet_transaction_payment::config_preludes::TestDefaultConfig)]
 impl pallet_transaction_payment::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
     type OnChargeTransaction = FungibleAdapter<Pallet<Test>, ()>;
     type OperationalFeeMultiplier = ConstU8<5>;
     type WeightToFee = IdentityFee<Balance>;

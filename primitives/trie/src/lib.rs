@@ -25,6 +25,8 @@ pub mod accessed_nodes_tracker;
 #[cfg(feature = "std")]
 pub mod cache;
 mod error;
+#[cfg(any(not(feature = "std"), test))]
+mod hasher_random_state;
 mod node_codec;
 mod node_header;
 #[cfg(feature = "std")]
@@ -36,6 +38,12 @@ mod trie_stream;
 
 #[cfg(feature = "std")]
 pub mod proof_size_extension;
+
+#[cfg(feature = "std")]
+pub use std::hash::RandomState;
+
+#[cfg(not(feature = "std"))]
+pub use hasher_random_state::{add_extra_randomness, RandomState};
 
 use alloc::{borrow::Borrow, boxed::Box, vec, vec::Vec};
 use core::marker::PhantomData;
@@ -304,11 +312,17 @@ impl<H: Hasher> hash_db::HashDBRef<H, trie_db::DBValue> for PrefixedMemoryDB<H> 
 }
 
 /// ZK-trie compatible memory database with correct default initialization
-pub struct MemoryDB<H: Hasher>(memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue>);
+pub struct MemoryDB<H: Hasher, RS = RandomState>(
+    memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>,
+);
 
 impl<H: Hasher> MemoryDB<H> {
     pub fn new(prefix: &[u8]) -> Self {
         Self(memory_db::MemoryDB::new(prefix))
+    }
+
+    pub fn with_hasher(hasher: RandomState) -> Self {
+        Self(memory_db::MemoryDB::with_hasher(hasher))
     }
 
     pub fn consolidate(&mut self, other: Self) {
@@ -328,8 +342,8 @@ impl<H: Hasher> Default for MemoryDB<H> {
     }
 }
 
-impl<H: Hasher> core::ops::Deref for MemoryDB<H> {
-    type Target = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue>;
+impl<H: Hasher, RS> core::ops::Deref for MemoryDB<H, RS> {
+    type Target = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

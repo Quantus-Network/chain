@@ -78,9 +78,9 @@ tokio-util = { version = "0.7.13", default-features = false }
 # Quantus network dependencies
 circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
 plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
-poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
+poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false, branch = "polkadot-stable2506" }
+rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"], branch = "polkadot-stable2506" }
+rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet", branch = "polkadot-stable2506" }
 wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false, features = [
 	"no_std",
 ] }

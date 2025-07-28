@@ -107,9 +107,6 @@ pub mod pallet {
     /// Configuration trait for the Merkle airdrop pallet.
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        /// The overarching event type.
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
         /// The vesting mechanism.
         type Vesting: VestedTransfer<Self::AccountId, Moment = BlockNumberFor<Self>>
             + VestingSchedule<Self::AccountId, Moment = BlockNumberFor<Self>>;

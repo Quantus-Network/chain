@@ -7,6 +7,7 @@ use sp_core::{
     crypto::{PublicBytes, SignatureBytes},
     ByteArray, RuntimeDebug,
 };
+#[cfg(feature = "std")]
 use thiserror::Error;
 
 ///
@@ -32,7 +33,7 @@ pub struct ResonancePair {
 
 impl Default for ResonancePair {
     fn default() -> Self {
-        let seed = sp_std::vec![0u8; 32];
+        let seed = alloc::vec![0u8; 32];
         ResonancePair::from_seed(&seed).expect("Failed to generate keypair")
     }
 }
@@ -63,11 +64,12 @@ pub enum ResonanceSigner {
     Resonance(ResonancePublic),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum Error {
-    #[error("Failed to generate keypair")]
+    #[cfg_attr(feature = "std", error("Failed to generate keypair"))]
     KeyGenerationFailed,
-    #[error("Invalid length")]
+    #[cfg_attr(feature = "std", error("Invalid length"))]
     InvalidLength,
 }
 
