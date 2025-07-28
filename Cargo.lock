@@ -2341,7 +2341,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-overseer",
  "sc-client-api",
- " 0.51.0",
+ "sc-network 0.51.0",
  "sp-api",
  "sp-blockchain",
  "sp-state-machine",

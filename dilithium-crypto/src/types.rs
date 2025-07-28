@@ -1,4 +1,4 @@
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use rusty_crystals_dilithium::ml_dsa_87::{PUBLICKEYBYTES, SECRETKEYBYTES};
 use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
@@ -38,10 +38,34 @@ impl Default for ResonancePair {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
+#[derive(
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    Encode,
+    Decode,
+    TypeInfo,
+    MaxEncodedLen,
+    Ord,
+    PartialOrd,
+    DecodeWithMemTracking,
+)]
 pub struct WrappedPublicBytes<const N: usize, SubTag>(pub PublicBytes<N, SubTag>);
 
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
+#[derive(
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    Encode,
+    Decode,
+    TypeInfo,
+    MaxEncodedLen,
+    Ord,
+    PartialOrd,
+    DecodeWithMemTracking,
+)]
 pub struct WrappedSignatureBytes<const N: usize, SubTag>(pub SignatureBytes<N, SubTag>);
 
 pub type ResonancePublic = WrappedPublicBytes<{ super::crypto::PUB_KEY_BYTES }, ResonanceCryptoTag>;
@@ -51,14 +75,35 @@ pub type ResonanceSignature =
 // ResonanceSignatureScheme drop-in replacement for MultiSignature
 // For now it's a single scheme but we leave this struct in place so we can easily plug in
 // future signature schemes.
-#[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
+#[derive(
+    Eq,
+    PartialEq,
+    Clone,
+    Encode,
+    Decode,
+    MaxEncodedLen,
+    RuntimeDebug,
+    TypeInfo,
+    DecodeWithMemTracking,
+)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ResonanceSignatureScheme {
     Resonance(ResonanceSignatureWithPublic),
 }
 
 // Replacement for MultiSigner
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[derive(
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Clone,
+    Encode,
+    Decode,
+    RuntimeDebug,
+    TypeInfo,
+    DecodeWithMemTracking,
+)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ResonanceSigner {
     Resonance(ResonancePublic),
@@ -73,9 +118,21 @@ pub enum Error {
     InvalidLength,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
+#[derive(
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    Encode,
+    Decode,
+    TypeInfo,
+    MaxEncodedLen,
+    Ord,
+    PartialOrd,
+    DecodeWithMemTracking,
+)]
 pub struct ResonanceSignatureWithPublic {
-    pub bytes: [u8; Self::TOTAL_LEN], // we have to store raw bytes for some traits
+    pub bytes: [u8; ResonanceSignatureWithPublic::TOTAL_LEN], // we have to store raw bytes for some traits
 }
 
 impl ResonanceSignatureWithPublic {

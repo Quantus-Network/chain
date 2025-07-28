@@ -25,7 +25,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
 
@@ -64,7 +64,17 @@ pub type MerkleHash = [u8; 32];
 /// Airdrop ID type
 pub type AirdropId = u32;
 
-#[derive(Encode, Decode, PartialEq, Eq, Clone, TypeInfo, RuntimeDebug, MaxEncodedLen)]
+#[derive(
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    Clone,
+    TypeInfo,
+    RuntimeDebug,
+    MaxEncodedLen,
+    DecodeWithMemTracking,
+)]
 pub struct AirdropMetadata<BlockNumber, Balance, AccountId> {
     /// Merkle root of the airdrop
     pub merkle_root: MerkleHash,
