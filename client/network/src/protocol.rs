@@ -29,8 +29,8 @@ use codec::Encode;
 use libp2p::{
     core::Endpoint,
     swarm::{
-        behaviour::FromSwarm, ConnectionDenied, ConnectionId, NetworkBehaviour, PollParameters,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::FromSwarm, ConnectionDenied, ConnectionId, NetworkBehaviour, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -289,7 +289,7 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
         Ok(Vec::new())
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         self.behaviour.on_swarm_event(event);
     }
 
@@ -306,9 +306,8 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
     fn poll(
         &mut self,
         cx: &mut std::task::Context,
-        params: &mut impl PollParameters,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        let event = match self.behaviour.poll(cx, params) {
+        let event = match self.behaviour.poll(cx) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(ToSwarm::GenerateEvent(ev)) => ev,
             Poll::Ready(ToSwarm::Dial { opts }) => return Poll::Ready(ToSwarm::Dial { opts }),

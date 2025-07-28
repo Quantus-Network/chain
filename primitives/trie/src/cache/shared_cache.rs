@@ -625,7 +625,10 @@ impl<H: Hasher> Clone for SharedTrieCache<H> {
 
 impl<H: Hasher> SharedTrieCache<H> {
     /// Create a new [`SharedTrieCache`].
-    pub fn new(cache_size: CacheSize) -> Self {
+    pub fn new(
+        cache_size: CacheSize,
+        _metrics_registry: Option<&substrate_prometheus_endpoint::Registry>,
+    ) -> Self {
         let total_budget = cache_size.0;
 
         // Split our memory budget between the two types of caches.

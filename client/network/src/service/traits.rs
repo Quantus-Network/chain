@@ -49,7 +49,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use libp2p::kad::record::Key as KademliaKey;
+pub use libp2p::kad::RecordKey as KademliaKey;
 pub use libp2p_identity::SigningError;
 
 /// Supertrait defining the services provided by [`NetworkBackend`] service handle.

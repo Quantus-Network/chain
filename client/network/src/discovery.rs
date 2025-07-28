@@ -56,7 +56,7 @@ use libp2p::{
     core::{Endpoint, Multiaddr},
     kad::{
         self,
-        record::store::{MemoryStore, RecordStore},
+        store::{MemoryStore, RecordStore},
         Behaviour as Kademlia, BucketInserts, Config as KademliaConfig, Event as KademliaEvent,
         GetClosestPeersError, GetRecordOk, PeerRecord, QueryId, QueryResult, Quorum, Record,
         RecordKey,
@@ -68,8 +68,8 @@ use libp2p::{
             toggle::{Toggle, ToggleConnectionHandler},
             DialFailure, ExternalAddrConfirmed, FromSwarm,
         },
-        ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, PollParameters,
-        StreamProtocol, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, StreamProtocol, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     PeerId,
 };
@@ -805,11 +805,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
             .on_connection_handler_event(peer_id, connection_id, event);
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         // Immediately process the content of `discovered`.
         if let Some(ev) = self.pending_events.pop_front() {
             return Poll::Ready(ToSwarm::GenerateEvent(ev));
@@ -852,7 +848,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
             }
         }
 
-        while let Poll::Ready(ev) = self.kademlia.poll(cx, params) {
+        while let Poll::Ready(ev) = self.kademlia.poll(cx) {
             match ev {
                 ToSwarm::GenerateEvent(ev) => match ev {
                     KademliaEvent::RoutingUpdated { peer, .. } => {
@@ -1083,7 +1079,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
         }
 
         // Poll mDNS.
-        while let Poll::Ready(ev) = self.mdns.poll(cx, params) {
+        while let Poll::Ready(ev) = self.mdns.poll(cx) {
             match ev {
                 ToSwarm::GenerateEvent(event) => match event {
                     mdns::Event::Discovered(list) => {

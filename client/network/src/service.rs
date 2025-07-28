@@ -61,13 +61,11 @@ use crate::{
 use codec::DecodeAll;
 use either::Either;
 use futures::{channel::oneshot, prelude::*};
-#[allow(deprecated)]
-use libp2p::swarm::THandlerErr;
 use libp2p::{
     connection_limits::{ConnectionLimits, Exceeded},
     core::{upgrade, ConnectedPoint, Endpoint},
     identify::Info as IdentifyInfo,
-    kad::{record::Key as KademliaKey, Record},
+    kad::{Record, RecordKey as KademliaKey},
     multiaddr::{self, Multiaddr},
     swarm::{
         Config as SwarmConfig, ConnectionError, ConnectionId, DialError, Executor, ListenError,
@@ -1600,7 +1598,7 @@ where
 
     /// Process the next event coming from `Swarm`.
     #[allow(deprecated)]
-    fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourOut, THandlerErr<Behaviour<B>>>) {
+    fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourOut>) {
         match event {
             SwarmEvent::Behaviour(BehaviourOut::InboundRequest {
                 protocol, result, ..

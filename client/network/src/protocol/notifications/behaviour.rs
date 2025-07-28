@@ -36,8 +36,8 @@ use libp2p::{
     core::{Endpoint, Multiaddr},
     swarm::{
         behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
-        ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, NotifyHandler, PollParameters,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, NotifyHandler, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     PeerId,
 };
@@ -2384,11 +2384,7 @@ impl NetworkBehaviour for Notifications {
         }
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        _params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(event);
         }
@@ -4416,7 +4412,7 @@ mod tests {
 
             loop {
                 futures::future::poll_fn(|cx| {
-                    let _ = notif.poll(cx, &mut params);
+                    let _ = notif.poll(cx);
                     Poll::Ready(())
                 })
                 .await;
@@ -4545,7 +4541,7 @@ mod tests {
 
             loop {
                 futures::future::poll_fn(|cx| {
-                    let _ = notif.poll(cx, &mut params);
+                    let _ = notif.poll(cx);
                     Poll::Ready(())
                 })
                 .await;

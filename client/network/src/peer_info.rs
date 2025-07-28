@@ -37,8 +37,8 @@ use libp2p::{
             ExternalAddrConfirmed, FromSwarm, ListenFailure,
         },
         ConnectionDenied, ConnectionHandler, ConnectionHandlerSelect, ConnectionId,
-        NetworkBehaviour, NewExternalAddrCandidate, PollParameters, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        NetworkBehaviour, NewExternalAddrCandidate, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -494,17 +494,13 @@ impl NetworkBehaviour for PeerInfoBehaviour {
         }
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Some(event) = self.pending_actions.pop_front() {
             return Poll::Ready(event);
         }
 
         loop {
-            match self.ping.poll(cx, params) {
+            match self.ping.poll(cx) {
                 Poll::Pending => break,
                 Poll::Ready(ToSwarm::GenerateEvent(ev)) => {
                     if let PingEvent {

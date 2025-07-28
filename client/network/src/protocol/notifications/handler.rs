@@ -74,7 +74,7 @@ use futures::{
 };
 use libp2p::{
     swarm::{
-        handler::ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, KeepAlive, Stream,
+        handler::ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, Stream,
         SubstreamProtocol,
     },
     PeerId,
@@ -113,16 +113,17 @@ pub struct NotifsHandler {
     /// List of notification protocols, specified by the user at initialization.
     protocols: Vec<Protocol>,
 
-    /// When the connection with the remote has been successfully established.
-    when_connection_open: Instant,
+    /// Whether to keep connection alive
+    keep_alive: bool,
+    /// Optional future that keeps connection alive for a certain amount of time.
+    // TODO: this should be safe to remove, see https://github.com/paritytech/polkadot-sdk/issues/6350
+    keep_alive_timeout_future: Option<Pin<Box<dyn Future<Output = ()> + Send + 'static>>>,
 
     /// Remote we are connected to.
     peer_id: PeerId,
 
     /// Events to return in priority from `poll`.
-    events_queue: VecDeque<
-        ConnectionHandlerEvent<NotificationsOut, usize, NotifsHandlerOut, NotifsHandlerError>,
-    >,
+    events_queue: VecDeque<ConnectionHandlerEvent<NotificationsOut, usize, NotifsHandlerOut>>,
 
     /// Metrics.
     metrics: Option<Arc<NotificationMetrics>>,
@@ -155,7 +156,8 @@ impl NotifsHandler {
                 })
                 .collect(),
             peer_id,
-            when_connection_open: Instant::now(),
+            keep_alive: true,
+            keep_alive_timeout_future: Some(Box::pin(tokio::time::sleep(INITIAL_KEEPALIVE_TIME))),
             events_queue: VecDeque::with_capacity(16),
             metrics: metrics.map_or(None, |metrics| Some(Arc::new(metrics))),
         }
@@ -488,7 +490,6 @@ pub enum NotifsHandlerError {
 impl ConnectionHandler for NotifsHandler {
     type FromBehaviour = NotifsHandlerIn;
     type ToBehaviour = NotifsHandlerOut;
-    type Error = NotifsHandlerError;
     type InboundProtocol = UpgradeCollec<NotificationsIn>;
     type OutboundProtocol = NotificationsOut;
     // Index within the `out_protocols`.
@@ -767,20 +768,17 @@ impl ConnectionHandler for NotifsHandler {
         }
     }
 
-    fn connection_keep_alive(&self) -> KeepAlive {
+    fn connection_keep_alive(&self) -> bool {
         // `Yes` if any protocol has some activity.
         if self
             .protocols
             .iter()
             .any(|p| !matches!(p.state, State::Closed { .. }))
         {
-            return KeepAlive::Yes;
+            return true;
         }
 
-        // A grace period of `INITIAL_KEEPALIVE_TIME` must be given to leave time for the remote
-        // to express desire to open substreams.
-        #[allow(deprecated)]
-        KeepAlive::Until(self.when_connection_open + INITIAL_KEEPALIVE_TIME)
+        self.keep_alive
     }
 
     #[allow(deprecated)]

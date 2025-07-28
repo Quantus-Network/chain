@@ -23,7 +23,7 @@ use crate::types::ProtocolName;
 
 use bytes::Bytes;
 use libp2p::{
-    kad::{record::Key, PeerRecord},
+    kad::{PeerRecord, RecordKey as Key},
     PeerId,
 };
 

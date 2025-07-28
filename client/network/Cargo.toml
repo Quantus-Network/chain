@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "sc-network"
-version = "0.48.4"
+version = "0.51.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 build = "build.rs"
 autolib = false
@@ -119,6 +119,7 @@ features = [
 
 [dependencies.libp2p-identity]
 git = "https://github.com/Quantus-Network/libp2p-identity-pqc"
+branch = "polkadot-stable2506"
 features = ["dilithium"]
 
 [patch.crates-io]
