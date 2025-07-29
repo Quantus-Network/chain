@@ -617,6 +617,10 @@ where
                 inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
             }
 
+            // Add difficulty to block digest
+            let difficulty_bytes = difficulty.encode();
+            inherent_digest.push(DigestItem::Other(difficulty_bytes));
+
             let pre_runtime = pre_runtime.clone();
 
             let proposer = match env.init(&best_header).await {
