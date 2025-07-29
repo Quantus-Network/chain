@@ -204,7 +204,7 @@ where
 
                 info!(
                     target: LOG_TARGET,
-                    "✅ Successfully mined block on top of: {}", build.metadata.best_hash
+                    "🥇 Successfully mined block on top of: {}", build.metadata.best_hash
                 );
                 true
             }

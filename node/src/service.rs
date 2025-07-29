@@ -74,7 +74,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 
     async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
         log::info!(
-            "🏆 Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+            "⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
             block.header.number(),
             block.header.hash(),
             block.header.extrinsics_root(),
@@ -159,10 +159,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         Arc::clone(&client),
         pow_algorithm.clone(),
     );
-    log::info!(
-        "transaction pool config: {:?}",
-        config.transaction_pool.clone()
-    );
+
     let pool_options = TransactionPoolOptions::new_with_params(
         36772, // each tx is about 7300 bytes so if we have 268MB for the pool we can fit this many txs
         268_435_456,
@@ -342,11 +339,11 @@ pub fn new_full<
         let encoded_miner = if let Some(addr_str) = rewards_address {
             match addr_str.parse::<AccountId32>() {
                 Ok(account) => {
-                    log::info!("Using provided rewards address: {:?}", account);
+                    log::info!("⛏️Using provided rewards address: {:?}", account);
                     Some(account.encode())
                 }
                 Err(_) => {
-                    log::warn!("Invalid rewards address format: {}", addr_str);
+                    log::warn!("⛏️Invalid rewards address format: {}", addr_str);
                     None
                 }
             }
@@ -398,7 +395,7 @@ pub fn new_full<
             "qpow-mining",
             None,
             async move {
-                log::info!("⚙️  QPoW Mining task spawned");
+                log::info!("⛏️ QPoW Mining task spawned");
                 let mut nonce: U512 = U512::zero();
                 let http_client = Client::new();
                 let mut current_job_id: Option<String> = None;
@@ -406,13 +403,13 @@ pub fn new_full<
                 loop {
                     // Check for cancellation
                     if mining_cancellation_token.is_cancelled() {
-                        log::info!("🛑 QPoW Mining task shutting down gracefully");
+                        log::info!("⛏️ QPoW Mining task shutting down gracefully");
 
                         // Cancel any pending external mining job
                         if let Some(job_id) = &current_job_id {
                             if let Some(miner_url) = &external_miner_url {
                                 if let Err(e) = external_miner_client::cancel_mining_job(&http_client, miner_url, job_id).await {
-                                    log::warn!("Failed to cancel mining job during shutdown: {}", e);
+                                    log::warn!("⛏️Failed to cancel mining job during shutdown: {}", e);
                                 }
                             }
                         }
@@ -438,7 +435,7 @@ pub fn new_full<
                         // Cancel previous job if metadata has changed
                         if let Some(job_id) = &current_job_id {
                             if let Err(e) = external_miner_client::cancel_mining_job(&http_client, miner_url, job_id).await {
-                                log::warn!("Failed to cancel previous mining job: {}", e);
+                                log::warn!("⛏️Failed to cancel previous mining job: {}", e);
                             }
                         }
 
@@ -446,7 +443,7 @@ pub fn new_full<
                         let distance_threshold = match client.runtime_api().get_distance_threshold(metadata.best_hash) {
                             Ok(d) => d,
                             Err(e) => {
-                                log::warn!("Failed to get distance_threshold: {:?}", e);
+                                log::warn!("⛏️Failed to get distance_threshold: {:?}", e);
                                 tokio::select! {
                                     _ = tokio::time::sleep(Duration::from_millis(250)) => {},
                                     _ = mining_cancellation_token.cancelled() => continue,
@@ -471,7 +468,7 @@ pub fn new_full<
                         )
                         .await
                         {
-                            log::warn!("Failed to submit mining job: {}", e);
+                            log::warn!("⛏️Failed to submit mining job: {}", e);
                             tokio::select! {
                                 _ = tokio::time::sleep(Duration::from_millis(250)) => {},
                                 _ = mining_cancellation_token.cancelled() => continue,
@@ -486,10 +483,10 @@ pub fn new_full<
                                     let current_version = worker_handle.version();
                                     if current_version == version {
                                         if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                                            log::debug!(target: "miner", "Successfully mined and submitted a new block via external miner");
+                                            log::info!("🥇Successfully mined and submitted a new block via external miner");
                                             nonce = U512::zero();
                                         } else {
-                                            log::warn!("Failed to submit mined block from external miner");
+                                            log::warn!("⛏️Failed to submit mined block from external miner");
                                             nonce += U512::one();
                                         }
                                     } else {
@@ -508,7 +505,7 @@ pub fn new_full<
                                     }
                                 }
                                 Err(e) => {
-                                    log::warn!("Polling external miner result failed: {}", e);
+                                    log::warn!("⛏️Polling external miner result failed: {}", e);
                                     break;
                                 }
                             }
@@ -530,17 +527,17 @@ pub fn new_full<
                         let current_version = worker_handle.version();
                         if current_version == version {
                             if futures::executor::block_on(worker_handle.submit(seal.encode())) {
-                                log::debug!(target: "miner", "Successfully mined and submitted a new block");
+                                log::info!("🥇Successfully mined and submitted a new block");
                                 nonce = U512::zero();
                             } else {
-                                log::warn!("Failed to submit mined block");
+                                log::warn!("⛏️Failed to submit mined block");
                                 nonce += U512::one();
                             }
                         }
                     }
                 }
 
-                log::info!(target: "miner", "⚙️  QPoW Mining task terminated");
+                log::info!("⛏️ QPoW Mining task terminated");
             },
         );
 
@@ -553,7 +550,7 @@ pub fn new_full<
                         let extrinsic = tx.data();
                         log::trace!(target: "miner", "Payload: {:?}", extrinsic);
                     } else {
-                        log::warn!("Transaction {:?} not found in pool", tx_hash);
+                        log::warn!("⛏️Transaction {:?} not found in pool", tx_hash);
                     }
                 }
             });
