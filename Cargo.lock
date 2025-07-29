@@ -8173,6 +8173,7 @@ dependencies = [
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
+ "sp-consensus",
  "sp-consensus-qpow",
  "sp-core",
  "sp-genesis-builder",

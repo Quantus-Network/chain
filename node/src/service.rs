@@ -48,6 +48,7 @@ pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
         >,
     >,
 >;
+use sp_consensus::SyncOracle;
 
 #[derive(PartialEq, Eq, Clone, RuntimeDebug)]
 pub struct LoggingBlockImport<B: BlockT, I> {
@@ -419,6 +420,17 @@ pub fn new_full<
 
                         break;
                     }
+
+                    // Don't mine if we're still syncing
+                    if sync_service.is_major_syncing() {
+                        log::debug!(target: "pow", "Mining paused: node is still syncing with network");
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                            _ = mining_cancellation_token.cancelled() => continue,
+                        }
+                        continue;
+                    }
+
                     // Get mining metadata
                     let metadata = match worker_handle.metadata() {
                         Some(m) => m,
