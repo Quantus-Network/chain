@@ -691,6 +691,48 @@ impl<H: Hasher> SharedTrieCache<H> {
         }
     }
 
+    /// Create a new [`LocalTrieCache`](super::LocalTrieCache) instance from this shared cache.
+    pub fn local_cache_untrusted(&self) -> super::LocalTrieCache<H> {
+        tracing::debug!(
+            target: super::LOG_TARGET,
+            "Configuring a local un-trusted cache"
+        );
+
+        super::LocalTrieCache {
+            shared: self.clone(),
+            node_cache: Default::default(),
+            value_cache: Default::default(),
+            shared_value_cache_access: Mutex::new(super::ValueAccessSet::with_hasher(
+                schnellru::ByLength::new(super::SHARED_VALUE_CACHE_MAX_PROMOTED_KEYS),
+                Default::default(),
+            )),
+            stats: Default::default(),
+        }
+    }
+
+    /// Creates a TrieCache that allows the local_caches to grow to indefinitely.
+    ///
+    /// This is safe to be used only for trusted paths because it removes all limits on cache
+    /// growth and promotion, which could lead to excessive memory usage if used in untrusted or
+    /// uncontrolled environments. It is intended for scenarios like block authoring or importing,
+    /// where the operations are bounded already and there are no risks of unbounded memory usage.
+    pub fn local_cache_trusted(&self) -> super::LocalTrieCache<H> {
+        tracing::debug!(
+            target: super::LOG_TARGET,
+            "Configuring a local trusted cache"
+        );
+        super::LocalTrieCache {
+            shared: self.clone(),
+            node_cache: Default::default(),
+            value_cache: Default::default(),
+            shared_value_cache_access: Mutex::new(super::ValueAccessSet::with_hasher(
+                schnellru::ByLength::new(super::SHARED_VALUE_CACHE_MAX_PROMOTED_KEYS),
+                Default::default(),
+            )),
+            stats: Default::default(),
+        }
+    }
+
     /// Get a copy of the node for `key`.
     ///
     /// This will temporarily lock the shared cache for reading.

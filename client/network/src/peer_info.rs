@@ -25,7 +25,7 @@ use either::Either;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use libp2p::{
-    core::{ConnectedPoint, Endpoint},
+    core::{transport::PortUse, ConnectedPoint, Endpoint},
     identify::{
         Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent,
         Info as IdentifyInfo,
@@ -282,23 +282,26 @@ impl NetworkBehaviour for PeerInfoBehaviour {
         peer: PeerId,
         addr: &Multiaddr,
         role_override: Endpoint,
+        port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         let ping_handler = self.ping.handle_established_outbound_connection(
             connection_id,
             peer,
             addr,
             role_override,
+            port_use,
         )?;
         let identify_handler = self.identify.handle_established_outbound_connection(
             connection_id,
             peer,
             addr,
             role_override,
+            port_use,
         )?;
         Ok(ping_handler.select(identify_handler))
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::ConnectionEstablished(
                 e @ ConnectionEstablished {
@@ -333,16 +336,15 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                 peer_id,
                 connection_id,
                 endpoint,
-                handler,
+                cause,
                 remaining_established,
             }) => {
-                let (ping_handler, identity_handler) = handler.into_inner();
                 self.ping
                     .on_swarm_event(FromSwarm::ConnectionClosed(ConnectionClosed {
                         peer_id,
                         connection_id,
                         endpoint,
-                        handler: ping_handler,
+                        cause,
                         remaining_established,
                     }));
                 self.identify
@@ -350,7 +352,7 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                         peer_id,
                         connection_id,
                         endpoint,
-                        handler: identity_handler,
+                        cause,
                         remaining_established,
                     }));
 
@@ -391,6 +393,7 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                 send_back_addr,
                 error,
                 connection_id,
+                peer_id,
             }) => {
                 self.ping
                     .on_swarm_event(FromSwarm::ListenFailure(ListenFailure {
@@ -398,6 +401,7 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                         send_back_addr,
                         error,
                         connection_id,
+                        peer_id,
                     }));
                 self.identify
                     .on_swarm_event(FromSwarm::ListenFailure(ListenFailure {
@@ -405,6 +409,7 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                         send_back_addr,
                         error,
                         connection_id,
+                        peer_id,
                     }));
             }
             FromSwarm::ListenerError(e) => {
@@ -552,7 +557,7 @@ impl NetworkBehaviour for PeerInfoBehaviour {
         }
 
         loop {
-            match self.identify.poll(cx, params) {
+            match self.identify.poll(cx) {
                 Poll::Pending => break,
                 Poll::Ready(ToSwarm::GenerateEvent(event)) => match event {
                     IdentifyEvent::Received { peer_id, info, .. } => {
@@ -560,8 +565,12 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                         let event = PeerInfoEvent::Identified { peer_id, info };
                         return Poll::Ready(ToSwarm::GenerateEvent(event));
                     }
-                    IdentifyEvent::Error { peer_id, error } => {
-                        debug!(target: "sub-libp2p", "Identification with peer {:?} failed => {}", peer_id, error)
+                    IdentifyEvent::Error {
+                        peer_id,
+                        error,
+                        connection_id,
+                    } => {
+                        debug!(target: "sub-libp2p", "Identification with peer {peer_id:?}{connection_id} failed => {error}");
                     }
                     IdentifyEvent::Pushed { .. } => {}
                     IdentifyEvent::Sent { .. } => {}

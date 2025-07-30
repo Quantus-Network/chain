@@ -33,7 +33,7 @@ use bytes::BytesMut;
 use fnv::FnvHashMap;
 use futures::{future::BoxFuture, prelude::*, stream::FuturesUnordered};
 use libp2p::{
-    core::{Endpoint, Multiaddr},
+    core::{transport::PortUse, Endpoint, Multiaddr},
     swarm::{
         behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
         ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, NotifyHandler, THandler,
@@ -1334,6 +1334,7 @@ impl NetworkBehaviour for Notifications {
         peer: PeerId,
         _addr: &Multiaddr,
         _role_override: Endpoint,
+        _port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(NotifsHandler::new(
             peer,
@@ -1342,7 +1343,7 @@ impl NetworkBehaviour for Notifications {
         ))
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,

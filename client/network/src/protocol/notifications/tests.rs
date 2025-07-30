@@ -30,7 +30,10 @@ use crate::{
 
 use futures::{future::BoxFuture, prelude::*};
 use libp2p::{
-    core::{transport::MemoryTransport, upgrade, Endpoint},
+    core::{
+        transport::{MemoryTransport, PortUse},
+        upgrade, Endpoint,
+    },
     identity, noise,
     swarm::{
         self, behaviour::FromSwarm, ConnectionDenied, ConnectionId, Executor, NetworkBehaviour,
@@ -251,12 +254,18 @@ impl NetworkBehaviour for CustomProtoWithAddr {
         peer: PeerId,
         addr: &Multiaddr,
         role_override: Endpoint,
+        port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.inner
-            .handle_established_outbound_connection(connection_id, peer, addr, role_override)
+        self.inner.handle_established_outbound_connection(
+            connection_id,
+            peer,
+            addr,
+            role_override,
+            port_use,
+        )
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         self.inner.on_swarm_event(event);
     }
 

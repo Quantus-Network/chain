@@ -387,7 +387,7 @@ where
             {
                 let mut len_data = unsigned_varint::encode::usize_buffer();
                 let encoded_len =
-                    unsigned_varint::encode::usize(self.initial_message.len(), &mut len_data);
+                    unsigned_varint::encode::usize(self.initial_message.len(), &mut len_data).len();
                 socket.write_all(&len_data[..encoded_len]).await?;
             }
             socket.write_all(&self.initial_message).await?;

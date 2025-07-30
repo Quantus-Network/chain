@@ -786,12 +786,7 @@ impl ConnectionHandler for NotifsHandler {
         &mut self,
         cx: &mut Context,
     ) -> Poll<
-        ConnectionHandlerEvent<
-            Self::OutboundProtocol,
-            Self::OutboundOpenInfo,
-            Self::ToBehaviour,
-            Self::Error,
-        >,
+        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
         if let Some(ev) = self.events_queue.pop_front() {
             return Poll::Ready(ev);
@@ -813,8 +808,8 @@ impl ConnectionHandler for NotifsHandler {
                     #[allow(deprecated)]
                     match Pin::new(&mut *notifications_sink_rx).as_mut().poll_peek(cx) {
                         Poll::Ready(Some(&NotificationsSinkMessage::ForceClose)) => {
-                            return Poll::Ready(ConnectionHandlerEvent::Close(
-                                NotifsHandlerError::SyncNotificationsClogged,
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                NotifsHandlerOut::CloseResult { protocol_index },
                             ))
                         }
                         Poll::Ready(Some(&NotificationsSinkMessage::Notification { .. })) => {}

@@ -14,7 +14,7 @@ verify = { path = "./verify", default-features = false }
 log = { workspace = true }
 hdwallet = { path = "./hdwallet", default-features = false }
 poseidon-resonance = { workspace = true }
-thiserror = { workspace = true, optional = true, default-features = false }
+thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
 env_logger.workspace = true

@@ -109,6 +109,7 @@ impl From<ConnectedPoint> for PeerEndpoint {
             ConnectedPoint::Dialer {
                 address,
                 role_override,
+                port_use: _,
             } => Self::Dialing(address, role_override.into()),
             ConnectedPoint::Listener {
                 local_addr,

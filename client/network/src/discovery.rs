@@ -53,7 +53,7 @@ use futures::prelude::*;
 use futures_timer::Delay;
 use ip_network::IpNetwork;
 use libp2p::{
-    core::{Endpoint, Multiaddr},
+    core::{transport::PortUse, Endpoint, Multiaddr},
     kad::{
         self,
         store::{MemoryStore, RecordStore},
@@ -621,12 +621,14 @@ impl NetworkBehaviour for DiscoveryBehaviour {
         peer: PeerId,
         addr: &Multiaddr,
         role_override: Endpoint,
+        port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         self.kademlia.handle_established_outbound_connection(
             connection_id,
             peer,
             addr,
             role_override,
+            port_use,
         )
     }
 
@@ -700,7 +702,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
         Ok(list.into_iter().collect())
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         match event {
             FromSwarm::ConnectionEstablished(e) => {
                 self.num_connections += 1;

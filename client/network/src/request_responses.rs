@@ -43,7 +43,7 @@ use crate::{
 
 use futures::{channel::oneshot, prelude::*};
 use libp2p::{
-    core::{Endpoint, Multiaddr},
+    core::{transport::PortUse, Endpoint, Multiaddr},
     request_response::{self, Behaviour, Codec, Message, ProtocolSupport, ResponseChannel},
     swarm::{
         behaviour::{ConnectionClosed, FromSwarm},
@@ -71,7 +71,7 @@ const PERIODIC_REQUEST_CHECK: Duration = Duration::from_secs(2);
 
 /// Possible failures occurring in the context of sending an outbound request and receiving the
 /// response.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum OutboundFailure {
     /// The request could not be sent because a dialing attempt failed.
     #[error("Failed to dial the requested peer")]
@@ -586,6 +586,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
         peer: PeerId,
         addr: &Multiaddr,
         role_override: Endpoint,
+        port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         let iter =
             self.protocols
@@ -596,6 +597,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
                         peer,
                         addr,
                         role_override,
+                        port_use,
                     ) {
                         Some((p.to_string(), handler))
                     } else {
@@ -608,9 +610,105 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 			 which is the only possible error; qed",
         ))
     }
-    fn on_swarm_event(&mut self, event: FromSwarm) {
-        for (protocol, _) in self.protocols.values_mut() {
-            protocol.on_swarm_event(event);
+
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::ConnectionEstablished(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(
+                        behaviour,
+                        FromSwarm::ConnectionEstablished(e),
+                    );
+                }
+            }
+            FromSwarm::ConnectionClosed(ConnectionClosed {
+                peer_id,
+                connection_id,
+                endpoint,
+                cause,
+                remaining_established,
+            }) => {
+                for (p_name, p_handler) in handler.into_iter() {
+                    if let Some(ProtocolDetails { behaviour, .. }) =
+                        self.protocols.get_mut(p_name.as_str())
+                    {
+                        behaviour.on_swarm_event(FromSwarm::ConnectionClosed(ConnectionClosed {
+                            peer_id,
+                            connection_id,
+                            endpoint,
+                            handler: p_handler,
+                            remaining_established,
+                        }));
+                    } else {
+                        log::error!(
+                          target: "sub-libp2p",
+                          "on_swarm_event/connection_closed: no request-response instance registered for protocol {:?}",
+                          p_name,
+                        )
+                    }
+                }
+            }
+            FromSwarm::DialFailure(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::DialFailure(e));
+                }
+            }
+            FromSwarm::ListenerClosed(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ListenerClosed(e));
+                }
+            }
+            FromSwarm::ListenFailure(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ListenFailure(e));
+                }
+            }
+            FromSwarm::ListenerError(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ListenerError(e));
+                }
+            }
+            FromSwarm::ExternalAddrExpired(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ExternalAddrExpired(e));
+                }
+            }
+            FromSwarm::NewListener(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::NewListener(e));
+                }
+            }
+            FromSwarm::ExpiredListenAddr(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ExpiredListenAddr(e));
+                }
+            }
+            FromSwarm::NewExternalAddrCandidate(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(
+                        behaviour,
+                        FromSwarm::NewExternalAddrCandidate(e),
+                    );
+                }
+            }
+            FromSwarm::ExternalAddrConfirmed(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(
+                        behaviour,
+                        FromSwarm::ExternalAddrConfirmed(e),
+                    );
+                }
+            }
+            FromSwarm::AddressChange(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::AddressChange(e));
+                }
+            }
+            FromSwarm::NewListenAddr(e) => {
+                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::NewListenAddr(e));
+                }
+            }
         }
     }
 
@@ -925,6 +1023,8 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
                             error,
                             ..
                         } => {
+                            let error = OutboundFailure::from(error);
+
                             let started = match self
                                 .pending_requests
                                 .remove(&(protocol.clone(), request_id).into())
@@ -959,7 +1059,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
                                     }
 
                                     if response_tx
-                                        .send(Err(RequestFailure::Network(error.clone().into())))
+                                        .send(Err(RequestFailure::Network(error.clone())))
                                         .is_err()
                                     {
                                         log::debug!(

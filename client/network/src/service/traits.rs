@@ -865,7 +865,7 @@ pub enum NotificationEvent {
 /// each event carries a `PeerId` so the protocol knows whose information to update when receiving
 /// an event.
 #[async_trait::async_trait]
-pub trait NotificationService: Debug + Send {
+pub trait NotificationService: Debug + Send + Clone {
     /// Instruct `Notifications` to open a new substream for `peer`.
     ///
     /// `dial_if_disconnected` informs `Notifications` whether to dial
