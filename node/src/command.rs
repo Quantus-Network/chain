@@ -411,7 +411,7 @@ pub fn run() -> sc_cli::Result<()> {
 
                 config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
-                match config.network.network_backend.unwrap_or_default() {
+                match config.network.network_backend {
                     sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
                         sc_network::NetworkWorker<
                             quantus_runtime::opaque::Block,

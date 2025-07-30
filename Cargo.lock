@@ -5467,7 +5467,7 @@ dependencies = [
  "multihash 0.19.3",
  "quick-protobuf",
  "rand 0.8.5",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals)",
+ "rusty-crystals-dilithium 1.0.0 (git+https://github.com/quantus-network/rusty-crystals.git)",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "zeroize",
@@ -9819,7 +9819,7 @@ dependencies = [
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#5f24db84210217ba8643020be55550eb52e2323a"
+source = "git+https://github.com/quantus-network/rusty-crystals.git#5f24db84210217ba8643020be55550eb52e2323a"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
