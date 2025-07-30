@@ -794,6 +794,9 @@ impl NetworkBehaviour for DiscoveryBehaviour {
                 self.kademlia
                     .on_swarm_event(FromSwarm::ExternalAddrConfirmed(e));
             }
+            event => {
+                warn!(target: "sub-libp2p", "New unknown `FromSwarm` libp2p event: {event:?}");
+            }
         }
     }
 
@@ -1042,6 +1045,9 @@ impl NetworkBehaviour for DiscoveryBehaviour {
                     KademliaEvent::OutboundQueryProgressed { result: e, .. } => {
                         warn!(target: "sub-libp2p", "Libp2p => Unhandled Kademlia event: {:?}", e)
                     }
+                    KademliaEvent::ModeChanged { new_mode } => {
+                        debug!(target: "sub-libp2p", "Libp2p => Kademlia mode changed: {new_mode}")
+                    }
                 },
                 ToSwarm::Dial { opts } => return Poll::Ready(ToSwarm::Dial { opts }),
                 ToSwarm::NotifyHandler {
@@ -1076,6 +1082,11 @@ impl NetworkBehaviour for DiscoveryBehaviour {
                 ToSwarm::ListenOn { opts } => return Poll::Ready(ToSwarm::ListenOn { opts }),
                 ToSwarm::RemoveListener { id } => {
                     return Poll::Ready(ToSwarm::RemoveListener { id })
+                }
+                event => {
+                    return Poll::Ready(event.map_out(|_| {
+                        unreachable!("`GenerateEvent` is handled in a branch above; qed")
+                    }));
                 }
             }
         }
@@ -1125,6 +1136,17 @@ impl NetworkBehaviour for DiscoveryBehaviour {
                 ToSwarm::ListenOn { opts } => return Poll::Ready(ToSwarm::ListenOn { opts }),
                 ToSwarm::RemoveListener { id } => {
                     return Poll::Ready(ToSwarm::RemoveListener { id })
+                }
+                event => {
+                    return Poll::Ready(
+                        event
+                            .map_in(|_| {
+                                unreachable!("`NotifyHandler` is handled in a branch above; qed")
+                            })
+                            .map_out(|_| {
+                                unreachable!("`GenerateEvent` is handled in a branch above; qed")
+                            }),
+                    );
                 }
             }
         }

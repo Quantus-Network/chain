@@ -79,7 +79,7 @@ use libp2p::{
     },
     PeerId,
 };
-use log::error;
+use log::{error, warn};
 use parking_lot::{Mutex, RwLock};
 use std::{
     collections::VecDeque,
@@ -334,6 +334,11 @@ pub enum NotifsHandlerOut {
         protocol_index: usize,
         /// Message that has been received.
         message: BytesMut,
+    },
+    /// Close connection
+    Close {
+        /// Index of the protocol in the list of protocols passed at initialization.
+        protocol_index: usize,
     },
 }
 
@@ -656,6 +661,9 @@ impl ConnectionHandler for NotifsHandler {
                 }
             }
             ConnectionEvent::ListenUpgradeError(_listen_upgrade_error) => {}
+            event => {
+                warn!(target: "sub-libp2p", "New unknown `ConnectionEvent` libp2p event: {event:?}");
+            }
         }
     }
 
@@ -1189,13 +1197,7 @@ pub mod tests {
             },
         };
 
-        NotifsHandler {
-            protocols: vec![proto],
-            when_connection_open: Instant::now(),
-            peer_id: PeerId::random(),
-            events_queue: VecDeque::new(),
-            metrics: None,
-        }
+        NotifsHandler::new(peer_id, vec![proto], None)
     }
 
     // verify that if another substream is attempted to be opened by remote while an inbound

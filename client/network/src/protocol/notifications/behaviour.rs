@@ -36,8 +36,8 @@ use libp2p::{
     core::{transport::PortUse, Endpoint, Multiaddr},
     swarm::{
         behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
-        ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, NotifyHandler, THandler,
-        THandlerInEvent, THandlerOutEvent, ToSwarm,
+        CloseConnection, ConnectionDenied, ConnectionId, DialError, NetworkBehaviour,
+        NotifyHandler, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     PeerId,
 };
@@ -1804,6 +1804,9 @@ impl NetworkBehaviour for Notifications {
             FromSwarm::ExternalAddrConfirmed(_) => {}
             FromSwarm::AddressChange(_) => {}
             FromSwarm::NewListenAddr(_) => {}
+            event => {
+                warn!(target: "sub-libp2p", "New unknown `FromSwarm` libp2p event: {event:?}");
+            }
         }
     }
 
@@ -2381,6 +2384,16 @@ impl NetworkBehaviour for Notifications {
                         message.len()
                     );
                 }
+            }
+
+            NotifsHandlerOut::Close { protocol_index } => {
+                let set_id = SetId::from(protocol_index);
+
+                trace!(target: "sub-libp2p", "Handler({}, {:?}) => SyncNotificationsClogged({:?})", peer_id, connection_id, set_id);
+                self.events.push_back(ToSwarm::CloseConnection {
+                    peer_id,
+                    connection: CloseConnection::One(connection_id),
+                });
             }
         }
     }

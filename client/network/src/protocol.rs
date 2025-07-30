@@ -312,41 +312,10 @@ impl<B: BlockT> NetworkBehaviour for Protocol<B> {
         let event = match self.behaviour.poll(cx) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(ToSwarm::GenerateEvent(ev)) => ev,
-            Poll::Ready(ToSwarm::Dial { opts }) => return Poll::Ready(ToSwarm::Dial { opts }),
-            Poll::Ready(ToSwarm::NotifyHandler {
-                peer_id,
-                handler,
-                event,
-            }) => {
-                return Poll::Ready(ToSwarm::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                })
-            }
-            Poll::Ready(ToSwarm::CloseConnection {
-                peer_id,
-                connection,
-            }) => {
-                return Poll::Ready(ToSwarm::CloseConnection {
-                    peer_id,
-                    connection,
-                })
-            }
-            Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed)) => {
-                return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed))
-            }
-            Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr)) => {
-                return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr))
-            }
-            Poll::Ready(ToSwarm::ExternalAddrExpired(addr)) => {
-                return Poll::Ready(ToSwarm::ExternalAddrExpired(addr))
-            }
-            Poll::Ready(ToSwarm::ListenOn { opts }) => {
-                return Poll::Ready(ToSwarm::ListenOn { opts })
-            }
-            Poll::Ready(ToSwarm::RemoveListener { id }) => {
-                return Poll::Ready(ToSwarm::RemoveListener { id })
+            Poll::Ready(event) => {
+                return Poll::Ready(event.map_out(|_| {
+                    unreachable!("`GenerateEvent` is handled in a branch above; qed")
+                }));
             }
         };
 

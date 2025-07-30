@@ -19,7 +19,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 async-trait.workspace = true
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
-dilithium-crypto = { workspace = true, features = ["std"], optional = true }
+dilithium-crypto = { workspace = true }
 frame-benchmarking-cli.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-metadata-hash-extension.default-features = true

@@ -43,6 +43,7 @@ use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use log::{error, warn};
 use unsigned_varint::codec::UviBytes;
 
+use alloc::fmt;
 use std::{
     io, mem,
     pin::Pin,
@@ -191,6 +192,23 @@ pub struct NotificationsInOpen<TSubstream> {
     pub handshake: Vec<u8>,
     /// Implementation of `Stream` that allows receives messages from the substream.
     pub substream: NotificationsInSubstream<TSubstream>,
+}
+
+impl<TSubstream> fmt::Debug for NotificationsInOpen<TSubstream> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NotificationsInOpen")
+            .field("handshake", &self.handshake)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<TSubstream> fmt::Debug for NotificationsOutOpen<TSubstream> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NotificationsOutOpen")
+            .field("handshake", &self.handshake)
+            .field("negotiated_fallback", &self.negotiated_fallback)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<TSubstream> NotificationsInSubstream<TSubstream>

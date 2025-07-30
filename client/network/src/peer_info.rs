@@ -478,6 +478,11 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                 self.ping.on_swarm_event(FromSwarm::NewListenAddr(e));
                 self.identify.on_swarm_event(FromSwarm::NewListenAddr(e));
             }
+            event => {
+                debug!(target: "sub-libp2p", "New unknown `FromSwarm` libp2p event: {event:?}");
+                self.ping.on_swarm_event(event);
+                self.identify.on_swarm_event(event);
+            }
         }
     }
 
@@ -517,41 +522,10 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                         self.handle_ping_report(&peer, rtt, connection)
                     }
                 }
-                Poll::Ready(ToSwarm::Dial { opts }) => return Poll::Ready(ToSwarm::Dial { opts }),
-                Poll::Ready(ToSwarm::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                }) => {
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event: Either::Left(event),
-                    })
-                }
-                Poll::Ready(ToSwarm::CloseConnection {
-                    peer_id,
-                    connection,
-                }) => {
-                    return Poll::Ready(ToSwarm::CloseConnection {
-                        peer_id,
-                        connection,
-                    })
-                }
-                Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed)) => {
-                    return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed))
-                }
-                Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr)) => {
-                    return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr))
-                }
-                Poll::Ready(ToSwarm::ExternalAddrExpired(addr)) => {
-                    return Poll::Ready(ToSwarm::ExternalAddrExpired(addr))
-                }
-                Poll::Ready(ToSwarm::ListenOn { opts }) => {
-                    return Poll::Ready(ToSwarm::ListenOn { opts })
-                }
-                Poll::Ready(ToSwarm::RemoveListener { id }) => {
-                    return Poll::Ready(ToSwarm::RemoveListener { id })
+                Poll::Ready(event) => {
+                    return Poll::Ready(event.map_in(Either::Left).map_out(|_| {
+                        unreachable!("`GenerateEvent` is handled in a branch above; qed")
+                    }));
                 }
             }
         }
@@ -575,41 +549,10 @@ impl NetworkBehaviour for PeerInfoBehaviour {
                     IdentifyEvent::Pushed { .. } => {}
                     IdentifyEvent::Sent { .. } => {}
                 },
-                Poll::Ready(ToSwarm::Dial { opts }) => return Poll::Ready(ToSwarm::Dial { opts }),
-                Poll::Ready(ToSwarm::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                }) => {
-                    return Poll::Ready(ToSwarm::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event: Either::Right(event),
-                    })
-                }
-                Poll::Ready(ToSwarm::CloseConnection {
-                    peer_id,
-                    connection,
-                }) => {
-                    return Poll::Ready(ToSwarm::CloseConnection {
-                        peer_id,
-                        connection,
-                    })
-                }
-                Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed)) => {
-                    return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed))
-                }
-                Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr)) => {
-                    return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr))
-                }
-                Poll::Ready(ToSwarm::ExternalAddrExpired(addr)) => {
-                    return Poll::Ready(ToSwarm::ExternalAddrExpired(addr))
-                }
-                Poll::Ready(ToSwarm::ListenOn { opts }) => {
-                    return Poll::Ready(ToSwarm::ListenOn { opts })
-                }
-                Poll::Ready(ToSwarm::RemoveListener { id }) => {
-                    return Poll::Ready(ToSwarm::RemoveListener { id })
+                Poll::Ready(event) => {
+                    return Poll::Ready(event.map_in(Either::Right).map_out(|_| {
+                        unreachable!("`GenerateEvent` is handled in a branch above; qed")
+                    }));
                 }
             }
         }

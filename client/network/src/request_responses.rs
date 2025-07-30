@@ -85,6 +85,9 @@ pub enum OutboundFailure {
     /// The remote supports none of the requested protocols.
     #[error("The remote supports none of the requested protocols")]
     UnsupportedProtocols,
+    /// An IO failure happened on an outbound stream.
+    #[error("An IO failure happened on an outbound stream")]
+    Io(Arc<io::Error>),
 }
 
 impl From<request_response::OutboundFailure> for OutboundFailure {
@@ -98,6 +101,7 @@ impl From<request_response::OutboundFailure> for OutboundFailure {
             request_response::OutboundFailure::UnsupportedProtocols => {
                 OutboundFailure::UnsupportedProtocols
             }
+            request_response::OutboundFailure::Io(error) => OutboundFailure::Io(Arc::new(error)),
         }
     }
 }
@@ -119,6 +123,9 @@ pub enum InboundFailure {
     /// The local peer failed to respond to an inbound request
     #[error("The response channel was dropped without sending a response to the remote")]
     ResponseOmission,
+    /// An IO failure happened on an inbound stream.
+    #[error("An IO failure happened on an inbound stream")]
+    Io(Arc<io::Error>),
 }
 
 impl From<request_response::InboundFailure> for InboundFailure {
@@ -130,6 +137,7 @@ impl From<request_response::InboundFailure> for InboundFailure {
             request_response::InboundFailure::UnsupportedProtocols => {
                 InboundFailure::UnsupportedProtocols
             }
+            request_response::InboundFailure::Io(error) => InboundFailure::Io(Arc::new(error)),
         }
     }
 }
@@ -611,104 +619,9 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
         ))
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        match event {
-            FromSwarm::ConnectionEstablished(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(
-                        behaviour,
-                        FromSwarm::ConnectionEstablished(e),
-                    );
-                }
-            }
-            FromSwarm::ConnectionClosed(ConnectionClosed {
-                peer_id,
-                connection_id,
-                endpoint,
-                cause,
-                remaining_established,
-            }) => {
-                for (p_name, p_handler) in handler.into_iter() {
-                    if let Some(ProtocolDetails { behaviour, .. }) =
-                        self.protocols.get_mut(p_name.as_str())
-                    {
-                        behaviour.on_swarm_event(FromSwarm::ConnectionClosed(ConnectionClosed {
-                            peer_id,
-                            connection_id,
-                            endpoint,
-                            handler: p_handler,
-                            remaining_established,
-                        }));
-                    } else {
-                        log::error!(
-                          target: "sub-libp2p",
-                          "on_swarm_event/connection_closed: no request-response instance registered for protocol {:?}",
-                          p_name,
-                        )
-                    }
-                }
-            }
-            FromSwarm::DialFailure(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::DialFailure(e));
-                }
-            }
-            FromSwarm::ListenerClosed(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ListenerClosed(e));
-                }
-            }
-            FromSwarm::ListenFailure(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ListenFailure(e));
-                }
-            }
-            FromSwarm::ListenerError(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ListenerError(e));
-                }
-            }
-            FromSwarm::ExternalAddrExpired(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ExternalAddrExpired(e));
-                }
-            }
-            FromSwarm::NewListener(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::NewListener(e));
-                }
-            }
-            FromSwarm::ExpiredListenAddr(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::ExpiredListenAddr(e));
-                }
-            }
-            FromSwarm::NewExternalAddrCandidate(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(
-                        behaviour,
-                        FromSwarm::NewExternalAddrCandidate(e),
-                    );
-                }
-            }
-            FromSwarm::ExternalAddrConfirmed(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(
-                        behaviour,
-                        FromSwarm::ExternalAddrConfirmed(e),
-                    );
-                }
-            }
-            FromSwarm::AddressChange(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::AddressChange(e));
-                }
-            }
-            FromSwarm::NewListenAddr(e) => {
-                for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
-                    NetworkBehaviour::on_swarm_event(behaviour, FromSwarm::NewListenAddr(e));
-                }
-            }
+    fn on_swarm_event(&mut self, event: FromSwarm) {
+        for protocol in self.protocols.values_mut() {
+            protocol.behaviour.on_swarm_event(event);
         }
     }
 
@@ -850,45 +763,22 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
                         ToSwarm::Dial { opts } => {
                             if opts.get_peer_id().is_none() {
                                 log::error!(
-									"The request-response isn't supposed to start dialing addresses"
-								);
+                                    target: "sub-libp2p",
+                                    "The request-response isn't supposed to start dialing addresses"
+                                );
                             }
                             return Poll::Ready(ToSwarm::Dial { opts });
                         }
-                        ToSwarm::NotifyHandler {
-                            peer_id,
-                            handler,
-                            event,
-                        } => {
-                            return Poll::Ready(ToSwarm::NotifyHandler {
-                                peer_id,
-                                handler,
-                                event: ((*protocol).to_string(), event),
-                            })
-                        }
-                        ToSwarm::CloseConnection {
-                            peer_id,
-                            connection,
-                        } => {
-                            return Poll::Ready(ToSwarm::CloseConnection {
-                                peer_id,
-                                connection,
-                            })
-                        }
-                        ToSwarm::NewExternalAddrCandidate(observed) => {
-                            return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed))
-                        }
-                        ToSwarm::ExternalAddrConfirmed(addr) => {
-                            return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr))
-                        }
-                        ToSwarm::ExternalAddrExpired(addr) => {
-                            return Poll::Ready(ToSwarm::ExternalAddrExpired(addr))
-                        }
-                        ToSwarm::ListenOn { opts } => {
-                            return Poll::Ready(ToSwarm::ListenOn { opts })
-                        }
-                        ToSwarm::RemoveListener { id } => {
-                            return Poll::Ready(ToSwarm::RemoveListener { id })
+                        event => {
+                            return Poll::Ready(
+                                event
+                                    .map_in(|event| ((*protocol).to_string(), event))
+                                    .map_out(|_| {
+                                        unreachable!(
+                                            "`GenerateEvent` is handled in a branch above; qed"
+                                        )
+                                    }),
+                            );
                         }
                     };
 
@@ -1036,9 +926,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
                                 }) => {
                                     // Try using the fallback request if the protocol was not
                                     // supported.
-                                    if let request_response::OutboundFailure::UnsupportedProtocols =
-                                        error
-                                    {
+                                    if matches!(error, OutboundFailure::UnsupportedProtocols) {
                                         if let Some((fallback_request, fallback_protocol)) =
                                             fallback_request
                                         {
@@ -1087,7 +975,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
                                 peer,
                                 protocol: protocol.clone(),
                                 duration: started.elapsed(),
-                                result: Err(RequestFailure::Network(error.into())),
+                                result: Err(RequestFailure::Network(error)),
                             };
 
                             return Poll::Ready(ToSwarm::GenerateEvent(out));
