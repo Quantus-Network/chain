@@ -103,18 +103,18 @@ version = "0.4.1"
 [dependencies.libp2p]
 version = "0.54.1"
 features = [
-    "dns",
-    "identify",
-    "kad",
-    "macros",
-    "mdns",
-    "noise",
-    "ping",
-    "request-response",
-    "tcp",
-    "tokio",
-    "websocket",
-    "yamux",
+	"dns",
+	"identify",
+	"kad",
+	"macros",
+	"mdns",
+	"noise",
+	"ping",
+	"request-response",
+	"tcp",
+	"tokio",
+	"websocket",
+	"yamux",
 ]
 
 [dependencies.libp2p-identity]
@@ -181,7 +181,7 @@ version = "1.0.64"
 
 [dependencies.tokio]
 version = "1.45.0"
-features = ["macros", "sync"]
+features = ["macros", "net", "sync"]
 default-features = true
 
 [dependencies.tokio-stream]
@@ -345,9 +345,9 @@ priority = 2
 level = "warn"
 priority = 0
 check-cfg = [
-    'cfg(build_opt_level, values("3"))',
-    'cfg(build_profile, values("debug", "release"))',
-    "cfg(enable_alloc_error_handler)",
-    "cfg(fuzzing)",
-    "cfg(substrate_runtime)",
+	"cfg(enable_alloc_error_handler)",
+	"cfg(fuzzing)",
+	"cfg(substrate_runtime)",
+	'cfg(build_opt_level, values("3"))',
+	'cfg(build_profile, values("debug", "release"))',
 ]

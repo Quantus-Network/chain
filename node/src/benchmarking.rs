@@ -105,7 +105,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 /// Note: Should only be used for benchmarking.
 pub fn create_benchmark_extrinsic(
     client: &FullClient,
-    sender: dilithium_crypto::ResonancePair,
+    sender: dilithium_crypto::DilithiumPair,
     call: runtime::RuntimeCall,
     nonce: u32,
 ) -> runtime::UncheckedExtrinsic {
@@ -161,7 +161,7 @@ pub fn create_benchmark_extrinsic(
     runtime::UncheckedExtrinsic::new_signed(
         call,
         sender.public().into_account().into(),
-        runtime::Signature::Resonance(signature),
+        runtime::Signature::Dilithium(signature),
         tx_ext,
     )
 }

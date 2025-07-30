@@ -1,5 +1,5 @@
 use codec::{Decode, Encode};
-use dilithium_crypto::{ResonanceSignatureScheme, ResonanceSignatureWithPublic, PUB_KEY_BYTES};
+use dilithium_crypto::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, PUB_KEY_BYTES};
 use sp_core::ByteArray;
 use sp_runtime::{
     generic::Preamble, generic::UncheckedExtrinsic, traits::Verify, AccountId32, MultiAddress,
@@ -22,7 +22,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use dilithium_crypto::{ResonancePublic, ResonanceSignature};
+    use dilithium_crypto::{DilithiumPublic, DilithiumSignature};
     use poseidon_resonance::PoseidonHasher;
 
     use sp_runtime::traits::Hash;
@@ -45,7 +45,8 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
+        let keypair =
+            dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
         println!(
@@ -64,7 +65,7 @@ mod tests {
         );
 
         let signature =
-            ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+            DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
         let bytes: &[u8] = signature.as_ref(); // or signature.as_slice()
         println!("Gen Signature bytes: {:?}", format_hex_truncated(bytes));
@@ -76,15 +77,15 @@ mod tests {
         println!("Payload AccountId: {:?}", &id);
         let signed_extra: SignedExtra = ();
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(
+        let sig_with_public = DilithiumSignatureWithPublic::new(
             signature,
-            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+            DilithiumPublic::from_slice(&pk_bytes).unwrap(),
         );
 
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
             id,
-            ResonanceSignatureScheme::Resonance(sig_with_public),
+            DilithiumSignatureScheme::Dilithium(sig_with_public),
             signed_extra,
         );
 
@@ -95,7 +96,7 @@ mod tests {
         let decoded: UncheckedExtrinsic<
             MultiAddress<AccountId32, ()>,
             RuntimeCall,
-            ResonanceSignatureScheme,
+            DilithiumSignatureScheme,
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
@@ -112,14 +113,14 @@ mod tests {
         if let Preamble::Signed(address, signature, extra) = decoded.preamble {
             // Extract components into individual variables for debugging
             let decoded_address: Address = address;
-            let decoded_signature: ResonanceSignatureScheme = signature;
+            let decoded_signature: DilithiumSignatureScheme = signature;
             let decoded_extra: SignedExtra = extra;
 
             // Debug output for each component
             println!("Decoded Address: {:?}", decoded_address);
             println!("Decoded Extra: {:?}", decoded_extra);
 
-            let ResonanceSignatureScheme::Resonance(sig_public) = decoded_signature.clone();
+            let DilithiumSignatureScheme::Dilithium(sig_public) = decoded_signature.clone();
             let sig = sig_public.signature();
             let sig_bytes = sig.as_slice();
             println!("Decoded Signature: {:?}", format_hex_truncated(sig_bytes));
@@ -157,7 +158,8 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
+        let keypair =
+            dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
         let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
         let id = Address::Id(account_id);
@@ -169,21 +171,22 @@ mod tests {
 
         // Sign payload with a different key
         let entropy2 = [1u8; 32]; // Fixed entropy of all zeros
-        let keypair2 = hdwallet::generate(Some(&entropy2)).expect("Failed to generate keypair");
+        let keypair2 =
+            dilithium_crypto::generate(Some(&entropy2)).expect("Failed to generate keypair");
         let sig_bytes_wrong_key = keypair2.sign(&msg, None, false);
-        let signature_wrong_key = ResonanceSignature::try_from(&sig_bytes_wrong_key[..])
+        let signature_wrong_key = DilithiumSignature::try_from(&sig_bytes_wrong_key[..])
             .expect("Signature length mismatch");
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(
+        let sig_with_public = DilithiumSignatureWithPublic::new(
             signature_wrong_key,
-            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+            DilithiumPublic::from_slice(&pk_bytes).unwrap(),
         );
 
         // Create transaction with invalid signature
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
             id,
-            ResonanceSignatureScheme::Resonance(sig_with_public),
+            DilithiumSignatureScheme::Dilithium(sig_with_public),
             signed_extra,
         );
 
@@ -193,7 +196,7 @@ mod tests {
         let decoded: UncheckedExtrinsic<
             MultiAddress<AccountId32, ()>,
             RuntimeCall,
-            ResonanceSignatureScheme,
+            DilithiumSignatureScheme,
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
@@ -217,7 +220,8 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
+        let keypair =
+            dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
         // Create and sign a payload
@@ -225,23 +229,23 @@ mod tests {
         let msg = payload.encode();
         let sig_bytes = keypair.sign(&msg, None, false);
         let signature =
-            ResonanceSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
+            DilithiumSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
         // Create a second account
         let account_id_2 = PoseidonHasher::hash(&[0u8; PUB_KEY_BYTES]).0.into();
         let id_2 = Address::Id(account_id_2);
         let signed_extra: SignedExtra = ();
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(
+        let sig_with_public = DilithiumSignatureWithPublic::new(
             signature,
-            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+            DilithiumPublic::from_slice(&pk_bytes).unwrap(),
         );
 
         // Create transaction with wrong account ID.
         let extrinsic = UncheckedExtrinsic::new_signed(
             payload,
             id_2,
-            ResonanceSignatureScheme::Resonance(sig_with_public), // correct signature!
+            DilithiumSignatureScheme::Dilithium(sig_with_public), // correct signature!
             signed_extra,
         );
 
@@ -251,7 +255,7 @@ mod tests {
         let decoded: UncheckedExtrinsic<
             MultiAddress<AccountId32, ()>,
             RuntimeCall,
-            ResonanceSignatureScheme,
+            DilithiumSignatureScheme,
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 
@@ -277,7 +281,8 @@ mod tests {
 
         // Generate a keypair
         let entropy = [0u8; 32]; // Fixed entropy of all zeros
-        let keypair = hdwallet::generate(Some(&entropy)).expect("Failed to generate keypair");
+        let keypair =
+            dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
         let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
         // Create and sign a payload
@@ -285,7 +290,7 @@ mod tests {
         let msg = payload.encode();
         let sig_bytes = keypair.sign(&msg, None, false);
         let signature =
-            ResonanceSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
+            DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
         let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
         let id = Address::Id(account_id);
@@ -294,15 +299,15 @@ mod tests {
         // Create transaction with wrong payload. Should fail.
         let wrong_payload: RuntimeCall = 40;
 
-        let sig_with_public = ResonanceSignatureWithPublic::new(
+        let sig_with_public = DilithiumSignatureWithPublic::new(
             signature,
-            ResonancePublic::from_slice(&pk_bytes).unwrap(),
+            DilithiumPublic::from_slice(&pk_bytes).unwrap(),
         );
 
         let extrinsic = UncheckedExtrinsic::new_signed(
             wrong_payload,
             id,
-            ResonanceSignatureScheme::Resonance(sig_with_public),
+            DilithiumSignatureScheme::Dilithium(sig_with_public),
             signed_extra,
         );
 
@@ -311,7 +316,7 @@ mod tests {
         let decoded: UncheckedExtrinsic<
             MultiAddress<AccountId32, ()>,
             RuntimeCall,
-            ResonanceSignatureScheme,
+            DilithiumSignatureScheme,
             (),
         > = UncheckedExtrinsic::decode(&mut &encoded[..]).expect("Decoding failed");
 

@@ -2701,7 +2701,6 @@ name = "dilithium-crypto"
 version = "0.1.0"
 dependencies = [
  "env_logger 0.11.8",
- "hdwallet",
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
@@ -2711,7 +2710,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "thiserror 1.0.69",
- "verify",
 ]
 
 [[package]]
@@ -4187,13 +4185,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8094feaf31ff591f651a2664fb9cfd92bba7a60ce3197265e9482ebe753c8f7"
 dependencies = [
  "hashbrown 0.14.5",
-]
-
-[[package]]
-name = "hdwallet"
-version = "0.1.0"
-dependencies = [
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506)",
 ]
 
 [[package]]
@@ -8939,6 +8930,7 @@ dependencies = [
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
+ "sp-consensus",
  "sp-consensus-qpow",
  "sp-core",
  "sp-genesis-builder",
@@ -8969,7 +8961,6 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
- "hdwallet",
  "lazy_static",
  "log",
  "pallet-assets",
@@ -11505,10 +11496,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "sign"
-version = "0.1.0"
-
-[[package]]
 name = "signal-hook-registry"
 version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13983,14 +13970,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "verify"
-version = "0.1.0"
-dependencies = [
- "log",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506)",
-]
 
 [[package]]
 name = "version_check"

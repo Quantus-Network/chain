@@ -10,8 +10,6 @@ members = [
 	"client/consensus/qpow",
 	"client/network",
 	"dilithium-crypto",
-	"dilithium-crypto/sign",
-	"dilithium-crypto/verify",
 	"node",
 	"pallets/balances",
 	"pallets/merkle-airdrop",
@@ -57,7 +55,6 @@ uuid = { version = "1.7.0", features = ["serde", "v4"] }
 
 # Own dependencies
 dilithium-crypto = { path = "./dilithium-crypto", default-features = false }
-hdwallet = { path = "./dilithium-crypto/hdwallet", default-features = true }
 pallet-balances = { path = "./pallets/balances", default-features = false }
 pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }

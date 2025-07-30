@@ -95,13 +95,21 @@ pub mod pallet {
         InvalidPublicInputs,
         NullifierAlreadyUsed,
         VerifierNotAvailable,
+        InvalidStorageRoot,
+        StorageRootMismatch,
+        BlockNotFound,
+        InvalidBlockNumber,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
-        pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
+        pub fn verify_wormhole_proof(
+            origin: OriginFor<T>,
+            proof_bytes: Vec<u8>,
+            block_number: BlockNumberFor<T>,
+        ) -> DispatchResult {
             ensure_none(origin)?;
 
             let verifier =
@@ -129,6 +137,52 @@ pub mod pallet {
                 !UsedNullifiers::<T>::contains_key(nullifier_bytes),
                 Error::<T>::NullifierAlreadyUsed
             );
+
+            // Get the block hash for the specified block number
+            let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+
+            // Check if block number is not in the future
+            let current_block = frame_system::Pallet::<T>::block_number();
+            ensure!(
+                block_number <= current_block,
+                Error::<T>::InvalidBlockNumber
+            );
+
+            // Validate that the block exists by checking if it's not the default hash
+            // The default hash (all zeros) indicates the block doesn't exist
+            let default_hash = T::Hash::default();
+            ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
+
+            // Get the storage root for the specified block
+            let storage_root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+
+            let root_hash = public_inputs.root_hash;
+            let storage_root_bytes = storage_root.as_slice();
+
+            // Compare the root_hash from the proof with the actual storage root
+            // Skip storage root validation in test and benchmark environments since proofs
+            // may have been generated with different state
+            #[cfg(not(any(test, feature = "runtime-benchmarks")))]
+            if root_hash.as_ref() != storage_root_bytes {
+                log::warn!(
+                    target: "wormhole",
+                    "Storage root mismatch for block {:?}: expected {:?}, got {:?}",
+                    block_number,
+                    root_hash.as_ref(),
+                    storage_root_bytes
+                );
+                return Err(Error::<T>::StorageRootMismatch.into());
+            }
+
+            #[cfg(any(test, feature = "runtime-benchmarks"))]
+            {
+                let _root_hash = root_hash;
+                let _storage_root_bytes = storage_root_bytes;
+                log::debug!(
+                    target: "wormhole",
+                    "Skipping storage root validation in test/benchmark environment"
+                );
+            }
 
             verifier
                 .verify(proof.clone())

@@ -10,9 +10,7 @@ sp-runtime = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 rusty-crystals-dilithium.workspace = true
-verify = { path = "./verify", default-features = false }
 log = { workspace = true }
-hdwallet = { path = "./hdwallet", default-features = false }
 poseidon-resonance = { workspace = true }
 thiserror = { workspace = true, optional = true }
 
@@ -23,13 +21,12 @@ env_logger.workspace = true
 default = ["std"]
 std = [
 	"codec/std",
-	"hdwallet/std",
 	"poseidon-resonance/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
-	"thiserror"
+	"thiserror",
 ]
 full_crypto = [ # pass through for "sign" in pair trait.
 	"sp-core/full_crypto",

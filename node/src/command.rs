@@ -5,7 +5,7 @@ use crate::{
     cli::{Cli, Subcommand},
     service,
 };
-use dilithium_crypto::{traits::WormholeAddress, ResonancePair};
+use dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::wormhole::WormholePair;
@@ -80,18 +80,18 @@ pub fn generate_quantus_key(
                 words_to_print = Some(new_words);
             }
 
-            let resonance_pair = ResonancePair::from_seed(&actual_seed_for_pair).map_err(|e| {
-                eprintln!("Error creating ResonancePair: {:?}", e);
+            let dilithium_pair = DilithiumPair::from_seed(&actual_seed_for_pair).map_err(|e| {
+                eprintln!("Error creating DilithiumPair: {:?}", e);
                 sc_cli::Error::Input("Failed to create keypair".into())
             })?;
 
-            let account_id = AccountId32::from(resonance_pair.public());
+            let account_id = AccountId32::from(dilithium_pair.public());
 
             Ok(QuantusKeyDetails {
                 address: account_id.to_ss58check(),
                 raw_address: format!("0x{}", hex::encode(account_id)),
-                public_key_hex: format!("0x{}", hex::encode(resonance_pair.public())),
-                secret_key_hex: format!("0x{}", hex::encode(resonance_pair.secret)),
+                public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
+                secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
                 seed_hex: format!("0x{}", hex::encode(&actual_seed_for_pair)),
                 secret_phrase: words_to_print,
                 inner_hash: None,
