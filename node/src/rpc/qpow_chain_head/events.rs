@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Follow subscription event
 /// Events emitted by chainHead follow subscription
-/// 
+///
 /// This enum represents all possible events that can be sent to a client
 /// during a qpowChainHead_v1_follow subscription. Each variant corresponds
 /// to a specific type of blockchain update.
@@ -14,33 +14,33 @@ use serde::{Deserialize, Serialize};
 pub enum FollowEvent<Hash> {
     /// The subscription was initialized with the current state
     /// The subscription was initialized
-    /// 
+    ///
     /// Sent as the first event after a successful subscription.
     /// Contains the current finalized block information.
     Initialized(Initialized<Hash>),
-    
+
     /// A new block was imported
-    /// 
+    ///
     /// Sent whenever a new block is imported into the chain,
     /// regardless of whether it becomes the new best block.
     NewBlock(NewBlock<Hash>),
-    
+
     /// The best block changed
-    /// 
+    ///
     /// Sent when a different block becomes the new best block.
     /// This can happen due to forks being resolved or new blocks
     /// extending the best chain.
     BestBlockChanged(BestBlockChanged<Hash>),
-    
+
     /// Blocks were finalized
-    /// 
+    ///
     /// Sent when one or more blocks achieve finality.
     /// In PoW systems, this happens when blocks are sufficiently
     /// deep in the chain (179 blocks in Resonance).
     Finalized(Finalized<Hash>),
-    
+
     /// The subscription has stopped
-    /// 
+    ///
     /// Terminal event indicating the subscription has ended.
     /// No further events will be sent after this.
     Stop,
@@ -66,44 +66,44 @@ pub struct RuntimeEvent {
 }
 
 /// Runtime version information
-/// 
+///
 /// Detailed runtime version information matching Substrate's RuntimeVersion
 /// structure. Used to track runtime upgrades and compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeVersionEvent {
     /// Runtime spec name
-    /// 
+    ///
     /// Identifies the runtime specification. Changes indicate
     /// incompatible runtime upgrades.
     pub spec_name: String,
-    
+
     /// Runtime implementation name
-    /// 
+    ///
     /// Identifies the runtime implementation. Typically includes
     /// the client name that built the runtime.
     pub impl_name: String,
-    
+
     /// Runtime spec version
-    /// 
+    ///
     /// Version of the runtime specification. Incremented on
     /// breaking changes to the runtime API.
     pub spec_version: u32,
-    
+
     /// Runtime implementation version
-    /// 
+    ///
     /// Version of the runtime implementation. Can change without
     /// breaking compatibility.
     pub impl_version: u32,
-    
+
     /// Runtime transaction version
-    /// 
+    ///
     /// Version of the transaction format. Incremented when the
     /// transaction format changes in a breaking way.
     pub transaction_version: u32,
-    
+
     /// Runtime state version
-    /// 
+    ///
     /// Version of the state representation. Currently corresponds
     /// to the system_version field in Substrate's RuntimeVersion.
     pub state_version: u8,
@@ -114,25 +114,25 @@ pub struct RuntimeVersionEvent {
 #[serde(rename_all = "camelCase")]
 pub struct NewBlock<Hash> {
     /// The block hash
-    /// 
+    ///
     /// Hash of the newly imported block.
     pub block_hash: Hash,
-    
+
     /// Parent block hash
-    /// 
+    ///
     /// Hash of this block's parent. Used to determine the block's
     /// position in the chain tree.
     pub parent_block_hash: Hash,
-    
+
     /// New runtime if it changed
-    /// 
+    ///
     /// Present only if this block includes a runtime upgrade
     /// and `with_runtime` was true in the follow request.
     pub new_runtime: Option<RuntimeEvent>,
 }
 
 /// Best block changed event
-/// 
+///
 /// Emitted when the best block changes, indicating a new chain tip.
 /// This can happen when a new block extends the best chain or when
 /// a fork becomes the new best chain.
@@ -140,7 +140,7 @@ pub struct NewBlock<Hash> {
 #[serde(rename_all = "camelCase")]
 pub struct BestBlockChanged<Hash> {
     /// New best block hash
-    /// 
+    ///
     /// The hash of the block that is now considered the best
     /// (highest weighted) block in the chain.
     pub best_block_hash: Hash,
@@ -234,9 +234,7 @@ pub enum StorageResultValue {
     /// Hash result
     Hash { hash: Option<String> },
     /// Merkle value result
-    ClosestDescendantMerkleValue { 
-        merkle_value: Option<String> 
-    },
+    ClosestDescendantMerkleValue { merkle_value: Option<String> },
 }
 
 /// Operation error event

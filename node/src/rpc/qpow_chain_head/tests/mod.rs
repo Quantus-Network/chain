@@ -12,21 +12,21 @@ mod tests {
     fn test_subscription_manager_basic_operations() {
         use quantus_runtime::opaque::Block;
         let manager = SubscriptionManager::<Block>::new();
-        
+
         // Test creating a subscription
         let sub_id = manager.create_subscription();
         assert!(sub_id.starts_with("qpow-"));
         assert!(manager.is_valid(&sub_id));
         assert_eq!(manager.count(), 1);
-        
+
         // Test tracking blocks
         let hash = H256::random();
         manager.track_block(&sub_id, hash);
-        
+
         // Test updating finalized
         let finalized_hash = H256::random();
         manager.update_finalized(&sub_id, finalized_hash);
-        
+
         // Test removing subscription
         manager.remove_subscription(&sub_id);
         assert!(!manager.is_valid(&sub_id));
@@ -37,17 +37,17 @@ mod tests {
     fn test_multiple_subscriptions() {
         use quantus_runtime::opaque::Block;
         let manager = SubscriptionManager::<Block>::new();
-        
+
         // Create multiple subscriptions
         let sub1 = manager.create_subscription();
         let sub2 = manager.create_subscription();
         let sub3 = manager.create_subscription();
-        
+
         assert_eq!(manager.count(), 3);
         assert!(manager.is_valid(&sub1));
         assert!(manager.is_valid(&sub2));
         assert!(manager.is_valid(&sub3));
-        
+
         // Remove middle subscription
         manager.remove_subscription(&sub2);
         assert_eq!(manager.count(), 2);
@@ -61,19 +61,19 @@ mod tests {
         use quantus_runtime::opaque::Block;
         let manager = SubscriptionManager::<Block>::new();
         let sub_id = manager.create_subscription();
-        
+
         // Track multiple blocks
         let hash1 = H256::random();
         let hash2 = H256::random();
         let hash3 = H256::random();
-        
+
         manager.track_block(&sub_id, hash1);
         manager.track_block(&sub_id, hash2);
         manager.track_block(&sub_id, hash3);
-        
+
         // Untrack some blocks
         manager.untrack_blocks(&sub_id, &[hash1, hash3]);
-        
+
         // Verify subscription still exists
         assert!(manager.is_valid(&sub_id));
     }
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn test_event_serialization() {
         use events::*;
-        
+
         // Test Initialized event
         let initialized = Initialized::<H256> {
             finalized_block_hash: H256::random(),
@@ -96,41 +96,41 @@ mod tests {
                 },
             }),
         };
-        
+
         let event = FollowEvent::Initialized(initialized);
         let json = serde_json::to_value(&event).unwrap();
         assert!(json.is_object());
-        
+
         // Test NewBlock event
         let new_block = NewBlock::<H256> {
             block_hash: H256::random(),
             parent_block_hash: H256::random(),
             new_runtime: None,
         };
-        
+
         let event = FollowEvent::NewBlock(new_block);
         let json = serde_json::to_value(&event).unwrap();
         assert!(json.is_object());
-        
+
         // Test BestBlockChanged event
         let best_changed = BestBlockChanged::<H256> {
             best_block_hash: H256::random(),
         };
-        
+
         let event = FollowEvent::BestBlockChanged(best_changed);
         let json = serde_json::to_value(&event).unwrap();
         assert!(json.is_object());
-        
+
         // Test Finalized event
         let finalized = Finalized::<H256> {
             finalized_block_hashes: vec![H256::random(), H256::random()],
             pruned_block_hashes: vec![H256::random()],
         };
-        
+
         let event = FollowEvent::Finalized(finalized);
         let json = serde_json::to_value(&event).unwrap();
         assert!(json.is_object());
-        
+
         // Test Stop event
         let event = FollowEvent::<H256>::Stop;
         let json = serde_json::to_value(&event).unwrap();
@@ -142,14 +142,14 @@ mod tests {
         let op_id1 = OperationId("test-123".to_string());
         let op_id2 = OperationId("test-123".to_string());
         let op_id3 = OperationId("test-456".to_string());
-        
+
         assert_eq!(op_id1, op_id2);
         assert_ne!(op_id1, op_id3);
-        
+
         // Test serialization
         let json = serde_json::to_value(&op_id1).unwrap();
         assert_eq!(json, serde_json::Value::String("test-123".to_string()));
-        
+
         // Test deserialization
         let deserialized: OperationId = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized, op_id1);
@@ -161,12 +161,12 @@ mod tests {
             key: "0x1234".to_string(),
             query_type: StorageQueryType::Value,
         };
-        
+
         let json = serde_json::to_value(&query).unwrap();
         assert!(json.is_object());
         assert_eq!(json["key"], "0x1234");
         assert_eq!(json["type"], "value");
-        
+
         // Test all query types
         let query_types = vec![
             StorageQueryType::Value,
@@ -175,7 +175,7 @@ mod tests {
             StorageQueryType::DescendantsValues,
             StorageQueryType::DescendantsHashes,
         ];
-        
+
         for query_type in query_types {
             let query = StorageQuery {
                 key: "0xtest".to_string(),

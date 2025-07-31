@@ -1,21 +1,21 @@
 //! Subscription management for QPoW ChainHead
-//! 
+//!
 //! This module handles the core subscription logic for the QPoW-aware chainHead RPC.
 //! It manages subscription lifecycles, tracks blocks, and streams events to clients
 //! while tolerating the large finality gaps inherent in PoW consensus.
 
 use super::events::*;
 use futures::{FutureExt, StreamExt};
-use jsonrpsee::{SubscriptionSink, SubscriptionMessage};
+use jsonrpsee::{SubscriptionMessage, SubscriptionSink};
 use log::{debug, error, warn};
 use sc_client_api::BlockchainEvents;
+use sp_api::Core;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_runtime::{
     traits::{Block as BlockT, Header as HeaderT, NumberFor},
     Saturating,
 };
-use sp_api::Core;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -24,7 +24,7 @@ use std::{
 use uuid::Uuid;
 
 /// Manages active subscriptions for the QPoW chainHead RPC
-/// 
+///
 /// This manager tracks all active subscriptions and their associated data,
 /// including which blocks each subscription is tracking and the last
 /// finalized block sent to each subscriber.
@@ -34,7 +34,7 @@ pub struct SubscriptionManager<Block: BlockT> {
 }
 
 /// Data associated with a subscription
-/// 
+///
 /// Tracks the state of an individual subscription including which blocks
 /// are being monitored and the last finalized block sent to the client.
 struct SubscriptionData<Block: BlockT> {
@@ -59,7 +59,7 @@ impl<Block: BlockT> SubscriptionManager<Block> {
             tracked_blocks: HashSet::new(),
             last_finalized: None,
         };
-        
+
         self.subscriptions.lock().unwrap().insert(id.clone(), data);
         id
     }
@@ -104,23 +104,23 @@ impl<Block: BlockT> SubscriptionManager<Block> {
 }
 
 /// Handle a follow subscription for QPoW-aware chainHead
-/// 
+///
 /// This function manages the lifecycle of a chainHead follow subscription,
 /// streaming events about new blocks, finalization, and chain reorganizations.
 /// Unlike the standard Substrate implementation, it continues operating even
 /// with large gaps between the best and finalized blocks.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `client` - The substrate client for blockchain operations
 /// * `sink` - The subscription sink for sending events
 /// * `subscription_id` - Unique identifier for this subscription
 /// * `with_runtime` - Whether to include runtime version information
 /// * `subscriptions` - The subscription manager
 /// * `max_lagging_distance` - Maximum allowed gap between best and finalized
-/// 
+///
 /// # Behavior
-/// 
+///
 /// The function will:
 /// 1. Send an initial `Initialized` event with the current finalized block
 /// 2. Stream `NewBlock` events for each imported block
@@ -137,11 +137,19 @@ pub async fn handle_follow_subscription<Client, Block>(
     max_lagging_distance: u32,
 ) where
     Block: BlockT,
-    Client: HeaderBackend<Block> + BlockchainEvents<Block> + ProvideRuntimeApi<Block> + Send + Sync + 'static,
+    Client: HeaderBackend<Block>
+        + BlockchainEvents<Block>
+        + ProvideRuntimeApi<Block>
+        + Send
+        + Sync
+        + 'static,
     Client::Api: sp_api::Core<Block>,
     NumberFor<Block>: From<u32> + std::cmp::PartialOrd,
 {
-    debug!("Starting QPoW chainHead follow subscription: {}", subscription_id);
+    debug!(
+        "Starting QPoW chainHead follow subscription: {}",
+        subscription_id
+    );
 
     // Get initial chain state
     let info = client.info();
@@ -169,7 +177,13 @@ pub async fn handle_follow_subscription<Client, Block>(
         },
     };
 
-    if let Err(e) = sink.send(SubscriptionMessage::from_json(&FollowEvent::<Block::Hash>::Initialized(initialized)).unwrap()).await {
+    if let Err(e) = sink
+        .send(
+            SubscriptionMessage::from_json(&FollowEvent::<Block::Hash>::Initialized(initialized))
+                .unwrap(),
+        )
+        .await
+    {
         error!("Failed to send initialized event: {}", e);
         subscriptions.remove_subscription(&subscription_id);
         return;
@@ -207,7 +221,7 @@ pub async fn handle_follow_subscription<Client, Block>(
                         let block_hash = notification.hash;
                         let parent_hash = *notification.header.parent_hash();
                         let block_number = *notification.header.number();
-                        
+
                         debug!("New block imported: #{} ({:?})", block_number, block_hash);
 
                         // Track this block
@@ -264,12 +278,12 @@ pub async fn handle_follow_subscription<Client, Block>(
                         let finalized_hash = notification.hash;
                         let finalized_header = notification.header;
                         let finalized_number = *finalized_header.number();
-                        
+
                         debug!("Block finalized: #{} ({:?})", finalized_number, finalized_hash);
 
                         // Get all blocks that were finalized
                         let finalized_blocks = vec![finalized_hash];
-                        
+
                         // TODO: We should traverse back from the newly finalized block
                         // to the previously finalized block to get all newly finalized blocks.
                         // This would involve walking the chain backwards to find all blocks
@@ -317,20 +331,25 @@ pub async fn handle_follow_subscription<Client, Block>(
     }
 
     // Send stop event
-    let _ = sink.send(SubscriptionMessage::from_json(&FollowEvent::<Block::Hash>::Stop).unwrap()).await;
-    
+    let _ = sink
+        .send(SubscriptionMessage::from_json(&FollowEvent::<Block::Hash>::Stop).unwrap())
+        .await;
+
     // Clean up subscription
     subscriptions.remove_subscription(&subscription_id);
-    debug!("QPoW chainHead follow subscription ended: {}", subscription_id);
+    debug!(
+        "QPoW chainHead follow subscription ended: {}",
+        subscription_id
+    );
 }
 
 /// Get runtime version information for a block
-/// 
+///
 /// Retrieves the runtime version at a specific block hash, converting it
 /// to the format expected by the chainHead RPC events.
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `Some(RuntimeEvent)` if the runtime version could be retrieved
 /// * `None` if there was an error accessing the runtime API
 fn get_runtime_version<Client, Block>(
