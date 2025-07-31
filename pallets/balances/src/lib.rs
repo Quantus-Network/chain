@@ -163,7 +163,7 @@ use frame_support::{
     pallet_prelude::DispatchResult,
     traits::{
         tokens::{
-            fungible, BalanceStatus as Status, DepositConsequence,
+            fungible, Balance as BalanceT, BalanceStatus as Status, DepositConsequence,
             Fortitude::{self, Force, Polite},
             IdAmount,
             Preservation::{Expendable, Preserve, Protect},
@@ -237,8 +237,6 @@ pub mod pallet {
         #[frame_support::register_default_impl(TestDefaultConfig)]
         impl DefaultConfig for TestDefaultConfig {
             #[inject_runtime_type]
-            type RuntimeEvent = ();
-            #[inject_runtime_type]
             type RuntimeHoldReason = ();
             #[inject_runtime_type]
             type RuntimeFreezeReason = ();
@@ -262,11 +260,6 @@ pub mod pallet {
 
     #[pallet::config(with_default)]
     pub trait Config<I: 'static = ()>: frame_system::Config {
-        /// The overarching event type.
-        #[pallet::no_default_bounds]
-        type RuntimeEvent: From<Event<Self, I>>
-            + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
         /// The overarching hold reason.
         #[pallet::no_default_bounds]
         type RuntimeHoldReason: Parameter + Member + MaxEncodedLen + Copy + VariantCount;
@@ -289,7 +282,8 @@ pub mod pallet {
             + Debug
             + MaxEncodedLen
             + TypeInfo
-            + FixedPointOperand;
+            + FixedPointOperand
+            + BalanceT;
 
         /// Handler for the unbalanced reduction when removing a dust account.
         #[pallet::no_default_bounds]

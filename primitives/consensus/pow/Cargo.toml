@@ -33,23 +33,11 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "sp_consensus_pow"
 path = "src/lib.rs"
 
-[dependencies.codec]
-version = "3.6.12"
-features = ["derive"]
-default-features = false
-package = "parity-scale-codec"
-
-[dependencies.sp-api]
-version = "35.0.0"
-default-features = false
-
-[dependencies.sp-core]
-version = "35.0.0"
-default-features = false
-
-[dependencies.sp-runtime]
-version = "40.0.0"
-default-features = false
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+sp-api = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
 
 [features]
 default = ["std"]

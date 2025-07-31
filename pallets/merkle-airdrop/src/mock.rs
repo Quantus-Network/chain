@@ -41,7 +41,6 @@ impl system::Config for Test {
     type AccountId = u64;
     type Lookup = IdentityLookup<Self::AccountId>;
     type Block = Block;
-    type RuntimeEvent = RuntimeEvent;
     type BlockHashCount = BlockHashCount;
     type Version = ();
     type PalletInfo = PalletInfo;
@@ -69,7 +68,6 @@ parameter_types! {
 impl pallet_balances::Config for Test {
     type Balance = u64;
     type DustRemoval = ();
-    type RuntimeEvent = RuntimeEvent;
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
     type WeightInfo = ();
@@ -90,7 +88,6 @@ parameter_types! {
 }
 
 impl pallet_vesting::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type WeightInfo = ();
     type BlockNumberProvider = System;
@@ -108,7 +105,6 @@ parameter_types! {
 }
 
 impl pallet_merkle_airdrop::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
     type Vesting = Vesting;
     type MaxProofs = MaxProofs;
     type PalletId = MerkleAirdropPalletId;

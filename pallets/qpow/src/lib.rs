@@ -82,9 +82,6 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_timestamp::Config {
-        /// Overarching event type
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
         /// Pallet's weight info
         #[pallet::constant]
         type InitialDistanceThresholdExponent: Get<u32>;

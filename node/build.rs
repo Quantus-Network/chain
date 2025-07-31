@@ -11,8 +11,8 @@ fn main() {
 }
 
 fn validate_and_generate_circuits() {
-    println!("cargo:rerun-if-changed=pallets/wormhole/verifier.bin");
-    println!("cargo:rerun-if-changed=pallets/wormhole/common.bin");
+    // println!("cargo:rerun-if-changed=pallets/wormhole/verifier.bin");
+    // println!("cargo:rerun-if-changed=pallets/wormhole/common.bin");
 
     // Generate circuit binaries from the zk-circuits dependency
     generate_circuit_binaries();

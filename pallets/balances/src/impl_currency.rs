@@ -26,9 +26,11 @@ use frame_support::{
     ensure,
     pallet_prelude::DispatchResult,
     traits::{
-        tokens::{fungible, BalanceStatus as Status, Fortitude::Polite, Precision::BestEffort},
-        Currency, DefensiveSaturating, ExistenceRequirement,
-        ExistenceRequirement::AllowDeath,
+        tokens::{
+            fungible, Balance, BalanceStatus as Status, Fortitude::Polite, Precision::BestEffort,
+        },
+        Currency, DefensiveSaturating,
+        ExistenceRequirement::{self, AllowDeath},
         Get, Imbalance, InspectLockableCurrency, LockIdentifier, LockableCurrency,
         NamedReservableCurrency, ReservableCurrency, SignedImbalance, TryDrop, WithdrawReasons,
     },
@@ -229,7 +231,7 @@ mod imbalances {
 
 impl<T: Config<I>, I: 'static> Currency<T::AccountId> for Pallet<T, I>
 where
-    T::Balance: MaybeSerializeDeserialize + Debug,
+    T::Balance: Balance,
 {
     type Balance = T::Balance;
     type PositiveImbalance = PositiveImbalance<T, I>;
@@ -530,7 +532,7 @@ where
 
 impl<T: Config<I>, I: 'static> ReservableCurrency<T::AccountId> for Pallet<T, I>
 where
-    T::Balance: MaybeSerializeDeserialize + Debug,
+    T::Balance: Balance,
 {
     /// Check if `who` can reserve `value` from their free balance.
     ///
@@ -676,7 +678,7 @@ where
 
 impl<T: Config<I>, I: 'static> NamedReservableCurrency<T::AccountId> for Pallet<T, I>
 where
-    T::Balance: MaybeSerializeDeserialize + Debug,
+    T::Balance: Balance,
 {
     type ReserveIdentifier = T::ReserveIdentifier;
 
@@ -925,7 +927,7 @@ where
 
 impl<T: Config<I>, I: 'static> LockableCurrency<T::AccountId> for Pallet<T, I>
 where
-    T::Balance: MaybeSerializeDeserialize + Debug,
+    T::Balance: Balance,
 {
     type Moment = BlockNumberFor<T>;
 
