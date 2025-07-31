@@ -12,9 +12,6 @@ runs:
           libclang-dev \
           protobuf-compiler
         rustup update
-        rustup toolchain install ${RUSTUP_TOOLCHAIN}
-        rustup target add wasm32-unknown-unknown \
-          --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-unknown-linux-gnu
-        rustup component add rustfmt clippy rust-src \
-          --toolchain ${RUSTUP_TOOLCHAIN}-x86_64-unknown-linux-gnu
+        rustup target add wasm32-unknown-unknown
+        rustup component add rustfmt clippy rust-src
       shell: bash

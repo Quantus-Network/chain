@@ -4,20 +4,16 @@ name: Continuous Integration
 on:
   pull_request:
     paths-ignore:
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
+      - "docs/**"
+      - "*.md"
+      - "LICENSE"
   push:
     branches:
       - main
     paths-ignore:
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
+      - "docs/**"
+      - "*.md"
+      - "LICENSE"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -26,7 +22,6 @@ concurrency:
 env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
-  RUSTUP_TOOLCHAIN: nightly-2024-12-14
 
 jobs:
   fast-checks:
@@ -35,8 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ubuntu
-      - name: pin
-        run: rustup override set ${RUSTUP_TOOLCHAIN}
       - name: Install required components
         run: rustup component add rustfmt
       - name: Install taplo
@@ -64,8 +57,6 @@ jobs:
       - name: Setup macOS
         if: matrix.os == 'macos-latest'
         uses: ./.github/actions/macos
-      - name: pin
-        run: rustup override set ${RUSTUP_TOOLCHAIN}
       - name: compile
         run: cargo build --locked --workspace --features runtime-benchmarks
       - name: test
@@ -79,8 +70,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
-      - name: pin
-        run: rustup override set ${RUSTUP_TOOLCHAIN}
       - name: Install required components
         run: rustup component add rust-src clippy
       - name: Run clippy
