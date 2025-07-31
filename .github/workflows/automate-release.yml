@@ -6,9 +6,6 @@ on:
     branches:
       - main
 
-env:
-  RUSTUP_TOOLCHAIN: nightly-2024-12-14
-
 jobs:
   create-tag:
     name: Create Tag
@@ -37,8 +34,8 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-          
+
+
           # Check if this is a draft release
           if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
             echo "is_draft=true" >> $GITHUB_OUTPUT
@@ -97,8 +94,6 @@ jobs:
         if: runner.os == 'Windows'
         uses: ./.github/actions/windows
 
-      - name: pin
-        run: rustup override set ${RUSTUP_TOOLCHAIN}
         shell: bash
 
       - name: Build quantus-node binary
