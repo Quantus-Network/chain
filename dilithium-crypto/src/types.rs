@@ -65,7 +65,6 @@ pub type DilithiumSignature = WrappedSignatureBytes<{ crate::SIGNATURE_BYTES }, 
 pub enum DilithiumSignatureScheme {
     Ed25519(ed25519::Signature),
     Sr25519(sr25519::Signature),
-    Ecdsa(ecdsa::Signature),
     Dilithium(DilithiumSignatureWithPublic),
 }
 
@@ -77,7 +76,6 @@ pub enum DilithiumSignatureScheme {
 pub enum DilithiumSigner {
     Ed25519(ed25519::Public),
     Sr25519(sr25519::Public),
-    Ecdsa(ecdsa::Public),
     Dilithium(DilithiumPublic),
 }
 
