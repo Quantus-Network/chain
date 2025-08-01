@@ -7,7 +7,6 @@ use sp_core::{
     crypto::{PublicBytes, SignatureBytes},
     ByteArray, RuntimeDebug,
 };
-use sp_core::{ecdsa, ed25519, sr25519};
 use thiserror::Error;
 
 ///
@@ -63,9 +62,7 @@ pub type DilithiumSignature = WrappedSignatureBytes<{ crate::SIGNATURE_BYTES }, 
 #[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DilithiumSignatureScheme {
-    Ed25519(ed25519::Signature),
-    Sr25519(sr25519::Signature),
-    Ecdsa(ecdsa::Signature),
+    NoOp(),
     Dilithium(DilithiumSignatureWithPublic),
 }
 
@@ -75,9 +72,7 @@ pub enum DilithiumSignatureScheme {
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DilithiumSigner {
-    Ed25519(ed25519::Public),
-    Sr25519(sr25519::Public),
-    Ecdsa(ecdsa::Public),
+    NoOp(),
     Dilithium(DilithiumPublic),
 }
 
