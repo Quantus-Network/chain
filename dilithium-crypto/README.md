@@ -26,13 +26,13 @@ pub type Signature = MultiSignature;
 with this one 
 
 ```rust
-pub type Signature = ResonanceSignatureScheme;
+pub type Signature = DilithiumSignatureScheme;
 ```
 
-In order to make ResonanceSignatureScheme implement the Verify trait, and all the other required traits and derives, we also need to implement the following types:
+In order to make DilithiumSignatureScheme implement the Verify trait, and all the other required traits and derives, we also need to implement the following types:
 
-- ResonanceSigner (equivalent to MultiSigner in Substrate)
-- ResonancePublic (equivalent to Public in the Schnorr signature scheme sr25519)
+- DilithiumSigner (equivalent to MultiSigner in Substrate)
+- DilithiumPublic (equivalent to Public in the Schnorr signature scheme sr25519)
 - ResonanceSignature (equivalent to Signature in sr25519)
 - ResonancePair (equivalent to Pair in sr25519)
 

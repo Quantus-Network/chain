@@ -5,11 +5,11 @@ use super::types::{
 
 use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
 use poseidon_resonance::PoseidonHasher;
-use sp_core::H256;
 use sp_core::{
     crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
     ByteArray,
 };
+use sp_core::{ecdsa, ed25519, sr25519, H256};
 use sp_runtime::traits::Hash;
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
@@ -205,6 +205,56 @@ impl CryptoType for DilithiumPair {
 //
 // Trait implementations for DilithiumSignatureScheme
 //
+impl From<ed25519::Signature> for DilithiumSignatureScheme {
+    fn from(x: ed25519::Signature) -> Self {
+        Self::Ed25519(x)
+    }
+}
+
+impl TryFrom<DilithiumSignatureScheme> for ed25519::Signature {
+    type Error = ();
+    fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
+        if let DilithiumSignatureScheme::Ed25519(x) = m {
+            Ok(x)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl From<sr25519::Signature> for DilithiumSignatureScheme {
+    fn from(x: sr25519::Signature) -> Self {
+        Self::Sr25519(x)
+    }
+}
+
+impl TryFrom<DilithiumSignatureScheme> for sr25519::Signature {
+    type Error = ();
+    fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
+        if let DilithiumSignatureScheme::Sr25519(x) = m {
+            Ok(x)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl From<ecdsa::Signature> for DilithiumSignatureScheme {
+    fn from(x: ecdsa::Signature) -> Self {
+        Self::Ecdsa(x)
+    }
+}
+
+impl TryFrom<DilithiumSignatureScheme> for ecdsa::Signature {
+    type Error = ();
+    fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
+        if let DilithiumSignatureScheme::Ecdsa(x) = m {
+            Ok(x)
+        } else {
+            Err(())
+        }
+    }
+}
 
 impl Verify for DilithiumSignatureScheme {
     type Signer = DilithiumSigner;
@@ -214,23 +264,49 @@ impl Verify for DilithiumSignatureScheme {
         mut msg: L,
         signer: &<Self::Signer as IdentifyAccount>::AccountId,
     ) -> bool {
-        let Self::Dilithium(sig_public) = self;
-        let account = sig_public.public().clone().into_account();
-        if account != *signer {
-            return false;
+        match self {
+            Self::Ed25519(sig) => {
+                let pk = ed25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
+                sig.verify(msg, &pk)
+            }
+            Self::Sr25519(sig) => {
+                let pk = sr25519::Public::from_slice(signer.as_ref()).unwrap_or_default();
+                sig.verify(msg, &pk)
+            }
+
+            Self::Ecdsa(sig) => {
+                let m = sp_io::hashing::blake2_256(msg.get());
+                sp_io::crypto::secp256k1_ecdsa_recover_compressed(sig.as_ref(), &m).is_ok_and(
+                    |pubkey| {
+                        sp_io::hashing::blake2_256(&pubkey)
+                            == <AccountId32 as AsRef<[u8]>>::as_ref(signer)
+                    },
+                )
+            }
+            Self::Dilithium(sig_public) => {
+                let account = sig_public.public().clone().into_account();
+                if account != *signer {
+                    return false;
+                }
+                let result = verify(
+                    sig_public.public().as_ref(),
+                    msg.get(),
+                    sig_public.signature().as_ref(),
+                );
+                result
+            }
         }
-        let result = verify(
-            sig_public.public().as_ref(),
-            msg.get(),
-            sig_public.signature().as_ref(),
-        );
-        result
     }
 }
 
 //
 // Trait implementations for DilithiumSigner
 //
+impl From<sr25519::Public> for DilithiumSigner {
+    fn from(x: sr25519::Public) -> Self {
+        Self::Sr25519(x)
+    }
+}
 impl From<DilithiumPublic> for DilithiumSigner {
     fn from(x: DilithiumPublic) -> Self {
         Self::Dilithium(x)
@@ -241,8 +317,12 @@ impl IdentifyAccount for DilithiumSigner {
     type AccountId = AccountId32;
 
     fn into_account(self) -> AccountId32 {
-        let Self::Dilithium(who) = self;
-        PoseidonHasher::hash(who.as_ref()).0.into()
+        match self {
+            Self::Ed25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Sr25519(who) => <[u8; 32]>::from(who).into(),
+            Self::Ecdsa(who) => sp_io::hashing::blake2_256(who.as_ref()).into(),
+            Self::Dilithium(who) => PoseidonHasher::hash(who.as_ref()).0.into(),
+        }
     }
 }
 
@@ -274,7 +354,7 @@ impl sp_std::fmt::Debug for DilithiumSignatureWithPublic {
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
         write!(
             f,
-            "ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
+            "DilithiumSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
             self.signature(),
             self.public()
         )
@@ -282,7 +362,7 @@ impl sp_std::fmt::Debug for DilithiumSignatureWithPublic {
 
     #[cfg(not(feature = "std"))]
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
-        write!(f, "ResonanceSignatureWithPublic")
+        write!(f, "DilithiumSignatureWithPublic")
     }
 }
 
@@ -293,10 +373,13 @@ impl From<DilithiumSignatureWithPublic> for DilithiumSignatureScheme {
 }
 
 impl TryFrom<DilithiumSignatureScheme> for DilithiumSignatureWithPublic {
-    type Error = ();
+    type Error = (); // TODO: fix errors
     fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
-        let DilithiumSignatureScheme::Dilithium(sig_with_public) = m;
-        Ok(sig_with_public)
+        if let DilithiumSignatureScheme::Dilithium(sig_public) = m {
+            Ok(sig_public)
+        } else {
+            Err(())
+        }
     }
 }
 
