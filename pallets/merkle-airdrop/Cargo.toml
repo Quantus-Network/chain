@@ -45,6 +45,7 @@ runtime-benchmarks = [
 std = [
 	"binary-merkle-tree/std",
 	"codec/std",
+	"log/std",
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",

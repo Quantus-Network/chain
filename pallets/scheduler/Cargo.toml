@@ -46,6 +46,9 @@ std = [
 	"sp-io/std",
 	"sp-runtime/std",
 	"sp-weights/std",
+	"pallet-preimage/std",
+	"qp-scheduler/std",
+	"sp-core/std",
 ]
 try-runtime = [
 	"frame-support/try-runtime",

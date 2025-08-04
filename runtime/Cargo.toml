@@ -25,7 +25,6 @@ frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 lazy_static.workspace = true
 log.workspace = true
-pallet-assets.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
 pallet-merkle-airdrop.workspace = true
@@ -86,6 +85,7 @@ default = ["std"]
 std = [
 	"codec/std",
 	"dilithium-crypto/full_crypto",
+	"dilithium-crypto/std",
 	"frame-benchmarking/std",
 	"frame-executive/std",
 	"frame-metadata-hash-extension/std",
@@ -94,7 +94,7 @@ std = [
 	"frame-system-rpc-runtime-api/std",
 	"frame-system/std",
 	"frame-try-runtime?/std",
-	"pallet-assets/std",
+	"log/std",
 	"pallet-balances/std",
 	"pallet-conviction-voting/std",
 	"pallet-merkle-airdrop/std",
@@ -115,6 +115,7 @@ std = [
 	"pallet-vesting/std",
 	"pallet-wormhole/std",
 	"poseidon-resonance/std",
+	"primitive-types/std",
 	"qp-scheduler/std",
 	"scale-info/std",
 	"scale-info/std",
@@ -125,6 +126,8 @@ std = [
 	"sp-core/std",
 	"sp-genesis-builder/std",
 	"sp-inherents/std",
+	"sp-io/std",
+	"sp-keyring/std",
 	"sp-offchain/std",
 	"sp-runtime-interface/std",
 	"sp-runtime/std",
@@ -134,6 +137,9 @@ std = [
 	"sp-transaction-pool/std",
 	"sp-version/std",
 	"substrate-wasm-builder",
+	"wormhole-circuit/std",
+	"wormhole-verifier/std",
+	"zk-circuits-common/std",
 ]
 
 runtime-benchmarks = [
@@ -141,7 +147,6 @@ runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
 	"pallet-merkle-airdrop/runtime-benchmarks",

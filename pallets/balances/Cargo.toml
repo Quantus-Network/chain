@@ -43,6 +43,10 @@ std = [
 	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-runtime/std",
+	"pallet-transaction-payment/std",
+	"sp-core/std",
+	"sp-io/std",
+    "poseidon-resonance/std",
 ]
 # Enable support for setting the existential deposit to zero.
 insecure_zero_ed = []

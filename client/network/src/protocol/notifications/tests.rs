@@ -30,16 +30,18 @@ use crate::{
 
 use futures::{future::BoxFuture, prelude::*};
 use libp2p::{
+    Multiaddr, PeerId, Transport,
     core::{
+        Endpoint,
         transport::{MemoryTransport, PortUse},
-        upgrade, Endpoint,
+        upgrade,
     },
     identity, noise,
     swarm::{
-        self, behaviour::FromSwarm, ConnectionDenied, ConnectionId, Executor, NetworkBehaviour,
-        PollParameters, Swarm, SwarmEvent, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        self, ConnectionDenied, ConnectionId, Executor, NetworkBehaviour, PollParameters, Swarm,
+        SwarmEvent, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm, behaviour::FromSwarm,
     },
-    yamux, Multiaddr, PeerId, Transport,
+    yamux,
 };
 use sc_utils::mpsc::tracing_unbounded;
 use std::{
@@ -279,11 +281,7 @@ impl NetworkBehaviour for CustomProtoWithAddr {
             .on_connection_handler_event(peer_id, connection_id, event);
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         let _ = self.peer_store_future.poll_unpin(cx);
         let _ = self.protocol_controller_future.poll_unpin(cx);
         self.inner.poll(cx, params)

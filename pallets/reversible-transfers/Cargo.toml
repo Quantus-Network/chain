@@ -46,6 +46,11 @@ std = [
 	"qp-scheduler/std",
 	"scale-info/std",
 	"sp-runtime/std",
+	"sp-io/std",
+	"sp-core/std",
+	"pallet-utility/std",
+	"pallet-timestamp/std",
+	"pallet-preimage/std",
 ]
 # Enable support for setting the existential deposit to zero.
 insecure_zero_ed = []

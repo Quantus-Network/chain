@@ -63,5 +63,10 @@ std = [
 	"sp-std/std",
 	"wormhole-verifier/std",
 	"zk-circuits-common/std",
+	"frame-benchmarking",
+	"hex/std",
+	"log/std",
+	"plonky2/std",
+	"wormhole-circuit/std",
 ]
 try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime"]

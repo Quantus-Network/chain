@@ -100,7 +100,7 @@ frame-system = { version = "41.0.0", default-features = false }
 frame-system-benchmarking = { version = "41.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "37.0.0", default-features = false }
 frame-try-runtime = { version = "0.47.0", default-features = false }
-pallet-assets = { version = "43.0.0", default-features = false }
+#pallet-assets = { version = "43.0.0", default-features = false }
 pallet-conviction-voting = { version = "41.0.0", default-features = false }
 pallet-preimage = { version = "41.0.0", default-features = false }
 pallet-ranked-collective = { version = "41.0.0", default-features = false }
@@ -157,3 +157,13 @@ sp-trie = { path = "./primitives/trie" }
 sc-network = { path = "./client/network" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc", branch = "polkadot-stable2506" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/libp2p-noise-pqc", branch = "polkadot-stable2506" }
+
+
+[profile.release]
+opt-level = 3
+panic = "unwind"
+
+[profile.production]
+codegen-units = 1
+inherits = "release"
+lto = true
