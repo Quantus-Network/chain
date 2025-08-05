@@ -11,6 +11,7 @@ inline_table_expand = false
 array_auto_expand = true
 array_auto_collapse = false
 indent_string = "	"         # tab
+reorder_keys = true
 
 [[rule]]
 include = ["Cargo.toml"]

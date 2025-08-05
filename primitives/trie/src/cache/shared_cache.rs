@@ -627,7 +627,7 @@ impl<H: Hasher> SharedTrieCache<H> {
     /// Create a new [`SharedTrieCache`].
     pub fn new(
         cache_size: CacheSize,
-        _metrics_registry: Option<&substrate_prometheus_endpoint::Registry>,
+        _metrics_registry: Option<&prometheus_endpoint::Registry>,
     ) -> Self {
         let total_budget = cache_size.0;
 

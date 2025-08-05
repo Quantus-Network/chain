@@ -20,8 +20,8 @@ async-trait.workspace = true
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
 dilithium-crypto = { workspace = true }
-#frame-benchmarking-cli.default-features = true
-#frame-benchmarking-cli.workspace = true
+frame-benchmarking-cli.default-features = true
+frame-benchmarking-cli.workspace = true
 frame-metadata-hash-extension.default-features = true
 frame-metadata-hash-extension.workspace = true
 frame-system.default-features = true
@@ -124,7 +124,7 @@ std = [
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
-	#"frame-benchmarking-cli/runtime-benchmarks",
+	"frame-benchmarking-cli/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"quantus-runtime/runtime-benchmarks",
