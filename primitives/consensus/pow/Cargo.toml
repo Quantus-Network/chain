@@ -10,20 +10,20 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
+authors = ["Parity Technologies <admin@parity.io>"]
+build = false
 edition = "2021"
 name = "sp-consensus-pow"
 version = "0.41.0"
-authors = ["Parity Technologies <admin@parity.io>"]
-build = false
 #autolib = false
+autobenches = false
 autobins = false
 autoexamples = false
 autotests = false
-autobenches = false
 description = "Primitives for Aura consensus"
 homepage = "https://paritytech.github.io/polkadot-sdk/"
-readme = "README.md"
 license = "Apache-2.0"
+readme = "README.md"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
 
 [package.metadata.docs.rs]
@@ -149,8 +149,6 @@ level = "allow"
 priority = 2
 
 [lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
 check-cfg = [
 	"cfg(enable_alloc_error_handler)",
 	"cfg(fuzzing)",
@@ -158,3 +156,5 @@ check-cfg = [
 	'cfg(build_opt_level, values("3"))',
 	'cfg(build_profile, values("debug", "release"))',
 ]
+level = "warn"
+priority = 0

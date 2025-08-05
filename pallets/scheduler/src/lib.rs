@@ -72,7 +72,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
 use codec::{Decode, Encode, MaxEncodedLen};
-use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
+use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData, u32};
 use frame_support::{
     dispatch::{DispatchResult, GetDispatchInfo, Parameter, RawOrigin},
     ensure,
@@ -1027,7 +1027,7 @@ impl<T: Config> Pallet<T> {
                 &mut executed,
                 BlockNumberOrTimestamp::Timestamp(normalized_time),
                 BlockNumberOrTimestamp::Timestamp(when),
-                u32::max_value(),
+                u32::MAX,
             ) {
                 incomplete_since = incomplete_since.min(when);
             }
@@ -1057,7 +1057,7 @@ impl<T: Config> Pallet<T> {
         max: u32,
     ) -> bool {
         let mut agenda = Agenda::<T>::get(when);
-        log::debug!(target: "scheduler", "service_agenda: agenda: {:?}", agenda);
+        log::debug!(target: "scheduler", "service_agenda: agenda: {agenda:?}");
         let mut ordered = agenda
             .iter()
             .enumerate()

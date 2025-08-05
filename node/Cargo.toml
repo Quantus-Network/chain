@@ -1,14 +1,14 @@
 [package]
-name = "quantus-node"
-description = "Quantus Node - Echo Chamber"
-version = "0.1.1-nibbler-snack"
-license = "Apache-2.0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
-edition.workspace = true
-publish = false
 default-run = "quantus-node"
+description = "Quantus Node - Echo Chamber"
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "quantus-node"
+publish = false
+repository.workspace = true
+version = "0.1.1-nibbler-snack"
 
 build = "build.rs"
 
@@ -30,31 +30,31 @@ futures = { features = ["thread-pool"], workspace = true }
 hex = { workspace = true, default-features = false }
 jsonrpsee = { features = ["server"], workspace = true }
 log.workspace = true
-pallet-transaction-payment-rpc.default-features = true
-pallet-transaction-payment-rpc.workspace = true
 pallet-transaction-payment.default-features = true
 pallet-transaction-payment.workspace = true
+pallet-transaction-payment-rpc.default-features = true
+pallet-transaction-payment-rpc.workspace = true
 primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
+quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
-quantus-runtime.workspace = true
-rusty-crystals-hdwallet.workspace = true
 rusty-crystals-dilithium.workspace = true
+rusty-crystals-hdwallet.workspace = true
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
 sc-cli.workspace = true
 sc-client-api.default-features = true
 sc-client-api.workspace = true
-sc-consensus-pow.workspace = true
-sc-consensus-qpow.workspace = true
 sc-consensus.default-features = true
 sc-consensus.workspace = true
+sc-consensus-pow.workspace = true
+sc-consensus-qpow.workspace = true
 sc-executor.default-features = true
 sc-executor.workspace = true
 sc-network.default-features = true
@@ -65,10 +65,10 @@ sc-service.default-features = true
 sc-service.workspace = true
 sc-telemetry.default-features = true
 sc-telemetry.workspace = true
-sc-transaction-pool-api.default-features = true
-sc-transaction-pool-api.workspace = true
 sc-transaction-pool.default-features = true
 sc-transaction-pool.workspace = true
+sc-transaction-pool-api.default-features = true
+sc-transaction-pool-api.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["alloc"] }
 sp-api.default-features = true
@@ -77,8 +77,8 @@ sp-block-builder.default-features = true
 sp-block-builder.workspace = true
 sp-blockchain.default-features = true
 sp-blockchain.workspace = true
-sp-consensus-qpow.workspace = true
 sp-consensus.workspace = true
+sp-consensus-qpow.workspace = true
 sp-core.default-features = true
 sp-core.workspace = true
 sp-genesis-builder.default-features = true
@@ -99,10 +99,10 @@ tokio-util.workspace = true
 uuid.workspace = true
 
 [build-dependencies]
-substrate-build-script-utils.workspace = true
-substrate-build-script-utils.default-features = true
-wormhole-verifier.workspace = true
 circuit-builder.workspace = true
+substrate-build-script-utils.default-features = true
+substrate-build-script-utils.workspace = true
+wormhole-verifier.workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"

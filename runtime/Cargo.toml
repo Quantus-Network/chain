@@ -1,13 +1,13 @@
 [package]
-name = "quantus-runtime"
-description = "Quantus Runtime - Proof of Vibes"
-version = "0.1.1-nibbler-snack"
-license = "Apache-2.0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
+description = "Quantus Runtime - Proof of Vibes"
 edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "quantus-runtime"
 publish = false
+repository.workspace = true
+version = "0.1.1-nibbler-snack"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -19,9 +19,9 @@ frame-benchmarking.workspace = true
 frame-executive.workspace = true
 frame-metadata-hash-extension.workspace = true
 frame-support = { features = ["experimental"], workspace = true }
+frame-system.workspace = true
 frame-system-benchmarking = { optional = true, workspace = true }
 frame-system-rpc-runtime-api.workspace = true
-frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 lazy_static.workspace = true
 log.workspace = true
@@ -38,8 +38,8 @@ pallet-reversible-transfers.workspace = true
 pallet-scheduler.workspace = true
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
-pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-transaction-payment.workspace = true
+pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
 pallet-utility.workspace = true
 pallet-vesting.workspace = true
@@ -74,8 +74,8 @@ zk-circuits-common = { workspace = true, default-features = false }
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
 [dev-dependencies]
-env_logger.workspace = true
 dilithium-crypto.workspace = true
+env_logger.workspace = true
 sp-io.workspace = true
 sp-keyring = { workspace = true, features = ["std"] }
 sp-std.workspace = true

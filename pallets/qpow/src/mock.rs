@@ -17,6 +17,7 @@ parameter_types! {
 }
 
 impl frame_system::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
     type BaseCallFilter = Everything;
     type Block = Block;
     type BlockWeights = ();

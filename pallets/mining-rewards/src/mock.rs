@@ -61,6 +61,7 @@ impl frame_system::Config for Test {
     type PreInherents = ();
     type PostInherents = ();
     type PostTransactions = ();
+    type RuntimeEvent = RuntimeEvent;
 }
 
 impl pallet_balances::Config for Test {

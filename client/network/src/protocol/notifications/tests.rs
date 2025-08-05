@@ -30,18 +30,16 @@ use crate::{
 
 use futures::{future::BoxFuture, prelude::*};
 use libp2p::{
-    Multiaddr, PeerId, Transport,
     core::{
-        Endpoint,
         transport::{MemoryTransport, PortUse},
-        upgrade,
+        upgrade, Endpoint,
     },
     identity, noise,
     swarm::{
-        self, ConnectionDenied, ConnectionId, Executor, NetworkBehaviour, PollParameters, Swarm,
-        SwarmEvent, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm, behaviour::FromSwarm,
+        self, behaviour::FromSwarm, ConnectionDenied, ConnectionId, Executor, NetworkBehaviour,
+        PollParameters, Swarm, SwarmEvent, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
-    yamux,
+    yamux, Multiaddr, PeerId, Transport,
 };
 use sc_utils::mpsc::tracing_unbounded;
 use std::{

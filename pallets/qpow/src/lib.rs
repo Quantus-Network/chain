@@ -446,7 +446,7 @@ pub mod pallet {
             );
             log::debug!(target: "qpow", "🟢 Next Distance Threshold:    {}..", adjusted.shr(300));
             log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
-            log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {}ms", target_block_time);
+            log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
             adjusted
         }

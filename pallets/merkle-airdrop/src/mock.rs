@@ -58,6 +58,7 @@ impl system::Config for Test {
     type PreInherents = ();
     type PostInherents = ();
     type PostTransactions = ();
+    type RuntimeEvent = RuntimeEvent;
 }
 
 parameter_types! {
@@ -88,6 +89,7 @@ parameter_types! {
 }
 
 impl pallet_vesting::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type WeightInfo = ();
     type BlockNumberProvider = System;
