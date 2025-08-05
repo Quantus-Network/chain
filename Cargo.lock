@@ -8122,7 +8122,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.1.1-zoidberg-kiss"
+version = "0.1.1-nibbler-snack"
 dependencies = [
  "async-trait",
  "circuit-builder",
@@ -8183,7 +8183,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.1.1-zoidberg-kiss"
+version = "0.1.1-nibbler-snack"
 dependencies = [
  "dilithium-crypto",
  "env_logger 0.11.8",
