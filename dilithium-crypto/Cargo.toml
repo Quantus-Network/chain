@@ -19,7 +19,7 @@ env_logger.workspace = true
 
 [features]
 default = ["std"]
-full_crypto = [ # pass through for "sign" in pair trait.
+full_crypto = [
 	"sp-core/full_crypto",
 ]
 serde = [
@@ -28,6 +28,7 @@ serde = [
 ]
 std = [
 	"codec/std",
+	"log/std",
 	"poseidon-resonance/std",
 	"scale-info/std",
 	"sp-core/std",

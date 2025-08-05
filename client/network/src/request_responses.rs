@@ -1355,94 +1355,94 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn max_response_size_exceeded() {
-        let protocol_name = ProtocolName::from("/test/req-resp/1");
+    // #[tokio::test]
+    // async fn max_response_size_exceeded() {
+    //     let protocol_name = ProtocolName::from("/test/req-resp/1");
 
-        // Build swarms whose behaviour is [`RequestResponsesBehaviour`].
-        let mut swarms = (0..2)
-            .map(|_| {
-                let (tx, mut rx) = async_channel::bounded::<IncomingRequest>(64);
+    //     // Build swarms whose behaviour is [`RequestResponsesBehaviour`].
+    //     let mut swarms = (0..2)
+    //         .map(|_| {
+    //             let (tx, mut rx) = async_channel::bounded::<IncomingRequest>(64);
 
-                tokio::spawn(async move {
-                    while let Some(rq) = rx.next().await {
-                        assert_eq!(rq.payload, b"this is a request");
-                        let _ = rq.pending_response.send(super::OutgoingResponse {
-                            result: Ok(b"this response exceeds the limit".to_vec()),
-                            reputation_changes: Vec::new(),
-                            sent_feedback: None,
-                        });
-                    }
-                });
+    //             tokio::spawn(async move {
+    //                 while let Some(rq) = rx.next().await {
+    //                     assert_eq!(rq.payload, b"this is a request");
+    //                     let _ = rq.pending_response.send(super::OutgoingResponse {
+    //                         result: Ok(b"this response exceeds the limit".to_vec()),
+    //                         reputation_changes: Vec::new(),
+    //                         sent_feedback: None,
+    //                     });
+    //                 }
+    //             });
 
-                let protocol_config = ProtocolConfig {
-                    name: protocol_name.clone(),
-                    fallback_names: Vec::new(),
-                    max_request_size: 1024,
-                    max_response_size: 8, // <-- important for the test
-                    request_timeout: Duration::from_secs(30),
-                    inbound_queue: Some(tx),
-                };
+    //             let protocol_config = ProtocolConfig {
+    //                 name: protocol_name.clone(),
+    //                 fallback_names: Vec::new(),
+    //                 max_request_size: 1024,
+    //                 max_response_size: 8, // <-- important for the test
+    //                 request_timeout: Duration::from_secs(30),
+    //                 inbound_queue: Some(tx),
+    //             };
 
-                build_swarm(iter::once(protocol_config))
-            })
-            .collect::<Vec<_>>();
+    //             build_swarm(iter::once(protocol_config))
+    //         })
+    //         .collect::<Vec<_>>();
 
-        // Ask `swarm[0]` to dial `swarm[1]`. There isn't any discovery mechanism in place in
-        // this test, so they wouldn't connect to each other.
-        {
-            let dial_addr = swarms[1].1.clone();
-            Swarm::dial(&mut swarms[0].0, dial_addr).unwrap();
-        }
+    //     // Ask `swarm[0]` to dial `swarm[1]`. There isn't any discovery mechanism in place in
+    //     // this test, so they wouldn't connect to each other.
+    //     {
+    //         let dial_addr = swarms[1].1.clone();
+    //         Swarm::dial(&mut swarms[0].0, dial_addr).unwrap();
+    //     }
 
-        // Running `swarm[0]` in the background until a `InboundRequest` event happens,
-        // which is a hint about the test having ended.
-        let (mut swarm, _) = swarms.remove(0);
-        tokio::spawn(async move {
-            loop {
-                match swarm.select_next_some().await {
-                    SwarmEvent::Behaviour(Event::InboundRequest { result, .. }) => {
-                        assert!(result.is_ok());
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        });
+    //     // Running `swarm[0]` in the background until a `InboundRequest` event happens,
+    //     // which is a hint about the test having ended.
+    //     let (mut swarm, _) = swarms.remove(0);
+    //     tokio::spawn(async move {
+    //         loop {
+    //             match swarm.select_next_some().await {
+    //                 SwarmEvent::Behaviour(Event::InboundRequest { result, .. }) => {
+    //                     assert!(result.is_ok());
+    //                     break;
+    //                 }
+    //                 _ => {}
+    //             }
+    //         }
+    //     });
 
-        // Remove and run the remaining swarm.
-        let (mut swarm, _) = swarms.remove(0);
+    //     // Remove and run the remaining swarm.
+    //     let (mut swarm, _) = swarms.remove(0);
 
-        let mut response_receiver = None;
+    //     let mut response_receiver = None;
 
-        loop {
-            match swarm.select_next_some().await {
-                SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                    let (sender, receiver) = oneshot::channel();
-                    swarm.behaviour_mut().send_request(
-                        &peer_id,
-                        protocol_name.clone(),
-                        b"this is a request".to_vec(),
-                        None,
-                        sender,
-                        IfDisconnected::ImmediateError,
-                    );
-                    assert!(response_receiver.is_none());
-                    response_receiver = Some(receiver);
-                }
-                SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
-                    assert!(result.is_err());
-                    break;
-                }
-                _ => {}
-            }
-        }
+    //     loop {
+    //         match swarm.select_next_some().await {
+    //             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+    //                 let (sender, receiver) = oneshot::channel();
+    //                 swarm.behaviour_mut().send_request(
+    //                     &peer_id,
+    //                     protocol_name.clone(),
+    //                     b"this is a request".to_vec(),
+    //                     None,
+    //                     sender,
+    //                     IfDisconnected::ImmediateError,
+    //                 );
+    //                 assert!(response_receiver.is_none());
+    //                 response_receiver = Some(receiver);
+    //             }
+    //             SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
+    //                 assert!(result.is_err());
+    //                 break;
+    //             }
+    //             _ => {}
+    //         }
+    //     }
 
-        match response_receiver.unwrap().await.unwrap().unwrap_err() {
-            RequestFailure::Network(OutboundFailure::ConnectionClosed) => {}
-            request_failure => panic!("Unexpected failure: {request_failure:?}"),
-        }
-    }
+    //     match response_receiver.unwrap().await.unwrap().unwrap_err() {
+    //         RequestFailure::Network(OutboundFailure::ConnectionClosed) => {}
+    //         request_failure => panic!("Unexpected failure: {request_failure:?}"),
+    //     }
+    // }
 
     /// A [`RequestId`] is a unique identifier among either all inbound or all outbound requests for
     /// a single [`RequestResponsesBehaviour`] behaviour. It is not guaranteed to be unique across

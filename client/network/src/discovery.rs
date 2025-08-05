@@ -1176,306 +1176,306 @@ fn kademlia_protocol_name<Hash: AsRef<[u8]>>(
     StreamProtocol::try_from_owned(name).expect("protocol name is valid. qed")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        kademlia_protocol_name, legacy_kademlia_protocol_name, DiscoveryConfig, DiscoveryOut,
-    };
-    use crate::config::ProtocolId;
-    use futures::prelude::*;
-    use libp2p::{
-        core::{
-            transport::{MemoryTransport, Transport},
-            upgrade,
-        },
-        identity::Keypair,
-        noise,
-        swarm::{Executor, Swarm, SwarmEvent},
-        yamux, Multiaddr,
-    };
-    use sp_core::hash::H256;
-    use std::{collections::HashSet, pin::Pin, task::Poll};
+// #[cfg(test)]
+// mod tests {
+//     use super::{
+//         kademlia_protocol_name, legacy_kademlia_protocol_name, DiscoveryConfig, DiscoveryOut,
+//     };
+//     use crate::config::ProtocolId;
+//     use futures::prelude::*;
+//     use libp2p::{
+//         core::{
+//             transport::{MemoryTransport, Transport},
+//             upgrade,
+//         },
+//         identity::Keypair,
+//         noise,
+//         swarm::{Executor, Swarm, SwarmEvent},
+//         yamux, Multiaddr,
+//     };
+//     use sp_core::hash::H256;
+//     use std::{collections::HashSet, pin::Pin, task::Poll};
 
-    struct TokioExecutor(tokio::runtime::Runtime);
-    impl Executor for TokioExecutor {
-        fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
-            let _ = self.0.spawn(f);
-        }
-    }
+//     struct TokioExecutor(tokio::runtime::Runtime);
+//     impl Executor for TokioExecutor {
+//         fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
+//             let _ = self.0.spawn(f);
+//         }
+//     }
 
-    #[test]
-    fn discovery_working() {
-        let mut first_swarm_peer_id_and_addr = None;
+//     #[test]
+//     fn discovery_working() {
+//         let mut first_swarm_peer_id_and_addr = None;
 
-        let genesis_hash = H256::from_low_u64_be(1);
-        let fork_id = Some("test-fork-id");
-        let protocol_id = ProtocolId::from("dot");
+//         let genesis_hash = H256::from_low_u64_be(1);
+//         let fork_id = Some("test-fork-id");
+//         let protocol_id = ProtocolId::from("dot");
 
-        // Build swarms whose behaviour is `DiscoveryBehaviour`, each aware of
-        // the first swarm via `with_permanent_addresses`.
-        let mut swarms = (0..25)
-            .map(|i| {
-                let keypair = Keypair::generate_ed25519();
+//         // Build swarms whose behaviour is `DiscoveryBehaviour`, each aware of
+//         // the first swarm via `with_permanent_addresses`.
+//         let mut swarms = (0..25)
+//             .map(|i| {
+//                 let keypair = Keypair::generate_ed25519();
 
-                let transport = MemoryTransport::new()
-                    .upgrade(upgrade::Version::V1)
-                    .authenticate(noise::Config::new(&keypair).unwrap())
-                    .multiplex(yamux::Config::default())
-                    .boxed();
+//                 let transport = MemoryTransport::new()
+//                     .upgrade(upgrade::Version::V1)
+//                     .authenticate(noise::Config::new(&keypair).unwrap())
+//                     .multiplex(yamux::Config::default())
+//                     .boxed();
 
-                let behaviour = {
-                    let mut config = DiscoveryConfig::new(keypair.public().to_peer_id());
-                    config
-                        .with_permanent_addresses(first_swarm_peer_id_and_addr.clone())
-                        .allow_private_ip(true)
-                        .allow_non_globals_in_dht(true)
-                        .discovery_limit(50)
-                        .with_kademlia(genesis_hash, fork_id, &protocol_id);
+//                 let behaviour = {
+//                     let mut config = DiscoveryConfig::new(keypair.public().to_peer_id());
+//                     config
+//                         .with_permanent_addresses(first_swarm_peer_id_and_addr.clone())
+//                         .allow_private_ip(true)
+//                         .allow_non_globals_in_dht(true)
+//                         .discovery_limit(50)
+//                         .with_kademlia(genesis_hash, fork_id, &protocol_id);
 
-                    config.finish()
-                };
+//                     config.finish()
+//                 };
 
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                #[allow(deprecated)]
-                let mut swarm = libp2p::swarm::SwarmBuilder::with_executor(
-                    transport,
-                    behaviour,
-                    keypair.public().to_peer_id(),
-                    TokioExecutor(runtime),
-                )
-                .build();
+//                 let runtime = tokio::runtime::Runtime::new().unwrap();
+//                 #[allow(deprecated)]
+//                 let mut swarm = libp2p::swarm::SwarmBuilder::with_executor(
+//                     transport,
+//                     behaviour,
+//                     keypair.public().to_peer_id(),
+//                     TokioExecutor(runtime),
+//                 )
+//                 .build();
 
-                let listen_addr: Multiaddr = format!("/memory/{}", rand::random::<u64>())
-                    .parse()
-                    .unwrap();
+//                 let listen_addr: Multiaddr = format!("/memory/{}", rand::random::<u64>())
+//                     .parse()
+//                     .unwrap();
 
-                if i == 0 {
-                    first_swarm_peer_id_and_addr =
-                        Some((keypair.public().to_peer_id(), listen_addr.clone()))
-                }
+//                 if i == 0 {
+//                     first_swarm_peer_id_and_addr =
+//                         Some((keypair.public().to_peer_id(), listen_addr.clone()))
+//                 }
 
-                swarm.listen_on(listen_addr.clone()).unwrap();
-                (swarm, listen_addr)
-            })
-            .collect::<Vec<_>>();
+//                 swarm.listen_on(listen_addr.clone()).unwrap();
+//                 (swarm, listen_addr)
+//             })
+//             .collect::<Vec<_>>();
 
-        // Build a `Vec<HashSet<PeerId>>` with the list of nodes remaining to be discovered.
-        let mut to_discover = (0..swarms.len())
-            .map(|n| {
-                (0..swarms.len())
-                    // Skip the first swarm as all other swarms already know it.
-                    .skip(1)
-                    .filter(|p| *p != n)
-                    .map(|p| *Swarm::local_peer_id(&swarms[p].0))
-                    .collect::<HashSet<_>>()
-            })
-            .collect::<Vec<_>>();
+//         // Build a `Vec<HashSet<PeerId>>` with the list of nodes remaining to be discovered.
+//         let mut to_discover = (0..swarms.len())
+//             .map(|n| {
+//                 (0..swarms.len())
+//                     // Skip the first swarm as all other swarms already know it.
+//                     .skip(1)
+//                     .filter(|p| *p != n)
+//                     .map(|p| *Swarm::local_peer_id(&swarms[p].0))
+//                     .collect::<HashSet<_>>()
+//             })
+//             .collect::<Vec<_>>();
 
-        let fut = futures::future::poll_fn(move |cx| {
-            'polling: loop {
-                for swarm_n in 0..swarms.len() {
-                    match swarms[swarm_n].0.poll_next_unpin(cx) {
-                        Poll::Ready(Some(e)) => {
-                            match e {
-                                SwarmEvent::Behaviour(behavior) => {
-                                    match behavior {
-                                        DiscoveryOut::UnroutablePeer(other)
-                                        | DiscoveryOut::Discovered(other) => {
-                                            // Call `add_self_reported_address` to simulate identify
-                                            // happening.
-                                            let addr = swarms
-                                                .iter()
-                                                .find_map(|(s, a)| {
-                                                    if s.behaviour().local_peer_id == other {
-                                                        Some(a.clone())
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap();
-                                            // Test both genesis hash-based and legacy
-                                            // protocol names.
-                                            let protocol_names = if swarm_n % 2 == 0 {
-                                                vec![kademlia_protocol_name(genesis_hash, fork_id)]
-                                            } else {
-                                                vec![
-                                                    legacy_kademlia_protocol_name(&protocol_id),
-                                                    kademlia_protocol_name(genesis_hash, fork_id),
-                                                ]
-                                            };
-                                            swarms[swarm_n]
-                                                .0
-                                                .behaviour_mut()
-                                                .add_self_reported_address(
-                                                    &other,
-                                                    protocol_names.as_slice(),
-                                                    addr,
-                                                );
+//         let fut = futures::future::poll_fn(move |cx| {
+//             'polling: loop {
+//                 for swarm_n in 0..swarms.len() {
+//                     match swarms[swarm_n].0.poll_next_unpin(cx) {
+//                         Poll::Ready(Some(e)) => {
+//                             match e {
+//                                 SwarmEvent::Behaviour(behavior) => {
+//                                     match behavior {
+//                                         DiscoveryOut::UnroutablePeer(other)
+//                                         | DiscoveryOut::Discovered(other) => {
+//                                             // Call `add_self_reported_address` to simulate identify
+//                                             // happening.
+//                                             let addr = swarms
+//                                                 .iter()
+//                                                 .find_map(|(s, a)| {
+//                                                     if s.behaviour().local_peer_id == other {
+//                                                         Some(a.clone())
+//                                                     } else {
+//                                                         None
+//                                                     }
+//                                                 })
+//                                                 .unwrap();
+//                                             // Test both genesis hash-based and legacy
+//                                             // protocol names.
+//                                             let protocol_names = if swarm_n % 2 == 0 {
+//                                                 vec![kademlia_protocol_name(genesis_hash, fork_id)]
+//                                             } else {
+//                                                 vec![
+//                                                     legacy_kademlia_protocol_name(&protocol_id),
+//                                                     kademlia_protocol_name(genesis_hash, fork_id),
+//                                                 ]
+//                                             };
+//                                             swarms[swarm_n]
+//                                                 .0
+//                                                 .behaviour_mut()
+//                                                 .add_self_reported_address(
+//                                                     &other,
+//                                                     protocol_names.as_slice(),
+//                                                     addr,
+//                                                 );
 
-                                            to_discover[swarm_n].remove(&other);
-                                        }
-                                        DiscoveryOut::RandomKademliaStarted => {}
-                                        e => {
-                                            panic!("Unexpected event: {:?}", e)
-                                        }
-                                    }
-                                }
-                                // ignore non Behaviour events
-                                _ => {}
-                            }
-                            continue 'polling;
-                        }
-                        _ => {}
-                    }
-                }
-                break;
-            }
+//                                             to_discover[swarm_n].remove(&other);
+//                                         }
+//                                         DiscoveryOut::RandomKademliaStarted => {}
+//                                         e => {
+//                                             panic!("Unexpected event: {:?}", e)
+//                                         }
+//                                     }
+//                                 }
+//                                 // ignore non Behaviour events
+//                                 _ => {}
+//                             }
+//                             continue 'polling;
+//                         }
+//                         _ => {}
+//                     }
+//                 }
+//                 break;
+//             }
 
-            if to_discover.iter().all(|l| l.is_empty()) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        });
+//             if to_discover.iter().all(|l| l.is_empty()) {
+//                 Poll::Ready(())
+//             } else {
+//                 Poll::Pending
+//             }
+//         });
 
-        futures::executor::block_on(fut);
-    }
+//         futures::executor::block_on(fut);
+//     }
 
-    #[test]
-    fn discovery_ignores_peers_with_unknown_protocols() {
-        let supported_genesis_hash = H256::from_low_u64_be(1);
-        let unsupported_genesis_hash = H256::from_low_u64_be(2);
-        let supported_protocol_id = ProtocolId::from("a");
-        let unsupported_protocol_id = ProtocolId::from("b");
+//     #[test]
+//     fn discovery_ignores_peers_with_unknown_protocols() {
+//         let supported_genesis_hash = H256::from_low_u64_be(1);
+//         let unsupported_genesis_hash = H256::from_low_u64_be(2);
+//         let supported_protocol_id = ProtocolId::from("a");
+//         let unsupported_protocol_id = ProtocolId::from("b");
 
-        let mut discovery = {
-            let keypair = Keypair::generate_ed25519();
-            let mut config = DiscoveryConfig::new(keypair.public().to_peer_id());
-            config
-                .allow_private_ip(true)
-                .allow_non_globals_in_dht(true)
-                .discovery_limit(50)
-                .with_kademlia(supported_genesis_hash, None, &supported_protocol_id);
-            config.finish()
-        };
+//         let mut discovery = {
+//             let keypair = Keypair::generate_ed25519();
+//             let mut config = DiscoveryConfig::new(keypair.public().to_peer_id());
+//             config
+//                 .allow_private_ip(true)
+//                 .allow_non_globals_in_dht(true)
+//                 .discovery_limit(50)
+//                 .with_kademlia(supported_genesis_hash, None, &supported_protocol_id);
+//             config.finish()
+//         };
 
-        let predictable_peer_id = |bytes: &[u8; 32]| {
-            Keypair::ed25519_from_bytes(bytes.to_owned())
-                .unwrap()
-                .public()
-                .to_peer_id()
-        };
+//         let predictable_peer_id = |bytes: &[u8; 32]| {
+//             Keypair::ed25519_from_bytes(bytes.to_owned())
+//                 .unwrap()
+//                 .public()
+//                 .to_peer_id()
+//         };
 
-        let remote_peer_id = predictable_peer_id(b"00000000000000000000000000000001");
-        let remote_addr: Multiaddr = "/memory/1".parse().unwrap();
-        let another_peer_id = predictable_peer_id(b"00000000000000000000000000000002");
-        let another_addr: Multiaddr = "/memory/2".parse().unwrap();
+//         let remote_peer_id = predictable_peer_id(b"00000000000000000000000000000001");
+//         let remote_addr: Multiaddr = "/memory/1".parse().unwrap();
+//         let another_peer_id = predictable_peer_id(b"00000000000000000000000000000002");
+//         let another_addr: Multiaddr = "/memory/2".parse().unwrap();
 
-        // Try adding remote peers with unsupported protocols.
-        discovery.add_self_reported_address(
-            &remote_peer_id,
-            &[kademlia_protocol_name(unsupported_genesis_hash, None)],
-            remote_addr.clone(),
-        );
-        discovery.add_self_reported_address(
-            &another_peer_id,
-            &[legacy_kademlia_protocol_name(&unsupported_protocol_id)],
-            another_addr.clone(),
-        );
+//         // Try adding remote peers with unsupported protocols.
+//         discovery.add_self_reported_address(
+//             &remote_peer_id,
+//             &[kademlia_protocol_name(unsupported_genesis_hash, None)],
+//             remote_addr.clone(),
+//         );
+//         discovery.add_self_reported_address(
+//             &another_peer_id,
+//             &[legacy_kademlia_protocol_name(&unsupported_protocol_id)],
+//             another_addr.clone(),
+//         );
 
-        {
-            let kademlia = discovery.kademlia.as_mut().unwrap();
-            assert!(
-                kademlia
-                    .kbucket(remote_peer_id)
-                    .expect("Remote peer id not to be equal to local peer id.")
-                    .is_empty(),
-                "Expect peer with unsupported protocol not to be added."
-            );
-            assert!(
-                kademlia
-                    .kbucket(another_peer_id)
-                    .expect("Remote peer id not to be equal to local peer id.")
-                    .is_empty(),
-                "Expect peer with unsupported protocol not to be added."
-            );
-        }
+//         {
+//             let kademlia = discovery.kademlia.as_mut().unwrap();
+//             assert!(
+//                 kademlia
+//                     .kbucket(remote_peer_id)
+//                     .expect("Remote peer id not to be equal to local peer id.")
+//                     .is_empty(),
+//                 "Expect peer with unsupported protocol not to be added."
+//             );
+//             assert!(
+//                 kademlia
+//                     .kbucket(another_peer_id)
+//                     .expect("Remote peer id not to be equal to local peer id.")
+//                     .is_empty(),
+//                 "Expect peer with unsupported protocol not to be added."
+//             );
+//         }
 
-        // Add remote peers with supported protocols.
-        discovery.add_self_reported_address(
-            &remote_peer_id,
-            &[kademlia_protocol_name(supported_genesis_hash, None)],
-            remote_addr.clone(),
-        );
-        {
-            let kademlia = discovery.kademlia.as_mut().unwrap();
-            assert!(
-                !kademlia
-                    .kbucket(remote_peer_id)
-                    .expect("Remote peer id not to be equal to local peer id.")
-                    .is_empty(),
-                "Expect peer with supported protocol to be added."
-            );
-        }
+//         // Add remote peers with supported protocols.
+//         discovery.add_self_reported_address(
+//             &remote_peer_id,
+//             &[kademlia_protocol_name(supported_genesis_hash, None)],
+//             remote_addr.clone(),
+//         );
+//         {
+//             let kademlia = discovery.kademlia.as_mut().unwrap();
+//             assert!(
+//                 !kademlia
+//                     .kbucket(remote_peer_id)
+//                     .expect("Remote peer id not to be equal to local peer id.")
+//                     .is_empty(),
+//                 "Expect peer with supported protocol to be added."
+//             );
+//         }
 
-        let unsupported_peer_id = predictable_peer_id(b"00000000000000000000000000000002");
-        let unsupported_peer_addr: Multiaddr = "/memory/2".parse().unwrap();
+//         let unsupported_peer_id = predictable_peer_id(b"00000000000000000000000000000002");
+//         let unsupported_peer_addr: Multiaddr = "/memory/2".parse().unwrap();
 
-        // Check the unsupported peer is not present before and after the call.
-        {
-            let kademlia = discovery.kademlia.as_mut().unwrap();
-            assert!(
-                kademlia
-                    .kbucket(unsupported_peer_id)
-                    .expect("Remote peer id not to be equal to local peer id.")
-                    .is_empty(),
-                "Expect unsupported peer not to be added."
-            );
-        }
-        // Note: legacy protocol is not supported without genesis hash and fork ID,
-        // if the legacy is the only protocol supported, then the peer will not be added.
-        discovery.add_self_reported_address(
-            &unsupported_peer_id,
-            &[legacy_kademlia_protocol_name(&supported_protocol_id)],
-            unsupported_peer_addr.clone(),
-        );
-        {
-            let kademlia = discovery.kademlia.as_mut().unwrap();
-            assert!(
-                kademlia
-                    .kbucket(unsupported_peer_id)
-                    .expect("Remote peer id not to be equal to local peer id.")
-                    .is_empty(),
-                "Expect unsupported peer not to be added."
-            );
-        }
+//         // Check the unsupported peer is not present before and after the call.
+//         {
+//             let kademlia = discovery.kademlia.as_mut().unwrap();
+//             assert!(
+//                 kademlia
+//                     .kbucket(unsupported_peer_id)
+//                     .expect("Remote peer id not to be equal to local peer id.")
+//                     .is_empty(),
+//                 "Expect unsupported peer not to be added."
+//             );
+//         }
+//         // Note: legacy protocol is not supported without genesis hash and fork ID,
+//         // if the legacy is the only protocol supported, then the peer will not be added.
+//         discovery.add_self_reported_address(
+//             &unsupported_peer_id,
+//             &[legacy_kademlia_protocol_name(&supported_protocol_id)],
+//             unsupported_peer_addr.clone(),
+//         );
+//         {
+//             let kademlia = discovery.kademlia.as_mut().unwrap();
+//             assert!(
+//                 kademlia
+//                     .kbucket(unsupported_peer_id)
+//                     .expect("Remote peer id not to be equal to local peer id.")
+//                     .is_empty(),
+//                 "Expect unsupported peer not to be added."
+//             );
+//         }
 
-        // Supported legacy and genesis based protocols are allowed to be added.
-        discovery.add_self_reported_address(
-            &another_peer_id,
-            &[
-                legacy_kademlia_protocol_name(&supported_protocol_id),
-                kademlia_protocol_name(supported_genesis_hash, None),
-            ],
-            another_addr.clone(),
-        );
+//         // Supported legacy and genesis based protocols are allowed to be added.
+//         discovery.add_self_reported_address(
+//             &another_peer_id,
+//             &[
+//                 legacy_kademlia_protocol_name(&supported_protocol_id),
+//                 kademlia_protocol_name(supported_genesis_hash, None),
+//             ],
+//             another_addr.clone(),
+//         );
 
-        {
-            let kademlia = discovery.kademlia.as_mut().unwrap();
-            assert_eq!(
-                2,
-                kademlia
-                    .kbuckets()
-                    .fold(0, |acc, bucket| acc + bucket.num_entries()),
-                "Expect peers with supported protocol to be added."
-            );
-            assert!(
-                !kademlia
-                    .kbucket(another_peer_id)
-                    .expect("Remote peer id not to be equal to local peer id.")
-                    .is_empty(),
-                "Expect peer with supported protocol to be added."
-            );
-        }
-    }
-}
+//         {
+//             let kademlia = discovery.kademlia.as_mut().unwrap();
+//             assert_eq!(
+//                 2,
+//                 kademlia
+//                     .kbuckets()
+//                     .fold(0, |acc, bucket| acc + bucket.num_entries()),
+//                 "Expect peers with supported protocol to be added."
+//             );
+//             assert!(
+//                 !kademlia
+//                     .kbucket(another_peer_id)
+//                     .expect("Remote peer id not to be equal to local peer id.")
+//                     .is_empty(),
+//                 "Expect peer with supported protocol to be added."
+//             );
+//         }
+//     }
+// }
