@@ -1,0 +1,61 @@
+[package]
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Substrate State Machine"
+documentation = "https://docs.rs/sp-state-machine"
+edition = "2021"
+homepage = "https://paritytech.github.io/polkadot-sdk/"
+license = "Apache-2.0"
+name = "sp-state-machine"
+readme = "README.md"
+repository = "https://github.com/paritytech/polkadot-sdk.git"
+version = "0.46.0"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+arbitrary = { features = ["derive"], optional = true, workspace = true }
+codec = { workspace = true, default-features = false, package = "parity-scale-codec" }
+hash-db = { workspace = true, default-features = false }
+log = { workspace = true, default-features = false }
+parking_lot = { workspace = true, optional = true, default-features = true }
+rand = { optional = true, workspace = true, default-features = true }
+smallvec = { workspace = true, default-features = true }
+sp-core = { workspace = true }
+sp-externalities = { workspace = true }
+sp-panic-handler = { workspace = true, optional = true, default-features = true }
+sp-trie = { workspace = true }
+thiserror = { optional = true, workspace = true }
+tracing = { optional = true, workspace = true, default-features = true }
+trie-db = { workspace = true, default-features = false }
+
+[patch.crates-io]
+sp-state-machine = { path = "." }
+sp-trie = { path = "../trie" }
+
+[dev-dependencies]
+arbitrary = { features = ["derive"], workspace = true }
+array-bytes = { workspace = true, default-features = true }
+assert_matches = { workspace = true }
+pretty_assertions = { workspace = true }
+rand = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+
+[features]
+default = ["std"]
+fuzzing = ["arbitrary"]
+std = [
+	"codec/std",
+	"hash-db/std",
+	"log/std",
+	"parking_lot",
+	"rand",
+	"sp-core/std",
+	"sp-externalities/std",
+	"sp-panic-handler",
+	"sp-runtime/std",
+	# "sp-trie/std",
+	"thiserror",
+	"tracing",
+	"trie-db/std",
+]

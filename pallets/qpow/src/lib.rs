@@ -82,9 +82,6 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_timestamp::Config {
-        /// Overarching event type
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
         /// Pallet's weight info
         #[pallet::constant]
         type InitialDistanceThresholdExponent: Get<u32>;
@@ -449,7 +446,7 @@ pub mod pallet {
             );
             log::debug!(target: "qpow", "🟢 Next Distance Threshold:    {}..", adjusted.shr(300));
             log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
-            log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {}ms", target_block_time);
+            log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
             adjusted
         }

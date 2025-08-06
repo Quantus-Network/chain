@@ -2,15 +2,16 @@
 
 # This is a taplo configuration file.
 # For more information, see: https://taplo.tamasfe.dev/configuration/
-include = ["**/*.toml"]
 exclude = ["**/target/**"]
+include = ["**/*.toml"]
 
 [formatting]
-reorder_arrays = true
-inline_table_expand = false
-array_auto_expand = true
 array_auto_collapse = false
+array_auto_expand = true
 indent_string = "	"         # tab
+inline_table_expand = false
+reorder_arrays = true
+reorder_keys = true
 
 [[rule]]
 include = ["Cargo.toml"]
