@@ -31,7 +31,7 @@ use crate::governance::definitions::{
 };
 use crate::governance::{pallet_custom_origins, Spender};
 use crate::MILLI_UNIT;
-use frame_support::traits::{AsEnsureOriginWithArg, EitherOf, NeverEnsureOrigin, WithdrawReasons};
+use frame_support::traits::{EitherOf, NeverEnsureOrigin, WithdrawReasons};
 use frame_support::PalletId;
 use frame_support::{
     derive_impl, parameter_types,
