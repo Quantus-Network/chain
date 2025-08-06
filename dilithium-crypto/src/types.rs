@@ -4,8 +4,8 @@ use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use sp_core::{
-    crypto::{PublicBytes, SignatureBytes},
-    ByteArray, RuntimeDebug,
+	crypto::{PublicBytes, SignatureBytes},
+	ByteArray, RuntimeDebug,
 };
 use thiserror::Error;
 
@@ -17,7 +17,6 @@ use thiserror::Error;
 /// It is modeled after the Substrate MultiSignature and Signature types such as sr25519.
 ///
 /// For traits implemented see traits.rs
-///
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo, Ord, PartialOrd)]
 pub struct DilithiumCryptoTag;
@@ -27,15 +26,15 @@ pub struct DilithiumCryptoTag;
 /// Contains both secret and public key material for Dilithium ML-DSA-87 operations
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct DilithiumPair {
-    pub secret: [u8; SECRETKEYBYTES],
-    pub public: [u8; PUBLICKEYBYTES],
+	pub secret: [u8; SECRETKEYBYTES],
+	pub public: [u8; PUBLICKEYBYTES],
 }
 
 impl Default for DilithiumPair {
-    fn default() -> Self {
-        let seed = sp_std::vec![0u8; 32];
-        DilithiumPair::from_seed(&seed).expect("Failed to generate keypair")
-    }
+	fn default() -> Self {
+		let seed = sp_std::vec![0u8; 32];
+		DilithiumPair::from_seed(&seed).expect("Failed to generate keypair")
+	}
 }
 
 /// Wrapper around Substrate's PublicBytes to provide Dilithium-specific implementations
@@ -62,7 +61,7 @@ pub type DilithiumSignature = WrappedSignatureBytes<{ crate::SIGNATURE_BYTES }, 
 #[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DilithiumSignatureScheme {
-    Dilithium(DilithiumSignatureWithPublic),
+	Dilithium(DilithiumSignatureWithPublic),
 }
 
 /// Dilithium signer - replacement for MultiSigner
@@ -71,21 +70,21 @@ pub enum DilithiumSignatureScheme {
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DilithiumSigner {
-    Dilithium(DilithiumPublic),
+	Dilithium(DilithiumPublic),
 }
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Failed to generate keypair")]
-    KeyGenerationFailed,
-    #[error("Invalid length")]
-    InvalidLength,
-    #[error("Entropy must be at least {required} bytes long, got {actual}")]
-    InsufficientEntropy { required: usize, actual: usize },
-    #[error("Failed to parse secret key")]
-    InvalidSecretKey,
-    #[error("Failed to parse public key")]
-    InvalidPublicKey,
+	#[error("Failed to generate keypair")]
+	KeyGenerationFailed,
+	#[error("Invalid length")]
+	InvalidLength,
+	#[error("Entropy must be at least {required} bytes long, got {actual}")]
+	InsufficientEntropy { required: usize, actual: usize },
+	#[error("Failed to parse secret key")]
+	InvalidSecretKey,
+	#[error("Failed to parse public key")]
+	InvalidPublicKey,
 }
 
 /// Combined signature and public key structure for Dilithium
@@ -95,75 +94,75 @@ pub enum Error {
 /// is: [signature_bytes][public_key_bytes].
 #[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
 pub struct DilithiumSignatureWithPublic {
-    /// Raw bytes containing both signature and public key
-    pub bytes: [u8; Self::TOTAL_LEN],
+	/// Raw bytes containing both signature and public key
+	pub bytes: [u8; Self::TOTAL_LEN],
 }
 
 impl DilithiumSignatureWithPublic {
-    const SIGNATURE_LEN: usize = <DilithiumSignature as ByteArray>::LEN;
-    const PUBLIC_LEN: usize = <DilithiumPublic as ByteArray>::LEN;
-    pub const TOTAL_LEN: usize = Self::SIGNATURE_LEN + Self::PUBLIC_LEN;
+	const SIGNATURE_LEN: usize = <DilithiumSignature as ByteArray>::LEN;
+	const PUBLIC_LEN: usize = <DilithiumPublic as ByteArray>::LEN;
+	pub const TOTAL_LEN: usize = Self::SIGNATURE_LEN + Self::PUBLIC_LEN;
 
-    /// Creates a new combined signature and public key structure
-    ///
-    /// # Arguments
-    /// * `signature` - The Dilithium signature
-    /// * `public` - The Dilithium public key
-    ///
-    /// # Returns
-    /// A new `DilithiumSignatureWithPublic` instance
-    pub fn new(signature: DilithiumSignature, public: DilithiumPublic) -> Self {
-        let mut bytes = [0u8; Self::LEN];
-        bytes[..Self::SIGNATURE_LEN].copy_from_slice(signature.as_ref());
-        bytes[Self::SIGNATURE_LEN..].copy_from_slice(public.as_ref());
-        Self { bytes }
-    }
+	/// Creates a new combined signature and public key structure
+	///
+	/// # Arguments
+	/// * `signature` - The Dilithium signature
+	/// * `public` - The Dilithium public key
+	///
+	/// # Returns
+	/// A new `DilithiumSignatureWithPublic` instance
+	pub fn new(signature: DilithiumSignature, public: DilithiumPublic) -> Self {
+		let mut bytes = [0u8; Self::LEN];
+		bytes[..Self::SIGNATURE_LEN].copy_from_slice(signature.as_ref());
+		bytes[Self::SIGNATURE_LEN..].copy_from_slice(public.as_ref());
+		Self { bytes }
+	}
 
-    /// Extracts the signature portion
-    ///
-    /// # Returns
-    /// The `DilithiumSignature` contained in this structure
-    pub fn signature(&self) -> DilithiumSignature {
-        DilithiumSignature::from_slice(&self.bytes[..Self::SIGNATURE_LEN])
-            .expect("Invalid signature")
-    }
+	/// Extracts the signature portion
+	///
+	/// # Returns
+	/// The `DilithiumSignature` contained in this structure
+	pub fn signature(&self) -> DilithiumSignature {
+		DilithiumSignature::from_slice(&self.bytes[..Self::SIGNATURE_LEN])
+			.expect("Invalid signature")
+	}
 
-    /// Extracts the public key portion
-    ///
-    /// # Returns
-    /// The `DilithiumPublic` key contained in this structure
-    pub fn public(&self) -> DilithiumPublic {
-        DilithiumPublic::from_slice(&self.bytes[Self::SIGNATURE_LEN..]).expect("Invalid public key")
-    }
+	/// Extracts the public key portion
+	///
+	/// # Returns
+	/// The `DilithiumPublic` key contained in this structure
+	pub fn public(&self) -> DilithiumPublic {
+		DilithiumPublic::from_slice(&self.bytes[Self::SIGNATURE_LEN..]).expect("Invalid public key")
+	}
 
-    /// Returns the raw bytes
-    ///
-    /// # Returns
-    /// A copy of the internal byte array
-    pub fn to_bytes(&self) -> [u8; Self::TOTAL_LEN] {
-        self.bytes
-    }
+	/// Returns the raw bytes
+	///
+	/// # Returns
+	/// A copy of the internal byte array
+	pub fn to_bytes(&self) -> [u8; Self::TOTAL_LEN] {
+		self.bytes
+	}
 
-    /// Creates a `DilithiumSignatureWithPublic` from raw bytes
-    ///
-    /// # Arguments
-    /// * `bytes` - Raw bytes containing signature and public key
-    ///
-    /// # Returns
-    /// `Ok(DilithiumSignatureWithPublic)` on success, `Err(Error)` if the bytes are invalid
-    ///
-    /// # Errors
-    /// Returns `Error::InvalidLength` if the byte array is not the expected length
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() != Self::TOTAL_LEN {
-            return Err(Error::InvalidLength);
-        }
+	/// Creates a `DilithiumSignatureWithPublic` from raw bytes
+	///
+	/// # Arguments
+	/// * `bytes` - Raw bytes containing signature and public key
+	///
+	/// # Returns
+	/// `Ok(DilithiumSignatureWithPublic)` on success, `Err(Error)` if the bytes are invalid
+	///
+	/// # Errors
+	/// Returns `Error::InvalidLength` if the byte array is not the expected length
+	pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+		if bytes.len() != Self::TOTAL_LEN {
+			return Err(Error::InvalidLength);
+		}
 
-        let signature = DilithiumSignature::from_slice(&bytes[..Self::SIGNATURE_LEN])
-            .map_err(|_| Error::InvalidLength)?;
-        let public = DilithiumPublic::from_slice(&bytes[Self::SIGNATURE_LEN..])
-            .map_err(|_| Error::InvalidLength)?;
+		let signature = DilithiumSignature::from_slice(&bytes[..Self::SIGNATURE_LEN])
+			.map_err(|_| Error::InvalidLength)?;
+		let public = DilithiumPublic::from_slice(&bytes[Self::SIGNATURE_LEN..])
+			.map_err(|_| Error::InvalidLength)?;
 
-        Ok(Self::new(signature, public))
-    }
+		Ok(Self::new(signature, public))
+	}
 }

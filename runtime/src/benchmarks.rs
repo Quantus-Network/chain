@@ -24,16 +24,16 @@
 // For more information, please refer to <http://unlicense.org>
 
 frame_benchmarking::define_benchmarks!(
-    [frame_benchmarking, BaselineBench::<Runtime>]
-    [frame_system, SystemBench::<Runtime>]
-    [pallet_assets, Assets]
-    [pallet_balances, Balances]
-    [pallet_timestamp, Timestamp]
-    [pallet_sudo, Sudo]
-    [pallet_reversible_transfers, ReversibleTransfers]
-    [pallet_merkle_airdrop, MerkleAirdrop]
-    [pallet_mining_rewards, MiningRewards]
-    [pallet_scheduler, Scheduler]
-    [pallet_qpow, QPoW]
-    [pallet_wormhole, Wormhole]
+	[frame_benchmarking, BaselineBench::<Runtime>]
+	[frame_system, SystemBench::<Runtime>]
+	[pallet_assets, Assets]
+	[pallet_balances, Balances]
+	[pallet_timestamp, Timestamp]
+	[pallet_sudo, Sudo]
+	[pallet_reversible_transfers, ReversibleTransfers]
+	[pallet_merkle_airdrop, MerkleAirdrop]
+	[pallet_mining_rewards, MiningRewards]
+	[pallet_scheduler, Scheduler]
+	[pallet_qpow, QPoW]
+	[pallet_wormhole, Wormhole]
 );

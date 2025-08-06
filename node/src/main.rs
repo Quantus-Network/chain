@@ -13,5 +13,5 @@ mod service;
 mod tests;
 
 fn main() -> sc_cli::Result<()> {
-    command::run()
+	command::run()
 }

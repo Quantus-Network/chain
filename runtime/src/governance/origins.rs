@@ -2,25 +2,25 @@
 
 #[frame_support::pallet]
 pub mod pallet_custom_origins {
-    use crate::{Balance, UNIT};
-    use frame_support::pallet_prelude::*;
+	use crate::{Balance, UNIT};
+	use frame_support::pallet_prelude::*;
 
-    #[pallet::config]
-    pub trait Config: frame_system::Config {}
+	#[pallet::config]
+	pub trait Config: frame_system::Config {}
 
-    #[pallet::pallet]
-    pub struct Pallet<T>(_);
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
 
-    #[derive(PartialEq, Eq, Clone, MaxEncodedLen, Encode, Decode, TypeInfo, RuntimeDebug)]
-    #[pallet::origin]
-    pub enum Origin {
-        Treasurer,
-        SmallSpender,
-        MediumSpender,
-        BigSpender,
-    }
+	#[derive(PartialEq, Eq, Clone, MaxEncodedLen, Encode, Decode, TypeInfo, RuntimeDebug)]
+	#[pallet::origin]
+	pub enum Origin {
+		Treasurer,
+		SmallSpender,
+		MediumSpender,
+		BigSpender,
+	}
 
-    macro_rules! decl_unit_ensures {
+	macro_rules! decl_unit_ensures {
         ( $name:ident: $success_type:ty = $success:expr ) => {
             pub struct $name;
             impl<O: Into<Result<Origin, O>> + From<Origin>>
@@ -50,9 +50,9 @@ pub mod pallet_custom_origins {
         };
         () => {}
     }
-    decl_unit_ensures!(Treasurer,);
+	decl_unit_ensures!(Treasurer,);
 
-    macro_rules! decl_ensure {
+	macro_rules! decl_ensure {
 		(
 			$vis:vis type $name:ident: EnsureOrigin<Success = $success_type:ty> {
 				$( $item:ident = $success:expr, )*
@@ -85,14 +85,14 @@ pub mod pallet_custom_origins {
 		}
 	}
 
-    decl_ensure! {
-        pub type Spender: EnsureOrigin<Success = Balance> {
-            SmallSpender = 100 * UNIT,
-            MediumSpender = 1_000 * UNIT,
-            BigSpender = 10_000 * UNIT,
-            Treasurer = 100_000 * UNIT,
-        }
-    }
+	decl_ensure! {
+		pub type Spender: EnsureOrigin<Success = Balance> {
+			SmallSpender = 100 * UNIT,
+			MediumSpender = 1_000 * UNIT,
+			BigSpender = 10_000 * UNIT,
+			Treasurer = 100_000 * UNIT,
+		}
+	}
 }
 
 // Re-export the pallet and its types

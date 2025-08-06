@@ -13,6 +13,6 @@ pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
 pub use pair::{create_keypair, crystal_alice, crystal_charlie, dilithium_bob, generate};
 pub use traits::verify;
 pub use types::{
-    DilithiumPair, DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme,
-    DilithiumSignatureWithPublic, DilithiumSigner, WrappedPublicBytes, WrappedSignatureBytes,
+	DilithiumPair, DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme,
+	DilithiumSignatureWithPublic, DilithiumSigner, WrappedPublicBytes, WrappedSignatureBytes,
 };
