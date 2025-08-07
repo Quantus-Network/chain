@@ -15,19 +15,19 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 arbitrary = { features = ["derive"], optional = true, workspace = true }
-codec = { workspace = true, default-features = false, package = "parity-scale-codec" }
-hash-db = { workspace = true, default-features = false }
-log = { workspace = true, default-features = false }
+codec = { workspace = true, package = "parity-scale-codec" }
+hash-db = { workspace = true }
+log = { workspace = true }
 parking_lot = { workspace = true, optional = true, default-features = true }
 rand = { optional = true, workspace = true, default-features = true }
 smallvec = { workspace = true, default-features = true }
 sp-core = { workspace = true }
 sp-externalities = { workspace = true }
-sp-panic-handler = { workspace = true, optional = true, default-features = true }
+sp-panic-handler = { workspace = true, optional = true }
 sp-trie = { workspace = true }
 thiserror = { optional = true, workspace = true }
-tracing = { optional = true, workspace = true, default-features = true }
-trie-db = { workspace = true, default-features = false }
+tracing = { optional = true, workspace = true }
+trie-db = { workspace = true }
 
 [patch.crates-io]
 sp-state-machine = { path = "." }
@@ -39,7 +39,7 @@ array-bytes = { workspace = true, default-features = true }
 assert_matches = { workspace = true }
 pretty_assertions = { workspace = true }
 rand = { workspace = true, default-features = true }
-sp-runtime = { workspace = true, default-features = true }
+sp-runtime = { default-features = true, workspace = true }
 
 [features]
 default = ["std"]
@@ -53,8 +53,7 @@ std = [
 	"sp-core/std",
 	"sp-externalities/std",
 	"sp-panic-handler",
-	"sp-runtime/std",
-	# "sp-trie/std",
+	"sp-trie/std",
 	"thiserror",
 	"tracing",
 	"trie-db/std",

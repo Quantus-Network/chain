@@ -20,12 +20,12 @@
 
 use either::Either;
 use libp2p::{
-    core::{
-        muxing::StreamMuxerBox,
-        transport::{Boxed, OptionalTransport},
-        upgrade,
-    },
-    dns, noise, tcp, websocket, PeerId, Transport, TransportExt,
+	core::{
+		muxing::StreamMuxerBox,
+		transport::{Boxed, OptionalTransport},
+		upgrade,
+	},
+	dns, noise, tcp, websocket, PeerId, Transport, TransportExt,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -47,48 +47,46 @@ pub use libp2p::bandwidth::BandwidthSinks;
 /// Returns a `BandwidthSinks` object that allows querying the average bandwidth produced by all
 /// the connections spawned with this transport.
 pub fn build_transport(
-    keypair: libp2p_identity::Keypair,
-    memory_only: bool,
+	keypair: libp2p_identity::Keypair,
+	memory_only: bool,
 ) -> (Boxed<(PeerId, StreamMuxerBox)>, Arc<BandwidthSinks>) {
-    // Build the base layer of the transport.
-    let transport = if !memory_only {
-        // Main transport: DNS(TCP)
-        let tcp_config = tcp::Config::new().nodelay(true);
-        let tcp_trans = tcp::tokio::Transport::new(tcp_config.clone());
-        let dns_init = dns::tokio::Transport::system(tcp_trans);
+	// Build the base layer of the transport.
+	let transport = if !memory_only {
+		// Main transport: DNS(TCP)
+		let tcp_config = tcp::Config::new().nodelay(true);
+		let tcp_trans = tcp::tokio::Transport::new(tcp_config.clone());
+		let dns_init = dns::tokio::Transport::system(tcp_trans);
 
-        Either::Left(if let Ok(dns) = dns_init {
-            // WS + WSS transport
-            //
-            // Main transport can't be used for `/wss` addresses because WSS transport needs
-            // unresolved addresses (BUT WSS transport itself needs an instance of DNS transport to
-            // resolve and dial addresses).
-            let tcp_trans = tcp::tokio::Transport::new(tcp_config);
-            let dns_for_wss = dns::tokio::Transport::system(tcp_trans)
-                .expect("same system_conf & resolver to work");
-            Either::Left(websocket::WsConfig::new(dns_for_wss).or_transport(dns))
-        } else {
-            // In case DNS can't be constructed, fallback to TCP + WS (WSS won't work)
-            let tcp_trans = tcp::tokio::Transport::new(tcp_config.clone());
-            let desktop_trans = websocket::WsConfig::new(tcp_trans)
-                .or_transport(tcp::tokio::Transport::new(tcp_config));
-            Either::Right(desktop_trans)
-        })
-    } else {
-        Either::Right(OptionalTransport::some(
-            libp2p::core::transport::MemoryTransport::default(),
-        ))
-    };
+		Either::Left(if let Ok(dns) = dns_init {
+			// WS + WSS transport
+			//
+			// Main transport can't be used for `/wss` addresses because WSS transport needs
+			// unresolved addresses (BUT WSS transport itself needs an instance of DNS transport to
+			// resolve and dial addresses).
+			let tcp_trans = tcp::tokio::Transport::new(tcp_config);
+			let dns_for_wss = dns::tokio::Transport::system(tcp_trans)
+				.expect("same system_conf & resolver to work");
+			Either::Left(websocket::WsConfig::new(dns_for_wss).or_transport(dns))
+		} else {
+			// In case DNS can't be constructed, fallback to TCP + WS (WSS won't work)
+			let tcp_trans = tcp::tokio::Transport::new(tcp_config.clone());
+			let desktop_trans = websocket::WsConfig::new(tcp_trans)
+				.or_transport(tcp::tokio::Transport::new(tcp_config));
+			Either::Right(desktop_trans)
+		})
+	} else {
+		Either::Right(OptionalTransport::some(libp2p::core::transport::MemoryTransport::default()))
+	};
 
-    let authentication_config = noise::Config::new(&keypair).expect("Can create noise config. qed");
-    let multiplexing_config = libp2p::yamux::Config::default();
+	let authentication_config = noise::Config::new(&keypair).expect("Can create noise config. qed");
+	let multiplexing_config = libp2p::yamux::Config::default();
 
-    let transport = transport
-        .upgrade(upgrade::Version::V1Lazy)
-        .authenticate(authentication_config)
-        .multiplex(multiplexing_config)
-        .timeout(Duration::from_secs(20))
-        .boxed();
+	let transport = transport
+		.upgrade(upgrade::Version::V1Lazy)
+		.authenticate(authentication_config)
+		.multiplex(multiplexing_config)
+		.timeout(Duration::from_secs(20))
+		.boxed();
 
-    transport.with_bandwidth_logging()
+	transport.with_bandwidth_logging()
 }

@@ -20,36 +20,36 @@ use crate::{service::metrics::NotificationMetrics, types::ProtocolName};
 
 /// Register opened substream to Prometheus.
 pub fn register_substream_opened(metrics: &Option<NotificationMetrics>, protocol: &ProtocolName) {
-    if let Some(metrics) = metrics {
-        metrics.register_substream_opened(&protocol);
-    }
+	if let Some(metrics) = metrics {
+		metrics.register_substream_opened(&protocol);
+	}
 }
 
 /// Register closed substream to Prometheus.
 pub fn register_substream_closed(metrics: &Option<NotificationMetrics>, protocol: &ProtocolName) {
-    if let Some(metrics) = metrics {
-        metrics.register_substream_closed(&protocol);
-    }
+	if let Some(metrics) = metrics {
+		metrics.register_substream_closed(&protocol);
+	}
 }
 
 /// Register sent notification to Prometheus.
 pub fn register_notification_sent(
-    metrics: &Option<std::sync::Arc<NotificationMetrics>>,
-    protocol: &ProtocolName,
-    size: usize,
+	metrics: &Option<std::sync::Arc<NotificationMetrics>>,
+	protocol: &ProtocolName,
+	size: usize,
 ) {
-    if let Some(metrics) = metrics {
-        metrics.register_notification_sent(protocol, size);
-    }
+	if let Some(metrics) = metrics {
+		metrics.register_notification_sent(protocol, size);
+	}
 }
 
 /// Register received notification to Prometheus.
 pub fn register_notification_received(
-    metrics: &Option<NotificationMetrics>,
-    protocol: &ProtocolName,
-    size: usize,
+	metrics: &Option<NotificationMetrics>,
+	protocol: &ProtocolName,
+	size: usize,
 ) {
-    if let Some(metrics) = metrics {
-        metrics.register_notification_received(protocol, size);
-    }
+	if let Some(metrics) = metrics {
+		metrics.register_notification_received(protocol, size);
+	}
 }

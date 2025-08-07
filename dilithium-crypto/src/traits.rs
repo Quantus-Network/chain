@@ -1,19 +1,18 @@
 use super::types::{
-    DilithiumPair, DilithiumPublic, DilithiumSignatureScheme, DilithiumSigner, Error,
-    WrappedPublicBytes, WrappedSignatureBytes,
+	DilithiumPair, DilithiumPublic, DilithiumSignatureScheme, DilithiumSigner, Error,
+	WrappedPublicBytes, WrappedSignatureBytes,
 };
 
 use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
 use alloc::vec::Vec;
 use poseidon_resonance::PoseidonHasher;
-use sp_core::H256;
 use sp_core::{
-    crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
-    ByteArray, Hasher,
+	crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
+	ByteArray, Hasher, H256,
 };
 use sp_runtime::{
-    traits::{IdentifyAccount, Verify},
-    AccountId32, CryptoType,
+	traits::{IdentifyAccount, Verify},
+	AccountId32, CryptoType,
 };
 
 /// Verifies a Dilithium ML-DSA-87 signature
@@ -40,14 +39,14 @@ use sp_runtime::{
 /// }
 /// ```
 pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
-    use rusty_crystals_dilithium::ml_dsa_87::PublicKey;
-    match PublicKey::from_bytes(pub_key) {
-        Ok(pk) => pk.verify(msg, sig, None),
-        Err(e) => {
-            log::warn!("public key failed to deserialize {:?}", e);
-            false
-        }
-    }
+	use rusty_crystals_dilithium::ml_dsa_87::PublicKey;
+	match PublicKey::from_bytes(pub_key) {
+		Ok(pk) => pk.verify(msg, sig, None),
+		Err(e) => {
+			log::warn!("public key failed to deserialize {:?}", e);
+			false
+		},
+	}
 }
 
 //
@@ -56,78 +55,74 @@ pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
 
 impl<const N: usize, SubTag> Derive for WrappedPublicBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedPublicBytes<N, SubTag> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut()
-    }
+	fn as_mut(&mut self) -> &mut [u8] {
+		self.0.as_mut()
+	}
 }
 impl<const N: usize, SubTag> AsRef<[u8]> for WrappedPublicBytes<N, SubTag> {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_slice()
-    }
+	fn as_ref(&self) -> &[u8] {
+		self.0.as_slice()
+	}
 }
 impl<const N: usize, SubTag> TryFrom<&[u8]> for WrappedPublicBytes<N, SubTag> {
-    type Error = ();
-    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        PublicBytes::from_slice(data)
-            .map(|bytes| WrappedPublicBytes(bytes))
-            .map_err(|_| ())
-    }
+	type Error = ();
+	fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+		PublicBytes::from_slice(data)
+			.map(|bytes| WrappedPublicBytes(bytes))
+			.map_err(|_| ())
+	}
 }
 impl<const N: usize, SubTag> ByteArray for WrappedPublicBytes<N, SubTag> {
-    fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
-    }
-    const LEN: usize = N;
-    fn from_slice(data: &[u8]) -> Result<Self, ()> {
-        PublicBytes::from_slice(data)
-            .map(|bytes| WrappedPublicBytes(bytes))
-            .map_err(|_| ())
-    }
-    fn to_raw_vec(&self) -> Vec<u8> {
-        self.0.as_slice().to_vec()
-    }
+	fn as_slice(&self) -> &[u8] {
+		self.0.as_slice()
+	}
+	const LEN: usize = N;
+	fn from_slice(data: &[u8]) -> Result<Self, ()> {
+		PublicBytes::from_slice(data)
+			.map(|bytes| WrappedPublicBytes(bytes))
+			.map_err(|_| ())
+	}
+	fn to_raw_vec(&self) -> Vec<u8> {
+		self.0.as_slice().to_vec()
+	}
 }
 impl<const N: usize, SubTag> CryptoType for WrappedPublicBytes<N, SubTag> {
-    type Pair = DilithiumPair;
+	type Pair = DilithiumPair;
 }
 impl<const N: usize, SubTag: Clone + Eq> Public for WrappedPublicBytes<N, SubTag> {}
 
 impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
-    fn default() -> Self {
-        WrappedPublicBytes(PublicBytes::default())
-    }
+	fn default() -> Self {
+		WrappedPublicBytes(PublicBytes::default())
+	}
 }
 impl<const N: usize, SubTag> core::fmt::Debug for WrappedPublicBytes<N, SubTag> {
-    #[cfg(feature = "std")]
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "{}",
-            sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref())
-        )
-    }
+	#[cfg(feature = "std")]
+	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+	}
 
-    #[cfg(not(feature = "std"))]
-    fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
-        Ok(())
-    }
+	#[cfg(not(feature = "std"))]
+	fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
+		Ok(())
+	}
 }
 
 impl IdentifyAccount for DilithiumPublic {
-    type AccountId = AccountId32;
-    fn into_account(self) -> Self::AccountId {
-        AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
-    }
+	type AccountId = AccountId32;
+	fn into_account(self) -> Self::AccountId {
+		AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
+	}
 }
 
 pub struct WormholeAddress(pub H256);
 
 // AccountID32 for a wormhole address is the same as the address itself
 impl IdentifyAccount for WormholeAddress {
-    type AccountId = AccountId32;
-    fn into_account(self) -> Self::AccountId {
-        AccountId32::new(self.0.as_bytes().try_into().unwrap())
-    }
+	type AccountId = AccountId32;
+	fn into_account(self) -> Self::AccountId {
+		AccountId32::new(self.0.as_bytes().try_into().unwrap())
+	}
 }
 
 //
@@ -135,62 +130,58 @@ impl IdentifyAccount for WormholeAddress {
 //
 impl<const N: usize, SubTag> Derive for WrappedSignatureBytes<N, SubTag> {}
 impl<const N: usize, SubTag> AsMut<[u8]> for WrappedSignatureBytes<N, SubTag> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut()
-    }
+	fn as_mut(&mut self) -> &mut [u8] {
+		self.0.as_mut()
+	}
 }
 impl<const N: usize, SubTag> AsRef<[u8]> for WrappedSignatureBytes<N, SubTag> {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_slice()
-    }
+	fn as_ref(&self) -> &[u8] {
+		self.0.as_slice()
+	}
 }
 impl<const N: usize, SubTag> TryFrom<&[u8]> for WrappedSignatureBytes<N, SubTag> {
-    type Error = ();
-    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        SignatureBytes::from_slice(data)
-            .map(|bytes| WrappedSignatureBytes(bytes))
-            .map_err(|_| ())
-    }
+	type Error = ();
+	fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+		SignatureBytes::from_slice(data)
+			.map(|bytes| WrappedSignatureBytes(bytes))
+			.map_err(|_| ())
+	}
 }
 impl<const N: usize, SubTag> ByteArray for WrappedSignatureBytes<N, SubTag> {
-    fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
-    }
-    const LEN: usize = N;
-    fn from_slice(data: &[u8]) -> Result<Self, ()> {
-        SignatureBytes::from_slice(data)
-            .map(|bytes| WrappedSignatureBytes(bytes))
-            .map_err(|_| ())
-    }
-    fn to_raw_vec(&self) -> Vec<u8> {
-        self.0.as_slice().to_vec()
-    }
+	fn as_slice(&self) -> &[u8] {
+		self.0.as_slice()
+	}
+	const LEN: usize = N;
+	fn from_slice(data: &[u8]) -> Result<Self, ()> {
+		SignatureBytes::from_slice(data)
+			.map(|bytes| WrappedSignatureBytes(bytes))
+			.map_err(|_| ())
+	}
+	fn to_raw_vec(&self) -> Vec<u8> {
+		self.0.as_slice().to_vec()
+	}
 }
 impl<const N: usize, SubTag> CryptoType for WrappedSignatureBytes<N, SubTag> {
-    type Pair = DilithiumPair;
+	type Pair = DilithiumPair;
 }
 impl<const N: usize, SubTag: Clone + Eq> Signature for WrappedSignatureBytes<N, SubTag> {}
 
 impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
-    fn default() -> Self {
-        WrappedSignatureBytes(SignatureBytes::default())
-    }
+	fn default() -> Self {
+		WrappedSignatureBytes(SignatureBytes::default())
+	}
 }
 
 impl<const N: usize, SubTag> core::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
-    #[cfg(feature = "std")]
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "{}",
-            sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref())
-        )
-    }
+	#[cfg(feature = "std")]
+	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+	}
 
-    #[cfg(not(feature = "std"))]
-    fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
-        Ok(())
-    }
+	#[cfg(not(feature = "std"))]
+	fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
+		Ok(())
+	}
 }
 
 //
@@ -198,7 +189,7 @@ impl<const N: usize, SubTag> core::fmt::Debug for WrappedSignatureBytes<N, SubTa
 //
 
 impl CryptoType for DilithiumPair {
-    type Pair = Self;
+	type Pair = Self;
 }
 
 //
@@ -206,49 +197,46 @@ impl CryptoType for DilithiumPair {
 //
 
 impl Verify for DilithiumSignatureScheme {
-    type Signer = DilithiumSigner;
+	type Signer = DilithiumSigner;
 
-    fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
-        &self,
-        mut msg: L,
-        signer: &<Self::Signer as IdentifyAccount>::AccountId,
-    ) -> bool {
-        let Self::Dilithium(sig_public) = self;
-        let account = sig_public.public().clone().into_account();
-        if account != *signer {
-            return false;
-        }
-        let result = verify(
-            sig_public.public().as_ref(),
-            msg.get(),
-            sig_public.signature().as_ref(),
-        );
-        result
-    }
+	fn verify<L: sp_runtime::traits::Lazy<[u8]>>(
+		&self,
+		mut msg: L,
+		signer: &<Self::Signer as IdentifyAccount>::AccountId,
+	) -> bool {
+		let Self::Dilithium(sig_public) = self;
+		let account = sig_public.public().clone().into_account();
+		if account != *signer {
+			return false;
+		}
+		let result =
+			verify(sig_public.public().as_ref(), msg.get(), sig_public.signature().as_ref());
+		result
+	}
 }
 
 //
 // Trait implementations for DilithiumSigner
 //
 impl From<DilithiumPublic> for DilithiumSigner {
-    fn from(x: DilithiumPublic) -> Self {
-        Self::Dilithium(x)
-    }
+	fn from(x: DilithiumPublic) -> Self {
+		Self::Dilithium(x)
+	}
 }
 
 impl IdentifyAccount for DilithiumSigner {
-    type AccountId = AccountId32;
+	type AccountId = AccountId32;
 
-    fn into_account(self) -> AccountId32 {
-        let Self::Dilithium(who) = self;
-        PoseidonHasher::hash(who.as_ref()).0.into()
-    }
+	fn into_account(self) -> AccountId32 {
+		let Self::Dilithium(who) = self;
+		PoseidonHasher::hash(who.as_ref()).0.into()
+	}
 }
 
 impl From<DilithiumPublic> for AccountId32 {
-    fn from(public: DilithiumPublic) -> Self {
-        public.into_account()
-    }
+	fn from(public: DilithiumPublic) -> Self {
+		public.into_account()
+	}
 }
 
 //
@@ -256,99 +244,96 @@ impl From<DilithiumPublic> for AccountId32 {
 //
 
 impl DilithiumPair {
-    pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
-        let keypair = crate::pair::generate(Some(seed))?;
-        Ok(DilithiumPair {
-            secret: keypair.secret.to_bytes(),
-            public: keypair.public.to_bytes(),
-        })
-    }
-    pub fn public(&self) -> DilithiumPublic {
-        DilithiumPublic::from_slice(&self.public).expect("Valid public key bytes")
-    }
+	pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
+		let keypair = crate::pair::generate(Some(seed))?;
+		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
+	}
+	pub fn public(&self) -> DilithiumPublic {
+		DilithiumPublic::from_slice(&self.public).expect("Valid public key bytes")
+	}
 }
 
 impl alloc::fmt::Debug for DilithiumSignatureWithPublic {
-    #[cfg(feature = "std")]
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
-            self.signature(),
-            self.public()
-        )
-    }
+	#[cfg(feature = "std")]
+	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+		write!(
+			f,
+			"ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
+			self.signature(),
+			self.public()
+		)
+	}
 
-    #[cfg(not(feature = "std"))]
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "ResonanceSignatureWithPublic")
-    }
+	#[cfg(not(feature = "std"))]
+	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+		write!(f, "ResonanceSignatureWithPublic")
+	}
 }
 
 impl From<DilithiumSignatureWithPublic> for DilithiumSignatureScheme {
-    fn from(x: DilithiumSignatureWithPublic) -> Self {
-        Self::Dilithium(x)
-    }
+	fn from(x: DilithiumSignatureWithPublic) -> Self {
+		Self::Dilithium(x)
+	}
 }
 
 impl TryFrom<DilithiumSignatureScheme> for DilithiumSignatureWithPublic {
-    type Error = ();
-    fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
-        let DilithiumSignatureScheme::Dilithium(sig_with_public) = m;
-        Ok(sig_with_public)
-    }
+	type Error = ();
+	fn try_from(m: DilithiumSignatureScheme) -> Result<Self, Self::Error> {
+		let DilithiumSignatureScheme::Dilithium(sig_with_public) = m;
+		Ok(sig_with_public)
+	}
 }
 
 impl AsMut<[u8]> for DilithiumSignatureWithPublic {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.bytes.as_mut()
-    }
+	fn as_mut(&mut self) -> &mut [u8] {
+		self.bytes.as_mut()
+	}
 }
 impl TryFrom<&[u8]> for DilithiumSignatureWithPublic {
-    type Error = ();
-    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        if data.len() != Self::TOTAL_LEN {
-            return Err(());
-        }
-        let (sig_bytes, pub_bytes) = data.split_at(<DilithiumSignature as ByteArray>::LEN);
-        let signature = DilithiumSignature::from_slice(sig_bytes).map_err(|_| ())?;
-        let public = DilithiumPublic::from_slice(pub_bytes).map_err(|_| ())?;
-        Ok(Self::new(signature, public))
-    }
+	type Error = ();
+	fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+		if data.len() != Self::TOTAL_LEN {
+			return Err(());
+		}
+		let (sig_bytes, pub_bytes) = data.split_at(<DilithiumSignature as ByteArray>::LEN);
+		let signature = DilithiumSignature::from_slice(sig_bytes).map_err(|_| ())?;
+		let public = DilithiumPublic::from_slice(pub_bytes).map_err(|_| ())?;
+		Ok(Self::new(signature, public))
+	}
 }
 
 impl ByteArray for DilithiumSignatureWithPublic {
-    const LEN: usize = Self::TOTAL_LEN;
+	const LEN: usize = Self::TOTAL_LEN;
 
-    fn to_raw_vec(&self) -> Vec<u8> {
-        self.to_bytes().to_vec()
-    }
+	fn to_raw_vec(&self) -> Vec<u8> {
+		self.to_bytes().to_vec()
+	}
 
-    fn from_slice(data: &[u8]) -> Result<Self, ()> {
-        if data.len() != Self::LEN {
-            return Err(());
-        }
-        let bytes = <[u8; Self::LEN]>::try_from(data).map_err(|_| ())?;
-        Self::from_bytes(&bytes).map_err(|_| ())
-    }
+	fn from_slice(data: &[u8]) -> Result<Self, ()> {
+		if data.len() != Self::LEN {
+			return Err(());
+		}
+		let bytes = <[u8; Self::LEN]>::try_from(data).map_err(|_| ())?;
+		Self::from_bytes(&bytes).map_err(|_| ())
+	}
 
-    fn as_slice(&self) -> &[u8] {
-        self.bytes.as_slice()
-    }
+	fn as_slice(&self) -> &[u8] {
+		self.bytes.as_slice()
+	}
 }
 impl AsRef<[u8; Self::LEN]> for DilithiumSignatureWithPublic {
-    fn as_ref(&self) -> &[u8; Self::LEN] {
-        &self.bytes
-    }
+	fn as_ref(&self) -> &[u8; Self::LEN] {
+		&self.bytes
+	}
 }
 
 impl AsRef<[u8]> for DilithiumSignatureWithPublic {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
+	fn as_ref(&self) -> &[u8] {
+		&self.bytes
+	}
 }
 impl Signature for DilithiumSignatureWithPublic {}
 
 impl CryptoType for DilithiumSignatureWithPublic {
-    type Pair = DilithiumPair;
+	type Pair = DilithiumPair;
 }

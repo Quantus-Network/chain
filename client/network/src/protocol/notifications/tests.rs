@@ -174,8 +174,8 @@
 //     (first, second)
 // }
 
-// /// Wraps around the `CustomBehaviour` network behaviour, and adds hardcoded node addresses to it.
-// struct CustomProtoWithAddr {
+// /// Wraps around the `CustomBehaviour` network behaviour, and adds hardcoded node addresses to
+// it. struct CustomProtoWithAddr {
 //     inner: Notifications,
 //     peer_store_future: BoxFuture<'static, ()>,
 //     protocol_controller_future: BoxFuture<'static, ()>,
@@ -326,8 +326,8 @@
 //                         if service2_state == ServiceState::FirstConnec {
 //                             service1
 //                                 .behaviour_mut()
-//                                 .disconnect_peer(Swarm::local_peer_id(&service2), SetId::from(0));
-//                         }
+//                                 .disconnect_peer(Swarm::local_peer_id(&service2),
+// SetId::from(0));                         }
 //                     }
 //                     ServiceState::Disconnected => service1_state = ServiceState::ConnectedAgain,
 //                     ServiceState::FirstConnec | ServiceState::ConnectedAgain => panic!(),
@@ -348,8 +348,8 @@
 //                         if service1_state == ServiceState::FirstConnec {
 //                             service1
 //                                 .behaviour_mut()
-//                                 .disconnect_peer(Swarm::local_peer_id(&service2), SetId::from(0));
-//                         }
+//                                 .disconnect_peer(Swarm::local_peer_id(&service2),
+// SetId::from(0));                         }
 //                     }
 //                     ServiceState::Disconnected => service2_state = ServiceState::ConnectedAgain,
 //                     ServiceState::FirstConnec | ServiceState::ConnectedAgain => panic!(),
@@ -365,13 +365,13 @@
 //                 _ => {}
 //             }
 
-//             // Due to the bug in `Notifications`, the disconnected node does not always detect that
-//             // it was disconnected. The closed inbound substream is tolerated by design, and the
-//             // closed outbound substream is not detected until something is sent into it.
+//             // Due to the bug in `Notifications`, the disconnected node does not always detect
+// that             // it was disconnected. The closed inbound substream is tolerated by design, and
+// the             // closed outbound substream is not detected until something is sent into it.
 //             // See [PR #13396](https://github.com/paritytech/substrate/pull/13396).
 //             // This happens if the disconnecting node reconnects to it fast enough.
-//             // In this case the disconnected node does not transit via `ServiceState::NotConnected`
-//             // and stays in `ServiceState::FirstConnec`.
+//             // In this case the disconnected node does not transit via
+// `ServiceState::NotConnected`             // and stays in `ServiceState::FirstConnec`.
 //             // TODO: update this once the fix is finally merged.
 //             if service1_state == ServiceState::ConnectedAgain
 //                 && service2_state == ServiceState::ConnectedAgain
@@ -403,8 +403,8 @@
 
 //             match event {
 //                 SwarmEvent::Behaviour(NotificationsOut::CustomProtocolOpen { .. })
-//                 | SwarmEvent::Behaviour(NotificationsOut::CustomProtocolClosed { .. }) => panic!(),
-//                 _ => {}
+//                 | SwarmEvent::Behaviour(NotificationsOut::CustomProtocolClosed { .. }) =>
+// panic!(),                 _ => {}
 //             }
 //         }
 //     });

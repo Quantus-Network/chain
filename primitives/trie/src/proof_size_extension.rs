@@ -21,19 +21,19 @@
 use crate::ProofSizeProvider;
 
 sp_externalities::decl_extension! {
-    /// The proof size extension to fetch the current storage proof size
-    /// in externalities.
-    pub struct ProofSizeExt(Box<dyn ProofSizeProvider + 'static + Sync + Send>);
+	/// The proof size extension to fetch the current storage proof size
+	/// in externalities.
+	pub struct ProofSizeExt(Box<dyn ProofSizeProvider + 'static + Sync + Send>);
 }
 
 impl ProofSizeExt {
-    /// Creates a new instance of [`ProofSizeExt`].
-    pub fn new<T: ProofSizeProvider + Sync + Send + 'static>(recorder: T) -> Self {
-        ProofSizeExt(Box::new(recorder))
-    }
+	/// Creates a new instance of [`ProofSizeExt`].
+	pub fn new<T: ProofSizeProvider + Sync + Send + 'static>(recorder: T) -> Self {
+		ProofSizeExt(Box::new(recorder))
+	}
 
-    /// Returns the storage proof size.
-    pub fn storage_proof_size(&self) -> u64 {
-        self.0.estimate_encoded_size() as _
-    }
+	/// Returns the storage proof size.
+	pub fn storage_proof_size(&self) -> u64 {
+		self.0.estimate_encoded_size() as _
+	}
 }

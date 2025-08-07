@@ -18,6 +18,8 @@ members = [
 	"pallets/reversible-transfers",
 	"pallets/wormhole",
 	"primitives/consensus/qpow",
+	"primitives/state-machine",
+	"primitives/trie",
 	"resonance-miner-api",
 	"runtime",
 ]

@@ -1,410 +1,372 @@
 #[cfg(test)]
 mod tests {
-    //    use common::TestCommons;
-    // Imports from the runtime crate
-    use quantus_runtime::configs::{TreasuryPalletId, TreasuryPayoutPeriod};
-    use quantus_runtime::governance::pallet_custom_origins;
-    use quantus_runtime::{
-        AccountId,
-        Balance,
-        Balances,
-        BlockNumber,
-        OriginCaller, // Added OriginCaller
-        Runtime,
-        RuntimeCall,
-        RuntimeEvent,
-        RuntimeOrigin,
-        System,
-        TreasuryPallet,
-        EXISTENTIAL_DEPOSIT, // DAYS, HOURS are unused, consider removing if not needed elsewhere
-        MICRO_UNIT,
-        UNIT,
-    };
-    // Additional pallets for referenda tests
-    use quantus_runtime::{ConvictionVoting, Preimage, Referenda, Scheduler};
+	//    use common::TestCommons;
+	// Imports from the runtime crate
+	use quantus_runtime::{
+		configs::{TreasuryPalletId, TreasuryPayoutPeriod},
+		governance::pallet_custom_origins,
+	};
+	use quantus_runtime::{
+		AccountId,
+		Balance,
+		Balances,
+		BlockNumber,
+		OriginCaller, // Added OriginCaller
+		Runtime,
+		RuntimeCall,
+		RuntimeEvent,
+		RuntimeOrigin,
+		System,
+		TreasuryPallet,
+		EXISTENTIAL_DEPOSIT, // DAYS, HOURS are unused, consider removing if not needed elsewhere
+		MICRO_UNIT,
+		UNIT,
+	};
+	// Additional pallets for referenda tests
+	use quantus_runtime::{ConvictionVoting, Preimage, Referenda, Scheduler};
 
-    // Codec & Hashing
-    use codec::Encode;
-    use sp_runtime::traits::Hash as RuntimeTraitHash;
+	// Codec & Hashing
+	use codec::Encode;
+	use sp_runtime::traits::Hash as RuntimeTraitHash;
 
-    // Frame and Substrate traits & types
-    use crate::common::TestCommons;
-    use frame_support::{
-        assert_ok,
-        pallet_prelude::Hooks, // For Scheduler hooks
-        traits::{
-            schedule::DispatchTime as ScheduleDispatchTime,
-            Bounded, // Added Bounded
-            Currency,
-            PreimageProvider, // Added PreimageProvider
-            UnfilteredDispatchable,
-        },
-    };
-    use frame_system::RawOrigin;
-    use pallet_referenda::{self, ReferendumIndex, TracksInfo};
-    use pallet_treasury;
-    use quantus_runtime::governance::definitions::CommunityTracksInfo;
-    use sp_runtime::{
-        traits::{AccountIdConversion, StaticLookup},
-        BuildStorage,
-    };
+	// Frame and Substrate traits & types
+	use crate::common::TestCommons;
+	use frame_support::{
+		assert_ok,
+		pallet_prelude::Hooks, // For Scheduler hooks
+		traits::{
+			schedule::DispatchTime as ScheduleDispatchTime,
+			Bounded, // Added Bounded
+			Currency,
+			PreimageProvider, // Added PreimageProvider
+			UnfilteredDispatchable,
+		},
+	};
+	use frame_system::RawOrigin;
+	use pallet_referenda::{self, ReferendumIndex, TracksInfo};
+	use pallet_treasury;
+	use quantus_runtime::governance::definitions::CommunityTracksInfo;
+	use sp_runtime::{
+		traits::{AccountIdConversion, StaticLookup},
+		BuildStorage,
+	};
 
-    // Type aliases
-    type TestRuntimeCall = RuntimeCall;
-    type TestRuntimeOrigin = <TestRuntimeCall as UnfilteredDispatchable>::RuntimeOrigin; // This is available if RuntimeOrigin direct import is an issue
+	// Type aliases
+	type TestRuntimeCall = RuntimeCall;
+	type TestRuntimeOrigin = <TestRuntimeCall as UnfilteredDispatchable>::RuntimeOrigin; // This is available if RuntimeOrigin direct import is an issue
 
-    // Test specific constants
-    const BENEFICIARY_ACCOUNT_ID: AccountId = AccountId::new([1u8; 32]); // Example AccountId
-    const PROPOSER_ACCOUNT_ID: AccountId = AccountId::new([2u8; 32]); // For referendum proposer
-    const VOTER_ACCOUNT_ID: AccountId = AccountId::new([3u8; 32]); // For referendum voter
+	// Test specific constants
+	const BENEFICIARY_ACCOUNT_ID: AccountId = AccountId::new([1u8; 32]); // Example AccountId
+	const PROPOSER_ACCOUNT_ID: AccountId = AccountId::new([2u8; 32]); // For referendum proposer
+	const VOTER_ACCOUNT_ID: AccountId = AccountId::new([3u8; 32]); // For referendum voter
 
-    // Minimal ExtBuilder for setting up storage
-    // In a real project, this would likely be more sophisticated and in common.rs
-    pub struct ExtBuilder {
-        balances: Vec<(AccountId, Balance)>,
-        treasury_genesis: bool,
-    }
+	// Minimal ExtBuilder for setting up storage
+	// In a real project, this would likely be more sophisticated and in common.rs
+	pub struct ExtBuilder {
+		balances: Vec<(AccountId, Balance)>,
+		treasury_genesis: bool,
+	}
 
-    impl Default for ExtBuilder {
-        fn default() -> Self {
-            Self {
-                balances: vec![],
-                treasury_genesis: true,
-            }
-        }
-    }
+	impl Default for ExtBuilder {
+		fn default() -> Self {
+			Self { balances: vec![], treasury_genesis: true }
+		}
+	}
 
-    impl ExtBuilder {
-        pub fn with_balances(mut self, balances: Vec<(AccountId, Balance)>) -> Self {
-            self.balances = balances;
-            self
-        }
+	impl ExtBuilder {
+		pub fn with_balances(mut self, balances: Vec<(AccountId, Balance)>) -> Self {
+			self.balances = balances;
+			self
+		}
 
-        #[allow(dead_code)]
-        pub fn without_treasury_genesis(mut self) -> Self {
-            self.treasury_genesis = false;
-            self
-        }
+		#[allow(dead_code)]
+		pub fn without_treasury_genesis(mut self) -> Self {
+			self.treasury_genesis = false;
+			self
+		}
 
-        pub fn build(self) -> sp_io::TestExternalities {
-            let mut t = frame_system::GenesisConfig::<Runtime>::default()
-                .build_storage()
-                .unwrap();
+		pub fn build(self) -> sp_io::TestExternalities {
+			let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
-            pallet_balances::GenesisConfig::<Runtime> {
-                balances: self.balances,
-            }
-            .assimilate_storage(&mut t)
-            .unwrap();
+			pallet_balances::GenesisConfig::<Runtime> { balances: self.balances }
+				.assimilate_storage(&mut t)
+				.unwrap();
 
-            // Pallet Treasury genesis (optional, as we fund it manually)
-            // If your pallet_treasury::GenesisConfig needs setup, do it here.
-            // For this test, we manually fund the treasury account.
+			// Pallet Treasury genesis (optional, as we fund it manually)
+			// If your pallet_treasury::GenesisConfig needs setup, do it here.
+			// For this test, we manually fund the treasury account.
 
-            let mut ext = sp_io::TestExternalities::new(t);
-            ext.execute_with(|| System::set_block_number(1));
-            ext
-        }
-    }
+			let mut ext = sp_io::TestExternalities::new(t);
+			ext.execute_with(|| System::set_block_number(1));
+			ext
+		}
+	}
 
-    // Helper function to get treasury account ID
-    fn treasury_account_id() -> AccountId {
-        TreasuryPalletId::get().into_account_truncating()
-    }
+	// Helper function to get treasury account ID
+	fn treasury_account_id() -> AccountId {
+		TreasuryPalletId::get().into_account_truncating()
+	}
 
-    /// Tests the basic treasury spend flow:
-    /// 1. Root proposes a spend.
-    /// 2. Spend is approved.
-    /// 3. Beneficiary payouts the spend.
-    /// 4. Spend status is checked and spend is removed.
-    #[test]
-    fn propose_and_payout_spend_as_root_works() {
-        ExtBuilder::default()
-            .with_balances(vec![])
-            .build()
-            .execute_with(|| {
-                let beneficiary_lookup_source =
-                    <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-                let treasury_pot = treasury_account_id();
+	/// Tests the basic treasury spend flow:
+	/// 1. Root proposes a spend.
+	/// 2. Spend is approved.
+	/// 3. Beneficiary payouts the spend.
+	/// 4. Spend status is checked and spend is removed.
+	#[test]
+	fn propose_and_payout_spend_as_root_works() {
+		ExtBuilder::default().with_balances(vec![]).build().execute_with(|| {
+			let beneficiary_lookup_source =
+				<Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+			let treasury_pot = treasury_account_id();
 
-                let initial_treasury_balance = 1000 * UNIT;
-                let spend_amount = 100 * UNIT;
+			let initial_treasury_balance = 1000 * UNIT;
+			let spend_amount = 100 * UNIT;
 
-                let _ = <Balances as Currency<AccountId>>::deposit_creating(
-                    &treasury_pot,
-                    initial_treasury_balance,
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance
-                );
-                let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
+			let _ = <Balances as Currency<AccountId>>::deposit_creating(
+				&treasury_pot,
+				initial_treasury_balance,
+			);
+			assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
+			let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
 
-                let call =
-                    TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-                        asset_kind: Box::new(()),
-                        amount: spend_amount,
-                        beneficiary: Box::new(beneficiary_lookup_source.clone()),
-                        valid_from: None,
-                    });
+			let call = TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+				asset_kind: Box::new(()),
+				amount: spend_amount,
+				beneficiary: Box::new(beneficiary_lookup_source.clone()),
+				valid_from: None,
+			});
 
-                let dispatch_result = call.dispatch_bypass_filter(RawOrigin::Root.into());
-                assert_ok!(dispatch_result);
+			let dispatch_result = call.dispatch_bypass_filter(RawOrigin::Root.into());
+			assert_ok!(dispatch_result);
 
-                let spend_index = 0;
+			let spend_index = 0;
 
-                System::assert_last_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::AssetSpendApproved {
-                        index: spend_index,
-                        asset_kind: (),
-                        amount: spend_amount,
-                        beneficiary: BENEFICIARY_ACCOUNT_ID,
-                        valid_from: System::block_number(),
-                        expire_at: System::block_number() + TreasuryPayoutPeriod::get(),
-                    },
-                ));
+			System::assert_last_event(RuntimeEvent::TreasuryPallet(
+				pallet_treasury::Event::AssetSpendApproved {
+					index: spend_index,
+					asset_kind: (),
+					amount: spend_amount,
+					beneficiary: BENEFICIARY_ACCOUNT_ID,
+					valid_from: System::block_number(),
+					expire_at: System::block_number() + TreasuryPayoutPeriod::get(),
+				},
+			));
 
-                assert!(
-                    pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
-                    "Spend should exist in storage"
-                );
+			assert!(
+				pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
+				"Spend should exist in storage"
+			);
 
-                assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
-                    spend_index
-                ));
+			assert_ok!(TreasuryPallet::payout(
+				RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
+				spend_index
+			));
 
-                System::assert_has_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::Paid {
-                        index: spend_index,
-                        payment_id: 0,
-                    },
-                ));
+			System::assert_has_event(RuntimeEvent::TreasuryPallet(pallet_treasury::Event::Paid {
+				index: spend_index,
+				payment_id: 0,
+			}));
 
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance - spend_amount
-                );
-                assert_eq!(
-                    Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
-                    initial_beneficiary_balance + spend_amount
-                );
+			assert_eq!(
+				Balances::free_balance(&treasury_pot),
+				initial_treasury_balance - spend_amount
+			);
+			assert_eq!(
+				Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
+				initial_beneficiary_balance + spend_amount
+			);
 
-                assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
-                    spend_index
-                ));
+			assert_ok!(TreasuryPallet::check_status(
+				RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
+				spend_index
+			));
 
-                System::assert_last_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::SpendProcessed { index: spend_index },
-                ));
+			System::assert_last_event(RuntimeEvent::TreasuryPallet(
+				pallet_treasury::Event::SpendProcessed { index: spend_index },
+			));
 
-                assert!(
-                    pallet_treasury::Spends::<Runtime>::get(spend_index).is_none(),
-                    "Spend should be removed after check_status"
-                );
-            });
-    }
+			assert!(
+				pallet_treasury::Spends::<Runtime>::get(spend_index).is_none(),
+				"Spend should be removed after check_status"
+			);
+		});
+	}
 
-    /// Tests treasury spend functionality using a custom origin (SmallSpender).
-    /// 1. SmallSpender proposes a spend within its limit - succeeds.
-    /// 2. Beneficiary payouts the spend.
-    /// 3. SmallSpender attempts to propose a spend above its limit - fails.
-    #[test]
-    fn propose_spend_as_custom_origin_works() {
-        ExtBuilder::default()
-            .with_balances(vec![(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT)])
-            .build()
-            .execute_with(|| {
-                let beneficiary_lookup_source =
-                    <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-                let treasury_pot = treasury_account_id();
-                let small_spender_origin: TestRuntimeOrigin =
-                    pallet_custom_origins::Origin::SmallSpender.into();
+	/// Tests treasury spend functionality using a custom origin (SmallSpender).
+	/// 1. SmallSpender proposes a spend within its limit - succeeds.
+	/// 2. Beneficiary payouts the spend.
+	/// 3. SmallSpender attempts to propose a spend above its limit - fails.
+	#[test]
+	fn propose_spend_as_custom_origin_works() {
+		ExtBuilder::default()
+			.with_balances(vec![(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT)])
+			.build()
+			.execute_with(|| {
+				let beneficiary_lookup_source =
+					<Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+				let treasury_pot = treasury_account_id();
+				let small_spender_origin: TestRuntimeOrigin =
+					pallet_custom_origins::Origin::SmallSpender.into();
 
-                let initial_treasury_balance = 1000 * UNIT;
-                let _ = <Balances as Currency<AccountId>>::deposit_creating(
-                    &treasury_pot,
-                    initial_treasury_balance,
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance
-                );
-                let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
-                assert_eq!(initial_beneficiary_balance, EXISTENTIAL_DEPOSIT);
+				let initial_treasury_balance = 1000 * UNIT;
+				let _ = <Balances as Currency<AccountId>>::deposit_creating(
+					&treasury_pot,
+					initial_treasury_balance,
+				);
+				assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
+				let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
+				assert_eq!(initial_beneficiary_balance, EXISTENTIAL_DEPOSIT);
 
-                let spend_amount_within_limit = 250 * 3 * MICRO_UNIT;
-                let call_within_limit =
-                    TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-                        asset_kind: Box::new(()),
-                        amount: spend_amount_within_limit,
-                        beneficiary: Box::new(beneficiary_lookup_source.clone()),
-                        valid_from: None,
-                    });
+				let spend_amount_within_limit = 250 * 3 * MICRO_UNIT;
+				let call_within_limit =
+					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+						asset_kind: Box::new(()),
+						amount: spend_amount_within_limit,
+						beneficiary: Box::new(beneficiary_lookup_source.clone()),
+						valid_from: None,
+					});
 
-                assert_ok!(call_within_limit
-                    .clone()
-                    .dispatch_bypass_filter(small_spender_origin.clone()));
+				assert_ok!(call_within_limit
+					.clone()
+					.dispatch_bypass_filter(small_spender_origin.clone()));
 
-                let spend_index_within_limit = 0;
-                System::assert_last_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::AssetSpendApproved {
-                        index: spend_index_within_limit,
-                        asset_kind: (),
-                        amount: spend_amount_within_limit,
-                        beneficiary: BENEFICIARY_ACCOUNT_ID,
-                        valid_from: System::block_number(),
-                        expire_at: System::block_number() + TreasuryPayoutPeriod::get(),
-                    },
-                ));
-                assert!(
-                    pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit).is_some()
-                );
+				let spend_index_within_limit = 0;
+				System::assert_last_event(RuntimeEvent::TreasuryPallet(
+					pallet_treasury::Event::AssetSpendApproved {
+						index: spend_index_within_limit,
+						asset_kind: (),
+						amount: spend_amount_within_limit,
+						beneficiary: BENEFICIARY_ACCOUNT_ID,
+						valid_from: System::block_number(),
+						expire_at: System::block_number() + TreasuryPayoutPeriod::get(),
+					},
+				));
+				assert!(pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit).is_some());
 
-                assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
-                    spend_index_within_limit
-                ));
-                System::assert_has_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::Paid {
-                        index: spend_index_within_limit,
-                        payment_id: 0,
-                    },
-                ));
+				assert_ok!(TreasuryPallet::payout(
+					RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
+					spend_index_within_limit
+				));
+				System::assert_has_event(RuntimeEvent::TreasuryPallet(
+					pallet_treasury::Event::Paid { index: spend_index_within_limit, payment_id: 0 },
+				));
 
-                assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
-                    spend_index_within_limit
-                ));
-                System::assert_last_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::SpendProcessed {
-                        index: spend_index_within_limit,
-                    },
-                ));
-                assert!(
-                    pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit).is_none()
-                );
+				assert_ok!(TreasuryPallet::check_status(
+					RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID),
+					spend_index_within_limit
+				));
+				System::assert_last_event(RuntimeEvent::TreasuryPallet(
+					pallet_treasury::Event::SpendProcessed { index: spend_index_within_limit },
+				));
+				assert!(pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit).is_none());
 
-                assert_eq!(
-                    Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
-                    initial_beneficiary_balance + spend_amount_within_limit
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance - spend_amount_within_limit
-                );
+				assert_eq!(
+					Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
+					initial_beneficiary_balance + spend_amount_within_limit
+				);
+				assert_eq!(
+					Balances::free_balance(&treasury_pot),
+					initial_treasury_balance - spend_amount_within_limit
+				);
 
-                let spend_amount_above_limit = (100 * UNIT) + 1; // Przekroczenie limitu SmallSpender
-                let call_above_limit =
-                    TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-                        asset_kind: Box::new(()),
-                        amount: spend_amount_above_limit,
-                        beneficiary: Box::new(beneficiary_lookup_source.clone()),
-                        valid_from: None,
-                    });
+				let spend_amount_above_limit = (100 * UNIT) + 1; // Przekroczenie limitu SmallSpender
+				let call_above_limit =
+					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+						asset_kind: Box::new(()),
+						amount: spend_amount_above_limit,
+						beneficiary: Box::new(beneficiary_lookup_source.clone()),
+						valid_from: None,
+					});
 
-                let dispatch_result_above_limit =
-                    call_above_limit.dispatch_bypass_filter(small_spender_origin);
-                assert!(
-                    dispatch_result_above_limit.is_err(),
-                    "Dispatch should fail for amount above SmallSpender limit"
-                );
+				let dispatch_result_above_limit =
+					call_above_limit.dispatch_bypass_filter(small_spender_origin);
+				assert!(
+					dispatch_result_above_limit.is_err(),
+					"Dispatch should fail for amount above SmallSpender limit"
+				);
 
-                assert!(
-                    pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit + 1).is_none(),
-                    "No new spend should be created for the failed attempt"
-                );
-            });
-    }
+				assert!(
+					pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit + 1).is_none(),
+					"No new spend should be created for the failed attempt"
+				);
+			});
+	}
 
-    /// Tests that a SmallSpender origin cannot approve a spend that exceeds its defined limit.
-    /// 1. Fund treasury.
-    /// 2. SmallSpender attempts to approve a spend amount greater than its allowance.
-    /// 3. Dispatch should fail.
-    /// 4. No spend should be created in storage.
-    /// 5. Balances should remain unchanged.
-    #[test]
-    fn small_spender_cannot_spend_above_limit() {
-        ExtBuilder::default()
-            .with_balances(vec![(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT)])
-            .build()
-            .execute_with(|| {
-                let beneficiary_lookup =
-                    <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-                let treasury_pot = treasury_account_id();
-                let small_spender_origin: TestRuntimeOrigin =
-                    pallet_custom_origins::Origin::SmallSpender.into();
+	/// Tests that a SmallSpender origin cannot approve a spend that exceeds its defined limit.
+	/// 1. Fund treasury.
+	/// 2. SmallSpender attempts to approve a spend amount greater than its allowance.
+	/// 3. Dispatch should fail.
+	/// 4. No spend should be created in storage.
+	/// 5. Balances should remain unchanged.
+	#[test]
+	fn small_spender_cannot_spend_above_limit() {
+		ExtBuilder::default()
+			.with_balances(vec![(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT)])
+			.build()
+			.execute_with(|| {
+				let beneficiary_lookup =
+					<Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+				let treasury_pot = treasury_account_id();
+				let small_spender_origin: TestRuntimeOrigin =
+					pallet_custom_origins::Origin::SmallSpender.into();
 
-                let initial_treasury_balance = 1000 * UNIT;
-                let _ = <Balances as Currency<AccountId>>::deposit_creating(
-                    &treasury_pot,
-                    initial_treasury_balance,
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance
-                );
+				let initial_treasury_balance = 1000 * UNIT;
+				let _ = <Balances as Currency<AccountId>>::deposit_creating(
+					&treasury_pot,
+					initial_treasury_balance,
+				);
+				assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
 
-                // Try to spend more than SmallSpender's limit (100 * UNIT)
-                let spend_amount_above_limit = 101 * UNIT;
-                let call_above_limit =
-                    TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-                        asset_kind: Box::new(()),
-                        amount: spend_amount_above_limit,
-                        beneficiary: Box::new(beneficiary_lookup.clone()),
-                        valid_from: None,
-                    });
+				// Try to spend more than SmallSpender's limit (100 * UNIT)
+				let spend_amount_above_limit = 101 * UNIT;
+				let call_above_limit =
+					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+						asset_kind: Box::new(()),
+						amount: spend_amount_above_limit,
+						beneficiary: Box::new(beneficiary_lookup.clone()),
+						valid_from: None,
+					});
 
-                let dispatch_result = call_above_limit.dispatch_bypass_filter(small_spender_origin);
-                assert!(
-                    dispatch_result.is_err(),
-                    "SmallSpender should not be able to spend more than their limit"
-                );
+				let dispatch_result = call_above_limit.dispatch_bypass_filter(small_spender_origin);
+				assert!(
+					dispatch_result.is_err(),
+					"SmallSpender should not be able to spend more than their limit"
+				);
 
-                // Verify that no spend was created
-                assert!(
-                    pallet_treasury::Spends::<Runtime>::get(0).is_none(),
-                    "No spend should be created for the failed attempt"
-                );
+				// Verify that no spend was created
+				assert!(
+					pallet_treasury::Spends::<Runtime>::get(0).is_none(),
+					"No spend should be created for the failed attempt"
+				);
 
-                // Verify that balances remain unchanged
-                assert_eq!(
-                    Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
-                    EXISTENTIAL_DEPOSIT
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance
-                );
+				// Verify that balances remain unchanged
+				assert_eq!(Balances::free_balance(&BENEFICIARY_ACCOUNT_ID), EXISTENTIAL_DEPOSIT);
+				assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
 
-                // Verify that no AssetSpendApproved event was emitted
-                let spend_approved_event_found = System::events().iter().any(|event_record| {
-                    matches!(
-                        event_record.event,
-                        RuntimeEvent::TreasuryPallet(
-                            pallet_treasury::Event::AssetSpendApproved { .. }
-                        )
-                    )
-                });
-                assert!(
-                    !spend_approved_event_found,
-                    "No spend should have been approved"
-                );
-            });
-    }
+				// Verify that no AssetSpendApproved event was emitted
+				let spend_approved_event_found = System::events().iter().any(|event_record| {
+					matches!(
+						event_record.event,
+						RuntimeEvent::TreasuryPallet(
+							pallet_treasury::Event::AssetSpendApproved { .. }
+						)
+					)
+				});
+				assert!(!spend_approved_event_found, "No spend should have been approved");
+			});
+	}
 
-    /// Tests the expiry of a treasury spend proposal.
-    /// 1. Root approves a spend.
-    /// 2. Time is advanced beyond the PayoutPeriod.
-    /// 3. Attempting to payout the expired spend should fail.
-    /// 4. `check_status` is called to process the expired spend.
-    /// 5. Spend should be removed from storage.
-    #[test]
-    fn treasury_spend_proposal_expires_if_not_paid_out() {
-        use crate::common::TestCommons;
+	/// Tests the expiry of a treasury spend proposal.
+	/// 1. Root approves a spend.
+	/// 2. Time is advanced beyond the PayoutPeriod.
+	/// 3. Attempting to payout the expired spend should fail.
+	/// 4. `check_status` is called to process the expired spend.
+	/// 5. Spend should be removed from storage.
+	#[test]
+	fn treasury_spend_proposal_expires_if_not_paid_out() {
+		use crate::common::TestCommons;
 
-        TestCommons::new_fast_governance_test_ext().execute_with(|| {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Set up balances after externality creation
             let _ = Balances::force_set_balance(
                 RawOrigin::Root.into(),
@@ -486,17 +448,17 @@ mod tests {
                 });
                 assert!(paid_event_found, "Paid event should be emitted for successful payout");
             });
-    }
+	}
 
-    /// Tests treasury spend behavior when funds are insufficient.
-    /// 1. Treasury is initialized with a small balance.
-    /// 2. Root proposes a spend greater than the treasury balance.
-    /// 3. Attempting to payout the spend fails due to insufficient funds.
-    /// 4. Treasury is topped up.
-    /// 5. Payout is attempted again and succeeds.
-    #[test]
-    fn treasury_spend_insufficient_funds() {
-        ExtBuilder::default()
+	/// Tests treasury spend behavior when funds are insufficient.
+	/// 1. Treasury is initialized with a small balance.
+	/// 2. Root proposes a spend greater than the treasury balance.
+	/// 3. Attempting to payout the spend fails due to insufficient funds.
+	/// 4. Treasury is topped up.
+	/// 5. Payout is attempted again and succeeds.
+	#[test]
+	fn treasury_spend_insufficient_funds() {
+		ExtBuilder::default()
             .with_balances(vec![
                 (BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
                 (TreasuryPallet::account_id(), 20 * UNIT), // Treasury starts with less than spend amount
@@ -591,16 +553,16 @@ mod tests {
                 ));
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
             });
-    }
+	}
 
-    /// Tests treasury spend behavior with a `valid_from` field set in the future.
-    /// 1. Root approves a spend with `valid_from` set to a future block.
-    /// 2. Attempting to payout before `valid_from` block fails.
-    /// 3. Time is advanced to `valid_from` block.
-    /// 4. Payout is attempted again and succeeds.
-    #[test]
-    fn treasury_spend_with_valid_from_in_future() {
-        ExtBuilder::default()
+	/// Tests treasury spend behavior with a `valid_from` field set in the future.
+	/// 1. Root approves a spend with `valid_from` set to a future block.
+	/// 2. Attempting to payout before `valid_from` block fails.
+	/// 3. Time is advanced to `valid_from` block.
+	/// 4. Payout is attempted again and succeeds.
+	#[test]
+	fn treasury_spend_with_valid_from_in_future() {
+		ExtBuilder::default()
             .with_balances(vec![
                 (BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
                 (TreasuryPallet::account_id(), 1000 * UNIT),
@@ -682,261 +644,243 @@ mod tests {
                 ));
                 assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
             });
-    }
+	}
 
-    /// Tests that a treasury spend can be paid out by an account different from the beneficiary.
-    /// 1. Root approves a spend.
-    /// 2. A different account (PROPOSER_ACCOUNT_ID) successfully calls payout.
-    /// 3. Beneficiary receives the funds.
-    #[test]
-    fn treasury_spend_payout_by_different_account() {
-        ExtBuilder::default()
-            .with_balances(vec![
-                (BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
-                (PROPOSER_ACCOUNT_ID, EXISTENTIAL_DEPOSIT), // Payer account
-                (TreasuryPallet::account_id(), 1000 * UNIT),
-            ])
-            .build()
-            .execute_with(|| {
-                System::set_block_number(1);
-                let beneficiary_lookup =
-                    <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-                let treasury_pot = treasury_account_id();
-                let initial_treasury_balance = Balances::free_balance(&treasury_pot);
-                let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
-                let initial_proposer_balance = Balances::free_balance(&PROPOSER_ACCOUNT_ID);
+	/// Tests that a treasury spend can be paid out by an account different from the beneficiary.
+	/// 1. Root approves a spend.
+	/// 2. A different account (PROPOSER_ACCOUNT_ID) successfully calls payout.
+	/// 3. Beneficiary receives the funds.
+	#[test]
+	fn treasury_spend_payout_by_different_account() {
+		ExtBuilder::default()
+			.with_balances(vec![
+				(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
+				(PROPOSER_ACCOUNT_ID, EXISTENTIAL_DEPOSIT), // Payer account
+				(TreasuryPallet::account_id(), 1000 * UNIT),
+			])
+			.build()
+			.execute_with(|| {
+				System::set_block_number(1);
+				let beneficiary_lookup =
+					<Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+				let treasury_pot = treasury_account_id();
+				let initial_treasury_balance = Balances::free_balance(&treasury_pot);
+				let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
+				let initial_proposer_balance = Balances::free_balance(&PROPOSER_ACCOUNT_ID);
 
-                let spend_amount = 50 * UNIT;
-                let spend_index = 0;
+				let spend_amount = 50 * UNIT;
+				let spend_index = 0;
 
-                let call =
-                    TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-                        asset_kind: Box::new(()),
-                        amount: spend_amount,
-                        beneficiary: Box::new(beneficiary_lookup.clone()),
-                        valid_from: None,
-                    });
-                assert_ok!(call.dispatch_bypass_filter(RawOrigin::Root.into()));
-                assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_some());
+				let call =
+					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+						asset_kind: Box::new(()),
+						amount: spend_amount,
+						beneficiary: Box::new(beneficiary_lookup.clone()),
+						valid_from: None,
+					});
+				assert_ok!(call.dispatch_bypass_filter(RawOrigin::Root.into()));
+				assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_some());
 
-                // Payout by PROPOSER_ACCOUNT_ID
-                assert_ok!(TreasuryPallet::payout(
-                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID),
-                    spend_index
-                ));
+				// Payout by PROPOSER_ACCOUNT_ID
+				assert_ok!(TreasuryPallet::payout(
+					RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID),
+					spend_index
+				));
 
-                System::assert_has_event(RuntimeEvent::TreasuryPallet(
-                    pallet_treasury::Event::Paid {
-                        index: spend_index,
-                        payment_id: 0,
-                    },
-                ));
+				System::assert_has_event(RuntimeEvent::TreasuryPallet(
+					pallet_treasury::Event::Paid { index: spend_index, payment_id: 0 },
+				));
 
-                assert_eq!(
-                    Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
-                    initial_beneficiary_balance + spend_amount
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance - spend_amount
-                );
-                // Proposer's balance should be unchanged (ignoring tx fees)
-                assert_eq!(
-                    Balances::free_balance(&PROPOSER_ACCOUNT_ID),
-                    initial_proposer_balance
-                );
+				assert_eq!(
+					Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
+					initial_beneficiary_balance + spend_amount
+				);
+				assert_eq!(
+					Balances::free_balance(&treasury_pot),
+					initial_treasury_balance - spend_amount
+				);
+				// Proposer's balance should be unchanged (ignoring tx fees)
+				assert_eq!(Balances::free_balance(&PROPOSER_ACCOUNT_ID), initial_proposer_balance);
 
-                assert_ok!(TreasuryPallet::check_status(
-                    RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID), // Can be anyone
-                    spend_index
-                ));
-                assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
-            });
-    }
+				assert_ok!(TreasuryPallet::check_status(
+					RuntimeOrigin::signed(BENEFICIARY_ACCOUNT_ID), // Can be anyone
+					spend_index
+				));
+				assert!(pallet_treasury::Spends::<Runtime>::get(spend_index).is_none());
+			});
+	}
 
-    /// Tests that a treasury spend proposal submitted via a general community referendum track
-    /// (Track 0) with an incorrect origin for that track (e.g. a regular signed origin instead of
-    /// the track's specific origin) is not approved and funds are not spent.
-    /// 1. Proposer submits a treasury spend call as a preimage.
-    /// 2. Proposer submits this preimage to Referenda Track 0 using their own signed origin
-    ///    (which is not the correct origin for Track 0 governance actions).
-    /// 3. Voter votes aye.
-    /// 4. Time is advanced through all referendum phases.
-    /// 5. Referendum should NOT be confirmed due to origin mismatch.
-    /// 6. No treasury spend should be approved or paid out.
-    #[test]
-    fn treasury_spend_via_community_referendum_origin_mismatch() {
-        ExtBuilder::default()
-            .with_balances(vec![
-                (PROPOSER_ACCOUNT_ID, 10_000 * UNIT),
-                (VOTER_ACCOUNT_ID, 10_000 * UNIT),
-                (BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
-            ])
-            .build()
-            .execute_with(|| {
-                let proposal_origin_for_preimage =
-                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID.clone());
-                let proposal_origin_for_referendum_submission =
-                    RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID.clone());
-                let voter_origin = RuntimeOrigin::signed(VOTER_ACCOUNT_ID.clone());
+	/// Tests that a treasury spend proposal submitted via a general community referendum track
+	/// (Track 0) with an incorrect origin for that track (e.g. a regular signed origin instead of
+	/// the track's specific origin) is not approved and funds are not spent.
+	/// 1. Proposer submits a treasury spend call as a preimage.
+	/// 2. Proposer submits this preimage to Referenda Track 0 using their own signed origin (which
+	///    is not the correct origin for Track 0 governance actions).
+	/// 3. Voter votes aye.
+	/// 4. Time is advanced through all referendum phases.
+	/// 5. Referendum should NOT be confirmed due to origin mismatch.
+	/// 6. No treasury spend should be approved or paid out.
+	#[test]
+	fn treasury_spend_via_community_referendum_origin_mismatch() {
+		ExtBuilder::default()
+			.with_balances(vec![
+				(PROPOSER_ACCOUNT_ID, 10_000 * UNIT),
+				(VOTER_ACCOUNT_ID, 10_000 * UNIT),
+				(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT),
+			])
+			.build()
+			.execute_with(|| {
+				let proposal_origin_for_preimage =
+					RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID.clone());
+				let proposal_origin_for_referendum_submission =
+					RuntimeOrigin::signed(PROPOSER_ACCOUNT_ID.clone());
+				let voter_origin = RuntimeOrigin::signed(VOTER_ACCOUNT_ID.clone());
 
-                let beneficiary_lookup =
-                    <Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-                let treasury_pot = treasury_account_id();
+				let beneficiary_lookup =
+					<Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
+				let treasury_pot = treasury_account_id();
 
-                let initial_treasury_balance = 1000 * UNIT;
-                let _ = <Balances as Currency<AccountId>>::deposit_creating(
-                    &treasury_pot,
-                    initial_treasury_balance,
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance
-                );
+				let initial_treasury_balance = 1000 * UNIT;
+				let _ = <Balances as Currency<AccountId>>::deposit_creating(
+					&treasury_pot,
+					initial_treasury_balance,
+				);
+				assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
 
-                let spend_amount = 50 * UNIT;
+				let spend_amount = 50 * UNIT;
 
-                let treasury_spend_call =
-                    TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-                        asset_kind: Box::new(()),
-                        amount: spend_amount,
-                        beneficiary: Box::new(beneficiary_lookup.clone()),
-                        valid_from: None,
-                    });
+				let treasury_spend_call =
+					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+						asset_kind: Box::new(()),
+						amount: spend_amount,
+						beneficiary: Box::new(beneficiary_lookup.clone()),
+						valid_from: None,
+					});
 
-                let encoded_call = treasury_spend_call.encode();
-                assert_ok!(Preimage::note_preimage(
-                    proposal_origin_for_preimage,
-                    encoded_call.clone()
-                ));
+				let encoded_call = treasury_spend_call.encode();
+				assert_ok!(Preimage::note_preimage(
+					proposal_origin_for_preimage,
+					encoded_call.clone()
+				));
 
-                let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
-                let h256_preimage_hash: sp_core::H256 = preimage_hash;
-                assert!(Preimage::have_preimage(&h256_preimage_hash));
+				let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+				let h256_preimage_hash: sp_core::H256 = preimage_hash;
+				assert!(Preimage::have_preimage(&h256_preimage_hash));
 
-                let track_id = 0u16;
-                type RuntimeTracks = <Runtime as pallet_referenda::Config>::Tracks;
+				let track_id = 0u16;
+				type RuntimeTracks = <Runtime as pallet_referenda::Config>::Tracks;
 
-                let proposal_for_referenda = Bounded::Lookup {
-                    hash: preimage_hash,
-                    len: encoded_call.len() as u32,
-                };
+				let proposal_for_referenda =
+					Bounded::Lookup { hash: preimage_hash, len: encoded_call.len() as u32 };
 
-                assert_ok!(Referenda::submit(
-                    proposal_origin_for_referendum_submission,
-                    Box::new(OriginCaller::system(RawOrigin::Signed(
-                        PROPOSER_ACCOUNT_ID.clone()
-                    ))),
-                    proposal_for_referenda.clone(),
-                    ScheduleDispatchTime::After(1u32)
-                ));
+				assert_ok!(Referenda::submit(
+					proposal_origin_for_referendum_submission,
+					Box::new(OriginCaller::system(RawOrigin::Signed(PROPOSER_ACCOUNT_ID.clone()))),
+					proposal_for_referenda.clone(),
+					ScheduleDispatchTime::After(1u32)
+				));
 
-                let referendum_index: ReferendumIndex = 0;
+				let referendum_index: ReferendumIndex = 0;
 
-                let track_info =
-                    <RuntimeTracks as TracksInfo<Balance, BlockNumber>>::info(track_id)
-                        .expect("Track info should be available for track 0");
+				let track_info =
+					<RuntimeTracks as TracksInfo<Balance, BlockNumber>>::info(track_id)
+						.expect("Track info should be available for track 0");
 
-                System::set_block_number(System::block_number() + track_info.prepare_period);
+				System::set_block_number(System::block_number() + track_info.prepare_period);
 
-                assert_ok!(ConvictionVoting::vote(
-                    voter_origin,
-                    referendum_index,
-                    pallet_conviction_voting::AccountVote::Standard {
-                        vote: pallet_conviction_voting::Vote {
-                            aye: true,
-                            conviction: pallet_conviction_voting::Conviction::None
-                        },
-                        balance: Balances::free_balance(&VOTER_ACCOUNT_ID),
-                    }
-                ));
+				assert_ok!(ConvictionVoting::vote(
+					voter_origin,
+					referendum_index,
+					pallet_conviction_voting::AccountVote::Standard {
+						vote: pallet_conviction_voting::Vote {
+							aye: true,
+							conviction: pallet_conviction_voting::Conviction::None
+						},
+						balance: Balances::free_balance(&VOTER_ACCOUNT_ID),
+					}
+				));
 
-                let mut current_block = System::block_number();
-                current_block += track_info.decision_period;
-                System::set_block_number(current_block);
-                current_block += track_info.confirm_period;
-                System::set_block_number(current_block);
-                current_block += track_info.min_enactment_period;
-                current_block += 1;
-                System::set_block_number(current_block);
+				let mut current_block = System::block_number();
+				current_block += track_info.decision_period;
+				System::set_block_number(current_block);
+				current_block += track_info.confirm_period;
+				System::set_block_number(current_block);
+				current_block += track_info.min_enactment_period;
+				current_block += 1;
+				System::set_block_number(current_block);
 
-                <Scheduler as Hooks<BlockNumber>>::on_initialize(System::block_number());
+				<Scheduler as Hooks<BlockNumber>>::on_initialize(System::block_number());
 
-                // Check that the referendum was not confirmed
-                let confirmed_event = System::events().iter().find_map(|event_record| {
-                    if let RuntimeEvent::Referenda(pallet_referenda::Event::Confirmed {
-                        index,
-                        tally,
-                    }) = &event_record.event
-                    {
-                        if *index == referendum_index {
-                            Some(tally.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                });
-                assert!(
-                    confirmed_event.is_none(),
-                    "Referendum should not be confirmed with incorrect origin"
-                );
+				// Check that the referendum was not confirmed
+				let confirmed_event = System::events().iter().find_map(|event_record| {
+					if let RuntimeEvent::Referenda(pallet_referenda::Event::Confirmed {
+						index,
+						tally,
+					}) = &event_record.event
+					{
+						if *index == referendum_index {
+							Some(tally.clone())
+						} else {
+							None
+						}
+					} else {
+						None
+					}
+				});
+				assert!(
+					confirmed_event.is_none(),
+					"Referendum should not be confirmed with incorrect origin"
+				);
 
-                // Check that funds were not spent
-                assert_eq!(
-                    Balances::free_balance(&BENEFICIARY_ACCOUNT_ID),
-                    EXISTENTIAL_DEPOSIT
-                );
-                assert_eq!(
-                    Balances::free_balance(&treasury_pot),
-                    initial_treasury_balance
-                );
+				// Check that funds were not spent
+				assert_eq!(Balances::free_balance(&BENEFICIARY_ACCOUNT_ID), EXISTENTIAL_DEPOSIT);
+				assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
 
-                // Check that there is no AssetSpendApproved event
-                let spend_approved_event_found = System::events().iter().any(|event_record| {
-                    matches!(
-                        event_record.event,
-                        RuntimeEvent::TreasuryPallet(
-                            pallet_treasury::Event::AssetSpendApproved { .. }
-                        )
-                    )
-                });
-                assert!(
-                    !spend_approved_event_found,
-                    "Treasury spend should not have been approved via this referendum track"
-                );
-            });
-    }
+				// Check that there is no AssetSpendApproved event
+				let spend_approved_event_found = System::events().iter().any(|event_record| {
+					matches!(
+						event_record.event,
+						RuntimeEvent::TreasuryPallet(
+							pallet_treasury::Event::AssetSpendApproved { .. }
+						)
+					)
+				});
+				assert!(
+					!spend_approved_event_found,
+					"Treasury spend should not have been approved via this referendum track"
+				);
+			});
+	}
 
-    /// Tests the successful flow of a treasury spend through a dedicated spender track in referenda.
-    /// 1. Proposer submits a treasury spend call as a preimage.
-    /// 2. Proposer submits this preimage to Referenda Track 2 (SmallSpender) using the correct
-    ///    SmallSpender origin.
-    /// 3. Proposer places the decision deposit.
-    /// 4. Voter votes aye.
-    /// 5. Time is advanced through all referendum phases (prepare, decision, confirm, enactment).
-    /// 6. Referendum should be confirmed and the treasury spend dispatched via scheduler.
-    /// 7. AssetSpendApproved event should be emitted.
-    /// 8. Beneficiary successfully payouts the spend.
-    /// 9. Spend is processed and removed.
-    #[test]
-    fn treasury_spend_via_dedicated_spender_track_works() {
-        const SPEND_AMOUNT: Balance = 200 * MICRO_UNIT;
-        // Use common::account_id for consistency
-        let proposer_account_id = TestCommons::account_id(123);
-        let voter_account_id = TestCommons::account_id(124);
-        let beneficiary_account_id = TestCommons::account_id(125);
+	/// Tests the successful flow of a treasury spend through a dedicated spender track in
+	/// referenda.
+	/// 1. Proposer submits a treasury spend call as a preimage.
+	/// 2. Proposer submits this preimage to Referenda Track 2 (SmallSpender) using the correct
+	///    SmallSpender origin.
+	/// 3. Proposer places the decision deposit.
+	/// 4. Voter votes aye.
+	/// 5. Time is advanced through all referendum phases (prepare, decision, confirm, enactment).
+	/// 6. Referendum should be confirmed and the treasury spend dispatched via scheduler.
+	/// 7. AssetSpendApproved event should be emitted.
+	/// 8. Beneficiary successfully payouts the spend.
+	/// 9. Spend is processed and removed.
+	#[test]
+	fn treasury_spend_via_dedicated_spender_track_works() {
+		const SPEND_AMOUNT: Balance = 200 * MICRO_UNIT;
+		// Use common::account_id for consistency
+		let proposer_account_id = TestCommons::account_id(123);
+		let voter_account_id = TestCommons::account_id(124);
+		let beneficiary_account_id = TestCommons::account_id(125);
 
-        fn set_balance(account_id: AccountId, balance: u128) {
-            let _ = Balances::force_set_balance(
-                RawOrigin::Root.into(),
-                <Runtime as frame_system::Config>::Lookup::unlookup(account_id.clone()),
-                balance * UNIT,
-            );
-        }
+		fn set_balance(account_id: AccountId, balance: u128) {
+			let _ = Balances::force_set_balance(
+				RawOrigin::Root.into(),
+				<Runtime as frame_system::Config>::Lookup::unlookup(account_id.clone()),
+				balance * UNIT,
+			);
+		}
 
-        TestCommons::new_fast_governance_test_ext().execute_with(|| {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
             // Set up balances after externality creation - massively increased to meet treasury track support requirements
             set_balance(proposer_account_id.clone(), 50000);
             set_balance(voter_account_id.clone(), 15000000); // Increased to ~15M UNIT to exceed 10M support threshold
@@ -1171,5 +1115,5 @@ mod tests {
                 initial_treasury_balance - SPEND_AMOUNT
             );
         });
-    }
+	}
 }
