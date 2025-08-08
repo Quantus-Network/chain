@@ -837,7 +837,7 @@ mod tests {
 	pub fn create_trie<L: TrieLayout>(
 		data: &[(&[u8], &[u8])],
 	) -> (MemoryDB<L::Hash>, trie_db::TrieHash<L>) {
-		let mut db = MemoryDB::new(&0u64.to_le_bytes());
+		let mut db = MemoryDB::default();
 		let mut root = Default::default();
 
 		{
@@ -887,7 +887,7 @@ mod tests {
 		{
 			let closed_form = T::trie_root(input.clone());
 			let persistent = {
-				let mut memdb = MemoryDBMeta::new(&0u64.to_le_bytes());
+				let mut memdb = MemoryDBMeta::default();
 				let mut root = Default::default();
 				let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
 				for (x, y) in input.iter().rev() {
@@ -900,7 +900,7 @@ mod tests {
 	}
 
 	fn check_iteration<T: TrieConfiguration>(input: &Vec<(&[u8], &[u8])>) {
-		let mut memdb = MemoryDBMeta::new(&0u64.to_le_bytes());
+		let mut memdb = MemoryDBMeta::default();
 		let mut root = Default::default();
 		{
 			let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
@@ -929,7 +929,7 @@ mod tests {
 
 	#[test]
 	fn default_trie_root() {
-		let mut db = MemoryDB::new(&0u64.to_le_bytes());
+		let mut db = MemoryDB::default();
 		let mut root = TrieHash::<LayoutV1>::default();
 		let mut empty = TrieDBMutBuilder::<LayoutV1>::new(&mut db, &mut root).build();
 		empty.commit();
@@ -1614,7 +1614,7 @@ mod tests {
 		];
 
 		// Build initial trie with complete database
-		let mut db = MemoryDB::new(&0u64.to_le_bytes());
+		let mut db = MemoryDB::default();
 		let mut storage_root = Default::default();
 
 		{

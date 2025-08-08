@@ -11737,6 +11737,7 @@ dependencies = [
  "criterion",
  "foldhash",
  "hash-db",
+ "hashbrown 0.15.4",
  "log",
  "memory-db",
  "nohash-hasher",

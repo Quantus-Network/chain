@@ -25,6 +25,7 @@ ahash = { workspace = true, optional = true }
 codec = { workspace = true, default-features = false, package = "parity-scale-codec" }
 foldhash = { workspace = true, default-features = false }
 hash-db = { workspace = true, default-features = false }
+hashbrown = { workspace = true }
 log = { workspace = true, default-features = false }
 memory-db = { workspace = true, default-features = false }
 nohash-hasher = { workspace = true, optional = true }
