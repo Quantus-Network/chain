@@ -56,8 +56,8 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, AssetId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
     PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
-    EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
+    RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, SchedulerOrig, System, Timestamp,
+    Vesting, DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -345,7 +345,8 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
     /// Provides weights for the pallet operations to properly charge transaction fees.
     type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
     /// The scheduler pallet used to delay execution of successful referenda.
-    type Scheduler = Scheduler;
+    /// Use the upstream unmodified scheduler for Tech Referenda specifically.
+    type Scheduler = SchedulerOrig;
     /// The currency mechanism used for handling deposits and voting.
     type Currency = Balances;
     /// The origin allowed to submit referenda - in this case any signed account.
@@ -380,12 +381,11 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 }
 
 parameter_types! {
-    // Maximum weight for scheduled calls (80% of the block's maximum weight)
-    pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
+    pub MaximumSchedulerWeight: Weight = RuntimeBlockWeights::get().max_block;
     // Maximum number of scheduled calls per block
     pub const MaxScheduledPerBlock: u32 = 50;
     // Optional postponement for calls without preimage
-    pub const NoPreimagePostponement: Option<u32> = Some(10);
+    pub const NoPreimagePostponement: Option<u32> = Some(1000);
 }
 
 impl pallet_scheduler::Config for Runtime {
@@ -402,6 +402,20 @@ impl pallet_scheduler::Config for Runtime {
     type TimeProvider = Timestamp;
     type Moment = u64;
     type TimestampBucketSize = TimestampBucketSize;
+}
+
+// Upstream original scheduler configuration (block-number-based only) used by Tech Referenda.
+impl pallet_scheduler_orig::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeOrigin = RuntimeOrigin;
+    type PalletsOrigin = OriginCaller;
+    type RuntimeCall = RuntimeCall;
+    type MaximumWeight = MaximumSchedulerWeight;
+    type ScheduleOrigin = EnsureRoot<AccountId>;
+    type MaxScheduledPerBlock = MaxScheduledPerBlock;
+    type WeightInfo = pallet_scheduler_orig::weights::SubstrateWeight<Runtime>;
+    type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
+    type Preimages = Preimage;
 }
 
 parameter_types! {

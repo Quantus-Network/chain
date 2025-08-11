@@ -274,4 +274,8 @@ mod runtime {
 
     #[runtime::pallet_index(21)]
     pub type Assets = pallet_assets;
+
+    // Upstream original scheduler pallet instance, dedicated for TechReferenda
+    #[runtime::pallet_index(22)]
+    pub type SchedulerOrig = pallet_scheduler_orig;
 }

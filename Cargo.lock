@@ -2176,7 +2176,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -2492,7 +2492,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4289,7 +4289,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4676,6 +4676,7 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2 0.10.9",
+ "signature",
 ]
 
 [[package]]
@@ -5028,7 +5029,7 @@ dependencies = [
  "multihash 0.19.3",
  "quick-protobuf",
  "rand 0.8.5",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals)",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "zeroize",
@@ -5854,6 +5855,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "memzero"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93c0d11ac30a033511ae414355d80f70d9f29a44a49140face477117a1ee90db"
+
+[[package]]
 name = "merkleized-metadata"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6144,6 +6151,19 @@ dependencies = [
  "num-traits",
  "simba",
  "typenum",
+]
+
+[[package]]
+name = "nam-tiny-hderive"
+version = "0.3.1-nam.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dfd77f274636f722e966c394b381a70233ed4c25150864a4c53d398028a6818"
+dependencies = [
+ "base58",
+ "hmac 0.12.1",
+ "k256",
+ "memzero",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -6759,7 +6779,7 @@ dependencies = [
  "log",
  "pallet-balances 40.0.1",
  "pallet-preimage",
- "pallet-scheduler",
+ "pallet-scheduler 40.1.0",
  "pallet-timestamp",
  "pallet-utility",
  "parity-scale-codec",
@@ -6788,6 +6808,24 @@ dependencies = [
  "sp-runtime",
  "sp-weights",
  "substrate-test-utils",
+]
+
+[[package]]
+name = "pallet-scheduler"
+version = "40.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29cfd9d352440dabdb58512e03c44bd09bb5deac87a6e0705a6bfe89286a722b"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
+ "sp-weights",
 ]
 
 [[package]]
@@ -6955,8 +6993,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e69bf016dc406eff7d53a7d3f7cf1c2e72c82b9088aac1118591e36dd2cd3e9"
 dependencies = [
  "bitcoin_hashes",
- "rand 0.7.3",
- "rand_core 0.5.1",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
  "serde",
  "unicode-normalization",
 ]
@@ -7688,7 +7726,7 @@ dependencies = [
 [[package]]
 name = "poseidon-resonance"
 version = "0.8.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance#fcb49a7ac9f761f3a1fe81308ccf598882f87c7a"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#46ec10579de5b854b1719ebdeac22bcfcd2ada07"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -8144,7 +8182,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "resonance-miner-api",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0",
  "rusty-crystals-hdwallet",
  "sc-basic-authorship",
  "sc-cli",
@@ -8208,7 +8246,8 @@ dependencies = [
  "pallet-recovery",
  "pallet-referenda",
  "pallet-reversible-transfers",
- "pallet-scheduler",
+ "pallet-scheduler 40.1.0",
+ "pallet-scheduler 40.2.2",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
@@ -8368,7 +8407,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8931,7 +8970,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8944,7 +8983,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9121,7 +9160,15 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#d941f4ca85e593e1dcda47b223bb297749448610"
+dependencies = [
+ "rand 0.7.3",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "rusty-crystals-dilithium"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/rusty-crystals#f90dfaa97453ecd1d2714f6f3053530a2d136325"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9130,16 +9177,19 @@ dependencies = [
 [[package]]
 name = "rusty-crystals-hdwallet"
 version = "0.1.1"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#d941f4ca85e593e1dcda47b223bb297749448610"
 dependencies = [
  "bip39",
+ "hex",
  "hex-literal",
  "hmac 0.12.1",
+ "nam-tiny-hderive",
  "poseidon-resonance",
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "sp-core",
  "thiserror 2.0.12",
@@ -12176,7 +12226,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.7",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -12831,7 +12881,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.7.3",
+ "rand 0.8.5",
  "static_assertions",
 ]
 
@@ -13568,7 +13618,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -13742,15 +13792,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.60.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
-dependencies = [
- "windows-targets 0.53.2",
 ]
 
 [[package]]

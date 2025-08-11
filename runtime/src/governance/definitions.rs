@@ -373,7 +373,7 @@ impl TechCollectiveTracksInfo {
                 max_deciding: 1,
                 decision_deposit: 10 * UNIT,
                 prepare_period: 5,
-                decision_period: 100,
+                decision_period: 30,
                 confirm_period: 5,
                 min_enactment_period: 5,
                 min_approval: pallet_referenda::Curve::LinearDecreasing {
@@ -424,19 +424,18 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
     }
 
     fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-        // Check for system origins first
+        // Map all valid voters for tech collective referenda to single track 0
         if let Some(system_origin) = id.as_system_ref() {
             match system_origin {
-                frame_system::RawOrigin::Root => return Ok(0), // Root can use track 0
-                frame_system::RawOrigin::None => return Ok(2), // None origin uses track 2
+                frame_system::RawOrigin::Root => return Ok(0),
                 _ => {}
             }
         }
 
-        // Check for signed origins - simplified version
-        if let Some(_signer) = id.as_signed() {
-            return Ok(1);
+        if id.as_signed().is_some() {
+            return Ok(0);
         }
+
         Err(())
     }
 
