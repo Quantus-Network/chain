@@ -130,7 +130,7 @@ impl pallet_mining_rewards::Config for Runtime {
 
 parameter_types! {
     /// Target block time ms
-    pub const TargetBlockTime: u64 = 20000;
+    pub const TargetBlockTime: u64 = 10000;
     pub const TimestampBucketSize: u64 = 40000; // Nyquist frequency
 }
 
@@ -143,7 +143,7 @@ impl pallet_qpow::Config for Runtime {
     type AdjustmentPeriod = ConstU32<1>;
     // This is how many blocks to include for the difficulty adjustment
     type BlockTimeHistorySize = ConstU32<25>;
-    type MaxReorgDepth = ConstU32<180>;
+    type MaxReorgDepth = ConstU32<20>;
     type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
     type MaxDistanceMultiplier = ConstU32<2>;
     type WeightInfo = ();
