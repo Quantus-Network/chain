@@ -61,13 +61,10 @@ use crate::{
 use codec::DecodeAll;
 use either::Either;
 use futures::{channel::oneshot, prelude::*};
-#[allow(deprecated)]
-use libp2p::swarm::THandlerErr;
 use libp2p::{
 	connection_limits::{ConnectionLimits, Exceeded},
 	core::{upgrade, ConnectedPoint, Endpoint},
 	identify::Info as IdentifyInfo,
-	kad::{record::Key as KademliaKey, Record},
 	multiaddr::{self, Multiaddr},
 	swarm::{
 		Config as SwarmConfig, ConnectionError, ConnectionId, DialError, Executor, ListenError,
@@ -79,6 +76,7 @@ use log::{debug, error, info, trace, warn};
 use metrics::{Histogram, MetricSources, Metrics};
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry;
+use sc_network_types::kad::{Key as KademliaKey, Record};
 
 use sc_client_api::BlockBackend;
 use sc_network_common::{
@@ -376,12 +374,7 @@ where
 					.saturating_add(10)
 			};
 
-			transport::build_transport(
-				local_identity.clone().into(),
-				config_mem,
-				network_config.yamux_window_size,
-				yamux_maximum_buffer_size,
-			)
+			transport::build_transport(local_identity.clone().into(), config_mem)
 		};
 
 		let (to_notifications, from_protocol_controllers) =
@@ -1450,17 +1443,17 @@ where
 	fn handle_worker_message(&mut self, msg: ServiceToWorkerMsg) {
 		match msg {
 			ServiceToWorkerMsg::GetValue(key) =>
-				self.network_service.behaviour_mut().get_value(key),
+				self.network_service.behaviour_mut().get_value(key.into()),
 			ServiceToWorkerMsg::PutValue(key, value) =>
-				self.network_service.behaviour_mut().put_value(key, value),
+				self.network_service.behaviour_mut().put_value(key.into(), value),
 			ServiceToWorkerMsg::PutRecordTo { record, peers, update_local_storage } => self
 				.network_service
 				.behaviour_mut()
-				.put_record_to(record, peers, update_local_storage),
+				.put_record_to(record.into(), peers, update_local_storage),
 			ServiceToWorkerMsg::StoreRecord(key, value, publisher, expires) => self
 				.network_service
 				.behaviour_mut()
-				.store_record(key, value, publisher, expires),
+				.store_record(key.into(), value, publisher, expires),
 			ServiceToWorkerMsg::AddKnownAddress(peer_id, addr) =>
 				self.network_service.behaviour_mut().add_known_address(peer_id, addr),
 			ServiceToWorkerMsg::EventStream(sender) => self.event_streams.push(sender),
@@ -1496,8 +1489,7 @@ where
 	}
 
 	/// Process the next event coming from `Swarm`.
-	#[allow(deprecated)]
-	fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourOut, THandlerErr<Behaviour<B>>>) {
+	fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourOut>) {
 		match event {
 			SwarmEvent::Behaviour(BehaviourOut::InboundRequest { protocol, result, .. }) => {
 				if let Some(metrics) = self.metrics.as_ref() {
@@ -1522,6 +1514,7 @@ where
 									Some("busy-omitted"),
 								ResponseFailure::Network(InboundFailure::ConnectionClosed) =>
 									Some("connection-closed"),
+								ResponseFailure::Network(InboundFailure::Io(_)) => Some("io"),
 							};
 
 							if let Some(reason) = reason {
@@ -1561,6 +1554,7 @@ where
 									"connection-closed",
 								RequestFailure::Network(OutboundFailure::UnsupportedProtocols) =>
 									"unsupported",
+								RequestFailure::Network(OutboundFailure::Io(_)) => "io",
 							};
 
 							metrics
@@ -1727,15 +1721,6 @@ where
 					};
 					let reason = match cause {
 						Some(ConnectionError::IO(_)) => "transport-error",
-						Some(ConnectionError::Handler(Either::Left(Either::Left(
-							Either::Left(Either::Right(
-								NotifsHandlerError::SyncNotificationsClogged,
-							)),
-						)))) => "sync-notifications-clogged",
-						Some(ConnectionError::Handler(Either::Left(Either::Left(
-							Either::Right(Either::Left(_)),
-						)))) => "ping-timeout",
-						Some(ConnectionError::Handler(_)) => "protocol-error",
 						Some(ConnectionError::KeepAliveTimeout) => "keep-alive-timeout",
 						None => "actively-closed",
 					};
@@ -1774,7 +1759,12 @@ where
 						not_reported.then(|| self.boot_node_ids.get(&peer_id)).flatten()
 					{
 						if let DialError::WrongPeerId { obtained, endpoint } = &error {
-							if let ConnectedPoint::Dialer { address, role_override: _ } = endpoint {
+							if let ConnectedPoint::Dialer {
+								address,
+								role_override: _,
+								port_use: _,
+							} = endpoint
+							{
 								let address_without_peer_id = parse_addr(address.clone().into())
 									.map_or_else(|_| address.clone(), |r| r.1.into());
 
@@ -1887,6 +1877,21 @@ where
 				if let Some(metrics) = self.metrics.as_ref() {
 					metrics.listeners_errors_total.inc();
 				}
+			},
+			SwarmEvent::NewExternalAddrCandidate { address } => {
+				trace!(target: "sub-libp2p", "Libp2p => NewExternalAddrCandidate: {address:?}");
+			},
+			SwarmEvent::ExternalAddrConfirmed { address } => {
+				trace!(target: "sub-libp2p", "Libp2p => ExternalAddrConfirmed: {address:?}");
+			},
+			SwarmEvent::ExternalAddrExpired { address } => {
+				trace!(target: "sub-libp2p", "Libp2p => ExternalAddrExpired: {address:?}");
+			},
+			SwarmEvent::NewExternalAddrOfPeer { peer_id, address } => {
+				trace!(target: "sub-libp2p", "Libp2p => NewExternalAddrOfPeer({peer_id:?}): {address:?}")
+			},
+			event => {
+				warn!(target: "sub-libp2p", "New unknown SwarmEvent libp2p event: {event:?}");
 			},
 		}
 	}

@@ -49,8 +49,6 @@ pub use libp2p::bandwidth::BandwidthSinks;
 pub fn build_transport(
 	keypair: libp2p_identity::Keypair,
 	memory_only: bool,
-	yamux_window_size: Option<u32>,
-	yamux_maximum_buffer_size: usize,
 ) -> (Boxed<(PeerId, StreamMuxerBox)>, Arc<BandwidthSinks>) {
 	// Build the base layer of the transport.
 	let transport = if !memory_only {
@@ -81,19 +79,7 @@ pub fn build_transport(
 	};
 
 	let authentication_config = noise::Config::new(&keypair).expect("Can create noise config. qed");
-	let multiplexing_config = {
-		let mut yamux_config = libp2p::yamux::Config::default();
-		// Enable proper flow-control: window updates are only sent when
-		// buffered data has been consumed.
-		yamux_config.set_window_update_mode(libp2p::yamux::WindowUpdateMode::on_read());
-		yamux_config.set_max_buffer_size(yamux_maximum_buffer_size);
-
-		if let Some(yamux_window_size) = yamux_window_size {
-			yamux_config.set_receive_window_size(yamux_window_size);
-		}
-
-		yamux_config
-	};
+	let multiplexing_config = libp2p::yamux::Config::default();
 
 	let transport = transport
 		.upgrade(upgrade::Version::V1Lazy)

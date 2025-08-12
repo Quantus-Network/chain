@@ -531,7 +531,7 @@ pub enum BitswapError {
 //                                 0x70,
 //                                 cid::multihash::Multihash::wrap(
 //                                     u64::from(cid::multihash::Code::Blake2b256),
-//
+//                                     
 // &sp_crypto_hashing::blake2_256(&ext.encode()[pattern_index..]),                                 )
 //                                 .unwrap(),
 //                             )
