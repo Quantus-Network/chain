@@ -116,6 +116,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anes"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
+
+[[package]]
 name = "anstream"
 version = "0.6.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -192,6 +198,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "arbitrary"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
+dependencies = [
+ "derive_arbitrary",
 ]
 
 [[package]]
@@ -589,6 +604,28 @@ dependencies = [
  "signal-hook-registry",
  "slab",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite 0.2.16",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -1058,6 +1095,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cast"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
+
+[[package]]
 name = "cc"
 version = "1.2.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1156,6 +1199,33 @@ dependencies = [
  "num-traits",
  "wasm-bindgen",
  "windows-link",
+]
+
+[[package]]
+name = "ciborium"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42e69ffd6f0917f5c029256a24d0161db17cea3997d185db0d35926308770f0e"
+dependencies = [
+ "ciborium-io",
+ "ciborium-ll",
+ "serde",
+]
+
+[[package]]
+name = "ciborium-io"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05afea1e0a06c9be33d539b876f1ce3692f4afea2cb41f740e7743225ed1c757"
+
+[[package]]
+name = "ciborium-ll"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
+dependencies = [
+ "ciborium-io",
+ "half",
 ]
 
 [[package]]
@@ -1601,6 +1671,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "criterion"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2b12d017a929603d80db1831cd3a24082f8137ce19c69e6447f54f5fc8d692f"
+dependencies = [
+ "anes",
+ "cast",
+ "ciborium",
+ "clap",
+ "criterion-plot",
+ "futures 0.3.31",
+ "is-terminal",
+ "itertools 0.10.5",
+ "num-traits",
+ "once_cell",
+ "oorandom",
+ "plotters",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tinytemplate",
+ "tokio 1.46.0",
+ "walkdir",
+]
+
+[[package]]
+name = "criterion-plot"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
+dependencies = [
+ "cast",
+ "itertools 0.10.5",
+]
+
+[[package]]
 name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1724,9 +1832,9 @@ dependencies = [
  "sp-crypto-hashing",
  "sp-inherents",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-storage",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "tracing",
 ]
 
@@ -1743,7 +1851,7 @@ dependencies = [
  "scale-info",
  "sp-api",
  "sp-runtime",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "staging-xcm",
 ]
 
@@ -1759,7 +1867,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-inherents",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
 ]
 
 [[package]]
@@ -1770,7 +1878,7 @@ checksum = "0e89a46c3a18f3e0b38a308d30a4252516e3a6d41f95071562b68d94e9964ee3"
 dependencies = [
  "sp-externalities",
  "sp-runtime-interface",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
 ]
 
 [[package]]
@@ -1788,7 +1896,7 @@ dependencies = [
  "sc-client-api",
  "sp-api",
  "sp-blockchain",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-version",
  "thiserror 1.0.69",
 ]
@@ -1803,8 +1911,8 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-primitives",
  "sp-runtime",
- "sp-state-machine",
- "sp-trie",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
 ]
 
 [[package]]
@@ -2100,6 +2208,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_arbitrary"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30542c1ad912e0e3d22a1935c290e12e8a29d704a420177a31faad4a601a0800"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2131,6 +2250,12 @@ dependencies = [
  "quote",
  "syn 2.0.104",
 ]
+
+[[package]]
+name = "diff"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
 name = "difflib"
@@ -2845,11 +2970,11 @@ dependencies = [
  "sp-io",
  "sp-keystore",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-storage",
  "sp-timestamp",
  "sp-transaction-pool",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "sp-version",
  "sp-wasm-interface",
  "subxt",
@@ -2964,10 +3089,10 @@ dependencies = [
  "sp-metadata-ir",
  "sp-runtime",
  "sp-staking",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-std",
  "sp-tracing",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "sp-weights",
  "static_assertions",
  "tt-call",
@@ -3460,6 +3585,16 @@ dependencies = [
  "tokio 1.46.0",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "half"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "459196ed295495a68f7d7fe1d84f6c4b7ff0e21fe3017b2f283c6fac3ad803c9"
+dependencies = [
+ "cfg-if",
+ "crunchy",
 ]
 
 [[package]]
@@ -4704,6 +4839,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b286e6b663fb926e1eeb68528e69cb70ed46c6d65871a21b2215ae8154c6d3c"
 dependencies = [
  "primitive-types 0.12.2",
+ "tiny-keccak",
+]
+
+[[package]]
+name = "keccak-hasher"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19ea4653859ca2266a86419d3f592d3f22e7a854b482f99180d2498507902048"
+dependencies = [
+ "hash-db",
+ "hash256-std-hasher",
  "tiny-keccak",
 ]
 
@@ -6486,6 +6632,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
+name = "oorandom"
+version = "11.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+
+[[package]]
 name = "opaque-debug"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6955,8 +7107,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e69bf016dc406eff7d53a7d3f7cf1c2e72c82b9088aac1118591e36dd2cd3e9"
 dependencies = [
  "bitcoin_hashes",
- "rand 0.7.3",
- "rand_core 0.5.1",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
  "serde",
  "unicode-normalization",
 ]
@@ -7317,6 +7469,34 @@ version = "1.0.0"
 source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
 
 [[package]]
+name = "plotters"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747"
+dependencies = [
+ "num-traits",
+ "plotters-backend",
+ "plotters-svg",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "plotters-backend"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a"
+
+[[package]]
+name = "plotters-svg"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
+dependencies = [
+ "plotters-backend",
+]
+
+[[package]]
 name = "polkadot-core-primitives"
 version = "16.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7366,7 +7546,7 @@ dependencies = [
  "polkadot-primitives",
  "rand 0.8.5",
  "sc-authority-discovery",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-types",
  "sp-runtime",
  "strum 0.26.3",
@@ -7418,7 +7598,7 @@ dependencies = [
  "polkadot-primitives",
  "polkadot-statement-table",
  "sc-client-api",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-types",
  "sc-transaction-pool-api",
  "smallvec",
@@ -7698,7 +7878,7 @@ dependencies = [
  "sp-core",
  "sp-runtime",
  "sp-storage",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
 ]
 
 [[package]]
@@ -7794,6 +7974,16 @@ checksum = "72dd2d6d381dfb73a193c7fca536518d7caee39fc8503f74e7dc0be0531b425c"
 dependencies = [
  "predicates-core",
  "termtree",
+]
+
+[[package]]
+name = "pretty_assertions"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
+dependencies = [
+ "diff",
+ "yansi",
 ]
 
 [[package]]
@@ -8153,7 +8343,7 @@ dependencies = [
  "sc-consensus-pow",
  "sc-consensus-qpow",
  "sc-executor",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-offchain",
  "sc-service",
  "sc-telemetry",
@@ -9121,7 +9311,7 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#d941f4ca85e593e1dcda47b223bb297749448610"
+source = "git+https://github.com/Quantus-Network/rusty-crystals#f90dfaa97453ecd1d2714f6f3053530a2d136325"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9222,7 +9412,7 @@ dependencies = [
  "prost-build",
  "rand 0.8.5",
  "sc-client-api",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-types",
  "sp-api",
  "sp-authority-discovery",
@@ -9270,7 +9460,7 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-runtime",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
 ]
 
 [[package]]
@@ -9287,7 +9477,7 @@ dependencies = [
  "sc-chain-spec-derive",
  "sc-client-api",
  "sc-executor",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-telemetry",
  "serde",
  "serde_json",
@@ -9297,7 +9487,7 @@ dependencies = [
  "sp-genesis-builder",
  "sp-io",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-tracing",
 ]
 
@@ -9337,7 +9527,7 @@ dependencies = [
  "sc-client-db",
  "sc-keystore",
  "sc-mixnet",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-service",
  "sc-telemetry",
  "sc-tracing",
@@ -9377,10 +9567,10 @@ dependencies = [
  "sp-database",
  "sp-externalities",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-statement-store",
  "sp-storage",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "substrate-prometheus-endpoint",
 ]
 
@@ -9407,8 +9597,8 @@ dependencies = [
  "sp-core",
  "sp-database",
  "sp-runtime",
- "sp-state-machine",
- "sp-trie",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
 ]
 
 [[package]]
@@ -9431,7 +9621,7 @@ dependencies = [
  "sp-consensus",
  "sp-core",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
 ]
@@ -9501,7 +9691,7 @@ dependencies = [
  "sp-io",
  "sp-panic-handler",
  "sp-runtime-interface",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "sp-version",
  "sp-wasm-interface",
  "tracing",
@@ -9563,7 +9753,7 @@ dependencies = [
  "futures-timer",
  "log",
  "sc-client-api",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-common",
  "sc-network-sync",
  "sp-blockchain",
@@ -9603,7 +9793,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.4",
  "sc-client-api",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-types",
  "sc-transaction-pool-api",
  "sp-api",
@@ -9613,6 +9803,65 @@ dependencies = [
  "sp-mixnet",
  "sp-runtime",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "sc-network"
+version = "0.48.4"
+dependencies = [
+ "array-bytes",
+ "assert_matches",
+ "async-channel 1.9.0",
+ "async-trait",
+ "asynchronous-codec",
+ "bytes 1.10.1",
+ "cid 0.9.0",
+ "criterion",
+ "either",
+ "fnv",
+ "futures 0.3.31",
+ "futures-timer",
+ "ip_network",
+ "libp2p 0.52.4",
+ "libp2p-identity",
+ "linked_hash_set",
+ "log",
+ "mockall 0.11.4",
+ "multistream-select",
+ "once_cell",
+ "parity-scale-codec",
+ "parking_lot 0.12.4",
+ "partial_sort",
+ "pin-project",
+ "prost 0.12.6",
+ "prost-build",
+ "rand 0.8.5",
+ "sc-block-builder",
+ "sc-client-api",
+ "sc-network-common",
+ "sc-network-types",
+ "sc-utils",
+ "schnellru",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "sp-arithmetic",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-core",
+ "sp-crypto-hashing",
+ "sp-runtime",
+ "substrate-prometheus-endpoint",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio 1.46.0",
+ "tokio-stream",
+ "tokio-test",
+ "tokio-util",
+ "unsigned-varint 0.7.2",
+ "void",
+ "wasm-timer",
+ "zeroize",
 ]
 
 [[package]]
@@ -9699,7 +9948,7 @@ dependencies = [
  "prost 0.12.6",
  "prost-build",
  "sc-client-api",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-types",
  "sp-blockchain",
  "sp-core",
@@ -9726,7 +9975,7 @@ dependencies = [
  "prost-build",
  "sc-client-api",
  "sc-consensus",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-common",
  "sc-network-types",
  "sc-utils",
@@ -9754,7 +10003,7 @@ dependencies = [
  "futures 0.3.31",
  "log",
  "parity-scale-codec",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-common",
  "sc-network-sync",
  "sc-network-types",
@@ -9805,7 +10054,7 @@ dependencies = [
  "rand 0.8.5",
  "rustls 0.23.28",
  "sc-client-api",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-common",
  "sc-network-types",
  "sc-transaction-pool-api",
@@ -9966,7 +10215,7 @@ dependencies = [
  "sc-executor",
  "sc-informant",
  "sc-keystore",
- "sc-network",
+ "sc-network 0.48.4 (git+https://github.com/Quantus-Network/sc-network-pqc)",
  "sc-network-common",
  "sc-network-light",
  "sc-network-sync",
@@ -9992,11 +10241,11 @@ dependencies = [
  "sp-keystore",
  "sp-runtime",
  "sp-session",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-storage",
  "sp-transaction-pool",
  "sp-transaction-storage-proof",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "sp-version",
  "static_init",
  "substrate-prometheus-endpoint",
@@ -10907,8 +11156,8 @@ dependencies = [
  "sp-metadata-ir",
  "sp-runtime",
  "sp-runtime-interface",
- "sp-state-machine",
- "sp-trie",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "sp-version",
  "thiserror 1.0.69",
 ]
@@ -10995,7 +11244,7 @@ dependencies = [
  "sp-core",
  "sp-database",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "thiserror 1.0.69",
  "tracing",
 ]
@@ -11012,7 +11261,7 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-runtime",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "thiserror 1.0.69",
 ]
 
@@ -11237,9 +11486,9 @@ dependencies = [
  "sp-externalities",
  "sp-keystore",
  "sp-runtime-interface",
- "sp-state-machine",
+ "sp-state-machine 0.44.0 (git+https://github.com/Quantus-Network/zk-state-machine)",
  "sp-tracing",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "tracing",
  "tracing-core",
 ]
@@ -11356,7 +11605,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-std",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "sp-weights",
  "tracing",
  "tuplex",
@@ -11428,6 +11677,30 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.44.0"
+dependencies = [
+ "arbitrary",
+ "array-bytes",
+ "assert_matches",
+ "hash-db",
+ "log",
+ "parity-scale-codec",
+ "parking_lot 0.12.4",
+ "pretty_assertions",
+ "rand 0.8.5",
+ "smallvec",
+ "sp-core",
+ "sp-externalities",
+ "sp-panic-handler",
+ "sp-runtime",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
+ "thiserror 1.0.69",
+ "tracing",
+ "trie-db",
+]
+
+[[package]]
+name = "sp-state-machine"
+version = "0.44.0"
 source = "git+https://github.com/Quantus-Network/zk-state-machine#06d1e9545428b57aa56e8997c7bf24eaeb48a103"
 dependencies = [
  "hash-db",
@@ -11439,7 +11712,7 @@ dependencies = [
  "sp-core",
  "sp-externalities",
  "sp-panic-handler",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
  "thiserror 1.0.69",
  "tracing",
  "trie-db",
@@ -11536,7 +11809,34 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-runtime",
- "sp-trie",
+ "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
+]
+
+[[package]]
+name = "sp-trie"
+version = "38.0.0"
+dependencies = [
+ "ahash",
+ "array-bytes",
+ "criterion",
+ "hash-db",
+ "log",
+ "memory-db",
+ "nohash-hasher",
+ "parity-scale-codec",
+ "parking_lot 0.12.4",
+ "rand 0.8.5",
+ "scale-info",
+ "schnellru",
+ "sp-core",
+ "sp-externalities",
+ "sp-runtime",
+ "thiserror 1.0.69",
+ "tracing",
+ "trie-bench",
+ "trie-db",
+ "trie-root",
+ "trie-standardmap",
 ]
 
 [[package]]
@@ -12360,6 +12660,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinytemplate"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be4d6b5f19ff7664e8c98d03e2139cb510db9b0a60b55f8e8709b689d939b6bc"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tinyvec"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12468,6 +12778,19 @@ dependencies = [
  "pin-project-lite 0.2.16",
  "tokio 1.46.0",
  "tokio-util",
+]
+
+[[package]]
+name = "tokio-test"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
+dependencies = [
+ "async-stream",
+ "bytes 1.10.1",
+ "futures-core",
+ "tokio 1.46.0",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -12693,6 +13016,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "trie-bench"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3092f400e9f7e3ce8c1756016a8b6287163ab7a11dd47d82169260cb4cc2d680"
+dependencies = [
+ "criterion",
+ "hash-db",
+ "keccak-hasher",
+ "memory-db",
+ "parity-scale-codec",
+ "trie-db",
+ "trie-root",
+ "trie-standardmap",
+]
+
+[[package]]
 name = "trie-db"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12711,6 +13050,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4ed310ef5ab98f5fa467900ed906cb9232dd5376597e00fd4cba2a449d06c0b"
 dependencies = [
  "hash-db",
+]
+
+[[package]]
+name = "trie-standardmap"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "684aafb332fae6f83d7fe10b3fbfdbe39a1b3234c4e2a618f030815838519516"
+dependencies = [
+ "hash-db",
+ "keccak-hasher",
 ]
 
 [[package]]
@@ -12831,7 +13180,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.7.3",
+ "rand 0.8.5",
  "static_assertions",
 ]
 
@@ -14189,6 +14538,12 @@ dependencies = [
  "static_assertions",
  "web-time",
 ]
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yap"

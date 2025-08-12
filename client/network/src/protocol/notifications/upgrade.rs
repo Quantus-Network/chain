@@ -18,14 +18,14 @@
 
 #[cfg(test)]
 pub(crate) use self::notifications::{
-    NotificationsInOpen, NotificationsInSubstreamHandshake, NotificationsOutOpen,
+	NotificationsInOpen, NotificationsInSubstreamHandshake, NotificationsOutOpen,
 };
 
 pub use self::{
-    collec::UpgradeCollec,
-    notifications::{
-        NotificationsIn, NotificationsInSubstream, NotificationsOut, NotificationsOutSubstream,
-    },
+	collec::UpgradeCollec,
+	notifications::{
+		NotificationsIn, NotificationsInSubstream, NotificationsOut, NotificationsOutSubstream,
+	},
 };
 
 mod collec;

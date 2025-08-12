@@ -1577,7 +1577,8 @@ mod tests {
 	}
 
 	fn test_compact(remote_proof: StorageProof, _remote_root: &sp_core::H256) -> StorageProof {
-		// Simply return the original storage proof since we're not using compact proofs for the zk-circuit
+		// Simply return the original storage proof since we're not using compact proofs for the
+		// zk-circuit
 		remote_proof
 	}
 
@@ -1643,8 +1644,6 @@ mod tests {
 		assert_eq!(local_result3.into_iter().collect::<Vec<_>>(), vec![(b"dummy".to_vec(), None)]);
 	}
 
-
-
 	#[test]
 	fn child_read_compact_minimal_repro() {
 		// Reproduce the failing case with fixed seed
@@ -1683,8 +1682,7 @@ mod tests {
 			storage.insert(Some(child_info), items);
 		}
 
-		let trie: InMemoryBackend<BlakeTwo256> =
-			(storage.clone(), StateVersion::default()).into();
+		let trie: InMemoryBackend<BlakeTwo256> = (storage.clone(), StateVersion::default()).into();
 		let trie_root = *trie.root();
 		println!("Trie root: {:?}", trie_root);
 
@@ -1991,7 +1989,6 @@ mod tests {
 
 		assert_eq!(nb_loop, 13);
 	}
-
 
 	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
 		// this root will be queried

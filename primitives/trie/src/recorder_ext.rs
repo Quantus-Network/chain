@@ -26,25 +26,22 @@ use trie_db::{Recorder, TrieLayout};
 /// Used to deduplicate some logic.
 pub trait RecorderExt<L: TrieLayout>
 where
-    Self: Sized,
+	Self: Sized,
 {
-    /// Convert the recorder into a `BTreeSet`.
-    fn into_set(self) -> BTreeSet<Vec<u8>>;
+	/// Convert the recorder into a `BTreeSet`.
+	fn into_set(self) -> BTreeSet<Vec<u8>>;
 
-    /// Convert the recorder into a `RawStorageProof`, avoiding duplicate nodes.
-    fn into_raw_storage_proof(self) -> RawStorageProof {
-        // The recorder may record the same trie node multiple times,
-        // and we don't want duplicate nodes in our proofs
-        // => let's deduplicate it by collecting to a BTreeSet first
-        self.into_set().into_iter().collect()
-    }
+	/// Convert the recorder into a `RawStorageProof`, avoiding duplicate nodes.
+	fn into_raw_storage_proof(self) -> RawStorageProof {
+		// The recorder may record the same trie node multiple times,
+		// and we don't want duplicate nodes in our proofs
+		// => let's deduplicate it by collecting to a BTreeSet first
+		self.into_set().into_iter().collect()
+	}
 }
 
 impl<L: TrieLayout> RecorderExt<L> for Recorder<L> {
-    fn into_set(mut self) -> BTreeSet<Vec<u8>> {
-        self.drain()
-            .into_iter()
-            .map(|record| record.data)
-            .collect::<BTreeSet<_>>()
-    }
+	fn into_set(mut self) -> BTreeSet<Vec<u8>> {
+		self.drain().into_iter().map(|record| record.data).collect::<BTreeSet<_>>()
+	}
 }
