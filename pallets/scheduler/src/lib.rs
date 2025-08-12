@@ -72,7 +72,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
 use codec::{Decode, Encode, MaxEncodedLen};
-use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData, u32};
+use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
 use frame_support::{
 	dispatch::{DispatchResult, GetDispatchInfo, Parameter, RawOrigin},
 	ensure,
@@ -205,6 +205,9 @@ pub mod pallet {
 	/// `system::Config` should always be included in our implied traits.
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
+		/// The overarching event type.
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
 		/// The aggregated origin which the dispatch will take.
 		type RuntimeOrigin: OriginTrait<PalletsOrigin = Self::PalletsOrigin>
 			+ From<Self::PalletsOrigin>
@@ -974,7 +977,7 @@ impl<T: Config> Pallet<T> {
 				&mut executed,
 				BlockNumberOrTimestamp::Timestamp(normalized_time),
 				BlockNumberOrTimestamp::Timestamp(when),
-				u32::MAX,
+				u32::max_value(),
 			) {
 				incomplete_since = incomplete_since.min(when);
 			}
@@ -1004,7 +1007,7 @@ impl<T: Config> Pallet<T> {
 		max: u32,
 	) -> bool {
 		let mut agenda = Agenda::<T>::get(when);
-		log::debug!(target: "scheduler", "service_agenda: agenda: {agenda:?}");
+		log::debug!(target: "scheduler", "service_agenda: agenda: {:?}", agenda);
 		let mut ordered = agenda
 			.iter()
 			.enumerate()

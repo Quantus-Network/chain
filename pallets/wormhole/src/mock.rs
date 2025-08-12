@@ -69,6 +69,7 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = ();
 	type RuntimeFreezeReason = ();
 	type WeightInfo = ();
@@ -91,6 +92,7 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 	type WeightToFee = IdentityFee<Balance>;
 	type Currency = Balances;

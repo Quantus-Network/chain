@@ -94,6 +94,9 @@ pub mod pallet {
 			                 + TryInto<pallet_balances::Call<Self>>,
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
 	{
+		/// The overarching runtime event type.
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
 		type Scheduler: ScheduleNamed<
 			BlockNumberFor<Self>,

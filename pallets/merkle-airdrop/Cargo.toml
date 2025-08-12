@@ -48,7 +48,6 @@ std = [
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
-	"log/std",
 	"pallet-balances/std",
 	"pallet-vesting?/std",
 	"poseidon-resonance/std",

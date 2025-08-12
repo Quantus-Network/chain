@@ -60,7 +60,9 @@ pub mod logger {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config {}
+	pub trait Config: frame_system::Config {
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -141,7 +143,9 @@ impl system::Config for Test {
 	type BaseCallFilter = BaseFilter;
 	type Block = Block;
 }
-impl logger::Config for Test {}
+impl logger::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+}
 ord_parameter_types! {
 	pub const One: u64 = 1;
 }
@@ -252,6 +256,7 @@ impl Time for MockTimestamp {
 }
 
 impl Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeOrigin = RuntimeOrigin;
 	type PalletsOrigin = OriginCaller;
 	type RuntimeCall = RuntimeCall;

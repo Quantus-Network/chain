@@ -1,6 +1,6 @@
 //! Custom signed extensions for the runtime.
 use crate::*;
-use codec::{Decode, DecodeWithMemTracking, Encode};
+use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 
@@ -15,7 +15,7 @@ use sp_runtime::{traits::TransactionExtension, Weight};
 /// This extension is used to intercept delayed transactions for users that opted in
 /// for reversible transactions. Based on the policy set by the user, the transaction
 /// will either be denied or intercepted and delayed.
-#[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
+#[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug)]
 #[scale_info(skip_type_params(T))]
 pub struct ReversibleTransactionExtension<T: pallet_reversible_transfers::Config>(PhantomData<T>);
 

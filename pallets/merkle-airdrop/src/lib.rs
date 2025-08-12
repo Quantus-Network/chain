@@ -26,7 +26,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use codec::{Decode, Encode, MaxEncodedLen};
 use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
 
@@ -65,17 +65,7 @@ pub type MerkleHash = [u8; 32];
 /// Airdrop ID type
 pub type AirdropId = u32;
 
-#[derive(
-	Encode,
-	Decode,
-	PartialEq,
-	Eq,
-	Clone,
-	TypeInfo,
-	RuntimeDebug,
-	MaxEncodedLen,
-	DecodeWithMemTracking,
-)]
+#[derive(Encode, Decode, PartialEq, Eq, Clone, TypeInfo, RuntimeDebug, MaxEncodedLen)]
 pub struct AirdropMetadata<BlockNumber, Balance, AccountId> {
 	/// Merkle root of the airdrop
 	pub merkle_root: MerkleHash,
@@ -119,6 +109,9 @@ pub mod pallet {
 	/// Configuration trait for the Merkle airdrop pallet.
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
+		/// The overarching event type.
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
 		/// The vesting mechanism.
 		type Vesting: VestedTransfer<Self::AccountId, Moment = BlockNumberFor<Self>>
 			+ VestingSchedule<Self::AccountId, Moment = BlockNumberFor<Self>>;

@@ -2,7 +2,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 /// Scheduler related traits and types.
-use codec::{Codec, Decode, DecodeWithMemTracking, Encode, EncodeLike, MaxEncodedLen};
+use codec::{Codec, Decode, Encode, EncodeLike, MaxEncodedLen};
 use frame_support::{
 	traits::{
 		schedule::{self, v3::TaskName, DispatchTime as DispatchBlock},
@@ -38,7 +38,6 @@ pub struct IncompatibleTypesError;
 	MaxEncodedLen,
 	Ord,
 	PartialOrd,
-	DecodeWithMemTracking,
 )]
 pub enum BlockNumberOrTimestamp<BlockNumber, Moment> {
 	BlockNumber(BlockNumber),
@@ -107,18 +106,7 @@ where
 /// This is an extended version of `frame_support::traits::schedule::DispatchTime` which allows
 /// for a task to be scheduled at or close to specific timestamps. This is useful for chains that
 /// does not have a fixed block time, such as PoW chains.
-#[derive(
-	Encode,
-	Decode,
-	Copy,
-	Clone,
-	PartialEq,
-	Eq,
-	RuntimeDebug,
-	TypeInfo,
-	MaxEncodedLen,
-	DecodeWithMemTracking,
-)]
+#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub enum DispatchTime<BlockNumber, Moment> {
 	/// At specified block.
 	At(BlockNumber),

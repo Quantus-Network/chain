@@ -38,8 +38,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin, VariantCountOf,
-		WithdrawReasons,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
+		VariantCountOf, WithdrawReasons,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -52,6 +52,7 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
+use pallet_referenda::impl_tracksinfo_get;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
@@ -128,6 +129,7 @@ parameter_types! {
 }
 
 impl pallet_mining_rewards::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MinerBlockReward = ConstU128<{ 10 * UNIT }>; // 10 tokens
@@ -143,6 +145,7 @@ parameter_types! {
 }
 
 impl pallet_qpow::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	// NOTE: InitialDistance will be shifted left by this amount: higher is easier
 	type InitialDistanceThresholdExponent = ConstU32<502>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
@@ -161,6 +164,7 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 	type WeightToFee = IdentityFee<Balance>;
@@ -186,6 +190,8 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Runtime {
+	/// The ubiquitous event type.
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
@@ -221,15 +227,13 @@ impl Get<Balance> for DynamicMaxTurnout {
 }
 
 impl pallet_conviction_voting::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_conviction_voting::weights::SubstrateWeight<Runtime>;
 	type Currency = Balances;
-	type RuntimeEvent = RuntimeEvent;
 	type VoteLockingPeriod = VoteLockingPeriod;
 	type MaxVotes = MaxVotes;
 	type MaxTurnout = DynamicMaxTurnout;
 	type Polls = Referenda;
-	type BlockNumberProvider = System;
-	type VotingHooks = ();
 }
 
 parameter_types! {
@@ -238,12 +242,14 @@ parameter_types! {
 }
 
 impl pallet_preimage::Config for Runtime {
-	type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_preimage::weights::SubstrateWeight<Runtime>;
 	type Currency = Balances;
 	type ManagerOrigin = EnsureRoot<AccountId>;
 	type Consideration = PreimageDeposit;
 }
+
+impl_tracksinfo_get!(CommunityTracksInfo, Balance, BlockNumber);
 
 parameter_types! {
 	// Default voting period (28 days)
@@ -260,9 +266,10 @@ parameter_types! {
 }
 
 impl pallet_referenda::Config for Runtime {
+	/// The overarching event type for the runtime.
+	type RuntimeEvent = RuntimeEvent;
 	/// Provides weights for the pallet operations to properly charge transaction fees.
 	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
-	type RuntimeEvent = RuntimeEvent;
 	/// The type of call dispatched by referenda upon approval and execution.
 	type RuntimeCall = RuntimeCall;
 	/// The scheduler pallet used to delay execution of successful referenda.
@@ -299,8 +306,6 @@ impl pallet_referenda::Config for Runtime {
 	type Tracks = CommunityTracksInfo;
 	/// The pallet used to store preimages (detailed proposal content) for referenda.
 	type Preimages = Preimage;
-	/// Blocknumber provider
-	type BlockNumberProvider = System;
 }
 
 parameter_types! {
@@ -341,9 +346,12 @@ parameter_types! {
 
 pub type TechReferendaInstance = pallet_referenda::Instance1;
 
+impl_tracksinfo_get!(TechCollectiveTracksInfo, Balance, BlockNumber);
+
 impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 	/// The type of call dispatched by referenda upon approval and execution.
 	type RuntimeCall = RuntimeCall;
+	/// The overarching event type for the runtime.
 	type RuntimeEvent = RuntimeEvent;
 	/// Provides weights for the pallet operations to properly charge transaction fees.
 	type WeightInfo = pallet_referenda::weights::SubstrateWeight<Runtime>;
@@ -381,8 +389,6 @@ impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
 	type Tracks = TechCollectiveTracksInfo;
 	/// The pallet used to store preimages (detailed proposal content) for referenda.
 	type Preimages = Preimage;
-	/// Blocknumber provider
-	type BlockNumberProvider = System;
 }
 
 parameter_types! {
@@ -395,6 +401,7 @@ parameter_types! {
 }
 
 impl pallet_scheduler::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeOrigin = RuntimeOrigin;
 	type PalletsOrigin = OriginCaller;
 	type RuntimeCall = RuntimeCall;
@@ -425,8 +432,8 @@ impl pallet_transaction_payment::Config for Runtime {
 }
 
 impl pallet_sudo::Config for Runtime {
-	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
@@ -438,8 +445,8 @@ parameter_types! {
 }
 
 impl pallet_vesting::Config for Runtime {
-	type Currency = Balances;
 	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
 	type MinVestedTransfer = MinVestedTransfer;
 	type BlockNumberToBalance = ConvertInto;
@@ -450,8 +457,8 @@ impl pallet_vesting::Config for Runtime {
 }
 
 impl pallet_utility::Config for Runtime {
-	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
 }
@@ -468,15 +475,14 @@ parameter_types! {
 }
 
 impl pallet_recovery::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_recovery::weights::SubstrateWeight<Runtime>;
 	type RuntimeCall = RuntimeCall;
-	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type ConfigDepositBase = ConfigDepositBase;
 	type FriendDepositFactor = FriendDepositFactor;
 	type MaxFriends = MaxFriends;
 	type RecoveryDeposit = RecoveryDeposit;
-	type BlockNumberProvider = System;
 }
 
 parameter_types! {
@@ -488,6 +494,7 @@ parameter_types! {
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type SchedulerOrigin = OriginCaller;
 	type Scheduler = Scheduler;
 	type BlockNumberProvider = System;
@@ -509,6 +516,7 @@ parameter_types! {
 }
 
 impl pallet_merkle_airdrop::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type Vesting = Vesting;
 	type MaxProofs = MaxProofs;
 	type PalletId = MerkleAirdropPalletId;
@@ -531,9 +539,9 @@ parameter_types! {
 
 impl pallet_treasury::Config for Runtime {
 	type PalletId = TreasuryPalletId;
-	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type RejectOrigin = EnsureRoot<AccountId>;
+	type RuntimeEvent = RuntimeEvent;
 	type SpendPeriod = SpendPeriod;
 	type Burn = Burn;
 	type BurnDestination = (); // Treasury funds will be burnt without a specific destination
@@ -568,33 +576,31 @@ parameter_types! {
 	pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
 }
 
-// /// We allow root to execute privileged asset operations.
-// pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+/// We allow root to execute privileged asset operations.
+pub type AssetsForceOrigin = EnsureRoot<AccountId>;
 
-// impl pallet_assets::Config for Runtime {
-//     type Balance = Balance;
-//     type RuntimeEvent = RuntimeEvent;
-//     type AssetId = AssetId;
-//     type AssetIdParameter = codec::Compact<AssetId>;
-//     type Currency = Balances;
-//     type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
-//     type ForceOrigin = AssetsForceOrigin;
-//     type AssetDeposit = AssetDeposit;
-//     type MetadataDepositBase = MetadataDepositBase;
-//     type MetadataDepositPerByte = MetadataDepositPerByte;
-//     type ApprovalDeposit = ExistentialDeposit;
-//     type StringLimit = AssetsStringLimit;
-//     type Freezer = ();
-//     type Extra = ();
-//     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-//     type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
-//     type AssetAccountDeposit = AssetAccountDeposit;
-//     type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-//     /// TODO: we are not using this pallet yet, but when we start using, we should provide a
-// proper implementation.     type Holder = ();
-//     #[cfg(feature = "runtime-benchmarks")]
-//     type BenchmarkHelper = ();
-// }
+impl pallet_assets::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Balance = Balance;
+	type AssetId = AssetId;
+	type AssetIdParameter = codec::Compact<AssetId>;
+	type Currency = Balances;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+	type ForceOrigin = AssetsForceOrigin;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ExistentialDeposit;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();

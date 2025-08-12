@@ -42,14 +42,9 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"pallet-balances/std",
-	"pallet-preimage/std",
 	"pallet-scheduler/std",
-	"pallet-timestamp/std",
-	"pallet-utility/std",
 	"qp-scheduler/std",
 	"scale-info/std",
-	"sp-core/std",
-	"sp-io/std",
 	"sp-runtime/std",
 ]
 # Enable support for setting the existential deposit to zero.

@@ -10,20 +10,20 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-authors = ["Parity Technologies <admin@parity.io>"]
-build = false
 edition = "2021"
 name = "sp-consensus-pow"
 version = "0.41.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+build = false
 #autolib = false
-autobenches = false
 autobins = false
 autoexamples = false
 autotests = false
+autobenches = false
 description = "Primitives for Aura consensus"
 homepage = "https://paritytech.github.io/polkadot-sdk/"
-license = "Apache-2.0"
 readme = "README.md"
+license = "Apache-2.0"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
 
 [package.metadata.docs.rs]
@@ -33,11 +33,23 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "sp_consensus_pow"
 path = "src/lib.rs"
 
-[dependencies]
-codec = { workspace = true, features = ["derive"] }
-sp-api = { workspace = true }
-sp-core = { workspace = true }
-sp-runtime = { workspace = true }
+[dependencies.codec]
+version = "3.6.12"
+features = ["derive"]
+default-features = false
+package = "parity-scale-codec"
+
+[dependencies.sp-api]
+version = "35.0.0"
+default-features = false
+
+[dependencies.sp-core]
+version = "35.0.0"
+default-features = false
+
+[dependencies.sp-runtime]
+version = "40.0.0"
+default-features = false
 
 [features]
 default = ["std"]
@@ -149,6 +161,8 @@ level = "allow"
 priority = 2
 
 [lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
 check-cfg = [
 	"cfg(enable_alloc_error_handler)",
 	"cfg(fuzzing)",
@@ -156,5 +170,3 @@ check-cfg = [
 	'cfg(build_opt_level, values("3"))',
 	'cfg(build_profile, values("debug", "release"))',
 ]
-level = "warn"
-priority = 0

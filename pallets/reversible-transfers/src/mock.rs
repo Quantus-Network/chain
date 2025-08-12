@@ -128,6 +128,7 @@ parameter_types! {
 }
 
 impl pallet_reversible_transfers::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type SchedulerOrigin = OriginCaller;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Scheduler = Scheduler;
@@ -145,11 +146,11 @@ impl pallet_reversible_transfers::Config for Test {
 }
 
 impl pallet_preimage::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type Currency = ();
 	type ManagerOrigin = EnsureRoot<u64>;
 	type Consideration = ();
-	type RuntimeEvent = RuntimeEvent;
 }
 
 parameter_types! {
@@ -164,6 +165,7 @@ ord_parameter_types! {
 }
 
 impl pallet_scheduler::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeOrigin = RuntimeOrigin;
 	type PalletsOrigin = OriginCaller;
 	type RuntimeCall = RuntimeCall;
