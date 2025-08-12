@@ -107,7 +107,7 @@ pub mod pallet {
 			let tx_fees = <CollectedFees<T>>::take();
 
 			// Extract miner ID from the pre-runtime digest
-			let miner = Self::extract_miner_from_digest();
+			let miner = Self::extract_miner_from_digest(None);
 
 			log::debug!(target: "mining-rewards", "💰 Base reward: {:?}", miner_reward);
 			log::debug!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
@@ -126,13 +126,19 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		pub fn find_author(digests: Vec<&DigestItem>) -> Option<T::AccountId> {
+			Self::extract_miner_from_digest(Some(digests))
+		}
+
 		/// Extract miner account ID from the pre-runtime digest
-		fn extract_miner_from_digest() -> Option<T::AccountId> {
+		fn extract_miner_from_digest(digests: Option<Vec<&DigestItem>>) -> Option<T::AccountId> {
 			// Get the digest from the current block
-			let digest = <frame_system::Pallet<T>>::digest();
+			let digests_log = digests
+				.unwrap_or(<frame_system::Pallet<T>>::digest().logs.iter().collect::<Vec<_>>());
+			let digests = digests.unwrap_or(digests_log);
 
 			// Look for pre-runtime digest with POW_ENGINE_ID
-			for log in digest.logs.iter() {
+			for log in digests {
 				if let DigestItem::PreRuntime(engine_id, data) = log {
 					if engine_id == &POW_ENGINE_ID {
 						// Try to decode the accountId
