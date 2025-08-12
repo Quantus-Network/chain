@@ -32,7 +32,6 @@ use crate::{
 };
 
 use futures::{channel::oneshot, Stream};
-use libp2p::kad::Record;
 use prometheus_endpoint::Registry;
 
 use sc_client_api::BlockBackend;
@@ -49,8 +48,8 @@ use std::{
 	time::{Duration, Instant},
 };
 
-pub use libp2p::kad::record::Key as KademliaKey;
 pub use libp2p_identity::SigningError;
+pub use sc_network_types::kad::{Key as KademliaKey, Record};
 
 /// Supertrait defining the services provided by [`NetworkBackend`] service handle.
 pub trait NetworkService:
