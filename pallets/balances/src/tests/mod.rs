@@ -20,7 +20,7 @@
 #![cfg(test)]
 
 use crate::{self as pallet_balances, AccountData, Config, CreditOf, Error, Pallet, TotalIssuance};
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
 	assert_err, assert_noop, assert_ok, assert_storage_noop, derive_impl,
 	dispatch::{DispatchInfo, GetDispatchInfo},
@@ -62,6 +62,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 	PartialOrd,
 	MaxEncodedLen,
 	TypeInfo,
+	DecodeWithMemTracking,
 	RuntimeDebug,
 )]
 pub enum TestId {
@@ -100,7 +101,6 @@ impl frame_system::Config for Test {
 
 #[derive_impl(pallet_transaction_payment::config_preludes::TestDefaultConfig)]
 impl pallet_transaction_payment::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type OnChargeTransaction = FungibleAdapter<Pallet<Test>, ()>;
 	type OperationalFeeMultiplier = ConstU8<5>;
 	type WeightToFee = IdentityFee<Balance>;

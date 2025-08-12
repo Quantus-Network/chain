@@ -1,4 +1,4 @@
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use rusty_crystals_dilithium::ml_dsa_87::{PUBLICKEYBYTES, SECRETKEYBYTES};
 use scale_info::TypeInfo;
 #[cfg(feature = "serde")]
@@ -7,6 +7,7 @@ use sp_core::{
 	crypto::{PublicBytes, SignatureBytes},
 	ByteArray, RuntimeDebug,
 };
+#[cfg(feature = "std")]
 use thiserror::Error;
 
 ///
@@ -18,7 +19,19 @@ use thiserror::Error;
 ///
 /// For traits implemented see traits.rs
 
-#[derive(Clone, Eq, PartialEq, Debug, Hash, Encode, Decode, TypeInfo, Ord, PartialOrd)]
+#[derive(
+	Clone,
+	Eq,
+	PartialEq,
+	Debug,
+	Hash,
+	Encode,
+	Decode,
+	TypeInfo,
+	Ord,
+	PartialOrd,
+	DecodeWithMemTracking,
+)]
 pub struct DilithiumCryptoTag;
 
 /// Dilithium cryptographic key pair
@@ -32,7 +45,7 @@ pub struct DilithiumPair {
 
 impl Default for DilithiumPair {
 	fn default() -> Self {
-		let seed = sp_std::vec![0u8; 32];
+		let seed = alloc::vec![0u8; 32];
 		DilithiumPair::from_seed(&seed).expect("Failed to generate keypair")
 	}
 }
@@ -41,14 +54,38 @@ impl Default for DilithiumPair {
 ///
 /// This wrapper enables the implementation of required traits for Dilithium public keys
 /// while maintaining compatibility with Substrate's crypto infrastructure.
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
+#[derive(
+	Clone,
+	Eq,
+	PartialEq,
+	Hash,
+	Encode,
+	Decode,
+	TypeInfo,
+	MaxEncodedLen,
+	Ord,
+	PartialOrd,
+	DecodeWithMemTracking,
+)]
 pub struct WrappedPublicBytes<const N: usize, SubTag>(pub PublicBytes<N, SubTag>);
 
 /// Wrapper around Substrate's SignatureBytes to provide Dilithium-specific implementations
 ///
 /// This wrapper enables the implementation of required traits for Dilithium signatures
 /// while maintaining compatibility with Substrate's crypto infrastructure.
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
+#[derive(
+	Clone,
+	Eq,
+	PartialEq,
+	Hash,
+	Encode,
+	Decode,
+	TypeInfo,
+	MaxEncodedLen,
+	Ord,
+	PartialOrd,
+	DecodeWithMemTracking,
+)]
 pub struct WrappedSignatureBytes<const N: usize, SubTag>(pub SignatureBytes<N, SubTag>);
 
 pub type DilithiumPublic = WrappedPublicBytes<{ crate::PUB_KEY_BYTES }, DilithiumCryptoTag>;
@@ -58,7 +95,17 @@ pub type DilithiumSignature = WrappedSignatureBytes<{ crate::SIGNATURE_BYTES }, 
 ///
 /// Currently supports only Dilithium, but structured as an enum to allow
 /// for future signature schemes to be added easily.
-#[derive(Eq, PartialEq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
+#[derive(
+	Eq,
+	PartialEq,
+	Clone,
+	Encode,
+	Decode,
+	MaxEncodedLen,
+	RuntimeDebug,
+	TypeInfo,
+	DecodeWithMemTracking,
+)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DilithiumSignatureScheme {
 	Dilithium(DilithiumSignatureWithPublic),
@@ -67,23 +114,38 @@ pub enum DilithiumSignatureScheme {
 /// Dilithium signer - replacement for MultiSigner
 ///
 /// Identifies the signer of a transaction using Dilithium public key
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[derive(
+	Eq,
+	PartialEq,
+	Ord,
+	PartialOrd,
+	Clone,
+	Encode,
+	Decode,
+	RuntimeDebug,
+	TypeInfo,
+	DecodeWithMemTracking,
+)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DilithiumSigner {
 	Dilithium(DilithiumPublic),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum Error {
-	#[error("Failed to generate keypair")]
+	#[cfg_attr(feature = "std", error("Failed to generate keypair"))]
 	KeyGenerationFailed,
-	#[error("Invalid length")]
+	#[cfg_attr(feature = "std", error("Invalid length"))]
 	InvalidLength,
-	#[error("Entropy must be at least {required} bytes long, got {actual}")]
+	#[cfg_attr(
+		feature = "std",
+		error("Entropy must be at least {required} bytes long, got {actual}")
+	)]
 	InsufficientEntropy { required: usize, actual: usize },
-	#[error("Failed to parse secret key")]
+	#[cfg_attr(feature = "std", error("Failed to parse secret key"))]
 	InvalidSecretKey,
-	#[error("Failed to parse public key")]
+	#[cfg_attr(feature = "std", error("Failed to parse public key"))]
 	InvalidPublicKey,
 }
 
@@ -92,10 +154,22 @@ pub enum Error {
 /// This structure contains both the signature and the public key in a single
 /// byte array, which is required for certain Substrate operations. The layout
 /// is: [signature_bytes][public_key_bytes].
-#[derive(Clone, Eq, PartialEq, Hash, Encode, Decode, TypeInfo, MaxEncodedLen, Ord, PartialOrd)]
+#[derive(
+	Clone,
+	Eq,
+	PartialEq,
+	Hash,
+	Encode,
+	Decode,
+	TypeInfo,
+	MaxEncodedLen,
+	Ord,
+	PartialOrd,
+	DecodeWithMemTracking,
+)]
 pub struct DilithiumSignatureWithPublic {
 	/// Raw bytes containing both signature and public key
-	pub bytes: [u8; Self::TOTAL_LEN],
+	pub bytes: [u8; DilithiumSignatureWithPublic::TOTAL_LEN],
 }
 
 impl DilithiumSignatureWithPublic {
