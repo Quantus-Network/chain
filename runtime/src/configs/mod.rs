@@ -23,6 +23,8 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
+use core::marker::PhantomData;
+
 // Substrate and Polkadot dependencies
 use crate::{
 	governance::{
@@ -38,7 +40,7 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin, VariantCountOf,
+		ConstU128, ConstU32, ConstU8, EitherOf, FindAuthor, Get, NeverEnsureOrigin, VariantCountOf,
 		WithdrawReasons,
 	},
 	weights::{
@@ -568,33 +570,34 @@ parameter_types! {
 	pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
 }
 
-// /// We allow root to execute privileged asset operations.
-// pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+/// We allow root to execute privileged asset operations.
+pub type AssetsForceOrigin = EnsureRoot<AccountId>;
 
-// impl pallet_assets::Config for Runtime {
-//     type Balance = Balance;
-//     type RuntimeEvent = RuntimeEvent;
-//     type AssetId = AssetId;
-//     type AssetIdParameter = codec::Compact<AssetId>;
-//     type Currency = Balances;
-//     type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
-//     type ForceOrigin = AssetsForceOrigin;
-//     type AssetDeposit = AssetDeposit;
-//     type MetadataDepositBase = MetadataDepositBase;
-//     type MetadataDepositPerByte = MetadataDepositPerByte;
-//     type ApprovalDeposit = ExistentialDeposit;
-//     type StringLimit = AssetsStringLimit;
-//     type Freezer = ();
-//     type Extra = ();
-//     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-//     type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
-//     type AssetAccountDeposit = AssetAccountDeposit;
-//     type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-//     /// TODO: we are not using this pallet yet, but when we start using, we should provide a
-// proper implementation.     type Holder = ();
-//     #[cfg(feature = "runtime-benchmarks")]
-//     type BenchmarkHelper = ();
-// }
+impl pallet_assets::Config for Runtime {
+	type Balance = Balance;
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = AssetId;
+	type AssetIdParameter = codec::Compact<AssetId>;
+	type Currency = Balances;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+	type ForceOrigin = AssetsForceOrigin;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ExistentialDeposit;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	/// TODO: we are not using this pallet yet, but when we start using, we should provide a
+	/// proper implementation.
+	type Holder = ();
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();
@@ -604,4 +607,45 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 			_ => Err(()),
 		}
 	}
+}
+
+parameter_types! {
+	pub const DepositPerItem: Balance = UNIT / 1000;
+	pub const DepositPerByte: Balance = UNIT / 1000;
+	pub CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+}
+
+pub struct FindAuthorImpl<T>(PhantomData<T>);
+
+impl<T: pallet_mining_rewards::Config> FindAuthor<T::AccountId> for FindAuthorImpl<T> {
+	fn find_author<'a, I>(digests: I) -> Option<T::AccountId>
+	where
+		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
+	{
+		pallet_mining_rewards::Pallet::<T>::find_author(digests)
+	}
+}
+
+impl pallet_revive::Config for Runtime {
+	type Time = Timestamp;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type DepositPerItem = DepositPerItem;
+	type DepositPerByte = DepositPerByte;
+	type WeightPrice = pallet_transaction_payment::Pallet<Self>;
+	type WeightInfo = pallet_revive::weights::SubstrateWeight<Self>;
+	type Precompiles = ();
+	type AddressMapper = pallet_revive::AccountId32Mapper<Self>;
+	type RuntimeMemory = ConstU32<{ 128 * 1024 * 1024 }>;
+	type PVFMemory = ConstU32<{ 512 * 1024 * 1024 }>;
+	type UnsafeUnstableInterface = ConstBool<false>;
+	type UploadOrigin = EnsureSigned<Self::AccountId>;
+	type InstantiateOrigin = EnsureSigned<Self::AccountId>;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type CodeHashLockupDepositPercent = CodeHashLockupDepositPercent;
+	type ChainId = ConstU64<420_420_421>;
+	type NativeToEthRatio = ConstU32<1_000_000>; // 10^(18 - 12) Eth is 10^18, Native is 10^12.
+	type EthGasEncoder = ();
+	type FindAuthor = FindAuthorImpl<Self>;
 }
