@@ -20,6 +20,7 @@ parameter_types! {
 }
 
 impl frame_system::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type BaseCallFilter = Everything;
 	type Block = Block;
 	type BlockWeights = ();
@@ -33,8 +34,6 @@ impl frame_system::Config for Test {
 	type Hashing = BlakeTwo256;
 	type AccountId = u64;
 	type Lookup = IdentityLookup<Self::AccountId>;
-	// Change Header to RuntimeEvent
-	type RuntimeEvent = RuntimeEvent;
 	type BlockHashCount = BlockHashCount;
 	type Version = ();
 	type PalletInfo = PalletInfo;
@@ -71,7 +70,6 @@ impl pallet_timestamp::Config for Test {
 }
 
 impl pallet_qpow::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type InitialDistanceThresholdExponent = ConstU32<508>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;

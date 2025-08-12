@@ -23,7 +23,7 @@ use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_keyring::AccountKeyring;
+use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
 /// Identifier for the live testnet runtime preset.
@@ -90,8 +90,8 @@ pub fn live_testnet_config_genesis() -> Value {
 /// Return the local genesis config preset.
 pub fn local_config_genesis() -> Value {
 	genesis_template(
-		AccountKeyring::iter()
-			.filter(|v| v != &AccountKeyring::One && v != &AccountKeyring::Two)
+		Sr25519Keyring::iter()
+			.filter(|v| v != &Sr25519Keyring::One && v != &Sr25519Keyring::Two)
 			.map(|v| v.to_account_id())
 			.collect::<Vec<_>>(),
 		test_root_account(),

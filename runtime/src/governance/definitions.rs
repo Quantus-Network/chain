@@ -2,7 +2,7 @@ use crate::{
 	configs::TreasuryPalletId, governance::pallet_custom_origins, AccountId, Balance, Balances,
 	BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT,
 };
-use alloc::vec::Vec;
+use alloc::borrow::Cow;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
@@ -16,8 +16,10 @@ use frame_support::{
 };
 use lazy_static::lazy_static;
 use pallet_ranked_collective::Rank;
+use pallet_referenda::Track;
 use sp_core::crypto::AccountId32;
 use sp_runtime::{
+	str_array,
 	traits::{AccountIdConversion, Convert, MaybeConvert},
 	DispatchError, Perbill,
 };
@@ -137,19 +139,19 @@ pub struct CommunityTracksInfo;
 
 impl CommunityTracksInfo {
 	/// Creates the base track configurations with production values
-	fn create_community_tracks() -> [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] {
+	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] {
 		[
 			// Track 0: Signed Track (authenticated proposals)
-			(
-				0,
-				pallet_referenda::TrackInfo {
-					name: "signed",
-					max_deciding: 5,              // Allow several concurrent proposals
-					decision_deposit: 500 * UNIT, // Moderate deposit
-					prepare_period: 12 * HOURS,   // Shorter preparation time
-					decision_period: 7 * DAYS,    // 1 week voting period
-					confirm_period: 12 * HOURS,   // 12 hours confirmation
-					min_enactment_period: DAYS,   // 1 day until execution
+			pallet_referenda::Track {
+				id: 0,
+				info: pallet_referenda::TrackInfo {
+					name: str_array("signed"),
+					max_deciding: 5,                   // Allow several concurrent proposals
+					decision_deposit: 500_u128 * UNIT, // Moderate deposit
+					prepare_period: 12 * HOURS,        // Shorter preparation time
+					decision_period: 7 * DAYS,         // 1 week voting period
+					confirm_period: 12 * HOURS,        // 12 hours confirmation
+					min_enactment_period: DAYS,        // 1 day until execution
 					min_approval: pallet_referenda::Curve::LinearDecreasing {
 						length: Perbill::from_percent(100),
 						floor: Perbill::from_percent(55), // Majority approval required
@@ -161,36 +163,35 @@ impl CommunityTracksInfo {
 						ceil: Perbill::from_percent(25),
 					},
 				},
-			),
-			// Track 1: Signaling Track (non-binding community opinions)
-			(
-				1,
-				pallet_referenda::TrackInfo {
-					name: "signaling",
-					max_deciding: 20,             // High throughput for community proposals
-					decision_deposit: 100 * UNIT, // Low deposit requirement
-					prepare_period: 6 * HOURS,    // Short preparation time
-					decision_period: 5 * DAYS,    // Standard voting period
-					confirm_period: 3 * HOURS,    // Minimal confirmation period
-					min_enactment_period: 1,      /* 1 Block - immediate "execution" (just for
-					                               * record-keeping) */
-					min_approval: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(50),
-						ceil: Perbill::from_percent(60),
-					},
-					min_support: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(1),
-						ceil: Perbill::from_percent(10),
-					},
-				},
-			),
+			},
+			pallet_referenda::Track {
+                id: 1,
+                info:             // Track 1: Signaling Track (non-binding community opinions)
+                pallet_referenda::TrackInfo {
+                    name: str_array("signaling"),
+                    max_deciding: 20, // High throughput for community proposals
+                    decision_deposit: 100 * UNIT, // Low deposit requirement
+                    prepare_period: 6 * HOURS, // Short preparation time
+                    decision_period: 5 * DAYS, // Standard voting period
+                    confirm_period: 3 * HOURS, // Minimal confirmation period
+                    min_enactment_period: 1, // 1 Block - immediate "execution" (just for record-keeping)
+                    min_approval: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(50),
+                        ceil: Perbill::from_percent(60),
+                    },
+                    min_support: pallet_referenda::Curve::LinearDecreasing {
+                        length: Perbill::from_percent(100),
+                        floor: Perbill::from_percent(1),
+                        ceil: Perbill::from_percent(10),
+                    },
+                },
+            },
 			// Track 2: Treasury tracks
-			(
-				2,
-				pallet_referenda::TrackInfo {
-					name: "treasury_small_spender",
+			pallet_referenda::Track {
+				id: 2,
+				info: pallet_referenda::TrackInfo {
+					name: str_array("treasury_small_spender"),
 					max_deciding: 5,
 					decision_deposit: 100 * UNIT,
 					prepare_period: DAYS,
@@ -208,11 +209,11 @@ impl CommunityTracksInfo {
 						ceil: Perbill::from_percent(10),
 					},
 				},
-			),
-			(
-				3,
-				pallet_referenda::TrackInfo {
-					name: "treasury_medium_spender",
+			},
+			pallet_referenda::Track {
+				id: 3,
+				info: pallet_referenda::TrackInfo {
+					name: str_array("treasury_medium_spender"),
 					max_deciding: 2,
 					decision_deposit: 250 * UNIT,
 					prepare_period: 6 * HOURS,
@@ -230,11 +231,11 @@ impl CommunityTracksInfo {
 						ceil: Perbill::from_percent(10),
 					},
 				},
-			),
-			(
-				4,
-				pallet_referenda::TrackInfo {
-					name: "treasury_big_spender",
+			},
+			pallet_referenda::Track {
+				id: 4,
+				info: pallet_referenda::TrackInfo {
+					name: str_array("treasury_big_spender"),
 					max_deciding: 2,
 					decision_deposit: 500 * UNIT,
 					prepare_period: DAYS,
@@ -252,11 +253,11 @@ impl CommunityTracksInfo {
 						ceil: Perbill::from_percent(15),
 					},
 				},
-			),
-			(
-				5,
-				pallet_referenda::TrackInfo {
-					name: "treasury_treasurer",
+			},
+			pallet_referenda::Track {
+				id: 5,
+				info: pallet_referenda::TrackInfo {
+					name: str_array("treasury_treasurer"),
 					max_deciding: 1,
 					decision_deposit: 1000 * UNIT,
 					prepare_period: 2 * DAYS,
@@ -274,7 +275,7 @@ impl CommunityTracksInfo {
 						ceil: Perbill::from_percent(25),
 					},
 				},
-			),
+			},
 		]
 	}
 }
@@ -283,22 +284,23 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 	type Id = u16;
 	type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
-	fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
+	fn tracks(
+	) -> impl Iterator<Item = alloc::borrow::Cow<'static, Track<Self::Id, Balance, BlockNumber>>> {
 		// Static tracks with production values
 		lazy_static! {
-			static ref STATIC_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] =
+			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] =
 				CommunityTracksInfo::create_community_tracks();
 		}
 
 		// Test tracks with fast governance timing
 		lazy_static! {
-			static ref TEST_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 6] = {
+			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = {
 				let base_tracks = CommunityTracksInfo::create_community_tracks();
 				let mut test_tracks = base_tracks.clone();
 
 				// Apply global timing overrides to all tracks
-				for (_, track) in &mut test_tracks {
-					*track = GlobalTrackConfig::apply_timing_override(track.clone());
+				for track in &mut test_tracks {
+					track.info = GlobalTrackConfig::apply_timing_override(track.info.clone());
 				}
 
 				test_tracks
@@ -306,11 +308,13 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 		}
 
 		// Return the appropriate tracks based on whether global overrides are set
-		if GlobalTrackConfig::get_track_override().is_some() {
+		let tracks_slice = if GlobalTrackConfig::get_track_override().is_some() {
 			&*TEST_TRACKS
 		} else {
 			&*STATIC_TRACKS
-		}
+		};
+
+		tracks_slice.iter().map(Cow::Borrowed)
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
@@ -341,35 +345,16 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 
 		Err(())
 	}
-
-	fn info(id: Self::Id) -> Option<&'static pallet_referenda::TrackInfo<Balance, BlockNumber>> {
-		Self::tracks()
-			.iter()
-			.find(|(track_id, _)| *track_id == id)
-			.map(|(_, info)| info)
-	}
-
-	fn check_integrity() -> Result<(), &'static str> {
-		// Basic check that all track IDs are unique
-		let mut track_ids = Self::tracks().iter().map(|(id, _)| *id).collect::<Vec<_>>();
-		track_ids.sort();
-		track_ids.dedup();
-		if track_ids.len() != Self::tracks().len() {
-			return Err("Duplicate track IDs found");
-		}
-		Ok(())
-	}
 }
 
 pub struct TechCollectiveTracksInfo;
 
 impl TechCollectiveTracksInfo {
-	fn create_tech_collective_tracks(
-	) -> [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] {
-		[(
-			0,
-			pallet_referenda::TrackInfo {
-				name: "tech_collective_members",
+	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
+		[pallet_referenda::Track {
+			id: 0,
+			info: pallet_referenda::TrackInfo {
+				name: str_array("tech_collective_members"),
 				max_deciding: 1,
 				decision_deposit: 1000 * UNIT,
 				prepare_period: 100,
@@ -387,7 +372,7 @@ impl TechCollectiveTracksInfo {
 					ceil: Perbill::from_percent(0),
 				},
 			},
-		)]
+		}]
 	}
 }
 
@@ -395,32 +380,36 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 	type Id = u16;
 	type RuntimeOrigin = <RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
-	fn tracks() -> &'static [(Self::Id, pallet_referenda::TrackInfo<Balance, BlockNumber>)] {
+	fn tracks(
+	) -> impl Iterator<Item = Cow<'static, pallet_referenda::Track<Self::Id, Balance, BlockNumber>>>
+	{
 		// Static tracks with production values
 		lazy_static! {
-			static ref STATIC_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] =
+			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
 				TechCollectiveTracksInfo::create_tech_collective_tracks();
 		}
 
 		// Test tracks with fast governance timing
 		lazy_static! {
-			static ref TEST_TRACKS: [(u16, pallet_referenda::TrackInfo<Balance, BlockNumber>); 1] = {
+			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] = {
 				let base_tracks = TechCollectiveTracksInfo::create_tech_collective_tracks();
-				let mut test_tracks = [(0, base_tracks[0].1.clone())];
+				let mut test_tracks = [base_tracks[0].clone()];
 
 				// Apply global timing override to the track
-				test_tracks[0].1 = GlobalTrackConfig::apply_timing_override(test_tracks[0].1.clone());
+				test_tracks[0].info = GlobalTrackConfig::apply_timing_override(test_tracks[0].info.clone());
 
 				test_tracks
 			};
 		}
 
 		// Return the appropriate tracks based on whether global overrides are set
-		if GlobalTrackConfig::get_track_override().is_some() {
+		let tracks_slice = if GlobalTrackConfig::get_track_override().is_some() {
 			&*TEST_TRACKS
 		} else {
 			&*STATIC_TRACKS
-		}
+		};
+
+		tracks_slice.iter().map(Cow::Borrowed)
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
@@ -438,24 +427,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 			return Ok(1);
 		}
 		Err(())
-	}
-
-	fn info(id: Self::Id) -> Option<&'static pallet_referenda::TrackInfo<Balance, BlockNumber>> {
-		Self::tracks()
-			.iter()
-			.find(|(track_id, _)| *track_id == id)
-			.map(|(_, info)| info)
-	}
-
-	fn check_integrity() -> Result<(), &'static str> {
-		// Basic check that all track IDs are unique
-		let mut track_ids = Self::tracks().iter().map(|(id, _)| *id).collect::<Vec<_>>();
-		track_ids.sort();
-		track_ids.dedup();
-		if track_ids.len() != Self::tracks().len() {
-			return Err("Duplicate track IDs found");
-		}
-		Ok(())
 	}
 }
 

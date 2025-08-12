@@ -1,13 +1,13 @@
 [package]
-name = "qp-wormhole"
-description = "Common primitives for the wormhole pallet and its dependencies"
-version = "0.1.0"
-license = "Apache-2.0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
+description = "Common primitives for the wormhole pallet and its dependencies"
 edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "qp-wormhole"
 publish = false
+repository.workspace = true
+version = "0.1.0"
 
 [dependencies]
 

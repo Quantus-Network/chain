@@ -1,40 +1,38 @@
 [package]
+edition = "2021"
 name = "dilithium-crypto"
 version = "0.1.0"
-edition = "2021"
 
 [dependencies]
+codec = { workspace = true, default-features = false }
+log = { workspace = true }
+poseidon-resonance = { workspace = true }
+rusty-crystals-dilithium.workspace = true
+scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
-sp-std = { version = "14.0.0", default-features = false }
-codec = { workspace = true, default-features = false }
-scale-info = { workspace = true, default-features = false }
-rusty-crystals-dilithium.workspace = true
-log = { workspace = true }
-sp-runtime-interface = { version = "29.0.0", default-features = false }
-poseidon-resonance = { workspace = true }
-thiserror = { version = "2.0.12", default-features = false }
+thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
-env_logger = "0.11.5"
+env_logger.workspace = true
 
 [features]
 default = ["std"]
-std = [
-	"codec/std",
-	"poseidon-resonance/std",
-	"scale-info/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime-interface/std",
-	"sp-runtime/std",
-	"sp-std/std",
-]
-full_crypto = [ # pass through for "sign" in pair trait.
+full_crypto = [
 	"sp-core/full_crypto",
 ]
 serde = [
 	"poseidon-resonance/serde",
 	"sp-core/serde",
+]
+std = [
+	"codec/std",
+	"log/std",
+	"poseidon-resonance/std",
+	"scale-info/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"thiserror",
 ]

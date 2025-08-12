@@ -1,13 +1,13 @@
 [package]
-name = "resonance-miner-api"
-version = "0.1.0"
-description = "API definitions for communication between Quantus node and external miners"
-license.workspace = true
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
+description = "API definitions for communication between Quantus node and external miners"
 edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "resonance-miner-api"
 publish = true                                                                             # Make available for third-party miners
+repository.workspace = true
+version = "0.1.0"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

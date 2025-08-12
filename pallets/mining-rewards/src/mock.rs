@@ -35,7 +35,6 @@ parameter_types! {
 }
 
 impl frame_system::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type BaseCallFilter = Everything;
 	type BlockWeights = ();
 	type BlockLength = ();
@@ -65,10 +64,10 @@ impl frame_system::Config for Test {
 	type PreInherents = ();
 	type PostInherents = ();
 	type PostTransactions = ();
+	type RuntimeEvent = RuntimeEvent;
 }
 
 impl pallet_balances::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = ();
 	type RuntimeFreezeReason = ();
 	type WeightInfo = ();
@@ -90,7 +89,6 @@ parameter_types! {
 }
 
 impl pallet_mining_rewards::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type WeightInfo = ();
 	type MinerBlockReward = BlockReward;
