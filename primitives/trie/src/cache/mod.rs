@@ -893,7 +893,7 @@ mod tests {
 	const CACHE_SIZE: CacheSize = CacheSize::new(CACHE_SIZE_RAW);
 
 	fn create_trie() -> (MemoryDB, TrieHash<Layout>) {
-		let mut db = MemoryDB::default();
+		let mut db = MemoryDB::new(&0u64.to_le_bytes());
 		let mut root = Default::default();
 
 		{

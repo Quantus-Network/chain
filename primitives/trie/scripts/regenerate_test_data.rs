@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	];
 
 	// Build initial trie
-	let mut db = MemoryDB::default();
+	let mut db = MemoryDB::new(&0u64.to_le_bytes());
 	let mut root = H256::default();
 
 	{
