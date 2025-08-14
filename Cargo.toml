@@ -1,13 +1,15 @@
 [workspace.package]
-license = "MIT-0"
 authors = ["Quantus Network Developers <hello@quantus.com>"]
-homepage = "https://quantus.com/"
-repository = "https://github.com/quantus-network/chain#"
 edition = "2021"
+homepage = "https://quantus.com/"
+license = "MIT-0"
+repository = "https://github.com/quantus-network/chain#"
 
 [workspace]
 members = [
+	"client/consensus/pow",
 	"client/consensus/qpow",
+	"client/network",
 	"dilithium-crypto",
 	"node",
 	"pallets/balances",
@@ -17,6 +19,9 @@ members = [
 	"pallets/reversible-transfers",
 	"pallets/wormhole",
 	"primitives/consensus/qpow",
+	"primitives/scheduler",
+	"primitives/state-machine",
+	"primitives/trie",
 	"resonance-miner-api",
 	"runtime",
 ]
@@ -151,8 +156,8 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "25.0.0", default-features = false }
 
 [patch.crates-io]
-sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
-sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
-sc-network = { git = "https://github.com/Quantus-Network/sc-network-pqc" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/libp2p-noise-pqc" }
+sc-network = { git = "https://github.com/Quantus-Network/sc-network-pqc" }
+sp-state-machine = { git = "https://github.com/Quantus-Network/zk-state-machine" }
+sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
