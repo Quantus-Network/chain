@@ -2809,7 +2809,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4214,7 +4214,7 @@ dependencies = [
  "hyper 1.6.0",
  "libc",
  "pin-project-lite 0.2.16",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tokio 1.47.1",
  "tower-service",
  "tracing",
@@ -4576,7 +4576,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7049,8 +7049,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e69bf016dc406eff7d53a7d3f7cf1c2e72c82b9088aac1118591e36dd2cd3e9"
 dependencies = [
  "bitcoin_hashes 0.13.0",
- "rand 0.8.5",
- "rand_core 0.6.4",
+ "rand 0.7.3",
+ "rand_core 0.5.1",
  "serde",
  "unicode-normalization",
 ]
@@ -8258,7 +8258,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -8556,7 +8556,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9091,7 +9091,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9104,7 +9104,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9162,7 +9162,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -11858,6 +11858,27 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bce4ee5ee6c614994077e6e317270eab6fde2bc346b028290286cbf9d0011b7e"
+dependencies = [
+ "hash-db",
+ "log",
+ "parity-scale-codec",
+ "parking_lot 0.12.4",
+ "rand 0.8.5",
+ "smallvec",
+ "sp-core 35.0.0",
+ "sp-externalities",
+ "sp-panic-handler",
+ "sp-trie 38.0.0",
+ "thiserror 1.0.69",
+ "tracing",
+ "trie-db 0.29.1",
+]
+
+[[package]]
+name = "sp-state-machine"
+version = "0.46.0"
 dependencies = [
  "arbitrary",
  "array-bytes 6.2.3",
@@ -11869,31 +11890,10 @@ dependencies = [
  "pretty_assertions",
  "rand 0.8.5",
  "smallvec",
- "sp-core 35.0.0",
- "sp-externalities",
- "sp-panic-handler",
- "sp-runtime 40.1.0",
- "sp-trie 38.0.0 (git+https://github.com/Quantus-Network/zk-trie)",
- "thiserror 1.0.69",
- "tracing",
- "trie-db 0.29.1",
-]
-
-[[package]]
-name = "sp-state-machine"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "483422b016ee9ddba949db6d3092961ed58526520f0586df74dc07defd922a58"
-dependencies = [
- "hash-db",
- "log",
- "parity-scale-codec",
- "parking_lot 0.12.4",
- "rand 0.8.5",
- "smallvec",
  "sp-core 37.0.0",
  "sp-externalities",
  "sp-panic-handler",
+ "sp-runtime 42.0.0",
  "sp-trie 40.0.0",
  "thiserror 1.0.69",
  "tracing",
@@ -12019,29 +12019,6 @@ dependencies = [
  "trie-db 0.29.1",
  "trie-root",
  "trie-standardmap",
-]
-
-[[package]]
-name = "sp-trie"
-version = "38.0.0"
-source = "git+https://github.com/Quantus-Network/zk-trie#bb1c142115ef1c7cae9378dd438b179d113d29cb"
-dependencies = [
- "ahash",
- "hash-db",
- "log",
- "memory-db 0.32.0",
- "nohash-hasher",
- "parity-scale-codec",
- "parking_lot 0.12.4",
- "rand 0.8.5",
- "scale-info",
- "schnellru",
- "sp-core 35.0.0",
- "sp-externalities",
- "thiserror 1.0.69",
- "tracing",
- "trie-db 0.29.1",
- "trie-root",
 ]
 
 [[package]]
@@ -12817,7 +12794,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -13440,7 +13417,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 
@@ -14226,7 +14203,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
