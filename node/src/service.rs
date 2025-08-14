@@ -3,7 +3,7 @@
 use futures::{FutureExt, StreamExt};
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWResult, QPowAlgorithm};
+use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -521,16 +521,16 @@ pub fn new_full<
 				} else {
 					// Local mining
 					let miner = QPoWMiner::new(client.clone());
-					let seal: QPoWResult = match miner.try_nonce::<Block>(
+					let nonce_bytes = nonce.to_big_endian();
+					match miner.try_nonce::<Block>(
 						metadata.best_hash,
 						metadata.pre_hash,
-						nonce.to_big_endian(),
+						nonce_bytes,
 					) {
-						Ok(s) => {
-							log::debug!(target: "miner", "Valid nonce: {} ==> {:?}", nonce, s);
-							s
+						true => {
+							log::debug!(target: "miner", "Valid solution: {}", nonce);
 						},
-						Err(_) => {
+						false => {
 							nonce += U512::one();
 							continue;
 						},
@@ -538,7 +538,7 @@ pub fn new_full<
 
 					let current_version = worker_handle.version();
 					if current_version == version {
-						if futures::executor::block_on(worker_handle.submit(seal.nonce.encode())) {
+						if futures::executor::block_on(worker_handle.submit(nonce_bytes.encode())) {
 							log::info!("🥇Successfully mined and submitted a new block");
 							nonce = U512::one();
 						} else {

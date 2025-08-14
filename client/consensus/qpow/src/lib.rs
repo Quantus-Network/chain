@@ -2,7 +2,6 @@ mod chain_management;
 mod miner;
 
 pub use chain_management::{ChainManagement, HeaviestChain};
-use codec::{Decode, Encode};
 pub use miner::QPoWMiner;
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -12,13 +11,6 @@ use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::generic::BlockId;
 use std::{marker::PhantomData, sync::Arc};
-
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-pub struct QPoWResult {
-	pub nonce: [u8; 64],
-	pub difficulty: [u8; 64],
-	pub distance_achieved: [u8; 64]
-}
 
 pub struct QPowAlgorithm<B, C>
 where
