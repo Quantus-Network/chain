@@ -242,6 +242,8 @@
 //!
 //! More precise usage details are still being worked on and will likely change in the future.
 
+extern crate alloc;
+
 mod behaviour;
 mod bitswap;
 mod protocol;
