@@ -477,12 +477,7 @@ pub mod pallet {
 			get_random_rsa(header)
 		}
 
-		pub fn hash_to_group_bigint(
-			h: &U512,
-			m: &U512,
-			n: &U512,
-			solution: &U512,
-		) -> U512 {
+		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
 			hash_to_group_bigint(h, m, n, solution)
 		}
 
@@ -507,12 +502,17 @@ pub mod pallet {
 		}
 
 		// Block verification
-		pub fn verify_current_block(header: HeaderType, nonce: NonceType, emit_event: bool) -> (bool, U512, U512) {
+		pub fn verify_current_block(
+			header: HeaderType,
+			nonce: NonceType,
+			emit_event: bool,
+		) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
 				return (false, U512::zero(), U512::zero());
 			}
 			let distance_threshold = Self::get_distance_threshold();
-			let (valid, distance_achieved) = Self::is_valid_nonce(header, nonce, distance_threshold);
+			let (valid, distance_achieved) =
+				Self::is_valid_nonce(header, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
 
 			if valid {
@@ -521,7 +521,7 @@ pub mod pallet {
 					Self::deposit_event(Event::ProofSubmitted {
 						nonce,
 						difficulty,
-						distance_achieved
+						distance_achieved,
 					});
 				}
 			}

@@ -16,6 +16,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::{PowAlgorithm, PowIntermediate, Seal, INTERMEDIATE_KEY, LOG_TARGET, POW_ENGINE_ID};
+use codec::Encode;
 use futures::{
 	prelude::*,
 	task::{Context, Poll},
@@ -26,6 +28,7 @@ use parking_lot::Mutex;
 use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_consensus::{BlockOrigin, Proposal};
+use sp_core::U512;
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},
@@ -39,9 +42,6 @@ use std::{
 	},
 	time::Duration,
 };
-use codec::Encode;
-use sp_core::U512;
-use crate::{PowAlgorithm, PowIntermediate, Seal, INTERMEDIATE_KEY, LOG_TARGET, POW_ENGINE_ID};
 
 /// Mining metadata. This is the information needed to start an actual mining loop.
 #[derive(Clone, Eq, PartialEq)]
@@ -152,19 +152,18 @@ where
 				metadata.difficulty,
 			);
 			match result {
-				Ok((verified, diff, dist)) => {
+				Ok((verified, diff, dist)) =>
 					if verified {
 						difficulty = diff;
 						distance_achieved = dist;
 					} else {
 						warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
 						return false;
-					}
-				}
+					},
 				Err(err) => {
 					warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
 					return false;
-				}
+				},
 			}
 		} else {
 			warn!(target: LOG_TARGET, "Unable to import mined block: metadata does not exist",);

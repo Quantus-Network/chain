@@ -76,8 +76,7 @@ where
 			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
 
 		// Verify the nonce using QPoW
-		if !verified
-		{
+		if !verified {
 			return Ok((false, U512::zero(), U512::zero()));
 		}
 

@@ -56,13 +56,13 @@ use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
 use sp_consensus_pow::{Seal, TotalDifficulty, POW_ENGINE_ID};
+use sp_core::U512;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{BlockId, Digest, DigestItem},
 	traits::{Block as BlockT, Header as HeaderT},
 };
 use std::{cmp::Ordering, marker::PhantomData, sync::Arc, time::Duration};
-use sp_core::U512;
 use substrate_prometheus_endpoint::Registry;
 
 const LOG_TARGET: &str = "pow";

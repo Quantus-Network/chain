@@ -34,7 +34,11 @@ where
 		let block_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
 		// Verify the nonce using runtime api
-		match self.client.runtime_api().verify_current_block(parent_hash, block_hash, nonce, true) {
+		match self
+			.client
+			.runtime_api()
+			.verify_current_block(parent_hash, block_hash, nonce, true)
+		{
 			Ok((result, _, _)) => result,
 			Err(e) => {
 				log::error!("API error in verify_nonce: {:?}", e);
