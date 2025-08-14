@@ -52,16 +52,18 @@ fn test_submit_valid_proof() {
 		// Now run the test with our dynamically found values
 
 		// Submit an invalid proof
+		let (valid, _, _) = QPow::verify_current_block(header, invalid_nonce, false);
 		assert!(
-			!QPow::verify_current_block(header, invalid_nonce, false),
+			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
 			QPow::get_nonce_distance(header, invalid_nonce),
 			max_distance - distance_threshold
 		);
 
 		// Submit a valid proof
+		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
 		assert!(
-			QPow::verify_current_block(header, valid_nonce, false),
+			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
 			QPow::get_nonce_distance(header, valid_nonce),
 			max_distance - distance_threshold
@@ -85,7 +87,8 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			assert!(QPow::verify_current_block(header, second_valid, false));
+			let (valid, _, _) = QPow::verify_current_block(header, second_valid, false);
+			assert!(valid);
 			assert_eq!(QPow::latest_nonce(), Some(second_valid));
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
@@ -127,7 +130,8 @@ fn test_verify_current_block() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		assert!(QPow::verify_current_block(header, valid_nonce, false));
+        let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
+		assert!(valid);
 
 		// Check that the latest proof was stored
 		assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
@@ -212,8 +216,9 @@ fn test_verify_historical_block() {
 		}
 
 		// Verify a nonce against block 1's distance_threshold with direct method
+		let (valid, _) = QPow::is_valid_nonce(header, nonce, block_1_distance_threshold);
 		assert!(
-			QPow::is_valid_nonce(header, nonce, block_1_distance_threshold),
+			valid,
 			"Nonce with distance {} should be valid for block 1 threshold {}",
 			distance,
 			block_1_threshold
@@ -414,7 +419,8 @@ fn test_integrated_verification_flow() {
 		}
 
 		// 1. First, simulate mining by submitting a nonce
-		assert!(QPow::verify_current_block(header, nonce, false));
+		let (valid, _, _) = QPow::verify_current_block(header, nonce, false);
+		assert!(valid);
 
 		// 2. Finally verify historical block
 		let current_block = System::block_number();
