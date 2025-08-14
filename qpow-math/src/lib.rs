@@ -8,14 +8,14 @@ use sha2::{Digest, Sha256};
 use sha3::Sha3_512;
 
 // Common verification logic
-pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> bool {
+pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> (bool, U512) {
 	if nonce == [0u8; 64] {
-		return false;
+		return (false, U512::zero());
 	}
 
-	let distance = get_nonce_distance(header, nonce);
-	log::debug!(target: "math", "difficulty = {}..., threshold = {}...", distance, threshold);
-	distance <= threshold
+	let distance_achieved = get_nonce_distance(header, nonce);
+	log::debug!(target: "math", "difficulty = {}..., threshold = {}...", distance_achieved, threshold);
+	(distance_achieved <= threshold, distance_achieved)
 }
 
 pub fn get_nonce_distance(

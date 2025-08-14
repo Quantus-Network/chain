@@ -161,8 +161,8 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		ProofSubmitted {
 			nonce: NonceType,
-			difficulty: DistanceThreshold,
-			distance_achieved: DistanceThreshold,
+			difficulty: U512,
+			distance_achieved: U512,
 		},
 		DistanceThresholdAdjusted {
 			old_distance_threshold: DistanceThreshold,
@@ -462,27 +462,27 @@ pub mod pallet {
 			header: HeaderType,
 			nonce: NonceType,
 			threshold: DistanceThreshold,
-		) -> bool {
+		) -> (bool, U512) {
 			is_valid_nonce(header, nonce, threshold)
 		}
 
 		pub fn get_nonce_distance(
 			header: HeaderType, // 256-bit header
 			nonce: NonceType,   // 512-bit nonce
-		) -> DistanceThreshold {
+		) -> U512 {
 			get_nonce_distance(header, nonce)
 		}
 
-		pub fn get_random_rsa(header: &HeaderType) -> (DistanceThreshold, DistanceThreshold) {
+		pub fn get_random_rsa(header: &HeaderType) -> (U512, U512) {
 			get_random_rsa(header)
 		}
 
 		pub fn hash_to_group_bigint(
-			h: &DistanceThreshold,
-			m: &DistanceThreshold,
-			n: &DistanceThreshold,
-			solution: &DistanceThreshold,
-		) -> DistanceThreshold {
+			h: &U512,
+			m: &U512,
+			n: &U512,
+			solution: &U512,
+		) -> U512 {
 			hash_to_group_bigint(h, m, n, solution)
 		}
 
@@ -501,19 +501,19 @@ pub mod pallet {
 			}
 
 			// Verify with historical distance_threshold
-			Self::is_valid_nonce(header, nonce, block_distance_threshold)
+			let (valid, _) = Self::is_valid_nonce(header, nonce, block_distance_threshold);
+
+			valid
 		}
 
 		// Block verification
-		pub fn verify_current_block(header: HeaderType, nonce: NonceType, emit_event: bool) -> (bool, DistanceThreshold, DistanceThreshold) {
+		pub fn verify_current_block(header: HeaderType, nonce: NonceType, emit_event: bool) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
 				return (false, U512::zero(), U512::zero());
 			}
 			let distance_threshold = Self::get_distance_threshold();
+			let (valid, distance_achieved) = Self::is_valid_nonce(header, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
-			let distance_achieved = Self::get_nonce_distance(header, nonce);
-
-			let valid = distance_achieved < distance_threshold;
 
 			if valid {
 				<LatestNonce<T>>::put(nonce);
@@ -545,7 +545,7 @@ pub mod pallet {
 			get_initial_distance_threshold::<T>().shl(T::MaxDistanceMultiplier::get())
 		}
 
-		pub fn get_difficulty() -> DistanceThreshold {
+		pub fn get_difficulty() -> U512 {
 			Self::get_max_distance() / Self::get_distance_threshold()
 		}
 
