@@ -39,7 +39,8 @@ use std::{
 	},
 	time::Duration,
 };
-
+use codec::Encode;
+use sp_core::U512;
 use crate::{PowAlgorithm, PowIntermediate, Seal, INTERMEDIATE_KEY, LOG_TARGET, POW_ENGINE_ID};
 
 /// Mining metadata. This is the information needed to start an actual mining loop.
@@ -140,23 +141,30 @@ where
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
 	/// successful.
 	pub async fn submit(&self, seal: Seal) -> bool {
+		let difficulty: U512;
+		let distance_achieved: U512;
 		if let Some(metadata) = self.metadata() {
-			match self.algorithm.verify(
+			let result = self.algorithm.verify(
 				&BlockId::Hash(metadata.best_hash),
 				&metadata.pre_hash,
 				metadata.pre_runtime.as_ref().map(|v| &v[..]),
 				&seal,
 				metadata.difficulty,
-			) {
-				Ok(true) => (),
-				Ok(false) => {
-					warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
-					return false;
-				},
+			);
+			match result {
+				Ok((verified, diff, dist)) => {
+					if verified {
+						difficulty = diff;
+						distance_achieved = dist;
+					} else {
+						warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
+						return false;
+					}
+				}
 				Err(err) => {
 					warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
 					return false;
-				},
+				}
 			}
 		} else {
 			warn!(target: LOG_TARGET, "Unable to import mined block: metadata does not exist",);
@@ -181,6 +189,8 @@ where
 		let (header, body) = build.proposal.block.deconstruct();
 
 		let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
+		import_block.post_digests.push(DigestItem::Other(difficulty.encode()));
+		import_block.post_digests.push(DigestItem::Other(distance_achieved.encode()));
 		import_block.post_digests.push(seal);
 		import_block.body = Some(body);
 		import_block.state_action =

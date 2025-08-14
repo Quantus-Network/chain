@@ -53,7 +53,7 @@ fn test_submit_valid_proof() {
 
 		// Submit an invalid proof
 		assert!(
-			!QPow::submit_nonce(header, invalid_nonce),
+			!QPow::verify_current_block(header, invalid_nonce, false),
 			"Nonce should be invalid with distance {} > threshold {}",
 			QPow::get_nonce_distance(header, invalid_nonce),
 			max_distance - distance_threshold
@@ -61,7 +61,7 @@ fn test_submit_valid_proof() {
 
 		// Submit a valid proof
 		assert!(
-			QPow::submit_nonce(header, valid_nonce),
+			QPow::verify_current_block(header, valid_nonce, false),
 			"Nonce should be valid with distance {} <= threshold {}",
 			QPow::get_nonce_distance(header, valid_nonce),
 			max_distance - distance_threshold
@@ -85,7 +85,7 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			assert!(QPow::submit_nonce(header, second_valid));
+			assert!(QPow::verify_current_block(header, second_valid, false));
 			assert_eq!(QPow::latest_nonce(), Some(second_valid));
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
@@ -96,7 +96,7 @@ fn test_submit_valid_proof() {
 }
 
 #[test]
-fn test_verify_for_import() {
+fn test_verify_current_block() {
 	new_test_ext().execute_with(|| {
 		// Set up test data
 		let header = [1u8; 32];
@@ -127,7 +127,7 @@ fn test_verify_for_import() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		assert!(QPow::verify_for_import(header, valid_nonce));
+		assert!(QPow::verify_current_block(header, valid_nonce, false));
 
 		// Check that the latest proof was stored
 		assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
@@ -414,12 +414,9 @@ fn test_integrated_verification_flow() {
 		}
 
 		// 1. First, simulate mining by submitting a nonce
-		assert!(QPow::submit_nonce(header, nonce));
+		assert!(QPow::verify_current_block(header, nonce, false));
 
-		// 2. Then simulate block import verification
-		assert!(QPow::verify_for_import(header, nonce));
-
-		// 3. Finally verify historical block
+		// 2. Finally verify historical block
 		let current_block = System::block_number();
 		assert!(QPow::verify_historical_block(header, nonce, current_block));
 	});

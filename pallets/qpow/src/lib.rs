@@ -161,6 +161,8 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		ProofSubmitted {
 			nonce: NonceType,
+			difficulty: DistanceThreshold,
+			distance_achieved: DistanceThreshold,
 		},
 		DistanceThresholdAdjusted {
 			old_distance_threshold: DistanceThreshold,
@@ -484,24 +486,6 @@ pub mod pallet {
 			hash_to_group_bigint(h, m, n, solution)
 		}
 
-		// Function used during block import from the network
-		pub fn verify_for_import(header: HeaderType, nonce: NonceType) -> bool {
-			// During import, we use the current network distance_threshold
-			// This value will be correct because we're importing at the appropriate point in the
-			// chain
-			let current_distance_threshold = Self::get_distance_threshold();
-
-			// Verify using current distance_threshold
-			let valid = Self::is_valid_nonce(header, nonce, current_distance_threshold);
-
-			if valid {
-				// Store the proof but don't emit event - imported blocks shouldn't trigger events
-				<LatestNonce<T>>::put(nonce);
-			}
-
-			valid
-		}
-
 		// Function used to verify a block that's already in the chain
 		pub fn verify_historical_block(
 			header: HeaderType,
@@ -520,17 +504,29 @@ pub mod pallet {
 			Self::is_valid_nonce(header, nonce, block_distance_threshold)
 		}
 
-		// Function for local mining
-		pub fn submit_nonce(header: HeaderType, nonce: NonceType) -> bool {
+		// Block verification
+		pub fn verify_current_block(header: HeaderType, nonce: NonceType, emit_event: bool) -> (bool, DistanceThreshold, DistanceThreshold) {
+			if nonce == [0u8; 64] {
+				return (false, U512::zero(), U512::zero());
+			}
 			let distance_threshold = Self::get_distance_threshold();
-			let valid = Self::is_valid_nonce(header, nonce, distance_threshold);
+			let difficulty = Self::get_difficulty();
+			let distance_achieved = Self::get_nonce_distance(header, nonce);
+
+			let valid = distance_achieved < distance_threshold;
 
 			if valid {
 				<LatestNonce<T>>::put(nonce);
-				Self::deposit_event(Event::ProofSubmitted { nonce });
+				if emit_event {
+					Self::deposit_event(Event::ProofSubmitted {
+						nonce,
+						difficulty,
+						distance_achieved
+					});
+				}
 			}
 
-			valid
+			(valid, difficulty, distance_achieved)
 		}
 
 		pub fn get_distance_threshold() -> DistanceThreshold {

@@ -24,6 +24,7 @@ pub fn get_nonce_distance(
 ) -> U512 {
 	// s = 0 is cheating
 	if nonce == [0u8; 64] {
+		log::debug!(target: "math", "zero nonce");
 		return U512::zero();
 	}
 
@@ -36,7 +37,10 @@ pub fn get_nonce_distance(
 	// Compare PoW results
 	let nonce_element = hash_to_group_bigint_sha(&header_int, &m, &n, &nonce_int);
 
-	target.bitxor(nonce_element)
+	let distance = target.bitxor(nonce_element);
+	log::debug!(target: "math", "distance = {}", distance);
+
+	distance
 }
 
 /// Generates a pair of RSA-style numbers (m,n) deterministically from input header

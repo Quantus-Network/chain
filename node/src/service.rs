@@ -3,7 +3,7 @@
 use futures::{FutureExt, StreamExt};
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
+use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWResult, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -366,7 +366,7 @@ pub fn new_full<
 
 		task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
 			log::info!("⛏️ QPoW Mining task spawned");
-			let mut nonce: U512 = U512::zero();
+			let mut nonce: U512 = U512::one();
 			let http_client = Client::new();
 			let mut current_job_id: Option<String> = None;
 
@@ -486,7 +486,7 @@ pub fn new_full<
 										worker_handle.submit(seal.encode()),
 									) {
 										log::info!("🥇Successfully mined and submitted a new block via external miner");
-										nonce = U512::zero();
+										nonce = U512::one();
 									} else {
 										log::warn!(
 											"⛏️Failed to submit mined block from external miner"
@@ -521,7 +521,7 @@ pub fn new_full<
 				} else {
 					// Local mining
 					let miner = QPoWMiner::new(client.clone());
-					let seal: QPoWSeal = match miner.try_nonce::<Block>(
+					let seal: QPoWResult = match miner.try_nonce::<Block>(
 						metadata.best_hash,
 						metadata.pre_hash,
 						nonce.to_big_endian(),
@@ -538,9 +538,9 @@ pub fn new_full<
 
 					let current_version = worker_handle.version();
 					if current_version == version {
-						if futures::executor::block_on(worker_handle.submit(seal.encode())) {
+						if futures::executor::block_on(worker_handle.submit(seal.nonce.encode())) {
 							log::info!("🥇Successfully mined and submitted a new block");
-							nonce = U512::zero();
+							nonce = U512::one();
 						} else {
 							log::warn!("⛏️Failed to submit mined block");
 							nonce += U512::one();
