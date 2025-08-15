@@ -15,7 +15,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 arbitrary = { features = ["derive"], optional = true, workspace = true }
-codec = { workspace = true, package = "parity-scale-codec" }
+codec = { workspace = true }
 hash-db = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true, optional = true, default-features = true }
@@ -28,10 +28,6 @@ sp-trie = { workspace = true }
 thiserror = { optional = true, workspace = true }
 tracing = { optional = true, workspace = true }
 trie-db = { workspace = true }
-
-[patch.crates-io]
-sp-state-machine = { path = "." }
-sp-trie = { path = "../trie" }
 
 [dev-dependencies]
 arbitrary = { features = ["derive"], workspace = true }

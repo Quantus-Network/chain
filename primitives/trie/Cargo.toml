@@ -22,7 +22,7 @@ name = "bench"
 
 [dependencies]
 ahash = { workspace = true, optional = true }
-codec = { workspace = true, default-features = false, package = "parity-scale-codec" }
+codec = { workspace = true, default-features = false }
 foldhash = { workspace = true, default-features = false }
 hash-db = { workspace = true, default-features = false }
 hashbrown = { workspace = true }
@@ -30,7 +30,7 @@ log = { workspace = true, default-features = false }
 memory-db = { workspace = true, default-features = false }
 nohash-hasher = { workspace = true, optional = true }
 parking_lot = { workspace = true, default-features = true, optional = true }
-prometheus-endpoint = { optional = true, workspace = true, default-features = true, package = "substrate-prometheus-endpoint" }
+prometheus-endpoint = { optional = true, workspace = true, default-features = true }
 rand = { workspace = true, default-features = false, optional = true }
 scale-info = { workspace = true, features = [
 	"derive",
@@ -42,9 +42,6 @@ thiserror = { workspace = true, optional = true }
 tracing = { workspace = true, default-features = true, optional = true }
 trie-db = { workspace = true, default-features = false }
 trie-root = { workspace = true, default-features = false }
-
-[patch.crates-io]
-sp-state-machine = { path = "../state-machine" }
 
 [dev-dependencies]
 array-bytes = { workspace = true, default-features = true }
