@@ -75,12 +75,11 @@ where
 			.verify_current_block(parent_hash, pre_hash, nonce, false)
 			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
 
-		// Verify the nonce using QPoW
 		if !verified {
 			return Ok((false, U512::zero(), U512::zero()));
 		}
 
-		// Verify the difficulty using QPoW
+		// Check that block metadata matches runtime metadata (is this necessary?)
 		if difficulty != _difficulty {
 			return Ok((false, U512::zero(), U512::zero()));
 		}
