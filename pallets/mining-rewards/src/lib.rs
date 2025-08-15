@@ -133,9 +133,10 @@ pub mod pallet {
 		/// Extract miner account ID from the pre-runtime digest
 		fn extract_miner_from_digest(digests: Option<Vec<&DigestItem>>) -> Option<T::AccountId> {
 			// Get the digest from the current block
-			let digests_log = digests
-				.unwrap_or(<frame_system::Pallet<T>>::digest().logs.iter().collect::<Vec<_>>());
-			let digests = digests.unwrap_or(digests_log);
+
+			let system_digests =
+				<frame_system::Pallet<T>>::digest().logs.iter().collect::<Vec<_>>();
+			let digests = digests.unwrap_or(system_digests);
 
 			// Look for pre-runtime digest with POW_ENGINE_ID
 			for log in digests {
