@@ -40,11 +40,7 @@ where
 	H::Out: Codec + Ord,
 {
 	// V1 is same as V0 for an empty trie.
-	TrieBackendBuilder::new(
-		PrefixedMemoryDB::with_hasher(RandomState::default()),
-		empty_trie_root::<LayoutV1<H>>(),
-	)
-	.build()
+	TrieBackendBuilder::new(PrefixedMemoryDB::default(), empty_trie_root::<LayoutV1<H>>()).build()
 }
 
 impl<H: Hasher> TrieBackend<PrefixedMemoryDB<H>, H>

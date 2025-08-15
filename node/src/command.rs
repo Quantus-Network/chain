@@ -9,7 +9,7 @@ use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::{generate_mnemonic, wormhole::WormholePair, HDLattice};
 use sc_cli::SubstrateCli;
-use sc_network::config::{NodeKeyConfig, Secret};
+use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::{AccountId32, Ss58Codec};
 use sp_keyring::Sr25519Keyring;
@@ -374,6 +374,9 @@ pub fn run() -> sc_cli::Result<()> {
 				log::debug!(target: "network", "node identity file: {:?}", key_path);
 
 				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
+
+				// TODO: find a way to enforce default without forking sc_cli
+				config.network.network_backend = NetworkBackendType::Libp2p;
 
 				match config.network.network_backend {
 					sc_network::config::NetworkBackendType::Libp2p => service::new_full::<

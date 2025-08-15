@@ -301,7 +301,7 @@ pub trait Backend<H: Hasher>: core::fmt::Debug {
 	where
 		H::Out: Ord + Encode,
 	{
-		let mut txs = BackendTransaction::with_hasher(RandomState::default());
+		let mut txs = BackendTransaction::default();
 		let mut child_roots: Vec<_> = Default::default();
 		// child first
 		for (child_info, child_delta) in child_deltas {

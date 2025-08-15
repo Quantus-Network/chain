@@ -732,7 +732,7 @@ impl NetworkConfiguration {
 			kademlia_replication_factor: NonZeroUsize::new(DEFAULT_KADEMLIA_REPLICATION_FACTOR)
 				.expect("value is a constant; constant is non-zero; qed."),
 			ipfs_server: false,
-			network_backend: NetworkBackendType::default(),
+			network_backend: NetworkBackendType::Libp2p,
 			min_peers_to_start_warp_sync: None,
 		}
 	}
