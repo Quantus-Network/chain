@@ -27,6 +27,10 @@ pub struct Cli {
 	/// Enable peer sharing via RPC endpoint
 	#[arg(long)]
 	pub enable_peer_sharing: bool,
+
+	/// Block import timeout in seconds
+	#[arg(long, default_value = "30")]
+	pub block_import_timeout: u64,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -151,9 +151,8 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	);
 
 	let pool_options = TransactionPoolOptions::new_with_params(
-		36772, /* each tx is about 7300 bytes so if we have 268MB for the pool we can fit this
-		        * many txs */
-		268_435_456,
+		50000,       /* increased pool size for large blocks */
+		500_000_000, /* increased to 500MB for large blocks */
 		None,
 		TransactionPoolType::ForkAware.into(),
 		false,
@@ -210,6 +209,7 @@ pub fn new_full<
 	rewards_address: Option<String>,
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
+	block_import_timeout: u64,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -224,6 +224,7 @@ pub fn new_full<
 
 	let mut tx_stream = transaction_pool.clone().import_notification_stream();
 
+	// Use default network configuration
 	let net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,
 		<Block as sp_runtime::traits::Block>::Hash,
@@ -340,8 +341,8 @@ pub fn new_full<
 			sync_service.clone(),
 			encoded_miner,
 			inherent_data_providers,
-			Duration::from_secs(10),
-			Duration::from_secs(10),
+			Duration::from_secs(block_import_timeout),
+			Duration::from_secs(block_import_timeout),
 		);
 
 		task_manager.spawn_essential_handle().spawn_blocking("pow", None, worker_task);

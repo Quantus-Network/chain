@@ -376,7 +376,7 @@ pub fn run() -> sc_cli::Result<()> {
 				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
 				match config.network.network_backend.unwrap_or_default() {
-					sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
+					sc_network::config::NetworkBackendType::Libp2p => 					service::new_full::<
 						sc_network::NetworkWorker<
 							quantus_runtime::opaque::Block,
 							<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
@@ -386,6 +386,7 @@ pub fn run() -> sc_cli::Result<()> {
 						cli.rewards_address.clone(),
 						cli.external_miner_url.clone(),
 						cli.enable_peer_sharing,
+						cli.block_import_timeout,
 					)
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p => {

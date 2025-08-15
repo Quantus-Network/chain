@@ -76,14 +76,14 @@ parameter_types! {
 	pub const BlockHashCount: BlockNumber = 4096;
 	pub const Version: RuntimeVersion = VERSION;
 
-	/// We allow for 6 seconds of compute with a 20 second average block time.
+		/// We allow for 30 seconds of compute with a 20 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
-		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+		Weight::from_parts(30u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 		NORMAL_DISPATCH_RATIO,
 	);
-	// We estimate to download 5MB blocks it takes a 100Mbs link 600ms and 200ms for 1Gbs link
-	// To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
-	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+		// We estimate to download 20MB blocks it takes a 100Mbs link 2.4s and 800ms for 1Gbs link
+	// To upload, 10Mbs link takes 16.4s and 100Mbs takes 2s
+	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(50 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 189;
 	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
 	pub const UnsignedClaimPriority: u32 = 100;
