@@ -130,7 +130,7 @@ fn test_verify_current_block() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-        let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
+		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
 		assert!(valid);
 
 		// Check that the latest proof was stored
@@ -220,8 +220,7 @@ fn test_verify_historical_block() {
 		assert!(
 			valid,
 			"Nonce with distance {} should be valid for block 1 threshold {}",
-			distance,
-			block_1_threshold
+			distance, block_1_threshold
 		);
 
 		// Use the public API
