@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
 pub use pallet::*;
 
 #[cfg(test)]
@@ -12,6 +13,8 @@ mod tests;
 mod benchmarking;
 pub mod weights;
 pub use weights::*;
+
+use alloc::vec::Vec;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -134,14 +137,14 @@ pub mod pallet {
 		fn extract_miner_from_digest(digests: Option<Vec<&DigestItem>>) -> Option<T::AccountId> {
 			// Get the digest from the current block
 
-			let system_digests =
-				<frame_system::Pallet<T>>::digest().logs.iter().collect::<Vec<_>>();
-			let digests = digests.unwrap_or(system_digests);
+			let system_digests = <frame_system::Pallet<T>>::digest();
+			let logs = system_digests.logs.iter().collect::<Vec<_>>();
+			let digests = digests.unwrap_or(logs);
 
 			// Look for pre-runtime digest with POW_ENGINE_ID
 			for log in digests {
 				if let DigestItem::PreRuntime(engine_id, data) = log {
-					if engine_id == &POW_ENGINE_ID {
+					if *engine_id == POW_ENGINE_ID {
 						// Try to decode the accountId
 						// TODO: to enforce miner wormholes, decode inner hash here
 						if let Ok(miner) = T::AccountId::decode(&mut &data[..]) {
