@@ -32,7 +32,7 @@ pub struct DilithiumPair {
 
 impl Default for DilithiumPair {
 	fn default() -> Self {
-		let seed = sp_std::vec![0u8; 32];
+		let seed = alloc::vec![0u8; 32];
 		DilithiumPair::from_seed(&seed).expect("Failed to generate keypair")
 	}
 }

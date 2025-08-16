@@ -2182,7 +2182,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-runtime-interface",
- "sp-std",
  "thiserror 2.0.12",
 ]
 
@@ -6655,7 +6654,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -6693,7 +6691,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -6942,7 +6939,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
  "wormhole-circuit",
  "wormhole-verifier",
  "zk-circuits-common",
@@ -8235,7 +8231,6 @@ dependencies = [
  "sp-runtime",
  "sp-runtime-interface",
  "sp-session",
- "sp-std",
  "sp-storage",
  "sp-transaction-pool",
  "sp-version",

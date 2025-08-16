@@ -4,6 +4,7 @@ use super::types::{
 };
 
 use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
+use alloc::vec::Vec;
 use poseidon_resonance::PoseidonHasher;
 use sp_core::{
 	crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
@@ -13,7 +14,6 @@ use sp_runtime::{
 	traits::{Hash, IdentifyAccount, Verify},
 	AccountId32, CryptoType,
 };
-use sp_std::vec::Vec;
 
 /// Verifies a Dilithium ML-DSA-87 signature
 ///
@@ -96,14 +96,14 @@ impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
 		WrappedPublicBytes(PublicBytes::default())
 	}
 }
-impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedPublicBytes<N, SubTag> {
+impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag> {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
 	}
 
 	#[cfg(not(feature = "std"))]
-	fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+	fn fmt(&self, _: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		Ok(())
 	}
 }
@@ -172,14 +172,14 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
 	}
 }
 
-impl<const N: usize, SubTag> sp_std::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
+impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
 	}
 
 	#[cfg(not(feature = "std"))]
-	fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+	fn fmt(&self, _: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		Ok(())
 	}
 }
@@ -253,9 +253,9 @@ impl DilithiumPair {
 	}
 }
 
-impl sp_std::fmt::Debug for DilithiumSignatureWithPublic {
+impl alloc::fmt::Debug for DilithiumSignatureWithPublic {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(
 			f,
 			"ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
@@ -265,7 +265,7 @@ impl sp_std::fmt::Debug for DilithiumSignatureWithPublic {
 	}
 
 	#[cfg(not(feature = "std"))]
-	fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(f, "ResonanceSignatureWithPublic")
 	}
 }
