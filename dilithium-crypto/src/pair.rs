@@ -1,6 +1,7 @@
 use crate::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, DilithiumSigner};
 
 use super::types::{DilithiumPair, DilithiumPublic};
+use alloc::vec::Vec;
 use rusty_crystals_dilithium::{
 	ml_dsa_87::{Keypair, PublicKey, SecretKey},
 	params::SEEDBYTES,
@@ -13,7 +14,6 @@ use sp_runtime::{
 	traits::{IdentifyAccount, Verify},
 	AccountId32,
 };
-use sp_std::vec::Vec;
 
 pub fn crystal_alice() -> DilithiumPair {
 	let seed = [0u8; 32];
@@ -144,9 +144,8 @@ pub fn create_keypair(
 
 #[cfg(test)]
 mod tests {
-	use sp_std::vec;
-
 	use super::*;
+	use alloc::vec::Vec;
 
 	fn setup() {
 		// Initialize the logger once per test run

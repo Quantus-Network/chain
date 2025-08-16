@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+
 pub use pallet::*;
 
 #[cfg(test)]
@@ -17,6 +19,7 @@ use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::vec::Vec;
 	use core::ops::{Shl, Shr};
 	use frame_support::{
 		pallet_prelude::*,
@@ -30,7 +33,6 @@ pub mod pallet {
 	use qpow_math::{get_nonce_distance, get_random_rsa, hash_to_group_bigint, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
-	use sp_std::prelude::*;
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];

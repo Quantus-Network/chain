@@ -4,6 +4,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
+use core::marker::PhantomData;
 #[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::Currency;
 use frame_support::{
@@ -21,7 +22,6 @@ use sp_runtime::{
 	traits::{AccountIdConversion, Convert, MaybeConvert},
 	DispatchError, Perbill,
 };
-use sp_std::marker::PhantomData;
 ///Preimage pallet fee model
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo, MaxEncodedLen, Debug)]
