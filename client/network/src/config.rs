@@ -24,7 +24,7 @@
 pub use crate::{
 	discovery::DEFAULT_KADEMLIA_REPLICATION_FACTOR,
 	peer_store::PeerStoreProvider,
-	protocol::{notification_service, NotificationsSink, ProtocolHandlePair},
+	protocol::{NotificationsSink, ProtocolHandlePair, notification_service},
 	request_responses::{
 		IncomingRequest, OutgoingResponse, ProtocolConfig as RequestResponseConfig,
 	},
@@ -35,11 +35,11 @@ pub use crate::{
 	types::ProtocolName,
 };
 
-pub use sc_network_types::{build_multiaddr, ed25519};
 use sc_network_types::{
-	multiaddr::{self, Multiaddr},
 	PeerId,
+	multiaddr::{self, Multiaddr},
 };
+pub use sc_network_types::{build_multiaddr, ed25519};
 
 use crate::service::{ensure_addresses_consistent_with_transport, traits::NetworkBackend};
 use codec::Encode;
@@ -47,9 +47,9 @@ use prometheus_endpoint::Registry;
 use zeroize::Zeroize;
 
 pub use sc_network_common::{
+	ExHashT,
 	role::{Role, Roles},
 	sync::SyncMode,
-	ExHashT,
 };
 
 use sp_runtime::traits::Block as BlockT;
@@ -376,11 +376,7 @@ impl NodeKeyConfig {
 			Ed25519(Secret::File(f)) => get_secret(
 				f,
 				|mut b| match String::from_utf8(b.to_vec()).ok().and_then(|s| {
-					if s.len() == 64 {
-						array_bytes::hex2bytes(&s).ok()
-					} else {
-						None
-					}
+					if s.len() == 64 { array_bytes::hex2bytes(&s).ok() } else { None }
 				}) {
 					Some(s) => ed25519::SecretKey::try_from_bytes(s),
 					_ => ed25519::SecretKey::try_from_bytes(&mut b),
@@ -743,10 +739,11 @@ impl NetworkConfiguration {
 		let mut config =
 			NetworkConfiguration::new("test-node", "test-client", Default::default(), None);
 
-		config.listen_addresses =
-			vec![iter::once(multiaddr::Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
+		config.listen_addresses = vec![
+			iter::once(multiaddr::Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
 				.chain(iter::once(multiaddr::Protocol::Tcp(0)))
-				.collect()];
+				.collect(),
+		];
 
 		config.allow_non_globals_in_dht = true;
 		config
@@ -758,10 +755,11 @@ impl NetworkConfiguration {
 		let mut config =
 			NetworkConfiguration::new("test-node", "test-client", Default::default(), None);
 
-		config.listen_addresses =
-			vec![iter::once(multiaddr::Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
+		config.listen_addresses = vec![
+			iter::once(multiaddr::Protocol::Ip4(Ipv4Addr::new(127, 0, 0, 1)))
 				.chain(iter::once(multiaddr::Protocol::Tcp(0)))
-				.collect()];
+				.collect(),
+		];
 
 		config.allow_non_globals_in_dht = true;
 		config

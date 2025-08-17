@@ -35,13 +35,13 @@ use crate::{
 		},
 		pallet_custom_origins, Spender,
 	},
-	MILLI_UNIT,
+	TxExtension, MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU8, EitherOf, FindAuthor, Get, NeverEnsureOrigin, VariantCountOf,
-		WithdrawReasons,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, FindAuthor, Get,
+		NeverEnsureOrigin, VariantCountOf, WithdrawReasons,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -54,10 +54,13 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ranked_collective::Linear;
+use pallet_revive::evm::runtime::EthExtra;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
+use sp_core::{ConstBool, ConstU64};
 use sp_runtime::{
+	generic,
 	traits::{ConvertInto, One},
 	Perbill, Permill,
 };
@@ -622,7 +625,31 @@ impl<T: pallet_mining_rewards::Config> FindAuthor<T::AccountId> for FindAuthorIm
 	where
 		I: 'a + IntoIterator<Item = (sp_runtime::ConsensusEngineId, &'a [u8])>,
 	{
-		pallet_mining_rewards::Pallet::<T>::find_author(digests)
+		pallet_mining_rewards::Pallet::<T>::find_author(digests.into_iter())
+	}
+}
+
+/// Default extensions applied to Ethereum transactions.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EthExtraImpl;
+
+impl EthExtra for EthExtraImpl {
+	type Config = Runtime;
+	type Extension = TxExtension;
+
+	fn get_eth_extension(nonce: u32, tip: Balance) -> Self::Extension {
+		(
+			frame_system::CheckNonZeroSender::<Runtime>::new(),
+			frame_system::CheckSpecVersion::<Runtime>::new(),
+			frame_system::CheckTxVersion::<Runtime>::new(),
+			frame_system::CheckGenesis::<Runtime>::new(),
+			frame_system::CheckMortality::from(generic::Era::Immortal),
+			frame_system::CheckNonce::<Runtime>::from(nonce),
+			frame_system::CheckWeight::<Runtime>::new(),
+			pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(tip),
+			frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+			crate::transaction_extensions::ReversibleTransactionExtension::<Runtime>::new(),
+		)
 	}
 }
 

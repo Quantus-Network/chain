@@ -10,7 +10,7 @@ use sc_cli::Result;
 use sc_client_api::BlockBackend;
 use sp_core::{Encode, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
-use sp_runtime::{traits::IdentifyAccount, OpaqueExtrinsic, SaturatedConversion};
+use sp_runtime::{generic, traits::IdentifyAccount, OpaqueExtrinsic, SaturatedConversion};
 
 use dilithium_crypto::{self, dilithium_bob};
 
@@ -147,12 +147,12 @@ pub fn create_benchmark_extrinsic(
 	);
 	let signature = raw_payload.using_encoded(|e| sender.sign(e));
 
-	runtime::UncheckedExtrinsic::new_signed(
+	runtime::UncheckedExtrinsic::from(generic::UncheckedExtrinsic::new_signed(
 		call,
 		sender.public().into_account().into(),
 		runtime::Signature::Dilithium(signature),
 		tx_ext,
-	)
+	))
 }
 
 /// Generates inherent data for the `benchmark overhead` command.

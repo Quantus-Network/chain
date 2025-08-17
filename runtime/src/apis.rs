@@ -40,11 +40,15 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
-	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime, RuntimeCall,
-	RuntimeGenesisConfig, System, TransactionPayment, VERSION,
+	configs::EthExtraImpl, AccountId, Balance, Block, BlockNumber, Executive, InherentDataExt,
+	Nonce, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
+use alloc::vec;
 
-impl_runtime_apis! {
+pallet_revive::impl_runtime_apis_plus_revive!(
+	Runtime,
+	Executive,
+	EthExtraImpl,
 
 	impl sp_api::Core<Block> for Runtime {
 		fn version() -> RuntimeVersion {
@@ -333,4 +337,4 @@ impl_runtime_apis! {
 			crate::genesis_config_presets::preset_names()
 		}
 	}
-}
+);

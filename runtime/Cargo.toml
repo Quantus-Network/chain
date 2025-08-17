@@ -25,6 +25,7 @@ frame-system-rpc-runtime-api.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 lazy_static.workspace = true
 log.workspace = true
+pallet-assets.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
 pallet-merkle-airdrop.workspace = true
@@ -35,6 +36,7 @@ pallet-ranked-collective.workspace = true
 pallet-recovery.workspace = true
 pallet-referenda.workspace = true
 pallet-reversible-transfers.workspace = true
+pallet-revive.workspace = true
 pallet-scheduler.workspace = true
 pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
@@ -95,6 +97,7 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"log/std",
+	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-conviction-voting/std",
 	"pallet-merkle-airdrop/std",
@@ -105,6 +108,7 @@ std = [
 	"pallet-recovery/std",
 	"pallet-referenda/std",
 	"pallet-reversible-transfers/std",
+	"pallet-revive/std",
 	"pallet-scheduler/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",

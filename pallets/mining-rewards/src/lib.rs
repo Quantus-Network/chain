@@ -34,6 +34,7 @@ pub mod pallet {
 	use sp_runtime::{
 		generic::DigestItem,
 		traits::{AccountIdConversion, Saturating},
+		ConsensusEngineId,
 	};
 
 	pub(crate) type BalanceOf<T> =
@@ -129,22 +130,29 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		pub fn find_author(digests: Vec<&DigestItem>) -> Option<T::AccountId> {
-			Self::extract_miner_from_digest(Some(digests))
+		pub fn find_author<'a, I>(digests: I) -> Option<T::AccountId>
+		where
+			I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
+		{
+			Self::extract_miner_from_digest(Some(
+				digests
+					.into_iter()
+					.map(|(id, data)| DigestItem::PreRuntime(id, data.to_vec()))
+					.collect(),
+			))
 		}
 
 		/// Extract miner account ID from the pre-runtime digest
-		fn extract_miner_from_digest(digests: Option<Vec<&DigestItem>>) -> Option<T::AccountId> {
+		fn extract_miner_from_digest(digests: Option<Vec<DigestItem>>) -> Option<T::AccountId> {
 			// Get the digest from the current block
 
 			let system_digests = <frame_system::Pallet<T>>::digest();
-			let logs = system_digests.logs.iter().collect::<Vec<_>>();
-			let digests = digests.unwrap_or(logs);
+			let digests = digests.unwrap_or(system_digests.logs.clone());
 
 			// Look for pre-runtime digest with POW_ENGINE_ID
 			for log in digests {
 				if let DigestItem::PreRuntime(engine_id, data) = log {
-					if *engine_id == POW_ENGINE_ID {
+					if engine_id == POW_ENGINE_ID {
 						// Try to decode the accountId
 						// TODO: to enforce miner wormholes, decode inner hash here
 						if let Ok(miner) = T::AccountId::decode(&mut &data[..]) {

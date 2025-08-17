@@ -35,7 +35,7 @@ pub mod transaction_extensions;
 
 pub mod governance;
 
-use crate::governance::pallet_custom_origins;
+use crate::{configs::EthExtraImpl, governance::pallet_custom_origins};
 use poseidon_resonance::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -165,8 +165,12 @@ pub type TxExtension = (
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
+// pub type UncheckedExtrinsic =
+// 	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+
+/// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+	pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
 
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
