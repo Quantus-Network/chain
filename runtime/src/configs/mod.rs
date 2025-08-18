@@ -35,7 +35,7 @@ use crate::{
 		},
 		pallet_custom_origins, Spender,
 	},
-	TxExtension, MILLI_UNIT,
+	AssetId, TxExtension, MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
@@ -51,7 +51,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess,
+	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
 use pallet_revive::evm::runtime::EthExtra;
