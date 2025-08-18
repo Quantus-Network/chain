@@ -16,14 +16,14 @@
 // limitations under the License.
 
 use alloc::{collections::btree_set::BTreeSet, vec::Vec};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::iter::{DoubleEndedIterator, IntoIterator};
 use hash_db::{HashDB, Hasher};
 use scale_info::TypeInfo;
 
-// Note that `LayoutV1` usage here (proof compaction) is compatible
-// with `LayoutV0`.
-use crate::LayoutV1 as Layout;
+// // Note that `LayoutV1` usage here (proof compaction) is compatible
+// // with `LayoutV0`.
+// use crate::LayoutV1 as Layout;
 
 /// Error associated with the `storage_proof` module.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Debug, TypeInfo)]
@@ -39,7 +39,7 @@ pub enum StorageProofError {
 /// The proof consists of the set of serialized nodes in the storage trie accessed when looking up
 /// the keys covered by the proof. Verifying the proof requires constructing the partial trie from
 /// the serialized nodes and performing the key lookups.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo, DecodeWithMemTracking)]
 pub struct StorageProof {
 	trie_nodes: BTreeSet<Vec<u8>>,
 }

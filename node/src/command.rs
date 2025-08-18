@@ -9,7 +9,7 @@ use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rusty_crystals_hdwallet::{generate_mnemonic, wormhole::WormholePair, HDLattice};
 use sc_cli::SubstrateCli;
-use sc_network::config::{NodeKeyConfig, Secret};
+use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::crypto::{AccountId32, Ss58Codec};
 use sp_keyring::Sr25519Keyring;
@@ -284,7 +284,7 @@ pub fn run() -> sc_cli::Result<()> {
 						if !cfg!(feature = "runtime-benchmarks") {
 							return Err(
 								"Runtime benchmarking wasn't enabled when building the node. \
-							You can enable it with `--features runtime-benchmarks`."
+            You can enable it with `--features runtime-benchmarks`."
 									.into(),
 							);
 						}
@@ -309,7 +309,7 @@ pub fn run() -> sc_cli::Result<()> {
 						let db = backend.expose_db();
 						let storage = backend.expose_storage();
 
-						cmd.run(config, client, db, storage)
+						cmd.run(config, client, db, storage, None)
 					},
 					BenchmarkCmd::Overhead(cmd) => {
 						let PartialComponents { client, .. } = service::new_partial(&config)?;
@@ -375,7 +375,10 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
-				match config.network.network_backend.unwrap_or_default() {
+				// TODO: find a way to enforce default without forking sc_cli
+				config.network.network_backend = NetworkBackendType::Libp2p;
+
+				match config.network.network_backend {
 					sc_network::config::NetworkBackendType::Libp2p => service::new_full::<
 						sc_network::NetworkWorker<
 							quantus_runtime::opaque::Block,

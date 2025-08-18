@@ -1,19 +1,19 @@
 [package]
-name = "sp-consensus-qpow"
-version = "0.1.0"
-license = "Apache-2.0"
 authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
 edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "sp-consensus-qpow"
 publish = false
+repository.workspace = true
+version = "0.1.0"
 
 [dependencies]
+codec = { default-features = false, workspace = true }
+primitive-types = { default-features = false, workspace = true }
+scale-info = { default-features = false, workspace = true }
 sp-api = { default-features = false, workspace = true }
 sp-runtime = { default-features = false, workspace = true }
-codec = { default-features = false, workspace = true }
-scale-info = { default-features = false, workspace = true }
-primitive-types = { default-features = false, workspace = true }
 
 [features]
 default = ["std"]
