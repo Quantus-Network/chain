@@ -37,7 +37,7 @@ use sp_trie::{
 	read_child_trie_first_descendant_value, read_child_trie_hash, read_child_trie_value,
 	read_trie_first_descendant_value, read_trie_value,
 	trie_types::{TrieDBBuilder, TrieError},
-	DBValue, KeySpacedDB, MerkleValue, NodeCodec, PrefixedMemoryDB, Trie, TrieCache,
+	DBValue, KeySpacedDB, MerkleValue, NodeCodec, PrefixedMemoryDB, RandomState, Trie, TrieCache,
 	TrieDBRawIterator, TrieRecorder, TrieRecorderProvider,
 };
 #[cfg(feature = "std")]
@@ -115,7 +115,7 @@ where
 		) -> Option<core::result::Result<RE, Box<TrieError<<H as Hasher>::Out>>>>,
 	) -> Option<Result<RE>> {
 		if !matches!(self.state, IterState::Pending) {
-			return None
+			return None;
 		}
 
 		let result = backend.with_trie_db(self.root, self.child_info.as_ref(), |db| {
@@ -425,7 +425,7 @@ where
 		#[cfg(feature = "std")]
 		{
 			if let Some(result) = self.cache.read().child_root.get(child_info.storage_key()) {
-				return Ok(*result)
+				return Ok(*result);
 			}
 		}
 
@@ -583,7 +583,9 @@ where
 		child_info: &ChildInfo,
 		key: &[u8],
 	) -> Result<Option<MerkleValue<H::Out>>> {
-		let Some(child_root) = self.child_root(child_info)? else { return Ok(None) };
+		let Some(child_root) = self.child_root(child_info)? else {
+			return Ok(None);
+		};
 
 		let map_e = |e| format!("Trie lookup error: {}", e);
 
@@ -614,7 +616,7 @@ where
 
 		if self.root == Default::default() {
 			// A special-case for an empty storage root.
-			return Ok(Default::default())
+			return Ok(Default::default());
 		}
 
 		let trie_iter = self
@@ -848,7 +850,7 @@ impl<
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<DBValue> {
 		if *key == self.empty {
-			return Some([0u8].to_vec())
+			return Some([0u8].to_vec());
 		}
 		match self.storage.get(key, prefix) {
 			Ok(x) => x,
