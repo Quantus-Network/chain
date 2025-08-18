@@ -9710,8 +9710,6 @@ dependencies = [
 [[package]]
 name = "sc-network-sync"
 version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59ce6a2562c9d4710bc56e0c2841653fd7596ef9708530b7e45e1444222b979b"
 dependencies = [
  "array-bytes",
  "async-channel 1.9.0",
