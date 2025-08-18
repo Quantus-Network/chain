@@ -53,10 +53,10 @@ use futures::prelude::*;
 use futures_timer::Delay;
 use ip_network::IpNetwork;
 use libp2p::{
-	core::{Endpoint, Multiaddr},
+	core::{transport::PortUse, Endpoint, Multiaddr},
 	kad::{
 		self,
-		record::store::{MemoryStore, RecordStore},
+		store::{MemoryStore, RecordStore},
 		Behaviour as Kademlia, BucketInserts, Config as KademliaConfig, Event as KademliaEvent,
 		GetClosestPeersError, GetRecordOk, PeerRecord, QueryId, QueryResult, Quorum, Record,
 		RecordKey,
@@ -68,10 +68,10 @@ use libp2p::{
 			toggle::{Toggle, ToggleConnectionHandler},
 			DialFailure, ExternalAddrConfirmed, FromSwarm,
 		},
-		ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, PollParameters,
-		StreamProtocol, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+		ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, StreamProtocol, THandler,
+		THandlerInEvent, THandlerOutEvent, ToSwarm,
 	},
-	PeerId,
+	PeerId, SwarmBuilder,
 };
 use linked_hash_set::LinkedHashSet;
 use log::{debug, info, trace, warn};
@@ -613,12 +613,14 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 		peer: PeerId,
 		addr: &Multiaddr,
 		role_override: Endpoint,
+		port_use: PortUse,
 	) -> Result<THandler<Self>, ConnectionDenied> {
 		self.kademlia.handle_established_outbound_connection(
 			connection_id,
 			peer,
 			addr,
 			role_override,
+			port_use,
 		)
 	}
 
@@ -692,7 +694,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 		Ok(list.into_iter().collect())
 	}
 
-	fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+	fn on_swarm_event(&mut self, event: FromSwarm) {
 		match event {
 			FromSwarm::ConnectionEstablished(e) => {
 				self.num_connections += 1;
@@ -779,6 +781,9 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 
 				self.kademlia.on_swarm_event(FromSwarm::ExternalAddrConfirmed(e));
 			},
+			event => {
+				warn!(target: "sub-libp2p", "New unknown `FromSwarm` libp2p event: {event:?}");
+			},
 		}
 	}
 
@@ -791,11 +796,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 		self.kademlia.on_connection_handler_event(peer_id, connection_id, event);
 	}
 
-	fn poll(
-		&mut self,
-		cx: &mut Context,
-		params: &mut impl PollParameters,
-	) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+	fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
 		// Immediately process the content of `discovered`.
 		if let Some(ev) = self.pending_events.pop_front() {
 			return Poll::Ready(ToSwarm::GenerateEvent(ev));
@@ -838,7 +839,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 			}
 		}
 
-		while let Poll::Ready(ev) = self.kademlia.poll(cx, params) {
+		while let Poll::Ready(ev) = self.kademlia.poll(cx) {
 			match ev {
 				ToSwarm::GenerateEvent(ev) => match ev {
 					KademliaEvent::RoutingUpdated { peer, .. } => {
@@ -1025,6 +1026,9 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 					KademliaEvent::OutboundQueryProgressed { result: e, .. } => {
 						warn!(target: "sub-libp2p", "Libp2p => Unhandled Kademlia event: {:?}", e)
 					},
+					KademliaEvent::ModeChanged { new_mode } => {
+						debug!(target: "sub-libp2p", "Libp2p => Kademlia mode changed: {new_mode}")
+					},
 				},
 				ToSwarm::Dial { opts } => return Poll::Ready(ToSwarm::Dial { opts }),
 				ToSwarm::NotifyHandler { peer_id, handler, event } =>
@@ -1040,11 +1044,16 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 				ToSwarm::ListenOn { opts } => return Poll::Ready(ToSwarm::ListenOn { opts }),
 				ToSwarm::RemoveListener { id } =>
 					return Poll::Ready(ToSwarm::RemoveListener { id }),
+				event => {
+					return Poll::Ready(event.map_out(|_| {
+						unreachable!("`GenerateEvent` is handled in a branch above; qed")
+					}));
+				},
 			}
 		}
 
 		// Poll mDNS.
-		while let Poll::Ready(ev) = self.mdns.poll(cx, params) {
+		while let Poll::Ready(ev) = self.mdns.poll(cx) {
 			match ev {
 				ToSwarm::GenerateEvent(event) => match event {
 					mdns::Event::Discovered(list) => {
@@ -1077,6 +1086,17 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 				ToSwarm::ListenOn { opts } => return Poll::Ready(ToSwarm::ListenOn { opts }),
 				ToSwarm::RemoveListener { id } =>
 					return Poll::Ready(ToSwarm::RemoveListener { id }),
+				event => {
+					return Poll::Ready(
+						event
+							.map_in(|_| {
+								unreachable!("`NotifyHandler` is handled in a branch above; qed")
+							})
+							.map_out(|_| {
+								unreachable!("`GenerateEvent` is handled in a branch above; qed")
+							}),
+					);
+				},
 			}
 		}
 
@@ -1107,23 +1127,12 @@ fn kademlia_protocol_name<Hash: AsRef<[u8]>>(
 
 #[cfg(test)]
 mod tests {
-	use super::{
-		kademlia_protocol_name, legacy_kademlia_protocol_name, DiscoveryConfig, DiscoveryOut,
-	};
+	use super::{kademlia_protocol_name, legacy_kademlia_protocol_name, DiscoveryConfig};
 	use crate::config::ProtocolId;
 	use futures::prelude::*;
-	use libp2p::{
-		core::{
-			transport::{MemoryTransport, Transport},
-			upgrade,
-		},
-		identity::Keypair,
-		noise,
-		swarm::{Executor, Swarm, SwarmEvent},
-		yamux, Multiaddr,
-	};
+	use libp2p::{identity::Keypair, swarm::Executor, Multiaddr};
 	use sp_core::hash::H256;
-	use std::{collections::HashSet, pin::Pin, task::Poll};
+	use std::pin::Pin;
 
 	struct TokioExecutor(tokio::runtime::Runtime);
 	impl Executor for TokioExecutor {
@@ -1132,8 +1141,21 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn discovery_working() {
+	#[cfg(ignore_flaky_test)] // https://github.com/paritytech/polkadot-sdk/issues/48
+	#[tokio::test]
+	async fn discovery_working() {
+		use super::DiscoveryOut;
+		use futures::prelude::*;
+		use libp2p::{
+			core::{
+				transport::{MemoryTransport, Transport},
+				upgrade,
+			},
+			noise,
+			swarm::{Swarm, SwarmEvent},
+			yamux,
+		};
+		use std::{collections::HashSet, task::Poll, time::Duration};
 		let mut first_swarm_peer_id_and_addr = None;
 
 		let genesis_hash = H256::from_low_u64_be(1);
@@ -1144,42 +1166,40 @@ mod tests {
 		// the first swarm via `with_permanent_addresses`.
 		let mut swarms = (0..25)
 			.map(|i| {
-				let keypair = Keypair::generate_ed25519();
+				let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+					.with_tokio()
+					.with_other_transport(|keypair| {
+						MemoryTransport::new()
+							.upgrade(upgrade::Version::V1)
+							.authenticate(noise::Config::new(&keypair).unwrap())
+							.multiplex(yamux::Config::default())
+							.boxed()
+					})
+					.unwrap()
+					.with_behaviour(|keypair| {
+						let mut config = DiscoveryConfig::new(keypair.public().to_peer_id());
+						config
+							.with_permanent_addresses(first_swarm_peer_id_and_addr.clone())
+							.allow_private_ip(true)
+							.allow_non_globals_in_dht(true)
+							.discovery_limit(50)
+							.with_kademlia(genesis_hash, fork_id, &protocol_id);
 
-				let transport = MemoryTransport::new()
-					.upgrade(upgrade::Version::V1)
-					.authenticate(noise::Config::new(&keypair).unwrap())
-					.multiplex(yamux::Config::default())
-					.boxed();
-
-				let behaviour = {
-					let mut config = DiscoveryConfig::new(keypair.public().to_peer_id());
-					config
-						.with_permanent_addresses(first_swarm_peer_id_and_addr.clone())
-						.allow_private_ip(true)
-						.allow_non_globals_in_dht(true)
-						.discovery_limit(50)
-						.with_kademlia(genesis_hash, fork_id, &protocol_id);
-
-					config.finish()
-				};
-
-				let runtime = tokio::runtime::Runtime::new().unwrap();
-				#[allow(deprecated)]
-				let mut swarm = libp2p::swarm::SwarmBuilder::with_executor(
-					transport,
-					behaviour,
-					keypair.public().to_peer_id(),
-					TokioExecutor(runtime),
-				)
-				.build();
+						config.finish()
+					})
+					.unwrap()
+					.with_swarm_config(|config| {
+						// This is taken care of by notification protocols in non-test environment
+						config.with_idle_connection_timeout(Duration::from_secs(10))
+					})
+					.build();
 
 				let listen_addr: Multiaddr =
 					format!("/memory/{}", rand::random::<u64>()).parse().unwrap();
 
 				if i == 0 {
 					first_swarm_peer_id_and_addr =
-						Some((keypair.public().to_peer_id(), listen_addr.clone()))
+						Some((*swarm.local_peer_id(), listen_addr.clone()))
 				}
 
 				swarm.listen_on(listen_addr.clone()).unwrap();
@@ -1243,6 +1263,10 @@ mod tests {
 											to_discover[swarm_n].remove(&other);
 										},
 										DiscoveryOut::RandomKademliaStarted => {},
+										DiscoveryOut::ClosestPeersFound(..) => {},
+										// libp2p emits this event when it is not particularly
+										// happy, but this doesn't break the discovery.
+										DiscoveryOut::ClosestPeersNotFound(..) => {},
 										e => {
 											panic!("Unexpected event: {:?}", e)
 										},
@@ -1251,12 +1275,12 @@ mod tests {
 								// ignore non Behaviour events
 								_ => {},
 							}
-							continue 'polling;
+							continue 'polling
 						},
 						_ => {},
 					}
 				}
-				break;
+				break
 			}
 
 			if to_discover.iter().all(|l| l.is_empty()) {
@@ -1266,7 +1290,7 @@ mod tests {
 			}
 		});
 
-		futures::executor::block_on(fut);
+		fut.await
 	}
 
 	#[test]
