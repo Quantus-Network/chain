@@ -146,7 +146,7 @@ impl DisconnectedPeers {
 			log::debug!(target: LOG_TARGET, "Peer {peer_id} is available for queries");
 			self.disconnected_peers.remove(peer_id);
 			true
-		} else {z
+		} else {
 			log::debug!(target: LOG_TARGET,"Peer {peer_id} is backedoff, elapsed: {} backoff sec: {} , num_disconnects: {}", elapsed.as_secs(), self.backoff_seconds, state.num_disconnects);
 			false
 		}

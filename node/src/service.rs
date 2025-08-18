@@ -3,7 +3,7 @@
 use futures::{FutureExt, StreamExt};
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPowAlgorithm};
+use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPoWSeal, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -366,7 +366,7 @@ pub fn new_full<
 
 		task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
 			log::info!("⛏️ QPoW Mining task spawned");
-			let mut nonce: U512 = U512::one();
+			let mut nonce: U512 = U512::zero();
 			let http_client = Client::new();
 			let mut current_job_id: Option<String> = None;
 
@@ -486,7 +486,7 @@ pub fn new_full<
 										worker_handle.submit(seal.encode()),
 									) {
 										log::info!("🥇Successfully mined and submitted a new block via external miner");
-										nonce = U512::one();
+										nonce = U512::zero();
 									} else {
 										log::warn!(
 											"⛏️Failed to submit mined block from external miner"
@@ -521,16 +521,16 @@ pub fn new_full<
 				} else {
 					// Local mining
 					let miner = QPoWMiner::new(client.clone());
-					let nonce_bytes = nonce.to_big_endian();
-					match miner.try_nonce::<Block>(
+					let seal: QPoWSeal = match miner.try_nonce::<Block>(
 						metadata.best_hash,
 						metadata.pre_hash,
-						nonce_bytes,
+						nonce.to_big_endian(),
 					) {
-						true => {
-							log::debug!(target: "miner", "Valid solution: {}", nonce);
+						Ok(s) => {
+							log::debug!(target: "miner", "Valid nonce: {} ==> {:?}", nonce, s);
+							s
 						},
-						false => {
+						Err(_) => {
 							nonce += U512::one();
 							continue;
 						},
@@ -538,9 +538,9 @@ pub fn new_full<
 
 					let current_version = worker_handle.version();
 					if current_version == version {
-						if futures::executor::block_on(worker_handle.submit(nonce_bytes.encode())) {
+						if futures::executor::block_on(worker_handle.submit(seal.encode())) {
 							log::info!("🥇Successfully mined and submitted a new block");
-							nonce = U512::one();
+							nonce = U512::zero();
 						} else {
 							log::warn!("⛏️Failed to submit mined block");
 							nonce += U512::one();
