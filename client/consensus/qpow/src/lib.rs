@@ -2,7 +2,6 @@ mod chain_management;
 mod miner;
 
 pub use chain_management::{ChainManagement, HeaviestChain};
-use codec::{Decode, Encode};
 pub use miner::QPoWMiner;
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -12,11 +11,6 @@ use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::generic::BlockId;
 use std::{marker::PhantomData, sync::Arc};
-
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-pub struct QPoWSeal {
-	pub nonce: [u8; 64],
-}
 
 pub struct QPowAlgorithm<B, C>
 where
@@ -61,29 +55,8 @@ where
 		_pre_digest: Option<&[u8]>,
 		seal: &RawSeal,
 		_difficulty: Self::Difficulty,
-	) -> Result<bool, Error<B>> {
-		//Executed for mined and imported blocks
-
-		/*
-
-		For now, we will turn this off temporally.
-		In this way, node can mine/import blocks without rewarding anyone.
-
-		// Block miner should exist
-
-		let mut extracted_author: Option<AccountId32> = None;
-		if let Some(pre_digest_bytes) = pre_digest {
-			if let Ok(account) = <AccountId32 as Decode>::decode(&mut &pre_digest_bytes[..]) {
-				extracted_author = Some(account);
-			}
-		}
-
-		let _author = match extracted_author {
-			Some(acc) => acc,
-			None => return Err(Error::Runtime("Failed to extract AccountId32 from pre_digest".into())),
-		};
-
-		*/
+	) -> Result<(bool, U512, U512), Error<B>> {
+		// Executed for mined and imported blocks
 
 		// Convert seal to nonce [u8; 64]
 		let nonce: [u8; 64] = match seal.as_slice().try_into() {
@@ -92,22 +65,26 @@ where
 		};
 		let parent_hash = match extract_block_hash(parent) {
 			Ok(hash) => hash,
-			Err(_) => return Ok(false),
+			Err(_) => return Ok((false, U512::zero(), U512::zero())),
 		};
 
 		let pre_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
-
-		// Verify the nonce using QPoW
-		if !self
+		let (verified, difficulty, distance_achieved) = self
 			.client
 			.runtime_api()
-			.verify_for_import(parent_hash, pre_hash, nonce)
-			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?
-		{
-			return Ok(false);
+			.verify_current_block(parent_hash, pre_hash, nonce, false)
+			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
+
+		if !verified {
+			return Ok((false, U512::zero(), U512::zero()));
 		}
 
-		Ok(true)
+		// Check that block metadata matches runtime metadata (is this necessary?)
+		if difficulty != _difficulty {
+			return Ok((false, U512::zero(), U512::zero()));
+		}
+
+		Ok((true, difficulty, distance_achieved))
 	}
 }
 

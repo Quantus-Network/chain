@@ -1,4 +1,3 @@
-use crate::QPoWSeal;
 use primitive_types::H256;
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
@@ -30,18 +29,20 @@ where
 		parent_hash: BA::Hash,
 		pre_hash: BA::Hash,
 		nonce: [u8; 64],
-	) -> Result<QPoWSeal, ()> {
+	) -> bool {
 		// Convert pre_hash to [u8; 32] for verification
-		// TODO normalize all the different ways we do calculations
 		let block_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
 		// Verify the nonce using runtime api
-		match self.client.runtime_api().submit_nonce(parent_hash, block_hash, nonce) {
-			Ok(true) => Ok(QPoWSeal { nonce }),
-			Ok(false) => Err(()),
+		match self
+			.client
+			.runtime_api()
+			.verify_current_block(parent_hash, block_hash, nonce, true)
+		{
+			Ok((result, _, _)) => result,
 			Err(e) => {
 				log::error!("API error in verify_nonce: {:?}", e);
-				Err(())
+				false
 			},
 		}
 	}

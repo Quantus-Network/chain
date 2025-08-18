@@ -2096,7 +2096,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd42060b6d5269743cb923264c8ebdfb3b043e0fa7a6cc97123c354a5ad06f36"
 dependencies = [
  "sp-externalities",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-trie",
 ]
 
@@ -2471,6 +2471,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-runtime-interface 29.0.1",
  "thiserror 1.0.69",
 ]
 
@@ -2809,7 +2810,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3072,7 +3073,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-storage",
  "static_assertions",
 ]
@@ -3134,7 +3135,7 @@ dependencies = [
  "sp-transaction-pool",
  "sp-trie",
  "sp-version",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
  "subxt",
  "subxt-signer",
  "thiserror 1.0.69",
@@ -4576,7 +4577,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6688,7 +6689,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -6739,7 +6739,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -7027,7 +7026,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
  "wormhole-circuit",
  "wormhole-verifier",
  "zk-circuits-common",
@@ -7717,7 +7715,7 @@ dependencies = [
  "libc",
  "log",
  "polkavm-assembler",
- "polkavm-common",
+ "polkavm-common 0.24.0",
  "polkavm-linux-raw",
 ]
 
@@ -7732,6 +7730,12 @@ dependencies = [
 
 [[package]]
 name = "polkavm-common"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31ff33982a807d8567645d4784b9b5d7ab87bcb494f534a57cadd9012688e102"
+
+[[package]]
+name = "polkavm-common"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d91ed9e5af472f729fcf3b3c1cf17508ddbb3505259dd6e2ee0fb5a29e105d22"
@@ -7742,11 +7746,32 @@ dependencies = [
 
 [[package]]
 name = "polkavm-derive"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2eb703f3b6404c13228402e98a5eae063fd16b8f58afe334073ec105ee4117e"
+dependencies = [
+ "polkavm-derive-impl-macro 0.18.0",
+]
+
+[[package]]
+name = "polkavm-derive"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "176144f8661117ea95fa7cf868c9a62d6b143e8a2ebcb7582464c3faade8669a"
 dependencies = [
- "polkavm-derive-impl-macro",
+ "polkavm-derive-impl-macro 0.24.0",
+]
+
+[[package]]
+name = "polkavm-derive-impl"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f2116a92e6e96220a398930f4c8a6cda1264206f3e2034fc9982bfd93f261f7"
+dependencies = [
+ "polkavm-common 0.18.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -7755,9 +7780,19 @@ version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5a21844afdfcc10c92b9ef288ccb926211af27478d1730fcd55e4aec710179d"
 dependencies = [
- "polkavm-common",
+ "polkavm-common 0.24.0",
  "proc-macro2",
  "quote",
+ "syn 2.0.104",
+]
+
+[[package]]
+name = "polkavm-derive-impl-macro"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48c16669ddc7433e34c1007d31080b80901e3e8e523cb9d4b441c3910cf9294b"
+dependencies = [
+ "polkavm-derive-impl 0.18.1",
  "syn 2.0.104",
 ]
 
@@ -7767,7 +7802,7 @@ version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba0ef0f17ad81413ea1ca5b1b67553aedf5650c88269b673d3ba015c83bc2651"
 dependencies = [
- "polkavm-derive-impl",
+ "polkavm-derive-impl 0.24.0",
  "syn 2.0.104",
 ]
 
@@ -7782,7 +7817,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "log",
  "object 0.36.7",
- "polkavm-common",
+ "polkavm-common 0.24.0",
  "regalloc2 0.9.3",
  "rustc-demangle",
 ]
@@ -8386,9 +8421,8 @@ dependencies = [
  "sp-keyring",
  "sp-offchain",
  "sp-runtime",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-session",
- "sp-std",
  "sp-storage",
  "sp-transaction-pool",
  "sp-version",
@@ -8473,7 +8507,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9008,7 +9042,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9217,7 +9251,7 @@ checksum = "60c540da7cc7f00e85905921952da7bf25b9f824a586be2543f7db7bf7f7d4b2"
 dependencies = [
  "log",
  "sp-core",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
  "thiserror 1.0.69",
 ]
 
@@ -9592,10 +9626,10 @@ dependencies = [
  "sp-externalities",
  "sp-io",
  "sp-panic-handler",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-trie",
  "sp-version",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
  "tracing",
 ]
 
@@ -9608,7 +9642,7 @@ dependencies = [
  "polkavm",
  "sc-allocator",
  "sp-maybe-compressed-blob",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
  "thiserror 1.0.69",
  "wasm-instrument",
 ]
@@ -9622,7 +9656,7 @@ dependencies = [
  "log",
  "polkavm",
  "sc-executor-common",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
 ]
 
 [[package]]
@@ -9637,8 +9671,8 @@ dependencies = [
  "rustix 0.36.17",
  "sc-allocator",
  "sc-executor-common",
- "sp-runtime-interface",
- "sp-wasm-interface",
+ "sp-runtime-interface 30.0.0",
+ "sp-wasm-interface 22.0.0",
  "wasmtime",
 ]
 
@@ -10043,7 +10077,7 @@ dependencies = [
  "sp-core",
  "sp-crypto-hashing",
  "sp-state-machine",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
  "thiserror 1.0.69",
 ]
 
@@ -11025,7 +11059,7 @@ dependencies = [
  "sp-externalities",
  "sp-metadata-ir",
  "sp-runtime",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-state-machine",
  "sp-trie",
  "sp-version",
@@ -11259,7 +11293,7 @@ dependencies = [
  "sp-crypto-hashing",
  "sp-debug-derive",
  "sp-externalities",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-std",
  "sp-storage",
  "ss58-registry",
@@ -11366,14 +11400,14 @@ dependencies = [
  "libsecp256k1",
  "log",
  "parity-scale-codec",
- "polkavm-derive",
+ "polkavm-derive 0.24.0",
  "rustversion",
  "secp256k1 0.28.2",
  "sp-core",
  "sp-crypto-hashing",
  "sp-externalities",
  "sp-keystore",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "sp-state-machine",
  "sp-tracing",
  "sp-trie",
@@ -11533,6 +11567,26 @@ dependencies = [
 
 [[package]]
 name = "sp-runtime-interface"
+version = "29.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e99db36a7aff44c335f5d5b36c182a3e0cac61de2fefbe2eeac6af5fb13f63bf"
+dependencies = [
+ "bytes 1.10.1",
+ "impl-trait-for-tuples",
+ "parity-scale-codec",
+ "polkavm-derive 0.18.0",
+ "primitive-types 0.13.1",
+ "sp-externalities",
+ "sp-runtime-interface-proc-macro 18.0.0",
+ "sp-std",
+ "sp-storage",
+ "sp-tracing",
+ "sp-wasm-interface 21.0.1",
+ "static_assertions",
+]
+
+[[package]]
+name = "sp-runtime-interface"
 version = "30.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fcd9c219da8c85d45d5ae1ce80e73863a872ac27424880322903c6ac893c06e"
@@ -11540,15 +11594,29 @@ dependencies = [
  "bytes 1.10.1",
  "impl-trait-for-tuples",
  "parity-scale-codec",
- "polkavm-derive",
+ "polkavm-derive 0.24.0",
  "primitive-types 0.13.1",
  "sp-externalities",
- "sp-runtime-interface-proc-macro",
+ "sp-runtime-interface-proc-macro 19.0.0",
  "sp-std",
  "sp-storage",
  "sp-tracing",
- "sp-wasm-interface",
+ "sp-wasm-interface 22.0.0",
  "static_assertions",
+]
+
+[[package]]
+name = "sp-runtime-interface-proc-macro"
+version = "18.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0195f32c628fee3ce1dfbbf2e7e52a30ea85f3589da9fe62a8b816d70fc06294"
+dependencies = [
+ "Inflector",
+ "expander",
+ "proc-macro-crate 3.3.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -11638,7 +11706,7 @@ dependencies = [
  "sp-crypto-hashing",
  "sp-externalities",
  "sp-runtime",
- "sp-runtime-interface",
+ "sp-runtime-interface 30.0.0",
  "thiserror 1.0.69",
  "x25519-dalek",
 ]
@@ -11771,6 +11839,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "sp-wasm-interface"
+version = "21.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b066baa6d57951600b14ffe1243f54c47f9c23dd89c262e17ca00ae8dca58be9"
+dependencies = [
+ "anyhow",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
 ]
 
 [[package]]
@@ -13859,7 +13939,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -96,14 +96,14 @@ impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
 		WrappedPublicBytes(PublicBytes::default())
 	}
 }
-impl<const N: usize, SubTag> core::fmt::Debug for WrappedPublicBytes<N, SubTag> {
+impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag> {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
 	}
 
 	#[cfg(not(feature = "std"))]
-	fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, _: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		Ok(())
 	}
 }
@@ -172,14 +172,14 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
 	}
 }
 
-impl<const N: usize, SubTag> core::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
+impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
 	}
 
 	#[cfg(not(feature = "std"))]
-	fn fmt(&self, _: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, _: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		Ok(())
 	}
 }
@@ -255,7 +255,7 @@ impl DilithiumPair {
 
 impl alloc::fmt::Debug for DilithiumSignatureWithPublic {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(
 			f,
 			"ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
@@ -265,7 +265,7 @@ impl alloc::fmt::Debug for DilithiumSignatureWithPublic {
 	}
 
 	#[cfg(not(feature = "std"))]
-	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(f, "ResonanceSignatureWithPublic")
 	}
 }

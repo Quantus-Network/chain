@@ -13,6 +13,7 @@ sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 thiserror = { workspace = true, optional = true }
+sp-runtime-interface = { version = "29.0.0", default-features = false }
 
 [dev-dependencies]
 env_logger.workspace = true
@@ -28,11 +29,11 @@ serde = [
 ]
 std = [
 	"codec/std",
-	"log/std",
 	"poseidon-resonance/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
+	"sp-runtime-interface/std",
 	"sp-runtime/std",
 	"thiserror",
 ]
