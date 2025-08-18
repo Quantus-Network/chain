@@ -19,7 +19,7 @@ futures = { workspace = true }
 futures-timer = { workspace = true }
 log = { workspace = true, default-features = true }
 parking_lot = { workspace = true, default-features = true }
-prometheus-endpoint = { workspace = true, package = "substrate-prometheus-endpoint", default-features = true }
+prometheus-endpoint = { workspace = true, default-features = true }
 sc-client-api.default-features = true
 sc-client-api.workspace = true
 sc-consensus.default-features = true
