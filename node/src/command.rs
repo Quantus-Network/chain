@@ -386,6 +386,10 @@ pub fn run() -> sc_cli::Result<()> {
 						cli.rewards_address.clone(),
 						cli.external_miner_url.clone(),
 						cli.enable_peer_sharing,
+						Some(cli.block_request_timeout),  // block_request_timeout_secs
+						Some(cli.block_announce_timeout), // block_announce_timeout_secs
+						Some(cli.sync_timeout),           // sync_timeout_secs
+						Some(cli.import_timeout),         // import_timeout_secs
 					)
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p => {

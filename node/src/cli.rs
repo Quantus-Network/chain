@@ -27,6 +27,22 @@ pub struct Cli {
 	/// Enable peer sharing via RPC endpoint
 	#[arg(long)]
 	pub enable_peer_sharing: bool,
+
+	/// Network timeout for block requests from peers (in seconds)
+	#[arg(long, value_name = "SECONDS", default_value_t = 30)]
+	pub block_request_timeout: u64,
+
+	/// Network timeout for block announcements from peers (in seconds)
+	#[arg(long, value_name = "SECONDS", default_value_t = 20)]
+	pub block_announce_timeout: u64,
+
+	/// Network timeout for sync operations with peers (in seconds)
+	#[arg(long, value_name = "SECONDS", default_value_t = 60)]
+	pub sync_timeout: u64,
+
+	/// Network timeout for block imports from peers (in seconds)
+	#[arg(long, value_name = "SECONDS", default_value_t = 45)]
+	pub import_timeout: u64,
 }
 
 #[derive(Debug, clap::Subcommand)]

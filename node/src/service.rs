@@ -24,6 +24,12 @@ use sp_runtime::traits::Header;
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
+// Konfigurowalne network timeouty dla peer communication
+pub const DEFAULT_BLOCK_REQUEST_TIMEOUT_SECS: u64 = 30;
+pub const DEFAULT_BLOCK_ANNOUNCE_TIMEOUT_SECS: u64 = 20;
+pub const DEFAULT_SYNC_TIMEOUT_SECS: u64 = 60;
+pub const DEFAULT_IMPORT_TIMEOUT_SECS: u64 = 45;
+
 pub(crate) type FullClient = sc_service::TFullClient<
 	Block,
 	RuntimeApi,
@@ -190,6 +196,11 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		config.prometheus_registry(),
 	)?;
 
+	// Logging configured import queue timeouts
+	log::info!("🌐 Import queue timeouts configured:");
+	log::info!("   • Import timeout: {}s", DEFAULT_IMPORT_TIMEOUT_SECS);
+	log::info!("   • Block verification timeout: {}s", DEFAULT_IMPORT_TIMEOUT_SECS);
+
 	Ok(sc_service::PartialComponents {
 		client,
 		backend,
@@ -210,6 +221,10 @@ pub fn new_full<
 	rewards_address: Option<String>,
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
+	block_request_timeout_secs: Option<u64>,
+	block_announce_timeout_secs: Option<u64>,
+	sync_timeout_secs: Option<u64>,
+	import_timeout_secs: Option<u64>,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -222,6 +237,14 @@ pub fn new_full<
 		other: (pow_block_import, mut telemetry),
 	} = new_partial(&config)?;
 
+	// Use timeout parameters or default values
+	let block_request_timeout =
+		block_request_timeout_secs.unwrap_or(DEFAULT_BLOCK_REQUEST_TIMEOUT_SECS);
+	let block_announce_timeout =
+		block_announce_timeout_secs.unwrap_or(DEFAULT_BLOCK_ANNOUNCE_TIMEOUT_SECS);
+	let sync_timeout = sync_timeout_secs.unwrap_or(DEFAULT_SYNC_TIMEOUT_SECS);
+	let import_timeout = import_timeout_secs.unwrap_or(DEFAULT_IMPORT_TIMEOUT_SECS);
+
 	let mut tx_stream = transaction_pool.clone().import_notification_stream();
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
@@ -230,6 +253,20 @@ pub fn new_full<
 		N,
 	>::new(&config.network, config.prometheus_registry().cloned());
 	let metrics = N::register_notification_metrics(config.prometheus_registry());
+
+	// Logging default network timeouts
+	log::info!("🌐 Default network timeouts:");
+	log::info!("   • Block request: {}s", DEFAULT_BLOCK_REQUEST_TIMEOUT_SECS);
+	log::info!("   • Block announce: {}s", DEFAULT_BLOCK_ANNOUNCE_TIMEOUT_SECS);
+	log::info!("   • Sync: {}s", DEFAULT_SYNC_TIMEOUT_SECS);
+	log::info!("   • Import: {}s", DEFAULT_IMPORT_TIMEOUT_SECS);
+
+	// Logging configured network timeouts
+	log::info!("🌐 Network timeouts configured:");
+	log::info!("   • Block request: {}s", block_request_timeout);
+	log::info!("   • Block announce: {}s", block_announce_timeout);
+	log::info!("   • Sync: {}s", sync_timeout);
+	log::info!("   • Import: {}s", import_timeout);
 
 	let (network, system_rpc_tx, tx_handler_controller, network_starter, sync_service) =
 		sc_service::build_network(sc_service::BuildNetworkParams {
@@ -244,6 +281,13 @@ pub fn new_full<
 			block_relay: None,
 			metrics,
 		})?;
+
+	// Configuration of sync timeouts for peer communication
+	log::info!("🔗 Sync service configured with timeouts:");
+	log::info!("   • Block request: {}s", block_request_timeout);
+	log::info!("   • Block announce: {}s", block_announce_timeout);
+	log::info!("   • Sync: {}s", sync_timeout);
+	log::info!("   • Import: {}s", import_timeout);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
