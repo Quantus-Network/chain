@@ -7848,7 +7848,7 @@ dependencies = [
 [[package]]
 name = "poseidon-resonance"
 version = "0.8.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance#46ec10579de5b854b1719ebdeac22bcfcd2ada07"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=polkadot-stable2506#e2bcfb0e3e3d8691fe6cea51c77e2a98f93060ba"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -9022,31 +9022,6 @@ dependencies = [
  "libc",
  "linux-raw-sys 0.9.4",
  "windows-sys 0.60.2",
-
-[[package]]
-name = "rustls"
-version = "0.21.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f56a14d1f48b391359b22f731fd4bd7e43c97f3c50eee276f3aa09c94784d3e"
-dependencies = [
- "log",
- "ring 0.17.14",
- "rustls-webpki 0.101.7",
- "sct",
-]
-
-[[package]]
-name = "rustls"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf4ef73721ac7bcd79b2b315da7779d8fc09718c6b3d2d1b2d94850eb8c18432"
-dependencies = [
- "log",
- "ring 0.17.14",
- "rustls-pki-types",
- "rustls-webpki 0.102.8",
- "subtle 2.6.1",
- "zeroize",
 ]
 
 [[package]]
@@ -9161,7 +9136,7 @@ dependencies = [
 [[package]]
 name = "rusty-crystals-hdwallet"
 version = "0.1.1"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#f90dfaa97453ecd1d2714f6f3053530a2d136325"
+source = "git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506#29301f9c07a18542fceed0adb5b48a8ae55a0b83"
 dependencies = [
  "bip39",
  "hex",
@@ -9172,7 +9147,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium",
+ "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506)",
  "serde",
  "serde_json",
  "sha2 0.10.9",
