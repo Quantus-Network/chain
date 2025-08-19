@@ -631,17 +631,17 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		} else { 0 };
 		let mut bytes = build_bytes(current_max);
 
-		// Log the outbound request range and parameters
+		// Log the outbound request range and parameters (effective max)
 		let from_desc = match &request.from {
 			FromBlock::Hash(h) => format!("hash={:?}", h),
 			FromBlock::Number(n) => format!("number={}", n),
 		};
 		log::info!(
 			target: LOG_TARGET,
-			"Requesting blocks: peer={who}, from={}, dir={:?}, max={}, fields={:?}",
+			"Requesting blocks: peer={who}, from={}, dir={:?}, max(effective)={}, fields={:?}",
 			from_desc,
 			request.direction,
-			request.max.unwrap_or(0),
+			current_max,
 			request.fields,
 		);
 
@@ -655,9 +655,10 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		);
 		match rx.await {
 			Ok(Ok(success)) => {
-				// On success, increase adaptive cap slowly toward configured max.
-				if configured_max > 0 && current_max > 0 {
-					let next = (current_max.saturating_mul(2)).min(configured_max);
+				// On success, increase adaptive cap toward configured max (double each success).
+				if configured_max > 0 {
+					let prev = self.get_adaptive_max(&who).unwrap_or(current_max.max(1));
+					let next = (prev.saturating_mul(2)).min(configured_max.max(1));
 					self.set_adaptive_max(&who, next);
 				}
 				Ok(Ok(success))
@@ -669,37 +670,24 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 					current_max,
 					configured_max,
 				);
-				// Adaptive halving until success or reaching 1.
-				if configured_max <= 1 {
+				// Success-until-fail: reset cap to 1 and try once; subsequent successes will ramp it up.
+				if configured_max == 0 {
 					return Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout)));
 				}
-				let mut attempt_max = if current_max > 0 { current_max } else { configured_max };
-				loop {
-					attempt_max = attempt_max.saturating_div(2).max(1);
-					self.set_adaptive_max(&who, attempt_max);
-					let bytes = build_bytes(attempt_max);
-					let (tx2, rx2) = oneshot::channel();
-					self.network.start_request(
-						who,
-						self.protocol_name.clone(),
-						bytes,
-						tx2,
-						IfDisconnected::ImmediateError,
-					);
-					match rx2.await {
-						Ok(Ok(success)) => {
-							return Ok(Ok(success));
-						},
-						Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout))) => {
-							log::info!(target: LOG_TARGET, "Retry timeout from {who}, attempt_max={}", attempt_max);
-							if attempt_max == 1 { 
-								return Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout)));
-							}
-						},
-						other => {
-							return other;
-						}
-					}
+				let attempt_max = 1u32;
+				self.set_adaptive_max(&who, attempt_max);
+				let bytes = build_bytes(attempt_max);
+				let (tx2, rx2) = oneshot::channel();
+				self.network.start_request(
+					who,
+					self.protocol_name.clone(),
+					bytes,
+					tx2,
+					IfDisconnected::ImmediateError,
+				);
+				match rx2.await {
+					Ok(Ok(success)) => Ok(Ok(success)),
+					other => other,
 				}
 			},
 			other => other,
