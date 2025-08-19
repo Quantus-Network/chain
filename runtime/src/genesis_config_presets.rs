@@ -23,11 +23,13 @@ use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_keyring::AccountKeyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
-/// Identifier for the live testnet runtime preset.
+/// Identifier for the Resonance testnet runtime preset.
 pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
+
+/// Identifier for the heisenberg runtime preset.
+pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 
 fn test_root_account() -> AccountId {
 	account_from_ss58("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
@@ -87,23 +89,25 @@ pub fn live_testnet_config_genesis() -> Value {
 	genesis_template(endowed_accounts, test_root_account())
 }
 
-/// Return the local genesis config preset.
-pub fn local_config_genesis() -> Value {
-	genesis_template(
-		AccountKeyring::iter()
-			.filter(|v| v != &AccountKeyring::One && v != &AccountKeyring::Two)
-			.map(|v| v.to_account_id())
-			.collect::<Vec<_>>(),
-		test_root_account(),
-	)
+pub fn heisenberg_config_genesis() -> Value {
+	let mut endowed_accounts = vec![test_root_account()];
+	endowed_accounts.extend(dilithium_default_accounts());
+	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+	for account in endowed_accounts.iter() {
+		log::info!(
+			"🍆 Endowed account: {:?}",
+			account.to_ss58check_with_version(ss58_version.clone())
+		);
+	}
+	genesis_template(endowed_accounts, test_root_account())
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
-		sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => local_config_genesis(),
 		LIVE_TESTNET_RUNTIME_PRESET => live_testnet_config_genesis(),
+		HEISENBERG_RUNTIME_PRESET => heisenberg_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -123,7 +127,7 @@ fn account_from_ss58(ss58: &str) -> AccountId {
 pub fn preset_names() -> Vec<PresetId> {
 	vec![
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
-		PresetId::from(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET),
 		PresetId::from(LIVE_TESTNET_RUNTIME_PRESET),
+		PresetId::from(HEISENBERG_RUNTIME_PRESET),
 	]
 }

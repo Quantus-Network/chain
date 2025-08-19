@@ -1,24 +1,47 @@
 #!/bin/bash
 
-# This script generates the 'live-resonance.json' chain specification from a specific git release tag.
+# This script generates chain specifications from a specific git release tag.
 # This ensures that the genesis state is transparently and reproducibly built from a known version of the runtime code.
 # The script downloads the WASM runtime from GitHub releases and directly replaces the runtime code in the generated chain spec.
 
 set -e
 
-# Check if a release tag is provided
-if [ -z "$1" ]; then
-  echo "❌ Error: No release tag provided."
-  echo "Usage: $0 <release_tag>"
-  echo "Example: $0 v0.0.7-test-genesis"
+# Check if both parameters are provided
+if [ -z "$1" ] || [ -z "$2" ]; then
+  echo "❌ Error: Missing parameters."
+  echo "Usage: $0 <release_tag> <profile>"
+  echo "Example: $0 v0.0.7-test-genesis live_resonance"
+  echo "Example: $0 v0.0.7-test-genesis heisenberg"
+  echo ""
+  echo "Available profiles:"
+  echo "  - live_resonance: Live Resonance network"
+  echo "  - heisenberg: Heisenberg testnet"
   exit 1
 fi
 
 RELEASE_TAG=$1
-OUTPUT_FILE="node/src/chain-specs/live-resonance.json" # Directly overwrite the existing spec file
+PROFILE=$2
+
+# Validate profile parameter
+if [ "$PROFILE" != "live_resonance" ] && [ "$PROFILE" != "heisenberg" ]; then
+  echo "❌ Error: Invalid profile '$PROFILE'."
+  echo "Available profiles: live_resonance, heisenberg"
+  exit 1
+fi
+
+# Set output file and chain ID based on profile
+case $PROFILE in
+  "live_resonance_live_spec")
+    OUTPUT_FILE="node/src/chain-specs/live-resonance.json"
+    CHAIN_ID="live_resonance"
+    ;;
+  "heisenberg_live_spec")
+    OUTPUT_FILE="node/src/chain-specs/heisenberg.json"
+    CHAIN_ID="heisenberg"
+    ;;
+esac
+
 QUANTUS_NODE_BIN="./target/release/quantus-node"
-# This is the chain spec identifier that builds the genesis state from code, rather than loading from a file.
-CHAIN_ID="live_resonance_local"
 GITHUB_REPO="Quantus-Network/chain"
 
 echo "🔄 Checking current git status..."
@@ -30,7 +53,7 @@ fi
 echo "⬇️ Fetching latest tags from origin..."
 git fetch --all --tags
 
-BRANCH_NAME="genesis/$RELEASE_TAG"
+BRANCH_NAME="genesis/$PROFILE/$RELEASE_TAG"
 echo "✨ Creating and switching to new branch '$BRANCH_NAME'..."
 git checkout -b "$BRANCH_NAME" "tags/$RELEASE_TAG"
 
@@ -51,6 +74,7 @@ if [ -z "$SPEC_VERSION" ] || [ "$SPEC_VERSION" = "null" ]; then
 fi
 
 echo "📋 Using spec_version: $SPEC_VERSION"
+echo "🎯 Generating chain spec for profile: $PROFILE"
 
 echo "🚀 Building node to generate initial chain spec..."
 cargo build --release --package quantus-node
@@ -103,8 +127,8 @@ rm -f "$TEMP_WASM" "$TEMP_HEX_FILE"
 
 echo "✅ Runtime code replaced successfully in chain spec."
 echo "📄 The chain spec at '$OUTPUT_FILE' has been updated with runtime from $RELEASE_TAG."
-echo "🎉 Genesis generation complete."
+echo "🎉 Genesis generation complete for profile: $PROFILE"
 echo ""
 echo "ℹ️ You are now on a new branch named '$BRANCH_NAME'."
 echo "   Please review and commit the changes to '$OUTPUT_FILE'."
-echo "   Example: git add $OUTPUT_FILE && git commit -m \"feat: generate genesis spec from $RELEASE_TAG\""
+echo "   Example: git add $OUTPUT_FILE && git commit -m \"feat: generate $PROFILE genesis spec from $RELEASE_TAG\""
