@@ -2466,7 +2466,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506)",
+ "rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -5103,7 +5103,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identity"
 version = "0.2.9"
-source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc?branch=polkadot-stable2506#8c61301d8e6e94b74350aeaa6933563bd5023f21"
+source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc#08693e33a8d1365d86c6e2c98bf25bf4141e80ce"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5112,7 +5112,7 @@ dependencies = [
  "multihash 0.19.3",
  "quick-protobuf",
  "rand 0.8.5",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/quantus-network/rusty-crystals.git)",
+ "rusty-crystals-dilithium",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "zeroize",
@@ -5189,7 +5189,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.45.0"
-source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc?branch=polkadot-stable2506#a0ac976c681a8d967c550fdcddc44bc51905bd20"
+source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
 dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.10.1",
@@ -7882,8 +7882,8 @@ dependencies = [
 
 [[package]]
 name = "poseidon-resonance"
-version = "0.8.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=polkadot-stable2506#e2bcfb0e3e3d8691fe6cea51c77e2a98f93060ba"
+version = "0.9.0"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#c37290f40cd821970c00844663cf22c7408457b7"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -8333,7 +8333,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "resonance-miner-api",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506)",
+ "rusty-crystals-dilithium",
  "rusty-crystals-hdwallet",
  "sc-basic-authorship",
  "sc-cli",
@@ -9152,16 +9152,7 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506#29301f9c07a18542fceed0adb5b48a8ae55a0b83"
-dependencies = [
- "rand 0.7.3",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "rusty-crystals-dilithium"
-version = "1.0.0"
-source = "git+https://github.com/quantus-network/rusty-crystals.git#f90dfaa97453ecd1d2714f6f3053530a2d136325"
+source = "git+https://github.com/Quantus-Network/rusty-crystals#f90dfaa97453ecd1d2714f6f3053530a2d136325"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9170,7 +9161,7 @@ dependencies = [
 [[package]]
 name = "rusty-crystals-hdwallet"
 version = "0.1.1"
-source = "git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506#29301f9c07a18542fceed0adb5b48a8ae55a0b83"
+source = "git+https://github.com/Quantus-Network/rusty-crystals#099db5986b354b3093f3ff500d7523ba792e50dd"
 dependencies = [
  "bip39",
  "hex",
@@ -9181,7 +9172,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=polkadot-stable2506)",
+ "rusty-crystals-dilithium",
  "serde",
  "serde_json",
  "sha2 0.10.9",
