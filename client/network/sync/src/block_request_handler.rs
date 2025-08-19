@@ -90,7 +90,7 @@ pub fn generate_protocol_config<
 		std::iter::once(generate_legacy_protocol_name(protocol_id).into()).collect(),
 		1024 * 1024,
 		MAX_RESPONSE_SIZE,
-		Duration::from_secs(2000),
+		Duration::from_secs(20),
 		Some(inbound_queue),
 	)
 }
@@ -265,6 +265,7 @@ where
 			Some(SeenRequestsValue::First) => {},
 			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
 				*requests = requests.saturating_add(1);
+				log::debug!(target: LOG_TARGET, "Requests: {}", *requests);
 
 				if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {
 					reputation_change = Some(if small_request {

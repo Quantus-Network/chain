@@ -343,8 +343,8 @@ pub fn new_full<
 			sync_service.clone(),
 			encoded_miner,
 			inherent_data_providers,
-			Duration::from_secs(60),
-			Duration::from_secs(60),
+			Duration::from_secs(20),
+			Duration::from_secs(10),
 		);
 
 		task_manager.spawn_essential_handle().spawn_blocking("pow", None, worker_task);
