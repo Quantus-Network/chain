@@ -23,9 +23,9 @@ RELEASE_TAG=$1
 PROFILE=$2
 
 # Validate profile parameter
-if [ "$PROFILE" != "live_resonance" ] && [ "$PROFILE" != "heisenberg" ]; then
+if [ "$PROFILE" != "live_resonance_live_spec" ] && [ "$PROFILE" != "heisenberg_live_spec" ]; then
   echo "❌ Error: Invalid profile '$PROFILE'."
-  echo "Available profiles: live_resonance, heisenberg"
+  echo "Available profiles: live_resonance_live_spec, heisenberg_live_spec"
   exit 1
 fi
 
