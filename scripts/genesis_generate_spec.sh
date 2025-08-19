@@ -10,36 +10,34 @@ set -e
 if [ -z "$1" ] || [ -z "$2" ]; then
   echo "❌ Error: Missing parameters."
   echo "Usage: $0 <release_tag> <profile>"
-  echo "Example: $0 v0.0.7-test-genesis live_resonance"
-  echo "Example: $0 v0.0.7-test-genesis heisenberg"
+  echo "Example: $0 v0.1.1-nibbler-snack live_resonance"
+  echo "Example: $0 v0.1.1-nibbler-snack heisenberg"
   echo ""
   echo "Available profiles:"
   echo "  - live_resonance: Live Resonance network"
   echo "  - heisenberg: Heisenberg testnet"
+  echo ""
+  echo "Naming convention:"
+  echo "  profile -> profile_live_spec (for execution)"
+  echo "  profile -> profile (with _ replaced by - for output file)"
+  echo "  profile -> profile (as CHAIN_ID)"
   exit 1
 fi
 
 RELEASE_TAG=$1
 PROFILE=$2
 
-# Validate profile parameter
-if [ "$PROFILE" != "live_resonance_live_spec" ] && [ "$PROFILE" != "heisenberg_live_spec" ]; then
-  echo "❌ Error: Invalid profile '$PROFILE'."
-  echo "Available profiles: live_resonance_live_spec, heisenberg_live_spec"
-  exit 1
-fi
+# Dynamic generation based on naming convention
+PROFILE_SPEC="${PROFILE}_live_spec"                                    # live_resonance -> live_resonance_live_spec
+OUTPUT_FILE="node/src/chain-specs/${PROFILE//_/-}.json"               # live_resonance -> live-resonance.json
+CHAIN_ID="$PROFILE"                                                    # live_resonance -> live_resonance
 
-# Set output file and chain ID based on profile
-case $PROFILE in
-  "live_resonance_live_spec")
-    OUTPUT_FILE="node/src/chain-specs/live-resonance.json"
-    CHAIN_ID="live_resonance"
-    ;;
-  "heisenberg_live_spec")
-    OUTPUT_FILE="node/src/chain-specs/heisenberg.json"
-    CHAIN_ID="heisenberg"
-    ;;
-esac
+echo "🔧 Generating initial chain spec from '$PROFILE'..."
+echo "📁 Output file: $OUTPUT_FILE"
+echo "🆔 Chain ID: $CHAIN_ID"
+echo "🏷️  Release tag: $RELEASE_TAG"
+echo "⚙️  Execution profile: $PROFILE_SPEC"
+echo ""
 
 QUANTUS_NODE_BIN="./target/release/quantus-node"
 GITHUB_REPO="Quantus-Network/chain"
@@ -85,7 +83,7 @@ if [ ! -f "$QUANTUS_NODE_BIN" ]; then
 fi
 
 echo "🔧 Generating initial chain spec from '$CHAIN_ID'..."
-$QUANTUS_NODE_BIN build-spec --chain "$CHAIN_ID" --raw > "$OUTPUT_FILE"
+$QUANTUS_NODE_BIN build-spec --chain "$PROFILE_SPEC" --raw > "$OUTPUT_FILE"
 
 if [ ! -s "$OUTPUT_FILE" ]; then
   echo "❌ Failed to generate chain spec. The output file is empty."
