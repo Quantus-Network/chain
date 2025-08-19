@@ -265,9 +265,10 @@ where
 			Some(SeenRequestsValue::First) => {},
 			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
 				*requests = requests.saturating_add(1);
-				log::debug!(target: LOG_TARGET, "Requests: {}", *requests);
+				log::debug!(target: LOG_TARGET, "Requests: {} max_body_bytes: {}", *requests, max_body_bytes);
 
 				if *requests > MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER {
+					log::debug!(target: LOG_TARGET, "Max number of same requests reached");
 					reputation_change = Some(if small_request {
 						rep::SAME_SMALL_REQUEST
 					} else {
@@ -275,6 +276,7 @@ where
 					});
 				} else {
 					max_body_bytes = max_body_bytes >> *requests;
+					log::debug!(target: LOG_TARGET, "Reducing Max body bytes to: {}", max_body_bytes);
 				}
 			},
 			None => {
@@ -606,6 +608,20 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		}
 		.encode_to_vec();
 
+		// Log the outbound request range and parameters
+		let from_desc = match &request.from {
+			FromBlock::Hash(h) => format!("hash={:?}", h),
+			FromBlock::Number(n) => format!("number={}", n),
+		};
+		log::info!(
+			target: LOG_TARGET,
+			"Requesting blocks: peer={who}, from={}, dir={:?}, max={}, fields={:?}",
+			from_desc,
+			request.direction,
+			request.max.unwrap_or(0),
+			request.fields,
+		);
+
 		let (tx, rx) = oneshot::channel();
 		self.network.start_request(
 			who,
@@ -631,6 +647,34 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		// Decode the response protobuf
 		let response_schema = BlockResponseSchema::decode(response.as_slice())
 			.map_err(|error| BlockResponseError::DecodeFailed(error.to_string()))?;
+
+		// Log summary of received blocks (count, first/last numbers and hashes when available)
+		let count = response_schema.blocks.len();
+		let (first_num, first_hash) = response_schema.blocks.first().map_or((None, None), |b| {
+			let h: Option<B::Hash> = Decode::decode(&mut b.hash.as_ref()).ok();
+			let num = if !b.header.is_empty() {
+				let hdr: Option<B::Header> = Decode::decode(&mut b.header.as_ref()).ok();
+				hdr.as_ref().map(|hh| *hh.number())
+			} else {
+				None
+			};
+			(num, h)
+		});
+		let (last_num, last_hash) = response_schema.blocks.last().map_or((None, None), |b| {
+			let h: Option<B::Hash> = Decode::decode(&mut b.hash.as_ref()).ok();
+			let num = if !b.header.is_empty() {
+				let hdr: Option<B::Header> = Decode::decode(&mut b.header.as_ref()).ok();
+				hdr.as_ref().map(|hh| *hh.number())
+			} else {
+				None
+			};
+			(num, h)
+		});
+		log::info!(
+			target: LOG_TARGET,
+			"Received {} blocks: first num={:?} hash={:?}, last num={:?} hash={:?}",
+			count, first_num, first_hash, last_num, last_hash
+		);
 
 		// Extract the block data from the protobuf
 		self.blocks_from_schema::<B>(request, response_schema)
