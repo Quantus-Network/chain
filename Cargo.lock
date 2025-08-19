@@ -9618,7 +9618,6 @@ dependencies = [
 [[package]]
 name = "sc-network"
 version = "0.48.4"
-source = "git+https://github.com/Quantus-Network/sc-network-pqc#fbcf83bcc6c89b1e7f2240c95572adac3e2aabc6"
 dependencies = [
  "array-bytes",
  "async-channel 1.9.0",

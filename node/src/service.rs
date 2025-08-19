@@ -206,11 +206,12 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
-	config: Configuration,
+	mut config: Configuration,
 	rewards_address: Option<String>,
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
 ) -> Result<TaskManager, ServiceError> {
+
 	let sc_service::PartialComponents {
 		client,
 		backend,
@@ -330,6 +331,8 @@ pub fn new_full<
 			None
 		};
 
+
+		
 		let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
 			Box::new(pow_block_import),
 			client.clone(),
@@ -340,8 +343,8 @@ pub fn new_full<
 			sync_service.clone(),
 			encoded_miner,
 			inherent_data_providers,
-			Duration::from_secs(10),
-			Duration::from_secs(10),
+			Duration::from_secs(60),
+			Duration::from_secs(60),
 		);
 
 		task_manager.spawn_essential_handle().spawn_blocking("pow", None, worker_task);

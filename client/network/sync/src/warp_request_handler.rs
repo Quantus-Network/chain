@@ -53,7 +53,7 @@ pub fn generate_request_response_config<
 		std::iter::once(generate_legacy_protocol_name(protocol_id).into()).collect(),
 		32,
 		MAX_RESPONSE_SIZE,
-		Duration::from_secs(10),
+		Duration::from_secs(100),
 		Some(inbound_queue),
 	)
 }

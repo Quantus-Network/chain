@@ -60,7 +60,7 @@ use std::{
 pub(crate) const MAX_BLOCKS_IN_RESPONSE: usize = 128;
 
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
-const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
+const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 3;
 
 mod rep {
 	use sc_network::ReputationChange as Rep;
@@ -90,7 +90,7 @@ pub fn generate_protocol_config<
 		std::iter::once(generate_legacy_protocol_name(protocol_id).into()).collect(),
 		1024 * 1024,
 		MAX_RESPONSE_SIZE,
-		Duration::from_secs(20),
+		Duration::from_secs(2000),
 		Some(inbound_queue),
 	)
 }
@@ -259,6 +259,8 @@ where
 			.difference(BlockAttributes::HEADER | BlockAttributes::JUSTIFICATION)
 			.is_empty();
 
+		let mut max_body_bytes = MAX_BODY_BYTES;
+
 		match self.seen_requests.get(&key) {
 			Some(SeenRequestsValue::First) => {},
 			Some(SeenRequestsValue::Fulfilled(ref mut requests)) => {
@@ -270,6 +272,8 @@ where
 					} else {
 						rep::SAME_REQUEST
 					});
+				} else {
+					max_body_bytes = max_body_bytes >> *requests;
 				}
 			},
 			None => {
@@ -292,6 +296,7 @@ where
 				direction,
 				max_blocks,
 				support_multiple_justifications,
+				max_body_bytes
 			)?;
 
 			// If any of the blocks contains any data, we can consider it as successful request.
@@ -346,6 +351,7 @@ where
 		direction: Direction,
 		max_blocks: usize,
 		support_multiple_justifications: bool,
+		max_body_bytes: usize,
 	) -> Result<BlockResponse, HandleRequestError> {
 		let get_header = attributes.contains(BlockAttributes::HEADER);
 		let get_body = attributes.contains(BlockAttributes::BODY);
@@ -445,7 +451,7 @@ where
 				block_data.indexed_body.iter().map(|ex| ex.len()).sum::<usize>();
 
 			// Send at least one block, but make sure to not exceed the limit.
-			if !blocks.is_empty() && new_total_size > MAX_BODY_BYTES {
+			if !blocks.is_empty() && new_total_size > max_body_bytes {
 				break
 			}
 
@@ -607,8 +613,14 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 			tx,
 			IfDisconnected::ImmediateError,
 		);
-		rx.await
-	}
+		match rx.await {
+			Ok(Err(e)) => {
+			  log::info!("block req failed: protocol={:?}, err={:?}", self.protocol_name, e);
+			  Ok(Err(e))
+			}
+			other => other,
+		  }
+		}
 
 	fn block_response_into_blocks(
 		&self,

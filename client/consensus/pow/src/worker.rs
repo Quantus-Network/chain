@@ -251,6 +251,7 @@ impl<Block: BlockT> Stream for UntilImportedOrTimeout<Block> {
 	type Item = ();
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<()>> {
+		log::info!("poll_next w timeout: {:?}", self.timeout);
 		let mut fire = false;
 
 		loop {
