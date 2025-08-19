@@ -1,20 +1,14 @@
 [package]
-name = "quantus-node"
-description = "Quantus Node - Echo Chamber"
-version = "0.1.4"
-license = "Apache-2.0"
 authors.workspace = true
+build = "build.rs"
 default-run = "quantus-node"
-description = "Quantus Node - Echo Chamber"
 edition.workspace = true
 homepage.workspace = true
 license = "Apache-2.0"
 name = "quantus-node"
 publish = false
 repository.workspace = true
-version = "0.1.1-nibbler-snack"
-
-build = "build.rs"
+version = "0.1.4"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
