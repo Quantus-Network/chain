@@ -1824,8 +1824,8 @@ where
 			.iter_mut()
 			.filter_map(move |(&id, peer)| {
 				if !peer.state.is_available() ||
-					!allowed_requests.contains(&id) ||
-					!disconnected_peers.is_peer_available(&id)
+					!allowed_requests.contains(&id) // ||
+					// !disconnected_peers.is_peer_available(&id) // disable disconnected peers for now
 				{
 					return None;
 				}

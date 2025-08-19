@@ -55,6 +55,8 @@ use std::{
 	sync::Arc,
 	time::Duration,
 };
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 /// Maximum blocks per response.
 pub(crate) const MAX_BLOCKS_IN_RESPONSE: usize = 128;
@@ -515,12 +517,24 @@ enum HandleRequestError {
 pub struct FullBlockDownloader {
 	protocol_name: ProtocolName,
 	network: NetworkServiceHandle,
+    /// Adaptive per-peer maximum blocks to request (soft limit).
+    per_peer_max: Mutex<HashMap<PeerId, u32>>, 
 }
 
 impl FullBlockDownloader {
 	fn new(protocol_name: ProtocolName, network: NetworkServiceHandle) -> Self {
-		Self { protocol_name, network }
+		Self { protocol_name, network, per_peer_max: Mutex::new(HashMap::new()) }
 	}
+
+    fn get_adaptive_max(&self, peer: &PeerId) -> Option<u32> {
+        self.per_peer_max.lock().ok().and_then(|m| m.get(peer).cloned())
+    }
+
+    fn set_adaptive_max(&self, peer: &PeerId, value: u32) {
+        if let Ok(mut m) = self.per_peer_max.lock() {
+            m.insert(*peer, value.max(1));
+        }
+    }
 
 	/// Extracts the blocks from the response schema.
 	fn blocks_from_schema<B: BlockT>(
@@ -595,18 +609,27 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		who: PeerId,
 		request: BlockRequest<B>,
 	) -> Result<Result<(Vec<u8>, ProtocolName), RequestFailure>, oneshot::Canceled> {
-		// Build the request protobuf.
-		let bytes = BlockRequestSchema {
-			fields: request.fields.to_be_u32(),
-			from_block: match request.from {
-				FromBlock::Hash(h) => Some(FromBlockSchema::Hash(h.encode())),
-				FromBlock::Number(n) => Some(FromBlockSchema::Number(n.encode())),
-			},
-			direction: request.direction as i32,
-			max_blocks: request.max.unwrap_or(0),
-			support_multiple_justifications: true,
-		}
-		.encode_to_vec();
+		// Helper to build request payload with a specific max.
+		let build_bytes = |max_blocks: u32| -> Vec<u8> {
+			BlockRequestSchema {
+				fields: request.fields.to_be_u32(),
+				from_block: match request.from {
+					FromBlock::Hash(h) => Some(FromBlockSchema::Hash(h.encode())),
+					FromBlock::Number(n) => Some(FromBlockSchema::Number(n.encode())),
+				},
+				direction: request.direction as i32,
+				max_blocks,
+				support_multiple_justifications: true,
+			}
+			.encode_to_vec()
+		};
+
+		// Determine effective max to use for this request, honoring an adaptive per-peer cap.
+		let configured_max = request.max.unwrap_or(0);
+		let mut current_max = if configured_max > 0 {
+			if let Some(peer_cap) = self.get_adaptive_max(&who) { configured_max.min(peer_cap) } else { configured_max }
+		} else { 0 };
+		let mut bytes = build_bytes(current_max);
 
 		// Log the outbound request range and parameters
 		let from_desc = match &request.from {
@@ -631,12 +654,56 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 			IfDisconnected::ImmediateError,
 		);
 		match rx.await {
-			Ok(Err(e)) => {
-			  log::info!("block req failed: protocol={:?}, err={:?}", self.protocol_name, e);
-			  Ok(Err(e))
-			}
+			Ok(Ok(success)) => {
+				// On success, increase adaptive cap slowly toward configured max.
+				if configured_max > 0 && current_max > 0 {
+					let next = (current_max.saturating_mul(2)).min(configured_max);
+					self.set_adaptive_max(&who, next);
+				}
+				Ok(Ok(success))
+			},
+			Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout))) => {
+				log::info!(
+					target: LOG_TARGET,
+					"Timeout fetching blocks from {who}. current_max={}, configured_max={}",
+					current_max,
+					configured_max,
+				);
+				// Adaptive halving until success or reaching 1.
+				if configured_max <= 1 {
+					return Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout)));
+				}
+				let mut attempt_max = if current_max > 0 { current_max } else { configured_max };
+				loop {
+					attempt_max = attempt_max.saturating_div(2).max(1);
+					self.set_adaptive_max(&who, attempt_max);
+					let bytes = build_bytes(attempt_max);
+					let (tx2, rx2) = oneshot::channel();
+					self.network.start_request(
+						who,
+						self.protocol_name.clone(),
+						bytes,
+						tx2,
+						IfDisconnected::ImmediateError,
+					);
+					match rx2.await {
+						Ok(Ok(success)) => {
+							return Ok(Ok(success));
+						},
+						Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout))) => {
+							log::info!(target: LOG_TARGET, "Retry timeout from {who}, attempt_max={}", attempt_max);
+							if attempt_max == 1 { 
+								return Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout)));
+							}
+						},
+						other => {
+							return other;
+						}
+					}
+				}
+			},
 			other => other,
-		  }
+		}
 		}
 
 	fn block_response_into_blocks(
