@@ -878,7 +878,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rand::{rngs::StdRng, Rng, SeedableRng};
+	use rand::{thread_rng, Rng};
 	use sp_core::H256;
 	use trie_db::{Bytes, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieMut};
 
@@ -1213,12 +1213,12 @@ mod tests {
 		let (mut db, root) = create_trie();
 		// Configure cache size to make sure it is large enough to hold all the data.
 		let cache_size = CacheSize::new(1024 * 1024 * 1024);
-		let num_test_keys: usize = 40000;
+		let num_test_keys: usize = 50000;
 		let shared_cache = Cache::new(cache_size, None);
 
 		// Create a random array of bytes to use as a value.
 		// Use a fixed seed to make the test deterministic
-		let mut rng = StdRng::seed_from_u64(42);
+		let mut rng = thread_rng();
 		let random_keys: Vec<Vec<u8>> =
 			(0..num_test_keys).map(|_| (0..100).map(|_| rng.gen()).collect()).collect();
 
