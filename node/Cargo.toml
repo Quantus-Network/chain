@@ -1,4 +1,8 @@
 [package]
+name = "quantus-node"
+description = "Quantus Node - Echo Chamber"
+version = "0.1.4"
+license = "Apache-2.0"
 authors.workspace = true
 default-run = "quantus-node"
 description = "Quantus Node - Echo Chamber"
