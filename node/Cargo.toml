@@ -1,7 +1,7 @@
 [package]
 name = "quantus-node"
 description = "Quantus Node - Echo Chamber"
-version = "0.1.3-morbo-news"
+version = "0.1.4"
 license = "Apache-2.0"
 authors.workspace = true
 homepage.workspace = true
