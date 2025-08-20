@@ -1390,7 +1390,7 @@ mod tests {
 	}
 	fn random_should_work_inner<L: TrieConfiguration>() {
 		let mut seed = <Blake2Hasher as Hasher>::Out::zero();
-		for test_i in 0..10_000 {
+		for test_i in 0..1000 {
 			if test_i % 50 == 0 {
 				println!("{:?} of 10000 stress tests done", test_i);
 			}

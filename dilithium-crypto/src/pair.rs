@@ -147,6 +147,7 @@ mod tests {
 	use alloc::vec::Vec;
 
 	use super::*;
+	use alloc::vec::Vec;
 
 	fn setup() {
 		// Initialize the logger once per test run

@@ -2,7 +2,6 @@ use primitive_types::{H256, U512};
 /// Functions to interact with the external miner service
 use reqwest::Client;
 use resonance_miner_api::{ApiResponseStatus, MiningRequest, MiningResponse, MiningResult};
-use sc_consensus_qpow::QPoWSeal; // Assuming QPoWSeal is here
 
 // Make functions pub(crate) or pub as needed
 pub(crate) async fn submit_mining_job(
@@ -45,7 +44,7 @@ pub(crate) async fn check_mining_result(
 	client: &Client,
 	miner_url: &str,
 	job_id: &str,
-) -> Result<Option<QPoWSeal>, String> {
+) -> Result<Option<[u8; 64]>, String> {
 	let response = client
 		.get(format!("{}/result/{}", miner_url, job_id))
 		.send()
@@ -65,7 +64,7 @@ pub(crate) async fn check_mining_result(
 				if nonce_bytes.len() == 64 {
 					let mut nonce = [0u8; 64];
 					nonce.copy_from_slice(&nonce_bytes);
-					Ok(Some(QPoWSeal { nonce }))
+					Ok(Some(nonce))
 				} else {
 					Err(format!(
 						"Invalid decoded work length: {} bytes (expected 64)",

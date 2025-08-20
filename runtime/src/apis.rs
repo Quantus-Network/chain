@@ -131,18 +131,14 @@ pallet_revive::impl_runtime_apis_plus_revive!(
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
 
-		fn verify_for_import(header: [u8; 32], nonce: [u8; 64]) -> bool {
-			pallet_qpow::Pallet::<Self>::verify_for_import(header, nonce)
-		}
-
 		fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: u32) -> bool {
 			// Convert u32 to the appropriate BlockNumber type used by your runtime
 			let block_number_param = block_number;
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
-		fn submit_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
-			pallet_qpow::Pallet::<Self>::submit_nonce(header, nonce)
+		fn verify_current_block(header: [u8; 32], nonce: [u8; 64], emit_event: bool) -> (bool, U512, U512) {
+			pallet_qpow::Pallet::<Self>::verify_current_block(header, nonce, emit_event)
 		}
 
 		fn get_max_reorg_depth() -> u32 {

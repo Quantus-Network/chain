@@ -8,14 +8,14 @@ use sha2::{Digest, Sha256};
 use sha3::Sha3_512;
 
 // Common verification logic
-pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> bool {
+pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> (bool, U512) {
 	if nonce == [0u8; 64] {
-		return false;
+		return (false, U512::zero());
 	}
 
-	let distance = get_nonce_distance(header, nonce);
-	log::debug!(target: "math", "difficulty = {}..., threshold = {}...", distance, threshold);
-	distance <= threshold
+	let distance_achieved = get_nonce_distance(header, nonce);
+	log::debug!(target: "math", "difficulty = {}..., threshold = {}...", distance_achieved, threshold);
+	(distance_achieved <= threshold, distance_achieved)
 }
 
 pub fn get_nonce_distance(
@@ -24,6 +24,7 @@ pub fn get_nonce_distance(
 ) -> U512 {
 	// s = 0 is cheating
 	if nonce == [0u8; 64] {
+		log::debug!(target: "math", "zero nonce");
 		return U512::zero();
 	}
 
@@ -36,7 +37,10 @@ pub fn get_nonce_distance(
 	// Compare PoW results
 	let nonce_element = hash_to_group_bigint_sha(&header_int, &m, &n, &nonce_int);
 
-	target.bitxor(nonce_element)
+	let distance = target.bitxor(nonce_element);
+	log::debug!(target: "math", "distance = {}", distance);
+
+	distance
 }
 
 /// Generates a pair of RSA-style numbers (m,n) deterministically from input header

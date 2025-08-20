@@ -51,7 +51,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
+	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ranked_collective::Linear;
 use pallet_revive::evm::runtime::EthExtra;
@@ -573,8 +573,8 @@ parameter_types! {
 	pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
 }
 
-/// We allow root to execute privileged asset operations.
-pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+// /// We allow root to execute privileged asset operations.
+// pub type AssetsForceOrigin = EnsureRoot<AccountId>;
 
 impl pallet_assets::Config for Runtime {
 	type Balance = Balance;

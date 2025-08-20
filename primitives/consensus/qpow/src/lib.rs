@@ -10,12 +10,6 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
-		/// Verify a nonce for a block being imported from the network
-		fn verify_for_import(
-			header: [u8; 32],
-			nonce: [u8; 64],
-		) -> bool;
-
 		/// Verify a nonce for a historical block that's already in the chain
 		fn verify_historical_block(
 			header: [u8; 32],
@@ -23,11 +17,12 @@ sp_api::decl_runtime_apis! {
 			block_number: u32,
 		) -> bool;
 
-		/// Submit a locally mined nonce
-		fn submit_nonce(
+		/// Submit a block
+		fn verify_current_block(
 			header: [u8; 32],
 			nonce: [u8; 64],
-		) -> bool;
+			emit_event: bool
+		) -> (bool, U512, U512);
 
 		/// calculate distance header with nonce to with nonce
 		fn get_nonce_distance(

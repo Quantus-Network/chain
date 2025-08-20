@@ -57,6 +57,7 @@ use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
 use sp_consensus_pow::{Seal, TotalDifficulty, POW_ENGINE_ID};
+use sp_core::U512;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{BlockId, Digest, DigestItem},
@@ -204,7 +205,7 @@ pub trait PowAlgorithm<B: BlockT> {
 		pre_digest: Option<&[u8]>,
 		seal: &Seal,
 		difficulty: Self::Difficulty,
-	) -> Result<bool, Error<B>>;
+	) -> Result<(bool, U512, U512), Error<B>>;
 }
 
 /// A block importer for PoW.
@@ -359,13 +360,15 @@ where
 
 		let pre_hash = block.header.hash();
 		let pre_digest = find_pre_digest::<B>(&block.header)?;
-		if !self.algorithm.verify(
+		let (verified, difficulty, _) = self.algorithm.verify(
 			&BlockId::hash(parent_hash),
 			&pre_hash,
 			pre_digest.as_ref().map(|v| &v[..]),
 			&inner_seal,
 			difficulty,
-		)? {
+		)?;
+
+		if !verified {
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
@@ -595,10 +598,6 @@ where
 			if let Some(pre_runtime) = &pre_runtime {
 				inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
 			}
-
-			// Add difficulty to block digest
-			let difficulty_bytes = difficulty.encode();
-			inherent_digest.push(DigestItem::Other(difficulty_bytes));
 
 			let pre_runtime = pre_runtime.clone();
 

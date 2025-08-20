@@ -107,13 +107,14 @@ API classes are defined in the 'resonance-miner-api' crate.
    ```bash
    # From workspace root
    cargo build --release -p quantus-node
-   cargo build --release -p external-miner
    ```
 
 2. **Run External Miner:** (In a separate terminal)
    ```bash
-   # From workspace root
-   RUST_LOG=info ./target/release/external-miner
+   git clone https://github.com/Quantus-Network/quantus-miner
+   cd quantus-miner
+   cargo build --release
+   RUST_LOG=info ./target/release/quantus-miner
    ```
    *(Listens on `http://127.0.0.1:9833` by default)*
 
