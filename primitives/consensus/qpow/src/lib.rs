@@ -65,10 +65,13 @@ sp_api::decl_runtime_apis! {
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
 
 		/// Get difficulty for a specific block hash
-		fn get_block_difficulty(block_hash: [u8; 32]) -> Option<U512>;
+		fn get_block_difficulty(block_number: u32) -> Option<U512>;
 
 		/// Get distance achieved for a specific block hash
-		fn get_block_distance_achieved(block_hash: [u8; 32]) -> Option<U512>;
+		fn get_block_distance_achieved(block_number: u32) -> Option<U512>;
+
+		/// Get both difficulty and distance achieved for a specific block number
+		fn get_block_metadata(block_number: u32) -> (Option<U512>, Option<U512>);
 	}
 }
 

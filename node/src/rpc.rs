@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
-use quantus_runtime::{opaque::Block, AccountId, Balance, Difficulty, Hash as BlockHash, Nonce};
+use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
 use sc_network::service::traits::NetworkService;
 use sc_transaction_pool_api::TransactionPool;
 use serde::{Deserialize, Serialize};
@@ -43,13 +43,9 @@ pub trait PeerApi {
 /// QPoW RPC API
 #[rpc(client, server)]
 pub trait QPoWApi {
-	/// Get difficulty for a specific block hash
-	#[method(name = "qpow_getBlockDifficulty")]
-	fn get_block_difficulty(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>>;
-
-	/// Get distance achieved for a specific block hash
-	#[method(name = "qpow_getBlockDistanceAchieved")]
-	fn get_block_distance_achieved(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>>;
+	/// Get both difficulty and distance achieved for a specific block number
+	#[method(name = "qpow_getBlockMetadata")]
+	fn get_block_metadata(&self, block_number: u32) -> RpcResult<(Option<String>, Option<String>)>;
 }
 
 /// Peer RPC implementation
@@ -122,13 +118,18 @@ where
 	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
 	C::Api: sp_consensus_qpow::QPoWApi<Block>,
 {
-	fn get_block_difficulty(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>> {
+	fn get_block_metadata(&self, block_number: u32) -> RpcResult<(Option<String>, Option<String>)> {
+		log::info!("RPC: get_block_metadata called for block number: {}", block_number);
+
 		let best_hash = self.client.info().best_hash;
-		let difficulty = self
+		log::info!("RPC: using best_hash: {:?}", best_hash);
+		
+		let (difficulty, distance) = self
 			.client
 			.runtime_api()
-			.get_block_difficulty(best_hash, block_hash.0)
+			.get_block_metadata(best_hash, block_number)
 			.map_err(|e| {
+				log::error!("RPC: Runtime API call failed: {}", e);
 				jsonrpsee::types::error::ErrorObject::owned(
 					6003,
 					format!("Runtime API call failed: {}", e),
@@ -136,24 +137,18 @@ where
 				)
 			})?;
 
-		Ok(difficulty)
-	}
+		log::info!("RPC: got difficulty: {:?}, distance: {:?}", difficulty, distance);
 
-	fn get_block_distance_achieved(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>> {
-		let best_hash = self.client.info().best_hash;
-		let distance = self
-			.client
-			.runtime_api()
-			.get_block_distance_achieved(best_hash, block_hash.0)
-			.map_err(|e| {
-				jsonrpsee::types::error::ErrorObject::owned(
-					6003,
-					format!("Runtime API call failed: {}", e),
-					None::<()>,
-				)
-			})?;
+		let difficulty_str = difficulty.map(|d| format!("0x{:x}", d));
+		let distance_str = distance.map(|d| format!("0x{:x}", d));
 
-		Ok(distance)
+		log::info!(
+			"RPC: returning difficulty_str: {:?}, distance_str: {:?}",
+			difficulty_str,
+			distance_str
+		);
+
+		Ok((difficulty_str, distance_str))
 	}
 }
 

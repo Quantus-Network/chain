@@ -32,7 +32,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::BlockNumberFor;
 	use qpow_math::{get_nonce_distance, get_random_rsa, hash_to_group_bigint, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
-	use sp_core::U512;
+	use sp_core:: U512;
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
@@ -43,7 +43,6 @@ pub mod pallet {
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
 	pub type HistorySizeType = u32;
-	pub type BlockCount = u32;
 	pub type PercentageClamp = u8;
 	pub type ThresholdExponent = u32;
 
@@ -81,13 +80,13 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
 
-	// Difficulty for each block header hash
+	// Difficulty for each block number
 	#[pallet::storage]
-	pub type BlockDifficulty<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 32], U512>;
+	pub type BlockDifficulty<T: Config> = StorageMap<_, Blake2_128Concat, u32, U512>;
 
-	// Distance achieved for each block header hash
+	// Distance achieved for each block number
 	#[pallet::storage]
-	pub type BlockDistanceAchieved<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 32], U512>;
+	pub type BlockDistanceAchieved<T: Config> = StorageMap<_, Blake2_128Concat, u32, U512>;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
@@ -111,7 +110,7 @@ pub mod pallet {
 		type BlockTimeHistorySize: Get<HistorySizeType>;
 
 		#[pallet::constant]
-		type MaxReorgDepth: Get<BlockCount>;
+		type MaxReorgDepth: Get<u32>;
 
 		/// Fixed point scale for calculations (default: 10^18)
 		#[pallet::constant]
@@ -324,7 +323,6 @@ pub mod pallet {
 			// Update TotalWork
 			let old_total_work = <TotalWork<T>>::get();
 			let current_work = Self::get_difficulty();
-			// TODO: we should record the actual distance achieved somewhere
 			let new_total_work = old_total_work.saturating_add(current_work);
 			<TotalWork<T>>::put(new_total_work);
 			log::debug!(target: "qpow",
@@ -528,9 +526,17 @@ pub mod pallet {
 				Self::verify_nonce_internal(block_hash, nonce);
 
 			if valid {
-				// Store mining metadata for valid blocks
-				<BlockDifficulty<T>>::insert(block_hash, difficulty);
-				<BlockDistanceAchieved<T>>::insert(block_hash, distance_achieved);
+				// Store mining metadata for valid blocks using current block number + 1
+				let current_block_number = frame_system::Pallet::<T>::block_number();
+				let block_number: u32 = (current_block_number + 1u32.into())
+					.try_into()
+					.unwrap_or_else(|_| {
+						log::error!("Block number overflow when converting to u32");
+						0u32
+					});
+				log::error!("%%%Putting {:?} and {:?} into number {:?}", hex::encode(difficulty.to_big_endian()), hex::encode(distance_achieved.to_big_endian()), block_number);
+				<BlockDifficulty<T>>::insert(block_number, difficulty);
+				<BlockDistanceAchieved<T>>::insert(block_number, distance_achieved);
 			}
 
 			valid
@@ -574,18 +580,26 @@ pub mod pallet {
 			<LastBlockDuration<T>>::get()
 		}
 
-		pub fn get_max_reorg_depth() -> BlockCount {
+		pub fn get_max_reorg_depth() -> u32 {
 			T::MaxReorgDepth::get()
 		}
 
-		/// Get difficulty for a specific block hash
-		pub fn get_block_difficulty(block_hash: [u8; 32]) -> Option<U512> {
-			<BlockDifficulty<T>>::get(block_hash)
+		/// Get difficulty for a specific block number
+		pub fn get_block_difficulty(block_number: u32) -> Option<U512> {
+			<BlockDifficulty<T>>::get(block_number)
 		}
 
-		/// Get distance achieved for a specific block hash
-		pub fn get_block_distance_achieved(block_hash: [u8; 32]) -> Option<U512> {
-			<BlockDistanceAchieved<T>>::get(block_hash)
+		/// Get distance achieved for a specific block number
+		pub fn get_block_distance_achieved(block_number: u32) -> Option<U512> {
+			<BlockDistanceAchieved<T>>::get(block_number)
+		}
+
+		/// Get both difficulty and distance achieved for a specific block number
+		pub fn get_block_metadata(block_number: u32) -> (Option<U512>, Option<U512>) {
+			let difficulty = <BlockDifficulty<T>>::get(block_number);
+			let distance_achieved = <BlockDistanceAchieved<T>>::get(block_number);
+			log::error!("Getting block_metadata for {:?}: {:?} {:?}", block_number, difficulty, distance_achieved);
+			(difficulty, distance_achieved)
 		}
 	}
 }

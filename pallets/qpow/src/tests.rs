@@ -519,9 +519,9 @@ fn test_mining_always_importable() {
 
 			// Verify metadata consistency
 			let difficulty =
-				QPow::get_block_difficulty(*block_hash).expect("Difficulty should be stored");
+				QPow::get_block_difficulty(1).expect("Difficulty should be stored");
 			let distance_achieved =
-				QPow::get_block_distance_achieved(*block_hash).expect("Distance should be stored");
+				QPow::get_block_distance_achieved(1).expect("Distance should be stored");
 
 			assert!(
 				difficulty > U512::zero(),

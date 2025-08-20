@@ -196,12 +196,16 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_nonce_distance(block_hash, nonce)
 		}
 
-		fn get_block_difficulty(block_hash: [u8; 32]) -> Option<U512> {
-			pallet_qpow::BlockDifficulty::<Self>::get(block_hash)
+		fn get_block_difficulty(block_number: u32) -> Option<U512> {
+			pallet_qpow::Pallet::<Self>::get_block_difficulty(block_number)
 		}
 
-		fn get_block_distance_achieved(block_hash: [u8; 32]) -> Option<U512> {
-			pallet_qpow::BlockDistanceAchieved::<Self>::get(block_hash)
+		fn get_block_distance_achieved(block_number: u32) -> Option<U512> {
+			pallet_qpow::Pallet::<Self>::get_block_distance_achieved(block_number)
+		}
+
+		fn get_block_metadata(block_number: u32) -> (Option<U512>, Option<U512>) {
+			pallet_qpow::Pallet::<Self>::get_block_metadata(block_number)
 		}
 	}
 
