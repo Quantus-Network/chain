@@ -35,9 +35,7 @@ where
 
 		// Verify the nonce using runtime api
 		match self.client.runtime_api().verify_mining_nonce(parent_hash, block_hash, nonce) {
-			Ok(result) => {
-				result
-			},
+			Ok(result) => result,
 			Err(e) => {
 				log::error!("API error in try_nonce: {:?}", e);
 				false

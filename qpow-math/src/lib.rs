@@ -10,7 +10,10 @@ use sha3::Sha3_512;
 // Common verification logic
 pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> (bool, U512) {
 	if nonce == [0u8; 64] {
-		log::error!("is_valid_nonce should not be called with 0 nonce, but was for header: {:?}", header);
+		log::error!(
+			"is_valid_nonce should not be called with 0 nonce, but was for header: {:?}",
+			header
+		);
 		return (false, U512::zero());
 	}
 
