@@ -383,3 +383,13 @@ the correct dependencies, activate direnv `direnv allow`.
 Please follow the [Substrate Docker instructions
 here](https://github.com/paritytech/polkadot-sdk/blob/master/substrate/docker/README.md) to
 build the Docker container with the Substrate Node Template binary.
+
+### try-runtime
+
+Compile the node with the `try-runtime` feature enabled to use the runtime wasm for `try-runtime` [check](https://github.com/paritytech/try-runtime-cli):
+
+```bash
+cargo build --release --features try-runtime
+
+try-runtime --runtime target/release/wbuild/quantus-runtime/quantus_runtime.wasm on-runtime-upgrade --disable-spec-version-check --blocktime 10000 live --uri <WS_URL>
+```
