@@ -675,3 +675,40 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<V
 		_ => Err(Error::<B>::HeaderUnsealed(hash)),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sp_runtime::{generic, traits::BlakeTwo256, OpaqueExtrinsic};
+
+    type TestHeader = generic::Header<u64, BlakeTwo256>;
+    type TestBlock = generic::Block<TestHeader, OpaqueExtrinsic>;
+
+    #[test]
+    fn seal_big_endian_digest_roundtrip_and_fetch() {
+        // Construct a big-endian nonce from a concrete U512 value
+        let nonce = sp_core::U512::from(38u32);
+        let nonce_bytes: [u8; 64] = nonce.to_big_endian();
+
+        // Sender constructs the seal as raw 64 bytes and places it in a digest item
+        let seal_vec: Vec<u8> = nonce_bytes.encode(); // SCALE on [u8;64] is raw bytes
+        let mut digest = Digest::default();
+        digest.push(DigestItem::Seal(POW_ENGINE_ID, seal_vec.clone()));
+
+        // Simulate network transfer (SCALE encode/decode the digest as part of header)
+        let encoded = digest.encode();
+        let decoded = Digest::decode(&mut &encoded[..]).expect("decode digest");
+
+        // Receiver extracts inner seal exactly as sent
+        let last = decoded.logs().last().expect("one log");
+        let extracted = fetch_seal::<TestBlock>(Some(last), <TestBlock as BlockT>::Hash::default())
+            .expect("fetch seal");
+
+        // Ensure identity and that bytes interpret back to the same numeric U512 (big-endian)
+        assert_eq!(extracted, seal_vec);
+        let mut back = [0u8; 64];
+        back.copy_from_slice(&extracted);
+        let numeric_back = sp_core::U512::from_big_endian(&back);
+        assert_eq!(numeric_back, nonce);
+    }
+}

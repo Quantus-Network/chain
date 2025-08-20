@@ -33,6 +33,7 @@ sp-runtime.workspace = true
 
 [dev-dependencies]
 primitive-types.workspace = true
+sp-consensus-pow = { workspace = true, default-features = false, features = ["std"] }
 
 [features]
 default = ["std"]

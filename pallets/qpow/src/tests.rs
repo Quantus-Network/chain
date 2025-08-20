@@ -5,6 +5,10 @@ use qpow_math::{
 	get_random_rsa, hash_to_group_bigint_sha, is_coprime, is_prime, mod_pow, sha3_512,
 };
 use std::ops::Shl;
+use codec::{Decode, Encode};
+use sp_consensus_pow::POW_ENGINE_ID;
+use sp_runtime::{Digest, DigestItem};
+use sp_consensus_pow::Seal;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -953,6 +957,58 @@ fn test_block_distance_threshold_storage_and_retrieval() {
 }
 
 //////////// Support methods
+#[test]
+fn test_seal_scale_roundtrip_identity() {
+	new_test_ext().execute_with(|| {
+		// Deterministic 64-byte nonce
+		let mut nonce = [0u8; 64];
+		for i in 0..64 {
+			nonce[i] = i as u8;
+		}
+
+		// Treat as seal bytes (peer A)
+		let seal: Seal = nonce.to_vec();
+		let encoded = seal.encode();
+
+		// Decode on peer B
+		let decoded: Seal = Seal::decode(&mut &encoded[..]).expect("decode seal");
+
+		// Convert back to fixed array and compare
+		let roundtrip: [u8; 64] = decoded.as_slice().try_into().expect("64 bytes");
+		assert_eq!(roundtrip, nonce);
+	});
+}
+
+#[test]
+fn test_digest_seal_roundtrip_identity() {
+	new_test_ext().execute_with(|| {
+		// Deterministic 64-byte nonce
+		let mut nonce = [0u8; 64];
+		for i in 0..64 {
+			nonce[i] = (255 - i as u8);
+		}
+
+		let seal: Seal = nonce.to_vec();
+		let mut digest = Digest::default();
+		digest.push(DigestItem::Seal(POW_ENGINE_ID, seal.clone()));
+
+		// SCALE encode the full digest (as in block header propagation)
+		let encoded = digest.encode();
+		let decoded = Digest::decode(&mut &encoded[..]).expect("decode digest");
+
+		// Extract back the seal and compare
+		let last = decoded.logs().last().expect("one log");
+		match last {
+			DigestItem::Seal(id, s) => {
+				assert_eq!(*id, POW_ENGINE_ID);
+				let roundtrip: [u8; 64] = s.as_slice().try_into().expect("64 bytes");
+				assert_eq!(roundtrip, nonce);
+			},
+			_ => panic!("unexpected digest item"),
+		}
+	});
+}
+
 pub fn hash_to_group(h: &[u8; 32], m: &[u8; 32], n: &[u8; 64], nonce: &[u8; 64]) -> U512 {
 	let h = U512::from_big_endian(h);
 	let m = U512::from_big_endian(m);

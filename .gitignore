@@ -4,3 +4,4 @@ target/
 /vendor
 /scripts/apps
 /scripts/js/node_modules
+/test_data
