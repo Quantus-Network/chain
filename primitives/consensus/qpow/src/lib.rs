@@ -17,11 +17,17 @@ sp_api::decl_runtime_apis! {
 			block_number: u32,
 		) -> bool;
 
-		/// Submit a block
-		fn verify_current_block(
+		/// Verify a nonce for mining (returns only validity)
+		fn verify_mining_nonce(
 			header: [u8; 32],
 			nonce: [u8; 64]
-		) -> (bool, U512, U512);
+		) -> bool;
+
+		/// Verify and store metadata for imported block
+		fn verify_imported_block(
+			header: [u8; 32],
+			nonce: [u8; 64]
+		) -> bool;
 
 		/// calculate distance header with nonce to with nonce
 		fn get_nonce_distance(
@@ -63,6 +69,12 @@ sp_api::decl_runtime_apis! {
 
 		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512);
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
+
+		/// Get difficulty for a specific block header
+		fn get_block_difficulty(header: [u8; 32]) -> Option<U512>;
+
+		/// Get distance achieved for a specific block header
+		fn get_block_distance_achieved(header: [u8; 32]) -> Option<U512>;
 	}
 }
 

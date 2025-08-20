@@ -82,6 +82,14 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
 
+	// Difficulty for each block header hash
+	#[pallet::storage]
+	pub type BlockDifficulty<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 32], U512>;
+
+	// Distance achieved for each block header hash
+	#[pallet::storage]
+	pub type BlockDistanceAchieved<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 32], U512>;
+
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		/// Overarching event type
@@ -205,6 +213,7 @@ pub mod pallet {
 				blocks,
 				current_distance_threshold.shr(300)
 			);
+
 			Self::adjust_distance_threshold();
 		}
 	}
@@ -497,13 +506,13 @@ pub mod pallet {
 			valid
 		}
 
-		// Block verification
-		pub fn verify_current_block(
-			header: HeaderType,
-			nonce: NonceType,
-		) -> (bool, U512, U512) {
+		// Shared verification logic
+		fn verify_nonce_internal(header: HeaderType, nonce: NonceType) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
-				log::warn!("verify_current_block should not be called with 0 nonce, but was for header: {:?}", header);
+				log::warn!(
+					"verify_nonce should not be called with 0 nonce, but was for header: {:?}",
+					header
+				);
 				return (false, U512::zero(), U512::zero());
 			}
 			let distance_threshold = Self::get_distance_threshold();
@@ -511,11 +520,33 @@ pub mod pallet {
 				Self::is_valid_nonce(header, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
 
+			(valid, difficulty, distance_achieved)
+		}
+
+		// Block verification for mining (no metadata storage)
+		pub fn verify_mining_nonce(header: HeaderType, nonce: NonceType) -> bool {
+			let (valid, _, _) = Self::verify_nonce_internal(header, nonce);
+
+			valid
+		}
+
+		// Block verification for import (with metadata storage)
+		pub fn verify_imported_block(header: HeaderType, nonce: NonceType) -> bool {
+			let (valid, difficulty, distance_achieved) = Self::verify_nonce_internal(header, nonce);
+
 			if valid {
-				log::warn!("valid nonce found: header {:?} nonce {:?}", header, nonce);
+				// Store mining metadata for imported block
+				<BlockDifficulty<T>>::insert(header, difficulty);
+				<BlockDistanceAchieved<T>>::insert(header, distance_achieved);
+			} else {
+				log::warn!(
+					"!!! invalid nonce found during import: header {:?} nonce {:?}",
+					hex::encode(header),
+					hex::encode(nonce)
+				);
 			}
 
-			(valid, difficulty, distance_achieved)
+			valid
 		}
 
 		pub fn get_distance_threshold() -> DistanceThreshold {
@@ -558,6 +589,16 @@ pub mod pallet {
 
 		pub fn get_max_reorg_depth() -> BlockCount {
 			T::MaxReorgDepth::get()
+		}
+
+		/// Get difficulty for a specific block header
+		pub fn get_block_difficulty(header: [u8; 32]) -> Option<U512> {
+			<BlockDifficulty<T>>::get(header)
+		}
+
+		/// Get distance achieved for a specific block header
+		pub fn get_block_distance_achieved(header: [u8; 32]) -> Option<U512> {
+			<BlockDistanceAchieved<T>>::get(header)
 		}
 	}
 }

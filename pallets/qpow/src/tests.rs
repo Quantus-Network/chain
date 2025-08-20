@@ -52,7 +52,7 @@ fn test_submit_valid_proof() {
 		// Now run the test with our dynamically found values
 
 		// Submit an invalid proof
-		let (valid, _, _) = QPow::verify_current_block(header, invalid_nonce);
+		let valid = QPow::verify_mining_nonce(header, invalid_nonce);
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
@@ -61,7 +61,7 @@ fn test_submit_valid_proof() {
 		);
 
 		// Submit a valid proof
-		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce);
+		let valid = QPow::verify_mining_nonce(header, valid_nonce);
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
@@ -85,7 +85,7 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			let (valid, _, _) = QPow::verify_current_block(header, second_valid);
+			let valid = QPow::verify_mining_nonce(header, second_valid);
 			assert!(valid);
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
@@ -96,7 +96,7 @@ fn test_submit_valid_proof() {
 }
 
 #[test]
-fn test_verify_current_block() {
+fn test_verify_mining_nonce() {
 	new_test_ext().execute_with(|| {
 		// Set up test data
 		let header = [1u8; 32];
@@ -127,7 +127,7 @@ fn test_verify_current_block() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce);
+		let valid = QPow::verify_mining_nonce(header, valid_nonce);
 		assert!(valid);
 
 		// Check for events if needed
@@ -412,7 +412,7 @@ fn test_integrated_verification_flow() {
 		}
 
 		// 1. First, simulate mining by submitting a nonce
-		let (valid, _, _) = QPow::verify_current_block(header, nonce);
+		let valid = QPow::verify_mining_nonce(header, nonce);
 		assert!(valid);
 
 		// 2. Finally verify historical block

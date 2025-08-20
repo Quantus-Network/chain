@@ -34,15 +34,8 @@ where
 		let block_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
 		// Verify the nonce using runtime api
-		match self
-			.client
-			.runtime_api()
-			.verify_current_block(parent_hash, block_hash, nonce)
-		{
-			Ok((result, _, _)) => {
-				if result {
-					log::warn!("valid nonce found for header: {:?} nonce: {:?}", block_hash, nonce);
-				}
+		match self.client.runtime_api().verify_mining_nonce(parent_hash, block_hash, nonce) {
+			Ok(result) => {
 				result
 			},
 			Err(e) => {

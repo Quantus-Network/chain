@@ -133,8 +133,12 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
-		fn verify_current_block(header: [u8; 32], nonce: [u8; 64]) -> (bool, U512, U512) {
-			pallet_qpow::Pallet::<Self>::verify_current_block(header, nonce)
+		fn verify_mining_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_mining_nonce(header, nonce)
+		}
+
+		fn verify_imported_block(header: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_imported_block(header, nonce)
 		}
 
 		fn get_max_reorg_depth() -> u32 {
@@ -194,6 +198,14 @@ impl_runtime_apis! {
 			nonce: [u8; 64]
 		) -> U512 {
 			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
+		}
+
+		fn get_block_difficulty(header: [u8; 32]) -> Option<U512> {
+			pallet_qpow::BlockDifficulty::<Self>::get(header)
+		}
+
+		fn get_block_distance_achieved(header: [u8; 32]) -> Option<U512> {
+			pallet_qpow::BlockDistanceAchieved::<Self>::get(header)
 		}
 	}
 

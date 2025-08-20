@@ -30,6 +30,7 @@ sp-arithmetic.workspace = true
 sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
 primitive-types.workspace = true

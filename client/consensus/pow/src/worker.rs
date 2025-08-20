@@ -141,8 +141,6 @@ where
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
 	/// successful.
 	pub async fn submit(&self, seal: Seal) -> bool {
-		let difficulty: U512;
-		let distance_achieved: U512;
 		if let Some(metadata) = self.metadata() {
 			let result = self.algorithm.verify(
 				&BlockId::Hash(metadata.best_hash),
@@ -152,11 +150,8 @@ where
 				metadata.difficulty,
 			);
 			match result {
-				Ok((verified, diff, dist)) =>
-					if verified {
-						difficulty = diff;
-						distance_achieved = dist;
-					} else {
+				Ok((verified, _)) =>
+					if !verified {
 						warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
 						return false;
 					},
@@ -188,8 +183,6 @@ where
 		let (header, body) = build.proposal.block.deconstruct();
 
 		let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
-		import_block.post_digests.push(DigestItem::Other(difficulty.encode()));
-		import_block.post_digests.push(DigestItem::Other(distance_achieved.encode()));
 		import_block.post_digests.push(seal);
 		import_block.body = Some(body);
 		import_block.state_action =
