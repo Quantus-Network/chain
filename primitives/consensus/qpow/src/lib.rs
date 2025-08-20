@@ -19,19 +19,19 @@ sp_api::decl_runtime_apis! {
 
 		/// Verify a nonce for mining (returns only validity)
 		fn verify_mining_nonce(
-			header: [u8; 32],
+			block_hash: [u8; 32],
 			nonce: [u8; 64]
 		) -> bool;
 
 		/// Verify and store metadata for imported block
 		fn verify_imported_block(
-			header: [u8; 32],
+			block_hash: [u8; 32],
 			nonce: [u8; 64]
 		) -> bool;
 
 		/// calculate distance header with nonce to with nonce
 		fn get_nonce_distance(
-			header: [u8; 32],  // 256-bit header
+			block_hash: [u8; 32],  // 256-bit block hash
 			nonce: [u8; 64], // 512-bit nonce
 		) -> U512;
 
@@ -67,14 +67,14 @@ sp_api::decl_runtime_apis! {
 
 		fn get_chain_height() -> u32;
 
-		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512);
+		fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512);
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
 
-		/// Get difficulty for a specific block header
-		fn get_block_difficulty(header: [u8; 32]) -> Option<U512>;
+		/// Get difficulty for a specific block hash
+		fn get_block_difficulty(block_hash: [u8; 32]) -> Option<U512>;
 
-		/// Get distance achieved for a specific block header
-		fn get_block_distance_achieved(header: [u8; 32]) -> Option<U512>;
+		/// Get distance achieved for a specific block hash
+		fn get_block_distance_achieved(block_hash: [u8; 32]) -> Option<U512>;
 	}
 }
 

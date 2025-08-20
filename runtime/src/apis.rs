@@ -133,12 +133,12 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
-		fn verify_mining_nonce(header: [u8; 32], nonce: [u8; 64]) -> bool {
-			pallet_qpow::Pallet::<Self>::verify_mining_nonce(header, nonce)
+		fn verify_mining_nonce(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_mining_nonce(block_hash, nonce)
 		}
 
-		fn verify_imported_block(header: [u8; 32], nonce: [u8; 64]) -> bool {
-			pallet_qpow::Pallet::<Self>::verify_imported_block(header, nonce)
+		fn verify_imported_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_imported_block(block_hash, nonce)
 		}
 
 		fn get_max_reorg_depth() -> u32 {
@@ -183,8 +183,8 @@ impl_runtime_apis! {
 			frame_system::pallet::Pallet::<Self>::block_number()
 		}
 
-		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
-			pallet_qpow::Pallet::<Self>::get_random_rsa(header)
+		fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
+			pallet_qpow::Pallet::<Self>::get_random_rsa(block_hash)
 		}
 
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
@@ -194,18 +194,18 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_max_distance()
 		}
 		fn get_nonce_distance(
-			header: [u8; 32],
+			block_hash: [u8; 32],
 			nonce: [u8; 64]
 		) -> U512 {
-			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
+			pallet_qpow::Pallet::<Self>::get_nonce_distance(block_hash, nonce)
 		}
 
-		fn get_block_difficulty(header: [u8; 32]) -> Option<U512> {
-			pallet_qpow::BlockDifficulty::<Self>::get(header)
+		fn get_block_difficulty(block_hash: [u8; 32]) -> Option<U512> {
+			pallet_qpow::BlockDifficulty::<Self>::get(block_hash)
 		}
 
-		fn get_block_distance_achieved(header: [u8; 32]) -> Option<U512> {
-			pallet_qpow::BlockDistanceAchieved::<Self>::get(header)
+		fn get_block_distance_achieved(block_hash: [u8; 32]) -> Option<U512> {
+			pallet_qpow::BlockDistanceAchieved::<Self>::get(block_hash)
 		}
 	}
 

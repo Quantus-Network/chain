@@ -36,7 +36,6 @@ pub mod pallet {
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
-	pub type HeaderType = [u8; 32];
 	pub type DistanceThreshold = U512;
 	pub type WorkValue = U512;
 	pub type Timestamp = u64;
@@ -464,22 +463,22 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		pub fn is_valid_nonce(
-			header: HeaderType,
+			block_hash: [u8; 32],
 			nonce: NonceType,
 			threshold: DistanceThreshold,
 		) -> (bool, U512) {
-			is_valid_nonce(header, nonce, threshold)
+			is_valid_nonce(block_hash, nonce, threshold)
 		}
 
 		pub fn get_nonce_distance(
-			header: HeaderType, // 256-bit header
-			nonce: NonceType,   // 512-bit nonce
+			block_hash: [u8; 32], // 256-bit block hash
+			nonce: NonceType,     // 512-bit nonce
 		) -> U512 {
-			get_nonce_distance(header, nonce)
+			get_nonce_distance(block_hash, nonce)
 		}
 
-		pub fn get_random_rsa(header: &HeaderType) -> (U512, U512) {
-			get_random_rsa(header)
+		pub fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
+			get_random_rsa(block_hash)
 		}
 
 		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
@@ -488,7 +487,7 @@ pub mod pallet {
 
 		// Function used to verify a block that's already in the chain
 		pub fn verify_historical_block(
-			header: HeaderType,
+			block_hash: [u8; 32],
 			nonce: NonceType,
 			block_number: BlockNumberFor<T>,
 		) -> bool {
@@ -501,47 +500,48 @@ pub mod pallet {
 			}
 
 			// Verify with historical distance_threshold
-			let (valid, _) = Self::is_valid_nonce(header, nonce, block_distance_threshold);
+			let (valid, _) = Self::is_valid_nonce(block_hash, nonce, block_distance_threshold);
 
 			valid
 		}
 
 		// Shared verification logic
-		fn verify_nonce_internal(header: HeaderType, nonce: NonceType) -> (bool, U512, U512) {
+		fn verify_nonce_internal(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
 				log::warn!(
-					"verify_nonce should not be called with 0 nonce, but was for header: {:?}",
-					header
+					"verify_nonce should not be called with 0 nonce, but was for block_hash: {:?}",
+					block_hash
 				);
 				return (false, U512::zero(), U512::zero());
 			}
 			let distance_threshold = Self::get_distance_threshold();
 			let (valid, distance_achieved) =
-				Self::is_valid_nonce(header, nonce, distance_threshold);
+				Self::is_valid_nonce(block_hash, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
 
 			(valid, difficulty, distance_achieved)
 		}
 
 		// Block verification for mining (no metadata storage)
-		pub fn verify_mining_nonce(header: HeaderType, nonce: NonceType) -> bool {
-			let (valid, _, _) = Self::verify_nonce_internal(header, nonce);
+		pub fn verify_mining_nonce(block_hash: [u8; 32], nonce: NonceType) -> bool {
+			let (valid, _, _) = Self::verify_nonce_internal(block_hash, nonce);
 
 			valid
 		}
 
 		// Block verification for import (with metadata storage)
-		pub fn verify_imported_block(header: HeaderType, nonce: NonceType) -> bool {
-			let (valid, difficulty, distance_achieved) = Self::verify_nonce_internal(header, nonce);
+		pub fn verify_imported_block(block_hash: [u8; 32], nonce: NonceType) -> bool {
+			let (valid, difficulty, distance_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
 
 			if valid {
 				// Store mining metadata for imported block
-				<BlockDifficulty<T>>::insert(header, difficulty);
-				<BlockDistanceAchieved<T>>::insert(header, distance_achieved);
+				<BlockDifficulty<T>>::insert(block_hash, difficulty);
+				<BlockDistanceAchieved<T>>::insert(block_hash, distance_achieved);
 			} else {
 				log::warn!(
-					"!!! invalid nonce found during import: header {:?} nonce {:?}",
-					hex::encode(header),
+					"!!! invalid nonce found during import: block_hash {:?} nonce {:?}",
+					hex::encode(block_hash),
 					hex::encode(nonce)
 				);
 			}
@@ -591,14 +591,14 @@ pub mod pallet {
 			T::MaxReorgDepth::get()
 		}
 
-		/// Get difficulty for a specific block header
-		pub fn get_block_difficulty(header: [u8; 32]) -> Option<U512> {
-			<BlockDifficulty<T>>::get(header)
+		/// Get difficulty for a specific block hash
+		pub fn get_block_difficulty(block_hash: [u8; 32]) -> Option<U512> {
+			<BlockDifficulty<T>>::get(block_hash)
 		}
 
-		/// Get distance achieved for a specific block header
-		pub fn get_block_distance_achieved(header: [u8; 32]) -> Option<U512> {
-			<BlockDistanceAchieved<T>>::get(header)
+		/// Get distance achieved for a specific block hash
+		pub fn get_block_distance_achieved(block_hash: [u8; 32]) -> Option<U512> {
+			<BlockDistanceAchieved<T>>::get(block_hash)
 		}
 	}
 }
