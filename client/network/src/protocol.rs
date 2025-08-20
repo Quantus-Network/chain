@@ -22,7 +22,6 @@ use crate::{
 	protocol_controller::{self, SetId},
 	service::{metrics::NotificationMetrics, traits::Direction},
 	types::ProtocolName,
-	MAX_RESPONSE_SIZE,
 };
 
 use codec::Encode;
@@ -47,15 +46,9 @@ use notifications::{Notifications, NotificationsOut};
 
 pub(crate) use notifications::ProtocolHandle;
 
-pub use notifications::{
-	notification_service, NotificationsSink, NotifsHandlerError, ProtocolHandlePair, Ready,
-};
+pub use notifications::{notification_service, NotificationsSink, ProtocolHandlePair, Ready};
 
 mod notifications;
-
-/// Maximum size used for notifications in the block announce and transaction protocols.
-// Must be equal to `max(MAX_BLOCK_ANNOUNCE_SIZE, MAX_TRANSACTIONS_SIZE)`.
-pub(crate) const BLOCK_ANNOUNCES_TRANSACTIONS_SUBSTREAM_SIZE: u64 = MAX_RESPONSE_SIZE;
 
 pub mod message;
 

@@ -25,7 +25,7 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use codec::Codec;
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, StateVersion, Storage};
-use sp_trie::{empty_trie_root, LayoutV1, PrefixedMemoryDB, RandomState};
+use sp_trie::{empty_trie_root, LayoutV1, PrefixedMemoryDB};
 
 #[cfg(feature = "std")]
 use std::collections::HashMap as MapType;

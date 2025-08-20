@@ -37,7 +37,7 @@ use sp_trie::{
 	read_child_trie_first_descendant_value, read_child_trie_hash, read_child_trie_value,
 	read_trie_first_descendant_value, read_trie_value,
 	trie_types::{TrieDBBuilder, TrieError},
-	DBValue, KeySpacedDB, MerkleValue, NodeCodec, PrefixedMemoryDB, RandomState, Trie, TrieCache,
+	DBValue, KeySpacedDB, MerkleValue, NodeCodec, PrefixedMemoryDB, Trie, TrieCache,
 	TrieDBRawIterator, TrieRecorder, TrieRecorderProvider,
 };
 #[cfg(feature = "std")]

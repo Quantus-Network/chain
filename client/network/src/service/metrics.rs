@@ -52,6 +52,7 @@ pub struct MetricSources {
 }
 
 impl MetricSources {
+	#[allow(unused)]
 	pub fn register(
 		registry: &Registry,
 		bandwidth: Arc<dyn BandwidthSink>,
@@ -91,126 +92,183 @@ impl Metrics {
 	fn register(registry: &Registry) -> Result<Self, PrometheusError> {
 		Ok(Self {
 			// This list is ordered alphabetically
-			connections_closed_total: prometheus::register(CounterVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_connections_closed_total",
-					"Total number of connections closed, by direction and reason"
-				),
-				&["direction", "reason"]
-			)?, registry)?,
-			connections_opened_total: prometheus::register(CounterVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_connections_opened_total",
-					"Total number of connections opened by direction"
-				),
-				&["direction"]
-			)?, registry)?,
-			distinct_peers_connections_closed_total: prometheus::register(Counter::new(
+			connections_closed_total: prometheus::register(
+				CounterVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_connections_closed_total",
+						"Total number of connections closed, by direction and reason",
+					),
+					&["direction", "reason"],
+				)?,
+				registry,
+			)?,
+			connections_opened_total: prometheus::register(
+				CounterVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_connections_opened_total",
+						"Total number of connections opened by direction",
+					),
+					&["direction"],
+				)?,
+				registry,
+			)?,
+			distinct_peers_connections_closed_total: prometheus::register(
+				Counter::new(
 					"substrate_sub_libp2p_distinct_peers_connections_closed_total",
-					"Total number of connections closed with distinct peers"
-			)?, registry)?,
-			distinct_peers_connections_opened_total: prometheus::register(Counter::new(
+					"Total number of connections closed with distinct peers",
+				)?,
+				registry,
+			)?,
+			distinct_peers_connections_opened_total: prometheus::register(
+				Counter::new(
 					"substrate_sub_libp2p_distinct_peers_connections_opened_total",
-					"Total number of connections opened with distinct peers"
-			)?, registry)?,
-			incoming_connections_errors_total: prometheus::register(CounterVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_incoming_connections_handshake_errors_total",
-					"Total number of incoming connections that have failed during the \
-					initial handshake"
-				),
-				&["reason"]
-			)?, registry)?,
-			incoming_connections_total: prometheus::register(Counter::new(
-				"substrate_sub_libp2p_incoming_connections_total",
-				"Total number of incoming connections on the listening sockets"
-			)?, registry)?,
-			kademlia_query_duration: prometheus::register(HistogramVec::new(
-				HistogramOpts {
-					common_opts: Opts::new(
-						"substrate_sub_libp2p_kademlia_query_duration",
-						"Duration of Kademlia queries per query type"
+					"Total number of connections opened with distinct peers",
+				)?,
+				registry,
+			)?,
+			incoming_connections_errors_total: prometheus::register(
+				CounterVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_incoming_connections_handshake_errors_total",
+						"Total number of incoming connections that have failed during the \
+					initial handshake",
 					),
-					buckets: prometheus::exponential_buckets(0.5, 2.0, 10)
-						.expect("parameters are always valid values; qed"),
-				},
-				&["type"]
-			)?, registry)?,
-			kademlia_random_queries_total: prometheus::register(Counter::new(
-				"substrate_sub_libp2p_kademlia_random_queries_total",
-				"Number of random Kademlia queries started",
-			)?, registry)?,
-			kademlia_records_count: prometheus::register(Gauge::new(
-				"substrate_sub_libp2p_kademlia_records_count",
-				"Number of records in the Kademlia records store",
-			)?, registry)?,
-			kademlia_records_sizes_total: prometheus::register(Gauge::new(
-				"substrate_sub_libp2p_kademlia_records_sizes_total",
-				"Total size of all the records in the Kademlia records store",
-			)?, registry)?,
-			kbuckets_num_nodes: prometheus::register(GaugeVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_kbuckets_num_nodes",
-					"Number of nodes per kbucket per Kademlia instance"
-				),
-				&["lower_ilog2_bucket_bound"]
-			)?, registry)?,
-			listeners_local_addresses: prometheus::register(Gauge::new(
-				"substrate_sub_libp2p_listeners_local_addresses",
-				"Number of local addresses we're listening on"
-			)?, registry)?,
-			listeners_errors_total: prometheus::register(Counter::new(
-				"substrate_sub_libp2p_listeners_errors_total",
-				"Total number of non-fatal errors reported by a listener"
-			)?, registry)?,
-			pending_connections: prometheus::register(Gauge::new(
-				"substrate_sub_libp2p_pending_connections",
-				"Number of connections in the process of being established",
-			)?, registry)?,
-			pending_connections_errors_total: prometheus::register(CounterVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_pending_connections_errors_total",
-					"Total number of pending connection errors"
-				),
-				&["reason"]
-			)?, registry)?,
-			requests_in_failure_total: prometheus::register(CounterVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_requests_in_failure_total",
-					"Total number of incoming requests that the node has failed to answer"
-				),
-				&["protocol", "reason"]
-			)?, registry)?,
-			requests_in_success_total: prometheus::register(HistogramVec::new(
-				HistogramOpts {
-					common_opts: Opts::new(
-						"substrate_sub_libp2p_requests_in_success_total",
-						"For successful incoming requests, time between receiving the request and \
-						 starting to send the response"
+					&["reason"],
+				)?,
+				registry,
+			)?,
+			incoming_connections_total: prometheus::register(
+				Counter::new(
+					"substrate_sub_libp2p_incoming_connections_total",
+					"Total number of incoming connections on the listening sockets",
+				)?,
+				registry,
+			)?,
+			kademlia_query_duration: prometheus::register(
+				HistogramVec::new(
+					HistogramOpts {
+						common_opts: Opts::new(
+							"substrate_sub_libp2p_kademlia_query_duration",
+							"Duration of Kademlia queries per query type",
+						),
+						buckets: prometheus::exponential_buckets(0.5, 2.0, 10)
+							.expect("parameters are always valid values; qed"),
+					},
+					&["type"],
+				)?,
+				registry,
+			)?,
+			kademlia_random_queries_total: prometheus::register(
+				Counter::new(
+					"substrate_sub_libp2p_kademlia_random_queries_total",
+					"Number of random Kademlia queries started",
+				)?,
+				registry,
+			)?,
+			kademlia_records_count: prometheus::register(
+				Gauge::new(
+					"substrate_sub_libp2p_kademlia_records_count",
+					"Number of records in the Kademlia records store",
+				)?,
+				registry,
+			)?,
+			kademlia_records_sizes_total: prometheus::register(
+				Gauge::new(
+					"substrate_sub_libp2p_kademlia_records_sizes_total",
+					"Total size of all the records in the Kademlia records store",
+				)?,
+				registry,
+			)?,
+			kbuckets_num_nodes: prometheus::register(
+				GaugeVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_kbuckets_num_nodes",
+						"Number of nodes per kbucket per Kademlia instance",
 					),
-					buckets: prometheus::exponential_buckets(0.001, 2.0, 16)
-						.expect("parameters are always valid values; qed"),
-				},
-				&["protocol"]
-			)?, registry)?,
-			requests_out_failure_total: prometheus::register(CounterVec::new(
-				Opts::new(
-					"substrate_sub_libp2p_requests_out_failure_total",
-					"Total number of requests that have failed"
-				),
-				&["protocol", "reason"]
-			)?, registry)?,
-			requests_out_success_total: prometheus::register(HistogramVec::new(
-				HistogramOpts {
-					common_opts: Opts::new(
-						"substrate_sub_libp2p_requests_out_success_total",
-						"For successful outgoing requests, time between a request's start and finish"
+					&["lower_ilog2_bucket_bound"],
+				)?,
+				registry,
+			)?,
+			listeners_local_addresses: prometheus::register(
+				Gauge::new(
+					"substrate_sub_libp2p_listeners_local_addresses",
+					"Number of local addresses we're listening on",
+				)?,
+				registry,
+			)?,
+			listeners_errors_total: prometheus::register(
+				Counter::new(
+					"substrate_sub_libp2p_listeners_errors_total",
+					"Total number of non-fatal errors reported by a listener",
+				)?,
+				registry,
+			)?,
+			pending_connections: prometheus::register(
+				Gauge::new(
+					"substrate_sub_libp2p_pending_connections",
+					"Number of connections in the process of being established",
+				)?,
+				registry,
+			)?,
+			pending_connections_errors_total: prometheus::register(
+				CounterVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_pending_connections_errors_total",
+						"Total number of pending connection errors",
 					),
-					buckets: prometheus::exponential_buckets(0.001, 2.0, 16)
-						.expect("parameters are always valid values; qed"),
-				},
-				&["protocol"]
-			)?, registry)?,
+					&["reason"],
+				)?,
+				registry,
+			)?,
+			requests_in_failure_total: prometheus::register(
+				CounterVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_requests_in_failure_total",
+						"Total number of incoming requests that the node has failed to answer",
+					),
+					&["protocol", "reason"],
+				)?,
+				registry,
+			)?,
+			requests_in_success_total: prometheus::register(
+				HistogramVec::new(
+					HistogramOpts {
+						common_opts: Opts::new(
+							"substrate_sub_libp2p_requests_in_success_total",
+							"For successful incoming requests, time between receiving the request and \
+						 starting to send the response",
+						),
+						buckets: prometheus::exponential_buckets(0.001, 2.0, 16)
+							.expect("parameters are always valid values; qed"),
+					},
+					&["protocol"],
+				)?,
+				registry,
+			)?,
+			requests_out_failure_total: prometheus::register(
+				CounterVec::new(
+					Opts::new(
+						"substrate_sub_libp2p_requests_out_failure_total",
+						"Total number of requests that have failed",
+					),
+					&["protocol", "reason"],
+				)?,
+				registry,
+			)?,
+			requests_out_success_total: prometheus::register(
+				HistogramVec::new(
+					HistogramOpts {
+						common_opts: Opts::new(
+							"substrate_sub_libp2p_requests_out_success_total",
+							"For successful outgoing requests, time between a request's start and finish",
+						),
+						buckets: prometheus::exponential_buckets(0.001, 2.0, 16)
+							.expect("parameters are always valid values; qed"),
+					},
+					&["protocol"],
+				)?,
+				registry,
+			)?,
 		})
 	}
 }

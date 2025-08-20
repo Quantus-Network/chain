@@ -29,6 +29,7 @@ use libp2p::{
 };
 use std::{sync::Arc, time::Duration};
 
+#[allow(deprecated)]
 pub use libp2p::bandwidth::BandwidthSinks;
 
 /// Builds the transport that serves as a common ground for all connections.
@@ -46,6 +47,7 @@ pub use libp2p::bandwidth::BandwidthSinks;
 ///
 /// Returns a `BandwidthSinks` object that allows querying the average bandwidth produced by all
 /// the connections spawned with this transport.
+#[allow(deprecated)]
 pub fn build_transport(
 	keypair: libp2p_identity::Keypair,
 	memory_only: bool,
