@@ -133,8 +133,8 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
-		fn verify_current_block(header: [u8; 32], nonce: [u8; 64], emit_event: bool) -> (bool, U512, U512) {
-			pallet_qpow::Pallet::<Self>::verify_current_block(header, nonce, emit_event)
+		fn verify_current_block(header: [u8; 32], nonce: [u8; 64]) -> (bool, U512, U512) {
+			pallet_qpow::Pallet::<Self>::verify_current_block(header, nonce)
 		}
 
 		fn get_max_reorg_depth() -> u32 {
@@ -173,10 +173,6 @@ impl_runtime_apis! {
 
 		fn get_last_block_duration() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_last_block_duration()
-		}
-
-		fn get_latest_nonce() -> Option<[u8; 64]> {
-			<pallet_qpow::LatestNonce<Runtime>>::get()
 		}
 
 		fn get_chain_height() -> u32 {

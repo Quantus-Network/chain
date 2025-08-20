@@ -52,7 +52,7 @@ fn test_submit_valid_proof() {
 		// Now run the test with our dynamically found values
 
 		// Submit an invalid proof
-		let (valid, _, _) = QPow::verify_current_block(header, invalid_nonce, false);
+		let (valid, _, _) = QPow::verify_current_block(header, invalid_nonce);
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
@@ -61,15 +61,13 @@ fn test_submit_valid_proof() {
 		);
 
 		// Submit a valid proof
-		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
+		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce);
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
 			QPow::get_nonce_distance(header, valid_nonce),
 			max_distance - distance_threshold
 		);
-
-		assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
 
 		// Find a second valid nonce for medium distance_threshold test
 		let mut second_valid = valid_nonce;
@@ -87,9 +85,8 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			let (valid, _, _) = QPow::verify_current_block(header, second_valid, false);
+			let (valid, _, _) = QPow::verify_current_block(header, second_valid);
 			assert!(valid);
-			assert_eq!(QPow::latest_nonce(), Some(second_valid));
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
 		}
@@ -130,11 +127,8 @@ fn test_verify_current_block() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
+		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce);
 		assert!(valid);
-
-		// Check that the latest proof was stored
-		assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
 
 		// Check for events if needed
 		// ...
@@ -418,7 +412,7 @@ fn test_integrated_verification_flow() {
 		}
 
 		// 1. First, simulate mining by submitting a nonce
-		let (valid, _, _) = QPow::verify_current_block(header, nonce, false);
+		let (valid, _, _) = QPow::verify_current_block(header, nonce);
 		assert!(valid);
 
 		// 2. Finally verify historical block

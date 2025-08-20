@@ -72,15 +72,17 @@ where
 		let (verified, difficulty, distance_achieved) = self
 			.client
 			.runtime_api()
-			.verify_current_block(parent_hash, pre_hash, nonce, false)
+			.verify_current_block(parent_hash, pre_hash, nonce)
 			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
 
 		if !verified {
+			log::warn!("Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime", pre_hash, parent_hash, nonce, difficulty);
 			return Ok((false, U512::zero(), U512::zero()));
 		}
 
 		// Check that block metadata matches runtime metadata (is this necessary?)
 		if difficulty != _difficulty {
+			log::warn!("Difficulty mismatch: {:?} != {:?}", difficulty, _difficulty);
 			return Ok((false, U512::zero(), U512::zero()));
 		}
 

@@ -56,10 +56,6 @@ pub mod pallet {
 		StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
 
 	#[pallet::storage]
-	#[pallet::getter(fn latest_nonce)]
-	pub type LatestNonce<T> = StorageValue<_, NonceType>;
-
-	#[pallet::storage]
 	pub type LastBlockTime<T: Config> = StorageValue<_, Timestamp, ValueQuery>;
 
 	#[pallet::storage]
@@ -142,8 +138,6 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			let initial_proof = [0u8; 64];
-			<LatestNonce<T>>::put(initial_proof);
 			let initial_distance_threshold = get_initial_distance_threshold::<T>();
 
 			// Set current distance_threshold for the genesis block
@@ -507,9 +501,9 @@ pub mod pallet {
 		pub fn verify_current_block(
 			header: HeaderType,
 			nonce: NonceType,
-			emit_event: bool,
 		) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
+				log::warn!("verify_current_block should not be called with 0 nonce, but was for header: {:?}", header);
 				return (false, U512::zero(), U512::zero());
 			}
 			let distance_threshold = Self::get_distance_threshold();
@@ -518,14 +512,7 @@ pub mod pallet {
 			let difficulty = Self::get_difficulty();
 
 			if valid {
-				<LatestNonce<T>>::put(nonce);
-				if emit_event {
-					Self::deposit_event(Event::ProofSubmitted {
-						nonce,
-						difficulty,
-						distance_achieved,
-					});
-				}
+				log::warn!("valid nonce found: header {:?} nonce {:?}", header, nonce);
 			}
 
 			(valid, difficulty, distance_achieved)

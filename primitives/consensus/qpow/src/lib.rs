@@ -20,8 +20,7 @@ sp_api::decl_runtime_apis! {
 		/// Submit a block
 		fn verify_current_block(
 			header: [u8; 32],
-			nonce: [u8; 64],
-			emit_event: bool
+			nonce: [u8; 64]
 		) -> (bool, U512, U512);
 
 		/// calculate distance header with nonce to with nonce
@@ -59,9 +58,6 @@ sp_api::decl_runtime_apis! {
 
 		// Get last block mining time
 		fn get_last_block_duration() -> u64;
-
-		/// Retrieve latest submitted proof
-		fn get_latest_nonce() -> Option<[u8; 64]>;
 
 		fn get_chain_height() -> u32;
 

@@ -369,6 +369,7 @@ where
 		)?;
 
 		if !verified {
+			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
