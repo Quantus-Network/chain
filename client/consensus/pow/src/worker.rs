@@ -17,7 +17,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{PowAlgorithm, PowIntermediate, Seal, INTERMEDIATE_KEY, LOG_TARGET, POW_ENGINE_ID};
-use codec::Encode;
 use futures::{
 	prelude::*,
 	task::{Context, Poll},
@@ -28,7 +27,6 @@ use parking_lot::Mutex;
 use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_consensus::{BlockOrigin, Proposal};
-use sp_core::U512;
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},

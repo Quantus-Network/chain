@@ -52,7 +52,7 @@ fn test_submit_valid_proof() {
 		// Now run the test with our dynamically found values
 
 		// Submit an invalid proof
-		let valid = QPow::verify_mining_nonce(block_hash, invalid_nonce);
+		let valid = QPow::verify_nonce(block_hash, invalid_nonce);
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
@@ -61,7 +61,7 @@ fn test_submit_valid_proof() {
 		);
 
 		// Submit a valid proof
-		let valid = QPow::verify_mining_nonce(block_hash, valid_nonce);
+		let valid = QPow::verify_nonce(block_hash, valid_nonce);
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
@@ -85,7 +85,7 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			let valid = QPow::verify_mining_nonce(block_hash, second_valid);
+			let valid = QPow::verify_nonce(block_hash, second_valid);
 			assert!(valid);
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
@@ -96,7 +96,7 @@ fn test_submit_valid_proof() {
 }
 
 #[test]
-fn test_verify_mining_nonce() {
+fn test_verify_nonce() {
 	new_test_ext().execute_with(|| {
 		// Set up test data
 		let block_hash = [1u8; 32];
@@ -127,7 +127,7 @@ fn test_verify_mining_nonce() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		let valid = QPow::verify_mining_nonce(block_hash, valid_nonce);
+		let valid = QPow::verify_nonce(block_hash, valid_nonce);
 		assert!(valid);
 
 		// Check for events if needed
@@ -412,8 +412,8 @@ fn test_integrated_verification_flow() {
 			assert!(distance <= distance_threshold, "Cannot proceed with invalid test nonce");
 		}
 
-		// 1. First, simulate mining by submitting a nonce
-		let valid = QPow::verify_mining_nonce(block_hash, nonce);
+		// 1. First, simulate verification by submitting a nonce
+		let valid = QPow::verify_nonce(block_hash, nonce);
 		assert!(valid);
 
 		// 2. Finally verify historical block
@@ -445,23 +445,9 @@ fn test_mining_import_flow() {
 
 		assert!(found_valid, "Could not find valid nonce for testing");
 
-		// Step 1: Test mining verification (should not store metadata)
-		let mining_result = QPow::verify_mining_nonce(block_hash, valid_nonce);
-		assert!(mining_result, "Mining verification should succeed");
-
-		// Verify no metadata was stored yet
-		assert!(
-			QPow::get_block_difficulty(block_hash).is_none(),
-			"Difficulty should not be stored after mining verification"
-		);
-		assert!(
-			QPow::get_block_distance_achieved(block_hash).is_none(),
-			"Distance achieved should not be stored after mining verification"
-		);
-
-		// Step 2: Test import verification (should store metadata)
-		let import_result = QPow::verify_imported_block(block_hash, valid_nonce);
-		assert!(import_result, "Import verification should succeed");
+		// Test verification (should store metadata)
+		let result = QPow::verify_nonce(block_hash, valid_nonce);
+		assert!(result, "Verification should succeed");
 
 		// Verify metadata was stored
 		let stored_difficulty = QPow::get_block_difficulty(block_hash);
@@ -523,14 +509,10 @@ fn test_mining_always_importable() {
 				continue;
 			}
 
-			// Test mining phase
-			let mining_result = QPow::verify_mining_nonce(*block_hash, valid_nonce);
-			assert!(mining_result, "Mining verification failed for block_hash {}", i);
-
-			// Test import phase - this should always succeed if mining succeeded
-			let import_result = QPow::verify_imported_block(*block_hash, valid_nonce);
+			// Test verification
+			let result = QPow::verify_nonce(*block_hash, valid_nonce);
 			assert!(
-				import_result,
+				result,
 				"Import verification failed for block_hash {} after successful mining",
 				i
 			);
@@ -608,9 +590,9 @@ fn test_metadata_apis_correctness() {
 				continue;
 			}
 
-			// Perform import verification to store metadata
-			let import_result = QPow::verify_imported_block(*block_hash, valid_nonce);
-			assert!(import_result, "Import should succeed for {}", description);
+			// Perform verification to store metadata
+			let result = QPow::verify_nonce(*block_hash, valid_nonce);
+			assert!(result, "Verification should succeed for {}", description);
 
 			// Verify metadata is now available
 			let difficulty_opt = QPow::get_block_difficulty(*block_hash);
@@ -686,13 +668,9 @@ fn test_invalid_nonce_no_metadata_storage() {
 
 		assert!(found_invalid, "Could not find invalid nonce for testing");
 
-		// Test mining verification with invalid nonce
-		let mining_result = QPow::verify_mining_nonce(block_hash, invalid_nonce);
-		assert!(!mining_result, "Mining verification should fail for invalid nonce");
-
-		// Test import verification with invalid nonce
-		let import_result = QPow::verify_imported_block(block_hash, invalid_nonce);
-		assert!(!import_result, "Import verification should fail for invalid nonce");
+		// Test verification with invalid nonce
+		let result = QPow::verify_nonce(block_hash, invalid_nonce);
+		assert!(!result, "Verification should fail for invalid nonce");
 
 		// Verify no metadata was stored for invalid nonce
 		assert!(
@@ -712,12 +690,9 @@ fn test_zero_nonce_handling() {
 		let block_hash = [1u8; 32];
 		let zero_nonce = [0u8; 64];
 
-		// Both mining and import should reject zero nonce
-		let mining_result = QPow::verify_mining_nonce(block_hash, zero_nonce);
-		assert!(!mining_result, "Mining verification should fail for zero nonce");
-
-		let import_result = QPow::verify_imported_block(block_hash, zero_nonce);
-		assert!(!import_result, "Import verification should fail for zero nonce");
+		// Verification should reject zero nonce
+		let result = QPow::verify_nonce(block_hash, zero_nonce);
+		assert!(!result, "Verification should fail for zero nonce");
 
 		// Verify no metadata was stored for zero nonce
 		assert!(

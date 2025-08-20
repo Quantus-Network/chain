@@ -522,28 +522,15 @@ pub mod pallet {
 			(valid, difficulty, distance_achieved)
 		}
 
-		// Block verification for mining (no metadata storage)
-		pub fn verify_mining_nonce(block_hash: [u8; 32], nonce: NonceType) -> bool {
-			let (valid, _, _) = Self::verify_nonce_internal(block_hash, nonce);
-
-			valid
-		}
-
-		// Block verification for import (with metadata storage)
-		pub fn verify_imported_block(block_hash: [u8; 32], nonce: NonceType) -> bool {
+		// Block verification with metadata storage
+		pub fn verify_nonce(block_hash: [u8; 32], nonce: NonceType) -> bool {
 			let (valid, difficulty, distance_achieved) =
 				Self::verify_nonce_internal(block_hash, nonce);
 
 			if valid {
-				// Store mining metadata for imported block
+				// Store mining metadata for valid blocks
 				<BlockDifficulty<T>>::insert(block_hash, difficulty);
 				<BlockDistanceAchieved<T>>::insert(block_hash, distance_achieved);
-			} else {
-				log::warn!(
-					"!!! invalid nonce found during import: block_hash {:?} nonce {:?}",
-					hex::encode(block_hash),
-					hex::encode(nonce)
-				);
 			}
 
 			valid

@@ -72,7 +72,7 @@ where
 		let verified = self
 			.client
 			.runtime_api()
-			.verify_imported_block(parent_hash, pre_hash, nonce)
+			.verify_nonce(parent_hash, pre_hash, nonce)
 			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
 
 		// Get difficulty for error reporting (verification function no longer returns it)

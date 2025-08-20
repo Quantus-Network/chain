@@ -17,14 +17,8 @@ sp_api::decl_runtime_apis! {
 			block_number: u32,
 		) -> bool;
 
-		/// Verify a nonce for mining (returns only validity)
-		fn verify_mining_nonce(
-			block_hash: [u8; 32],
-			nonce: [u8; 64]
-		) -> bool;
-
-		/// Verify and store metadata for imported block
-		fn verify_imported_block(
+		/// Verify a nonce and store metadata if valid
+		fn verify_nonce(
 			block_hash: [u8; 32],
 			nonce: [u8; 64]
 		) -> bool;

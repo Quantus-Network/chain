@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use sp_consensus_qpow::QPoWApi;
 
 /// Peer information for RPC response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +38,18 @@ pub trait PeerApi {
 	/// Get basic peer information
 	#[method(name = "peer_getBasicInfo")]
 	fn get_basic_info(&self) -> RpcResult<PeerInfo>;
+}
+
+/// QPoW RPC API
+#[rpc(client, server)]
+pub trait QPoWApi {
+	/// Get difficulty for a specific block hash
+	#[method(name = "qpow_getBlockDifficulty")]
+	fn get_block_difficulty(&self, block_hash: String) -> RpcResult<Option<String>>;
+
+	/// Get distance achieved for a specific block hash
+	#[method(name = "qpow_getBlockDistanceAchieved")]
+	fn get_block_distance_achieved(&self, block_hash: String) -> RpcResult<Option<String>>;
 }
 
 /// Peer RPC implementation
@@ -91,6 +104,99 @@ impl PeerApiServer for Peer {
 	}
 }
 
+/// QPoW RPC implementation
+pub struct QPoW<C> {
+	/// Client instance
+	client: Arc<C>,
+}
+
+impl<C> QPoW<C> {
+	/// Create new QPoW RPC handler
+	pub fn new(client: Arc<C>) -> Self {
+		Self { client }
+	}
+}
+
+impl<C> QPoWApiServer for QPoW<C>
+where
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: sp_consensus_qpow::QPoWApi<Block>,
+{
+	fn get_block_difficulty(&self, block_hash: String) -> RpcResult<Option<String>> {
+		// Parse hex string to [u8; 32]
+		let hash_bytes = hex::decode(block_hash.trim_start_matches("0x")).map_err(|_| {
+			jsonrpsee::types::error::ErrorObject::owned(
+				6001,
+				"Invalid block hash format",
+				None::<()>,
+			)
+		})?;
+
+		if hash_bytes.len() != 32 {
+			return Err(jsonrpsee::types::error::ErrorObject::owned(
+				6002,
+				"Block hash must be 32 bytes",
+				None::<()>,
+			));
+		}
+
+		let mut hash_array = [0u8; 32];
+		hash_array.copy_from_slice(&hash_bytes);
+
+		let best_hash = self.client.info().best_hash;
+		let difficulty = self
+			.client
+			.runtime_api()
+			.get_block_difficulty(best_hash, hash_array)
+			.map_err(|e| {
+				jsonrpsee::types::error::ErrorObject::owned(
+					6003,
+					format!("Runtime API call failed: {}", e),
+					None::<()>,
+				)
+			})?;
+
+		Ok(difficulty.map(|d| format!("0x{:x}", d)))
+	}
+
+	fn get_block_distance_achieved(&self, block_hash: String) -> RpcResult<Option<String>> {
+		// Parse hex string to [u8; 32]
+		let hash_bytes = hex::decode(block_hash.trim_start_matches("0x")).map_err(|_| {
+			jsonrpsee::types::error::ErrorObject::owned(
+				6001,
+				"Invalid block hash format",
+				None::<()>,
+			)
+		})?;
+
+		if hash_bytes.len() != 32 {
+			return Err(jsonrpsee::types::error::ErrorObject::owned(
+				6002,
+				"Block hash must be 32 bytes",
+				None::<()>,
+			));
+		}
+
+		let mut hash_array = [0u8; 32];
+		hash_array.copy_from_slice(&hash_bytes);
+
+		let best_hash = self.client.info().best_hash;
+		let distance = self
+			.client
+			.runtime_api()
+			.get_block_distance_achieved(best_hash, hash_array)
+			.map_err(|e| {
+				jsonrpsee::types::error::ErrorObject::owned(
+					6003,
+					format!("Runtime API call failed: {}", e),
+					None::<()>,
+				)
+			})?;
+
+		Ok(distance.map(|d| format!("0x{:x}", d)))
+	}
+}
+
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
 	/// The client instance to use.
@@ -111,6 +217,7 @@ where
 	C: Send + Sync + 'static,
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
+	C::Api: sp_consensus_qpow::QPoWApi<Block>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool<Block = Block> + 'static,
 {
@@ -122,6 +229,7 @@ where
 
 	module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
+	module.merge(QPoW::new(client.clone()).into_rpc())?;
 	module.merge(Peer::new(network).into_rpc())?;
 
 	Ok(module)

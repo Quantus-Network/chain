@@ -133,12 +133,8 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
-		fn verify_mining_nonce(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
-			pallet_qpow::Pallet::<Self>::verify_mining_nonce(block_hash, nonce)
-		}
-
-		fn verify_imported_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
-			pallet_qpow::Pallet::<Self>::verify_imported_block(block_hash, nonce)
+		fn verify_nonce(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_nonce(block_hash, nonce)
 		}
 
 		fn get_max_reorg_depth() -> u32 {
