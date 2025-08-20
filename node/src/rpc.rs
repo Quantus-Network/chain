@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
-use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use quantus_runtime::{opaque::Block, AccountId, Balance, Difficulty, Hash as BlockHash, Nonce};
 use sc_network::service::traits::NetworkService;
 use sc_transaction_pool_api::TransactionPool;
 use serde::{Deserialize, Serialize};
@@ -45,11 +45,11 @@ pub trait PeerApi {
 pub trait QPoWApi {
 	/// Get difficulty for a specific block hash
 	#[method(name = "qpow_getBlockDifficulty")]
-	fn get_block_difficulty(&self, block_hash: String) -> RpcResult<Option<String>>;
+	fn get_block_difficulty(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>>;
 
 	/// Get distance achieved for a specific block hash
 	#[method(name = "qpow_getBlockDistanceAchieved")]
-	fn get_block_distance_achieved(&self, block_hash: String) -> RpcResult<Option<String>>;
+	fn get_block_distance_achieved(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>>;
 }
 
 /// Peer RPC implementation
@@ -122,32 +122,12 @@ where
 	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
 	C::Api: sp_consensus_qpow::QPoWApi<Block>,
 {
-	fn get_block_difficulty(&self, block_hash: String) -> RpcResult<Option<String>> {
-		// Parse hex string to [u8; 32]
-		let hash_bytes = hex::decode(block_hash.trim_start_matches("0x")).map_err(|_| {
-			jsonrpsee::types::error::ErrorObject::owned(
-				6001,
-				"Invalid block hash format",
-				None::<()>,
-			)
-		})?;
-
-		if hash_bytes.len() != 32 {
-			return Err(jsonrpsee::types::error::ErrorObject::owned(
-				6002,
-				"Block hash must be 32 bytes",
-				None::<()>,
-			));
-		}
-
-		let mut hash_array = [0u8; 32];
-		hash_array.copy_from_slice(&hash_bytes);
-
+	fn get_block_difficulty(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>> {
 		let best_hash = self.client.info().best_hash;
 		let difficulty = self
 			.client
 			.runtime_api()
-			.get_block_difficulty(best_hash, hash_array)
+			.get_block_difficulty(best_hash, block_hash.0)
 			.map_err(|e| {
 				jsonrpsee::types::error::ErrorObject::owned(
 					6003,
@@ -156,35 +136,15 @@ where
 				)
 			})?;
 
-		Ok(difficulty.map(|d| format!("0x{:x}", d)))
+		Ok(difficulty)
 	}
 
-	fn get_block_distance_achieved(&self, block_hash: String) -> RpcResult<Option<String>> {
-		// Parse hex string to [u8; 32]
-		let hash_bytes = hex::decode(block_hash.trim_start_matches("0x")).map_err(|_| {
-			jsonrpsee::types::error::ErrorObject::owned(
-				6001,
-				"Invalid block hash format",
-				None::<()>,
-			)
-		})?;
-
-		if hash_bytes.len() != 32 {
-			return Err(jsonrpsee::types::error::ErrorObject::owned(
-				6002,
-				"Block hash must be 32 bytes",
-				None::<()>,
-			));
-		}
-
-		let mut hash_array = [0u8; 32];
-		hash_array.copy_from_slice(&hash_bytes);
-
+	fn get_block_distance_achieved(&self, block_hash: BlockHash) -> RpcResult<Option<Difficulty>> {
 		let best_hash = self.client.info().best_hash;
 		let distance = self
 			.client
 			.runtime_api()
-			.get_block_distance_achieved(best_hash, hash_array)
+			.get_block_distance_achieved(best_hash, block_hash.0)
 			.map_err(|e| {
 				jsonrpsee::types::error::ErrorObject::owned(
 					6003,
@@ -193,7 +153,7 @@ where
 				)
 			})?;
 
-		Ok(distance.map(|d| format!("0x{:x}", d)))
+		Ok(distance)
 	}
 }
 
