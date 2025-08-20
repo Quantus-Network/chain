@@ -56,7 +56,7 @@ fn test_submit_valid_proof() {
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
-			QPow::get_nonce_distance(header, invalid_nonce),
+			QPow::get_nonce_distance(block_hash, invalid_nonce),
 			max_distance - distance_threshold
 		);
 
@@ -65,7 +65,7 @@ fn test_submit_valid_proof() {
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
-			QPow::get_nonce_distance(header, valid_nonce),
+			QPow::get_nonce_distance(block_hash, valid_nonce),
 			max_distance - distance_threshold
 		);
 
@@ -75,7 +75,7 @@ fn test_submit_valid_proof() {
 
 		for i in valid_nonce[63] + 1..255 {
 			second_valid[63] = i;
-			let distance = QPow::get_nonce_distance(header, second_valid);
+			let distance = QPow::get_nonce_distance(block_hash, second_valid);
 			if distance <= max_distance - distance_threshold {
 				println!("Found second valid nonce: {}", i);
 				found_second = true;
@@ -112,7 +112,7 @@ fn test_verify_mining_nonce() {
 		// Try various values until we find one that works
 		for i in 1..255 {
 			valid_nonce[63] = i;
-			let distance = QPow::get_nonce_distance(header, valid_nonce);
+			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
 
 			if distance <= distance_threshold {
 				println!(
@@ -151,7 +151,7 @@ fn test_verify_historical_block() {
 		nonce[63] = 186; // This seemed to work in other tests
 
 		// Check if this nonce is valid for genesis distance_threshold
-		let distance = QPow::get_nonce_distance(header, nonce);
+		let distance = QPow::get_nonce_distance(block_hash, nonce);
 		let threshold = genesis_distance_threshold;
 
 		println!("Nonce distance: {}, Threshold: {}", distance, threshold);
@@ -165,7 +165,7 @@ fn test_verify_historical_block() {
 			let mut found_valid = false;
 			for byte_value in 1..=255 {
 				nonce[63] = byte_value;
-				let distance = QPow::get_nonce_distance(header, nonce);
+				let distance = QPow::get_nonce_distance(block_hash, nonce);
 				if distance <= threshold {
 					println!(
 						"Found valid nonce with byte value {}: distance={}",
@@ -211,7 +211,7 @@ fn test_verify_historical_block() {
 		}
 
 		// Verify a nonce against block 1's distance_threshold with direct method
-		let (valid, _) = QPow::is_valid_nonce(header, nonce, block_1_distance_threshold);
+		let (valid, _) = QPow::is_valid_nonce(block_hash, nonce, block_1_distance_threshold);
 		assert!(
 			valid,
 			"Nonce with distance {} should be valid for block 1 threshold {}",
@@ -392,7 +392,7 @@ fn test_total_distance_threshold_increases_with_each_block() {
 fn test_integrated_verification_flow() {
 	new_test_ext().execute_with(|| {
 		// Set up data
-		let header = [1u8; 32];
+		let block_hash = [1u8; 32];
 
 		// Get the current distance_threshold
 		let distance_threshold = QPow::get_distance_threshold_at_block(0);
@@ -403,7 +403,7 @@ fn test_integrated_verification_flow() {
 		nonce[63] = 38; // This worked in your previous tests
 
 		// Make sure it's actually valid
-		let distance = QPow::get_nonce_distance(header, nonce);
+		let distance = QPow::get_nonce_distance(block_hash, nonce);
 		println!("Nonce distance: {}, Threshold: {}", distance, distance_threshold);
 
 		if distance > distance_threshold {
