@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use sp_consensus_qpow::QPoWApi;
 
 /// Peer information for RPC response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,14 +37,6 @@ pub trait PeerApi {
 	/// Get basic peer information
 	#[method(name = "peer_getBasicInfo")]
 	fn get_basic_info(&self) -> RpcResult<PeerInfo>;
-}
-
-/// QPoW RPC API
-#[rpc(client, server)]
-pub trait QPoWApi {
-	/// Get both difficulty and distance achieved for a specific block number
-	#[method(name = "qpow_getBlockMetadata")]
-	fn get_block_metadata(&self, block_number: u32) -> RpcResult<(Option<String>, Option<String>)>;
 }
 
 /// Peer RPC implementation
@@ -100,58 +91,6 @@ impl PeerApiServer for Peer {
 	}
 }
 
-/// QPoW RPC implementation
-pub struct QPoW<C> {
-	/// Client instance
-	client: Arc<C>,
-}
-
-impl<C> QPoW<C> {
-	/// Create new QPoW RPC handler
-	pub fn new(client: Arc<C>) -> Self {
-		Self { client }
-	}
-}
-
-impl<C> QPoWApiServer for QPoW<C>
-where
-	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
-	C::Api: sp_consensus_qpow::QPoWApi<Block>,
-{
-	fn get_block_metadata(&self, block_number: u32) -> RpcResult<(Option<String>, Option<String>)> {
-		log::info!("RPC: get_block_metadata called for block number: {}", block_number);
-
-		let best_hash = self.client.info().best_hash;
-		log::info!("RPC: using best_hash: {:?}", best_hash);
-		
-		let (difficulty, distance) = self
-			.client
-			.runtime_api()
-			.get_block_metadata(best_hash, block_number)
-			.map_err(|e| {
-				log::error!("RPC: Runtime API call failed: {}", e);
-				jsonrpsee::types::error::ErrorObject::owned(
-					6003,
-					format!("Runtime API call failed: {}", e),
-					None::<()>,
-				)
-			})?;
-
-		log::info!("RPC: got difficulty: {:?}, distance: {:?}", difficulty, distance);
-
-		let difficulty_str = difficulty.map(|d| format!("0x{:x}", d));
-		let distance_str = distance.map(|d| format!("0x{:x}", d));
-
-		log::info!(
-			"RPC: returning difficulty_str: {:?}, distance_str: {:?}",
-			difficulty_str,
-			distance_str
-		);
-
-		Ok((difficulty_str, distance_str))
-	}
-}
-
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
 	/// The client instance to use.
@@ -184,7 +123,6 @@ where
 
 	module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-	module.merge(QPoW::new(client.clone()).into_rpc())?;
 	module.merge(Peer::new(network).into_rpc())?;
 
 	Ok(module)

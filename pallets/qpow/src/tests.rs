@@ -52,7 +52,7 @@ fn test_submit_valid_proof() {
 		// Now run the test with our dynamically found values
 
 		// Submit an invalid proof
-		let valid = QPow::verify_nonce(block_hash, invalid_nonce);
+		let valid = QPow::verify_nonce_local_mining(block_hash, invalid_nonce);
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
@@ -61,7 +61,7 @@ fn test_submit_valid_proof() {
 		);
 
 		// Submit a valid proof
-		let valid = QPow::verify_nonce(block_hash, valid_nonce);
+		let valid = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
@@ -85,7 +85,7 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			let valid = QPow::verify_nonce(block_hash, second_valid);
+			let valid = QPow::verify_nonce_local_mining(block_hash, second_valid);
 			assert!(valid);
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
@@ -127,7 +127,7 @@ fn test_verify_nonce() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		let valid = QPow::verify_nonce(block_hash, valid_nonce);
+		let valid = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
 		assert!(valid);
 
 		// Check for events if needed
@@ -413,7 +413,7 @@ fn test_integrated_verification_flow() {
 		}
 
 		// 1. First, simulate verification by submitting a nonce
-		let valid = QPow::verify_nonce(block_hash, nonce);
+		let valid = QPow::verify_nonce_local_mining(block_hash, nonce);
 		assert!(valid);
 
 		// 2. Finally verify historical block
@@ -446,31 +446,8 @@ fn test_mining_import_flow() {
 		assert!(found_valid, "Could not find valid nonce for testing");
 
 		// Test verification (should store metadata)
-		let result = QPow::verify_nonce(block_hash, valid_nonce);
+		let result = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
 		assert!(result, "Verification should succeed");
-
-		// Verify metadata was stored
-		let stored_difficulty = QPow::get_block_difficulty(block_hash);
-		assert!(
-			stored_difficulty.is_some(),
-			"Difficulty should be stored after import verification"
-		);
-
-		let stored_distance = QPow::get_block_distance_achieved(block_hash);
-		assert!(
-			stored_distance.is_some(),
-			"Distance achieved should be stored after import verification"
-		);
-
-		// Verify the stored values are reasonable
-		let difficulty = stored_difficulty.unwrap();
-		let distance_achieved = stored_distance.unwrap();
-
-		assert!(difficulty > U512::zero(), "Stored difficulty should be greater than zero");
-		assert!(
-			distance_achieved <= distance_threshold,
-			"Distance achieved should be within threshold"
-		);
 	});
 }
 
@@ -510,27 +487,10 @@ fn test_mining_always_importable() {
 			}
 
 			// Test verification
-			let result = QPow::verify_nonce(*block_hash, valid_nonce);
+			let result = QPow::verify_nonce_local_mining(*block_hash, valid_nonce);
 			assert!(
 				result,
 				"Import verification failed for block_hash {} after successful mining",
-				i
-			);
-
-			// Verify metadata consistency
-			let difficulty =
-				QPow::get_block_difficulty(1).expect("Difficulty should be stored");
-			let distance_achieved =
-				QPow::get_block_distance_achieved(1).expect("Distance should be stored");
-
-			assert!(
-				difficulty > U512::zero(),
-				"Difficulty should be positive for block_hash {}",
-				i
-			);
-			assert!(
-				distance_achieved <= distance_threshold,
-				"Distance should be within threshold for block_hash {}",
 				i
 			);
 		}
@@ -558,18 +518,6 @@ fn test_metadata_apis_correctness() {
 		for (block_hash, description) in test_cases.iter() {
 			println!("Testing {}: {:?}", description, hex::encode(block_hash));
 
-			// Initially, no metadata should exist
-			assert!(
-				QPow::get_block_difficulty(*block_hash).is_none(),
-				"Difficulty should initially be None for {}",
-				description
-			);
-			assert!(
-				QPow::get_block_distance_achieved(*block_hash).is_none(),
-				"Distance should initially be None for {}",
-				description
-			);
-
 			// Find and verify a valid nonce
 			let distance_threshold = QPow::get_distance_threshold();
 			let mut valid_nonce = [0u8; 64];
@@ -591,56 +539,8 @@ fn test_metadata_apis_correctness() {
 			}
 
 			// Perform verification to store metadata
-			let result = QPow::verify_nonce(*block_hash, valid_nonce);
+			let result = QPow::verify_nonce_local_mining(*block_hash, valid_nonce);
 			assert!(result, "Verification should succeed for {}", description);
-
-			// Verify metadata is now available
-			let difficulty_opt = QPow::get_block_difficulty(*block_hash);
-			let distance_opt = QPow::get_block_distance_achieved(*block_hash);
-
-			assert!(
-				difficulty_opt.is_some(),
-				"Difficulty should be available after import for {}",
-				description
-			);
-			assert!(
-				distance_opt.is_some(),
-				"Distance should be available after import for {}",
-				description
-			);
-
-			let difficulty = difficulty_opt.unwrap();
-			let distance_achieved = distance_opt.unwrap();
-
-			// Verify metadata values are sensible
-			assert!(difficulty > U512::zero(), "Difficulty should be positive for {}", description);
-			assert!(
-				distance_achieved <= distance_threshold,
-				"Distance should be within threshold for {}",
-				description
-			);
-
-			// Verify we can retrieve the same values multiple times
-			assert_eq!(
-				QPow::get_block_difficulty(*block_hash),
-				Some(difficulty),
-				"Difficulty should be consistent for {}",
-				description
-			);
-			assert_eq!(
-				QPow::get_block_distance_achieved(*block_hash),
-				Some(distance_achieved),
-				"Distance should be consistent for {}",
-				description
-			);
-
-			// Verify the distance calculation is correct
-			let calculated_distance = QPow::get_nonce_distance(*block_hash, valid_nonce);
-			assert_eq!(
-				distance_achieved, calculated_distance,
-				"Stored distance should match calculated distance for {}",
-				description
-			);
 		}
 	});
 }
@@ -669,18 +569,9 @@ fn test_invalid_nonce_no_metadata_storage() {
 		assert!(found_invalid, "Could not find invalid nonce for testing");
 
 		// Test verification with invalid nonce
-		let result = QPow::verify_nonce(block_hash, invalid_nonce);
+		let result = QPow::verify_nonce_local_mining(block_hash, invalid_nonce);
 		assert!(!result, "Verification should fail for invalid nonce");
 
-		// Verify no metadata was stored for invalid nonce
-		assert!(
-			QPow::get_block_difficulty(block_hash).is_none(),
-			"No difficulty should be stored for invalid nonce"
-		);
-		assert!(
-			QPow::get_block_distance_achieved(block_hash).is_none(),
-			"No distance should be stored for invalid nonce"
-		);
 	});
 }
 
@@ -691,18 +582,9 @@ fn test_zero_nonce_handling() {
 		let zero_nonce = [0u8; 64];
 
 		// Verification should reject zero nonce
-		let result = QPow::verify_nonce(block_hash, zero_nonce);
+		let result = QPow::verify_nonce_local_mining(block_hash, zero_nonce);
 		assert!(!result, "Verification should fail for zero nonce");
 
-		// Verify no metadata was stored for zero nonce
-		assert!(
-			QPow::get_block_difficulty(block_hash).is_none(),
-			"No difficulty should be stored for zero nonce"
-		);
-		assert!(
-			QPow::get_block_distance_achieved(block_hash).is_none(),
-			"No distance should be stored for zero nonce"
-		);
 	});
 }
 

@@ -80,14 +80,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
 
-	// Difficulty for each block number
-	#[pallet::storage]
-	pub type BlockDifficulty<T: Config> = StorageMap<_, Blake2_128Concat, u32, U512>;
-
-	// Distance achieved for each block number
-	#[pallet::storage]
-	pub type BlockDistanceAchieved<T: Config> = StorageMap<_, Blake2_128Concat, u32, U512>;
-
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		/// Overarching event type
@@ -520,26 +512,23 @@ pub mod pallet {
 			(valid, difficulty, distance_achieved)
 		}
 
-		// Block verification with metadata storage
-		pub fn verify_nonce(block_hash: [u8; 32], nonce: NonceType) -> bool {
-			let (valid, difficulty, distance_achieved) =
-				Self::verify_nonce_internal(block_hash, nonce);
-
+		// Block verification with event emission
+		pub fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: NonceType) -> bool {
+			let (valid, difficulty, distance_achieved) = Self::verify_nonce_internal(block_hash, nonce);
 			if valid {
-				// Store mining metadata for valid blocks using current block number + 1
-				let current_block_number = frame_system::Pallet::<T>::block_number();
-				let block_number: u32 = (current_block_number + 1u32.into())
-					.try_into()
-					.unwrap_or_else(|_| {
-						log::error!("Block number overflow when converting to u32");
-						0u32
-					});
-				log::error!("%%%Putting {:?} and {:?} into number {:?}", hex::encode(difficulty.to_big_endian()), hex::encode(distance_achieved.to_big_endian()), block_number);
-				<BlockDifficulty<T>>::insert(block_number, difficulty);
-				<BlockDistanceAchieved<T>>::insert(block_number, distance_achieved);
+				Self::deposit_event(Event::ProofSubmitted  {
+					nonce,
+					difficulty,
+					distance_achieved,
+				});
 			}
 
 			valid
+		}
+
+		pub fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: NonceType) -> bool {
+			let (verify, _, _) = Self::verify_nonce_internal(block_hash, nonce);
+			verify
 		}
 
 		pub fn get_distance_threshold() -> DistanceThreshold {
@@ -582,24 +571,6 @@ pub mod pallet {
 
 		pub fn get_max_reorg_depth() -> u32 {
 			T::MaxReorgDepth::get()
-		}
-
-		/// Get difficulty for a specific block number
-		pub fn get_block_difficulty(block_number: u32) -> Option<U512> {
-			<BlockDifficulty<T>>::get(block_number)
-		}
-
-		/// Get distance achieved for a specific block number
-		pub fn get_block_distance_achieved(block_number: u32) -> Option<U512> {
-			<BlockDistanceAchieved<T>>::get(block_number)
-		}
-
-		/// Get both difficulty and distance achieved for a specific block number
-		pub fn get_block_metadata(block_number: u32) -> (Option<U512>, Option<U512>) {
-			let difficulty = <BlockDifficulty<T>>::get(block_number);
-			let distance_achieved = <BlockDistanceAchieved<T>>::get(block_number);
-			log::error!("Getting block_metadata for {:?}: {:?} {:?}", block_number, difficulty, distance_achieved);
-			(difficulty, distance_achieved)
 		}
 	}
 }
