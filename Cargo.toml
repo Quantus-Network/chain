@@ -200,7 +200,6 @@ sp-offchain = { version = "37.0.0", default-features = false }
 sp-panic-handler = { version = "13.0.2", default-features = true }
 sp-rpc = { version = "35.0.0", default-features = false }
 sp-runtime = { version = "42.0.0", default-features = false }
-sp-runtime-interface = { version = "30.0.0", default-features = false }
 sp-session = { version = "39.0.0", default-features = false }
 sp-std = { version = "14.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
