@@ -571,7 +571,6 @@ fn test_invalid_nonce_no_metadata_storage() {
 		// Test verification with invalid nonce
 		let result = QPow::verify_nonce_local_mining(block_hash, invalid_nonce);
 		assert!(!result, "Verification should fail for invalid nonce");
-
 	});
 }
 
@@ -584,7 +583,6 @@ fn test_zero_nonce_handling() {
 		// Verification should reject zero nonce
 		let result = QPow::verify_nonce_local_mining(block_hash, zero_nonce);
 		assert!(!result, "Verification should fail for zero nonce");
-
 	});
 }
 

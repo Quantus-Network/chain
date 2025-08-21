@@ -32,7 +32,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::BlockNumberFor;
 	use qpow_math::{get_nonce_distance, get_random_rsa, hash_to_group_bigint, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
-	use sp_core:: U512;
+	use sp_core::U512;
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
@@ -514,13 +514,10 @@ pub mod pallet {
 
 		// Block verification with event emission
 		pub fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: NonceType) -> bool {
-			let (valid, difficulty, distance_achieved) = Self::verify_nonce_internal(block_hash, nonce);
+			let (valid, difficulty, distance_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
 			if valid {
-				Self::deposit_event(Event::ProofSubmitted  {
-					nonce,
-					difficulty,
-					distance_achieved,
-				});
+				Self::deposit_event(Event::ProofSubmitted { nonce, difficulty, distance_achieved });
 			}
 
 			valid
