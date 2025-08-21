@@ -41,9 +41,10 @@ use sc_network::{
 	types::ProtocolName,
 	NetworkBackend, MAX_RESPONSE_SIZE,
 };
-use sc_network_common::sync::message::{BlockAttributes, BlockData, BlockRequest, FromBlock};
+use sc_network_common::sync::message::{BlockAttributes, BlockData, BlockRequest, Direction as ScDirection, FromBlock};
 use sc_network_types::PeerId;
 use sp_blockchain::HeaderBackend;
+use sp_core::U256;
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header, One, Zero},
@@ -517,13 +518,13 @@ enum HandleRequestError {
 pub struct FullBlockDownloader {
 	protocol_name: ProtocolName,
 	network: NetworkServiceHandle,
-    /// Adaptive per-peer maximum blocks to request (soft limit).
     per_peer_max: Mutex<HashMap<PeerId, u32>>, 
+    per_peer_hold_until: Mutex<HashMap<PeerId, u64>>, 
 }
 
 impl FullBlockDownloader {
 	fn new(protocol_name: ProtocolName, network: NetworkServiceHandle) -> Self {
-		Self { protocol_name, network, per_peer_max: Mutex::new(HashMap::new()) }
+		Self { protocol_name, network, per_peer_max: Mutex::new(HashMap::new()), per_peer_hold_until: Mutex::new(HashMap::new()) }
 	}
 
     fn get_adaptive_max(&self, peer: &PeerId) -> Option<u32> {
@@ -532,8 +533,24 @@ impl FullBlockDownloader {
 
     fn set_adaptive_max(&self, peer: &PeerId, value: u32) {
         if let Ok(mut m) = self.per_peer_max.lock() {
-            m.insert(*peer, value.max(1));
+            m.insert(*peer, value);
         }
+    }
+
+    fn set_hold_until(&self, peer: &PeerId, hold_until: u64) {
+        if let Ok(mut m) = self.per_peer_hold_until.lock() {
+            m.insert(*peer, hold_until);
+        }
+    }
+
+    fn clear_hold(&self, peer: &PeerId) {
+        if let Ok(mut m) = self.per_peer_hold_until.lock() {
+            m.remove(peer);
+        }
+    }
+
+    fn get_hold_until(&self, peer: &PeerId) -> Option<u64> {
+        self.per_peer_hold_until.lock().ok().and_then(|m| m.get(peer).cloned())
     }
 
 	/// Extracts the blocks from the response schema.
@@ -629,19 +646,45 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		let mut current_max = if configured_max > 0 {
 			if let Some(peer_cap) = self.get_adaptive_max(&who) { configured_max.min(peer_cap) } else { configured_max }
 		} else { 0 };
+
+        // Apply hold-until if present and the request has a numeric from
+        let from_num_opt: Option<u64> = match &request.from {
+            FromBlock::Number(n) => Some(u64::from_str_radix(&format!("{:?}", n), 10).unwrap_or(0)),
+            FromBlock::Hash(_) => None,
+        };
+        if configured_max > 0 {
+            if let (Some(hold_until), Some(from_num)) = (self.get_hold_until(&who), from_num_opt) {
+                let hold_active = match request.direction {
+                    ScDirection::Ascending => from_num < hold_until,
+                    ScDirection::Descending => from_num > hold_until,
+                };
+                if hold_active {
+                    if let Some(cap) = self.get_adaptive_max(&who) {
+                        current_max = current_max.min(cap);
+                    }
+                } else {
+                    // Release hold and restore configured cap
+                    self.clear_hold(&who);
+                    self.set_adaptive_max(&who, configured_max);
+                    current_max = configured_max;
+                }
+            }
+        }
+
 		let mut bytes = build_bytes(current_max);
 
-		// Log the outbound request range and parameters (effective max)
-		let from_desc = match &request.from {
-			FromBlock::Hash(h) => format!("hash={:?}", h),
-			FromBlock::Number(n) => format!("number={}", n),
+		// Log the outbound request parameters, focusing on the numeric 'from' when available
+		let from_num: u64 = match &request.from {
+			FromBlock::Number(n) => u64::from_str_radix(&format!("{:?}", n), 10).unwrap_or(0),
+			FromBlock::Hash(_) => 0,
 		};
 		log::info!(
 			target: LOG_TARGET,
-			"Requesting blocks: peer={who}, from={}, dir={:?}, max(effective)={}, fields={:?}",
-			from_desc,
-			request.direction,
+			"X Requesting {} blocks: from {} to {}, dir={:?}, fields={:?} peer={who}",
 			current_max,
+			from_num - current_max as u64,
+			from_num,
+			request.direction,
 			request.fields,
 		);
 
@@ -655,11 +698,19 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		);
 		match rx.await {
 			Ok(Ok(success)) => {
-				// On success, increase adaptive cap toward configured max (double each success).
+				// On success, increase adaptive cap toward configured max unless a hold is active.
 				if configured_max > 0 {
-					let prev = self.get_adaptive_max(&who).unwrap_or(current_max.max(1));
-					let next = (prev.saturating_mul(2)).min(configured_max.max(1));
-					self.set_adaptive_max(&who, next);
+                    let hold_active = if let (Some(hold_until), Some(from_num)) = (self.get_hold_until(&who), from_num_opt) {
+                        match request.direction {
+                            ScDirection::Ascending => from_num < hold_until,
+                            ScDirection::Descending => from_num > hold_until,
+                        }
+                    } else { false };
+                    if !hold_active {
+						let prev = self.get_adaptive_max(&who).unwrap_or(current_max.max(1));
+						let next = (prev.saturating_mul(2)).min(configured_max.max(1));
+						self.set_adaptive_max(&who, next);
+                    }
 				}
 				Ok(Ok(success))
 			},
@@ -670,12 +721,23 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 					current_max,
 					configured_max,
 				);
-				// Success-until-fail: reset cap to 1 and try once; subsequent successes will ramp it up.
+				// Reset cap to 1 and try once; keep cap low until the end of failed window.
 				if configured_max == 0 {
 					return Ok(Err(RequestFailure::Network(sc_network::request_responses::OutboundFailure::Timeout)));
 				}
 				let attempt_max = 1u32;
 				self.set_adaptive_max(&who, attempt_max);
+                if let Some(from_num) = from_num_opt {
+                    // Compute the end bound for the failed range
+                    let hold_until = match request.direction {
+						ScDirection::Ascending => from_num.saturating_add(configured_max as u64),
+						ScDirection::Descending => from_num.saturating_sub(configured_max as u64),
+					};
+                    //     Direction::Ascending => from_num.saturating_add(configured_max as u64),
+                    //     Direction::Descending => from_num.saturating_sub(configured_max as u64),
+                    // };
+                    self.set_hold_until(&who, hold_until);
+                }
 				let bytes = build_bytes(attempt_max);
 				let (tx2, rx2) = oneshot::channel();
 				self.network.start_request(
@@ -727,8 +789,10 @@ impl<B: BlockT> BlockDownloader<B> for FullBlockDownloader {
 		});
 		log::info!(
 			target: LOG_TARGET,
-			"Received {} blocks: first num={:?} hash={:?}, last num={:?} hash={:?}",
-			count, first_num, first_hash, last_num, last_hash
+			"X Received {} blocks from num={:?} to num={:?}",
+			count,
+			last_num.expect("expected last num"),
+			first_num.expect("expected first num"), 
 		);
 
 		// Extract the block data from the protobuf

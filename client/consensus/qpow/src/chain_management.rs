@@ -172,7 +172,8 @@ where
 			sp_consensus::Error::Other(format!("Failed to get total difficulty {:?}", e).into())
 		})?;
 
-		log::info!(
+		log::debug!(
+			target: "qpow",
 			"⛏️ Total chain work: {:?} for chain with head at #{:?} hash: {:?}",
 			total_work,
 			current_number,

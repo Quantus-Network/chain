@@ -68,7 +68,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 	}
 
 	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
-		log::info!(
+		log::debug!(
 			"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
 			block.header.number(),
 			block.header.hash(),
