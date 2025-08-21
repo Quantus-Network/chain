@@ -139,30 +139,6 @@ where
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
 	/// successful.
 	pub async fn submit(&self, seal: Seal) -> bool {
-		if let Some(metadata) = self.metadata() {
-			let result = self.algorithm.verify(
-				&BlockId::Hash(metadata.best_hash),
-				&metadata.pre_hash,
-				metadata.pre_runtime.as_ref().map(|v| &v[..]),
-				&seal,
-				metadata.difficulty,
-			);
-			match result {
-				Ok((verified, _)) =>
-					if !verified {
-						warn!(target: LOG_TARGET, "Unable to import mined block: seal is invalid",);
-						return false;
-					},
-				Err(err) => {
-					warn!(target: LOG_TARGET, "Unable to import mined block: {}", err,);
-					return false;
-				},
-			}
-		} else {
-			warn!(target: LOG_TARGET, "Unable to import mined block: metadata does not exist",);
-			return false;
-		}
-
 		let build = if let Some(build) = {
 			let mut build = self.build.lock();
 			let value = build.take();
