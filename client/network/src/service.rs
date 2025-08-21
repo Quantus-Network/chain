@@ -41,7 +41,7 @@ use crate::{
 		NetworkState, NotConnectedPeer as NetworkStateNotConnectedPeer, Peer as NetworkStatePeer,
 	},
 	peer_store::{PeerStore, PeerStoreProvider},
-	protocol::{self, NotifsHandlerError, Protocol, Ready},
+	protocol::{self, Protocol, Ready},
 	protocol_controller::{self, ProtoSetConfig, ProtocolController, SetId},
 	request_responses::{IfDisconnected, ProtocolConfig as RequestResponseConfig, RequestFailure},
 	service::{
@@ -59,7 +59,6 @@ use crate::{
 };
 
 use codec::DecodeAll;
-use either::Either;
 use futures::{channel::oneshot, prelude::*};
 use libp2p::{
 	connection_limits::{ConnectionLimits, Exceeded},
@@ -91,7 +90,6 @@ pub use libp2p_identity::{DecodingError, Keypair, PublicKey};
 pub use metrics::NotificationMetrics;
 pub use protocol::NotificationsSink;
 use std::{
-	cmp,
 	collections::{HashMap, HashSet},
 	fs, iter,
 	marker::PhantomData,
@@ -112,6 +110,7 @@ pub mod signature;
 pub mod traits;
 
 struct Libp2pBandwidthSink {
+	#[allow(deprecated)]
 	sink: Arc<transport::BandwidthSinks>,
 }
 
@@ -338,40 +337,6 @@ where
 			let config_mem = match network_config.transport {
 				TransportConfig::MemoryOnly => true,
 				TransportConfig::Normal { .. } => false,
-			};
-
-			// The yamux buffer size limit is configured to be equal to the maximum frame size
-			// of all protocols. 10 bytes are added to each limit for the length prefix that
-			// is not included in the upper layer protocols limit but is still present in the
-			// yamux buffer. These 10 bytes correspond to the maximum size required to encode
-			// a variable-length-encoding 64bits number. In other words, we make the
-			// assumption that no notification larger than 2^64 will ever be sent.
-			let yamux_maximum_buffer_size = {
-				let requests_max = request_response_protocols
-					.iter()
-					.map(|cfg| usize::try_from(cfg.max_request_size).unwrap_or(usize::MAX));
-				let responses_max = request_response_protocols
-					.iter()
-					.map(|cfg| usize::try_from(cfg.max_response_size).unwrap_or(usize::MAX));
-				let notifs_max = notification_protocols
-					.iter()
-					.map(|cfg| usize::try_from(cfg.max_notification_size()).unwrap_or(usize::MAX));
-
-				// A "default" max is added to cover all the other protocols: ping, identify,
-				// kademlia, block announces, and transactions.
-				let default_max = cmp::max(
-					1024 * 1024,
-					usize::try_from(protocol::BLOCK_ANNOUNCES_TRANSACTIONS_SUBSTREAM_SIZE)
-						.unwrap_or(usize::MAX),
-				);
-
-				iter::once(default_max)
-					.chain(requests_max)
-					.chain(responses_max)
-					.chain(notifs_max)
-					.max()
-					.expect("iterator known to always yield at least one element; qed")
-					.saturating_add(10)
 			};
 
 			transport::build_transport(local_identity.clone().into(), config_mem)

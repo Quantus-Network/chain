@@ -87,7 +87,7 @@ use std::{
 	pin::Pin,
 	sync::Arc,
 	task::{Context, Poll},
-	time::{Duration, Instant},
+	time::Duration,
 };
 
 /// Number of pending notifications in asynchronous contexts.
@@ -470,13 +470,6 @@ impl<'a> Ready<'a> {
 			.start_send(NotificationsSinkMessage::Notification { message: notification.into() })
 			.map_err(|_| ())
 	}
-}
-
-/// Error specific to the collection of protocols.
-#[derive(Debug, thiserror::Error)]
-pub enum NotifsHandlerError {
-	#[error("Channel of synchronous notifications is full.")]
-	SyncNotificationsClogged,
 }
 
 impl ConnectionHandler for NotifsHandler {

@@ -55,7 +55,7 @@ where
 		_pre_digest: Option<&[u8]>,
 		seal: &RawSeal,
 		_difficulty: Self::Difficulty,
-	) -> Result<(bool, U512, U512), Error<B>> {
+	) -> Result<(bool, U512), Error<B>> {
 		// Executed for mined and imported blocks
 
 		// Convert seal to nonce [u8; 64]
@@ -65,26 +65,29 @@ where
 		};
 		let parent_hash = match extract_block_hash(parent) {
 			Ok(hash) => hash,
-			Err(_) => return Ok((false, U512::zero(), U512::zero())),
+			Err(_) => return Ok((false, U512::zero())),
 		};
 
 		let pre_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
-		let (verified, difficulty, distance_achieved) = self
+		let verified = self
 			.client
 			.runtime_api()
-			.verify_current_block(parent_hash, pre_hash, nonce, false)
+			.verify_nonce_on_import_block(parent_hash, pre_hash, nonce)
 			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
 
+		// Get difficulty for error reporting (verification function no longer returns it)
+		let difficulty = self
+			.client
+			.runtime_api()
+			.get_difficulty(parent_hash)
+			.map_err(|e| Error::Runtime(format!("API error getting difficulty: {:?}", e)))?;
+
 		if !verified {
-			return Ok((false, U512::zero(), U512::zero()));
+			log::warn!("Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime", pre_hash, parent_hash, nonce, difficulty);
+			return Ok((false, U512::zero()));
 		}
 
-		// Check that block metadata matches runtime metadata (is this necessary?)
-		if difficulty != _difficulty {
-			return Ok((false, U512::zero(), U512::zero()));
-		}
-
-		Ok((true, difficulty, distance_achieved))
+		Ok((true, difficulty))
 	}
 }
 

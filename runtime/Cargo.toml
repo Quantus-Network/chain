@@ -25,7 +25,6 @@ frame-system-rpc-runtime-api.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 lazy_static.workspace = true
 log.workspace = true
-pallet-assets.workspace = true
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
 pallet-merkle-airdrop.workspace = true
@@ -95,7 +94,6 @@ std = [
 	"frame-system/std",
 	"frame-try-runtime?/std",
 	"log/std",
-	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-conviction-voting/std",
 	"pallet-merkle-airdrop/std",

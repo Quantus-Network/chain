@@ -137,8 +137,12 @@ pallet_revive::impl_runtime_apis_plus_revive!(
 			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
 		}
 
-		fn verify_current_block(header: [u8; 32], nonce: [u8; 64], emit_event: bool) -> (bool, U512, U512) {
-			pallet_qpow::Pallet::<Self>::verify_current_block(header, nonce, emit_event)
+		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_nonce_on_import_block(block_hash, nonce)
+		}
+
+		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
+			pallet_qpow::Pallet::<Self>::verify_nonce_local_mining(block_hash, nonce)
 		}
 
 		fn get_max_reorg_depth() -> u32 {
@@ -179,16 +183,12 @@ pallet_revive::impl_runtime_apis_plus_revive!(
 			pallet_qpow::Pallet::<Self>::get_last_block_duration()
 		}
 
-		fn get_latest_nonce() -> Option<[u8; 64]> {
-			<pallet_qpow::LatestNonce<Runtime>>::get()
-		}
-
 		fn get_chain_height() -> u32 {
 			frame_system::pallet::Pallet::<Self>::block_number()
 		}
 
-		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
-			pallet_qpow::Pallet::<Self>::get_random_rsa(header)
+		fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
+			pallet_qpow::Pallet::<Self>::get_random_rsa(block_hash)
 		}
 
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
@@ -198,10 +198,10 @@ pallet_revive::impl_runtime_apis_plus_revive!(
 			pallet_qpow::Pallet::<Self>::get_max_distance()
 		}
 		fn get_nonce_distance(
-			header: [u8; 32],
+			block_hash: [u8; 32],
 			nonce: [u8; 64]
 		) -> U512 {
-			pallet_qpow::Pallet::<Self>::get_nonce_distance(header, nonce)
+			pallet_qpow::Pallet::<Self>::get_nonce_distance(block_hash, nonce)
 		}
 	}
 
@@ -275,6 +275,7 @@ pallet_revive::impl_runtime_apis_plus_revive!(
 			(list, storage_info)
 		}
 
+		#[allow(non_local_definitions)]
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {

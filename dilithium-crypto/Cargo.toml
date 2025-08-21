@@ -12,6 +12,7 @@ scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
+sp-runtime-interface = { version = "29.0.0", default-features = false }
 thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]

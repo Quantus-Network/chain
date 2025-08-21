@@ -40,8 +40,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, FindAuthor, Get,
-		NeverEnsureOrigin, VariantCountOf, WithdrawReasons,
+		ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin, VariantCountOf,
+		WithdrawReasons,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -54,7 +54,6 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ranked_collective::Linear;
-use pallet_revive::evm::runtime::EthExtra;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;

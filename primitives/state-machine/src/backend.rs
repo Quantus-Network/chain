@@ -30,7 +30,7 @@ use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, StateVersion, TrackedStorageKey};
 #[cfg(feature = "std")]
 use sp_core::traits::RuntimeCode;
-use sp_trie::{MerkleValue, PrefixedMemoryDB, RandomState};
+use sp_trie::{MerkleValue, PrefixedMemoryDB};
 
 /// A struct containing arguments for iterating over the storage.
 #[derive(Default)]
@@ -403,7 +403,7 @@ pub struct BackendRuntimeCode<'a, B, H> {
 impl<'a, B: Backend<H>, H: Hasher> sp_core::traits::FetchRuntimeCode
 	for BackendRuntimeCode<'a, B, H>
 {
-	fn fetch_runtime_code(&self) -> Option<std::borrow::Cow<[u8]>> {
+	fn fetch_runtime_code(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
 		self.backend
 			.storage(sp_core::storage::well_known_keys::CODE)
 			.ok()
@@ -423,7 +423,7 @@ where
 	}
 
 	/// Return the [`RuntimeCode`] build from the wrapped `backend`.
-	pub fn runtime_code(&self) -> Result<RuntimeCode, &'static str> {
+	pub fn runtime_code(&self) -> Result<RuntimeCode<'_>, &'static str> {
 		let hash = self
 			.backend
 			.storage_hash(sp_core::storage::well_known_keys::CODE)

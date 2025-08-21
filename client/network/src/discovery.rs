@@ -71,7 +71,7 @@ use libp2p::{
 		ConnectionDenied, ConnectionId, DialError, NetworkBehaviour, StreamProtocol, THandler,
 		THandlerInEvent, THandlerOutEvent, ToSwarm,
 	},
-	PeerId, SwarmBuilder,
+	PeerId,
 };
 use linked_hash_set::LinkedHashSet;
 use log::{debug, info, trace, warn};
@@ -95,6 +95,10 @@ pub const DEFAULT_KADEMLIA_REPLICATION_FACTOR: usize = 20;
 
 // The minimum number of peers we expect an answer before we terminate the request.
 const GET_RECORD_REDUNDANCY_FACTOR: u32 = 4;
+
+/// Query timeout for Kademlia requests. We need to increase this for record/provider publishing
+/// to not timeout most of the time.
+const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// `DiscoveryBehaviour` configuration.
 ///
@@ -214,25 +218,16 @@ impl DiscoveryConfig {
 			enable_mdns,
 			kademlia_disjoint_query_paths,
 			kademlia_protocol,
-			kademlia_legacy_protocol,
+			kademlia_legacy_protocol: _,
 			kademlia_replication_factor,
 		} = self;
 
 		let kademlia = if let Some(ref kademlia_protocol) = kademlia_protocol {
-			let mut config = KademliaConfig::default();
+			let mut config = KademliaConfig::new(kademlia_protocol.clone());
 
 			config.set_replication_factor(kademlia_replication_factor);
-			// Populate kad with both the legacy and the new protocol names.
-			// Remove the legacy protocol:
-			// https://github.com/paritytech/polkadot-sdk/issues/504
-			let kademlia_protocols = if let Some(legacy_protocol) = kademlia_legacy_protocol {
-				vec![kademlia_protocol.clone(), legacy_protocol]
-			} else {
-				vec![kademlia_protocol.clone()]
-			};
-			config.set_protocol_names(kademlia_protocols.into_iter().map(Into::into).collect());
-
 			config.set_record_filtering(libp2p::kad::StoreInserts::FilterBoth);
+			config.set_query_timeout(KAD_QUERY_TIMEOUT);
 
 			// By default Kademlia attempts to insert all peers into its routing table once a
 			// dialing attempt succeeds. In order to control which peer is added, disable the

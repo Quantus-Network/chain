@@ -36,7 +36,6 @@ pub mod pallet {
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
-	pub type HeaderType = [u8; 32];
 	pub type DistanceThreshold = U512;
 	pub type WorkValue = U512;
 	pub type Timestamp = u64;
@@ -44,7 +43,6 @@ pub mod pallet {
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
 	pub type HistorySizeType = u32;
-	pub type BlockCount = u32;
 	pub type PercentageClamp = u8;
 	pub type ThresholdExponent = u32;
 
@@ -54,10 +52,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type BlockDistanceThresholds<T: Config> =
 		StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn latest_nonce)]
-	pub type LatestNonce<T> = StorageValue<_, NonceType>;
 
 	#[pallet::storage]
 	pub type LastBlockTime<T: Config> = StorageValue<_, Timestamp, ValueQuery>;
@@ -105,7 +99,7 @@ pub mod pallet {
 		type BlockTimeHistorySize: Get<HistorySizeType>;
 
 		#[pallet::constant]
-		type MaxReorgDepth: Get<BlockCount>;
+		type MaxReorgDepth: Get<u32>;
 
 		/// Fixed point scale for calculations (default: 10^18)
 		#[pallet::constant]
@@ -139,8 +133,6 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			let initial_proof = [0u8; 64];
-			<LatestNonce<T>>::put(initial_proof);
 			let initial_distance_threshold = get_initial_distance_threshold::<T>();
 
 			// Set current distance_threshold for the genesis block
@@ -208,6 +200,7 @@ pub mod pallet {
 				blocks,
 				current_distance_threshold.shr(300)
 			);
+
 			Self::adjust_distance_threshold();
 		}
 	}
@@ -319,7 +312,6 @@ pub mod pallet {
 			// Update TotalWork
 			let old_total_work = <TotalWork<T>>::get();
 			let current_work = Self::get_difficulty();
-			// TODO: we should record the actual distance achieved somewhere
 			let new_total_work = old_total_work.saturating_add(current_work);
 			<TotalWork<T>>::put(new_total_work);
 			log::debug!(target: "qpow",
@@ -458,22 +450,22 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		pub fn is_valid_nonce(
-			header: HeaderType,
+			block_hash: [u8; 32],
 			nonce: NonceType,
 			threshold: DistanceThreshold,
 		) -> (bool, U512) {
-			is_valid_nonce(header, nonce, threshold)
+			is_valid_nonce(block_hash, nonce, threshold)
 		}
 
 		pub fn get_nonce_distance(
-			header: HeaderType, // 256-bit header
-			nonce: NonceType,   // 512-bit nonce
+			block_hash: [u8; 32], // 256-bit block hash
+			nonce: NonceType,     // 512-bit nonce
 		) -> U512 {
-			get_nonce_distance(header, nonce)
+			get_nonce_distance(block_hash, nonce)
 		}
 
-		pub fn get_random_rsa(header: &HeaderType) -> (U512, U512) {
-			get_random_rsa(header)
+		pub fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
+			get_random_rsa(block_hash)
 		}
 
 		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
@@ -482,7 +474,7 @@ pub mod pallet {
 
 		// Function used to verify a block that's already in the chain
 		pub fn verify_historical_block(
-			header: HeaderType,
+			block_hash: [u8; 32],
 			nonce: NonceType,
 			block_number: BlockNumberFor<T>,
 		) -> bool {
@@ -495,37 +487,42 @@ pub mod pallet {
 			}
 
 			// Verify with historical distance_threshold
-			let (valid, _) = Self::is_valid_nonce(header, nonce, block_distance_threshold);
+			let (valid, _) = Self::is_valid_nonce(block_hash, nonce, block_distance_threshold);
 
 			valid
 		}
 
-		// Block verification
-		pub fn verify_current_block(
-			header: HeaderType,
-			nonce: NonceType,
-			emit_event: bool,
-		) -> (bool, U512, U512) {
+		// Shared verification logic
+		fn verify_nonce_internal(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
+				log::warn!(
+					"verify_nonce should not be called with 0 nonce, but was for block_hash: {:?}",
+					block_hash
+				);
 				return (false, U512::zero(), U512::zero());
 			}
 			let distance_threshold = Self::get_distance_threshold();
 			let (valid, distance_achieved) =
-				Self::is_valid_nonce(header, nonce, distance_threshold);
+				Self::is_valid_nonce(block_hash, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
 
+			(valid, difficulty, distance_achieved)
+		}
+
+		// Block verification with event emission
+		pub fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: NonceType) -> bool {
+			let (valid, difficulty, distance_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
 			if valid {
-				<LatestNonce<T>>::put(nonce);
-				if emit_event {
-					Self::deposit_event(Event::ProofSubmitted {
-						nonce,
-						difficulty,
-						distance_achieved,
-					});
-				}
+				Self::deposit_event(Event::ProofSubmitted { nonce, difficulty, distance_achieved });
 			}
 
-			(valid, difficulty, distance_achieved)
+			valid
+		}
+
+		pub fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: NonceType) -> bool {
+			let (verify, _, _) = Self::verify_nonce_internal(block_hash, nonce);
+			verify
 		}
 
 		pub fn get_distance_threshold() -> DistanceThreshold {
@@ -566,7 +563,7 @@ pub mod pallet {
 			<LastBlockDuration<T>>::get()
 		}
 
-		pub fn get_max_reorg_depth() -> BlockCount {
+		pub fn get_max_reorg_depth() -> u32 {
 			T::MaxReorgDepth::get()
 		}
 	}

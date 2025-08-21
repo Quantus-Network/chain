@@ -111,6 +111,7 @@ where
 	C: Send + Sync + 'static,
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
+	C::Api: sp_consensus_qpow::QPoWApi<Block>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool<Block = Block> + 'static,
 {

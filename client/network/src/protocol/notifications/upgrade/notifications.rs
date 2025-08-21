@@ -39,7 +39,7 @@ use crate::types::ProtocolName;
 use asynchronous_codec::Framed;
 use bytes::BytesMut;
 use futures::prelude::*;
-use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use log::{error, warn};
 use unsigned_varint::codec::UviBytes;
 

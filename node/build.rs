@@ -25,16 +25,16 @@ fn validate_and_generate_circuits() {
 	WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes)
         .expect("CRITICAL ERROR: Failed to create WormholeVerifier from embedded data. Check verifier.bin and common.bin");
 
-	println!("cargo:warning=✅ Wormhole circuit binaries generated and validated successfully");
+	println!("cargo:trace=✅ Wormhole circuit binaries generated and validated successfully");
 }
 
 fn generate_circuit_binaries() {
-	println!("cargo:warning=🔧 Generating wormhole circuit binaries from zk-circuits...");
+	println!("cargo:trace=🔧 Generating wormhole circuit binaries from zk-circuits...");
 
 	// Call the circuit-builder to generate binaries directly in the pallet directory
 	// We don't need the prover binary for the chain, only verifier and common
 	circuit_builder::generate_circuit_binaries("../pallets/wormhole", false)
 		.expect("Failed to generate circuit binaries");
 
-	println!("cargo:warning=✅ Circuit binaries generated successfully");
+	println!("cargo:trace=✅ Circuit binaries generated successfully");
 }

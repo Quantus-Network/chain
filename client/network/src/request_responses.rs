@@ -46,10 +46,8 @@ use libp2p::{
 	core::{transport::PortUse, Endpoint, Multiaddr},
 	request_response::{self, Behaviour, Codec, Message, ProtocolSupport, ResponseChannel},
 	swarm::{
-		behaviour::{ConnectionClosed, FromSwarm},
-		handler::multi::MultiHandler,
-		ConnectionDenied, ConnectionId, NetworkBehaviour, THandler, THandlerInEvent,
-		THandlerOutEvent, ToSwarm,
+		behaviour::FromSwarm, handler::multi::MultiHandler, ConnectionDenied, ConnectionId,
+		NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
 	},
 	PeerId,
 };
@@ -147,7 +145,9 @@ pub enum RequestFailure {
 	NotConnected,
 	#[error("Given protocol hasn't been registered.")]
 	UnknownProtocol,
-	#[error("Remote has closed the substream before answering, thereby signaling that it considers the request as valid, but refused to answer it.")]
+	#[error(
+		"Remote has closed the substream before answering, thereby signaling that it considers the request as valid, but refused to answer it."
+	)]
 	Refused,
 	#[error("The remote replied, but the local node is no longer interested in the response.")]
 	Obsolete,
@@ -408,8 +408,7 @@ impl RequestResponsesBehaviour {
 	) -> Result<Self, RegisterError> {
 		let mut protocols = HashMap::new();
 		for protocol in list {
-			let mut cfg = Config::default();
-			cfg.set_request_timeout(protocol.request_timeout);
+			let cfg = Config::default().with_request_timeout(protocol.request_timeout);
 
 			let protocol_support = if protocol.inbound_queue.is_some() {
 				ProtocolSupport::Full
