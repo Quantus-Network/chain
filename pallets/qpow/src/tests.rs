@@ -587,6 +587,114 @@ fn test_zero_nonce_handling() {
 }
 
 #[test]
+fn test_event_emission_on_import_vs_mining() {
+	new_test_ext().execute_with(|| {
+		// Set up test data
+		let block_hash = [1u8; 32];
+
+		// Get current distance_threshold
+		let distance_threshold = QPow::get_distance_threshold();
+		println!("Current distance_threshold: {}", distance_threshold);
+
+		// Find a valid nonce for testing
+		let mut valid_nonce = [0u8; 64];
+		let mut found_valid = false;
+
+		for i in 1..1000 {
+			valid_nonce[63] = (i % 256) as u8;
+			valid_nonce[62] = (i / 256) as u8;
+
+			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			if distance <= distance_threshold {
+				found_valid = true;
+				println!("Found valid nonce: {:?}", valid_nonce);
+				break;
+			}
+		}
+
+		assert!(found_valid, "Could not find valid nonce for testing");
+
+		// Initialize system for proper event handling
+		System::set_block_number(1);
+		System::initialize(&1, &Default::default(), &Default::default());
+
+		// Clear any existing events
+		System::reset_events();
+
+		// Test verify_nonce_local_mining - should NOT emit event
+		let mining_result = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
+		assert!(mining_result, "Mining verification should succeed");
+
+		// Check that no events were emitted
+		let events = System::events();
+		assert_eq!(events.len(), 0, "verify_nonce_local_mining should not emit any events");
+
+		// Test verify_nonce_on_import_block - should emit event
+		println!("Calling verify_nonce_on_import_block...");
+		let import_result = QPow::verify_nonce_on_import_block(block_hash, valid_nonce);
+		assert!(import_result, "Import verification should succeed");
+		println!("Import verification result: {}", import_result);
+
+		// Check that ProofSubmitted event was emitted
+		let events = System::events();
+		println!("Number of events after import verification: {}", events.len());
+		for (i, event) in events.iter().enumerate() {
+			println!("Event {}: {:?}", i, event);
+		}
+		assert_eq!(events.len(), 1, "verify_nonce_on_import_block should emit one event");
+
+		// Verify the event details
+		let event = &events[0];
+		match &event.event {
+			RuntimeEvent::QPow(crate::Event::ProofSubmitted {
+				nonce,
+				difficulty,
+				distance_achieved,
+			}) => {
+				assert_eq!(*nonce, valid_nonce, "Event should contain the correct nonce");
+				assert!(
+					*difficulty > primitive_types::U512::zero(),
+					"Event should contain valid difficulty"
+				);
+				assert!(
+					*distance_achieved <= distance_threshold,
+					"Event should contain valid distance achieved"
+				);
+				println!(
+					"ProofSubmitted event emitted correctly with difficulty: {}, distance: {}",
+					difficulty, distance_achieved
+				);
+			},
+			_ => panic!("Expected ProofSubmitted event, got: {:?}", event.event),
+		}
+	});
+}
+
+#[test]
+fn test_no_event_emission_for_invalid_nonce() {
+	new_test_ext().execute_with(|| {
+		// Set up test data
+		let block_hash = [1u8; 32];
+		let invalid_nonce = [0u8; 64]; // Zero nonce is always invalid
+
+		// Initialize system for proper event handling
+		System::set_block_number(1);
+		System::initialize(&1, &Default::default(), &Default::default());
+
+		// Clear any existing events
+		System::reset_events();
+
+		// Test verify_nonce_on_import_block with invalid nonce - should NOT emit event
+		let result = QPow::verify_nonce_on_import_block(block_hash, invalid_nonce);
+		assert!(!result, "Verification should fail for invalid nonce");
+
+		// Check that no events were emitted
+		let events = System::events();
+		assert_eq!(events.len(), 0, "No events should be emitted for invalid nonce");
+	});
+}
+
+#[test]
 fn test_compute_pow_valid_nonce() {
 	new_test_ext().execute_with(|| {
 		let mut h = [0u8; 32];
