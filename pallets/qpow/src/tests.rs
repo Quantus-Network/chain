@@ -10,7 +10,7 @@ use std::ops::Shl;
 fn test_submit_valid_proof() {
 	new_test_ext().execute_with(|| {
 		// Set up test data
-		let header = [1u8; 32];
+		let block_hash = [1u8; 32];
 
 		// Get current distance_threshold
 		let distance_threshold = QPow::get_distance_threshold_at_block(0);
@@ -27,8 +27,8 @@ fn test_submit_valid_proof() {
 			invalid_nonce[63] = i;
 			valid_nonce[63] = i + 1;
 
-			let invalid_distance = QPow::get_nonce_distance(header, invalid_nonce);
-			let valid_distance = QPow::get_nonce_distance(header, valid_nonce);
+			let invalid_distance = QPow::get_nonce_distance(block_hash, invalid_nonce);
+			let valid_distance = QPow::get_nonce_distance(block_hash, valid_nonce);
 
 			// Check if we found a pair where one is valid and one is invalid
 			if invalid_distance > distance_threshold && valid_distance <= distance_threshold {
@@ -52,24 +52,22 @@ fn test_submit_valid_proof() {
 		// Now run the test with our dynamically found values
 
 		// Submit an invalid proof
-		let (valid, _, _) = QPow::verify_current_block(header, invalid_nonce, false);
+		let valid = QPow::verify_nonce_local_mining(block_hash, invalid_nonce);
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
-			QPow::get_nonce_distance(header, invalid_nonce),
+			QPow::get_nonce_distance(block_hash, invalid_nonce),
 			max_distance - distance_threshold
 		);
 
 		// Submit a valid proof
-		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
+		let valid = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
-			QPow::get_nonce_distance(header, valid_nonce),
+			QPow::get_nonce_distance(block_hash, valid_nonce),
 			max_distance - distance_threshold
 		);
-
-		assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
 
 		// Find a second valid nonce for medium distance_threshold test
 		let mut second_valid = valid_nonce;
@@ -77,7 +75,7 @@ fn test_submit_valid_proof() {
 
 		for i in valid_nonce[63] + 1..255 {
 			second_valid[63] = i;
-			let distance = QPow::get_nonce_distance(header, second_valid);
+			let distance = QPow::get_nonce_distance(block_hash, second_valid);
 			if distance <= max_distance - distance_threshold {
 				println!("Found second valid nonce: {}", i);
 				found_second = true;
@@ -87,9 +85,8 @@ fn test_submit_valid_proof() {
 
 		if found_second {
 			// Submit the second valid proof
-			let (valid, _, _) = QPow::verify_current_block(header, second_valid, false);
+			let valid = QPow::verify_nonce_local_mining(block_hash, second_valid);
 			assert!(valid);
-			assert_eq!(QPow::latest_nonce(), Some(second_valid));
 		} else {
 			println!("Could not find second valid nonce, skipping that part of test");
 		}
@@ -99,10 +96,10 @@ fn test_submit_valid_proof() {
 }
 
 #[test]
-fn test_verify_current_block() {
+fn test_verify_nonce() {
 	new_test_ext().execute_with(|| {
 		// Set up test data
-		let header = [1u8; 32];
+		let block_hash = [1u8; 32];
 
 		// Get current distance_threshold to understand what we need to target
 		let distance_threshold = QPow::get_distance_threshold();
@@ -115,7 +112,7 @@ fn test_verify_current_block() {
 		// Try various values until we find one that works
 		for i in 1..255 {
 			valid_nonce[63] = i;
-			let distance = QPow::get_nonce_distance(header, valid_nonce);
+			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
 
 			if distance <= distance_threshold {
 				println!(
@@ -130,11 +127,8 @@ fn test_verify_current_block() {
 		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// Now verify using the dynamically found valid nonce
-		let (valid, _, _) = QPow::verify_current_block(header, valid_nonce, false);
+		let valid = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
 		assert!(valid);
-
-		// Check that the latest proof was stored
-		assert_eq!(QPow::latest_nonce(), Some(valid_nonce));
 
 		// Check for events if needed
 		// ...
@@ -145,7 +139,7 @@ fn test_verify_current_block() {
 fn test_verify_historical_block() {
 	new_test_ext().execute_with(|| {
 		// Set up test data
-		let header = [1u8; 32];
+		let block_hash = [1u8; 32];
 
 		// Get the genesis block distance_threshold
 		let max_distance = QPow::get_max_distance();
@@ -157,7 +151,7 @@ fn test_verify_historical_block() {
 		nonce[63] = 186; // This seemed to work in other tests
 
 		// Check if this nonce is valid for genesis distance_threshold
-		let distance = QPow::get_nonce_distance(header, nonce);
+		let distance = QPow::get_nonce_distance(block_hash, nonce);
 		let threshold = genesis_distance_threshold;
 
 		println!("Nonce distance: {}, Threshold: {}", distance, threshold);
@@ -171,7 +165,7 @@ fn test_verify_historical_block() {
 			let mut found_valid = false;
 			for byte_value in 1..=255 {
 				nonce[63] = byte_value;
-				let distance = QPow::get_nonce_distance(header, nonce);
+				let distance = QPow::get_nonce_distance(block_hash, nonce);
 				if distance <= threshold {
 					println!(
 						"Found valid nonce with byte value {}: distance={}",
@@ -188,8 +182,9 @@ fn test_verify_historical_block() {
 		}
 
 		// Now we should have a valid nonce for genesis block
+		// Test: verify with block 0 (where the nonce was found)
 		assert!(
-			QPow::verify_historical_block(header, nonce, 0),
+			QPow::verify_historical_block(block_hash, nonce, 0),
 			"Nonce with distance {} should be valid for threshold {}",
 			distance,
 			threshold
@@ -216,7 +211,7 @@ fn test_verify_historical_block() {
 		}
 
 		// Verify a nonce against block 1's distance_threshold with direct method
-		let (valid, _) = QPow::is_valid_nonce(header, nonce, block_1_distance_threshold);
+		let (valid, _) = QPow::is_valid_nonce(block_hash, nonce, block_1_distance_threshold);
 		assert!(
 			valid,
 			"Nonce with distance {} should be valid for block 1 threshold {}",
@@ -224,15 +219,15 @@ fn test_verify_historical_block() {
 		);
 
 		// Use the public API
-		assert!(QPow::verify_historical_block(header, nonce, 1));
+		assert!(QPow::verify_historical_block(block_hash, nonce, 1));
 
 		// Test an invalid nonce
 		let invalid_nonce = [0u8; 64];
-		assert!(!QPow::verify_historical_block(header, invalid_nonce, 1));
+		assert!(!QPow::verify_historical_block(block_hash, invalid_nonce, 1));
 
 		// Test a non-existent block
 		let future_block = 1000;
-		assert!(!QPow::verify_historical_block(header, nonce, future_block));
+		assert!(!QPow::verify_historical_block(block_hash, nonce, future_block));
 	});
 }
 
@@ -397,7 +392,7 @@ fn test_total_distance_threshold_increases_with_each_block() {
 fn test_integrated_verification_flow() {
 	new_test_ext().execute_with(|| {
 		// Set up data
-		let header = [1u8; 32];
+		let block_hash = [1u8; 32];
 
 		// Get the current distance_threshold
 		let distance_threshold = QPow::get_distance_threshold_at_block(0);
@@ -408,7 +403,7 @@ fn test_integrated_verification_flow() {
 		nonce[63] = 38; // This worked in your previous tests
 
 		// Make sure it's actually valid
-		let distance = QPow::get_nonce_distance(header, nonce);
+		let distance = QPow::get_nonce_distance(block_hash, nonce);
 		println!("Nonce distance: {}, Threshold: {}", distance, distance_threshold);
 
 		if distance > distance_threshold {
@@ -417,13 +412,285 @@ fn test_integrated_verification_flow() {
 			assert!(distance <= distance_threshold, "Cannot proceed with invalid test nonce");
 		}
 
-		// 1. First, simulate mining by submitting a nonce
-		let (valid, _, _) = QPow::verify_current_block(header, nonce, false);
+		// 1. First, simulate verification by submitting a nonce
+		let valid = QPow::verify_nonce_local_mining(block_hash, nonce);
 		assert!(valid);
 
 		// 2. Finally verify historical block
 		let current_block = System::block_number();
-		assert!(QPow::verify_historical_block(header, nonce, current_block));
+		assert!(QPow::verify_historical_block(block_hash, nonce, current_block));
+	});
+}
+
+#[test]
+fn test_mining_import_flow() {
+	new_test_ext().execute_with(|| {
+		// Set up test data
+		let block_hash = [1u8; 32];
+
+		// Find a valid nonce for testing
+		let distance_threshold = QPow::get_distance_threshold();
+		let mut valid_nonce = [0u8; 64];
+		let mut found_valid = false;
+
+		for i in 1..1000u16 {
+			valid_nonce[62] = (i >> 8) as u8;
+			valid_nonce[63] = (i & 0xff) as u8;
+			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			if distance <= distance_threshold {
+				found_valid = true;
+				break;
+			}
+		}
+
+		assert!(found_valid, "Could not find valid nonce for testing");
+
+		// Test verification (should store metadata)
+		let result = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
+		assert!(result, "Verification should succeed");
+	});
+}
+
+#[test]
+fn test_mining_always_importable() {
+	new_test_ext().execute_with(|| {
+		// Test multiple scenarios to ensure mined blocks can always be imported
+		let block_hashes = [[1u8; 32], [2u8; 32], [255u8; 32], {
+			let mut h = [0u8; 32];
+			h[0] = 0xaa;
+			h[31] = 0xbb;
+			h
+		}];
+
+		for (i, block_hash) in block_hashes.iter().enumerate() {
+			println!("Testing block_hash {}: {:?}", i, hex::encode(block_hash));
+
+			// Find a valid nonce
+			let distance_threshold = QPow::get_distance_threshold();
+			let mut valid_nonce = [0u8; 64];
+			let mut found_valid = false;
+
+			for j in 1..2000u16 {
+				valid_nonce[62] = (j >> 8) as u8;
+				valid_nonce[63] = (j & 0xff) as u8;
+
+				let distance = QPow::get_nonce_distance(*block_hash, valid_nonce);
+				if distance <= distance_threshold {
+					found_valid = true;
+					break;
+				}
+			}
+
+			if !found_valid {
+				println!("Skipping block_hash {} - could not find valid nonce", i);
+				continue;
+			}
+
+			// Test verification
+			let result = QPow::verify_nonce_local_mining(*block_hash, valid_nonce);
+			assert!(
+				result,
+				"Import verification failed for block_hash {} after successful mining",
+				i
+			);
+		}
+	});
+}
+
+#[test]
+fn test_metadata_apis_correctness() {
+	new_test_ext().execute_with(|| {
+		let test_cases = [
+			([1u8; 32], "simple block_hash"),
+			([255u8; 32], "max byte block_hash"),
+			(
+				{
+					let mut h = [0u8; 32];
+					for i in 0..32 {
+						h[i] = (i * 8) as u8;
+					}
+					h
+				},
+				"sequential block_hash",
+			),
+		];
+
+		for (block_hash, description) in test_cases.iter() {
+			println!("Testing {}: {:?}", description, hex::encode(block_hash));
+
+			// Find and verify a valid nonce
+			let distance_threshold = QPow::get_distance_threshold();
+			let mut valid_nonce = [0u8; 64];
+			let mut found_valid = false;
+
+			for i in 1..1000u16 {
+				valid_nonce[62] = (i >> 8) as u8;
+				valid_nonce[63] = (i & 0xff) as u8;
+				let distance = QPow::get_nonce_distance(*block_hash, valid_nonce);
+				if distance <= distance_threshold {
+					found_valid = true;
+					break;
+				}
+			}
+
+			if !found_valid {
+				println!("Skipping {} - could not find valid nonce", description);
+				continue;
+			}
+
+			// Perform verification to store metadata
+			let result = QPow::verify_nonce_local_mining(*block_hash, valid_nonce);
+			assert!(result, "Verification should succeed for {}", description);
+		}
+	});
+}
+
+#[test]
+fn test_invalid_nonce_no_metadata_storage() {
+	new_test_ext().execute_with(|| {
+		let block_hash = [1u8; 32];
+		let distance_threshold = QPow::get_distance_threshold();
+
+		// Find an invalid nonce (distance > threshold)
+		let mut invalid_nonce = [0u8; 64];
+		let mut found_invalid = false;
+
+		for i in 1..1000u16 {
+			invalid_nonce[62] = (i >> 8) as u8;
+			invalid_nonce[63] = (i & 0xff) as u8;
+
+			let distance = QPow::get_nonce_distance(block_hash, invalid_nonce);
+			if distance > distance_threshold {
+				found_invalid = true;
+				break;
+			}
+		}
+
+		assert!(found_invalid, "Could not find invalid nonce for testing");
+
+		// Test verification with invalid nonce
+		let result = QPow::verify_nonce_local_mining(block_hash, invalid_nonce);
+		assert!(!result, "Verification should fail for invalid nonce");
+	});
+}
+
+#[test]
+fn test_zero_nonce_handling() {
+	new_test_ext().execute_with(|| {
+		let block_hash = [1u8; 32];
+		let zero_nonce = [0u8; 64];
+
+		// Verification should reject zero nonce
+		let result = QPow::verify_nonce_local_mining(block_hash, zero_nonce);
+		assert!(!result, "Verification should fail for zero nonce");
+	});
+}
+
+#[test]
+fn test_event_emission_on_import_vs_mining() {
+	new_test_ext().execute_with(|| {
+		// Set up test data
+		let block_hash = [1u8; 32];
+
+		// Get current distance_threshold
+		let distance_threshold = QPow::get_distance_threshold();
+		println!("Current distance_threshold: {}", distance_threshold);
+
+		// Find a valid nonce for testing
+		let mut valid_nonce = [0u8; 64];
+		let mut found_valid = false;
+
+		for i in 1..1000 {
+			valid_nonce[63] = (i % 256) as u8;
+			valid_nonce[62] = (i / 256) as u8;
+
+			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			if distance <= distance_threshold {
+				found_valid = true;
+				println!("Found valid nonce: {:?}", valid_nonce);
+				break;
+			}
+		}
+
+		assert!(found_valid, "Could not find valid nonce for testing");
+
+		// Initialize system for proper event handling
+		System::set_block_number(1);
+		System::initialize(&1, &Default::default(), &Default::default());
+
+		// Clear any existing events
+		System::reset_events();
+
+		// Test verify_nonce_local_mining - should NOT emit event
+		let mining_result = QPow::verify_nonce_local_mining(block_hash, valid_nonce);
+		assert!(mining_result, "Mining verification should succeed");
+
+		// Check that no events were emitted
+		let events = System::events();
+		assert_eq!(events.len(), 0, "verify_nonce_local_mining should not emit any events");
+
+		// Test verify_nonce_on_import_block - should emit event
+		println!("Calling verify_nonce_on_import_block...");
+		let import_result = QPow::verify_nonce_on_import_block(block_hash, valid_nonce);
+		assert!(import_result, "Import verification should succeed");
+		println!("Import verification result: {}", import_result);
+
+		// Check that ProofSubmitted event was emitted
+		let events = System::events();
+		println!("Number of events after import verification: {}", events.len());
+		for (i, event) in events.iter().enumerate() {
+			println!("Event {}: {:?}", i, event);
+		}
+		assert_eq!(events.len(), 1, "verify_nonce_on_import_block should emit one event");
+
+		// Verify the event details
+		let event = &events[0];
+		match &event.event {
+			RuntimeEvent::QPow(crate::Event::ProofSubmitted {
+				nonce,
+				difficulty,
+				distance_achieved,
+			}) => {
+				assert_eq!(*nonce, valid_nonce, "Event should contain the correct nonce");
+				assert!(
+					*difficulty > primitive_types::U512::zero(),
+					"Event should contain valid difficulty"
+				);
+				assert!(
+					*distance_achieved <= distance_threshold,
+					"Event should contain valid distance achieved"
+				);
+				println!(
+					"ProofSubmitted event emitted correctly with difficulty: {}, distance: {}",
+					difficulty, distance_achieved
+				);
+			},
+			_ => panic!("Expected ProofSubmitted event, got: {:?}", event.event),
+		}
+	});
+}
+
+#[test]
+fn test_no_event_emission_for_invalid_nonce() {
+	new_test_ext().execute_with(|| {
+		// Set up test data
+		let block_hash = [1u8; 32];
+		let invalid_nonce = [0u8; 64]; // Zero nonce is always invalid
+
+		// Initialize system for proper event handling
+		System::set_block_number(1);
+		System::initialize(&1, &Default::default(), &Default::default());
+
+		// Clear any existing events
+		System::reset_events();
+
+		// Test verify_nonce_on_import_block with invalid nonce - should NOT emit event
+		let result = QPow::verify_nonce_on_import_block(block_hash, invalid_nonce);
+		assert!(!result, "Verification should fail for invalid nonce");
+
+		// Check that no events were emitted
+		let events = System::events();
+		assert_eq!(events.len(), 0, "No events should be emitted for invalid nonce");
 	});
 }
 

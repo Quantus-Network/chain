@@ -37,11 +37,11 @@ where
 		match self
 			.client
 			.runtime_api()
-			.verify_current_block(parent_hash, block_hash, nonce, true)
+			.verify_nonce_local_mining(parent_hash, block_hash, nonce)
 		{
-			Ok((result, _, _)) => result,
+			Ok(result) => result,
 			Err(e) => {
-				log::error!("API error in verify_nonce: {:?}", e);
+				log::error!("API error in try_nonce: {:?}", e);
 				false
 			},
 		}

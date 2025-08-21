@@ -1,7 +1,7 @@
 [package]
 authors.workspace = true
-build = "build.rs"
 default-run = "quantus-node"
+description = "Quantus Node - Echo Chamber"
 edition.workspace = true
 homepage.workspace = true
 license = "Apache-2.0"
@@ -9,6 +9,7 @@ name = "quantus-node"
 publish = false
 repository.workspace = true
 version = "0.1.4"
+build = "build.rs"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

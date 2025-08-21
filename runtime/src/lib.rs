@@ -12,6 +12,7 @@ pub mod configs;
 pub use dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
 
 use alloc::vec::Vec;
+use sp_core::U512;
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{IdentifyAccount, Verify},
@@ -149,6 +150,9 @@ pub type SignedBlock = generic::SignedBlock<Block>;
 
 /// BlockId type as expected by this runtime.
 pub type BlockId = generic::BlockId<Block>;
+
+/// Type of the difficulty
+pub type Difficulty = U512;
 
 /// The SignedExtension to the basic transaction logic.
 pub type TxExtension = (

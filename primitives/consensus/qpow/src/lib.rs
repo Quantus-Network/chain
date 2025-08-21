@@ -17,16 +17,9 @@ sp_api::decl_runtime_apis! {
 			block_number: u32,
 		) -> bool;
 
-		/// Submit a block
-		fn verify_current_block(
-			header: [u8; 32],
-			nonce: [u8; 64],
-			emit_event: bool
-		) -> (bool, U512, U512);
-
 		/// calculate distance header with nonce to with nonce
 		fn get_nonce_distance(
-			header: [u8; 32],  // 256-bit header
+			block_hash: [u8; 32],  // 256-bit block hash
 			nonce: [u8; 64], // 512-bit nonce
 		) -> U512;
 
@@ -60,13 +53,13 @@ sp_api::decl_runtime_apis! {
 		// Get last block mining time
 		fn get_last_block_duration() -> u64;
 
-		/// Retrieve latest submitted proof
-		fn get_latest_nonce() -> Option<[u8; 64]>;
-
 		fn get_chain_height() -> u32;
 
-		fn get_random_rsa(header: &[u8; 32]) -> (U512, U512);
+		fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512);
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
+		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
+		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
+
 	}
 }
 

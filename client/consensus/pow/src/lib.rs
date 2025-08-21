@@ -205,7 +205,7 @@ pub trait PowAlgorithm<B: BlockT> {
 		pre_digest: Option<&[u8]>,
 		seal: &Seal,
 		difficulty: Self::Difficulty,
-	) -> Result<(bool, U512, U512), Error<B>>;
+	) -> Result<(bool, U512), Error<B>>;
 }
 
 /// A block importer for PoW.
@@ -360,7 +360,7 @@ where
 
 		let pre_hash = block.header.hash();
 		let pre_digest = find_pre_digest::<B>(&block.header)?;
-		let (verified, difficulty, _) = self.algorithm.verify(
+		let (verified, difficulty) = self.algorithm.verify(
 			&BlockId::hash(parent_hash),
 			&pre_hash,
 			pre_digest.as_ref().map(|v| &v[..]),
@@ -369,6 +369,7 @@ where
 		)?;
 
 		if !verified {
+			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
