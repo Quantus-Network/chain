@@ -28,7 +28,6 @@ use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_consensus::{BlockOrigin, Proposal};
 use sp_runtime::{
-	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},
 	DigestItem,
 };
