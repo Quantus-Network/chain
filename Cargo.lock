@@ -8119,7 +8119,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.1.4"
+version = "0.1.5-morbo-fix"
 dependencies = [
  "async-trait",
  "circuit-builder",
@@ -8180,7 +8180,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.1.3-morbo-news"
+version = "0.1.5-morbo-fix"
 dependencies = [
  "dilithium-crypto",
  "env_logger 0.11.8",
