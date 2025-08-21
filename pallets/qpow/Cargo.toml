@@ -21,6 +21,7 @@ codec = { workspace = true, default-features = false, features = ["derive"] }
 frame-benchmarking = { optional = true, default-features = false, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
+hex.workspace = true
 log.workspace = true
 num-traits.workspace = true
 pallet-timestamp.workspace = true
@@ -30,7 +31,6 @@ sp-arithmetic.workspace = true
 sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
-hex.workspace = true
 
 [dev-dependencies]
 primitive-types.workspace = true
