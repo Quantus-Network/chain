@@ -23,6 +23,7 @@ use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
+use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
 /// Identifier for the Resonance testnet runtime preset.
@@ -89,17 +90,15 @@ pub fn live_testnet_config_genesis() -> Value {
 	genesis_template(endowed_accounts, test_root_account())
 }
 
-pub fn heisenberg_config_genesis() -> Value {
-	let mut endowed_accounts = vec![test_root_account()];
-	endowed_accounts.extend(dilithium_default_accounts());
-	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
-	for account in endowed_accounts.iter() {
-		log::info!(
-			"🍆 Endowed account: {:?}",
-			account.to_ss58check_with_version(ss58_version.clone())
-		);
-	}
-	genesis_template(endowed_accounts, test_root_account())
+/// Return the local genesis config preset.
+pub fn local_config_genesis() -> Value {
+	genesis_template(
+		Sr25519Keyring::iter()
+			.filter(|v| v != &Sr25519Keyring::One && v != &Sr25519Keyring::Two)
+			.map(|v| v.to_account_id())
+			.collect::<Vec<_>>(),
+		test_root_account(),
+	)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.

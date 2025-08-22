@@ -144,6 +144,8 @@ pub fn create_keypair(
 
 #[cfg(test)]
 mod tests {
+	use alloc::vec::Vec;
+
 	use super::*;
 	use alloc::vec::Vec;
 
