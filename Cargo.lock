@@ -7018,7 +7018,6 @@ dependencies = [
  "log",
  "pallet-balances 40.0.1",
  "parity-scale-codec",
- "plonky2",
  "qp-wormhole",
  "scale-info",
  "sp-core",
