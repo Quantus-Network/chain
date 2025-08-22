@@ -117,22 +117,21 @@ sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = fal
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
-plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
-poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
+circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false, branch = "feat/stabilize" }
+poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false, branch = "feat/stabilize" }
+rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"], branch = "feat/stabilize" }
+rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet", branch = "feat/stabilize" }
 wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false, features = [
 	"no_std",
-] }
+], branch = "feat/stabilize" }
 wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-verifier", default-features = false, features = [
 	"no_random",
 	"no_std",
-] }
+], branch = "feat/stabilize" }
 zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", package = "zk-circuits-common", default-features = false, features = [
 	"no_random",
 	"no_std",
-] }
+], branch = "feat/stabilize" }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "41.0.0", default-features = false }

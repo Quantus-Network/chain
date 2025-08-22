@@ -127,7 +127,7 @@ pub mod pallet {
 			);
 
 			// Parse public inputs using the existing parser
-			let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+			let public_inputs = PublicCircuitInputs::try_from(&proof)
 				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
 			let nullifier_bytes = *public_inputs.nullifier;
