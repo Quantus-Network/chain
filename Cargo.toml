@@ -156,4 +156,4 @@ sp-trie = { git = "https://github.com/Quantus-Network/zk-trie" }
 sc-network = { git = "https://github.com/Quantus-Network/sc-network-pqc" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/libp2p-noise-pqc" }
-sc-network-sync = { path = "./vendor/sc-network-sync", default-features = false }
+sc-network-sync = { path = "./client/network/sync" }

@@ -105,7 +105,6 @@ impl DisconnectedPeers {
 	///
 	/// Returns true if the peer should be disconnected.
 	pub fn on_disconnect_during_request(&mut self, peer: PeerId) -> Option<BadPeer> {
-		log::debug!(target: LOG_TARGET,"on_disconnect_during_request: {peer}");
 		if let Some(state) = self.disconnected_peers.get(&peer) {
 			state.increment();
 
@@ -146,8 +145,8 @@ impl DisconnectedPeers {
 			log::debug!(target: LOG_TARGET, "Peer {peer_id} is available for queries");
 			self.disconnected_peers.remove(peer_id);
 			true
-		} else {z
-			log::debug!(target: LOG_TARGET,"Peer {peer_id} is backedoff, elapsed: {} backoff sec: {} , num_disconnects: {}", elapsed.as_secs(), self.backoff_seconds, state.num_disconnects);
+		} else {
+			log::debug!(target: LOG_TARGET,"Peer {peer_id} is backedoff");
 			false
 		}
 	}

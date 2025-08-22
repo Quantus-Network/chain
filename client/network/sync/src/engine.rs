@@ -643,25 +643,6 @@ where
 	}
 
 	fn process_service_command(&mut self, command: ToServiceCommand<B>) {
-
-		// DEBUG CODE
-		let kind = match command {
-			ToServiceCommand::SetSyncForkRequest(..) => "SetSyncForkRequest",
-			ToServiceCommand::RequestJustification(..) => "RequestJustification",
-			ToServiceCommand::ClearJustificationRequests => "ClearJustificationRequests",
-			ToServiceCommand::BlocksProcessed(..) => "BlocksProcessed",
-			ToServiceCommand::JustificationImported(..) => "JustificationImported",
-			ToServiceCommand::AnnounceBlock(..) => "AnnounceBlock",
-			ToServiceCommand::NewBestBlockImported(..) => "NewBestBlockImported",
-			ToServiceCommand::EventStream(..) => "EventStream",
-			ToServiceCommand::Status(..) => "Status",
-			ToServiceCommand::NumActivePeers(..) => "NumActivePeers",
-			ToServiceCommand::NumDownloadedBlocks(..) => "NumDownloadedBlocks",
-			ToServiceCommand::NumSyncRequests(..) => "NumSyncRequests",
-			ToServiceCommand::PeersInfo(..) => "PeersInfo",
-			ToServiceCommand::OnBlockFinalized(..) => "OnBlockFinalized",
-		  };
-		  log::info!("process_service_command: {kind}");
 		match command {
 			ToServiceCommand::SetSyncForkRequest(peers, hash, number) => {
 				self.strategy.set_sync_fork_request(peers, &hash, number);
