@@ -1116,6 +1116,16 @@ where
 		request: BlockRequest<B>,
 	) -> SyncingAction<B> {
 		let downloader = self.block_downloader.clone();
+		// Debug print: sent request range (lower..upper as u64)
+		if let Some((low, high)) = self.compute_request_range_u64(&request) {
+			debug!(
+				target: LOG_TARGET,
+				"➡️ Sent block request to {}: {}..{}",
+				peer_id,
+				low,
+				high,
+			);
+		}
 
 		SyncingAction::StartRequest {
 			peer_id,
@@ -1147,8 +1157,28 @@ where
 	) -> Result<(), BadPeer> {
 		self.downloaded_blocks += response.blocks.len();
 		let mut gap = false;
+		let mut blocks = response.blocks;
+		// Debug print before borrowing `peer` mutably: received response range (lower..upper as u64)
+		if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
+			debug!(
+				target: LOG_TARGET,
+				"⬅️ Received blocks from {}: {}..{}",
+				peer_id,
+				low,
+				high,
+			);
+		} else if let Some(req) = &request {
+			if let Some((low, high)) = self.compute_request_range_u64(req) {
+				debug!(
+					target: LOG_TARGET,
+					"⬅️ Received blocks from {} (range estimated from request): {}..{}",
+					peer_id,
+					low,
+					high,
+				);
+			}
+		}
 		let new_blocks: Vec<IncomingBlock<B>> = if let Some(peer) = self.peers.get_mut(peer_id) {
-			let mut blocks = response.blocks;
 			if request.as_ref().map_or(false, |r| r.direction == Direction::Descending) {
 				trace!(target: LOG_TARGET, "Reversing incoming block list");
 				blocks.reverse()
@@ -2049,6 +2079,43 @@ where
 				);
 				debug_assert!(false);
 			}
+		}
+	}
+
+	/// Compute [lower, upper] block number range (inclusive) for a request.
+	/// Returns None if start number is unknown (e.g. hash not found) or max is None.
+	fn compute_request_range_u64(&self, req: &BlockRequest<B>) -> Option<(u64, u64)> {
+		let max = req.max?;
+		let start_num = match req.from {
+			FromBlock::Number(n) => n.saturated_into::<u64>(),
+			FromBlock::Hash(h) => self
+				.client
+				.number(h)
+				.ok()
+				.flatten()
+				.map(|n| n.saturated_into::<u64>())?,
+		};
+		let span = max.saturating_sub(1) as u64;
+		match req.direction {
+			Direction::Descending => Some((start_num.saturating_sub(span), start_num)),
+			Direction::Ascending => Some((start_num, start_num.saturating_add(span))),
+		}
+	}
+
+	/// Compute [lower, upper] block number range (inclusive) from response blocks.
+	fn compute_blocks_range_u64(&self, blocks: &Vec<BlockData<B>>) -> Option<(u64, u64)> {
+		let mut min_n: Option<u64> = None;
+		let mut max_n: Option<u64> = None;
+		for b in blocks.iter() {
+			if let Some(h) = &b.header {
+				let n = (*h.number()).saturated_into::<u64>();
+				min_n = Some(min_n.map_or(n, |x| x.min(n)));
+				max_n = Some(max_n.map_or(n, |x| x.max(n)));
+			}
+		}
+		match (min_n, max_n) {
+			(Some(lo), Some(hi)) => Some((lo, hi)),
+			_ => None,
 		}
 	}
 
