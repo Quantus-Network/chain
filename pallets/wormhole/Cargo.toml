@@ -16,7 +16,6 @@ hex = { workspace = true, features = ["alloc"], optional = true }
 lazy_static.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
-plonky2.workspace = true
 qp-wormhole.workspace = true
 scale-info = { workspace = true, default-features = false, features = [
 	"derive",
@@ -57,7 +56,6 @@ std = [
 	"lazy_static/spin_no_std",
 	"log/std",
 	"pallet-balances/std",
-	"plonky2/std",
 	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-core/std",
