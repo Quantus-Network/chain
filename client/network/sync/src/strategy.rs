@@ -98,6 +98,10 @@ where
 		response: Box<dyn Any + Send>,
 	);
 
+	/// Notify strategy that a request to `peer_id` has failed (timeout/refused/etc.).
+	/// Strategy can use this signal to reschedule requests if necessary.
+	fn on_request_failed(&mut self, _peer_id: &PeerId);
+
 	/// A batch of blocks that have been processed, with or without errors.
 	///
 	/// Call this when a batch of blocks that have been processed by the import queue, with or
@@ -181,7 +185,6 @@ impl<B: BlockT> SyncingAction<B> {
 		matches!(self, SyncingAction::Finished)
 	}
 
-	#[cfg(test)]
 	pub(crate) fn name(&self) -> &'static str {
 		match self {
 			Self::StartRequest { .. } => "StartRequest",

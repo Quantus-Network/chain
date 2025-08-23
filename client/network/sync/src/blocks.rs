@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::LOG_TARGET;
-use log::trace;
+use log::{debug, trace};
 use sc_network_common::sync::message;
 use sc_network_types::PeerId;
 use sp_runtime::traits::{Block as BlockT, NumberFor, One};
@@ -88,10 +88,10 @@ impl<B: BlockT> BlockCollection<B> {
 
 		match self.blocks.get(&start) {
 			Some(&BlockRangeState::Downloading { .. }) => {
-				trace!(target: LOG_TARGET, "Inserting block data still marked as being downloaded: {}", start);
+				debug!(target: LOG_TARGET, "Inserting block data still marked as being downloaded: {}", start);
 			},
 			Some(BlockRangeState::Complete(existing)) if existing.len() >= blocks.len() => {
-				trace!(target: LOG_TARGET, "Ignored block data already downloaded: {}", start);
+				debug!(target: LOG_TARGET, "Ignored block data already downloaded: {}", start);
 				return
 			},
 			_ => (),
@@ -118,6 +118,7 @@ impl<B: BlockT> BlockCollection<B> {
 	) -> Option<Range<NumberFor<B>>> {
 		if peer_best <= common {
 			// Bail out early
+			debug!(target: LOG_TARGET, "needed_blocks: peer_best <= common, who={:?}, peer_best={}, common={}", who, peer_best, common);
 			return None
 		}
 		// First block number that we need to download
@@ -161,9 +162,10 @@ impl<B: BlockT> BlockCollection<B> {
 				}
 			}
 		};
+		debug!(target: LOG_TARGET, "needed_blocks: candidate range {:?}, downloading={} for who={:?}", range, downloading, who);
 		// crop to peers best
 		if range.start > peer_best {
-			trace!(target: LOG_TARGET, "Out of range for peer {} ({} vs {})", who, range.start, peer_best);
+			debug!(target: LOG_TARGET, "needed_blocks: out of range for peer {:?} (start {} > best {})", who, range.start, peer_best);
 			return None
 		}
 		range.end = cmp::min(peer_best + One::one(), range.end);
@@ -174,7 +176,7 @@ impl<B: BlockT> BlockCollection<B> {
 			.next()
 			.map_or(false, |(n, _)| range.start > *n + max_ahead.into())
 		{
-			trace!(target: LOG_TARGET, "Too far ahead for peer {} ({})", who, range.start);
+			debug!(target: LOG_TARGET, "needed_blocks: too far ahead for peer {:?} (start {}, head {} + ahead {})", who, range.start, self.blocks.iter().next().map(|(n, _)| *n).unwrap_or_default(), max_ahead);
 			return None
 		}
 
@@ -192,6 +194,7 @@ impl<B: BlockT> BlockCollection<B> {
 				range, count, peer_best, common, self.blocks
 			);
 		}
+		debug!(target: LOG_TARGET, "needed_blocks: selected range {:?} for who={:?}", range, who);
 		Some(range)
 	}
 
@@ -225,7 +228,7 @@ impl<B: BlockT> BlockCollection<B> {
 			};
 			*range_data = BlockRangeState::Queued { len };
 		}
-		trace!(target: LOG_TARGET, "{} blocks ready for import", ready.len());
+		debug!(target: LOG_TARGET, "{} blocks ready for import", ready.len());
 		ready
 	}
 
@@ -236,7 +239,7 @@ impl<B: BlockT> BlockCollection<B> {
 				self.blocks.remove(&block_num);
 				block_num += One::one();
 			}
-			trace!(target: LOG_TARGET, "Cleared blocks from {:?} to {:?}", from, to);
+			debug!(target: LOG_TARGET, "Cleared blocks from {:?} to {:?}", from, to);
 		}
 	}
 
@@ -256,6 +259,11 @@ impl<B: BlockT> BlockCollection<B> {
 				self.blocks.remove(&start);
 			}
 		}
+	}
+
+	/// Check if a peer currently has an in-flight download range assigned.
+	pub fn is_peer_downloading(&self, who: &PeerId) -> bool {
+		self.peer_requests.contains_key(who)
 	}
 }
 

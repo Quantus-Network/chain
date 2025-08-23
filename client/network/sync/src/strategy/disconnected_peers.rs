@@ -140,6 +140,11 @@ impl DisconnectedPeers {
 			return true;
 		};
 
+		if (state.num_disconnects < MAX_NUM_DISCONNECTS) {
+			log::trace!("peer is available disconnects = {:?} < threshold {:?}", state.num_disconnects, MAX_NUM_DISCONNECTS);
+			return true;
+		}
+
 		let elapsed = state.last_disconnect().elapsed();
 		if elapsed.as_secs() >= self.backoff_seconds * state.num_disconnects {
 			log::debug!(target: LOG_TARGET, "Peer {peer_id} is available for queries");

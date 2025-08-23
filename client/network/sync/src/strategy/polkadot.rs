@@ -117,6 +117,18 @@ where
 		self.peer_best_blocks.remove(peer_id);
 	}
 
+	fn on_request_failed(&mut self, peer_id: &PeerId) {
+		// Forward failures to active underlying strategy so it can free download slots and reschedule.
+		if let Some(ref mut chain_sync) = self.chain_sync {
+			debug!(target: LOG_TARGET, "Forwarding on_request_failed to ChainSync for {peer_id:?}");
+			chain_sync.on_request_failed(peer_id);
+		} else if self.state.is_some() || self.warp.is_some() {
+			warn!(target: LOG_TARGET, "on_request_failed received for {peer_id:?}, but ChainSync is not active");
+		} else {
+			error!(target: LOG_TARGET, "on_request_failed received for {peer_id:?}, but no strategy active");
+		}
+	}
+
 	fn on_validated_block_announce(
 		&mut self,
 		is_best: bool,
