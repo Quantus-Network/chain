@@ -997,6 +997,13 @@ where
 
 		match response_result {
 			Ok(Ok((response, protocol_name))) => {
+				// Successful response: forgive one failure for this peer, down to zero.
+				if let Some(count) = self.peer_failures.get_mut(&peer_id) {
+					if *count > 0 {
+						*count -= 1;
+						debug!(target: LOG_TARGET, "Peer {:?} successes: decremented failure count to {}", peer_id, *count);
+					}
+				}
 				self.strategy.on_generic_response(&peer_id, key, protocol_name, response);
 			},
 			Ok(Err(e)) => {
