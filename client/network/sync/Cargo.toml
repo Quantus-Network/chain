@@ -136,8 +136,8 @@ version = "1.0.64"
 [dependencies.tokio]
 version = "1.40.0"
 features = [
-    "macros",
-    "time",
+	"macros",
+	"time",
 ]
 default-features = true
 
@@ -258,9 +258,9 @@ priority = 2
 level = "warn"
 priority = 0
 check-cfg = [
-    'cfg(build_opt_level, values("3"))',
-    'cfg(build_profile, values("debug", "release"))',
-    "cfg(enable_alloc_error_handler)",
-    "cfg(fuzzing)",
-    "cfg(substrate_runtime)",
+	"cfg(enable_alloc_error_handler)",
+	"cfg(fuzzing)",
+	"cfg(substrate_runtime)",
+	'cfg(build_opt_level, values("3"))',
+	'cfg(build_profile, values("debug", "release"))',
 ]
