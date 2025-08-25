@@ -140,7 +140,7 @@ impl DisconnectedPeers {
 			return true;
 		};
 
-		if (state.num_disconnects < MAX_NUM_DISCONNECTS) {
+		if state.num_disconnects < MAX_NUM_DISCONNECTS {
 			log::trace!("peer is available disconnects = {:?} < threshold {:?}", state.num_disconnects, MAX_NUM_DISCONNECTS);
 			return true;
 		}
