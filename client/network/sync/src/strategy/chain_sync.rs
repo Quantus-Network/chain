@@ -1224,24 +1224,26 @@ where
 		self.downloaded_blocks += response.blocks.len();
 		let mut gap = false;
 		let mut blocks = response.blocks;
-		// Debug print before borrowing `peer` mutably: received response range (lower..upper as u64)
-		if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
-			debug!(
-				target: LOG_TARGET,
-				"⬅️ Received blocks from {}: {}..{}",
-				peer_id,
-				low,
-				high,
-			);
-		} else if let Some(req) = &request {
-			if let Some((low, high)) = self.compute_request_range_u64(req) {
+
+		if log::log_enabled!(target: LOG_TARGET, log::Level::Debug) {
+			if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
 				debug!(
 					target: LOG_TARGET,
-					"⬅️ Received blocks from {} (range estimated from request): {}..{}",
+					"⬅️ Received blocks from {}: {}..{}",
 					peer_id,
 					low,
 					high,
 				);
+			} else if let Some(req) = &request {
+				if let Some((low, high)) = self.compute_request_range_u64(req) {
+					debug!(
+						target: LOG_TARGET,
+						"⬅️ Received blocks from {} (range estimated from request): {}..{}",
+						peer_id,
+						low,
+						high,
+					);
+				}
 			}
 		}
 		let new_blocks: Vec<IncomingBlock<B>> = if let Some(peer) = self.peers.get_mut(peer_id) {
