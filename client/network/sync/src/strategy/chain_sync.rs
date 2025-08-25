@@ -1978,7 +1978,7 @@ where
 					last_finalized,
 					best_queued,
 				) {
-					// Minimal per-peer request dedupe: if duplicate, keep halving `max` until unique or 1.
+					// Avoid repeated requests to the same range, halve by 2
 					if req.max.is_some() {
 						loop {
 							// Recompute signature using client_ref; avoid borrowing `self`.
