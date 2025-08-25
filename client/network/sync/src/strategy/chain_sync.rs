@@ -1182,16 +1182,15 @@ where
 		request: BlockRequest<B>,
 	) -> SyncingAction<B> {
 		let downloader = self.block_downloader.clone();
-		if log::log_enabled!(target: LOG_TARGET, log::Level::Debug) {
-			if let Some((low, high)) = self.compute_request_range_u64(&request) {
-				debug!(
-					target: LOG_TARGET,
-					"➡️ Sent block request to {}: {}..{}",
-					peer_id,
-					low,
-					high,
-				);
-			}
+
+		if let Some((low, high)) = self.compute_request_range_u64(&request) {
+			debug!(
+				target: LOG_TARGET,
+				"➡️ Sent block request to {}: {}..{}",
+				peer_id,
+				low,
+				high,
+			);
 		}
 
 		SyncingAction::StartRequest {
@@ -1226,27 +1225,16 @@ where
 		let mut gap = false;
 		let mut blocks = response.blocks;
 
-		if log::log_enabled!(target: LOG_TARGET, log::Level::Debug) {
-			if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
-				debug!(
-					target: LOG_TARGET,
-					"⬅️ Received blocks from {}: {}..{}",
-					peer_id,
-					low,
-					high,
-				);
-			} else if let Some(req) = &request {
-				if let Some((low, high)) = self.compute_request_range_u64(req) {
-					debug!(
-						target: LOG_TARGET,
-						"⬅️ Received blocks from {} (range estimated from request): {}..{}",
-						peer_id,
-						low,
-						high,
-					);
-				}
-			}
-		}
+		if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
+			debug!(
+				target: LOG_TARGET,
+				"⬅️ Received blocks from {}: {}..{}",
+				peer_id,
+				low,
+				high,
+			);
+		} 
+		
 		let new_blocks: Vec<IncomingBlock<B>> = if let Some(peer) = self.peers.get_mut(peer_id) {
 			if request.as_ref().map_or(false, |r| r.direction == Direction::Descending) {
 				trace!(target: LOG_TARGET, "Reversing incoming block list");
