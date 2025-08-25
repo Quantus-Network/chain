@@ -88,6 +88,10 @@ pub struct PolkadotSyncingStrategy<B: BlockT, Client> {
 	/// Connected peers and their best blocks used to seed a new strategy when switching to it in
 	/// `PolkadotSyncingStrategy::proceed_to_next`.
 	peer_best_blocks: HashMap<PeerId, (B::Hash, NumberFor<B>)>,
+	/// Peer drop threshold during major sync.
+	peer_drop_threshold: u32,
+	/// Enable relaxed peer drop during major sync.
+	relaxed_peer_drop_while_syncing: bool,
 }
 
 impl<B: BlockT, Client> SyncingStrategy<B> for PolkadotSyncingStrategy<B, Client>
@@ -115,6 +119,17 @@ where
 		self.chain_sync.as_mut().map(|s| s.remove_peer(peer_id));
 
 		self.peer_best_blocks.remove(peer_id);
+	}
+
+	fn on_request_failed(&mut self, peer_id: &PeerId) {
+		// Forward failures to active underlying strategy so it can free download slots and reschedule.
+		if let Some(ref mut chain_sync) = self.chain_sync {
+			chain_sync.on_request_failed(peer_id);
+		} else if self.state.is_some() || self.warp.is_some() {
+			warn!(target: LOG_TARGET, "on_request_failed received for {peer_id:?}, but ChainSync is not active");
+		} else {
+			error!(target: LOG_TARGET, "on_request_failed received for {peer_id:?}, but no strategy active");
+		}
 	}
 
 	fn on_validated_block_announce(
@@ -302,6 +317,16 @@ where
 		self.chain_sync.as_ref().map_or(0, |chain_sync| chain_sync.num_sync_requests())
 	}
 
+	fn peer_drop_threshold(&self) -> u32 { self.peer_drop_threshold }
+
+	fn relaxed_peer_drop_while_syncing(&self) -> bool { self.relaxed_peer_drop_while_syncing }
+
+	fn set_peer_drop_threshold(&mut self, value: u32) { self.peer_drop_threshold = value; }
+
+	fn set_relaxed_peer_drop_while_syncing(&mut self, enable: bool) {
+		self.relaxed_peer_drop_while_syncing = enable;
+	}
+
 	fn actions(
 		&mut self,
 		network_service: &NetworkServiceHandle,
@@ -337,12 +362,15 @@ where
 		+ Sync
 		+ 'static,
 {
+	const DEFAULT_PEER_DROP_THRESHOLD: u32 = 20;
+	const DEFAULT_RELAXED_PEER_DROP_WHILE_SYNCING: bool = false;
+
 	/// Initialize a new syncing strategy.
 	pub fn new(
 		mut config: PolkadotSyncingStrategyConfig<B>,
 		client: Arc<Client>,
-		warp_sync_config: Option<WarpSyncConfig<B>>,
-		warp_sync_protocol_name: Option<ProtocolName>,
+		_warp_sync_config: Option<WarpSyncConfig<B>>,
+		_warp_sync_protocol_name: Option<ProtocolName>,
 	) -> Result<Self, ClientError> {
 		if config.max_blocks_per_request > MAX_BLOCKS_IN_RESPONSE as u32 {
 			info!(
@@ -353,22 +381,25 @@ where
 		}
 
 		if let SyncMode::Warp = config.mode {
-			let warp_sync_config = warp_sync_config
-				.expect("Warp sync configuration must be supplied in warp sync mode.");
-			let warp_sync = WarpSync::new(
-				client.clone(),
-				warp_sync_config,
-				warp_sync_protocol_name,
-				config.block_downloader.clone(),
-			);
-			Ok(Self {
-				config,
-				client,
-				warp: Some(warp_sync),
-				state: None,
-				chain_sync: None,
-				peer_best_blocks: Default::default(),
-			})
+			unimplemented!("warp sync is not supported for PoW chain - it uses GRANDPA finality, only available in PoS chains.");
+			// let warp_sync_config = warp_sync_config
+			// 	.expect("Warp sync configuration must be supplied in warp sync mode.");
+			// let warp_sync = WarpSync::new(
+			// 	client.clone(),
+			// 	warp_sync_config,
+			// 	warp_sync_protocol_name,
+			// 	config.block_downloader.clone(),
+			// );
+			// Ok(Self {
+			// 	config,
+			// 	client,
+			// 	warp: Some(warp_sync),
+			// 	state: None,
+			// 	chain_sync: None,
+			// 	peer_best_blocks: Default::default(),
+			// 	peer_drop_threshold,
+			// 	relaxed_peer_drop_while_syncing,
+			// })
 		} else {
 			let chain_sync = ChainSync::new(
 				chain_sync_mode(config.mode),
@@ -380,6 +411,8 @@ where
 				config.metrics_registry.as_ref(),
 				std::iter::empty(),
 			)?;
+			let peer_drop_threshold = Self::DEFAULT_PEER_DROP_THRESHOLD;
+			let relaxed_peer_drop_while_syncing = Self::DEFAULT_RELAXED_PEER_DROP_WHILE_SYNCING;
 			Ok(Self {
 				config,
 				client,
@@ -387,6 +420,8 @@ where
 				state: None,
 				chain_sync: Some(chain_sync),
 				peer_best_blocks: Default::default(),
+				peer_drop_threshold,
+				relaxed_peer_drop_while_syncing,
 			})
 		}
 	}

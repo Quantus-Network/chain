@@ -258,6 +258,8 @@ pub struct SyncingEngine<B: BlockT, Client> {
 
 	/// Handle to import queue.
 	import_queue: Box<dyn ImportQueueService<B>>,
+	/// Network failure counters per peer (timeouts, refused, etc.).
+	peer_failures: HashMap<PeerId, u32>,
 }
 
 impl<B: BlockT, Client> SyncingEngine<B, Client>
@@ -404,6 +406,7 @@ where
 				},
 				pending_responses: PendingResponses::new(),
 				import_queue,
+				peer_failures: HashMap::new(),
 			},
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
@@ -569,6 +572,7 @@ where
 
 	fn process_strategy_actions(&mut self) -> Result<(), ClientError> {
 		for action in self.strategy.actions(&self.network_service)? {
+			trace!(target: LOG_TARGET, "processing action: {:?}", action.name());
 			match action {
 				SyncingAction::StartRequest { peer_id, key, request, remove_obsolete } => {
 					if !self.peers.contains_key(&peer_id) {
@@ -612,13 +616,13 @@ where
 						.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 					self.network_service.report_peer(peer_id, rep);
 
-					trace!(target: LOG_TARGET, "{peer_id:?} dropped: {rep:?}.");
+					debug!(target: LOG_TARGET, "{peer_id:?} dropped: {rep:?}.");
 				},
 				SyncingAction::ImportBlocks { origin, blocks } => {
 					let count = blocks.len();
 					self.import_blocks(origin, blocks);
 
-					trace!(
+					debug!(
 						target: LOG_TARGET,
 						"Processed `ChainSyncAction::ImportBlocks` with {count} blocks.",
 					);
@@ -635,7 +639,9 @@ where
 					)
 				},
 				// Nothing to do, this is handled internally by `PolkadotSyncingStrategy`.
-				SyncingAction::Finished => {},
+				SyncingAction::Finished => {
+					debug!(target: LOG_TARGET, "sync finished.");
+				},
 			}
 		}
 
@@ -708,6 +714,14 @@ where
 			},
 			ToServiceCommand::OnBlockFinalized(hash, header) =>
 				self.strategy.on_block_finalized(&hash, *header.number()),
+			ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
+				self.strategy.set_peer_drop_threshold(value);
+				log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
+			},
+			ToServiceCommand::SetRelaxedPeerDropWhileSyncing(enable) => {
+				self.strategy.set_relaxed_peer_drop_while_syncing(enable);
+				log::debug!(target: LOG_TARGET, "relaxed_peer_drop_while_syncing set to {}", enable);
+			},
 		}
 	}
 
@@ -772,6 +786,8 @@ where
 	///
 	/// Returns a result if the handshake of this peer was indeed accepted.
 	fn on_sync_peer_disconnected(&mut self, peer_id: PeerId) {
+		log::debug!(target: LOG_TARGET, "on_sync_peer_disconnected {peer_id}");
+
 		let Some(info) = self.peers.remove(&peer_id) else {
 			log::debug!(target: LOG_TARGET, "{peer_id} does not exist in `SyncingEngine`");
 			return;
@@ -981,35 +997,71 @@ where
 
 		match response_result {
 			Ok(Ok((response, protocol_name))) => {
+				// Successful response: forgive one failure for this peer, down to zero.
+				if let Some(count) = self.peer_failures.get_mut(&peer_id) {
+					if *count > 0 {
+						*count -= 1;
+						debug!(target: LOG_TARGET, "Peer {:?} successes: decremented failure count to {}", peer_id, *count);
+					}
+				}
 				self.strategy.on_generic_response(&peer_id, key, protocol_name, response);
 			},
 			Ok(Err(e)) => {
 				debug!(target: LOG_TARGET, "Request to peer {peer_id:?} failed: {e:?}.");
 
+				let is_major_syncing = self.is_major_syncing.load(Ordering::Relaxed);
+				let relaxed_peer_drop = is_major_syncing && self.strategy.relaxed_peer_drop_while_syncing();
+				let peer_drop_threshold = self.strategy.peer_drop_threshold();
+				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
+				*peer_failures = peer_failures.saturating_add(1);
+
+				let should_drop_peer = !(relaxed_peer_drop && *peer_failures < peer_drop_threshold);
+				
+				debug!(
+					target: LOG_TARGET,
+					"Timeout handling: is_major_syncing: {}, relaxed_peer_drop: {}, peer failures: {}, threshold: {} should_drop_peer: {}",
+					is_major_syncing, relaxed_peer_drop, *peer_failures, self.strategy.peer_drop_threshold(), should_drop_peer
+				);
+
 				match e {
 					RequestFailure::Network(OutboundFailure::Timeout) => {
-						self.network_service.report_peer(peer_id, rep::TIMEOUT);
-						self.network_service
-							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						if should_drop_peer {
+							debug!(target: LOG_TARGET, "dropping peer after timeout! {:?}", peer_id);
+							self.network_service.report_peer(peer_id, rep::TIMEOUT);
+							self.network_service
+								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						} else {
+							debug!(target: LOG_TARGET, "Timeout for {:?}", peer_id);
+						}
 					},
 					RequestFailure::Network(OutboundFailure::UnsupportedProtocols) => {
 						self.network_service.report_peer(peer_id, rep::BAD_PROTOCOL);
 						self.network_service
 							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						debug!(target: LOG_TARGET, "UnsupportedProtocols for {:?}", peer_id);
 					},
 					RequestFailure::Network(OutboundFailure::DialFailure) => {
-						self.network_service
-							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						if should_drop_peer {
+							self.network_service
+								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						}
+						debug!(target: LOG_TARGET, "DialFailure for {:?}", peer_id);
 					},
 					RequestFailure::Refused => {
-						self.network_service.report_peer(peer_id, rep::REFUSED);
-						self.network_service
-							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						if should_drop_peer {
+							self.network_service.report_peer(peer_id, rep::REFUSED);
+							self.network_service
+								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						}
+						debug!(target: LOG_TARGET, "Refused for {:?}", peer_id);
 					},
 					RequestFailure::Network(OutboundFailure::ConnectionClosed) |
 					RequestFailure::NotConnected => {
-						self.network_service
-							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						if should_drop_peer {
+							self.network_service
+								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+						}
+						debug!(target: LOG_TARGET, "ConnClosed/NotConnected for {:?}", peer_id);
 					},
 					RequestFailure::UnknownProtocol => {
 						debug_assert!(false, "Block request protocol should always be known.");
@@ -1022,9 +1074,11 @@ where
 						);
 					},
 				}
+				// Let the active strategy know about the failure so it can reschedule if needed.
+				self.strategy.on_request_failed(&peer_id);
 			},
 			Err(oneshot::Canceled) => {
-				trace!(
+				debug!(
 					target: LOG_TARGET,
 					"Request to peer {peer_id:?} failed due to oneshot being canceled.",
 				);
