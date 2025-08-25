@@ -55,7 +55,7 @@ pub enum ToServiceCommand<B: BlockT> {
 	PeersInfo(oneshot::Sender<Vec<(PeerId, ExtendedPeerInfo<B>)>>),
 	OnBlockFinalized(B::Hash, B::Header),
 	SetMaxTimeoutsBeforeDrop(u32),
-	SetDisableMajorSyncGating(bool),
+	SetRelaxedPeerDropWhileSyncing(bool),
 }
 
 /// Handle for communicating with `SyncingEngine` asynchronously
@@ -113,8 +113,8 @@ impl<B: BlockT> SyncingService<B> {
 	}
 
 	/// Enable/disable gating peer drops during major syncing.
-	pub fn set_disable_major_sync_gating(&self, disable: bool) {
-		let _ = self.tx.unbounded_send(ToServiceCommand::SetDisableMajorSyncGating(disable));
+	pub fn set_relaxed_peer_drop_while_syncing(&self, enable: bool) {
+		let _ = self.tx.unbounded_send(ToServiceCommand::SetRelaxedPeerDropWhileSyncing(enable));
 	}
 
 	/// Get peer information.

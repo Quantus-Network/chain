@@ -211,7 +211,7 @@ pub fn new_full<
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
 	sync_max_timeouts_before_drop: u32,
-	sync_disable_major_sync_gating: bool,
+	set_relaxed_peer_drop_while_syncing: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -249,11 +249,11 @@ pub fn new_full<
 
 	// Apply CLI sync flags
 	sync_service.set_max_timeouts_before_drop(sync_max_timeouts_before_drop);
-	sync_service.set_disable_major_sync_gating(sync_disable_major_sync_gating);
+	sync_service.set_relaxed_peer_drop_while_syncing(set_relaxed_peer_drop_while_syncing);
 	log::debug!(
 		"Applied CLI sync flags: max_timeouts_before_drop={}, disable_major_sync_gating={}",
 		sync_max_timeouts_before_drop,
-		sync_disable_major_sync_gating
+		set_relaxed_peer_drop_while_syncing
 	);
 
 	if config.offchain_worker.enabled {

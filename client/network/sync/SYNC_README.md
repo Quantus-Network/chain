@@ -45,8 +45,8 @@ Set at startup and applied immediately after network build:
 - `--sync-disable-major-sync-gating` (bool): fast‑ban even during major sync when true.
 
 These are stored and exposed by `PolkadotSyncingStrategy`:
-- Accessors used by engine: `peer_drop_threshold()`, `disable_major_sync_gating()`.
-- Setters used by service: `set_peer_drop_threshold(..)`, `set_disable_major_sync_gating(..)`.
+- Accessors used by engine: `peer_drop_threshold()`, `relaxed_peer_drop_while_syncing()`.
+- Setters used by service: `set_peer_drop_threshold(..)`, `set_relaxed_peer_drop_while_syncing(..)`.
 
 ## Pointers for debugging
 - Engine timeout handling: logs `is_major_syncing`, computed `should_gate`, and effective `threshold` before deciding to drop.

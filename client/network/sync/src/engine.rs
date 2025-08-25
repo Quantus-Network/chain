@@ -718,9 +718,9 @@ where
 				self.strategy.set_peer_drop_threshold(value);
 				log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
 			},
-			ToServiceCommand::SetDisableMajorSyncGating(disable) => {
-				self.strategy.set_disable_major_sync_gating(disable);
-				log::debug!(target: LOG_TARGET, "disable_major_sync_gating set to {}", disable);
+			ToServiceCommand::SetRelaxedPeerDropWhileSyncing(enable) => {
+				self.strategy.set_relaxed_peer_drop_while_syncing(enable);
+				log::debug!(target: LOG_TARGET, "relaxed_peer_drop_while_syncing set to {}", enable);
 			},
 		}
 	}
@@ -1009,17 +1009,17 @@ where
 			Ok(Err(e)) => {
 				debug!(target: LOG_TARGET, "Request to peer {peer_id:?} failed: {e:?}.");
 
-				let is_major = self.is_major_syncing.load(Ordering::Relaxed);
-				let should_gate = is_major && !self.strategy.disable_major_sync_gating();
-				let threshold = self.strategy.peer_drop_threshold();
-				let entry = self.peer_failures.entry(peer_id).or_insert(0);
-				*entry = entry.saturating_add(1);
-				let should_drop_peer = !should_gate || *entry >= threshold;
+				let is_major_syncing = self.is_major_syncing.load(Ordering::Relaxed);
+				let relaxed_peer_drop = is_major_syncing && self.strategy.relaxed_peer_drop_while_syncing();
+				let peer_drop_threshold = self.strategy.peer_drop_threshold();
+				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
+				*peer_failures = peer_failures.saturating_add(1);
+				let should_drop_peer = !relaxed_peer_drop || *peer_failures >= peer_drop_threshold;
 				
 				debug!(
 					target: LOG_TARGET,
-					"Timeout handling: is_major_syncing: {}, should_gate: {}, threshold: {} failures: {} should_drop_peer: {}",
-					is_major, should_gate, self.strategy.peer_drop_threshold(), *entry, should_drop_peer
+					"Timeout handling: is_major_syncing: {}, relaxed_peer_drop: {}, peer failures: {}, threshold: {} should_drop_peer: {}",
+					is_major_syncing, relaxed_peer_drop, *peer_failures, self.strategy.peer_drop_threshold(), should_drop_peer
 				);
 
 				match e {
@@ -1030,21 +1030,21 @@ where
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						} else {
-							debug!(target: LOG_TARGET, "Timeouts for {:?}: {} (major_syncing={} threshold={})", peer_id, *entry, is_major, self.strategy.peer_drop_threshold());
+							debug!(target: LOG_TARGET, "Timeout for {:?}", peer_id);
 						}
 					},
 					RequestFailure::Network(OutboundFailure::UnsupportedProtocols) => {
 						self.network_service.report_peer(peer_id, rep::BAD_PROTOCOL);
 						self.network_service
 							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
-						debug!(target: LOG_TARGET, "UnsupportedProtocols for {:?}: {}", peer_id, *entry);
+						debug!(target: LOG_TARGET, "UnsupportedProtocols for {:?}", peer_id);
 					},
 					RequestFailure::Network(OutboundFailure::DialFailure) => {
 						if should_drop_peer {
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						}
-						debug!(target: LOG_TARGET, "DialFailure for {:?}: {}", peer_id, *entry);
+						debug!(target: LOG_TARGET, "DialFailure for {:?}", peer_id);
 					},
 					RequestFailure::Refused => {
 						if should_drop_peer {
@@ -1052,7 +1052,7 @@ where
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						}
-						debug!(target: LOG_TARGET, "Refused for {:?}: {}", peer_id, *entry);
+						debug!(target: LOG_TARGET, "Refused for {:?}", peer_id);
 					},
 					RequestFailure::Network(OutboundFailure::ConnectionClosed) |
 					RequestFailure::NotConnected => {
@@ -1060,7 +1060,7 @@ where
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						}
-						debug!(target: LOG_TARGET, "ConnClosed/NotConnected for {:?}: {}", peer_id, *entry);
+						debug!(target: LOG_TARGET, "ConnClosed/NotConnected for {:?}", peer_id);
 					},
 					RequestFailure::UnknownProtocol => {
 						debug_assert!(false, "Block request protocol should always be known.");

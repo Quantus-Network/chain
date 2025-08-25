@@ -33,8 +33,8 @@ pub struct Cli {
 	pub sync_max_timeouts_before_drop: u32,
 
 	/// Sync: disable gating peer drops during major sync (fast-ban even in major sync).
-	#[arg(long, default_value_t = false)]
-	pub sync_disable_major_sync_gating: bool,
+	#[arg(long, default_value_t = true)]
+	pub set_relaxed_peer_drop_while_syncing: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
