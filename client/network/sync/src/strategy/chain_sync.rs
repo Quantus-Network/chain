@@ -1182,15 +1182,16 @@ where
 		request: BlockRequest<B>,
 	) -> SyncingAction<B> {
 		let downloader = self.block_downloader.clone();
-		// Debug print: sent request range (lower..upper as u64)
-		if let Some((low, high)) = self.compute_request_range_u64(&request) {
-			debug!(
-				target: LOG_TARGET,
-				"➡️ Sent block request to {}: {}..{}",
-				peer_id,
-				low,
-				high,
-			);
+		if log::log_enabled!(target: LOG_TARGET, log::Level::Debug) {
+			if let Some((low, high)) = self.compute_request_range_u64(&request) {
+				debug!(
+					target: LOG_TARGET,
+					"➡️ Sent block request to {}: {}..{}",
+					peer_id,
+					low,
+					high,
+				);
+			}
 		}
 
 		SyncingAction::StartRequest {
