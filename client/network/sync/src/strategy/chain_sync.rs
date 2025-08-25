@@ -236,7 +236,7 @@ pub(crate) struct PeerSync<B: BlockT> {
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
 	/// Recently sent request signatures to this peer to avoid duplicates.
-	pub request_signatures: HashSet<RequestSignature>,
+	request_signatures: HashSet<RequestSignature>,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -2236,25 +2236,6 @@ where
 			(Some(lo), Some(hi)) => Some((lo, hi)),
 			_ => None,
 		}
-	}
-
-	fn compute_request_signature(&self, req: &BlockRequest<B>) -> Option<RequestSignature> {
-		let max = req.max?;
-		let start_number_u64 = match req.from {
-			FromBlock::Number(n) => n.saturated_into::<u64>(),
-			FromBlock::Hash(h) => self
-				.client
-				.number(h)
-				.ok()
-				.flatten()
-				.map(|n| n.saturated_into::<u64>())?,
-		};
-		Some(RequestSignature {
-			start_number_u64,
-			is_descending: matches!(req.direction, Direction::Descending),
-			fields_mask: req.fields.to_be_u32(),
-			max_blocks: max,
-		})
 	}
 
 	/// A version of `actions()` that doesn't schedule extra requests. For testing only.
