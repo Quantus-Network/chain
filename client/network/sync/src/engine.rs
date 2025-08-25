@@ -1008,23 +1008,19 @@ where
 			},
 			Ok(Err(e)) => {
 				debug!(target: LOG_TARGET, "Request to peer {peer_id:?} failed: {e:?}.");
-				debug!(target: LOG_TARGET, "Pending responses len after failure: {}", self.pending_responses.len());
 
 				let is_major = self.is_major_syncing.load(Ordering::Relaxed);
 				let should_gate = is_major && !self.strategy.disable_major_sync_gating();
-				debug!(
-					target: LOG_TARGET,
-					"Timeout handling: is_major_syncing={}, should_gate={}, threshold={}",
-					is_major,
-					should_gate,
-					self.strategy.peer_drop_threshold()
-				);
-
 				let threshold = self.strategy.peer_drop_threshold();
 				let entry = self.peer_failures.entry(peer_id).or_insert(0);
 				*entry = entry.saturating_add(1);
-				debug!(target: LOG_TARGET, "gated: {:?} failures: {:?}", should_gate, *entry);
 				let should_drop_peer = !should_gate || *entry >= threshold;
+				
+				debug!(
+					target: LOG_TARGET,
+					"Timeout handling: is_major_syncing: {}, should_gate: {}, threshold: {} failures: {} should_drop_peer: {}",
+					is_major, should_gate, self.strategy.peer_drop_threshold(), *entry, should_drop_peer
+				);
 
 				match e {
 					RequestFailure::Network(OutboundFailure::Timeout) => {
