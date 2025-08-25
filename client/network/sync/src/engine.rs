@@ -260,8 +260,6 @@ pub struct SyncingEngine<B: BlockT, Client> {
 	import_queue: Box<dyn ImportQueueService<B>>,
 	/// Network failure counters per peer (timeouts, refused, etc.).
 	peer_failures: HashMap<PeerId, u32>,
-	/// Threshold for failures during major syncing before dropping/reporting a peer.
-	max_timeouts_before_drop: u32,
 }
 
 impl<B: BlockT, Client> SyncingEngine<B, Client>
@@ -409,7 +407,6 @@ where
 				pending_responses: PendingResponses::new(),
 				import_queue,
 				peer_failures: HashMap::new(),
-				max_timeouts_before_drop: 20,
 			},
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
@@ -590,7 +587,7 @@ where
 					}
 					if remove_obsolete {
 						if self.pending_responses.remove(peer_id, key) {
-							warn!(
+							debug!(
 								target: LOG_TARGET,
 								"Processed `SyncingAction::StartRequest` to {peer_id} with \
 								strategy key {key:?}. Stale response removed!",
@@ -718,6 +715,14 @@ where
 			},
 			ToServiceCommand::OnBlockFinalized(hash, header) =>
 				self.strategy.on_block_finalized(&hash, *header.number()),
+			ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
+				self.strategy.set_peer_drop_threshold(value);
+				log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
+			},
+			ToServiceCommand::SetDisableMajorSyncGating(disable) => {
+				self.strategy.set_disable_major_sync_gating(disable);
+				log::debug!(target: LOG_TARGET, "disable_major_sync_gating set to {}", disable);
+			},
 		}
 	}
 
@@ -782,7 +787,7 @@ where
 	///
 	/// Returns a result if the handshake of this peer was indeed accepted.
 	fn on_sync_peer_disconnected(&mut self, peer_id: PeerId) {
-		log::warn!(target: LOG_TARGET, "on_sync_peer_disconnected {peer_id}");
+		log::debug!(target: LOG_TARGET, "on_sync_peer_disconnected {peer_id}");
 
 		let Some(info) = self.peers.remove(&peer_id) else {
 			log::debug!(target: LOG_TARGET, "{peer_id} does not exist in `SyncingEngine`");
@@ -794,7 +799,7 @@ where
 		self.num_connected.fetch_sub(1, Ordering::AcqRel);
 
 		if self.important_peers.contains(&peer_id) {
-			log::warn!(target: LOG_TARGET, "Reserved peer {peer_id} disconnected");
+			log::debug!(target: LOG_TARGET, "Reserved peer {peer_id} disconnected");
 		} else {
 			log::debug!(target: LOG_TARGET, "{peer_id} disconnected");
 		}
@@ -1000,7 +1005,14 @@ where
 				debug!(target: LOG_TARGET, "Pending responses len after failure: {}", self.pending_responses.len());
 
 				let is_major = self.is_major_syncing.load(Ordering::Relaxed);
-				let should_gate = is_major;
+				let should_gate = is_major && !self.strategy.disable_major_sync_gating();
+				debug!(
+					target: LOG_TARGET,
+					"Timeout handling: is_major_syncing={}, should_gate={}, threshold={}",
+					is_major,
+					should_gate,
+					self.strategy.peer_drop_threshold()
+				);
 
 				match e {
 					RequestFailure::Network(OutboundFailure::Timeout) => {
@@ -1009,7 +1021,8 @@ where
 
 						debug!(target: LOG_TARGET, "gated: {:?} failures: {:?}", should_gate, *entry);
 
-						if !should_gate || *entry >= self.max_timeouts_before_drop {
+						let threshold = self.strategy.peer_drop_threshold();
+						if !should_gate || *entry >= threshold {
 							
 							debug!(target: LOG_TARGET, "dropping peer after timeout! {:?}", peer_id);
 
@@ -1017,12 +1030,13 @@ where
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						}
-						debug!(target: LOG_TARGET, "XX Timeouts for {:?}: {} (major_syncing={} threshold={})", peer_id, *entry, is_major, self.max_timeouts_before_drop);
+						debug!(target: LOG_TARGET, "XX Timeouts for {:?}: {} (major_syncing={} threshold={})", peer_id, *entry, is_major, self.strategy.peer_drop_threshold());
 					},
 					RequestFailure::Network(OutboundFailure::UnsupportedProtocols) => {
 						let entry = self.peer_failures.entry(peer_id).or_insert(0);
 						*entry = entry.saturating_add(1);
-						if !should_gate || *entry >= self.max_timeouts_before_drop {
+						let threshold = self.strategy.peer_drop_threshold();
+						if !should_gate || *entry >= threshold {
 							self.network_service.report_peer(peer_id, rep::BAD_PROTOCOL);
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
@@ -1032,7 +1046,8 @@ where
 					RequestFailure::Network(OutboundFailure::DialFailure) => {
 						let entry = self.peer_failures.entry(peer_id).or_insert(0);
 						*entry = entry.saturating_add(1);
-						if !should_gate || *entry >= self.max_timeouts_before_drop {
+						let threshold = self.strategy.peer_drop_threshold();
+						if !should_gate || *entry >= threshold {
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						}
@@ -1041,7 +1056,8 @@ where
 					RequestFailure::Refused => {
 						let entry = self.peer_failures.entry(peer_id).or_insert(0);
 						*entry = entry.saturating_add(1);
-						if !should_gate || *entry >= self.max_timeouts_before_drop {
+						let threshold = self.strategy.peer_drop_threshold();
+						if !should_gate || *entry >= threshold {
 							self.network_service.report_peer(peer_id, rep::REFUSED);
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
@@ -1052,7 +1068,8 @@ where
 					RequestFailure::NotConnected => {
 						let entry = self.peer_failures.entry(peer_id).or_insert(0);
 						*entry = entry.saturating_add(1);
-						if !should_gate || *entry >= self.max_timeouts_before_drop {
+						let threshold = self.strategy.peer_drop_threshold();
+						if !should_gate || *entry >= threshold {
 							self.network_service
 								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 						}

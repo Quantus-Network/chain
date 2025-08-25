@@ -88,6 +88,10 @@ pub struct PolkadotSyncingStrategy<B: BlockT, Client> {
 	/// Connected peers and their best blocks used to seed a new strategy when switching to it in
 	/// `PolkadotSyncingStrategy::proceed_to_next`.
 	peer_best_blocks: HashMap<PeerId, (B::Hash, NumberFor<B>)>,
+	/// Peer drop threshold during major sync.
+	peer_drop_threshold: u32,
+	/// Disable gating peer drops during major sync.
+	disable_major_sync_gating: bool,
 }
 
 impl<B: BlockT, Client> SyncingStrategy<B> for PolkadotSyncingStrategy<B, Client>
@@ -314,6 +318,22 @@ where
 		self.chain_sync.as_ref().map_or(0, |chain_sync| chain_sync.num_sync_requests())
 	}
 
+	fn peer_drop_threshold(&self) -> u32 { self.peer_drop_threshold }
+
+	fn disable_major_sync_gating(&self) -> bool { self.disable_major_sync_gating }
+
+	fn set_peer_drop_threshold(&mut self, value: u32) { self.peer_drop_threshold = value; }
+
+	fn set_disable_major_sync_gating(&mut self, disable: bool) {
+		self.disable_major_sync_gating = disable;
+		debug!(
+			target: LOG_TARGET,
+			"Strategy config updated: peer_drop_threshold={}, disable_major_sync_gating={}",
+			self.peer_drop_threshold,
+			self.disable_major_sync_gating
+		);
+	}
+
 	fn actions(
 		&mut self,
 		network_service: &NetworkServiceHandle,
@@ -349,6 +369,9 @@ where
 		+ Sync
 		+ 'static,
 {
+	const DEFAULT_PEER_DROP_THRESHOLD: u32 = 20;
+	const DEFAULT_DISABLE_MAJOR_SYNC_GATING: bool = false;
+
 	/// Initialize a new syncing strategy.
 	pub fn new(
 		mut config: PolkadotSyncingStrategyConfig<B>,
@@ -373,6 +396,8 @@ where
 				warp_sync_protocol_name,
 				config.block_downloader.clone(),
 			);
+			let peer_drop_threshold = Self::DEFAULT_PEER_DROP_THRESHOLD;
+			let disable_major_sync_gating = Self::DEFAULT_DISABLE_MAJOR_SYNC_GATING;
 			Ok(Self {
 				config,
 				client,
@@ -380,6 +405,8 @@ where
 				state: None,
 				chain_sync: None,
 				peer_best_blocks: Default::default(),
+				peer_drop_threshold,
+				disable_major_sync_gating,
 			})
 		} else {
 			let chain_sync = ChainSync::new(
@@ -392,6 +419,8 @@ where
 				config.metrics_registry.as_ref(),
 				std::iter::empty(),
 			)?;
+			let peer_drop_threshold = Self::DEFAULT_PEER_DROP_THRESHOLD;
+			let disable_major_sync_gating = Self::DEFAULT_DISABLE_MAJOR_SYNC_GATING;
 			Ok(Self {
 				config,
 				client,
@@ -399,6 +428,8 @@ where
 				state: None,
 				chain_sync: Some(chain_sync),
 				peer_best_blocks: Default::default(),
+				peer_drop_threshold,
+				disable_major_sync_gating,
 			})
 		}
 	}

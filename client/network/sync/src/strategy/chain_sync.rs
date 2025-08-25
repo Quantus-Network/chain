@@ -870,10 +870,10 @@ where
 
 	fn on_request_failed(&mut self, peer_id: &PeerId) {
 		// When a request fails, allow issuing new requests immediately and free any held slots.
-		warn!(target: LOG_TARGET, "received on_request_failed for {:?} has peer: {:?}", peer_id, self.peers.get_mut(peer_id));
+		debug!(target: LOG_TARGET, "received on_request_failed for {:?} has peer: {:?}", peer_id, self.peers.get_mut(peer_id));
 
 		if let Some(peer) = self.peers.get_mut(peer_id) {
-			warn!(
+			debug!(
 				target: LOG_TARGET,
 				"Request failed for peer {:?}, previous state: {:?}",
 				peer_id,
@@ -902,9 +902,9 @@ where
 					// No block-range slot to clear or already available.
 				}
 			}
-			warn!(target: LOG_TARGET, "on_request_failed: peer_downloading_before_clear={}, now_available={}", was_downloading, matches!(peer.state, PeerSyncState::Available));
+			debug!(target: LOG_TARGET, "on_request_failed: peer_downloading_before_clear={}, now_available={}", was_downloading, matches!(peer.state, PeerSyncState::Available));
 		} else {
-			warn!(target: LOG_TARGET, "peer with id not found: {:?}", peer_id);
+			debug!(target: LOG_TARGET, "peer with id not found: {:?}", peer_id);
 		}
 		self.allowed_requests.add(peer_id);
 	}
