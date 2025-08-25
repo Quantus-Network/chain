@@ -879,7 +879,6 @@ where
 				peer_id,
 				peer.state,
 			);
-			let was_downloading = self.blocks.is_peer_downloading(peer_id);
 			match peer.state {
 				PeerSyncState::DownloadingNew(_) => {
 					self.blocks.clear_peer_download(peer_id);
@@ -902,7 +901,7 @@ where
 					// No block-range slot to clear or already available.
 				}
 			}
-			debug!(target: LOG_TARGET, "on_request_failed: peer_downloading_before_clear={}, now_available={}", was_downloading, matches!(peer.state, PeerSyncState::Available));
+			debug!(target: LOG_TARGET, "on_request_failed: now_available={}", matches!(peer.state, PeerSyncState::Available));
 		} else {
 			debug!(target: LOG_TARGET, "peer with id not found: {:?}", peer_id);
 		}
