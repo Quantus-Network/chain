@@ -369,8 +369,8 @@ where
 	pub fn new(
 		mut config: PolkadotSyncingStrategyConfig<B>,
 		client: Arc<Client>,
-		warp_sync_config: Option<WarpSyncConfig<B>>,
-		warp_sync_protocol_name: Option<ProtocolName>,
+		_warp_sync_config: Option<WarpSyncConfig<B>>,
+		_warp_sync_protocol_name: Option<ProtocolName>,
 	) -> Result<Self, ClientError> {
 		if config.max_blocks_per_request > MAX_BLOCKS_IN_RESPONSE as u32 {
 			info!(
@@ -381,7 +381,7 @@ where
 		}
 
 		if let SyncMode::Warp = config.mode {
-			unimplemented!("warp sync is not supported for PoW chain");
+			unimplemented!("warp sync is not supported for PoW chain - it uses GRANDPA finality, only available in PoS chains.");
 			// let warp_sync_config = warp_sync_config
 			// 	.expect("Warp sync configuration must be supplied in warp sync mode.");
 			// let warp_sync = WarpSync::new(

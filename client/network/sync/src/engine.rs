@@ -1014,7 +1014,8 @@ where
 				let peer_drop_threshold = self.strategy.peer_drop_threshold();
 				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
 				*peer_failures = peer_failures.saturating_add(1);
-				let should_drop_peer = !relaxed_peer_drop || *peer_failures >= peer_drop_threshold;
+				
+				let should_drop_peer = relaxed_peer_drop && *peer_failures < peer_drop_threshold;
 				
 				debug!(
 					target: LOG_TARGET,
