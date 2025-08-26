@@ -85,13 +85,10 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					dest,
 					value,
 				}) => (dest, value),
-				RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => {
-					return Err(
-						frame_support::pallet_prelude::TransactionValidityError::Invalid(
-							InvalidTransaction::Custom(1),
-						),
-					)
-				}
+				RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) =>
+					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
+						InvalidTransaction::Custom(1),
+					)),
 				_ => return Ok((ValidTransaction::default(), (), origin)),
 			};
 
@@ -255,7 +252,7 @@ mod tests {
 			assert!(result.is_ok());
 		});
 	}
-	
+
 	fn check_call(transfer_call: RuntimeCall) -> Result<(), TransactionValidityError> {
 		// Test the reversible transaction extension
 		let ext = ReversibleTransactionExtension::<Runtime>::new();
@@ -267,7 +264,9 @@ mod tests {
 		let origin = RuntimeOrigin::signed(charlie());
 
 		// Test the prepare method
-		ext.clone().prepare((), &origin, &transfer_call, &Default::default(), 0).unwrap();
+		ext.clone()
+			.prepare((), &origin, &transfer_call, &Default::default(), 0)
+			.unwrap();
 
 		assert_eq!((), ());
 
@@ -319,7 +318,7 @@ mod tests {
 				result.unwrap_err(),
 				TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
 			);
-			
+
 			// Pending transactions should contain the transaction
 			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
 		});
@@ -333,7 +332,7 @@ mod tests {
 				keep_alive: true,
 			});
 			let result = check_call(call);
-			
+
 			// we should fail here with `InvalidTransaction::Custom(1)`
 			assert_eq!(
 				result.unwrap_err(),
@@ -341,8 +340,6 @@ mod tests {
 			);
 
 			// no pending tx in this case, this call actually doesn't work.
-
 		});
 	}
-
 }
