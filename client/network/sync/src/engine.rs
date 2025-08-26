@@ -1008,7 +1008,7 @@ where
 				let is_major_syncing = self.is_major_syncing.load(Ordering::Relaxed);
 				let peer_drop_threshold = self.strategy.peer_drop_threshold();
 				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
-				*peer_failures = peer_failures.saturating_add(1);
+				peer_failures.saturating_inc();
 
 				let should_drop_peer = !is_major_syncing || *peer_failures >= peer_drop_threshold;
 				
