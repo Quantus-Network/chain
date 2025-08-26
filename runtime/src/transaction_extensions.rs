@@ -94,7 +94,6 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 				}
 				_ => return Ok((ValidTransaction::default(), (), origin)),
 			};
-			// Add recovery pallet actions here - just disallow them. 
 
 			// Schedule the transfer
 			ReversibleTransfers::do_schedule_transfer(origin.clone(), dest.clone(), *amount)
