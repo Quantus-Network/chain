@@ -89,6 +89,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
 						InvalidTransaction::Custom(1),
 					)),
+					// TODO change this to disallow everything - it's high security after all
 				_ => return Ok((ValidTransaction::default(), (), origin)),
 			};
 
