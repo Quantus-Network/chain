@@ -39,8 +39,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		if matches!(
 			call,
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-				RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-				RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
+				RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
 		) {
 			return <T as pallet_reversible_transfers::Config>::WeightInfo::schedule_transfer();
 		}
@@ -86,8 +85,16 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					dest,
 					value,
 				}) => (dest, value),
+				RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => {
+					return Err(
+						frame_support::pallet_prelude::TransactionValidityError::Invalid(
+							InvalidTransaction::Custom(1),
+						),
+					)
+				}
 				_ => return Ok((ValidTransaction::default(), (), origin)),
 			};
+			// Add recovery pallet actions here - just disallow them. 
 
 			// Schedule the transfer
 			ReversibleTransfers::do_schedule_transfer(origin.clone(), dest.clone(), *amount)
@@ -249,4 +256,104 @@ mod tests {
 			assert!(result.is_ok());
 		});
 	}
+	
+	fn check_call(transfer_call: RuntimeCall) -> Result<(), TransactionValidityError> {
+		// Test the reversible transaction extension
+		let ext = ReversibleTransactionExtension::<Runtime>::new();
+
+		// Charlie is already configured as high-security from genesis
+		// Verify Charlie is high-security
+		assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
+
+		let origin = RuntimeOrigin::signed(charlie());
+
+		// Test the prepare method
+		ext.clone().prepare((), &origin, &transfer_call, &Default::default(), 0).unwrap();
+
+		assert_eq!((), ());
+
+		// Test the validate method
+		let result = ext.validate(
+			origin,
+			&transfer_call,
+			&Default::default(),
+			0,
+			(),
+			&TxBaseImplication::<()>(()),
+			frame_support::pallet_prelude::TransactionSource::External,
+		);
+
+		result.map(|_| ())
+	}
+
+	#[test]
+	fn test_high_security_transfer_keep_alive() {
+		new_test_ext().execute_with(|| {
+
+			// Charlie sends bob a transaction
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
+
+			let result = check_call(call);
+
+			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
+			assert_eq!(
+				result.unwrap_err(),
+				TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
+			);
+
+			// Pending transactions should contain the transaction
+			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
+
+		});
+	}
+
+	#[test]
+	fn test_high_security_transfer_allow_death() {
+		new_test_ext().execute_with(|| {
+
+			// Charlie sends bob a transaction
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
+
+			let result = check_call(call);
+
+			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
+			assert_eq!(
+				result.unwrap_err(),
+				TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
+			);
+			
+			// Pending transactions should contain the transaction
+			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
+
+
+		});
+	}
+
+	#[test]
+	fn test_high_security_transfer_all() {
+		new_test_ext().execute_with(|| {
+
+			// Charlie sends bob a transaction
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
+				dest: MultiAddress::Id(bob()),
+				keep_alive: true,
+			});
+
+			let result = check_call(call);
+			
+			// we should fail here with `UnknownTransaction::Custom(1)`
+			assert_eq!(
+				result.unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+
+		});
+	}
+
 }
