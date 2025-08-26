@@ -248,10 +248,6 @@ pub fn new_full<
 
 	// Apply CLI sync flags
 	sync_service.set_max_timeouts_before_drop(sync_max_timeouts_before_drop);
-	log::debug!(
-		"Applied CLI sync flags: max_timeouts_before_drop={}",
-		sync_max_timeouts_before_drop,
-	);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
