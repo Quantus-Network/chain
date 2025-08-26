@@ -718,10 +718,6 @@ where
 				self.strategy.set_peer_drop_threshold(value);
 				log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
 			},
-			ToServiceCommand::SetRelaxedPeerDropWhileSyncing(enable) => {
-				self.strategy.set_relaxed_peer_drop_while_syncing(enable);
-				log::debug!(target: LOG_TARGET, "relaxed_peer_drop_while_syncing set to {}", enable);
-			},
 		}
 	}
 
@@ -1010,12 +1006,11 @@ where
 				debug!(target: LOG_TARGET, "Request to peer {peer_id:?} failed: {e:?}.");
 
 				let is_major_syncing = self.is_major_syncing.load(Ordering::Relaxed);
-				let relaxed_peer_drop = is_major_syncing && self.strategy.relaxed_peer_drop_while_syncing();
 				let peer_drop_threshold = self.strategy.peer_drop_threshold();
 				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
 				*peer_failures = peer_failures.saturating_add(1);
 
-				let should_drop_peer = !(relaxed_peer_drop && *peer_failures < peer_drop_threshold);
+				let should_drop_peer = !(is_major_syncing && *peer_failures < peer_drop_threshold);
 				
 				debug!(
 					target: LOG_TARGET,

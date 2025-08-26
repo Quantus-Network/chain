@@ -90,8 +90,6 @@ pub struct PolkadotSyncingStrategy<B: BlockT, Client> {
 	peer_best_blocks: HashMap<PeerId, (B::Hash, NumberFor<B>)>,
 	/// Peer drop threshold during major sync.
 	peer_drop_threshold: u32,
-	/// Enable relaxed peer drop during major sync.
-	relaxed_peer_drop_while_syncing: bool,
 }
 
 impl<B: BlockT, Client> SyncingStrategy<B> for PolkadotSyncingStrategy<B, Client>
@@ -319,13 +317,7 @@ where
 
 	fn peer_drop_threshold(&self) -> u32 { self.peer_drop_threshold }
 
-	fn relaxed_peer_drop_while_syncing(&self) -> bool { self.relaxed_peer_drop_while_syncing }
-
 	fn set_peer_drop_threshold(&mut self, value: u32) { self.peer_drop_threshold = value; }
-
-	fn set_relaxed_peer_drop_while_syncing(&mut self, enable: bool) {
-		self.relaxed_peer_drop_while_syncing = enable;
-	}
 
 	fn actions(
 		&mut self,
@@ -362,8 +354,7 @@ where
 		+ Sync
 		+ 'static,
 {
-	const DEFAULT_PEER_DROP_THRESHOLD: u32 = 20;
-	const DEFAULT_RELAXED_PEER_DROP_WHILE_SYNCING: bool = false;
+	const DEFAULT_PEER_DROP_THRESHOLD: u32 = 10;
 
 	/// Initialize a new syncing strategy.
 	pub fn new(
@@ -398,7 +389,6 @@ where
 			// 	chain_sync: None,
 			// 	peer_best_blocks: Default::default(),
 			// 	peer_drop_threshold,
-			// 	relaxed_peer_drop_while_syncing,
 			// })
 		} else {
 			let chain_sync = ChainSync::new(
@@ -412,7 +402,6 @@ where
 				std::iter::empty(),
 			)?;
 			let peer_drop_threshold = Self::DEFAULT_PEER_DROP_THRESHOLD;
-			let relaxed_peer_drop_while_syncing = Self::DEFAULT_RELAXED_PEER_DROP_WHILE_SYNCING;
 			Ok(Self {
 				config,
 				client,
@@ -421,7 +410,6 @@ where
 				chain_sync: Some(chain_sync),
 				peer_best_blocks: Default::default(),
 				peer_drop_threshold,
-				relaxed_peer_drop_while_syncing,
 			})
 		}
 	}

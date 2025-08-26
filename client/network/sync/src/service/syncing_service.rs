@@ -112,11 +112,6 @@ impl<B: BlockT> SyncingService<B> {
 		let _ = self.tx.unbounded_send(ToServiceCommand::SetMaxTimeoutsBeforeDrop(value));
 	}
 
-	/// Enable/disable gating peer drops during major syncing.
-	pub fn set_relaxed_peer_drop_while_syncing(&self, enable: bool) {
-		let _ = self.tx.unbounded_send(ToServiceCommand::SetRelaxedPeerDropWhileSyncing(enable));
-	}
-
 	/// Get peer information.
 	pub async fn peers_info(
 		&self,

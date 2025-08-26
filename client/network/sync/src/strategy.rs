@@ -135,18 +135,12 @@ where
 	fn num_sync_requests(&self) -> usize;
 
 	/// Peer drop threshold during major sync (timeouts before drop/report).
+	/// Set to 0 to have the old behavior, instant peer drop on timeout.
 	fn peer_drop_threshold(&self) -> u32;
 
-	/// Slow down peer drop during major sync. Set to false to quickly drop peers
-	/// even while doing a major sync. Relaxing down peer drop helps to avoid
-	/// sync stalls on poor connections. Defaults to true.
-	fn relaxed_peer_drop_while_syncing(&self) -> bool;
 
 	/// Update peer drop threshold (runtime adjustable via CLI wiring).
 	fn set_peer_drop_threshold(&mut self, _value: u32);
-
-	/// Update major sync gating toggle (runtime adjustable via CLI wiring).
-	fn set_relaxed_peer_drop_while_syncing(&mut self, _enable: bool);
 
 	/// Get actions that should be performed by the owner on the strategy's behalf
 	#[must_use]

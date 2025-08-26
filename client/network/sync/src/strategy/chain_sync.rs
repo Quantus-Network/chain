@@ -923,13 +923,7 @@ where
 		10
 	}
 
-	fn relaxed_peer_drop_while_syncing(&self) -> bool {
-		false
-	}
-
 	fn set_peer_drop_threshold(&mut self, _value: u32) {}
-
-	fn set_relaxed_peer_drop_while_syncing(&mut self, _enable: bool) {}
 
 	fn actions(
 		&mut self,
