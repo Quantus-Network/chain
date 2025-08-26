@@ -85,12 +85,11 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					dest,
 					value,
 				}) => (dest, value),
-				RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) =>
+				_ => {
 					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
 						InvalidTransaction::Custom(1),
-					)),
-				// TODO change this to disallow everything - it's high security after all
-				_ => return Ok((ValidTransaction::default(), (), origin)),
+					))
+				}
 			};
 
 			// Schedule the transfer
@@ -236,7 +235,7 @@ mod tests {
 			// Pending transactions should contain the transaction
 			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
 
-			// Other calls should not be intercepted
+			// All other calls are disallowed
 			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 			let origin = RuntimeOrigin::signed(charlie());
 			let result = ext.validate(
@@ -249,8 +248,11 @@ mod tests {
 				frame_support::pallet_prelude::TransactionSource::External,
 			);
 
-			// we should not fail here
-			assert!(result.is_ok());
+			// we should fail here
+			assert_eq!(
+				result.unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
 		});
 	}
 
