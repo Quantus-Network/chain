@@ -138,7 +138,6 @@ where
 	/// Set to 0 to have the old behavior, instant peer drop on timeout.
 	fn peer_drop_threshold(&self) -> u32;
 
-
 	/// Update peer drop threshold (runtime adjustable via CLI wiring).
 	fn set_peer_drop_threshold(&mut self, _value: u32);
 

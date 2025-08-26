@@ -920,10 +920,12 @@ where
 	}
 
 	fn peer_drop_threshold(&self) -> u32 {
-		10
+		0
 	}
 
-	fn set_peer_drop_threshold(&mut self, _value: u32) {}
+	fn set_peer_drop_threshold(&mut self, _value: u32) {
+		unimplemented!("ChainSync does not support peer drop threshold");
+	}
 
 	fn actions(
 		&mut self,
