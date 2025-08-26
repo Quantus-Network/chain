@@ -1010,7 +1010,7 @@ where
 				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
 				*peer_failures = peer_failures.saturating_add(1);
 
-				let should_drop_peer = !(is_major_syncing && *peer_failures < peer_drop_threshold);
+				let should_drop_peer = !is_major_syncing || *peer_failures >= peer_drop_threshold;
 				
 				debug!(
 					target: LOG_TARGET,
