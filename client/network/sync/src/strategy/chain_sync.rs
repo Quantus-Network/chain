@@ -1975,8 +1975,7 @@ where
 					// Avoid repeated requests to the same range, halve by 2
 					if let Some(max) = req.max {
 						loop {
-							// Recompute signature using client_ref; avoid borrowing `self`.
-							let already = {
+							let already_sent_this_request = {
 								let start_number_u64 = match req.from {
 									FromBlock::Number(n) => n.saturated_into::<u64>(),
 									FromBlock::Hash(h) => client_ref
@@ -1995,7 +1994,7 @@ where
 								!peer.request_signatures.insert(sig)
 							}
 							;
-							if !already { break; }
+							if !already_sent_this_request { break; }
 							if let Some(m) = req.max.as_mut() {
 								if *m <= 1 {
 									debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
