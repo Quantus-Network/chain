@@ -1975,9 +1975,11 @@ where
 					best_queued,
 				) {
 					// Avoid repeated requests to the same range, halve by 2
-					if let Some(max) = req.max {
+					if req.max.is_some() {
 						loop {
+							// Recompute signature using client_ref; avoid borrowing `self`.
 							let already_sent_this_request = {
+								let max = req.max.unwrap();
 								let start_number_u64 = match req.from {
 									FromBlock::Number(n) => n.saturated_into::<u64>(),
 									FromBlock::Hash(h) => client_ref
