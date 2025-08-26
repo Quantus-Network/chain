@@ -55,7 +55,6 @@ pub enum ToServiceCommand<B: BlockT> {
 	PeersInfo(oneshot::Sender<Vec<(PeerId, ExtendedPeerInfo<B>)>>),
 	OnBlockFinalized(B::Hash, B::Header),
 	SetMaxTimeoutsBeforeDrop(u32),
-	SetRelaxedPeerDropWhileSyncing(bool),
 }
 
 /// Handle for communicating with `SyncingEngine` asynchronously

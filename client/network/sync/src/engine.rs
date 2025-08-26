@@ -1014,8 +1014,8 @@ where
 				
 				debug!(
 					target: LOG_TARGET,
-					"Timeout handling: is_major_syncing: {}, relaxed_peer_drop: {}, peer failures: {}, threshold: {} should_drop_peer: {}",
-					is_major_syncing, relaxed_peer_drop, *peer_failures, self.strategy.peer_drop_threshold(), should_drop_peer
+					"Timeout handling: is_major_syncing: {}, peer failures: {}, threshold: {} should_drop_peer: {}",
+					is_major_syncing , *peer_failures, self.strategy.peer_drop_threshold(), should_drop_peer
 				);
 
 				match e {
