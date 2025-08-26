@@ -85,11 +85,10 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					dest,
 					value,
 				}) => (dest, value),
-				_ => {
+				_ =>
 					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
 						InvalidTransaction::Custom(1),
-					))
-				}
+					)),
 			};
 
 			// Schedule the transfer
