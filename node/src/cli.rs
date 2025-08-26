@@ -29,7 +29,7 @@ pub struct Cli {
 	pub enable_peer_sharing: bool,
 
 	/// Sync: maximum timeouts before dropping a peer during major sync.
-	#[arg(long, default_value_t = 20)]
+	#[arg(long, value_name = "MAX_TIMEOUTS_BEFORE_DROP", default_value_t = 10)]
 	pub sync_max_timeouts_before_drop: u32,
 }
 

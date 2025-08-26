@@ -716,7 +716,6 @@ where
 				self.strategy.on_block_finalized(&hash, *header.number()),
 			ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
 				self.strategy.set_peer_drop_threshold(value);
-				log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
 			},
 		}
 	}
