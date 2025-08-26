@@ -288,13 +288,10 @@ mod tests {
 	#[test]
 	fn test_high_security_transfer_keep_alive() {
 		new_test_ext().execute_with(|| {
-
-			// Charlie sends bob a transaction
 			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 				dest: MultiAddress::Id(bob()),
 				value: 10 * EXISTENTIAL_DEPOSIT,
 			});
-
 			let result = check_call(call);
 
 			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
@@ -305,20 +302,16 @@ mod tests {
 
 			// Pending transactions should contain the transaction
 			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
-
 		});
 	}
 
 	#[test]
 	fn test_high_security_transfer_allow_death() {
 		new_test_ext().execute_with(|| {
-
-			// Charlie sends bob a transaction
 			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
 				dest: MultiAddress::Id(bob()),
 				value: 10 * EXISTENTIAL_DEPOSIT,
 			});
-
 			let result = check_call(call);
 
 			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
@@ -329,28 +322,25 @@ mod tests {
 			
 			// Pending transactions should contain the transaction
 			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
-
-
 		});
 	}
 
 	#[test]
 	fn test_high_security_transfer_all() {
 		new_test_ext().execute_with(|| {
-
-			// Charlie sends bob a transaction
 			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
 				dest: MultiAddress::Id(bob()),
 				keep_alive: true,
 			});
-
 			let result = check_call(call);
 			
-			// we should fail here with `UnknownTransaction::Custom(1)`
+			// we should fail here with `InvalidTransaction::Custom(1)`
 			assert_eq!(
 				result.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
+
+			// no pending tx in this case, this call actually doesn't work.
 
 		});
 	}
