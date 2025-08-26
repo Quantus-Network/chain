@@ -2218,15 +2218,19 @@ where
 
 	/// Compute [lower, upper] block number range (inclusive) from response blocks.
 	fn compute_blocks_range_u64(&self, blocks: &Vec<BlockData<B>>) -> Option<(u64, u64)> {
-		let mut range: Option<(u64, u64)> = None;
+		let mut min_n: Option<u64> = None;
+		let mut max_n: Option<u64> = None;
 		for b in blocks.iter() {
 			if let Some(h) = &b.header {
 				let n = (*h.number()).saturated_into::<u64>();
-				range = Some((min_n.map_or(n, |x| x.min(n)), max_n.map_or(n, |x| x.max(n)));
+				min_n = Some(min_n.map_or(n, |x| x.min(n)));
+				max_n = Some(max_n.map_or(n, |x| x.max(n)));
 			}
 		}
-
-        range
+		match (min_n, max_n) {
+			(Some(lo), Some(hi)) => Some((lo, hi)),
+			_ => None,
+		}
 	}
 
 	/// A version of `actions()` that doesn't schedule extra requests. For testing only.
