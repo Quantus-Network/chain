@@ -95,7 +95,7 @@ fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec
 mod tests {
 	use super::*;
 	use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
-	use sp_core::{sr25519::Pair, ByteArray, Pair as _};
+	use sp_core::{ByteArray, Pair as _};
 	use sp_keystore::Keystore;
 	use tempfile::TempDir;
 
@@ -154,7 +154,7 @@ mod tests {
 			"test",
 			"--suri",
 			&uri,
-			"--scheme=sr25519",
+			"--scheme=dilithium",
 		]);
 		assert!(inspect.run(&Cli).is_ok());
 

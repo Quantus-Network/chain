@@ -287,14 +287,8 @@ macro_rules! with_crypto_scheme {
 		$method:ident<$($generics:ty),*>( $( $params:expr ),* $(,)?) $(,)?
 	) => {
 		match $scheme {
-			$crate::CryptoScheme::Ecdsa => {
-				$method::<sp_core::ecdsa::Pair, $($generics),*>($($params),*)
-			}
-			$crate::CryptoScheme::Sr25519 => {
-				$method::<sp_core::sr25519::Pair, $($generics),*>($($params),*)
-			}
-			$crate::CryptoScheme::Ed25519 => {
-				$method::<sp_core::ed25519::Pair, $($generics),*>($($params),*)
+			$crate::CryptoScheme::Dilithium => {
+				$method::<rusty_crystals_dilithium::ml_dsa_87::Pair, $($generics),*>($($params),*)
 			}
 		}
 	};

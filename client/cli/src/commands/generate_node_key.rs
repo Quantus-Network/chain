@@ -18,9 +18,9 @@
 
 //! Implementation of the `generate-node-key` subcommand
 
-use crate::{build_network_key_dir_or_default, Error, NODE_KEY_ED25519_FILE};
+use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use libp2p_identity::{ed25519, Keypair};
+use libp2p_identity::{Keypair};
 use sc_service::BasePath;
 use std::{
 	fs,
@@ -101,14 +101,14 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-	let keypair = ed25519::Keypair::generate();
+	let keypair = Keypair::generate_dilithium();
 
-	let secret = keypair.secret();
+	let secret = keypair.secret().unwrap();
 
 	let file_data = if bin {
-		secret.as_ref().to_owned()
+		secret.to_owned()
 	} else {
-		array_bytes::bytes2hex("", secret).into_bytes()
+		array_bytes::bytes2hex("", secret).as_bytes().to_vec()
 	};
 
 	match (file, base_path, default_base_path) {
@@ -122,7 +122,7 @@ fn generate_key(
 
 			fs::create_dir_all(network_path.as_path())?;
 
-			let key_path = network_path.join(NODE_KEY_ED25519_FILE);
+			let key_path = network_path.join(NODE_KEY_DILITHIUM_FILE);
 			if key_path.exists() {
 				eprintln!("Skip generation, a key already exists in {:?}", key_path);
 				return Err(Error::KeyAlreadyExistsInPath(key_path));
@@ -169,7 +169,7 @@ pub mod tests {
 			.path()
 			.join("chains/test_id/")
 			.join(DEFAULT_NETWORK_CONFIG_PATH)
-			.join(NODE_KEY_ED25519_FILE);
+			.join(NODE_KEY_DILITHIUM_FILE);
 		let base_path = base_dir.path().display().to_string();
 		let generate =
 			GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--base-path", &base_path]);

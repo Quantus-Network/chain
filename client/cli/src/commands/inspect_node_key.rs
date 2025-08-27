@@ -56,7 +56,7 @@ impl InspectNodeKeyCmd {
 		let mut file_data = match &self.file {
 			Some(file) => fs::read(&file)?,
 			None => {
-				let mut buf = Vec::with_capacity(64);
+				let mut buf = Vec::new();
 				io::stdin().lock().read_to_end(&mut buf)?;
 				buf
 			},
@@ -70,7 +70,7 @@ impl InspectNodeKeyCmd {
 		}
 
 		let keypair =
-			Keypair::ed25519_from_bytes(&mut file_data).map_err(|_| "Bad node key file")?;
+			Keypair::from_protobuf_encoding(&mut file_data).map_err(|_| "Bad node key file")?;
 
 		println!("{}", keypair.public().to_peer_id());
 

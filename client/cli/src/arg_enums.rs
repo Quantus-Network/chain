@@ -114,20 +114,16 @@ impl Into<sc_tracing::TracingReceiver> for TracingReceiver {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum NodeKeyType {
-	/// Use ed25519.
-	Ed25519,
+	/// Use dilithium.
+	Dilithium,
 }
 
 /// The crypto scheme to use.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum CryptoScheme {
-	/// Use ed25519.
-	Ed25519,
-	/// Use sr25519.
-	Sr25519,
-	/// Use ecdsa.
-	Ecdsa,
+	/// Use dilithium.
+	Dilithium,
 }
 
 /// The type of the output format.

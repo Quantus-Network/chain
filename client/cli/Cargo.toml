@@ -183,6 +183,10 @@ features = [
     "signal",
 ]
 default-features = true
+[dependencies.hex]
+workspace = true
+[dependencies.rusty-crystals-dilithium]
+workspace = true
 
 [dev-dependencies.futures-timer]
 version = "3.0.2"
