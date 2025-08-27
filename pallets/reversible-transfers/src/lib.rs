@@ -142,7 +142,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type HighSecurityMinRecoveryDelay: Get<RecoveryBlockNumberOf<Self>>;
 
-
 		/// Pallet Id
 		type PalletId: Get<PalletId>;
 
