@@ -51,6 +51,9 @@ mod runtime {
 	pub type Balances = pallet_balances::Pallet<Test>;
 
 	#[runtime::pallet_index(5)]
+	pub type Recovery = pallet_recovery::Pallet<Test>;
+
+	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
 }
 
@@ -125,6 +128,7 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const HighSecurityMinRecoveryDelay: u64 = 21; // 21 blocks as placeholder minimum
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -136,12 +140,33 @@ impl pallet_reversible_transfers::Config for Test {
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = MinDelayPeriodMoment;
+	type HighSecurityMinRecoveryDelay = HighSecurityMinRecoveryDelay;
 	type PalletId = ReversibleTransfersPalletIdValue;
 	type Preimages = Preimage;
 	type WeightInfo = ();
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type Recovery = Recovery;
+}
+
+parameter_types! {
+	pub const ConfigDepositBase: Balance = 1;
+	pub const FriendDepositFactor: Balance = 1;
+	pub const MaxFriends: u32 = 9;
+	pub const RecoveryDeposit: Balance = 1;
+}
+
+impl pallet_recovery::Config for Test {
+	type WeightInfo = ();
+	type RuntimeCall = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type ConfigDepositBase = ConfigDepositBase;
+	type FriendDepositFactor = FriendDepositFactor;
+	type MaxFriends = MaxFriends;
+	type RecoveryDeposit = RecoveryDeposit;
+	type BlockNumberProvider = System;
 }
 
 impl pallet_preimage::Config for Test {
@@ -195,6 +220,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(2, 2),
 			(3, 100_000_000_000),
 			(4, 100_000_000_000),
+			(5, 100_000_000_000),
+			(6, 100_000_000_000),
+			(7, 1_000_000_000_000),
+			(8, 100_000_000_000),
+			(9, 100_000_000_000),
 			(255, 100_000_000_000),
 			(256, 100_000_000_000),
 			// Test accounts for interceptor tests
