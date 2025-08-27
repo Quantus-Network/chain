@@ -161,9 +161,6 @@ pub mod pallet {
 
 		/// Time provider for scheduling.
 		type TimeProvider: Time<Moment = Self::Moment>;
-
-		/// Recovery pallet for setting up account recovery mechanisms.
-		type Recovery;
 	}
 
 	/// Maps accounts to their chosen reversibility delay period (in milliseconds).

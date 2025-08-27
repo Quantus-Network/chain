@@ -147,7 +147,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
-	type Recovery = Recovery;
 }
 
 parameter_types! {

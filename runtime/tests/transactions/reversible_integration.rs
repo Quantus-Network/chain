@@ -2,7 +2,7 @@ use crate::common::TestCommons;
 use frame_support::{assert_err, assert_ok};
 use qp_scheduler::BlockNumberOrTimestamp;
 use quantus_runtime::{
-    Balances, Executive, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, DAYS,
+    Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, DAYS,
     EXISTENTIAL_DEPOSIT,
 };
 use sp_runtime::MultiAddress;

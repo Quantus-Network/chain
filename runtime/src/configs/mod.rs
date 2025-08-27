@@ -64,7 +64,7 @@ use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
-	Preimage, Recovery, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
@@ -504,7 +504,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type Moment = Moment;
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
-	type Recovery = Recovery;
 }
 
 parameter_types! {
