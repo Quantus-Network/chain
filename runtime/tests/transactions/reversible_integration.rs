@@ -2,22 +2,23 @@ use crate::common::TestCommons;
 use frame_support::{assert_err, assert_ok};
 use qp_scheduler::BlockNumberOrTimestamp;
 use quantus_runtime::{
-    Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, DAYS,
-    EXISTENTIAL_DEPOSIT,
+	Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, DAYS, EXISTENTIAL_DEPOSIT,
 };
 use sp_runtime::MultiAddress;
 
-fn acc(n: u8) -> sp_core::crypto::AccountId32 { TestCommons::account_id(n) }
+fn acc(n: u8) -> sp_core::crypto::AccountId32 {
+	TestCommons::account_id(n)
+}
 
 #[test]
 fn high_security_end_to_end_flow() {
-    // Accounts:
-    // 1 = HS account (sender)
-    // 2 = interceptor/guardian
-    // 3 = recoverer (friend)
-    // 4 = recipient of the initial transfer
-    let mut ext = TestCommons::new_test_ext();
-    ext.execute_with(|| {
+	// Accounts:
+	// 1 = HS account (sender)
+	// 2 = interceptor/guardian
+	// 3 = recoverer (friend)
+	// 4 = recipient of the initial transfer
+	let mut ext = TestCommons::new_test_ext();
+	ext.execute_with(|| {
         // Initial balances snapshot
         let a1_start = Balances::free_balance(&acc(1));
         let a2_start = Balances::free_balance(&acc(2));
@@ -109,5 +110,3 @@ fn high_security_end_to_end_flow() {
         assert_eq!(a3_final, a3_start);
     });
 }
-
-

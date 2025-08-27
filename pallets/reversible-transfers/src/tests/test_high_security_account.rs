@@ -1,15 +1,13 @@
 #![cfg(test)]
 
-use crate::{
-	tests::{
-		mock::*,
-		test_reversible_transfers::{calculate_tx_id, transfer_call},
-	},
+use crate::tests::{
+	mock::*,
+	test_reversible_transfers::{calculate_tx_id, transfer_call},
 };
 use frame_support::assert_ok;
 
-// NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or external pallets
-// (Recovery/Proxy). They are covered by integration tests in runtime.
+// NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
+// external pallets (Recovery/Proxy). They are covered by integration tests in runtime.
 
 #[test]
 fn guardian_can_cancel_reversible_transactions_for_hs_account() {
