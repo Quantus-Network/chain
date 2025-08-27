@@ -207,6 +207,7 @@ libp2p-noise = { git = "https://github.com/Quantus-Network/libp2p-noise-pqc" }
 sc-network = { path = "./client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
+sc-cli = { path = "./client/cli" }
 
 [profile.release]
 opt-level = 3
