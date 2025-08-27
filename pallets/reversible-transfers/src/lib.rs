@@ -34,6 +34,10 @@ use sp_runtime::traits::StaticLookup;
 pub type BlockNumberOrTimestampOf<T> =
 	BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
 
+/// Type alias for the Recovery pallet's expected block number type
+pub type RecoveryBlockNumberOf<T> =
+	<<T as pallet_recovery::Config>::BlockNumberProvider as sp_runtime::traits::BlockNumberProvider>::BlockNumber;
+
 /// High security account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub struct HighSecurityAccountData<AccountId, Delay> {
@@ -134,6 +138,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type MinDelayPeriodMoment: Get<Self::Moment>;
 
+		/// Minimum allowed recovery delay (inheritance lock) in blocks
+		#[pallet::constant]
+		type HighSecurityMinRecoveryDelay: Get<RecoveryBlockNumberOf<Self>>;
+
+
 		/// Pallet Id
 		type PalletId: Get<PalletId>;
 
@@ -181,7 +190,11 @@ pub mod pallet {
 		_,
 		Blake2_128Concat,
 		T::Hash,
-		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>>,
+		PendingTransfer<
+			T::AccountId,
+			BalanceOf<T>,
+			Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
+		>,
 		OptionQuery,
 	>;
 
@@ -281,6 +294,8 @@ pub mod pallet {
 		TooManyPendingTransactions,
 		/// The specified delay period is below the configured minimum.
 		DelayTooShort,
+		/// Recovery delay (in blocks) must be greater than the account's reversible delay (in blocks).
+		RecoveryDelayTooShort,
 		/// Failed to schedule the transaction execution with the scheduler pallet.
 		SchedulingFailed,
 		/// Failed to cancel the scheduled task with the scheduler pallet.
@@ -315,8 +330,9 @@ pub mod pallet {
 			delay: BlockNumberOrTimestampOf<T>,
 			interceptor: T::AccountId,
 			recoverer: T::AccountId,
+			recovery_delay_blocks: RecoveryBlockNumberOf<T>,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
+			let who = ensure_signed(origin.clone())?;
 
 			ensure!(interceptor != who.clone(), Error::<T>::InterceptorCannotBeSelf);
 			ensure!(recoverer != who.clone(), Error::<T>::RecovererCannotBeSelf);
@@ -327,6 +343,12 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
+			// Enforce recovery delay to be >= configured minimum blocks
+			ensure!(
+				recovery_delay_blocks >= T::HighSecurityMinRecoveryDelay::get(),
+				Error::<T>::RecoveryDelayTooShort
+			);
+		
 			// Set up recovery mechanisms through the recovery pallet
 			let high_security_account_data = HighSecurityAccountData {
 				interceptor: interceptor.clone(),
@@ -334,13 +356,22 @@ pub mod pallet {
 				delay,
 			};
 
+			if recoverer != interceptor {
+				pallet_recovery::Pallet::<T>::create_recovery(
+					origin,
+					alloc::vec![recoverer.clone()],
+					1,
+					recovery_delay_blocks,
+				)?;
+			}
+
 			// Set the interceptor as rescuer for `who` via ROOT using Recovery pallet.
 			pallet_recovery::Pallet::<T>::set_recovered(
 				frame_system::RawOrigin::Root.into(),
 				T::Lookup::unlookup(who.clone()),
 				T::Lookup::unlookup(interceptor.clone()),
 			)?;
-			
+
 			// Update interceptor index
 			InterceptorIndex::<T>::try_mutate(interceptor.clone(), |accounts| {
 				if !accounts.contains(&who) {
@@ -465,8 +496,13 @@ pub mod pallet {
 		/// Get full details of a pending transfer by its ID
 		pub fn get_pending_transfer_details(
 			tx_id: &T::Hash,
-		) -> Option<PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>>>
-		{
+		) -> Option<
+			PendingTransfer<
+				T::AccountId,
+				BalanceOf<T>,
+				Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
+			>,
+		> {
 			PendingTransfers::<T>::get(tx_id)
 		}
 
@@ -491,8 +527,9 @@ pub mod pallet {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
 			// get from preimages
-			let (call, _) = T::Preimages::realize::<<T as frame_system::Config>::RuntimeCall>(&pending.call)
-				.map_err(|_| Error::<T>::CallDecodingFailed)?;
+			let (call, _) =
+				T::Preimages::realize::<<T as frame_system::Config>::RuntimeCall>(&pending.call)
+					.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
 			// Release the funds
 			pallet_balances::Pallet::<T>::release(
@@ -577,7 +614,9 @@ pub mod pallet {
 			});
 
 			// Extract recipient from the call and clean up recipient index efficiently
-			if let Ok((call, _)) = T::Preimages::peek::<<T as frame_system::Config>::RuntimeCall>(&pending_transfer.call) {
+			if let Ok((call, _)) = T::Preimages::peek::<<T as frame_system::Config>::RuntimeCall>(
+				&pending_transfer.call,
+			) {
 				if let Ok(balance_call) = call.try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { dest, .. } = balance_call {
 						if let Ok(recipient) = T::Lookup::lookup(dest) {
@@ -620,7 +659,8 @@ pub mod pallet {
 
 			let dispatch_time = match delay {
 				BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
-					<T as pallet::Config>::BlockNumberProvider::current_block_number().saturating_add(blocks),
+					<T as pallet::Config>::BlockNumberProvider::current_block_number()
+						.saturating_add(blocks),
 				),
 				BlockNumberOrTimestamp::Timestamp(millis) =>
 					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
