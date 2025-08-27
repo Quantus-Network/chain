@@ -1,7 +1,8 @@
 #![cfg(test)]
 
-use super::*;
-use crate::{mock::*, tests::{transfer_call, calculate_tx_id}};
+use crate::*;
+use crate::tests::mock::*;
+use crate::tests::tests::{transfer_call, calculate_tx_id};
 use frame_support::assert_ok;
 
 // NOTE: Many of these behaviors are enforced via SignedExtension or external pallets (Recovery/Proxy).

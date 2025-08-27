@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use super::*; // Import items from parent module (lib.rs)
-use crate::mock::*; // Import mock runtime and types
+use crate::*; // Import items from parent module (lib.rs)
+use crate::tests::mock::*; // Import mock runtime and types
 use frame_support::{
 	assert_err, assert_ok,
 	traits::{fungible::InspectHold, StorePreimage, Time},
