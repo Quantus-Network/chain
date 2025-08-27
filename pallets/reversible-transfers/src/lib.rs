@@ -290,7 +290,8 @@ pub mod pallet {
 		TooManyPendingTransactions,
 		/// The specified delay period is below the configured minimum.
 		DelayTooShort,
-		/// Recovery delay (in blocks) must be greater than the account's reversible delay (in blocks).
+		/// Recovery delay (in blocks) must be greater than the account's reversible delay (in
+		/// blocks).
 		RecoveryDelayTooShort,
 		/// Failed to schedule the transaction execution with the scheduler pallet.
 		SchedulingFailed,
@@ -344,7 +345,7 @@ pub mod pallet {
 				recovery_delay_blocks >= T::HighSecurityMinRecoveryDelay::get(),
 				Error::<T>::RecoveryDelayTooShort
 			);
-		
+
 			// Set up recovery mechanisms through the recovery pallet
 			let high_security_account_data = HighSecurityAccountData {
 				interceptor: interceptor.clone(),

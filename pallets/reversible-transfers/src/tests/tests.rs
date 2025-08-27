@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use crate::*; // Import items from parent module (lib.rs)
 use crate::tests::mock::*; // Import mock runtime and types
+use crate::*; // Import items from parent module (lib.rs)
 use frame_support::{
 	assert_err, assert_ok,
 	traits::{fungible::InspectHold, StorePreimage, Time},
@@ -18,7 +18,11 @@ pub(crate) fn transfer_call(dest: AccountId, amount: Balance) -> RuntimeCall {
 
 // Helper: approximate equality for balances to tolerate fee deductions
 fn approx_eq_balance(a: Balance, b: Balance, epsilon: Balance) -> bool {
-    if a >= b { a - b <= epsilon } else { b - a <= epsilon }
+	if a >= b {
+		a - b <= epsilon
+	} else {
+		b - a <= epsilon
+	}
 }
 
 // Helper function to calculate TxId (matching the logic in schedule_transfer)
