@@ -3,7 +3,7 @@
 use crate::{
 	tests::{
 		mock::*,
-		tests::{calculate_tx_id, transfer_call},
+		test_reversible_transfers::{calculate_tx_id, transfer_call},
 	},
 	*,
 };
