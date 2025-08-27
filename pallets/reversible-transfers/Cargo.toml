@@ -21,6 +21,7 @@ pallet-balances.workspace = true
 qp-scheduler.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
+pallet-recovery = { version = "41.0.0", default-features = false }
 
 [dev-dependencies]
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
@@ -51,6 +52,7 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
+    "pallet-recovery/std",
 ]
 # Enable support for setting the existential deposit to zero.
 insecure_zero_ed = []

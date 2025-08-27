@@ -6798,6 +6798,7 @@ dependencies = [
  "log",
  "pallet-balances 40.0.1",
  "pallet-preimage",
+ "pallet-recovery",
  "pallet-scheduler",
  "pallet-timestamp",
  "pallet-utility",

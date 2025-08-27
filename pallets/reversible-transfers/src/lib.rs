@@ -93,6 +93,7 @@ pub mod pallet {
 			                 + Dispatchable<PostInfo = PostDispatchInfo>
 			                 + TryInto<pallet_balances::Call<Self>>,
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
+		+ pallet_recovery::Config
 	{
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
 		type Scheduler: ScheduleNamed<
@@ -155,6 +156,9 @@ pub mod pallet {
 
 		/// Time provider for scheduling.
 		type TimeProvider: Time<Moment = Self::Moment>;
+
+		/// Recovery pallet for setting up account recovery mechanisms.
+		type Recovery;
 	}
 
 	/// Maps accounts to their chosen reversibility delay period (in milliseconds).
@@ -177,7 +181,7 @@ pub mod pallet {
 		_,
 		Blake2_128Concat,
 		T::Hash,
-		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<T::RuntimeCall, T::Hashing>>,
+		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>>,
 		OptionQuery,
 	>;
 
@@ -323,14 +327,20 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-			// TODO: initiate recovery relationship thru recovery pallet
+			// Set up recovery mechanisms through the recovery pallet
 			let high_security_account_data = HighSecurityAccountData {
 				interceptor: interceptor.clone(),
 				recoverer: recoverer.clone(),
 				delay,
 			};
 
-			// TODO: maybe we don't need these if we put all the info in the events
+			// Set the interceptor as rescuer for `who` via ROOT using Recovery pallet.
+			pallet_recovery::Pallet::<T>::set_recovered(
+				frame_system::RawOrigin::Root.into(),
+				T::Lookup::unlookup(who.clone()),
+				T::Lookup::unlookup(interceptor.clone()),
+			)?;
+			
 			// Update interceptor index
 			InterceptorIndex::<T>::try_mutate(interceptor.clone(), |accounts| {
 				if !accounts.contains(&who) {
@@ -455,7 +465,7 @@ pub mod pallet {
 		/// Get full details of a pending transfer by its ID
 		pub fn get_pending_transfer_details(
 			tx_id: &T::Hash,
-		) -> Option<PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<T::RuntimeCall, T::Hashing>>>
+		) -> Option<PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>>>
 		{
 			PendingTransfers::<T>::get(tx_id)
 		}
@@ -481,7 +491,7 @@ pub mod pallet {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
 			// get from preimages
-			let (call, _) = T::Preimages::realize::<T::RuntimeCall>(&pending.call)
+			let (call, _) = T::Preimages::realize::<<T as frame_system::Config>::RuntimeCall>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
 			// Release the funds
@@ -520,7 +530,7 @@ pub mod pallet {
 			pending_transfer: PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<T::RuntimeCall, T::Hashing>,
+				Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
 			>,
 		) -> DispatchResult {
 			// Store the pending transfer
@@ -551,7 +561,7 @@ pub mod pallet {
 			pending_transfer: &PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<T::RuntimeCall, T::Hashing>,
+				Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
 			>,
 		) {
 			// Update account pending count (always decrement for each removed instance)
@@ -567,7 +577,7 @@ pub mod pallet {
 			});
 
 			// Extract recipient from the call and clean up recipient index efficiently
-			if let Ok((call, _)) = T::Preimages::peek::<T::RuntimeCall>(&pending_transfer.call) {
+			if let Ok((call, _)) = T::Preimages::peek::<<T as frame_system::Config>::RuntimeCall>(&pending_transfer.call) {
 				if let Ok(balance_call) = call.try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { dest, .. } = balance_call {
 						if let Ok(recipient) = T::Lookup::lookup(dest) {
@@ -590,7 +600,7 @@ pub mod pallet {
 			delay: BlockNumberOrTimestampOf<T>,
 		) -> DispatchResult {
 			let recipient = T::Lookup::lookup(to.clone())?;
-			let transfer_call: T::RuntimeCall =
+			let transfer_call: <T as frame_system::Config>::RuntimeCall =
 				pallet_balances::Call::<T>::transfer_keep_alive { dest: to.clone(), value: amount }
 					.into();
 
@@ -610,7 +620,7 @@ pub mod pallet {
 
 			let dispatch_time = match delay {
 				BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
-					T::BlockNumberProvider::current_block_number().saturating_add(blocks),
+					<T as pallet::Config>::BlockNumberProvider::current_block_number().saturating_add(blocks),
 				),
 				BlockNumberOrTimestamp::Timestamp(millis) =>
 					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
