@@ -21,7 +21,7 @@ pallet-balances.workspace = true
 qp-scheduler.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
-pallet-recovery = { version = "41.0.0", default-features = false }
+pallet-recovery.workspace = true
 
 [dev-dependencies]
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
