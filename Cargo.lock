@@ -7881,7 +7881,7 @@ dependencies = [
 [[package]]
 name = "poseidon-resonance"
 version = "0.9.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=feat%2Fstabilize#fa297fac2da670022963217f0a277ad04a2695b6"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=feat%2Fstabilize#eeb5c71f10acb542ebb49065ad9b1e8b30c16b62"
 dependencies = [
  "log",
  "parity-scale-codec",
