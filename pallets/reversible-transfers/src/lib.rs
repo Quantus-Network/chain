@@ -15,8 +15,8 @@ mod benchmarking;
 pub mod weights;
 pub use weights::WeightInfo;
 
-#[cfg(test)]
-pub mod tests;
+#[cfg(test)] 
+mod tests;
 
 use alloc::vec::Vec;
 use frame_support::{
