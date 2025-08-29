@@ -483,7 +483,6 @@ parameter_types! {
 	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
 	pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
-	pub const HighSecurityMinRecoveryDelay: BlockNumber = 7 * DAYS;
 	pub const MaxReversibleTransfers: u32 = 10;
 	pub const MaxInterceptorAccounts: u32 = 32;
 }
@@ -496,7 +495,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = TargetBlockTime;
-	type HighSecurityMinRecoveryDelay = HighSecurityMinRecoveryDelay;
 	type PalletId = ReversibleTransfersPalletIdValue;
 	type Preimages = Preimage;
 	type WeightInfo = pallet_reversible_transfers::weights::SubstrateWeight<Runtime>;

@@ -2,7 +2,7 @@ use crate::common::TestCommons;
 use frame_support::{assert_err, assert_ok};
 use qp_scheduler::BlockNumberOrTimestamp;
 use quantus_runtime::{
-	Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, DAYS, EXISTENTIAL_DEPOSIT,
+	Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, EXISTENTIAL_DEPOSIT,
 };
 use sp_runtime::MultiAddress;
 
@@ -28,13 +28,11 @@ fn high_security_end_to_end_flow() {
         // 1) Enable high-security for account 1
         // Use a small delay in blocks for reversible transfers; recovery delay must be >= 7 DAYS
         let hs_delay = BlockNumberOrTimestamp::BlockNumber(5);
-        let recovery_delay_blocks = 7 * DAYS;
         assert_ok!(ReversibleTransfers::set_high_security(
             RuntimeOrigin::signed(acc(1)),
             hs_delay,
             acc(2), // interceptor
             acc(3), // recoverer
-            recovery_delay_blocks,
         ));
 
         // 2) Account 1 makes a normal balances transfer (schedule via pallet extrinsic)
@@ -100,7 +98,6 @@ fn high_security_end_to_end_flow() {
                 hs_delay,
                 acc(2),
                 acc(3),
-                recovery_delay_blocks,
             ),
             pallet_reversible_transfers::Error::<quantus_runtime::Runtime>::AccountAlreadyHighSecurity
         );

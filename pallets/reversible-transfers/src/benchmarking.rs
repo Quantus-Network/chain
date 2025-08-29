@@ -91,7 +91,6 @@ mod benchmarks {
 			delay.clone(),
 			interceptor.clone(),
 			recoverer.clone(),
-			<T as pallet::Config>::HighSecurityMinRecoveryDelay::get(),
 		);
 
 		assert_eq!(

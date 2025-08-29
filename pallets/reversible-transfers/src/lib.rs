@@ -78,7 +78,7 @@ pub mod pallet {
 	};
 	use sp_runtime::{
 		traits::{
-			AccountIdConversion, AtLeast32Bit, BlockNumberProvider, Dispatchable, Hash, Scale,
+			AccountIdConversion, AtLeast32Bit, BlockNumberProvider, Dispatchable, Hash, Scale, Zero,
 		},
 		Saturating,
 	};
@@ -134,10 +134,6 @@ pub mod pallet {
 		/// The minimum delay period allowed for reversible transactions, in milliseconds.
 		#[pallet::constant]
 		type MinDelayPeriodMoment: Get<Self::Moment>;
-
-		/// Minimum allowed recovery delay (inheritance lock) in blocks
-		#[pallet::constant]
-		type HighSecurityMinRecoveryDelay: Get<RecoveryBlockNumberOf<Self>>;
 
 		/// Pallet Id
 		type PalletId: Get<PalletId>;
@@ -314,9 +310,21 @@ pub mod pallet {
 	where
 		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
-		/// Enable high-security for the calling account with a specified delay
+		/// Enable high-security for the calling account with a specified 
+		/// reversibility delay. 
+		/// 
+		/// Recoverer and interceptor (aka guardian) could be the same account or
+		/// different accounts. 
+		/// 
+		/// Once an account is set as high security it can only make reversible 
+		/// transfers. It is not allowed any other calls.
 		///
-		/// - `delay`: The time (in milliseconds) after submission before the transaction executes.
+		/// - `delay`: The reversibility time for any transfer made by the high
+		/// security account.
+		/// - interceptor: The account that can intercept transctions from the 
+		/// high security account.
+		/// - recoverer: Account that can recover (act as proxy to) the high security 
+		/// account
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]
 		pub fn set_high_security(
@@ -324,7 +332,6 @@ pub mod pallet {
 			delay: BlockNumberOrTimestampOf<T>,
 			interceptor: T::AccountId,
 			recoverer: T::AccountId,
-			recovery_delay_blocks: RecoveryBlockNumberOf<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin.clone())?;
 
@@ -337,11 +344,8 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-			// Enforce recovery delay to be >= configured minimum blocks
-			ensure!(
-				recovery_delay_blocks >= T::HighSecurityMinRecoveryDelay::get(),
-				Error::<T>::RecoveryDelayTooShort
-			);
+			// Use zero recovery delay for creation (no inheritance lock by default)
+			let recovery_delay_blocks: RecoveryBlockNumberOf<T> = Zero::zero();
 
 			// Set up recovery mechanisms through the recovery pallet
 			let high_security_account_data = HighSecurityAccountData {
@@ -350,20 +354,11 @@ pub mod pallet {
 				delay,
 			};
 
-			if recoverer != interceptor {
-				pallet_recovery::Pallet::<T>::create_recovery(
-					origin,
-					alloc::vec![recoverer.clone()],
-					1,
-					recovery_delay_blocks,
-				)?;
-			}
-
-			// Set the interceptor as rescuer for `who` via ROOT using Recovery pallet.
-			pallet_recovery::Pallet::<T>::set_recovered(
-				frame_system::RawOrigin::Root.into(),
-				T::Lookup::unlookup(who.clone()),
-				T::Lookup::unlookup(interceptor.clone()),
+			pallet_recovery::Pallet::<T>::create_recovery(
+				origin,
+				alloc::vec![recoverer.clone()],
+				1u16,
+				recovery_delay_blocks,
 			)?;
 
 			// Update interceptor index

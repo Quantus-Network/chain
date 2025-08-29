@@ -128,7 +128,6 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
-	pub const HighSecurityMinRecoveryDelay: u64 = 21; // 21 blocks as placeholder minimum
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -140,7 +139,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = MinDelayPeriodMoment;
-	type HighSecurityMinRecoveryDelay = HighSecurityMinRecoveryDelay;
 	type PalletId = ReversibleTransfersPalletIdValue;
 	type Preimages = Preimage;
 	type WeightInfo = ();
