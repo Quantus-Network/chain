@@ -20,14 +20,14 @@ const SEED: u32 = 0;
 fn make_transfer_call<T: Config>(
 	dest: T::AccountId,
 	value: u128,
-) -> Result<T::RuntimeCall, &'static str>
+) -> Result<<T as frame_system::Config>::RuntimeCall, &'static str>
 where
-	T::RuntimeCall: From<pallet_balances::Call<T>>,
+	<T as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<T>>,
 	BalanceOf<T>: From<u128>,
 {
 	let dest_lookup = <T as frame_system::Config>::Lookup::unlookup(dest);
 
-	let call: T::RuntimeCall =
+	let call: <T as frame_system::Config>::RuntimeCall =
 		pallet_balances::Call::<T>::transfer_keep_alive { dest: dest_lookup, value: value.into() }
 			.into();
 	Ok(call)
@@ -73,7 +73,7 @@ type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
     T: Send + Sync,
     T: Config + pallet_balances::Config,
     <T as pallet_balances::Config>::Balance: From<u128> + Into<u128>,
-    T::RuntimeCall: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
+    <T as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
@@ -86,7 +86,13 @@ mod benchmarks {
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone(), recoverer.clone());
+		_(
+			RawOrigin::Signed(caller.clone()),
+			delay.clone(),
+			interceptor.clone(),
+			recoverer.clone(),
+			<T as pallet::Config>::HighSecurityMinRecoveryDelay::get(),
+		);
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
@@ -126,9 +132,10 @@ mod benchmarks {
 		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
 		assert!(PendingTransfers::<T>::contains_key(&tx_id));
 		// Check scheduler state (can be complex, checking count is simpler)
-		let execute_at = T::BlockNumberProvider::current_block_number().saturating_add(
-			delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
-		);
+		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
+			.saturating_add(
+				delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
+			);
 		let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
 		assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
 
