@@ -13,5 +13,6 @@ runs:
           protobuf-compiler
         rustup update
         rustup target add wasm32-unknown-unknown
-        rustup component add rustfmt clippy rust-src
+        rustup component add rustfmt --toolchain nightly
+        rustup component add clippy rust-src
       shell: bash

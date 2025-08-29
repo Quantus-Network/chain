@@ -10,7 +10,6 @@ use sp_core::{
 #[cfg(feature = "std")]
 use thiserror::Error;
 
-///
 /// Resonance Crypto Types
 ///
 /// Currently implementing the Dilithum cryprographic scheme for post quantum security

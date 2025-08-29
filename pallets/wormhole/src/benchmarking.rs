@@ -38,7 +38,7 @@ mod benchmarks {
 		)
 		.map_err(|_| BenchmarkError::Stop("Invalid proof data"))?;
 
-		let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+		let public_inputs = PublicCircuitInputs::try_from(&proof)
 			.map_err(|_| BenchmarkError::Stop("Invalid public inputs"))?;
 
 		let nullifier_bytes = *public_inputs.nullifier;

@@ -24,7 +24,7 @@ license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 name = "sc-network"
 readme = "README.md"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
-version = "0.51.0"
+version = "0.51.1"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
