@@ -1430,7 +1430,7 @@ dependencies = [
 [[package]]
 name = "circuit-builder"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fstabilize#f2a43973416df88104c0c17638b880cf8ae5d35d"
+source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
 dependencies = [
  "anyhow",
  "plonky2",
@@ -1551,9 +1551,9 @@ dependencies = [
 
 [[package]]
 name = "comfy-table"
-version = "7.1.4"
+version = "7.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a65ebfec4fb190b6f90e944a817d60499ee0744e582530e2c9900a22e591d9a"
+checksum = "3f8e18d0dca9578507f13f9803add0df13362b02c501c1c17734f0dbb52eaf0b"
 dependencies = [
  "unicode-segmentation",
  "unicode-width",
@@ -2164,9 +2164,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.170"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77377ef8d2a668ad5ad5c58a1d0b172836495dffd3b10e0488a41c9b288b3a0e"
+checksum = "2722cab56883f16c0c24bbb4e5e1ba12a84da2cc0c35a0fd71c68e10c191885c"
 dependencies = [
  "cc",
  "cxxbridge-cmd",
@@ -2178,9 +2178,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.170"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3579771cb1e6b9cd41903887f3ea98bc2e0761f975bf55adcc0c1e62ab4521f"
+checksum = "f86a2c65409086e3aa87dceefa608dee59e8b5091edfe25a12e7a0ca0b639b36"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -2193,9 +2193,9 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.170"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dea3ad43f199bbb9df0547f5db39896604b9554784d963d73a8c7f83fc6fecb1"
+checksum = "f00fcff13f8198c499f21412ce5a2fb2171905ddc9340f745c7e795cbc5b18f9"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -2207,15 +2207,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.170"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e213bf54b95ba7bceebbbdaf923dfe32fdbd630c685fedf5c47132da64df6aa1"
+checksum = "1e4efe5cd204b7fef69b824821276b21523a354e4362fec04efc6614cb2eba23"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.170"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9caa03943851c364d0ff229bd11ba07f3144673cca9feb52b9ca09817c8a239e"
+checksum = "7e3dc1caaebce3df14e8527f08db145814b02b6d27b8cc1972c012a843adc3a7"
 dependencies = [
  "indexmap 2.11.0",
  "proc-macro2",
@@ -2467,7 +2467,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "poseidon-resonance",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=feat%2Fstabilize)",
+ "rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -3681,7 +3681,7 @@ dependencies = [
  "js-sys",
  "libc",
  "r-efi",
- "wasi 0.14.2+wasi-0.2.4",
+ "wasi 0.14.3+wasi-0.2.4",
  "wasm-bindgen",
 ]
 
@@ -5129,7 +5129,7 @@ dependencies = [
  "multihash 0.19.3",
  "quick-protobuf",
  "rand 0.8.5",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/quantus-network/rusty-crystals.git)",
+ "rusty-crystals-dilithium",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "zeroize",
@@ -7881,7 +7881,7 @@ dependencies = [
 [[package]]
 name = "poseidon-resonance"
 version = "0.9.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=feat%2Fstabilize#eeb5c71f10acb542ebb49065ad9b1e8b30c16b62"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#2663eb5819ac36eac2a74ee3debfd642262c1c54"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -7896,9 +7896,9 @@ dependencies = [
 
 [[package]]
 name = "potential_utf"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5a7c30837279ca13e7c867e9e40053bc68740f988cb07f7ca6df43cc734b585"
+checksum = "84df19adbe5b5a0782edcab45899906947ab039ccf4573713735ee7de1e6b08a"
 dependencies = [
  "zerovec",
 ]
@@ -8331,7 +8331,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "resonance-miner-api",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=feat%2Fstabilize)",
+ "rusty-crystals-dilithium",
  "rusty-crystals-hdwallet",
  "sc-basic-authorship",
  "sc-cli",
@@ -9149,16 +9149,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "rusty-crystals-dilithium"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals?branch=feat%2Fstabilize#616459cffac9bc3ec3ffbe59b947d42eea9a1d41"
-dependencies = [
- "rand 0.7.3",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "rusty-crystals-dilithium"
-version = "1.0.0"
-source = "git+https://github.com/quantus-network/rusty-crystals.git#e78049a3d391446d8366b12db733ecaf5acd78eb"
+source = "git+https://github.com/Quantus-Network/rusty-crystals#b6afb061350f5ae03fdfd52b90227b7c627646ed"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -9167,7 +9158,7 @@ dependencies = [
 [[package]]
 name = "rusty-crystals-hdwallet"
 version = "0.1.1"
-source = "git+https://github.com/Quantus-Network/rusty-crystals?branch=feat%2Fstabilize#616459cffac9bc3ec3ffbe59b947d42eea9a1d41"
+source = "git+https://github.com/Quantus-Network/rusty-crystals#b6afb061350f5ae03fdfd52b90227b7c627646ed"
 dependencies = [
  "bip39",
  "hex",
@@ -9178,7 +9169,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "rusty-crystals-dilithium 1.0.0 (git+https://github.com/Quantus-Network/rusty-crystals?branch=feat%2Fstabilize)",
+ "rusty-crystals-dilithium",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -13404,11 +13395,11 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasi"
-version = "0.14.2+wasi-0.2.4"
+version = "0.14.3+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9683f9a5a998d873c0d21fcbe3c083009670149a8fab228644b8bd36b2c48cb3"
+checksum = "6a51ae83037bdd272a9e28ce236db8c07016dd0d50c27038b3f407533c030c95"
 dependencies = [
- "wit-bindgen-rt",
+ "wit-bindgen",
 ]
 
 [[package]]
@@ -14367,18 +14358,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "wit-bindgen-rt"
-version = "0.39.0"
+name = "wit-bindgen"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
-dependencies = [
- "bitflags 2.9.3",
-]
+checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 
 [[package]]
 name = "wormhole-circuit"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fstabilize#f2a43973416df88104c0c17638b880cf8ae5d35d"
+source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
 dependencies = [
  "anyhow",
  "hex",
@@ -14389,7 +14377,7 @@ dependencies = [
 [[package]]
 name = "wormhole-verifier"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fstabilize#f2a43973416df88104c0c17638b880cf8ae5d35d"
+source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
 dependencies = [
  "anyhow",
  "plonky2",
@@ -14658,7 +14646,7 @@ dependencies = [
 [[package]]
 name = "zk-circuits-common"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fstabilize#f2a43973416df88104c0c17638b880cf8ae5d35d"
+source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
 dependencies = [
  "anyhow",
  "plonky2",
