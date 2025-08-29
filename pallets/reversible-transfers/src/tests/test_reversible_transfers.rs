@@ -71,7 +71,7 @@ fn set_high_security_works() {
 			delay,
 			interceptor,
 			recoverer,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&another_user),
@@ -88,7 +88,7 @@ fn set_high_security_works() {
 				delay,
 				interceptor,
 				recoverer,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
@@ -102,7 +102,7 @@ fn set_high_security_works() {
 			DefaultDelay::get(),
 			default_interceptor,
 			default_recoverer,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&default_user),
@@ -136,7 +136,7 @@ fn set_high_security_works() {
 				short_delay,
 				new_interceptor,
 				new_recoverer,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -148,7 +148,7 @@ fn set_high_security_works() {
 				delay,
 				new_user,
 				new_recoverer,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::InterceptorCannotBeSelf
 		);
@@ -160,7 +160,7 @@ fn set_high_security_works() {
 				delay,
 				new_interceptor,
 				new_user,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::RecovererCannotBeSelf
 		);
@@ -176,7 +176,7 @@ fn set_high_security_works() {
 			delay,
 			interceptor,
 			recoverer,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
@@ -204,7 +204,7 @@ fn set_reversibility_with_timestamp_delay_works() {
 			delay,
 			interceptor,
 			recoverer,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&user),
@@ -229,7 +229,7 @@ fn set_reversibility_with_timestamp_delay_works() {
 				short_delay_ts,
 				another_interceptor,
 				another_recoverer,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -250,7 +250,7 @@ fn set_reversibility_fails_delay_too_short() {
 				short_delay,
 				interceptor,
 				recoverer,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -390,7 +390,7 @@ fn schedule_transfer_with_timestamp_works() {
 			BlockNumberOrTimestamp::Timestamp(10_000),
 			user + 100,
 			user + 200,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		let timestamp_bucket_size = TimestampBucketSize::get();
@@ -446,7 +446,7 @@ fn schedule_transfer_with_timestamp_works() {
 			BlockNumberOrTimestamp::BlockNumber(10),
 			interceptor,
 			reversible_account + 100,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		let tx_id = calculate_tx_id::<Test>(reversible_account, &call);
@@ -717,7 +717,7 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 			user_timestamp_delay,
 			user + 100,
 			user + 200,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		let user_balance_before = Balances::free_balance(user);
@@ -842,7 +842,7 @@ fn full_flow_execute_with_timestamp_delay_works() {
 			user_timestamp_delay,
 			user + 100,
 			user + 200,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		let initial_user_balance = Balances::free_balance(user);
@@ -968,7 +968,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 			user_timestamp_delay,
 			user + 100,
 			user + 200,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		let initial_user_balance = Balances::free_balance(user);
@@ -1745,7 +1745,7 @@ fn interceptor_index_prevents_duplicates() {
 				delay,
 				interceptor,
 				reversible_account + 100,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
@@ -1769,7 +1769,7 @@ fn interceptor_index_respects_max_limit() {
 				delay,
 				interceptor,
 				i + 100,
-				/* recovery_delay_blocks */ 21,
+				21,
 			));
 		}
 
@@ -1784,7 +1784,7 @@ fn interceptor_index_respects_max_limit() {
 				delay,
 				interceptor,
 				211,
-				/* recovery_delay_blocks */ 21,
+				21,
 			),
 			Error::<Test>::TooManyInterceptorAccounts
 		);
@@ -1808,7 +1808,7 @@ fn interceptor_index_empty_for_non_interceptors() {
 			delay,
 			reversible_account + 100,
 			reversible_account + 200,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		// Verify non-interceptor has empty list
@@ -1832,7 +1832,7 @@ fn interceptor_index_different_interceptors_separate_lists() {
 			delay,
 			interceptor1,
 			account1 + 100,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
@@ -1840,7 +1840,7 @@ fn interceptor_index_different_interceptors_separate_lists() {
 			delay,
 			interceptor2,
 			account2 + 100,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		// Verify each interceptor has their own separate list
@@ -1905,7 +1905,7 @@ fn global_nonce_works() {
 			delay,
 			interceptor,
 			receiver,
-			/* recovery_delay_blocks */ 21,
+			21,
 		));
 
 		assert_ok!(ReversibleTransfers::schedule_transfer(
