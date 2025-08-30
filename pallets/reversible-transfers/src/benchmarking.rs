@@ -12,7 +12,6 @@ use sp_runtime::{
 	traits::{BlockNumberProvider, Hash, StaticLookup},
 	Saturating,
 };
-use crate::tests::mock::*;
 
 const SEED: u32 = 0;
 
@@ -82,6 +81,7 @@ mod benchmarks {
 	#[benchmark]
 	fn set_high_security() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		let interceptor: T::AccountId = benchmark_account("interceptor", 0, SEED);
 		let recoverer: T::AccountId = benchmark_account("recoverer", 1, SEED);
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
@@ -239,5 +239,5 @@ mod benchmarks {
 		Ok(())
 	}
 
-	impl_benchmark_test_suite!(ReversibleTransfers, crate::mock::new_test_ext(), crate::mock::Test);
+	impl_benchmark_test_suite!(ReversibleTransfers, crate::tests::mock::new_test_ext(), crate::tests::mock::Test);
 }

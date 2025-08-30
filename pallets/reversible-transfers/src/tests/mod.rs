@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod mock;
+pub mod mock;
 
 #[cfg(test)]
 mod test_reversible_transfers;
