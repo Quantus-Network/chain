@@ -508,9 +508,8 @@ pub mod pallet {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
 			// get from preimages
-			let (call, _) =
-				T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
-					.map_err(|_| Error::<T>::CallDecodingFailed)?;
+			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
+				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
 			// Release the funds
 			pallet_balances::Pallet::<T>::release(
@@ -595,9 +594,7 @@ pub mod pallet {
 			});
 
 			// Extract recipient from the call and clean up recipient index efficiently
-			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(
-				&pending_transfer.call,
-			) {
+			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending_transfer.call) {
 				if let Ok(balance_call) = call.try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { dest, .. } = balance_call {
 						if let Ok(recipient) = T::Lookup::lookup(dest) {
