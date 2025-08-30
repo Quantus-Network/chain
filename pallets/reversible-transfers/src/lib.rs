@@ -10,13 +10,13 @@
 extern crate alloc;
 pub use pallet::*;
 
+#[cfg(test)]
+mod tests;
+
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod weights;
 pub use weights::WeightInfo;
-
-#[cfg(test)]
-mod tests;
 
 use alloc::vec::Vec;
 use frame_support::{
