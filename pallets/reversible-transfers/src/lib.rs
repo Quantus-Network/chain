@@ -310,20 +310,20 @@ pub mod pallet {
 	where
 		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
-		/// Enable high-security for the calling account with a specified 
-		/// reversibility delay. 
-		/// 
+		/// Enable high-security for the calling account with a specified
+		/// reversibility delay.
+		///
 		/// Recoverer and interceptor (aka guardian) could be the same account or
-		/// different accounts. 
-		/// 
-		/// Once an account is set as high security it can only make reversible 
+		/// different accounts.
+		///
+		/// Once an account is set as high security it can only make reversible
 		/// transfers. It is not allowed any other calls.
 		///
 		/// - `delay`: The reversibility time for any transfer made by the high
 		/// security account.
-		/// - interceptor: The account that can intercept transctions from the 
+		/// - interceptor: The account that can intercept transctions from the
 		/// high security account.
-		/// - recoverer: Account that can recover (act as proxy to) the high security 
+		/// - recoverer: Account that can recover (act as proxy to) the high security
 		/// account
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]

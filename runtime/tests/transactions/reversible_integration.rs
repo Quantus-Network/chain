@@ -2,7 +2,7 @@ use crate::common::TestCommons;
 use frame_support::{assert_err, assert_ok};
 use qp_scheduler::BlockNumberOrTimestamp;
 use quantus_runtime::{
-	Balances, EXISTENTIAL_DEPOSIT, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, UNIT
+	Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, EXISTENTIAL_DEPOSIT, UNIT,
 };
 use sp_runtime::MultiAddress;
 
@@ -147,9 +147,8 @@ fn high_security_end_to_end_flow() {
         // Recoverer has hs account's balance now
         let estimated_fees = UNIT/100 * 101; // The final recover call costs 1.01 units.
         assert!(
-            recoverer_after_recovery >= (hs_after_cancel + recoverer_before_recovery - estimated_fees), 
+            recoverer_after_recovery >= (hs_after_cancel + recoverer_before_recovery - estimated_fees),
             "recoverer {recoverer_after_recovery} should be at least {hs_after_cancel} + {recoverer_start} - {estimated_fees}"
         );
-
     });
 }

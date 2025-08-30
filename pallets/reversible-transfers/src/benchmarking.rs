@@ -86,12 +86,7 @@ mod benchmarks {
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
 		#[extrinsic_call]
-		_(
-			RawOrigin::Signed(caller.clone()),
-			delay.clone(),
-			interceptor.clone(),
-			recoverer.clone(),
-		);
+		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone(), recoverer.clone());
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
