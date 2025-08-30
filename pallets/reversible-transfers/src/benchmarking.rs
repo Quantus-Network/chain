@@ -239,5 +239,9 @@ mod benchmarks {
 		Ok(())
 	}
 
-	impl_benchmark_test_suite!(ReversibleTransfers, crate::tests::mock::new_test_ext(), crate::tests::mock::Test);
+	impl_benchmark_test_suite!(
+		ReversibleTransfers,
+		crate::tests::mock::new_test_ext(),
+		crate::tests::mock::Test
+	);
 }

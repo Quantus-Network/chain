@@ -482,11 +482,7 @@ pub mod pallet {
 		pub fn get_pending_transfer_details(
 			tx_id: &T::Hash,
 		) -> Option<
-			PendingTransfer<
-				T::AccountId,
-				BalanceOf<T>,
-				Bounded<RuntimeCallOf<T>, T::Hashing>,
-			>,
+			PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<RuntimeCallOf<T>, T::Hashing>>,
 		> {
 			PendingTransfers::<T>::get(tx_id)
 		}
