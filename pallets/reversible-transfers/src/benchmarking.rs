@@ -20,14 +20,14 @@ const SEED: u32 = 0;
 fn make_transfer_call<T: Config>(
 	dest: T::AccountId,
 	value: u128,
-) -> Result<T::RuntimeCall, &'static str>
+) -> Result<RuntimeCallOf<T>, &'static str>
 where
-	T::RuntimeCall: From<pallet_balances::Call<T>>,
+	RuntimeCallOf<T>: From<pallet_balances::Call<T>>,
 	BalanceOf<T>: From<u128>,
 {
 	let dest_lookup = <T as frame_system::Config>::Lookup::unlookup(dest);
 
-	let call: T::RuntimeCall =
+	let call: RuntimeCallOf<T> =
 		pallet_balances::Call::<T>::transfer_keep_alive { dest: dest_lookup, value: value.into() }
 			.into();
 	Ok(call)
@@ -73,7 +73,7 @@ type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
     T: Send + Sync,
     T: Config + pallet_balances::Config,
     <T as pallet_balances::Config>::Balance: From<u128> + Into<u128>,
-    T::RuntimeCall: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
+    RuntimeCallOf<T>: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
@@ -81,6 +81,7 @@ mod benchmarks {
 	#[benchmark]
 	fn set_high_security() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		let interceptor: T::AccountId = benchmark_account("interceptor", 0, SEED);
 		let recoverer: T::AccountId = benchmark_account("recoverer", 1, SEED);
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
@@ -126,9 +127,10 @@ mod benchmarks {
 		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
 		assert!(PendingTransfers::<T>::contains_key(&tx_id));
 		// Check scheduler state (can be complex, checking count is simpler)
-		let execute_at = T::BlockNumberProvider::current_block_number().saturating_add(
-			delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
-		);
+		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
+			.saturating_add(
+				delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
+			);
 		let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
 		assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
 
@@ -237,5 +239,9 @@ mod benchmarks {
 		Ok(())
 	}
 
-	impl_benchmark_test_suite!(ReversibleTransfers, crate::mock::new_test_ext(), crate::mock::Test);
+	impl_benchmark_test_suite!(
+		ReversibleTransfers,
+		crate::tests::mock::new_test_ext(),
+		crate::tests::mock::Test
+	);
 }
