@@ -12,6 +12,7 @@ use sp_runtime::{
 	traits::{BlockNumberProvider, Hash, StaticLookup},
 	Saturating,
 };
+use crate::tests::mock::*;
 
 const SEED: u32 = 0;
 
@@ -20,7 +21,7 @@ const SEED: u32 = 0;
 fn make_transfer_call<T: Config>(
 	dest: T::AccountId,
 	value: u128,
-) -> Result<<T as frame_system::Config>::RuntimeCall, &'static str>
+) -> Result<RuntimeCallOf<T>, &'static str>
 where
 	<T as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<T>>,
 	BalanceOf<T>: From<u128>,

@@ -64,6 +64,9 @@ pub struct PendingTransfer<AccountId, Balance, Call> {
 /// Balance type
 type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
+/// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
+type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -179,11 +182,7 @@ pub mod pallet {
 		_,
 		Blake2_128Concat,
 		T::Hash,
-		PendingTransfer<
-			T::AccountId,
-			BalanceOf<T>,
-			Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
-		>,
+		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<RuntimeCallOf<T>, T::Hashing>>,
 		OptionQuery,
 	>;
 
@@ -486,7 +485,7 @@ pub mod pallet {
 			PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
+				Bounded<RuntimeCallOf<T>, T::Hashing>,
 			>,
 		> {
 			PendingTransfers::<T>::get(tx_id)
@@ -553,7 +552,7 @@ pub mod pallet {
 			pending_transfer: PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
+				Bounded<RuntimeCallOf<T>, T::Hashing>,
 			>,
 		) -> DispatchResult {
 			// Store the pending transfer
@@ -584,7 +583,7 @@ pub mod pallet {
 			pending_transfer: &PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<<T as frame_system::Config>::RuntimeCall, T::Hashing>,
+				Bounded<RuntimeCallOf<T>, T::Hashing>,
 			>,
 		) {
 			// Update account pending count (always decrement for each removed instance)
