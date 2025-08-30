@@ -22,12 +22,12 @@ fn make_transfer_call<T: Config>(
 	value: u128,
 ) -> Result<RuntimeCallOf<T>, &'static str>
 where
-	<T as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<T>>,
+	RuntimeCallOf<T>: From<pallet_balances::Call<T>>,
 	BalanceOf<T>: From<u128>,
 {
 	let dest_lookup = <T as frame_system::Config>::Lookup::unlookup(dest);
 
-	let call: <T as frame_system::Config>::RuntimeCall =
+	let call: RuntimeCallOf<T> =
 		pallet_balances::Call::<T>::transfer_keep_alive { dest: dest_lookup, value: value.into() }
 			.into();
 	Ok(call)

@@ -509,7 +509,7 @@ pub mod pallet {
 
 			// get from preimages
 			let (call, _) =
-				T::Preimages::realize::<<T as frame_system::Config>::RuntimeCall>(&pending.call)
+				T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 					.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
 			// Release the funds
@@ -595,7 +595,7 @@ pub mod pallet {
 			});
 
 			// Extract recipient from the call and clean up recipient index efficiently
-			if let Ok((call, _)) = T::Preimages::peek::<<T as frame_system::Config>::RuntimeCall>(
+			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(
 				&pending_transfer.call,
 			) {
 				if let Ok(balance_call) = call.try_into() {
@@ -620,7 +620,7 @@ pub mod pallet {
 			delay: BlockNumberOrTimestampOf<T>,
 		) -> DispatchResult {
 			let recipient = T::Lookup::lookup(to.clone())?;
-			let transfer_call: <T as frame_system::Config>::RuntimeCall =
+			let transfer_call: RuntimeCallOf<T> =
 				pallet_balances::Call::<T>::transfer_keep_alive { dest: to.clone(), value: amount }
 					.into();
 
