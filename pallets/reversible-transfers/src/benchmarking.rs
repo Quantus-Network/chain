@@ -73,7 +73,7 @@ type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
     T: Send + Sync,
     T: Config + pallet_balances::Config,
     <T as pallet_balances::Config>::Balance: From<u128> + Into<u128>,
-    <T as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
+    RuntimeCallOf<T>: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
