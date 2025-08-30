@@ -283,9 +283,6 @@ pub mod pallet {
 		TooManyPendingTransactions,
 		/// The specified delay period is below the configured minimum.
 		DelayTooShort,
-		/// Recovery delay (in blocks) must be greater than the account's reversible delay (in
-		/// blocks).
-		RecoveryDelayTooShort,
 		/// Failed to schedule the transaction execution with the scheduler pallet.
 		SchedulingFailed,
 		/// Failed to cancel the scheduled task with the scheduler pallet.
