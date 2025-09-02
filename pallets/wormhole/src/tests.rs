@@ -6,7 +6,7 @@ mod wormhole_tests {
 	use wormhole_circuit::inputs::PublicCircuitInputs;
 	use wormhole_verifier::ProofWithPublicInputs;
 
-	// Helper function to generate proof and inputs for a given n
+	// Helper function to generate proof and inputs for
 	fn get_test_proof() -> Vec<u8> {
 		let hex_proof = include_str!("../proof_from_bins.hex");
 		hex::decode(hex_proof.trim()).expect("Failed to decode hex proof")
