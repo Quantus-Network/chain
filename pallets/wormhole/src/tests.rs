@@ -87,7 +87,7 @@ mod wormhole_tests {
             let proof_with_inputs = ProofWithPublicInputs::from_bytes(proof.clone(), &verifier.circuit_data.common)
                 .expect("Should be able to parse test proof");
 
-            let public_inputs = PublicCircuitInputs::try_from(proof_with_inputs)
+            let public_inputs = PublicCircuitInputs::try_from(&proof_with_inputs)
                 .expect("Should be able to parse public inputs");
 
             let expected_funding_amount = public_inputs.funding_amount;
