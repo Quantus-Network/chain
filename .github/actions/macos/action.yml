@@ -9,6 +9,7 @@ runs:
       run: |
         brew install protobuf
         curl https://sh.rustup.rs -sSf | sh -s -- -y
+        brew uninstall cmake
         brew install openssl cmake
         rustup update
         rustup target add wasm32-unknown-unknown
