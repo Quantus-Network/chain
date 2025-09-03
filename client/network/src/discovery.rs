@@ -522,9 +522,8 @@ impl DiscoveryBehaviour {
 		let ip = match addr.iter().next() {
 			Some(Protocol::Ip4(ip)) => IpNetwork::from(ip),
 			Some(Protocol::Ip6(ip)) => IpNetwork::from(ip),
-			Some(Protocol::Dns(_)) | Some(Protocol::Dns4(_)) | Some(Protocol::Dns6(_)) => {
-				return true
-			},
+			Some(Protocol::Dns(_)) | Some(Protocol::Dns4(_)) | Some(Protocol::Dns6(_)) =>
+				return true,
 			_ => return false,
 		};
 		ip.is_global()
@@ -854,7 +853,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 						// We are not interested in this event at the moment.
 					},
 					KademliaEvent::InboundRequest { request } => match request {
-						libp2p::kad::InboundRequest::PutRecord { record: Some(record), .. } => {
+						libp2p::kad::InboundRequest::PutRecord { record: Some(record), .. } =>
 							return Poll::Ready(ToSwarm::GenerateEvent(
 								DiscoveryOut::PutRecordRequest(
 									record.key,
@@ -862,8 +861,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 									record.publisher.map(Into::into),
 									record.expires,
 								),
-							))
-						},
+							)),
 						_ => {},
 					},
 					KademliaEvent::OutboundQueryProgressed {
@@ -988,9 +986,8 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 						..
 					} => {
 						let ev = match res {
-							Ok(ok) => {
-								DiscoveryOut::ValuePut(ok.key, stats.duration().unwrap_or_default())
-							},
+							Ok(ok) =>
+								DiscoveryOut::ValuePut(ok.key, stats.duration().unwrap_or_default()),
 							Err(e) => {
 								debug!(
 									target: "sub-libp2p",
@@ -1029,25 +1026,19 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 					},
 				},
 				ToSwarm::Dial { opts } => return Poll::Ready(ToSwarm::Dial { opts }),
-				ToSwarm::NotifyHandler { peer_id, handler, event } => {
-					return Poll::Ready(ToSwarm::NotifyHandler { peer_id, handler, event })
-				},
-				ToSwarm::CloseConnection { peer_id, connection } => {
-					return Poll::Ready(ToSwarm::CloseConnection { peer_id, connection })
-				},
-				ToSwarm::NewExternalAddrCandidate(observed) => {
-					return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed))
-				},
-				ToSwarm::ExternalAddrConfirmed(addr) => {
-					return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr))
-				},
-				ToSwarm::ExternalAddrExpired(addr) => {
-					return Poll::Ready(ToSwarm::ExternalAddrExpired(addr))
-				},
+				ToSwarm::NotifyHandler { peer_id, handler, event } =>
+					return Poll::Ready(ToSwarm::NotifyHandler { peer_id, handler, event }),
+				ToSwarm::CloseConnection { peer_id, connection } =>
+					return Poll::Ready(ToSwarm::CloseConnection { peer_id, connection }),
+				ToSwarm::NewExternalAddrCandidate(observed) =>
+					return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed)),
+				ToSwarm::ExternalAddrConfirmed(addr) =>
+					return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr)),
+				ToSwarm::ExternalAddrExpired(addr) =>
+					return Poll::Ready(ToSwarm::ExternalAddrExpired(addr)),
 				ToSwarm::ListenOn { opts } => return Poll::Ready(ToSwarm::ListenOn { opts }),
-				ToSwarm::RemoveListener { id } => {
-					return Poll::Ready(ToSwarm::RemoveListener { id })
-				},
+				ToSwarm::RemoveListener { id } =>
+					return Poll::Ready(ToSwarm::RemoveListener { id }),
 				event => {
 					return Poll::Ready(event.map_out(|_| {
 						unreachable!("`GenerateEvent` is handled in a branch above; qed")
@@ -1079,22 +1070,17 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 				},
 				// `event` is an enum with no variant
 				ToSwarm::NotifyHandler { event, .. } => match event {},
-				ToSwarm::CloseConnection { peer_id, connection } => {
-					return Poll::Ready(ToSwarm::CloseConnection { peer_id, connection })
-				},
-				ToSwarm::NewExternalAddrCandidate(observed) => {
-					return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed))
-				},
-				ToSwarm::ExternalAddrConfirmed(addr) => {
-					return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr))
-				},
-				ToSwarm::ExternalAddrExpired(addr) => {
-					return Poll::Ready(ToSwarm::ExternalAddrExpired(addr))
-				},
+				ToSwarm::CloseConnection { peer_id, connection } =>
+					return Poll::Ready(ToSwarm::CloseConnection { peer_id, connection }),
+				ToSwarm::NewExternalAddrCandidate(observed) =>
+					return Poll::Ready(ToSwarm::NewExternalAddrCandidate(observed)),
+				ToSwarm::ExternalAddrConfirmed(addr) =>
+					return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr)),
+				ToSwarm::ExternalAddrExpired(addr) =>
+					return Poll::Ready(ToSwarm::ExternalAddrExpired(addr)),
 				ToSwarm::ListenOn { opts } => return Poll::Ready(ToSwarm::ListenOn { opts }),
-				ToSwarm::RemoveListener { id } => {
-					return Poll::Ready(ToSwarm::RemoveListener { id })
-				},
+				ToSwarm::RemoveListener { id } =>
+					return Poll::Ready(ToSwarm::RemoveListener { id }),
 				event => {
 					return Poll::Ready(
 						event
@@ -1227,8 +1213,8 @@ mod tests {
 							match e {
 								SwarmEvent::Behaviour(behavior) => {
 									match behavior {
-										DiscoveryOut::UnroutablePeer(other)
-										| DiscoveryOut::Discovered(other) => {
+										DiscoveryOut::UnroutablePeer(other) |
+										DiscoveryOut::Discovered(other) => {
 											// Call `add_self_reported_address` to simulate identify
 											// happening.
 											let addr = swarms
@@ -1275,12 +1261,12 @@ mod tests {
 								// ignore non Behaviour events
 								_ => {},
 							}
-							continue 'polling;
+							continue 'polling
 						},
 						_ => {},
 					}
 				}
-				break;
+				break
 			}
 
 			if to_discover.iter().all(|l| l.is_empty()) {

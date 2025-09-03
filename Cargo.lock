@@ -1430,7 +1430,7 @@ dependencies = [
 [[package]]
 name = "circuit-builder"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
+source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
 dependencies = [
  "anyhow",
  "plonky2",
@@ -7053,8 +7053,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e69bf016dc406eff7d53a7d3f7cf1c2e72c82b9088aac1118591e36dd2cd3e9"
 dependencies = [
  "bitcoin_hashes 0.13.0",
- "rand 0.8.5",
- "rand_core 0.6.4",
+ "rand 0.7.3",
+ "rand_core 0.5.1",
  "serde",
  "unicode-normalization",
 ]
@@ -13095,7 +13095,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 
@@ -14366,7 +14366,7 @@ checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 [[package]]
 name = "wormhole-circuit"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
+source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
 dependencies = [
  "anyhow",
  "hex",
@@ -14377,7 +14377,7 @@ dependencies = [
 [[package]]
 name = "wormhole-verifier"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
+source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
 dependencies = [
  "anyhow",
  "plonky2",
@@ -14646,7 +14646,7 @@ dependencies = [
 [[package]]
 name = "zk-circuits-common"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#04e312f31121f54cc3b388c00e62966cc973d84a"
+source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
 dependencies = [
  "anyhow",
  "plonky2",
