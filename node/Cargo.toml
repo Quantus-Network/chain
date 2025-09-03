@@ -9,7 +9,7 @@ license = "Apache-2.0"
 name = "quantus-node"
 publish = false
 repository.workspace = true
-version = "0.1.4"
+version = "0.1.6"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

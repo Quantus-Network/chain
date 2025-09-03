@@ -121,13 +121,8 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
-			ensure!(
-				proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
-				Error::<T>::InvalidPublicInputs
-			);
-
 			// Parse public inputs using the existing parser
-			let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+			let public_inputs = PublicCircuitInputs::try_from(&proof)
 				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
 			let nullifier_bytes = *public_inputs.nullifier;

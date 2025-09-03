@@ -123,20 +123,15 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 
 # Quantus network dependencies
 circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
-plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
 poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
 rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
 rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
-wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false, features = [
-	"no_std",
-] }
+wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false }
 wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-verifier", default-features = false, features = [
 	"no_random",
-	"no_std",
 ] }
 zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", package = "zk-circuits-common", default-features = false, features = [
 	"no_random",
-	"no_std",
 ] }
 
 # polkadot-sdk dependencies
