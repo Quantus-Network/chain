@@ -16,12 +16,17 @@
 // limitations under the License.
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
+	configs::TreasuryPalletId, AccountId, BalancesConfig, ReviveConfig, RuntimeGenesisConfig,
+	SudoConfig, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
+use pallet_revive::test_utils::ALICE;
 use serde_json::Value;
-use sp_core::crypto::Ss58Codec;
+use sp_core::{
+	bytes::{from_hex, to_hex},
+	crypto::Ss58Codec,
+};
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
@@ -42,18 +47,28 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 		account_from_ss58("qzq3VLu6DHcWDtWRAqWXtTkDMPqz4BdJNvy3e7SYaqhZX49PQ"),
 	]
 }
+
 // Returns the genesis config presets populated with given parameters.
 fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
 	let mut balances =
 		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
 
-	const ONE_BILLION: u128 = 1_000_000_000;
+	const BILLION: u128 = 1_000_000_000;
 	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, ONE_BILLION * UNIT));
+	balances.push((treasury_account, BILLION * UNIT));
+	// last 12 bytes are `ee` so that revive thinks it's an EVM address
+	let revive_sudo: [u8; 32] =
+		from_hex("0x4CaBFFC42dCD21aD8A81C04e991DFD26bDF8D196eeeeeeeeeeeeeeeeeeeeeeee")
+			.expect("valid hex")
+			.try_into()
+			.expect("correct length");
+
+	balances.push((revive_sudo.into(), BILLION * UNIT));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		revive: ReviveConfig { mapped_accounts: vec![ALICE] },
 		..Default::default()
 	};
 

@@ -28,6 +28,7 @@ serde = [
 ]
 std = [
 	"codec/std",
+	"log/std",
 	"poseidon-resonance/std",
 	"scale-info/std",
 	"sp-core/std",
