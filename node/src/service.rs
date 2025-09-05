@@ -210,6 +210,7 @@ pub fn new_full<
 	rewards_address: Option<String>,
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
+	sync_max_timeouts_before_drop: u32,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -244,6 +245,8 @@ pub fn new_full<
 			block_relay: None,
 			metrics,
 		})?;
+
+	sync_service.set_max_timeouts_before_drop(sync_max_timeouts_before_drop);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
