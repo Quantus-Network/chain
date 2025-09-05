@@ -33,7 +33,6 @@ jobs:
       version: ${{ steps.create_version.outputs.version }}
       is_draft: ${{ github.event.inputs.is_draft }}
       is_runtime_upgrade: ${{ github.event.inputs.is_runtime_upgrade }}
-      release_branch: ${{ steps.create_version.outputs.release_branch }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -48,7 +47,6 @@ jobs:
           # Clean up the hotfix name to ensure it's a valid version format
           VERSION=$(echo "$HOTFIX_NAME" | sed 's/[^a-zA-Z0-9._-]//g' | sed 's/^/v/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "release_branch=hotfix/$HOTFIX_NAME" >> "$GITHUB_OUTPUT"
           echo "Created hotfix version: $VERSION"
 
       - name: Create and push hotfix tag
@@ -262,7 +260,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Hotfix: $HOTFIX_NAME ($NEW_VERSION)" \
             --notes-file release_notes.txt \
-            --target ${{ needs.create-hotfix-tag.outputs.release_branch }} \
             $DRAFT_FLAG \
             "${asset_args[@]}"
 
