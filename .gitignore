@@ -4,3 +4,6 @@ target/
 /vendor
 /scripts/apps
 /scripts/js/node_modules
+
+.env
+node_modules

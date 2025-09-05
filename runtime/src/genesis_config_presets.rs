@@ -16,14 +16,18 @@
 // limitations under the License.
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
+	configs::TreasuryPalletId, AccountId, BalancesConfig, ReviveConfig, RuntimeGenesisConfig,
+	SudoConfig, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
+use pallet_revive::test_utils::ALICE;
 use serde_json::Value;
-use sp_core::crypto::Ss58Codec;
+use sp_core::{
+	bytes::{from_hex, to_hex},
+	crypto::Ss58Codec,
+};
 use sp_genesis_builder::{self, PresetId};
-use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
 /// Identifier for the Resonance testnet runtime preset.
@@ -43,18 +47,28 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 		account_from_ss58("qzq3VLu6DHcWDtWRAqWXtTkDMPqz4BdJNvy3e7SYaqhZX49PQ"),
 	]
 }
+
 // Returns the genesis config presets populated with given parameters.
 fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
 	let mut balances =
 		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
 
-	const ONE_BILLION: u128 = 1_000_000_000;
+	const BILLION: u128 = 1_000_000_000;
 	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, ONE_BILLION * UNIT));
+	balances.push((treasury_account, BILLION * UNIT));
+	// last 12 bytes are `ee` so that revive thinks it's an EVM address
+	let revive_sudo: [u8; 32] =
+		from_hex("0x4CaBFFC42dCD21aD8A81C04e991DFD26bDF8D196eeeeeeeeeeeeeeeeeeeeeeee")
+			.expect("valid hex")
+			.try_into()
+			.expect("correct length");
+
+	balances.push((revive_sudo.into(), BILLION * UNIT));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		revive: ReviveConfig { mapped_accounts: vec![ALICE] },
 		..Default::default()
 	};
 
@@ -90,15 +104,17 @@ pub fn live_testnet_config_genesis() -> Value {
 	genesis_template(endowed_accounts, test_root_account())
 }
 
-/// Return the local genesis config preset.
-pub fn local_config_genesis() -> Value {
-	genesis_template(
-		Sr25519Keyring::iter()
-			.filter(|v| v != &Sr25519Keyring::One && v != &Sr25519Keyring::Two)
-			.map(|v| v.to_account_id())
-			.collect::<Vec<_>>(),
-		test_root_account(),
-	)
+pub fn heisenberg_config_genesis() -> Value {
+	let mut endowed_accounts = vec![test_root_account()];
+	endowed_accounts.extend(dilithium_default_accounts());
+	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+	for account in endowed_accounts.iter() {
+		log::info!(
+			"🍆 Endowed account: {:?}",
+			account.to_ss58check_with_version(ss58_version.clone())
+		);
+	}
+	genesis_template(endowed_accounts, test_root_account())
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.

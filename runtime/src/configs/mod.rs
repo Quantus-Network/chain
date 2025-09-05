@@ -40,8 +40,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin, VariantCountOf,
-		WithdrawReasons,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, FindAuthor, Get,
+		NeverEnsureOrigin, VariantCountOf, WithdrawReasons,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -51,9 +51,10 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess,
+	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
+use pallet_revive::evm::runtime::EthExtra;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use poseidon_resonance::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
@@ -573,7 +574,7 @@ parameter_types! {
 }
 
 // /// We allow root to execute privileged asset operations.
-// pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+pub type AssetsForceOrigin = EnsureRoot<AccountId>;
 
 impl pallet_assets::Config for Runtime {
 	type Balance = Balance;

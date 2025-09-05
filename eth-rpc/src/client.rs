@@ -24,10 +24,7 @@ use runtime_api::RuntimeApi;
 use storage_api::StorageApi;
 
 use crate::{
-	subxt_client::{
-		self, revive::calls::types::EthTransact, runtime_types::poseidon_resonance::PoseidonHasher,
-		SrcChainConfig,
-	},
+	subxt_client::{self, revive::calls::types::EthTransact, SrcChainConfig},
 	BlockInfoProvider, BlockTag, FeeHistoryProvider, ReceiptProvider, SubxtBlockInfoProvider,
 	TracerType, TransactionInfo, LOG_TARGET,
 };
