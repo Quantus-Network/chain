@@ -65,7 +65,7 @@ use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnbound
 use sp_blockchain::{Error as ClientError, HeaderMetadata};
 use sp_consensus::{block_validation::BlockAnnounceValidator, BlockOrigin};
 use sp_runtime::{
-	traits::{Block as BlockT, Header, NumberFor, Zero},
+	traits::{Block as BlockT, Header, NumberFor, Saturating, Zero},
 	Justifications,
 };
 
@@ -290,8 +290,8 @@ where
 	where
 		N: NetworkBackend<B, <B as BlockT>::Hash>,
 	{
-		let cache_capacity = (net_config.network_config.default_peers_set.in_peers +
-			net_config.network_config.default_peers_set.out_peers)
+		let cache_capacity = (net_config.network_config.default_peers_set.in_peers
+			+ net_config.network_config.default_peers_set.out_peers)
 			.max(1);
 		let important_peers = {
 			let mut imp_p = HashSet::new();
@@ -328,8 +328,8 @@ where
 		let default_peers_set_num_full =
 			net_config.network_config.default_peers_set_num_full as usize;
 		let default_peers_set_num_light = {
-			let total = net_config.network_config.default_peers_set.out_peers +
-				net_config.network_config.default_peers_set.in_peers;
+			let total = net_config.network_config.default_peers_set.out_peers
+				+ net_config.network_config.default_peers_set.in_peers;
 			total.saturating_sub(net_config.network_config.default_peers_set_num_full) as usize
 		};
 
@@ -660,10 +660,12 @@ where
 				}
 				self.event_streams.push(tx);
 			},
-			ToServiceCommand::RequestJustification(hash, number) =>
-				self.strategy.request_justification(&hash, number),
-			ToServiceCommand::ClearJustificationRequests =>
-				self.strategy.clear_justification_requests(),
+			ToServiceCommand::RequestJustification(hash, number) => {
+				self.strategy.request_justification(&hash, number)
+			},
+			ToServiceCommand::ClearJustificationRequests => {
+				self.strategy.clear_justification_requests()
+			},
 			ToServiceCommand::BlocksProcessed(imported, count, results) => {
 				self.strategy.on_blocks_processed(imported, count, results);
 			},
@@ -712,8 +714,9 @@ where
 					self.peers.iter().map(|(peer_id, peer)| (*peer_id, peer.info)).collect();
 				let _ = tx.send(peers_info);
 			},
-			ToServiceCommand::OnBlockFinalized(hash, header) =>
-				self.strategy.on_block_finalized(&hash, *header.number()),
+			ToServiceCommand::OnBlockFinalized(hash, header) => {
+				self.strategy.on_block_finalized(&hash, *header.number())
+			},
 			ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
 				self.strategy.set_peer_drop_threshold(value);
 			},
@@ -798,9 +801,9 @@ where
 			log::debug!(target: LOG_TARGET, "{peer_id} disconnected");
 		}
 
-		if !self.default_peers_set_no_slot_connected_peers.remove(&peer_id) &&
-			info.inbound &&
-			info.info.roles.is_full()
+		if !self.default_peers_set_no_slot_connected_peers.remove(&peer_id)
+			&& info.inbound
+			&& info.info.roles.is_full()
 		{
 			match self.num_in_peers.checked_sub(1) {
 				Some(value) => {
@@ -901,21 +904,21 @@ where
 		let no_slot_peer = self.default_peers_set_no_slot_peers.contains(&peer_id);
 		let this_peer_reserved_slot: usize = if no_slot_peer { 1 } else { 0 };
 
-		if handshake.roles.is_full() &&
-			self.strategy.num_peers() >=
-				self.default_peers_set_num_full +
-					self.default_peers_set_no_slot_connected_peers.len() +
-					this_peer_reserved_slot
+		if handshake.roles.is_full()
+			&& self.strategy.num_peers()
+				>= self.default_peers_set_num_full
+					+ self.default_peers_set_no_slot_connected_peers.len()
+					+ this_peer_reserved_slot
 		{
 			log::debug!(target: LOG_TARGET, "Too many full nodes, rejecting {peer_id}");
 			return Err(false);
 		}
 
 		// make sure to accept no more than `--in-peers` many full nodes
-		if !no_slot_peer &&
-			handshake.roles.is_full() &&
-			direction.is_inbound() &&
-			self.num_in_peers == self.max_in_peers
+		if !no_slot_peer
+			&& handshake.roles.is_full()
+			&& direction.is_inbound()
+			&& self.num_in_peers == self.max_in_peers
 		{
 			log::debug!(target: LOG_TARGET, "All inbound slots have been consumed, rejecting {peer_id}");
 			return Err(false);
@@ -925,8 +928,8 @@ where
 		//
 		// `ChainSync` only accepts full peers whereas `SyncingEngine` accepts both full and light
 		// peers. Verify that there is a slot in `SyncingEngine` for the inbound light peer
-		if handshake.roles.is_light() &&
-			(self.peers.len() - self.strategy.num_peers()) >= self.default_peers_set_num_light
+		if handshake.roles.is_light()
+			&& (self.peers.len() - self.strategy.num_peers()) >= self.default_peers_set_num_light
 		{
 			log::debug!(target: LOG_TARGET, "Too many light nodes, rejecting {peer_id}");
 			return Err(false);
@@ -1007,10 +1010,10 @@ where
 				let is_major_syncing = self.is_major_syncing.load(Ordering::Relaxed);
 				let peer_drop_threshold = self.strategy.peer_drop_threshold();
 				let peer_failures = self.peer_failures.entry(peer_id).or_insert(0);
-				*peer_failures = peer_failures.saturating_add(1);
+				peer_failures.saturating_inc();
 
 				let should_drop_peer = !is_major_syncing || *peer_failures >= peer_drop_threshold;
-				
+
 				debug!(
 					target: LOG_TARGET,
 					"Timeout handling: is_major_syncing: {}, peer failures: {}, threshold: {} should_drop_peer: {}",
@@ -1022,8 +1025,10 @@ where
 						if should_drop_peer {
 							debug!(target: LOG_TARGET, "dropping peer after timeout! {:?}", peer_id);
 							self.network_service.report_peer(peer_id, rep::TIMEOUT);
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
 						} else {
 							debug!(target: LOG_TARGET, "Timeout for {:?}", peer_id);
 						}
@@ -1036,24 +1041,30 @@ where
 					},
 					RequestFailure::Network(OutboundFailure::DialFailure) => {
 						if should_drop_peer {
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
 						}
 						debug!(target: LOG_TARGET, "DialFailure for {:?}", peer_id);
 					},
 					RequestFailure::Refused => {
 						if should_drop_peer {
 							self.network_service.report_peer(peer_id, rep::REFUSED);
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
 						}
 						debug!(target: LOG_TARGET, "Refused for {:?}", peer_id);
 					},
-					RequestFailure::Network(OutboundFailure::ConnectionClosed) |
-					RequestFailure::NotConnected => {
+					RequestFailure::Network(OutboundFailure::ConnectionClosed)
+					| RequestFailure::NotConnected => {
 						if should_drop_peer {
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
 						}
 						debug!(target: LOG_TARGET, "ConnClosed/NotConnected for {:?}", peer_id);
 					},
