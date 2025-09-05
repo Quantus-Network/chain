@@ -47,8 +47,8 @@ jobs:
           HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
           # Clean up the hotfix name to ensure it's a valid version format
           VERSION=$(echo "$HOTFIX_NAME" | sed 's/[^a-zA-Z0-9._-]//g' | sed 's/^/v/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "release_branch=hotfix/$HOTFIX_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_branch=hotfix/$HOTFIX_NAME" >> "$GITHUB_OUTPUT"
           echo "Created hotfix version: $VERSION"
 
       - name: Create and push hotfix tag
@@ -119,8 +119,8 @@ jobs:
             asset_name="${NODE_BINARY_NAME}-${NEW_VERSION}-${TARGET_ARCH}.tar.gz"
             checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
             mkdir staging
-            cp target/${TARGET_ARCH}/release/${NODE_BINARY_NAME} staging/
-            (cd staging && tar -czvf "../${asset_name}" ${NODE_BINARY_NAME})
+            cp "target/${TARGET_ARCH}/release/${NODE_BINARY_NAME}" staging/
+            (cd staging && tar -czvf "../${asset_name}" "${NODE_BINARY_NAME}")
             if [[ "${{ runner.os }}" == "macOS" ]]; then
               shasum -a 256 "${asset_name}" > "${checksum_file_name}"
             else
@@ -130,7 +130,7 @@ jobs:
           echo "Created asset: ${asset_name}"
           echo "Created checksum file: ${checksum_file_name}"
           asset_paths_json="[\"${asset_name}\", \"${checksum_file_name}\"]"
-          echo "release_assets_json=${asset_paths_json}" >> $GITHUB_OUTPUT
+          echo "release_assets_json=${asset_paths_json}" >> "$GITHUB_OUTPUT"
           ls -la
 
       - name: Upload Release Assets as Artifacts
@@ -184,9 +184,9 @@ jobs:
           WASM_PATH=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compact.wasm')
           WASM_COMPRESSED_PATH=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compressed.wasm')
           runtime_ver=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compact.subwasm.core_version.specVersion')
-          cp "$WASM_PATH" quantus-runtime-v${runtime_ver}.compact.wasm
-          cp "$WASM_COMPRESSED_PATH" quantus-runtime-v${runtime_ver}.compact.compressed.wasm
-          cp srtool-output.json quantus-runtime-srtool-output-v${runtime_ver}.json
+          cp "$WASM_PATH" "quantus-runtime-v${runtime_ver}.compact.wasm"
+          cp "$WASM_COMPRESSED_PATH" "quantus-runtime-v${runtime_ver}.compact.compressed.wasm"
+          cp srtool-output.json "quantus-runtime-srtool-output-v${runtime_ver}.json"
 
       - name: Upload runtime artifacts
         uses: actions/upload-artifact@v4
