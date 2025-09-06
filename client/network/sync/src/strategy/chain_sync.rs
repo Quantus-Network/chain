@@ -235,6 +235,8 @@ pub(crate) struct PeerSync<B: BlockT> {
 	/// The state of syncing this peer is in for us, generally categories
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
+	/// Recently sent request signatures to this peer to avoid duplicates.
+	request_signatures: HashSet<RequestSignature>,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -251,6 +253,16 @@ impl<B: BlockT> PeerSync<B> {
 			self.common_number = new_common;
 		}
 	}
+}
+
+/// Minimal signature for a block request used to avoid repeating the same
+/// request to the same peer. Uses numeric start, direction, fields mask and max.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+struct RequestSignature {
+	start_number_u64: u64,
+	is_descending: bool,
+	fields_mask: u32,
+	max_blocks: u32,
 }
 
 struct ForkTarget<B: BlockT> {
@@ -851,6 +863,48 @@ where
 		}
 	}
 
+	fn on_request_failed(&mut self, peer_id: &PeerId) {
+		// When a request fails, allow issuing new requests immediately and free any held slots.
+		debug!(target: LOG_TARGET, "received on_request_failed for {:?} has peer: {:?}", peer_id, self.peers.get_mut(peer_id));
+
+		if let Some(peer) = self.peers.get_mut(peer_id) {
+			debug!(
+				target: LOG_TARGET,
+				"Request failed for peer {:?}, previous state: {:?}",
+				peer_id,
+				peer.state,
+			);
+			match peer.state {
+				PeerSyncState::DownloadingNew(_) => {
+					self.blocks.clear_peer_download(peer_id);
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::DownloadingGap(_) => {
+					if let Some(gap) = &mut self.gap_sync {
+						gap.blocks.clear_peer_download(peer_id);
+					}
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::DownloadingStale(_) => {
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::AncestorSearch { .. } => {
+					// Reset to available to let scheduler decide next steps (may re-issue ancestry).
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::DownloadingJustification(_)
+				| PeerSyncState::DownloadingState
+				| PeerSyncState::Available => {
+					// No block-range slot to clear or already available.
+				},
+			}
+			debug!(target: LOG_TARGET, "on_request_failed: now_available={}", matches!(peer.state, PeerSyncState::Available));
+		} else {
+			debug!(target: LOG_TARGET, "peer with id not found: {:?}", peer_id);
+		}
+		self.allowed_requests.add(peer_id);
+	}
+
 	fn num_downloaded_blocks(&self) -> usize {
 		self.downloaded_blocks
 	}
@@ -860,6 +914,14 @@ where
 			.values()
 			.filter(|f| f.number <= self.best_queued_number)
 			.count()
+	}
+
+	fn peer_drop_threshold(&self) -> u32 {
+		0
+	}
+
+	fn set_peer_drop_threshold(&mut self, _value: u32) {
+		unimplemented!("ChainSync does not support peer drop threshold");
 	}
 
 	fn actions(
@@ -875,7 +937,18 @@ where
 		let block_requests = self
 			.block_requests()
 			.into_iter()
-			.map(|(peer_id, request)| self.create_block_request_action(peer_id, request))
+			.map(|(peer_id, request)| {
+				debug!(
+					target: LOG_TARGET,
+					"Scheduling block request to {:?}: fields={:?}, from={:?}, dir={:?}, max={:?}",
+					peer_id,
+					request.fields,
+					request.from,
+					request.direction,
+					request.max,
+				);
+				self.create_block_request_action(peer_id, request)
+			})
 			.collect::<Vec<_>>();
 		self.actions.extend(block_requests);
 
@@ -1046,6 +1119,7 @@ where
 							best_hash,
 							best_number,
 							state: PeerSyncState::Available,
+							request_signatures: Default::default(),
 						},
 					);
 					return Ok(None);
@@ -1089,6 +1163,7 @@ where
 						best_hash,
 						best_number,
 						state,
+						request_signatures: Default::default(),
 					},
 				);
 
@@ -1109,6 +1184,7 @@ where
 						best_hash,
 						best_number,
 						state: PeerSyncState::Available,
+						request_signatures: Default::default(),
 					},
 				);
 				self.allowed_requests.add(&peer_id);
@@ -1123,6 +1199,16 @@ where
 		request: BlockRequest<B>,
 	) -> SyncingAction<B> {
 		let downloader = self.block_downloader.clone();
+
+		if let Some((low, high)) = self.compute_request_range_u64(&request) {
+			debug!(
+				target: LOG_TARGET,
+				"➡️ Sent block request to {}: {}..{}",
+				peer_id,
+				low,
+				high,
+			);
+		}
 
 		SyncingAction::StartRequest {
 			peer_id,
@@ -1154,8 +1240,19 @@ where
 	) -> Result<(), BadPeer> {
 		self.downloaded_blocks += response.blocks.len();
 		let mut gap = false;
+		let mut blocks = response.blocks;
+
+		if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
+			debug!(
+				target: LOG_TARGET,
+				"⬅️ Received blocks from {}: {}..{}",
+				peer_id,
+				low,
+				high,
+			);
+		}
+
 		let new_blocks: Vec<IncomingBlock<B>> = if let Some(peer) = self.peers.get_mut(peer_id) {
-			let mut blocks = response.blocks;
 			if request.as_ref().map_or(false, |r| r.direction == Direction::Descending) {
 				trace!(target: LOG_TARGET, "Reversing incoming block list");
 				blocks.reverse()
@@ -1829,6 +1926,8 @@ where
 		let gap_sync = &mut self.gap_sync;
 		let disconnected_peers = &mut self.disconnected_peers;
 		let metrics = self.metrics.as_ref();
+		// Avoid capturing `self` by value in the closure; take needed fields locally.
+		let client_ref = &self.client;
 		let requests = self
 			.peers
 			.iter_mut()
@@ -1875,6 +1974,43 @@ where
 					last_finalized,
 					best_queued,
 				) {
+					// Avoid repeated requests to the same range, halve by 2
+					if let Some(max) = req.max {
+						loop {
+							// Recompute signature using client_ref; avoid borrowing `self`.
+							let already_sent_this_request = {
+								let start_number_u64 = match req.from {
+									FromBlock::Number(n) => n.saturated_into::<u64>(),
+									FromBlock::Hash(h) => client_ref
+										.number(h)
+										.ok()
+										.flatten()
+										.map(|n| n.saturated_into::<u64>())
+										.unwrap_or(0),
+								};
+								let sig = RequestSignature {
+									start_number_u64,
+									is_descending: matches!(req.direction, Direction::Descending),
+									fields_mask: req.fields.to_be_u32(),
+									max_blocks: max,
+								};
+								!peer.request_signatures.insert(sig)
+							}
+							;
+							if !already_sent_this_request { break; }
+							if let Some(m) = req.max.as_mut() {
+								if *m <= 1 {
+									debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
+									break;
+								}
+								let new_m = (*m).saturating_div(2).max(1);
+								debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, *m, new_m);
+								*m = new_m;
+							} else {
+								break;
+							}
+						}
+					}
 					peer.state = PeerSyncState::DownloadingNew(range.start);
 					trace!(
 						target: LOG_TARGET,
@@ -2059,6 +2195,40 @@ where
 				);
 				debug_assert!(false);
 			}
+		}
+	}
+
+	/// Compute [lower, upper] block number range (inclusive) for a request.
+	/// Returns None if start number is unknown (e.g. hash not found) or max is None.
+	fn compute_request_range_u64(&self, req: &BlockRequest<B>) -> Option<(u64, u64)> {
+		let max = req.max?;
+		let start_num = match req.from {
+			FromBlock::Number(n) => n.saturated_into::<u64>(),
+			FromBlock::Hash(h) => {
+				self.client.number(h).ok().flatten().map(|n| n.saturated_into::<u64>())?
+			},
+		};
+		let span = max.saturating_sub(1) as u64;
+		match req.direction {
+			Direction::Descending => Some((start_num.saturating_sub(span), start_num)),
+			Direction::Ascending => Some((start_num, start_num.saturating_add(span))),
+		}
+	}
+
+	/// Compute [lower, upper] block number range (inclusive) from response blocks.
+	fn compute_blocks_range_u64(&self, blocks: &Vec<BlockData<B>>) -> Option<(u64, u64)> {
+		let mut min_n: Option<u64> = None;
+		let mut max_n: Option<u64> = None;
+		for b in blocks.iter() {
+			if let Some(h) = &b.header {
+				let n = (*h.number()).saturated_into::<u64>();
+				min_n = Some(min_n.map_or(n, |x| x.min(n)));
+				max_n = Some(max_n.map_or(n, |x| x.max(n)));
+			}
+		}
+		match (min_n, max_n) {
+			(Some(lo), Some(hi)) => Some((lo, hi)),
+			_ => None,
 		}
 	}
 
