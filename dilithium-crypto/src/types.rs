@@ -7,8 +7,6 @@ use sp_core::{
 	crypto::{PublicBytes, SignatureBytes},
 	ByteArray, RuntimeDebug,
 };
-#[cfg(feature = "std")]
-use thiserror::Error;
 
 /// Resonance Crypto Types
 ///
