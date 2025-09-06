@@ -98,6 +98,10 @@ where
 		response: Box<dyn Any + Send>,
 	);
 
+	/// Notify strategy that a request to `peer_id` has failed (timeout/refused/etc.).
+	/// Strategy can use this signal to reschedule requests if necessary.
+	fn on_request_failed(&mut self, _peer_id: &PeerId);
+
 	/// A batch of blocks that have been processed, with or without errors.
 	///
 	/// Call this when a batch of blocks that have been processed by the import queue, with or
@@ -129,6 +133,13 @@ where
 
 	/// Get an estimate of the number of parallel sync requests.
 	fn num_sync_requests(&self) -> usize;
+
+	/// Peer drop threshold during major sync (timeouts before drop/report).
+	/// Set to 0 to have the old behavior, instant peer drop on timeout.
+	fn peer_drop_threshold(&self) -> u32;
+
+	/// Update peer drop threshold (runtime adjustable via CLI wiring).
+	fn set_peer_drop_threshold(&mut self, _value: u32);
 
 	/// Get actions that should be performed by the owner on the strategy's behalf
 	#[must_use]
@@ -210,7 +221,6 @@ impl<B: BlockT> SyncingAction<B> {
 		matches!(self, SyncingAction::Finished)
 	}
 
-	#[cfg(test)]
 	pub(crate) fn name(&self) -> &'static str {
 		match self {
 			Self::StartRequest { .. } => "StartRequest",

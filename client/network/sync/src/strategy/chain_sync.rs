@@ -1964,7 +1964,7 @@ where
 						state: AncestorSearchState::ExponentialBackoff(One::one()),
 					};
 					Some((id, ancestry_request::<B>(current)))
-				} else if let Some((range, req)) = peer_block_request(
+				} else if let Some((range, mut req)) = peer_block_request(
 					&id,
 					peer,
 					blocks,

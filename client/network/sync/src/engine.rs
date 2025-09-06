@@ -260,6 +260,8 @@ pub struct SyncingEngine<B: BlockT, Client> {
 
 	/// Handle to import queue.
 	import_queue: Box<dyn ImportQueueService<B>>,
+	/// Network failure counters per peer (timeouts, refused, etc.).
+	peer_failures: HashMap<PeerId, u32>,
 }
 
 impl<B: BlockT, Client> SyncingEngine<B, Client>
@@ -406,6 +408,7 @@ where
 				},
 				pending_responses: PendingResponses::new(),
 				import_queue,
+				peer_failures: HashMap::new(),
 			},
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
@@ -717,6 +720,10 @@ where
 			},
 			ToServiceCommand::OnBlockFinalized(hash, header) =>
 				self.strategy.on_block_finalized(&hash, *header.number()),
+			ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
+				self.strategy.set_peer_drop_threshold(value);
+			},
+
 		}
 	}
 
