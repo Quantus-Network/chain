@@ -7,7 +7,7 @@ use crate::{
 use dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
-use rusty_crystals_hdwallet::{generate_mnemonic, wormhole::WormholePair, HDLattice};
+use qp_rusty_crystals_hdwallet::{generate_mnemonic, wormhole::WormholePair, HDLattice};
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
