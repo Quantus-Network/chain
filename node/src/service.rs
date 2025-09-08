@@ -3,7 +3,7 @@
 use futures::{FutureExt, StreamExt};
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, QPoWMiner};
+use sc_consensus_qpow::ChainManagement;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -508,17 +508,28 @@ pub fn new_full<
 					}
 				} else {
 					// Local mining
-					let miner = QPoWMiner::new(client.clone());
 					let nonce_bytes = nonce.to_big_endian();
-					match miner.try_nonce::<Block>(
-						metadata.best_hash,
-						metadata.pre_hash,
-						nonce_bytes,
-					) {
-						true => {
-							log::debug!(target: "miner", "Valid solution: {}", nonce);
+					// Convert pre_hash to [u8; 32] for verification
+					let block_hash = metadata.pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
+
+					// Verify the nonce using runtime api
+					match client
+						.runtime_api()
+						.verify_nonce_local_mining(metadata.best_hash, block_hash, nonce_bytes)
+					{
+						Ok(result) => {
+							match result {
+								true => {
+									log::debug!(target: "miner", "Valid solution: {}", nonce);
+								}
+								false => {
+									nonce += U512::one();
+									continue;
+								}
+							}
 						},
-						false => {
+						Err(e) => {
+							log::error!("API error in try_nonce: {:?}", e);
 							nonce += U512::one();
 							continue;
 						},

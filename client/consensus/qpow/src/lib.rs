@@ -1,9 +1,7 @@
 mod chain_management;
-mod miner;
 mod worker;
 
 pub use chain_management::{ChainManagement, HeaviestChain};
-pub use miner::QPoWMiner;
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::{ProvideRuntimeApi, __private::BlockT};
@@ -21,7 +19,8 @@ use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
 use sc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
-	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, Verifier,
+	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink,
+	Verifier
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
