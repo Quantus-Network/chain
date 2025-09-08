@@ -31,7 +31,7 @@ pub(crate) type FullClient = sc_service::TFullClient<
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
-pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
+pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 	Block,
 	Arc<FullClient>,
 	FullClient,
@@ -171,7 +171,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let inherent_data_providers = build_inherent_data_providers()?;
 
-	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
+	let pow_block_import = sc_consensus_qpow::PowBlockImport::new(
 		Arc::clone(&client),
 		Arc::clone(&client),
 		pow_algorithm,
@@ -182,7 +182,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let logging_block_import = LoggingBlockImport::new(pow_block_import);
 
-	let import_queue = sc_consensus_pow::import_queue(
+	let import_queue = sc_consensus_qpow::import_queue(
 		Box::new(logging_block_import.clone()),
 		None,
 		QPowAlgorithm { client: client.clone(), _phantom: Default::default() },
@@ -330,7 +330,7 @@ pub fn new_full<
 			None
 		};
 
-		let (worker_handle, worker_task) = sc_consensus_pow::start_mining_worker(
+		let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
 			Box::new(pow_block_import),
 			client.clone(),
 			select_chain.clone(),

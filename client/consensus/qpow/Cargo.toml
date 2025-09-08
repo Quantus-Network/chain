@@ -10,20 +10,27 @@ async-trait = "0.1"
 codec = { workspace = true, default-features = false }
 futures = { features = ["thread-pool"], workspace = true }
 log = { workspace = true, default-features = false }
+parking_lot = { workspace = true, default-features = true }
 primitive-types = { workspace = true, default-features = false }
+prometheus-endpoint = { workspace = true, default-features = true }
+futures-timer = { workspace = true }
+sc-consensus = { workspace = true }
 sc-client-api = { workspace = true, default-features = false }
-sc-consensus-pow = { workspace = true, default-features = false }
 sc-service = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
+sp-block-builder = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = false }
 sp-consensus = { workspace = true, default-features = false }
 sp-consensus-pow = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = true }
+sp-inherents = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = false }
 
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
+thiserror = { workspace = true }
 
 [features]
 default = ["std"]

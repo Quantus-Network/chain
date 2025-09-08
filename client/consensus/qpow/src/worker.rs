@@ -16,7 +16,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{PowAlgorithm, PowIntermediate, Seal, INTERMEDIATE_KEY, LOG_TARGET, POW_ENGINE_ID};
+use crate::PowAlgorithm;
+use sp_consensus_pow::{Seal, POW_ENGINE_ID};
+use crate::LOG_TARGET;
 use futures::{
 	prelude::*,
 	task::{Context, Poll},
@@ -161,10 +163,6 @@ where
 		import_block.state_action =
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
-		let intermediate = PowIntermediate::<Algorithm::Difficulty> {
-			difficulty: Some(build.metadata.difficulty),
-		};
-		import_block.insert_intermediate(INTERMEDIATE_KEY, intermediate);
 
 		let header = import_block.post_header();
 		let block_import = self.block_import.lock();

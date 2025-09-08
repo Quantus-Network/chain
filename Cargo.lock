@@ -8438,7 +8438,6 @@ dependencies = [
  "sc-cli",
  "sc-client-api",
  "sc-consensus",
- "sc-consensus-pow",
  "sc-consensus-qpow",
  "sc-executor",
  "sc-network",
@@ -9597,8 +9596,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-consensus-pow"
-version = "0.47.0"
+name = "sc-consensus-qpow"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -9606,41 +9605,24 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "parking_lot 0.12.4",
- "sc-client-api",
- "sc-consensus",
- "sp-api",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-pow",
- "sp-core",
- "sp-inherents",
- "sp-runtime",
- "substrate-prometheus-endpoint",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "sc-consensus-qpow"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures 0.3.31",
- "log",
- "parity-scale-codec",
  "primitive-types 0.13.1",
  "sc-client-api",
- "sc-consensus-pow",
+ "sc-consensus",
  "sc-service",
  "scale-info",
  "sha2 0.10.9",
  "sha3",
  "sp-api",
+ "sp-block-builder",
  "sp-blockchain",
  "sp-consensus",
  "sp-consensus-pow",
  "sp-consensus-qpow",
+ "sp-core",
+ "sp-inherents",
  "sp-runtime",
+ "substrate-prometheus-endpoint",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -9840,7 +9822,9 @@ dependencies = [
  "sp-consensus",
  "sp-core",
  "sp-crypto-hashing",
+ "sp-inherents",
  "sp-runtime",
+ "sp-std",
  "substrate-prometheus-endpoint",
  "tempfile",
  "thiserror 1.0.69",
