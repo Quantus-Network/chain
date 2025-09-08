@@ -57,27 +57,24 @@ fn set_high_security_works() {
 			Some(HighSecurityAccountData {
 				delay: BlockNumberOrTimestampOf::<Test>::BlockNumber(10),
 				interceptor: 2,
-				recoverer: 3,
 			})
 		);
 
 		// Set the delay
 		let another_user = 4;
 		let interceptor = 5;
-		let recoverer = 6;
 		let delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(5);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(another_user),
 			delay,
 			interceptor,
-			recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&another_user),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 		System::assert_last_event(
-			Event::HighSecuritySet { who: another_user, interceptor, recoverer, delay }.into(),
+			Event::HighSecuritySet { who: another_user, interceptor, delay }.into(),
 		);
 
 		// Calling this again should err
@@ -86,7 +83,6 @@ fn set_high_security_works() {
 				RuntimeOrigin::signed(another_user),
 				delay,
 				interceptor,
-				recoverer,
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
@@ -94,26 +90,22 @@ fn set_high_security_works() {
 		// Use default delay
 		let default_user = 7;
 		let default_interceptor = 8;
-		let default_recoverer = 9;
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(default_user),
 			DefaultDelay::get(),
 			default_interceptor,
-			default_recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&default_user),
 			Some(HighSecurityAccountData {
 				delay: DefaultDelay::get(),
 				interceptor: default_interceptor,
-				recoverer: default_recoverer,
 			})
 		);
 		System::assert_last_event(
 			Event::HighSecuritySet {
 				who: default_user,
 				interceptor: default_interceptor,
-				recoverer: default_recoverer,
 				delay: DefaultDelay::get(),
 			}
 			.into(),
@@ -125,14 +117,12 @@ fn set_high_security_works() {
 
 		let new_user = 10;
 		let new_interceptor = 11;
-		let new_recoverer = 12;
 		let short_delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(1);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(new_user),
 				short_delay,
 				new_interceptor,
-				new_recoverer,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -143,20 +133,8 @@ fn set_high_security_works() {
 				RuntimeOrigin::signed(new_user),
 				delay,
 				new_user,
-				new_recoverer,
 			),
 			Error::<Test>::InterceptorCannotBeSelf
-		);
-
-		// Test recoverer cannot be self
-		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(new_user),
-				delay,
-				new_interceptor,
-				new_user,
-			),
-			Error::<Test>::RecovererCannotBeSelf
 		);
 
 		assert_eq!(ReversibleTransfers::is_high_security(&new_user), None);
@@ -164,16 +142,14 @@ fn set_high_security_works() {
 		// Use explicit reverser
 		let reversible_account = 6;
 		let interceptor = 7;
-		let recoverer = 8;
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 	});
 }
@@ -191,19 +167,17 @@ fn set_reversibility_with_timestamp_delay_works() {
 		let delay = BlockNumberOrTimestamp::Timestamp(5 * TimestampBucketSize::get());
 
 		let interceptor = 16;
-		let recoverer = 17;
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user),
 			delay,
 			interceptor,
-			recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&user),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 		System::assert_last_event(
-			Event::HighSecuritySet { who: user, interceptor, recoverer, delay }.into(),
+			Event::HighSecuritySet { who: user, interceptor, delay }.into(),
 		);
 
 		// Too short timestamp delay
@@ -214,13 +188,11 @@ fn set_reversibility_with_timestamp_delay_works() {
 		let another_user = 5;
 
 		let another_interceptor = 18;
-		let another_recoverer = 19;
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(another_user),
 				short_delay_ts,
 				another_interceptor,
-				another_recoverer,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -233,14 +205,12 @@ fn set_reversibility_fails_delay_too_short() {
 		System::set_block_number(1);
 		let user = 20;
 		let interceptor = 21;
-		let recoverer = 22;
 		let short_delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(1);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(user),
 				short_delay,
 				interceptor,
-				recoverer,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -307,7 +277,6 @@ fn schedule_transfer_works() {
 			RuntimeOrigin::signed(reversible_account),
 			BlockNumberOrTimestamp::BlockNumber(10),
 			interceptor,
-			reversible_account + 100,
 		));
 
 		let tx_id = calculate_tx_id::<Test>(reversible_account, &call);
@@ -378,7 +347,6 @@ fn schedule_transfer_with_timestamp_works() {
 			RuntimeOrigin::signed(user),
 			BlockNumberOrTimestamp::Timestamp(10_000),
 			user + 100,
-			user + 200,
 		));
 
 		let timestamp_bucket_size = TimestampBucketSize::get();
@@ -433,7 +401,6 @@ fn schedule_transfer_with_timestamp_works() {
 			RuntimeOrigin::signed(reversible_account),
 			BlockNumberOrTimestamp::BlockNumber(10),
 			interceptor,
-			reversible_account + 100,
 		));
 
 		let tx_id = calculate_tx_id::<Test>(reversible_account, &call);
@@ -703,7 +670,6 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 			RuntimeOrigin::signed(user),
 			user_timestamp_delay,
 			user + 100,
-			user + 200,
 		));
 
 		let user_balance_before = Balances::free_balance(user);
@@ -827,7 +793,6 @@ fn full_flow_execute_with_timestamp_delay_works() {
 			RuntimeOrigin::signed(user),
 			user_timestamp_delay,
 			user + 100,
-			user + 200,
 		));
 
 		let initial_user_balance = Balances::free_balance(user);
@@ -952,7 +917,6 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 			RuntimeOrigin::signed(user),
 			user_timestamp_delay,
 			user + 100,
-			user + 200,
 		));
 
 		let initial_user_balance = Balances::free_balance(user);
@@ -1637,7 +1601,6 @@ fn interceptor_index_works_with_interceptor() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			reversible_account + 100,
 		));
 
 		// Verify interceptor index is updated
@@ -1651,7 +1614,6 @@ fn interceptor_index_works_with_interceptor() {
 			Some(HighSecurityAccountData {
 				delay,
 				interceptor,
-				recoverer: reversible_account + 100,
 			})
 		);
 	});
@@ -1671,21 +1633,18 @@ fn interceptor_index_handles_multiple_accounts() {
 			RuntimeOrigin::signed(account1),
 			delay,
 			interceptor,
-			account1 + 100,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account2),
 			delay,
 			interceptor,
-			account2 + 100,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account3),
 			delay,
 			interceptor,
-			account3 + 100,
 		));
 
 		// Verify interceptor index contains all accounts
@@ -1709,7 +1668,6 @@ fn interceptor_index_prevents_duplicates() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			reversible_account + 100,
 		));
 
 		// Verify initial state
@@ -1723,7 +1681,6 @@ fn interceptor_index_prevents_duplicates() {
 				RuntimeOrigin::signed(reversible_account),
 				delay,
 				interceptor,
-				reversible_account + 100,
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
@@ -1746,7 +1703,6 @@ fn interceptor_index_respects_max_limit() {
 				RuntimeOrigin::signed(i),
 				delay,
 				interceptor,
-				i + 100,
 			));
 		}
 
@@ -1760,7 +1716,6 @@ fn interceptor_index_respects_max_limit() {
 				RuntimeOrigin::signed(111),
 				delay,
 				interceptor,
-				211,
 			),
 			Error::<Test>::TooManyInterceptorAccounts
 		);
@@ -1783,7 +1738,6 @@ fn interceptor_index_empty_for_non_interceptors() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			reversible_account + 100,
-			reversible_account + 200,
 		));
 
 		// Verify non-interceptor has empty list
@@ -1806,14 +1760,12 @@ fn interceptor_index_different_interceptors_separate_lists() {
 			RuntimeOrigin::signed(account1),
 			delay,
 			interceptor1,
-			account1 + 100,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account2),
 			delay,
 			interceptor2,
-			account2 + 100,
 		));
 
 		// Verify each interceptor has their own separate list
@@ -1839,7 +1791,6 @@ fn interceptor_index_works_with_intercept_policy() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			reversible_account + 100,
 		));
 
 		// Verify interceptor index is updated regardless of policy
@@ -1853,7 +1804,6 @@ fn interceptor_index_works_with_intercept_policy() {
 			Some(HighSecurityAccountData {
 				delay,
 				interceptor,
-				recoverer: reversible_account + 100,
 			})
 		);
 	});
@@ -1876,7 +1826,6 @@ fn global_nonce_works() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			receiver,
 		));
 
 		assert_ok!(ReversibleTransfers::schedule_transfer(

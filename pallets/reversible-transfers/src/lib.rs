@@ -40,8 +40,6 @@ pub type RecoveryBlockNumberOf<T> =
 pub struct HighSecurityAccountData<AccountId, Delay> {
 	/// The account that can reverse the transaction
 	pub interceptor: AccountId,
-	/// The account that is able to do recovery
-	pub recoverer: AccountId,
 	/// The delay period for the account
 	pub delay: Delay,
 }
@@ -243,7 +241,6 @@ pub mod pallet {
 		HighSecuritySet {
 			who: T::AccountId,
 			interceptor: T::AccountId,
-			recoverer: T::AccountId,
 			delay: BlockNumberOrTimestampOf<T>,
 		},
 		/// A transaction has been intercepted and scheduled for delayed execution.
@@ -327,12 +324,10 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			delay: BlockNumberOrTimestampOf<T>,
 			interceptor: T::AccountId,
-			recoverer: T::AccountId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin.clone())?;
 
 			ensure!(interceptor != who.clone(), Error::<T>::InterceptorCannotBeSelf);
-			ensure!(recoverer != who.clone(), Error::<T>::RecovererCannotBeSelf);
 			ensure!(
 				!HighSecurityAccounts::<T>::contains_key(&who),
 				Error::<T>::AccountAlreadyHighSecurity
@@ -340,19 +335,20 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-			// Use zero recovery delay for creation (no inheritance lock by default)
-			let recovery_delay_blocks: RecoveryBlockNumberOf<T> = Zero::zero();
 
 			// Set up recovery mechanisms through the recovery pallet
 			let high_security_account_data = HighSecurityAccountData {
 				interceptor: interceptor.clone(),
-				recoverer: recoverer.clone(),
 				delay,
 			};
 
+			// Set up zero delay recovery for interceptor
+			// The interceptor then simply needs to claim the recovery in order to be able
+			// to make calls on behalf of the high security account.
+			let recovery_delay_blocks: RecoveryBlockNumberOf<T> = Zero::zero();
 			pallet_recovery::Pallet::<T>::create_recovery(
 				origin,
-				alloc::vec![recoverer.clone()],
+				alloc::vec![interceptor.clone()],
 				1u16,
 				recovery_delay_blocks,
 			)?;
@@ -369,7 +365,7 @@ pub mod pallet {
 			})?;
 
 			HighSecurityAccounts::<T>::insert(who.clone(), &high_security_account_data);
-			Self::deposit_event(Event::HighSecuritySet { who, interceptor, recoverer, delay });
+			Self::deposit_event(Event::HighSecuritySet { who, interceptor, delay });
 
 			Ok(())
 		}
@@ -758,26 +754,25 @@ pub mod pallet {
 	#[pallet::genesis_config]
 	#[derive(frame_support::DefaultNoBound)]
 	pub struct GenesisConfig<T: Config> {
-		/// Configure initial reversible accounts. [AccountId, Delay]
-		/// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block
-		/// numbers
-		pub initial_high_security_accounts:
-			Vec<(T::AccountId, T::AccountId, T::AccountId, BlockNumberFor<T>)>,
+	/// Configure initial reversible accounts. [AccountId, Delay]
+	/// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block
+	/// numbers
+	pub initial_high_security_accounts:
+		Vec<(T::AccountId, T::AccountId, BlockNumberFor<T>)>,
 	}
 
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			for (who, interceptor, recoverer, delay) in &self.initial_high_security_accounts {
+			for (who, interceptor, delay) in &self.initial_high_security_accounts {
 				// Basic validation, ensure delay is reasonable if needed
 				let wrapped_delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
 
-				if delay >= &T::MinDelayPeriodBlocks::get() {
+				if *delay >= T::MinDelayPeriodBlocks::get() {
 					HighSecurityAccounts::<T>::insert(
 						who,
 						HighSecurityAccountData {
 							interceptor: interceptor.clone(),
-							recoverer: recoverer.clone(),
 							delay: wrapped_delay,
 						},
 					);

@@ -243,7 +243,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	.unwrap();
 
 	pallet_reversible_transfers::GenesisConfig::<Test> {
-		initial_high_security_accounts: vec![(1, 2, 3, 10)],
+		initial_high_security_accounts: vec![(1, 2, 10)],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

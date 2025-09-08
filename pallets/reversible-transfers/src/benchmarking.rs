@@ -42,7 +42,7 @@ fn setup_high_security_account<T: Config>(
 ) {
 	HighSecurityAccounts::<T>::insert(
 		who,
-		HighSecurityAccountData { delay, interceptor, recoverer },
+		HighSecurityAccountData { delay, interceptor },
 	);
 }
 
@@ -91,7 +91,7 @@ mod benchmarks {
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 
 		Ok(())

@@ -141,7 +141,7 @@ mod tests {
 		.unwrap();
 
 		pallet_reversible_transfers::GenesisConfig::<Runtime> {
-			initial_high_security_accounts: vec![(charlie(), alice(), bob(), 10)],
+			initial_high_security_accounts: vec![(charlie(), alice(), 10)],
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
