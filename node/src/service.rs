@@ -3,7 +3,7 @@
 use futures::{FutureExt, StreamExt};
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPowAlgorithm};
+use sc_consensus_qpow::{ChainManagement, QPoWMiner};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
@@ -36,7 +36,6 @@ pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 	Arc<FullClient>,
 	FullClient,
 	FullSelectChain,
-	QPowAlgorithm<Block, FullClient>,
 	Box<
 		dyn sp_inherents::CreateInherentDataProviders<
 			Block,
@@ -142,13 +141,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		telemetry
 	});
 
-	let pow_algorithm = QPowAlgorithm { client: client.clone(), _phantom: Default::default() };
-
-	let select_chain = sc_consensus_qpow::HeaviestChain::new(
-		backend.clone(),
-		Arc::clone(&client),
-		pow_algorithm.clone(),
-	);
+	let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client));
 
 	let pool_options = TransactionPoolOptions::new_with_params(
 		36772, /* each tx is about 7300 bytes so if we have 268MB for the pool we can fit this
@@ -174,7 +167,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	let pow_block_import = sc_consensus_qpow::PowBlockImport::new(
 		Arc::clone(&client),
 		Arc::clone(&client),
-		pow_algorithm,
 		0, // check inherents starting at block 0
 		select_chain.clone(),
 		inherent_data_providers,
@@ -182,10 +174,9 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 
 	let logging_block_import = LoggingBlockImport::new(pow_block_import);
 
-	let import_queue = sc_consensus_qpow::import_queue(
+	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
 		Box::new(logging_block_import.clone()),
 		None,
-		QPowAlgorithm { client: client.clone(), _phantom: Default::default() },
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 	)?;
@@ -313,8 +304,6 @@ pub fn new_full<
 
 		let inherent_data_providers = build_inherent_data_providers()?;
 
-		let pow_algorithm = QPowAlgorithm { client: client.clone(), _phantom: Default::default() };
-
 		let encoded_miner = if let Some(addr_str) = rewards_address {
 			match addr_str.parse::<AccountId32>() {
 				Ok(account) => {
@@ -334,7 +323,6 @@ pub fn new_full<
 			Box::new(pow_block_import),
 			client.clone(),
 			select_chain.clone(),
-			pow_algorithm,
 			proposer,
 			sync_service.clone(),
 			sync_service.clone(),

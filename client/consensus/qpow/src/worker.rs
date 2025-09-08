@@ -16,8 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::PowAlgorithm;
-use sp_consensus_pow::{Seal, POW_ENGINE_ID};
+// use client directly; QPowAlgorithm removed
 use crate::LOG_TARGET;
 use futures::{
 	prelude::*,
@@ -26,9 +25,12 @@ use futures::{
 use futures_timer::Delay;
 use log::*;
 use parking_lot::Mutex;
+use primitive_types::{H256, U512};
 use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
+use sp_api::ProvideRuntimeApi;
 use sp_consensus::{BlockOrigin, Proposal};
+use sp_consensus_pow::{Seal, POW_ENGINE_ID};
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
 	DigestItem,
@@ -56,9 +58,9 @@ pub struct MiningMetadata<H, D> {
 }
 
 /// A build of mining, containing the metadata and the block proposal.
-pub struct MiningBuild<Block: BlockT, Algorithm: PowAlgorithm<Block>, Proof> {
+pub struct MiningBuild<Block: BlockT, Proof> {
 	/// Mining metadata.
-	pub metadata: MiningMetadata<Block::Hash, Algorithm::Difficulty>,
+	pub metadata: MiningMetadata<Block::Hash, U512>,
 	/// Mining proposal.
 	pub proposal: Proposal<Block, Proof>,
 }
@@ -68,24 +70,18 @@ pub struct MiningBuild<Block: BlockT, Algorithm: PowAlgorithm<Block>, Proof> {
 pub struct Version(usize);
 
 /// Mining worker that exposes structs to query the current mining build and submit mined blocks.
-pub struct MiningHandle<
-	Block: BlockT,
-	Algorithm: PowAlgorithm<Block>,
-	L: sc_consensus::JustificationSyncLink<Block>,
-	Proof,
-> {
+pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLink<Block>, Proof> {
 	version: Arc<AtomicUsize>,
-	algorithm: Arc<Algorithm>,
+	client: Arc<AC>,
 	justification_sync_link: Arc<L>,
-	build: Arc<Mutex<Option<MiningBuild<Block, Algorithm, Proof>>>>,
+	build: Arc<Mutex<Option<MiningBuild<Block, Proof>>>>,
 	block_import: Arc<Mutex<BoxBlockImport<Block>>>,
 }
 
-impl<Block, Algorithm, L, Proof> MiningHandle<Block, Algorithm, L, Proof>
+impl<Block, AC, L, Proof> MiningHandle<Block, AC, L, Proof>
 where
-	Block: BlockT,
-	Algorithm: PowAlgorithm<Block>,
-	Algorithm::Difficulty: 'static + Send,
+	Block: BlockT<Hash = H256>,
+	AC: ProvideRuntimeApi<Block>,
 	L: sc_consensus::JustificationSyncLink<Block>,
 {
 	fn increment_version(&self) {
@@ -93,13 +89,13 @@ where
 	}
 
 	pub(crate) fn new(
-		algorithm: Algorithm,
+		client: Arc<AC>,
 		block_import: BoxBlockImport<Block>,
 		justification_sync_link: L,
 	) -> Self {
 		Self {
 			version: Arc::new(AtomicUsize::new(0)),
-			algorithm: Arc::new(algorithm),
+			client,
 			justification_sync_link: Arc::new(justification_sync_link),
 			build: Arc::new(Mutex::new(None)),
 			block_import: Arc::new(Mutex::new(block_import)),
@@ -112,7 +108,7 @@ where
 		self.increment_version();
 	}
 
-	pub(crate) fn on_build(&self, value: MiningBuild<Block, Algorithm, Proof>) {
+	pub(crate) fn on_build(&self, value: MiningBuild<Block, Proof>) {
 		let mut build = self.build.lock();
 		*build = Some(value);
 		self.increment_version();
@@ -133,7 +129,7 @@ where
 	}
 
 	/// Get a copy of the current mining metadata, if available.
-	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, Algorithm::Difficulty>> {
+	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, U512>> {
 		self.build.lock().as_ref().map(|b| b.metadata.clone())
 	}
 
@@ -163,7 +159,6 @@ where
 		import_block.state_action =
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
-
 		let header = import_block.post_header();
 		let block_import = self.block_import.lock();
 
@@ -189,16 +184,16 @@ where
 	}
 }
 
-impl<Block, Algorithm, L, Proof> Clone for MiningHandle<Block, Algorithm, L, Proof>
+impl<Block, AC, L, Proof> Clone for MiningHandle<Block, AC, L, Proof>
 where
-	Block: BlockT,
-	Algorithm: PowAlgorithm<Block>,
+	Block: BlockT<Hash = H256>,
+	AC: ProvideRuntimeApi<Block>,
 	L: sc_consensus::JustificationSyncLink<Block>,
 {
 	fn clone(&self) -> Self {
 		Self {
 			version: self.version.clone(),
-			algorithm: self.algorithm.clone(),
+			client: self.client.clone(),
 			justification_sync_link: self.justification_sync_link.clone(),
 			build: self.build.clone(),
 			block_import: self.block_import.clone(),

@@ -12,18 +12,16 @@ use sp_consensus_qpow::QPoWApi;
 use sp_runtime::generic::BlockId;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
-
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
 
 use crate::worker::UntilImportedOrTimeout;
-use codec::{Decode, Encode};
 use futures::{Future, StreamExt};
 use log::*;
 use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
 use sc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
-	BoxJustificationImport, ForkChoiceStrategy, ImportResult, Verifier, JustificationSyncLink
+	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, Verifier,
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
@@ -32,7 +30,7 @@ use sp_consensus_pow::{Seal, POW_ENGINE_ID};
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
-	traits::{Header as HeaderT},
+	traits::Header as HeaderT,
 };
 
 const LOG_TARGET: &str = "pow";
@@ -98,39 +96,8 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 
 // Removed PoW aux storage in QPoW implementation to reduce abstractions.
 
-/// Local minimal PowAlgorithm trait to avoid dependency on sc-consensus-pow.
-pub trait PowAlgorithm<B: BlockT> {
-	/// Difficulty for the algorithm.
-	type Difficulty: Default + Encode + Decode + Ord + Clone + Copy;
-
-	/// Get the next block's difficulty.
-	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>>;
-	/// Verify that the seal is valid against given pre hash when parent block is not yet imported.
-	/// None means that preliminary verify is not available for this algorithm.
-	fn preliminary_verify(
-		&self,
-		_pre_hash: &B::Hash,
-		_seal: &Seal,
-	) -> Result<Option<bool>, Error<B>> {
-		Ok(None)
-	}
-	/// Break a fork choice tie.
-	/// Returns if the new seal should be considered best block.
-	fn break_tie(&self, _own_seal: &Seal, _new_seal: &Seal) -> bool { false }
-	/// Verify that the difficulty is valid against given seal.
-	fn verify(
-		&self,
-		parent: &BlockId<B>,
-		pre_hash: &B::Hash,
-		pre_digest: Option<&[u8]>,
-		seal: &Seal,
-		difficulty: Self::Difficulty,
-	) -> Result<(bool, U512), Error<B>>;
-}
-
 /// A block importer for PoW.
-pub struct PowBlockImport<B: BlockT, I, C, S, Algorithm, CIDP> {
-	algorithm: Algorithm,
+pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP> {
 	inner: I,
 	select_chain: S,
 	client: Arc<C>,
@@ -138,12 +105,11 @@ pub struct PowBlockImport<B: BlockT, I, C, S, Algorithm, CIDP> {
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 }
 
-impl<B: BlockT, I: Clone, C, S: Clone, Algorithm: Clone, CIDP> Clone
-for PowBlockImport<B, I, C, S, Algorithm, CIDP>
+impl<B: BlockT<Hash = H256>, I: Clone, C: ProvideRuntimeApi<B>, S: Clone, CIDP> Clone
+	for PowBlockImport<B, I, C, S, CIDP>
 {
 	fn clone(&self) -> Self {
 		Self {
-			algorithm: self.algorithm.clone(),
 			inner: self.inner.clone(),
 			select_chain: self.select_chain.clone(),
 			client: self.client.clone(),
@@ -153,21 +119,27 @@ for PowBlockImport<B, I, C, S, Algorithm, CIDP>
 	}
 }
 
-impl<B, I, C, S, Algorithm, CIDP> PowBlockImport<B, I, C, S, Algorithm, CIDP>
+impl<B, I, C, S, CIDP> PowBlockImport<B, I, C, S, CIDP>
 where
-	B: BlockT,
+	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
 	I::Error: Into<ConsensusError>,
-	C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + AuxStore + BlockOf,
+	C: ProvideRuntimeApi<B>
+		+ BlockBackend<B>
+		+ Send
+		+ Sync
+		+ HeaderBackend<B>
+		+ AuxStore
+		+ BlockOf
+		+ 'static,
+	C::Api: QPoWApi<B>,
 	C::Api: BlockBuilderApi<B>,
-	Algorithm: PowAlgorithm<B>,
 	CIDP: CreateInherentDataProviders<B, ()>,
 {
 	/// Create a new block import suitable to be used in PoW
 	pub fn new(
 		inner: I,
 		client: Arc<C>,
-		algorithm: Algorithm,
 		check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 		select_chain: S,
 		create_inherent_data_providers: CIDP,
@@ -175,7 +147,6 @@ where
 		Self {
 			inner,
 			client,
-			algorithm,
 			check_inherents_after,
 			select_chain,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
@@ -217,16 +188,21 @@ where
 }
 
 #[async_trait::async_trait]
-impl<B, I, C, S, Algorithm, CIDP> BlockImport<B> for PowBlockImport<B, I, C, S, Algorithm, CIDP>
+impl<B, I, C, S, CIDP> BlockImport<B> for PowBlockImport<B, I, C, S, CIDP>
 where
-	B: BlockT,
+	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
 	I::Error: Into<ConsensusError>,
 	S: SelectChain<B>,
-	C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + AuxStore + BlockOf,
-	C::Api: BlockBuilderApi<B>,
-	Algorithm: PowAlgorithm<B> + Send + Sync,
-	Algorithm::Difficulty: 'static + Send,
+	C: ProvideRuntimeApi<B>
+		+ BlockBackend<B>
+		+ Send
+		+ Sync
+		+ HeaderBackend<B>
+		+ AuxStore
+		+ BlockOf
+		+ 'static,
+	C::Api: BlockBuilderApi<B> + QPoWApi<B>,
 	CIDP: CreateInherentDataProviders<B, ()> + Send + Sync,
 {
 	type Error = ConsensusError;
@@ -260,7 +236,7 @@ where
 						.create_inherent_data_providers(parent_hash, ())
 						.await?,
 				)
-					.await?;
+				.await?;
 			}
 
 			block.body = Some(check_block.deconstruct().1);
@@ -268,17 +244,16 @@ where
 
 		let inner_seal = fetch_seal::<B>(block.post_digests.last(), block.header.hash())?;
 
-		// Fetch difficulty directly; no intermediate passing needed
-		let difficulty = self.algorithm.difficulty(parent_hash)?;
+		// Fetch difficulty directly using the client
+		let difficulty = qpow_get_difficulty::<B, C>(&*self.client, parent_hash)?;
 
 		let pre_hash = block.header.hash();
 		let pre_digest = find_pre_digest::<B>(&block.header)?;
-		let (verified, difficulty) = self.algorithm.verify(
+		let (verified, difficulty) = qpow_verify::<B, C>(
+			&*self.client,
 			&BlockId::hash(parent_hash),
 			&pre_hash,
-			pre_digest.as_ref().map(|v| &v[..]),
 			&inner_seal,
-			difficulty,
 		)?;
 
 		if !verified {
@@ -296,35 +271,37 @@ where
 }
 
 /// A verifier for PoW blocks.
-pub struct PowVerifier<B: BlockT, Algorithm> {
-	algorithm: Algorithm,
-	_marker: PhantomData<B>,
+pub struct PowVerifier<B: BlockT<Hash = H256>, C: ProvideRuntimeApi<B>> {
+	_marker: PhantomData<(B, C)>,
 }
 
-impl<B: BlockT, Algorithm> PowVerifier<B, Algorithm> {
-	pub fn new(algorithm: Algorithm) -> Self {
-		Self { algorithm, _marker: PhantomData }
+impl<B: BlockT<Hash = H256>, C> PowVerifier<B, C>
+where
+	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
+	C::Api: QPoWApi<B>,
+{
+	pub fn new() -> Self {
+		Self { _marker: PhantomData }
 	}
 
-	fn check_header(&self, mut header: B::Header) -> Result<(B::Header, DigestItem), Error<B>>
-	where
-		Algorithm: PowAlgorithm<B>,
-	{
+	fn check_header(&self, mut header: B::Header) -> Result<(B::Header, DigestItem), Error<B>> {
 		let hash = header.hash();
 
 		let (seal, inner_seal) = match header.digest_mut().pop() {
-			Some(DigestItem::Seal(id, seal)) =>
+			Some(DigestItem::Seal(id, seal)) => {
 				if id == POW_ENGINE_ID {
 					(DigestItem::Seal(id, seal.clone()), seal)
 				} else {
 					return Err(Error::WrongEngine(id));
-				},
+				}
+			},
 			_ => return Err(Error::HeaderUnsealed(hash)),
 		};
 
 		let pre_hash = header.hash();
 
-		if !self.algorithm.preliminary_verify(&pre_hash, &inner_seal)?.unwrap_or(true) {
+		// preliminary_verify is not used in QPoW (always None)
+		if !Option::<bool>::None.unwrap_or(true) {
 			return Err(Error::FailedPreliminaryVerify);
 		}
 
@@ -333,10 +310,11 @@ impl<B: BlockT, Algorithm> PowVerifier<B, Algorithm> {
 }
 
 #[async_trait::async_trait]
-impl<B: BlockT, Algorithm> Verifier<B> for PowVerifier<B, Algorithm>
+impl<B, C> Verifier<B> for PowVerifier<B, C>
 where
-	Algorithm: PowAlgorithm<B> + Send + Sync,
-	Algorithm::Difficulty: 'static + Send,
+	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
+	C::Api: QPoWApi<B>,
 {
 	async fn verify(
 		&self,
@@ -357,19 +335,18 @@ where
 pub type PowImportQueue<B> = BasicQueue<B>;
 
 /// Import queue for PoW engine.
-pub fn import_queue<B, Algorithm>(
+pub fn import_queue<B, C>(
 	block_import: BoxBlockImport<B>,
 	justification_import: Option<BoxJustificationImport<B>>,
-	algorithm: Algorithm,
 	spawner: &impl sp_core::traits::SpawnEssentialNamed,
 	registry: Option<&Registry>,
 ) -> Result<PowImportQueue<B>, sp_consensus::Error>
 where
-	B: BlockT,
-	Algorithm: PowAlgorithm<B> + Clone + Send + Sync + 'static,
-	Algorithm::Difficulty: Send,
+	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
+	C::Api: QPoWApi<B>,
 {
-	let verifier = PowVerifier::new(algorithm);
+	let verifier = PowVerifier::<B, C>::new();
 
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
@@ -383,11 +360,10 @@ where
 ///
 /// `pre_runtime` is a parameter that allows a custom additional pre-runtime digest to be inserted
 /// for blocks being built. This can encode authorship information, or just be a graffiti.
-pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, L, CIDP>(
+pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
 	block_import: BoxBlockImport<Block>,
 	client: Arc<C>,
 	select_chain: S,
-	algorithm: Algorithm,
 	mut env: E,
 	sync_oracle: SO,
 	justification_sync_link: L,
@@ -395,16 +371,17 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, L, CIDP>(
 	create_inherent_data_providers: CIDP,
 	timeout: Duration,
 	build_time: Duration,
-) -> (
-	MiningHandle<Block, Algorithm, L, <E::Proposer as Proposer<Block>>::Proof>,
-	impl Future<Output = ()>,
-)
+) -> (MiningHandle<Block, C, L, <E::Proposer as Proposer<Block>>::Proof>, impl Future<Output = ()>)
 where
-	Block: BlockT,
-	C: BlockchainEvents<Block> + 'static,
+	Block: BlockT<Hash = H256>,
+	C: BlockchainEvents<Block>
+		+ ProvideRuntimeApi<Block>
+		+ BlockBackend<Block>
+		+ Send
+		+ Sync
+		+ 'static,
+	C::Api: QPoWApi<Block>,
 	S: SelectChain<Block> + 'static,
-	Algorithm: PowAlgorithm<Block> + Clone,
-	Algorithm::Difficulty: Send + 'static,
 	E: Environment<Block> + Send + Sync + 'static,
 	E::Error: std::fmt::Debug,
 	E::Proposer: Proposer<Block>,
@@ -413,7 +390,7 @@ where
 	CIDP: CreateInherentDataProviders<Block, ()>,
 {
 	let mut timer = UntilImportedOrTimeout::new(client.import_notification_stream(), timeout);
-	let worker = MiningHandle::new(algorithm.clone(), block_import, justification_sync_link);
+	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
 	let worker_ret = worker.clone();
 
 	let task = async move {
@@ -449,7 +426,7 @@ where
 			// The worker is locked for the duration of the whole proposing period. Within this
 			// period, the mining target is outdated and useless anyway.
 
-			let difficulty = match algorithm.difficulty(best_hash) {
+			let difficulty = match qpow_get_difficulty::<Block, C>(&*client, best_hash) {
 				Ok(x) => x,
 				Err(err) => {
 					warn!(
@@ -525,7 +502,7 @@ where
 					},
 				};
 
-			let build = MiningBuild::<Block, Algorithm, _> {
+			let build = MiningBuild::<Block, _> {
 				metadata: MiningMetadata {
 					best_hash,
 					pre_hash: proposal.block.header().hash(),
@@ -548,8 +525,9 @@ fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<Option<Vec<u8>>, Err
 	for log in header.digest().logs() {
 		trace!(target: LOG_TARGET, "Checking log {:?}, looking for pre runtime digest", log);
 		match (log, pre_digest.is_some()) {
-			(DigestItem::PreRuntime(POW_ENGINE_ID, _), true) =>
-				return Err(Error::MultiplePreRuntimeDigests),
+			(DigestItem::PreRuntime(POW_ENGINE_ID, _), true) => {
+				return Err(Error::MultiplePreRuntimeDigests)
+			},
 			(DigestItem::PreRuntime(POW_ENGINE_ID, v), false) => {
 				pre_digest = Some(v.clone());
 			},
@@ -563,101 +541,84 @@ fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<Option<Vec<u8>>, Err
 /// Fetch PoW seal.
 fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<Vec<u8>, Error<B>> {
 	match digest {
-		Some(DigestItem::Seal(id, seal)) =>
+		Some(DigestItem::Seal(id, seal)) => {
 			if id == &POW_ENGINE_ID {
 				Ok(seal.clone())
 			} else {
 				Err(Error::<B>::WrongEngine(*id))
-			},
+			}
+		},
 		_ => Err(Error::<B>::HeaderUnsealed(hash)),
-	}
-}
-
-
-
-pub struct QPowAlgorithm<B, C>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B>,
-{
-	pub client: Arc<C>,
-	pub _phantom: PhantomData<B>,
-}
-
-impl<B, C> Clone for QPowAlgorithm<B, C>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B>,
-{
-	fn clone(&self) -> Self {
-		Self { client: Arc::clone(&self.client), _phantom: PhantomData }
-	}
-}
-
-// Here we implement the general PowAlgorithm trait for our concrete Sha3Algorithm
-impl<B, C> PowAlgorithm<B> for QPowAlgorithm<B, C>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + BlockBackend<B> + Send + Sync + 'static,
-	C::Api: QPoWApi<B>,
-{
-	type Difficulty = U512;
-
-	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
-		self.client
-			.runtime_api()
-			.get_difficulty(parent)
-			.map(U512::from)
-			.map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
-	}
-
-	fn verify(
-		&self,
-		parent: &BlockId<B>,
-		pre_hash: &H256,
-		_pre_digest: Option<&[u8]>,
-		seal: &RawSeal,
-		_difficulty: Self::Difficulty,
-	) -> Result<(bool, U512), Error<B>> {
-		// Executed for mined and imported blocks
-
-		// Convert seal to nonce [u8; 64]
-		let nonce: [u8; 64] = match seal.as_slice().try_into() {
-			Ok(arr) => arr,
-			Err(_) => panic!("Vec<u8> does not have exactly 64 elements"),
-		};
-		let parent_hash = match extract_block_hash(parent) {
-			Ok(hash) => hash,
-			Err(_) => return Ok((false, U512::zero())),
-		};
-
-		let pre_hash = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
-		let verified = self
-			.client
-			.runtime_api()
-			.verify_nonce_on_import_block(parent_hash, pre_hash, nonce)
-			.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
-
-		// Get difficulty for error reporting (verification function no longer returns it)
-		let difficulty = self
-			.client
-			.runtime_api()
-			.get_difficulty(parent_hash)
-			.map_err(|e| Error::Runtime(format!("API error getting difficulty: {:?}", e)))?;
-
-		if !verified {
-			log::warn!("Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime", pre_hash, parent_hash, nonce, difficulty);
-			return Ok((false, U512::zero()));
-		}
-
-		Ok((true, difficulty))
 	}
 }
 
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) =>
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
+		BlockId::Number(_) => {
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
+		},
 	}
+}
+
+// Helper functions to enable removal of QPowAlgorithm by using the client directly.
+pub fn qpow_get_difficulty<B, C>(client: &C, parent: B::Hash) -> Result<U512, Error<B>>
+where
+	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B>,
+	C::Api: QPoWApi<B>,
+{
+	client
+		.runtime_api()
+		.get_difficulty(parent)
+		.map(U512::from)
+		.map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
+}
+
+pub fn qpow_verify<B, C>(
+	client: &C,
+	parent: &BlockId<B>,
+	pre_hash: &H256,
+	seal: &RawSeal,
+) -> Result<(bool, U512), Error<B>>
+where
+	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B>,
+	C::Api: QPoWApi<B>,
+{
+	// Convert seal to nonce [u8; 64]
+	let nonce: [u8; 64] = match seal.as_slice().try_into() {
+		Ok(arr) => arr,
+		Err(_) => panic!("Vec<u8> does not have exactly 64 elements"),
+	};
+
+	let parent_hash = match extract_block_hash(parent) {
+		Ok(hash) => hash,
+		Err(_) => return Ok((false, U512::zero())),
+	};
+
+	let pre_hash_arr = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
+
+	let verified = client
+		.runtime_api()
+		.verify_nonce_on_import_block(parent_hash, pre_hash_arr, nonce)
+		.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
+
+	let difficulty = client
+		.runtime_api()
+		.get_difficulty(parent_hash)
+		.map_err(|e| Error::Runtime(format!("API error getting difficulty: {:?}", e)))?;
+
+	if !verified {
+		log::warn!(
+            "Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime",
+            pre_hash_arr,
+            parent_hash,
+            nonce,
+            difficulty
+        );
+		return Ok((false, U512::zero()));
+	}
+
+	Ok((true, difficulty))
 }

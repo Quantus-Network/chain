@@ -40,4 +40,8 @@ std = [
 	"scale-info/std",
 	"sha2/std",
 	"sha3/std",
+	"sp-api/std",
+	"sp-consensus-pow/std",
+	"sp-consensus-qpow/std",
+	"sp-runtime/std",
 ]
