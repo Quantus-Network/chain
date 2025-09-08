@@ -102,11 +102,7 @@ mod benchmarks {
 
 		// Setup caller as reversible
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(
-			caller.clone(),
-			delay.clone(),
-			interceptor.clone(),
-		);
+		setup_high_security_account::<T>(caller.clone(), delay.clone(), interceptor.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 		let global_nonce = GlobalNonce::<T>::get();

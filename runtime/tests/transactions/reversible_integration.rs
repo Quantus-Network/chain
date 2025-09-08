@@ -33,7 +33,6 @@ fn high_security_end_to_end_flow() {
 
         let hs_start = Balances::free_balance(&high_security_account());
         let interceptor_start = Balances::free_balance(&interceptor());
-        let recoverer_start = Balances::free_balance(&recoverer());
         let a4_start = Balances::free_balance(&acc(4));
 
         // 1) Enable high-security for account 1
@@ -43,7 +42,6 @@ fn high_security_end_to_end_flow() {
             RuntimeOrigin::signed(high_security_account()),
             hs_delay,
             interceptor(), // interceptor
-            recoverer(), // recoverer
         ));
 
         // 2) Account 1 makes a normal balances transfer (schedule via pallet extrinsic)
@@ -90,65 +88,57 @@ fn high_security_end_to_end_flow() {
                 RuntimeOrigin::signed(high_security_account()),
                 hs_delay,
                 interceptor(),
-                recoverer(),
             ),
             pallet_reversible_transfers::Error::<quantus_runtime::Runtime>::AccountAlreadyHighSecurity
         );
 
-        // 6) Recoverer recovers all funds from high sec account via Recovery pallet
+        // 6) Interceptor recovers all funds from high sec account via Recovery pallet
 
-        // 6.1 Recoverer initiates recovery
+        // 6.1 Interceptor initiates recovery
         assert_ok!(Recovery::initiate_recovery(
-            RuntimeOrigin::signed(recoverer()),
+            RuntimeOrigin::signed(interceptor()),
             MultiAddress::Id(high_security_account()),
         ));
-        // 6.2 Recoverer vouches on recovery
-		// #[pallet::weight(T::WeightInfo::vouch_recovery(T::MaxFriends::get()))]
-		// pub fn vouch_recovery(
-		// 	origin: OriginFor<T>,
-		// 	lost: AccountIdLookupOf<T>,
-		// 	rescuer: AccountIdLookupOf<T>,
+
+        // 6.2 Interceptor vouches on recovery
         assert_ok!(Recovery::vouch_recovery(
-            RuntimeOrigin::signed(recoverer()),
+            RuntimeOrigin::signed(interceptor()),
             MultiAddress::Id(high_security_account()),
-            MultiAddress::Id(recoverer()),
+            MultiAddress::Id(interceptor()),
         ));
 
-        // 6.3 Recoverer claims recovery
-        // pub fn claim_recovery(
-		// 	origin: OriginFor<T>,
-		// 	account: AccountIdLookupOf<T>,
+        // 6.3 Interceptor claims recovery
         assert_ok!(Recovery::claim_recovery(
-            RuntimeOrigin::signed(recoverer()),
+            RuntimeOrigin::signed(interceptor()),
             MultiAddress::Id(high_security_account()),
         ));
 
-        let recoverer_before_recovery = Balances::free_balance(&recoverer());
+        let interceptor_before_recovery = Balances::free_balance(&interceptor());
 
-        // 6.4 Recoverer recovers all funds
+        // 6.4 Interceptor recovers all funds
         let call = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
-            dest: MultiAddress::Id(recoverer()),
+            dest: MultiAddress::Id(interceptor()),
             keep_alive: false,
         });
         assert_ok!(Recovery::as_recovered(
-            RuntimeOrigin::signed(recoverer()),
+            RuntimeOrigin::signed(interceptor()),
             MultiAddress::Id(high_security_account()),
             Box::new(call),
         ));
 
         let hs_after_recovery = Balances::free_balance(&high_security_account());
-        let recoverer_after_recovery = Balances::free_balance(&recoverer());
+        let interceptor_after_recovery = Balances::free_balance(&interceptor());
 
         // HS should be drained to existential deposit; account 2 increased accordingly
         assert_eq!(hs_after_recovery, EXISTENTIAL_DEPOSIT);
 
-        // Fees - recoverer spends 11 units in total for all the calls they are making.
+        // Fees - Interceptor spends 11 units in total for all the calls they are making.
 
-        // Recoverer has hs account's balance now
+        // Interceptor has hs account's balance now
         let estimated_fees = UNIT/100 * 101; // The final recover call costs 1.01 units.
         assert!(
-            recoverer_after_recovery >= (hs_after_cancel + recoverer_before_recovery - estimated_fees),
-            "recoverer {recoverer_after_recovery} should be at least {hs_after_cancel} + {recoverer_start} - {estimated_fees}"
+            interceptor_after_recovery >= (hs_after_cancel + interceptor_before_recovery - estimated_fees),
+            "recoverer {interceptor_after_recovery} should be at least {hs_after_cancel} + {interceptor_start} - {estimated_fees}"
         );
     });
 }
