@@ -35,6 +35,8 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
+qp-rusty-crystals-dilithium.workspace = true
+qp-rusty-crystals-hdwallet.workspace = true
 quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
@@ -42,8 +44,6 @@ rand = { workspace = true, default-features = false, features = [
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
-qp-rusty-crystals-dilithium.workspace = true
-qp-rusty-crystals-hdwallet.workspace = true
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
