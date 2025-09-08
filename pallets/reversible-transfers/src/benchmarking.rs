@@ -40,10 +40,7 @@ fn setup_high_security_account<T: Config>(
 	interceptor: T::AccountId,
 	recoverer: T::AccountId,
 ) {
-	HighSecurityAccounts::<T>::insert(
-		who,
-		HighSecurityAccountData { delay, interceptor },
-	);
+	HighSecurityAccounts::<T>::insert(who, HighSecurityAccountData { delay, interceptor });
 }
 
 // Helper to fund an account (requires Balances pallet in mock runtime)

@@ -176,9 +176,7 @@ fn set_reversibility_with_timestamp_delay_works() {
 			ReversibleTransfers::is_high_security(&user),
 			Some(HighSecurityAccountData { delay, interceptor })
 		);
-		System::assert_last_event(
-			Event::HighSecuritySet { who: user, interceptor, delay }.into(),
-		);
+		System::assert_last_event(Event::HighSecuritySet { who: user, interceptor, delay }.into());
 
 		// Too short timestamp delay
 		// This requires MinDelayPeriodTimestamp to be set and > 0 for this check to be meaningful
@@ -1611,10 +1609,7 @@ fn interceptor_index_works_with_interceptor() {
 		// Verify account has correct reversibility data
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData {
-				delay,
-				interceptor,
-			})
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 	});
 }
@@ -1712,11 +1707,7 @@ fn interceptor_index_respects_max_limit() {
 
 		// Try to add one more account - should fail
 		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(111),
-				delay,
-				interceptor,
-			),
+			ReversibleTransfers::set_high_security(RuntimeOrigin::signed(111), delay, interceptor,),
 			Error::<Test>::TooManyInterceptorAccounts
 		);
 
@@ -1801,10 +1792,7 @@ fn interceptor_index_works_with_intercept_policy() {
 		// Verify account has correct policy
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData {
-				delay,
-				interceptor,
-			})
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 	});
 }

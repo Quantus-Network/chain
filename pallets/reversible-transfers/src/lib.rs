@@ -335,12 +335,9 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-
 			// Set up recovery mechanisms through the recovery pallet
-			let high_security_account_data = HighSecurityAccountData {
-				interceptor: interceptor.clone(),
-				delay,
-			};
+			let high_security_account_data =
+				HighSecurityAccountData { interceptor: interceptor.clone(), delay };
 
 			// Set up zero delay recovery for interceptor
 			// The interceptor then simply needs to claim the recovery in order to be able
@@ -754,11 +751,10 @@ pub mod pallet {
 	#[pallet::genesis_config]
 	#[derive(frame_support::DefaultNoBound)]
 	pub struct GenesisConfig<T: Config> {
-	/// Configure initial reversible accounts. [AccountId, Delay]
-	/// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block
-	/// numbers
-	pub initial_high_security_accounts:
-		Vec<(T::AccountId, T::AccountId, BlockNumberFor<T>)>,
+		/// Configure initial reversible accounts. [AccountId, Delay]
+		/// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block
+		/// numbers
+		pub initial_high_security_accounts: Vec<(T::AccountId, T::AccountId, BlockNumberFor<T>)>,
 	}
 
 	#[pallet::genesis_build]
