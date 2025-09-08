@@ -38,7 +38,6 @@ fn setup_high_security_account<T: Config>(
 	who: T::AccountId,
 	delay: BlockNumberOrTimestampOf<T>,
 	interceptor: T::AccountId,
-	recoverer: T::AccountId,
 ) {
 	HighSecurityAccounts::<T>::insert(who, HighSecurityAccountData { delay, interceptor });
 }
@@ -80,11 +79,10 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		let interceptor: T::AccountId = benchmark_account("interceptor", 0, SEED);
-		let recoverer: T::AccountId = benchmark_account("recoverer", 1, SEED);
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone(), recoverer.clone());
+		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone());
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
@@ -100,7 +98,6 @@ mod benchmarks {
 		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
-		let recoverer: T::AccountId = benchmark_account("recoverer", 2, SEED);
 		let transfer_amount = 100u128;
 
 		// Setup caller as reversible
@@ -109,7 +106,6 @@ mod benchmarks {
 			caller.clone(),
 			delay.clone(),
 			interceptor.clone(),
-			recoverer.clone(),
 		);
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
@@ -138,7 +134,6 @@ mod benchmarks {
 	fn cancel() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
-		let recoverer: T::AccountId = benchmark_account("recoverer", 2, SEED);
 
 		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		fund_account::<T>(&interceptor, BalanceOf::<T>::from(1000u128));
@@ -147,7 +142,7 @@ mod benchmarks {
 
 		// Setup caller as reversible and schedule a task in setup
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone(), recoverer);
+		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
@@ -192,7 +187,7 @@ mod benchmarks {
 
 		// Setup owner as reversible and schedule a task in setup
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(owner.clone(), delay, interceptor, recoverer);
+		setup_high_security_account::<T>(owner.clone(), delay, interceptor);
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
 		let owner_origin = RawOrigin::Signed(owner.clone()).into();
