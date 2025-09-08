@@ -44,7 +44,7 @@ pallet-treasury.workspace = true
 pallet-utility.workspace = true
 pallet-vesting.workspace = true
 pallet-wormhole = { workspace = true, default-features = false }
-poseidon-resonance = { workspace = true, features = ["serde"] }
+qp-poseidon = { workspace = true, features = ["serde"] }
 primitive-types.workspace = true
 qp-scheduler.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }
@@ -111,7 +111,7 @@ std = [
 	"pallet-utility/std",
 	"pallet-vesting/std",
 	"pallet-wormhole/std",
-	"poseidon-resonance/std",
+	"qp-poseidon/std",
 	"primitive-types/std",
 	"qp-scheduler/std",
 	"scale-info/std",

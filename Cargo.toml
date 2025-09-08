@@ -118,7 +118,7 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 
 # Quantus network dependencies
 circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
-poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
+qp-poseidon = { version="0.9.1", default-features = false }
 qp-rusty-crystals-dilithium = { version = "1.0.1", default-features = false, features = ["no_std"] }
 qp-rusty-crystals-hdwallet = { version = "0.1.2" }
 wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false }

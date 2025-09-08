@@ -19,7 +19,7 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
-poseidon-resonance = { workspace = true, features = ["serde"] }
+qp-poseidon = { workspace = true, features = ["serde"] }
 qp-wormhole = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
@@ -41,7 +41,7 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"pallet-transaction-payment/std",
-	"poseidon-resonance/std",
+	"qp-poseidon/std",
 	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-core/std",

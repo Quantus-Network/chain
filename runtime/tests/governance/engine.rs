@@ -9,7 +9,7 @@ mod tests {
 	};
 	use pallet_conviction_voting::{AccountVote::Standard, Vote};
 	use pallet_referenda::TracksInfo;
-	use poseidon_resonance::PoseidonHasher;
+	use qp_poseidon::PoseidonHasher;
 	use quantus_runtime::{
 		Balances, BlockNumber, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime,
 		RuntimeCall, RuntimeOrigin, Scheduler, UNIT,

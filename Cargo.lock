@@ -2466,7 +2466,7 @@ dependencies = [
  "env_logger 0.11.8",
  "log",
  "parity-scale-codec",
- "poseidon-resonance",
+ "qp-poseidon",
  "qp-rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
@@ -6588,7 +6588,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "paste",
- "poseidon-resonance",
+ "qp-poseidon",
  "qp-wormhole",
  "scale-info",
  "sp-core",
@@ -7891,22 +7891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poseidon-resonance"
-version = "0.9.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance#2663eb5819ac36eac2a74ee3debfd642262c1c54"
-dependencies = [
- "log",
- "parity-scale-codec",
- "plonky2",
- "scale-info",
- "serde",
- "sp-core",
- "sp-runtime",
- "sp-storage",
- "sp-trie",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8505,8 +8489,8 @@ dependencies = [
  "pallet-vesting",
  "pallet-wormhole",
  "parity-scale-codec",
- "poseidon-resonance",
  "primitive-types 0.13.1",
+ "qp-poseidon",
  "qp-scheduler",
  "scale-info",
  "serde_json",
