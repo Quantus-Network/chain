@@ -19,8 +19,7 @@ use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
 use sc_consensus::{
 	BasicQueue, BlockCheckParams, BlockImport, BlockImportParams, BoxBlockImport,
-	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink,
-	Verifier
+	BoxJustificationImport, ForkChoiceStrategy, ImportResult, JustificationSyncLink, Verifier,
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
@@ -258,7 +257,9 @@ where
 }
 
 /// Extract the PoW seal from header into post_digests for later verification.
-async fn extract_pow_seal<B>(mut block: BlockImportParams<B>) -> Result<BlockImportParams<B>, String>
+async fn extract_pow_seal<B>(
+	mut block: BlockImportParams<B>,
+) -> Result<BlockImportParams<B>, String>
 where
 	B: BlockT<Hash = H256>,
 {
@@ -266,13 +267,12 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) => {
+		Some(DigestItem::Seal(id, seal)) =>
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			}
-		}
+			},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -292,10 +292,7 @@ impl<B> Verifier<B> for SimplePowVerifier
 where
 	B: BlockT<Hash = H256>,
 {
-	async fn verify(
-		&self,
-		block: BlockImportParams<B>,
-	) -> Result<BlockImportParams<B>, String> {
+	async fn verify(&self, block: BlockImportParams<B>) -> Result<BlockImportParams<B>, String> {
 		extract_pow_seal::<B>(block).await
 	}
 }
@@ -506,13 +503,12 @@ where
 /// Fetch PoW seal.
 fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<Vec<u8>, Error<B>> {
 	match digest {
-		Some(DigestItem::Seal(id, seal)) => {
+		Some(DigestItem::Seal(id, seal)) =>
 			if id == &POW_ENGINE_ID {
 				Ok(seal.clone())
 			} else {
 				Err(Error::<B>::WrongEngine(*id))
-			}
-		},
+			},
 		_ => Err(Error::<B>::HeaderUnsealed(hash)),
 	}
 }
@@ -520,9 +516,8 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<V
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) => {
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
-		},
+		BlockId::Number(_) =>
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
 	}
 }
 

@@ -513,20 +513,19 @@ pub fn new_full<
 					let block_hash = metadata.pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
 
 					// Verify the nonce using runtime api
-					match client
-						.runtime_api()
-						.verify_nonce_local_mining(metadata.best_hash, block_hash, nonce_bytes)
-					{
-						Ok(result) => {
-							match result {
-								true => {
-									log::debug!(target: "miner", "Valid solution: {}", nonce);
-								}
-								false => {
-									nonce += U512::one();
-									continue;
-								}
-							}
+					match client.runtime_api().verify_nonce_local_mining(
+						metadata.best_hash,
+						block_hash,
+						nonce_bytes,
+					) {
+						Ok(result) => match result {
+							true => {
+								log::debug!(target: "miner", "Valid solution: {}", nonce);
+							},
+							false => {
+								nonce += U512::one();
+								continue;
+							},
 						},
 						Err(e) => {
 							log::error!("API error in try_nonce: {:?}", e);
