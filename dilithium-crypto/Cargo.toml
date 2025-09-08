@@ -7,7 +7,7 @@ version = "0.1.0"
 codec = { workspace = true, default-features = false }
 log = { workspace = true }
 poseidon-resonance = { workspace = true }
-rusty-crystals-dilithium.workspace = true
+qp-rusty-crystals-dilithium.workspace = true
 scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }

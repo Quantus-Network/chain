@@ -42,8 +42,8 @@ rand = { workspace = true, default-features = false, features = [
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
-rusty-crystals-dilithium.workspace = true
-rusty-crystals-hdwallet.workspace = true
+qp-rusty-crystals-dilithium.workspace = true
+qp-rusty-crystals-hdwallet.workspace = true
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
