@@ -916,14 +916,6 @@ where
 			.count()
 	}
 
-	fn peer_drop_threshold(&self) -> u32 {
-		0
-	}
-
-	fn set_peer_drop_threshold(&mut self, _value: u32) {
-		unimplemented!("ChainSync does not support peer drop threshold");
-	}
-
 	fn actions(
 		&mut self,
 		network_service: &NetworkServiceHandle,
@@ -1975,7 +1967,7 @@ where
 					best_queued,
 				) {
 					// Avoid repeated requests to the same range, halve by 2
-					if let Some(max) = req.max {
+					if let Some(mut current_max) = req.max {
 						loop {
 							// Recompute signature using client_ref; avoid borrowing `self`.
 							let already_sent_this_request = {
@@ -1992,23 +1984,23 @@ where
 									start_number_u64,
 									is_descending: matches!(req.direction, Direction::Descending),
 									fields_mask: req.fields.to_be_u32(),
-									max_blocks: max,
+									max_blocks: current_max,
 								};
 								!peer.request_signatures.insert(sig)
 							}
 							;
-							if !already_sent_this_request { break; }
-							if let Some(m) = req.max.as_mut() {
-								if *m <= 1 {
-									debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
-									break;
-								}
-								let new_m = (*m).saturating_div(2).max(1);
-								debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, *m, new_m);
-								*m = new_m;
-							} else {
+							if !already_sent_this_request { 
+								req.max = Some(current_max);
+								break; 
+							}
+							if current_max <= 1 {
+								debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
+								req.max = Some(current_max);
 								break;
 							}
+							let new_max = current_max.saturating_div(2).max(1);
+							debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, current_max, new_max);
+							current_max = new_max;
 						}
 					}
 					peer.state = PeerSyncState::DownloadingNew(range.start);
