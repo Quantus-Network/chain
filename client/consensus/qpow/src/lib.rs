@@ -92,8 +92,6 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 	}
 }
 
-// Removed PoW aux storage in QPoW implementation to reduce abstractions.
-
 /// A block importer for PoW.
 pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP> {
 	inner: I,
