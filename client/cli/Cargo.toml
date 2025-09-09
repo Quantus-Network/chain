@@ -187,6 +187,8 @@ default-features = true
 workspace = true
 [dependencies.rusty-crystals-dilithium]
 workspace = true
+[dependencies.dilithium-crypto]
+workspace = true
 
 [dev-dependencies.futures-timer]
 version = "3.0.2"

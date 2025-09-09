@@ -9321,6 +9321,7 @@ dependencies = [
  "array-bytes 6.2.3",
  "chrono",
  "clap",
+ "dilithium-crypto",
  "fdlimit",
  "futures 0.3.31",
  "hex",

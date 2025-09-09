@@ -30,7 +30,7 @@ use sp_core::{
 	hexdisplay::HexDisplay,
 	Pair,
 };
-use sp_runtime::{traits::IdentifyAccount, MultiSigner};
+use sp_runtime::traits::IdentifyAccount;
 use std::path::PathBuf;
 
 /// Public key type for Runtime
@@ -70,7 +70,10 @@ pub fn print_from_uri<Pair>(
 	output: OutputType,
 ) where
 	Pair: sp_core::Pair,
-	Pair::Public: Into<MultiSigner>,
+	Pair::Public: IdentifyAccount,
+	<
+		<Pair as sp_core::Pair>::Public as IdentifyAccount
+	>::AccountId: Ss58Codec + AsRef<[u8]>,
 {
 	let password = password.as_ref().map(|s| s.expose_secret().as_str());
 	let network_id = String::from(unwrap_or_default_ss58_version(network_override));
@@ -87,7 +90,7 @@ pub fn print_from_uri<Pair>(
 					"publicKey": format_public_key::<Pair>(public_key.clone()),
 					"ss58PublicKey": public_key.to_ss58check_with_version(network_override),
 					"accountId": format_account_id::<Pair>(public_key),
-					"ss58Address": pair.public().into().into_account().to_ss58check_with_version(network_override),
+					"ss58Address": pair.public().into_account().to_ss58check_with_version(network_override),
 				});
 				println!(
 					"{}",
@@ -109,7 +112,7 @@ pub fn print_from_uri<Pair>(
 					format_public_key::<Pair>(public_key.clone()),
 					format_account_id::<Pair>(public_key.clone()),
 					public_key.to_ss58check_with_version(network_override),
-					pair.public().into().into_account().to_ss58check_with_version(network_override),
+					pair.public().into_account().to_ss58check_with_version(network_override),
 				);
 			},
 		}
@@ -126,7 +129,7 @@ pub fn print_from_uri<Pair>(
 					"publicKey": format_public_key::<Pair>(public_key.clone()),
 					"ss58PublicKey": public_key.to_ss58check_with_version(network_override),
 					"accountId": format_account_id::<Pair>(public_key),
-					"ss58Address": pair.public().into().into_account().to_ss58check_with_version(network_override),
+					"ss58Address": pair.public().into_account().to_ss58check_with_version(network_override),
 				});
 				println!(
 					"{}",
@@ -148,7 +151,7 @@ pub fn print_from_uri<Pair>(
 					format_public_key::<Pair>(public_key.clone()),
 					format_account_id::<Pair>(public_key.clone()),
 					public_key.to_ss58check_with_version(network_override),
-					pair.public().into().into_account().to_ss58check_with_version(network_override),
+					pair.public().into_account().to_ss58check_with_version(network_override),
 				);
 			},
 		}
@@ -201,7 +204,10 @@ pub fn print_from_public<Pair>(
 ) -> Result<(), Error>
 where
 	Pair: sp_core::Pair,
-	Pair::Public: Into<MultiSigner>,
+	Pair::Public: IdentifyAccount,
+	<
+		<Pair as sp_core::Pair>::Public as IdentifyAccount
+	>::AccountId: Ss58Codec + AsRef<[u8]>,
 {
 	let public = array_bytes::hex2bytes(public_str)?;
 
@@ -268,9 +274,10 @@ fn format_public_key<P: sp_core::Pair>(public_key: PublicFor<P>) -> String {
 /// formats public key as accountId as hex
 fn format_account_id<P: sp_core::Pair>(public_key: PublicFor<P>) -> String
 where
-	PublicFor<P>: Into<MultiSigner>,
+	PublicFor<P>: IdentifyAccount,
+	<PublicFor<P> as IdentifyAccount>::AccountId: AsRef<[u8]>,
 {
-	format!("0x{}", HexDisplay::from(&public_key.into().into_account().as_ref()))
+	format!("0x{}", HexDisplay::from(&public_key.into_account().as_ref()))
 }
 
 /// Allows for calling $method with appropriate crypto impl.
@@ -288,7 +295,7 @@ macro_rules! with_crypto_scheme {
 	) => {
 		match $scheme {
 			$crate::CryptoScheme::Dilithium => {
-				$method::<rusty_crystals_dilithium::ml_dsa_87::Pair, $($generics),*>($($params),*)
+				$method::<dilithium_crypto::DilithiumPair, $($generics),*>($($params),*)
 			}
 		}
 	};
