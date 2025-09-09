@@ -48,7 +48,7 @@ pub mod pallet {
 		traits::{Saturating, Zero},
 		Perbill,
 	};
-	use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
+	use wormhole_circuit::inputs::PublicCircuitInputs;
 	use wormhole_verifier::ProofWithPublicInputs;
 	use zk_circuits_common::circuit::{C, D, F};
 
