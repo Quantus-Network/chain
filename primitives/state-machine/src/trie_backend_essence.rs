@@ -817,15 +817,15 @@ impl<H: Hasher> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
 	}
 }
 
-// impl<H, KF> TrieBackendStorage<H> for sp_trie::GenericMemoryDB<H, KF>
-// where
-// 	H: Hasher,
-// 	KF: sp_trie::KeyFunction<H> + Send + Sync,
-// {
-// 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
-// 		Ok(hash_db::HashDB::get(self, key, prefix))
-// 	}
-// }
+impl<H, KF> TrieBackendStorage<H> for sp_trie::GenericMemoryDB<H, KF>
+where
+	H: Hasher,
+	KF: sp_trie::KeyFunction<H> + Send + Sync,
+{
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
+		Ok(hash_db::HashDB::get(self, key, prefix))
+	}
+}
 
 impl<
 		S: TrieBackendStorage<H>,

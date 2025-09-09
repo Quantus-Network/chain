@@ -162,7 +162,9 @@ sc-executor = { git = "https://github.com/paritytech/polkadot-sdk", branch = "st
 sc-network = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 sc-network-common = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 sc-network-types = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
+sc-network-sync = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 sc-offchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
+sc-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 sc-service = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 sc-telemetry = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 sc-transaction-pool = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
@@ -196,6 +198,39 @@ substrate-frame-rpc-system = { git = "https://github.com/paritytech/polkadot-sdk
 substrate-test-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506", default-features = false }
 substrate-wasm-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506", default-features = false }
 
+# Frontier
+fp-account = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+fp-evm = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+fp-rpc = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+fp-self-contained = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+# Frontier FRAME
+pallet-base-fee = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-dynamic-fee = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-ethereum = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-chain-id = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-precompile-curve25519 = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-precompile-curve25519-benchmarking = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-precompile-modexp = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-precompile-sha3fips = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-precompile-sha3fips-benchmarking = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+pallet-evm-precompile-simple = { git = "https://github.com/polkadot-evm/frontier", default-features = false }
+
+ethereum = { version = "0.18.2", default-features = false }
+ethereum-types = { version = "0.15", default-features = false }
+evm = { git = "https://github.com/rust-ethereum/evm.git", branch = "v0.x", default-features = false }
+
+# frontier client
+fc-api = { git = "https://github.com/polkadot-evm/frontier" }
+fc-cli = { git = "https://github.com/polkadot-evm/frontier" }
+fc-consensus = { git = "https://github.com/polkadot-evm/frontier" }
+fc-db = { git = "https://github.com/polkadot-evm/frontier" }
+fc-mapping-sync = { git = "https://github.com/polkadot-evm/frontier" }
+fc-rpc = { git = "https://github.com/polkadot-evm/frontier", features = ["aura"] }
+fc-rpc-core = { git = "https://github.com/polkadot-evm/frontier" }
+fc-storage = { git = "https://github.com/polkadot-evm/frontier" }
+fp-dynamic-fee = { git = "https://github.com/polkadot-evm/frontier", default-features = false, features = ["default"] }
+
 [patch.crates-io]
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
@@ -203,6 +238,8 @@ sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 
 [patch."https://github.com/paritytech/polkadot-sdk"]
+sp-trie = { path = "./primitives/trie" }
+sp-state-machine = { path = "./primitives/state-machine" }
 sc-network = { path = "./client/network" }
 
 [profile.release]

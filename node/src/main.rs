@@ -5,6 +5,8 @@ mod benchmarking;
 mod chain_spec;
 mod cli;
 mod command;
+mod eth;
+mod eth_rpc;
 mod external_miner_client;
 mod prometheus;
 mod rpc;

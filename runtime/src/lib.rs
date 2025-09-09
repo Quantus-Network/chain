@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![recursion_limit = "256"]
 
 extern crate alloc;
 #[cfg(feature = "std")]
@@ -8,14 +9,21 @@ pub mod apis;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarks;
 pub mod configs;
+mod precompiles;
+
+use core::marker::PhantomData;
 
 pub use dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
 
 use alloc::vec::Vec;
-use sp_core::U512;
+use codec::{Decode, Encode};
+use sp_core::{H160, U512};
+use sp_runtime::transaction_validity::{TransactionValidity, TransactionValidityError};
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{IdentifyAccount, Verify},
+	traits::{
+		Block as BlockT, DispatchInfoOf, Dispatchable, IdentifyAccount, PostDispatchInfoOf, Verify,
+	},
 	MultiAddress,
 };
 #[cfg(feature = "std")]
@@ -191,6 +199,87 @@ pub type Executive = frame_executive::Executive<
 	Migrations,
 >;
 
+#[derive(Clone)]
+pub struct TransactionConverter<B>(PhantomData<B>);
+
+impl<B> Default for TransactionConverter<B> {
+	fn default() -> Self {
+		Self(PhantomData)
+	}
+}
+
+impl<B: BlockT> fp_rpc::ConvertTransaction<<B as BlockT>::Extrinsic> for TransactionConverter<B> {
+	fn convert_transaction(
+		&self,
+		transaction: pallet_ethereum::Transaction,
+	) -> <B as BlockT>::Extrinsic {
+		let extrinsic = UncheckedExtrinsic::new_bare(
+			pallet_ethereum::Call::<Runtime>::transact { transaction }.into(),
+		);
+		let encoded = extrinsic.encode();
+		<B as BlockT>::Extrinsic::decode(&mut &encoded[..])
+			.expect("Encoded extrinsic is always valid")
+	}
+}
+
+impl fp_self_contained::SelfContainedCall for RuntimeCall {
+	type SignedInfo = H160;
+
+	fn is_self_contained(&self) -> bool {
+		match self {
+			RuntimeCall::Ethereum(call) => call.is_self_contained(),
+			_ => false,
+		}
+	}
+
+	fn check_self_contained(&self) -> Option<Result<Self::SignedInfo, TransactionValidityError>> {
+		match self {
+			RuntimeCall::Ethereum(call) => call.check_self_contained(),
+			_ => None,
+		}
+	}
+
+	fn validate_self_contained(
+		&self,
+		info: &Self::SignedInfo,
+		dispatch_info: &DispatchInfoOf<RuntimeCall>,
+		len: usize,
+	) -> Option<TransactionValidity> {
+		match self {
+			RuntimeCall::Ethereum(call) => call.validate_self_contained(info, dispatch_info, len),
+			_ => None,
+		}
+	}
+
+	fn pre_dispatch_self_contained(
+		&self,
+		info: &Self::SignedInfo,
+		dispatch_info: &DispatchInfoOf<RuntimeCall>,
+		len: usize,
+	) -> Option<Result<(), TransactionValidityError>> {
+		match self {
+			RuntimeCall::Ethereum(call) => {
+				call.pre_dispatch_self_contained(info, dispatch_info, len)
+			},
+			_ => None,
+		}
+	}
+
+	fn apply_self_contained(
+		self,
+		info: Self::SignedInfo,
+	) -> Option<sp_runtime::DispatchResultWithInfo<PostDispatchInfoOf<Self>>> {
+		match self {
+			call @ RuntimeCall::Ethereum(pallet_ethereum::Call::transact { .. }) => {
+				Some(call.dispatch(RuntimeOrigin::from(
+					pallet_ethereum::RawOrigin::EthereumTransaction(info),
+				)))
+			},
+			_ => None,
+		}
+	}
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -270,4 +359,16 @@ mod runtime {
 
 	#[runtime::pallet_index(20)]
 	pub type Recovery = pallet_recovery;
+
+	#[runtime::pallet_index(21)]
+	pub type Ethereum = pallet_ethereum;
+
+	#[runtime::pallet_index(22)]
+	pub type EVM = pallet_evm;
+
+	#[runtime::pallet_index(23)]
+	pub type EVMChainId = pallet_evm_chain_id;
+
+	#[runtime::pallet_index(24)]
+	pub type BaseFee = pallet_base_fee;
 }

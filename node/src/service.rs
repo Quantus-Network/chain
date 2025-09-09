@@ -1,7 +1,9 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
+use fc_consensus::FrontierBlockImport;
+use fc_rpc::StorageOverrideHandler;
 use futures::{FutureExt, StreamExt};
-use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
+use quantus_runtime::{self, apis::RuntimeApi, opaque::Block, TransactionConverter};
 use sc_client_api::Backend;
 use sc_consensus_qpow::{ChainManagement, QPoWMiner, QPowAlgorithm};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
@@ -9,7 +11,14 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
 use tokio_util::sync::CancellationToken;
 
-use crate::{external_miner_client, prometheus::ResonanceBusinessMetrics};
+use crate::{
+	eth::{
+		db_config_dir, new_frontier_partial, spawn_frontier_tasks, BackendType, EthConfiguration,
+		FrontierBackend, FrontierPartialComponents,
+	},
+	external_miner_client,
+	prometheus::ResonanceBusinessMetrics,
+};
 use async_trait::async_trait;
 use codec::Encode;
 use jsonrpsee::tokio;
@@ -29,7 +38,7 @@ pub(crate) type FullClient = sc_service::TFullClient<
 	RuntimeApi,
 	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
-type FullBackend = sc_service::TFullBackend<Block>;
+pub type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
 	Block,
@@ -85,7 +94,11 @@ pub type Service = sc_service::PartialComponents<
 	FullSelectChain,
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-	(LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
+	(
+		LoggingBlockImport<Block, FrontierBlockImport<Block, PowBlockImport, FullClient>>,
+		Option<Telemetry>,
+		FrontierBackend<Block, FullClient>,
+	),
 >;
 //TODO Question - for what is this method?
 pub fn build_inherent_data_providers() -> Result<
@@ -116,7 +129,10 @@ pub fn build_inherent_data_providers() -> Result<
 	Ok(Box::new(Provider))
 }
 
-pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
+pub fn new_partial(
+	config: &Configuration,
+	eth_config: &EthConfiguration,
+) -> Result<Service, ServiceError> {
 	let telemetry = config
 		.telemetry_endpoints
 		.clone()
@@ -180,7 +196,8 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		inherent_data_providers,
 	);
 
-	let logging_block_import = LoggingBlockImport::new(pow_block_import);
+	let frontier_block_import = FrontierBlockImport::new(pow_block_import, client.clone());
+	let logging_block_import = LoggingBlockImport::new(frontier_block_import);
 
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(logging_block_import.clone()),
@@ -190,6 +207,15 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		config.prometheus_registry(),
 	)?;
 
+	let frontier_backend = match eth_config.frontier_backend_type {
+		BackendType::KeyValue => FrontierBackend::KeyValue(Arc::new(fc_db::kv::Backend::open(
+			Arc::clone(&client),
+			&config.database,
+			&db_config_dir(config),
+		)?)),
+		_ => unimplemented!(),
+	};
+
 	Ok(sc_service::PartialComponents {
 		client,
 		backend,
@@ -198,18 +224,19 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (logging_block_import, telemetry),
+		other: (logging_block_import, telemetry, frontier_backend),
 	})
 }
 
 /// Builds a new service for a full client.
-pub fn new_full<
+pub async fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
 	rewards_address: Option<String>,
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
+	eth_config: EthConfiguration,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -219,8 +246,11 @@ pub fn new_full<
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (pow_block_import, mut telemetry),
-	} = new_partial(&config)?;
+		other: (pow_block_import, mut telemetry, frontier_backend),
+	} = new_partial(&config, &eth_config)?;
+
+	let FrontierPartialComponents { filter_pool, fee_history_cache, fee_history_cache_limit } =
+		new_frontier_partial(&eth_config)?;
 
 	let mut tx_stream = transaction_pool.clone().import_notification_stream();
 
@@ -268,19 +298,80 @@ pub fn new_full<
 
 	let role = config.role;
 	let prometheus_registry = config.prometheus_registry().cloned();
+	let frontier_backend = Arc::new(frontier_backend);
+	let pubsub_notification_sinks: fc_mapping_sync::EthereumBlockNotificationSinks<
+		fc_mapping_sync::EthereumBlockNotification<Block>,
+	> = Default::default();
+	let pubsub_notification_sinks = Arc::new(pubsub_notification_sinks);
+	let storage_override = Arc::new(StorageOverrideHandler::<Block, _, _>::new(client.clone()));
 
 	let rpc_extensions_builder = {
 		let client = client.clone();
 		let pool = transaction_pool.clone();
 		let network_for_rpc = if enable_peer_sharing { Some(network.clone()) } else { None };
 
-		Box::new(move |_| {
+		let network = network.clone();
+		let sync_service = sync_service.clone();
+
+		let is_authority = role.is_authority();
+		let enable_dev_signer = eth_config.enable_dev_signer;
+		let max_past_logs = eth_config.max_past_logs;
+		let execute_gas_limit_multiplier = eth_config.execute_gas_limit_multiplier;
+		let filter_pool = filter_pool.clone();
+		let frontier_backend = frontier_backend.clone();
+		let pubsub_notification_sinks = pubsub_notification_sinks.clone();
+		let storage_override = storage_override.clone();
+		let fee_history_cache = fee_history_cache.clone();
+		let block_data_cache = Arc::new(fc_rpc::EthBlockDataCacheTask::new(
+			task_manager.spawn_handle(),
+			storage_override.clone(),
+			eth_config.eth_log_block_cache,
+			eth_config.eth_statuses_cache,
+			prometheus_registry.clone(),
+		));
+
+		let target_gas_price = eth_config.target_gas_price;
+		let pending_create_inherent_data_providers = move |_, ()| async move {
+			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+			Ok(timestamp)
+		};
+
+		Box::new(move |subscription_task_executor| {
+			let eth_deps = crate::eth_rpc::EthDeps {
+				client: client.clone(),
+				pool: pool.clone(),
+				graph: pool.clone(),
+				converter: Some(TransactionConverter::<Block>::default()),
+				is_authority,
+				enable_dev_signer,
+				network: network.clone(),
+				sync: sync_service.clone(),
+				frontier_backend: match &*frontier_backend {
+					fc_db::Backend::KeyValue(b) => b.clone(),
+					_ => panic!("unsupported backend"),
+				},
+				storage_override: storage_override.clone(),
+				block_data_cache: block_data_cache.clone(),
+				filter_pool: filter_pool.clone(),
+				max_past_logs,
+				fee_history_cache: fee_history_cache.clone(),
+				fee_history_cache_limit,
+				execute_gas_limit_multiplier,
+				forced_parent_hashes: None,
+				pending_create_inherent_data_providers,
+			};
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: pool.clone(),
 				network: network_for_rpc.clone(),
+				eth: eth_deps,
 			};
-			crate::rpc::create_full(deps).map_err(Into::into)
+			crate::rpc::create_full(
+				deps,
+				subscription_task_executor,
+				pubsub_notification_sinks.clone(),
+			)
+			.map_err(Into::into)
 		})
 	};
 
@@ -294,13 +385,27 @@ pub fn new_full<
 		task_manager: &mut task_manager,
 		transaction_pool: transaction_pool.clone(),
 		rpc_builder: rpc_extensions_builder,
-		backend,
+		backend: backend.clone(),
 		system_rpc_tx,
 		tx_handler_controller,
 		sync_service: sync_service.clone(),
 		config,
 		telemetry: telemetry.as_mut(),
 	})?;
+
+	spawn_frontier_tasks::<RuntimeApi, sp_io::SubstrateHostFunctions>(
+		&task_manager,
+		client.clone(),
+		backend,
+		frontier_backend,
+		filter_pool,
+		storage_override,
+		fee_history_cache,
+		fee_history_cache_limit,
+		sync_service.clone(),
+		pubsub_notification_sinks,
+	)
+	.await;
 
 	if role.is_authority() {
 		let proposer = sc_basic_authorship::ProposerFactory::new(

@@ -13,6 +13,7 @@ version = "0.1.5-morbo-fix"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+ethereum = { workspace = true }
 codec = { features = ["derive"], workspace = true }
 dilithium-crypto.workspace = true
 frame-benchmarking.workspace = true
@@ -67,6 +68,24 @@ sp-version = { features = ["serde"], workspace = true }
 wormhole-circuit = { workspace = true, default-features = false }
 wormhole-verifier = { workspace = true, default-features = false }
 zk-circuits-common = { workspace = true, default-features = false }
+
+# Frontier
+fp-account = { workspace = true, features = ["serde"] }
+fp-evm = { workspace = true, features = ["serde"] }
+fp-rpc = { workspace = true }
+fp-self-contained = { workspace = true, features = ["serde"] }
+# Frontier FRAME
+pallet-base-fee = { workspace = true }
+pallet-dynamic-fee = { workspace = true }
+pallet-ethereum = { workspace = true }
+pallet-evm = { workspace = true }
+pallet-evm-chain-id = { workspace = true }
+# pallet-evm-precompile-curve25519 = { workspace = true }
+# pallet-evm-precompile-curve25519-benchmarking = { workspace = true }
+# pallet-evm-precompile-modexp = { workspace = true }
+# pallet-evm-precompile-sha3fips = { workspace = true }
+# pallet-evm-precompile-sha3fips-benchmarking = { workspace = true }
+pallet-evm-precompile-simple = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -135,6 +154,16 @@ std = [
 	"wormhole-circuit/std",
 	"wormhole-verifier/std",
 	"zk-circuits-common/std",
+	"fp-evm/std",
+	"fp-rpc/std",
+	"fp-account/std",
+	"fp-self-contained/std",
+	"pallet-evm-precompile-simple/std",
+	"pallet-evm/std",
+	"pallet-ethereum/std",
+	"pallet-evm-chain-id/std",
+	"pallet-dynamic-fee/std",
+	"pallet-base-fee/std",
 ]
 
 runtime-benchmarks = [

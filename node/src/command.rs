@@ -144,21 +144,25 @@ impl SubstrateCli for Cli {
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
 		Ok(match id {
-			"dev" =>
-				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"live_resonance_live_spec" =>
-				Box::new(chain_spec::live_testnet_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"dev" => {
+				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
+			"live_resonance_live_spec" => {
+				Box::new(chain_spec::live_testnet_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"live_resonance" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/live-resonance.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			"heisenberg_live_spec" =>
-				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"heisenberg_live_spec" => {
+				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			path =>
+			path => {
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
-					as Box<dyn sc_service::ChainSpec>,
+					as Box<dyn sc_service::ChainSpec>
+			},
 		})
 	}
 }
@@ -235,21 +239,23 @@ pub fn run() -> sc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, import_queue, .. } =
-					service::new_partial(&config)?;
+					service::new_partial(&config, &cli.eth)?;
 				Ok((cmd.run(client, import_queue), task_manager))
 			})
 		},
 		Some(Subcommand::ExportBlocks(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
-				let PartialComponents { client, task_manager, .. } = service::new_partial(&config)?;
+				let PartialComponents { client, task_manager, .. } =
+					service::new_partial(&config, &cli.eth)?;
 				Ok((cmd.run(client, config.database), task_manager))
 			})
 		},
 		Some(Subcommand::ExportState(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
-				let PartialComponents { client, task_manager, .. } = service::new_partial(&config)?;
+				let PartialComponents { client, task_manager, .. } =
+					service::new_partial(&config, &cli.eth)?;
 				Ok((cmd.run(client, config.chain_spec), task_manager))
 			})
 		},
@@ -257,7 +263,7 @@ pub fn run() -> sc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, import_queue, .. } =
-					service::new_partial(&config)?;
+					service::new_partial(&config, &cli.eth)?;
 				Ok((cmd.run(client, import_queue), task_manager))
 			})
 		},
@@ -269,7 +275,7 @@ pub fn run() -> sc_cli::Result<()> {
 			let runner = cli.create_runner(cmd)?;
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, backend, .. } =
-					service::new_partial(&config)?;
+					service::new_partial(&config, &cli.eth)?;
 				let aux_revert = Box::new(|_client, _, _blocks| {
 					unimplemented!("TODO - g*randpa was removed.");
 				});
@@ -297,7 +303,8 @@ pub fn run() -> sc_cli::Result<()> {
 						))
 					},
 					BenchmarkCmd::Block(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
+						let PartialComponents { client, .. } =
+							service::new_partial(&config, &cli.eth)?;
 						cmd.run(client)
 					},
 					#[cfg(not(feature = "runtime-benchmarks"))]
@@ -315,7 +322,8 @@ pub fn run() -> sc_cli::Result<()> {
 						cmd.run(config, client, db, storage, None)
 					},
 					BenchmarkCmd::Overhead(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
+						let PartialComponents { client, .. } =
+							service::new_partial(&config, &cli.eth)?;
 						let ext_builder = RemarkBuilder::new(client.clone());
 
 						cmd.run(
@@ -328,7 +336,8 @@ pub fn run() -> sc_cli::Result<()> {
 						)
 					},
 					BenchmarkCmd::Extrinsic(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
+						let PartialComponents { client, .. } =
+							service::new_partial(&config, &cli.eth)?;
 						// Register the *Remark* and *TKA* builders.
 						let ext_factory = ExtrinsicFactory(vec![
 							Box::new(RemarkBuilder::new(client.clone())),
@@ -341,8 +350,9 @@ pub fn run() -> sc_cli::Result<()> {
 
 						cmd.run(client, inherent_benchmark_data()?, Vec::new(), &ext_factory)
 					},
-					BenchmarkCmd::Machine(cmd) =>
-						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
+					BenchmarkCmd::Machine(cmd) => {
+						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())
+					},
 				}
 			})
 		},
@@ -392,7 +402,9 @@ pub fn run() -> sc_cli::Result<()> {
 						cli.rewards_address.clone(),
 						cli.external_miner_url.clone(),
 						cli.enable_peer_sharing,
+						cli.eth,
 					)
+					.await
 					.map_err(sc_cli::Error::Service),
 					sc_network::config::NetworkBackendType::Litep2p => {
 						panic!("Litep2p not supported");

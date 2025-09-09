@@ -5,16 +5,21 @@
 
 #![warn(missing_docs)]
 
-use std::sync::Arc;
-
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
 use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use sc_client_api::{AuxStore, Backend, BlockchainEvents, StorageProvider, UsageProvider};
 use sc_network::service::traits::NetworkService;
+use sc_rpc::SubscriptionTaskExecutor;
 use sc_transaction_pool_api::TransactionPool;
 use serde::{Deserialize, Serialize};
-use sp_api::ProvideRuntimeApi;
+use sp_api::{CallApiAt, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use sp_inherents::CreateInherentDataProviders;
+use sp_runtime::traits::Block as BlockT;
+use std::sync::Arc;
+
+use crate::eth_rpc::{create_eth, EthDeps};
 
 /// Peer information for RPC response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,38 +97,74 @@ impl PeerApiServer for Peer {
 }
 
 /// Full client dependencies.
-pub struct FullDeps<C, P> {
+pub struct FullDeps<B: BlockT, C, P, CT, CIDP> {
 	/// The client instance to use.
 	pub client: Arc<C>,
 	/// Transaction pool instance.
 	pub pool: Arc<P>,
 	/// Network service instance (optional, only when peer sharing is enabled).
 	pub network: Option<Arc<dyn NetworkService>>,
+	/// Ethereum-compatibility specific dependencies.
+	pub eth: EthDeps<B, C, P, CT, CIDP>,
+}
+
+pub struct DefaultEthConfig<C, BE>(std::marker::PhantomData<(C, BE)>);
+
+impl<B, C, BE> fc_rpc::EthConfig<B, C> for DefaultEthConfig<C, BE>
+where
+	B: BlockT,
+	C: StorageProvider<B, BE> + Sync + Send + 'static,
+	BE: Backend<B> + 'static,
+{
+	type EstimateGasAdapter = ();
+	type RuntimeStorageOverride =
+		fc_rpc::frontier_backend_client::SystemAccountId20StorageOverride<B, C, BE>;
 }
 
 /// Instantiate all full RPC extensions.
-pub fn create_full<C, P>(
-	deps: FullDeps<C, P>,
+pub fn create_full<C, P, BE, CT, CIDP>(
+	deps: FullDeps<Block, C, P, CT, CIDP>,
+	subscription_task_executor: SubscriptionTaskExecutor,
+	pubsub_notification_sinks: Arc<
+		fc_mapping_sync::EthereumBlockNotificationSinks<
+			fc_mapping_sync::EthereumBlockNotification<Block>,
+		>,
+	>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 where
+	C: CallApiAt<Block>,
 	C: ProvideRuntimeApi<Block>,
 	C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
+	C: BlockchainEvents<Block> + AuxStore + UsageProvider<Block> + StorageProvider<Block, BE>,
 	C: Send + Sync + 'static,
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: sp_consensus_qpow::QPoWApi<Block>,
+	C::Api: fp_rpc::ConvertTransactionRuntimeApi<Block>,
+	C::Api: fp_rpc::EthereumRuntimeRPCApi<Block>,
 	C::Api: BlockBuilder<Block>,
-	P: TransactionPool<Block = Block> + 'static,
+	BE: Backend<Block> + 'static,
+	P: TransactionPool<Block = Block, Hash = <Block as BlockT>::Hash> + 'static,
+	CIDP: CreateInherentDataProviders<Block, ()> + Send + 'static,
+	CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
 {
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
 	let mut module = RpcModule::new(());
-	let FullDeps { client, pool, network } = deps;
+	let FullDeps { client, pool, network, eth } = deps;
 
 	module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(Peer::new(network).into_rpc())?;
 
-	Ok(module)
+	// Ethereum compatibility RPCs
+	let io = create_eth::<Block, C, _, _, _, _, DefaultEthConfig<C, BE>>(
+		module,
+		eth,
+		subscription_task_executor,
+		pubsub_notification_sinks,
+	)?;
+
+	Ok(io)
 }

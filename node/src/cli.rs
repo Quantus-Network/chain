@@ -8,6 +8,8 @@ use std::{
 	path::PathBuf,
 };
 
+use crate::eth::EthConfiguration;
+
 #[derive(Debug, clap::Parser)]
 pub struct Cli {
 	#[command(subcommand)]
@@ -27,6 +29,9 @@ pub struct Cli {
 	/// Enable peer sharing via RPC endpoint
 	#[arg(long)]
 	pub enable_peer_sharing: bool,
+
+	#[command(flatten)]
+	pub eth: EthConfiguration,
 }
 
 #[derive(Debug, clap::Subcommand)]
