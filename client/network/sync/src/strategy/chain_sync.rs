@@ -865,7 +865,7 @@ where
 
 	fn on_request_failed(&mut self, peer_id: &PeerId) {
 		// When a request fails, allow issuing new requests immediately and free any held slots.
-		debug!(target: LOG_TARGET, "received on_request_failed for {:?} has peer: {:?}", peer_id, self.peers.get_mut(peer_id));
+		debug!(target: LOG_TARGET, "received on_request_failed for {:?}", peer_id);
 
 		if let Some(peer) = self.peers.get_mut(peer_id) {
 			debug!(
