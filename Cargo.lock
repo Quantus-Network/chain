@@ -2158,9 +2158,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.179"
+version = "1.0.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85b04ade63e106c145cdcd3482932299c2dcd36b15f1d5c596c06edf365966fe"
+checksum = "6ecd70e33fb57b5fec1608d572bf8dc382f5385a19529056b32307a29ac329be"
 dependencies = [
  "cc",
  "cxxbridge-cmd",
@@ -2172,13 +2172,13 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.179"
+version = "1.0.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba16a03d510b0e52be1952831ae1656e3ac9f6ac0c293a7b261670a0c7ff3b54"
+checksum = "bf3259fec4a8c685a8f1bd4248ae03b5500027dc0c220acfa7123b00613400a4"
 dependencies = [
  "cc",
  "codespan-reporting",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "proc-macro2",
  "quote",
  "scratch",
@@ -2187,13 +2187,13 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.179"
+version = "1.0.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c3aefd0d58a2df90cd67fe2eccdf7fb6e6905e9886ae5feb2258ce0dec23063"
+checksum = "64320fd0856fdf2421f8404b67d41e91291cbcfa3d57457b390f0a2618ee9a68"
 dependencies = [
  "clap",
  "codespan-reporting",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -2201,17 +2201,17 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.179"
+version = "1.0.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b735d976ca632f9e94b9de9b0ab8283de65e2641e7ae9d5abc3e6b467ea6673"
+checksum = "77e40964f209961217b972415a8e3a0c23299076a0b2dfe79fa8366b5e5c833e"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.179"
+version = "1.0.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42fffb686dc0b7bab364ee41fcf5a04c295c7e7a5f07cd38155c1c3bda437666"
+checksum = "51afdec15d8072d1b69f54f645edaf54250088a7e54c4fe493016781278136bd"
 dependencies = [
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "proc-macro2",
  "quote",
  "rustversion",
@@ -2894,7 +2894,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb42427514b063d97ce21d5199f36c0c307d981434a6be32582bc79fe5bd2303"
 dependencies = [
  "expander",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "proc-macro-crate 3.3.0",
  "proc-macro2",
  "quote",
@@ -3775,7 +3775,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "slab",
  "tokio 1.47.1",
  "tokio-util",
@@ -3794,7 +3794,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.3.1",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "slab",
  "tokio 1.47.1",
  "tokio-util",
@@ -4499,9 +4499,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.11.0"
+version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2481980430f9f78649238835720ddccc57e52df14ffce1c6f37391d61b563e9"
+checksum = "206a8042aec68fa4a62e8d3f7aa4ceb508177d9324faf261e1959e495b7a1921"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.5",
@@ -5119,8 +5119,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.9"
-source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc#d03c31c32f32db17fd3e4fb20877b4310e9e43a9"
+version = "0.2.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.10#c8cc9eb375e0701b2e1fad6a14b60f4b6ca645ba"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5205,8 +5205,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-noise"
-version = "0.45.0"
-source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
+version = "0.45.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-noise?tag=v0.45.10#901f09f30b32f910395270bba3a566191dc2f61f"
 dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.10.1",
@@ -5574,7 +5574,7 @@ dependencies = [
  "futures 0.3.31",
  "futures-timer",
  "hickory-resolver 0.25.2",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "libc",
  "mockall",
  "multiaddr 0.17.1",
@@ -6481,7 +6481,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43dfaf083aef571385fccfdc3a2f8ede8d0a1863160455d4f2b014d8f7d04a3f"
 dependencies = [
  "expander",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "itertools 0.11.0",
  "petgraph 0.6.5",
  "proc-macro-crate 3.3.0",
@@ -7272,7 +7272,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset 0.4.2",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
 ]
 
 [[package]]
@@ -7282,7 +7282,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
 dependencies = [
  "fixedbitset 0.5.7",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
 ]
 
 [[package]]
@@ -10203,7 +10203,7 @@ dependencies = [
  "async-trait",
  "futures 0.3.31",
  "futures-timer",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "itertools 0.11.0",
  "linked-hash-map",
  "parity-scale-codec",
@@ -10234,7 +10234,7 @@ checksum = "c27a9cb54784cf7a1a607d4314f1a4437279ce6d4070eb810f3e4fbfff9b1ba7"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "log",
  "parity-scale-codec",
  "serde",
@@ -12811,7 +12811,7 @@ version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
- "indexmap 2.11.0",
+ "indexmap 2.11.1",
  "serde",
  "serde_spanned",
  "toml_datetime",
