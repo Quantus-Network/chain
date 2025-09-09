@@ -330,7 +330,6 @@ pub async fn new_full<
 			prometheus_registry.clone(),
 		));
 
-		let target_gas_price = eth_config.target_gas_price;
 		let pending_create_inherent_data_providers = move |_, ()| async move {
 			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 			Ok(timestamp)

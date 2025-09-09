@@ -88,12 +88,9 @@ where
 	EC: EthConfig<B, C>,
 {
 	use fc_rpc::{
-		pending::AuraConsensusDataProvider, Debug, DebugApiServer, Eth, EthApiServer, EthDevSigner,
-		EthFilter, EthFilterApiServer, EthPubSub, EthPubSubApiServer, EthSigner, Net, NetApiServer,
-		Web3, Web3ApiServer,
+		Debug, DebugApiServer, Eth, EthApiServer, EthDevSigner, EthFilter, EthFilterApiServer,
+		EthPubSub, EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3, Web3ApiServer,
 	};
-	#[cfg(feature = "txpool")]
-	use fc_rpc::{TxPool, TxPoolApiServer};
 
 	let EthDeps {
 		client,
@@ -101,7 +98,7 @@ where
 		graph,
 		converter,
 		is_authority,
-		enable_dev_signer,
+		enable_dev_signer: _,
 		network,
 		sync,
 		frontier_backend,
@@ -115,8 +112,6 @@ where
 		forced_parent_hashes,
 		pending_create_inherent_data_providers,
 	} = deps;
-
-	let mut signers = Vec::new();
 
 	io.merge(
 		Eth::<B, C, P, CT, BE, CIDP, EC>::new(
