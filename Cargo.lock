@@ -101,12 +101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
-name = "android-tzdata"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9317,14 +9311,14 @@ dependencies = [
 [[package]]
 name = "sc-cli"
 version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23e97108f615c1633b23c46c53be73651946eee6867e3000be8b6d4128291352"
 dependencies = [
  "array-bytes 6.2.3",
  "chrono",
  "clap",
+ "dilithium-crypto",
  "fdlimit",
  "futures 0.3.31",
+ "hex",
  "itertools 0.11.0",
  "libp2p-identity",
  "log",
@@ -9334,6 +9328,7 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "rpassword",
+ "rusty-crystals-dilithium",
  "sc-client-api",
  "sc-client-db",
  "sc-keystore",
