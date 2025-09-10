@@ -479,17 +479,13 @@ where
 	(worker_ret, task)
 }
 
-/// Fetch QPoW seal.
-fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<Vec<u8>, Error<B>> {
-	match digest {
-		Some(DigestItem::Seal(id, seal)) =>
-			if id == &POW_ENGINE_ID {
-				Ok(seal.clone())
-			} else {
-				Err(Error::<B>::WrongEngine(*id))
-			},
-		_ => Err(Error::<B>::HeaderUnsealed(hash)),
-	}
+/// Fetch the QPoW seal from the given digest, if present and valid.
+fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<RawSeal, Error<B>> {
+    match digest {
+        Some(DigestItem::Seal(id, seal)) if *id == POW_ENGINE_ID => Ok(seal.clone()),
+        Some(DigestItem::Seal(id, _)) => Err(Error::<B>::WrongEngine(*id)),
+        _ => Err(Error::<B>::HeaderUnsealed(hash)),
+    }
 }
 
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
