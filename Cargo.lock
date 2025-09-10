@@ -101,6 +101,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1424,10 +1430,10 @@ dependencies = [
 [[package]]
 name = "circuit-builder"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
+source = "git+https://github.com/Quantus-Network/zk-circuits#69d5aa524109bd0135475deb57f5f34459d02438"
 dependencies = [
  "anyhow",
- "plonky2",
+ "qp-plonky2",
  "wormhole-circuit",
  "zk-circuits-common",
 ]
@@ -2459,8 +2465,8 @@ dependencies = [
  "env_logger 0.11.8",
  "log",
  "parity-scale-codec",
- "poseidon-resonance",
- "rusty-crystals-dilithium",
+ "qp-poseidon",
+ "qp-rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -5095,17 +5101,17 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.9"
-source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc#08693e33a8d1365d86c6e2c98bf25bf4141e80ce"
+version = "0.2.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.10#c8cc9eb375e0701b2e1fad6a14b60f4b6ca645ba"
 dependencies = [
  "bs58",
  "ed25519-dalek",
  "hkdf",
  "log",
  "multihash 0.19.3",
+ "qp-rusty-crystals-dilithium",
  "quick-protobuf",
  "rand 0.8.5",
- "rusty-crystals-dilithium",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "zeroize",
@@ -5181,8 +5187,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-noise"
-version = "0.45.0"
-source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
+version = "0.45.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-noise?tag=v0.45.10#901f09f30b32f910395270bba3a566191dc2f61f"
 dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.10.1",
@@ -6564,7 +6570,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "paste",
- "poseidon-resonance",
+ "qp-poseidon",
  "qp-wormhole",
  "scale-info",
  "sp-core",
@@ -7321,48 +7327,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
-name = "plonky2"
-version = "1.0.2"
-source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
-dependencies = [
- "ahash",
- "anyhow",
- "getrandom 0.2.16",
- "hashbrown 0.14.5",
- "itertools 0.11.0",
- "keccak-hash 0.8.0",
- "log",
- "num",
- "plonky2_field",
- "plonky2_maybe_rayon",
- "plonky2_util",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "serde",
- "static_assertions",
- "unroll",
- "web-time",
-]
-
-[[package]]
-name = "plonky2_field"
-version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
-dependencies = [
- "anyhow",
- "itertools 0.11.0",
- "num",
- "plonky2_util",
- "rand 0.8.5",
- "serde",
- "static_assertions",
- "unroll",
-]
-
-[[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e1e554181dc95243b8d9948ae7bae5759c7fb2502fed28f671f95ef38079406"
 dependencies = [
  "rayon",
 ]
@@ -7370,7 +7338,8 @@ dependencies = [
 [[package]]
 name = "plonky2_util"
 version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/plonky2#80a10007d8359b54843acb826097561859a6b621"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c32c137808ca984ab2458b612b7eb0462d853ee041a3136e83d54b96074c7610"
 
 [[package]]
 name = "plotters"
@@ -7835,22 +7804,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poseidon-resonance"
-version = "0.9.0"
-source = "git+https://github.com/Quantus-Network/poseidon-resonance#c37290f40cd821970c00844663cf22c7408457b7"
-dependencies = [
- "log",
- "parity-scale-codec",
- "plonky2",
- "scale-info",
- "serde",
- "sp-core",
- "sp-runtime",
- "sp-storage",
- "sp-trie",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8223,6 +8176,98 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-plonky2"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "068162bd3730e381744eca219f98f0db22874afc8fa24631611e975c93d6cf68"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "getrandom 0.2.16",
+ "hashbrown 0.14.5",
+ "itertools 0.11.0",
+ "keccak-hash 0.8.0",
+ "log",
+ "num",
+ "plonky2_maybe_rayon",
+ "plonky2_util",
+ "qp-plonky2-field",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "serde",
+ "static_assertions",
+ "unroll",
+ "web-time",
+]
+
+[[package]]
+name = "qp-plonky2-field"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2b2f7e0854f9e14aa9b3f6d544ccf71087e751d6adbe6a7e50d2c75fb561d97"
+dependencies = [
+ "anyhow",
+ "itertools 0.11.0",
+ "num",
+ "plonky2_util",
+ "rand 0.8.5",
+ "rustc_version",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
+name = "qp-poseidon"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9392ebae262f54125eecd98eba704e0bdfd77f710cb197ba4c89dde934414016"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "qp-plonky2",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-runtime",
+ "sp-storage",
+ "sp-trie",
+]
+
+[[package]]
+name = "qp-rusty-crystals-dilithium"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a4714f7b30092ec7595ad40a77d43ac0cd76eb802442ac192ab9b835db63ff"
+dependencies = [
+ "rand 0.7.3",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "qp-rusty-crystals-hdwallet"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d411d3303fe1ab489521034da6fd79298b98d3fdb70d09be264691e053e94918"
+dependencies = [
+ "bip39",
+ "hex",
+ "hex-literal",
+ "hmac 0.12.1",
+ "nam-tiny-hderive",
+ "qp-poseidon",
+ "qp-rusty-crystals-dilithium",
+ "rand 0.8.5",
+ "rand_chacha 0.9.0",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-core",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "qp-scheduler"
 version = "0.1.0"
 dependencies = [
@@ -8283,12 +8328,12 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "prometheus",
+ "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-hdwallet",
  "quantus-runtime",
  "rand 0.8.5",
  "reqwest",
  "resonance-miner-api",
- "rusty-crystals-dilithium",
- "rusty-crystals-hdwallet",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client-api",
@@ -8360,8 +8405,8 @@ dependencies = [
  "pallet-vesting",
  "pallet-wormhole",
  "parity-scale-codec",
- "poseidon-resonance",
  "primitive-types 0.13.1",
+ "qp-poseidon",
  "qp-scheduler",
  "scale-info",
  "serde_json",
@@ -9103,37 +9148,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 
 [[package]]
-name = "rusty-crystals-dilithium"
-version = "1.0.0"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#f90dfaa97453ecd1d2714f6f3053530a2d136325"
-dependencies = [
- "rand 0.7.3",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "rusty-crystals-hdwallet"
-version = "0.1.1"
-source = "git+https://github.com/Quantus-Network/rusty-crystals#099db5986b354b3093f3ff500d7523ba792e50dd"
-dependencies = [
- "bip39",
- "hex",
- "hex-literal",
- "hmac 0.12.1",
- "nam-tiny-hderive",
- "poseidon-resonance",
- "rand 0.8.5",
- "rand_chacha 0.9.0",
- "rand_core 0.6.4",
- "rusty-crystals-dilithium",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sp-core",
- "thiserror 2.0.12",
-]
-
-[[package]]
 name = "ruzstd"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9325,10 +9339,10 @@ dependencies = [
  "names",
  "parity-bip39",
  "parity-scale-codec",
+ "qp-rusty-crystals-dilithium",
  "rand 0.8.5",
  "regex",
  "rpassword",
- "rusty-crystals-dilithium",
  "sc-client-api",
  "sc-client-db",
  "sc-keystore",
@@ -9684,7 +9698,7 @@ dependencies = [
 
 [[package]]
 name = "sc-network"
-version = "0.51.0"
+version = "0.51.1"
 dependencies = [
  "array-bytes 6.2.3",
  "assert_matches",
@@ -14296,21 +14310,21 @@ dependencies = [
 [[package]]
 name = "wormhole-circuit"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
+source = "git+https://github.com/Quantus-Network/zk-circuits#69d5aa524109bd0135475deb57f5f34459d02438"
 dependencies = [
  "anyhow",
  "hex",
- "plonky2",
+ "qp-plonky2",
  "zk-circuits-common",
 ]
 
 [[package]]
 name = "wormhole-verifier"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
+source = "git+https://github.com/Quantus-Network/zk-circuits#69d5aa524109bd0135475deb57f5f34459d02438"
 dependencies = [
  "anyhow",
- "plonky2",
+ "qp-plonky2",
  "wormhole-circuit",
  "zk-circuits-common",
 ]
@@ -14576,10 +14590,11 @@ dependencies = [
 [[package]]
 name = "zk-circuits-common"
 version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#547cd0d2514aa2a849af85368b4f89f4132cdb97"
+source = "git+https://github.com/Quantus-Network/zk-circuits#69d5aa524109bd0135475deb57f5f34459d02438"
 dependencies = [
  "anyhow",
- "plonky2",
+ "qp-plonky2",
+ "serde",
 ]
 
 [[package]]

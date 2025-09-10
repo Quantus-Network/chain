@@ -97,6 +97,7 @@ uuid = { version = "1.7.0", features = ["serde", "v4"] }
 void = { version = "1.0.2" }
 wasm-timer = { version = "0.2.5" }
 zeroize = { version = "1.7.0", default-features = false }
+chrono = { version = "0.4.31" }
 
 # Own dependencies
 dilithium-crypto = { path = "./dilithium-crypto", default-features = false }

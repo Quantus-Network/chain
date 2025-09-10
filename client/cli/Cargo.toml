@@ -36,164 +36,50 @@ rocksdb = ["sc-client-db/rocksdb"]
 name = "sc_cli"
 path = "src/lib.rs"
 
-[dependencies.array-bytes]
-version = "6.2.2"
-default-features = true
+[dependencies]
+array-bytes = { workspace = true, default-features = true }
+bip39 = { version = "2.0.1", features = ["rand"], default-features = true, package = "parity-bip39" }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive","string","wrap_help"] }
+codec = { workspace = true, default-features = true, package = "parity-scale-codec" }
+fdlimit = { version = "0.3.0" }
+futures = { workspace = true }
+itertools = { version = "0.11" }
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10", features = ["peerid"] }
+log = { workspace = true, default-features = true }
+names = { version = "0.14.0", default-features = false }
+rand = { workspace = true, default-features = true }
+regex = { version = "1.10.2" }
+rpassword = { version = "7.0.0" }
+sc-client-api = { workspace = true, default-features = true }
+sc-client-db = { version = "0.47.0", default-features = false }
+sc-keystore = { version = "36.0.0", default-features = true }
+sc-mixnet = { version = "0.21.0", default-features = true }
+sc-network = { workspace = true, default-features = true }
+sc-service = { workspace = true, default-features = false }
+sc-telemetry = { version = "29.0.0", default-features = true }
+sc-tracing = { version = "40.0.0", default-features = true }
+sc-transaction-pool = { workspace = true, default-features = true }
+sc-utils = { workspace = true, default-features = true }
+serde = { workspace = true, default-features = true }
+serde_json = { workspace = true, default-features = true }
+sp-blockchain = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-keyring = { workspace = true, default-features = true }
+sp-keystore = { version = "0.43.0", default-features = true }
+sp-panic-handler = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+sp-version = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["parking_lot","rt-multi-thread","signal"], default-features = true }
+hex = { workspace = true }
+qp-rusty-crystals-dilithium = { workspace = true }
+dilithium-crypto = { workspace = true }
 
-[dependencies.bip39]
-version = "2.0.1"
-features = ["rand"]
-default-features = true
-package = "parity-bip39"
+[dev-dependencies]
+futures-timer = { workspace = true }
+tempfile = { workspace = true }
 
-[dependencies.chrono]
-version = "0.4.31"
-
-[dependencies.clap]
-version = "4.5.13"
-features = [
-    "derive",
-    "string",
-    "wrap_help",
-]
-
-[dependencies.codec]
-version = "3.7.5"
-default-features = true
-package = "parity-scale-codec"
-
-[dependencies.fdlimit]
-version = "0.3.0"
-
-[dependencies.futures]
-version = "0.3.31"
-
-[dependencies.itertools]
-version = "0.11"
-
-[dependencies.libp2p-identity]
-version = "0.2.9"
-features = [
-    "peerid",
-]
-
-[dependencies.log]
-version = "0.4.22"
-default-features = true
-
-[dependencies.names]
-version = "0.14.0"
-default-features = false
-
-[dependencies.rand]
-version = "0.8.5"
-default-features = true
-
-[dependencies.regex]
-version = "1.10.2"
-
-[dependencies.rpassword]
-version = "7.0.0"
-
-[dependencies.sc-client-api]
-version = "40.0.0"
-default-features = true
-
-[dependencies.sc-client-db]
-version = "0.47.0"
-default-features = false
-
-[dependencies.sc-keystore]
-version = "36.0.0"
-default-features = true
-
-[dependencies.sc-mixnet]
-version = "0.21.0"
-default-features = true
-
-[dependencies.sc-network]
-version = "0.51.0"
-default-features = true
-
-[dependencies.sc-service]
-version = "0.52.0"
-default-features = false
-
-[dependencies.sc-telemetry]
-version = "29.0.0"
-default-features = true
-
-[dependencies.sc-tracing]
-version = "40.0.0"
-default-features = true
-
-[dependencies.sc-transaction-pool]
-version = "40.0.0"
-default-features = true
-
-[dependencies.sc-utils]
-version = "19.0.0"
-default-features = true
-
-[dependencies.serde]
-version = "1.0.214"
-default-features = true
-
-[dependencies.serde_json]
-version = "1.0.132"
-default-features = true
-
-[dependencies.sp-blockchain]
-version = "40.0.0"
-default-features = true
-
-[dependencies.sp-core]
-version = "37.0.0"
-default-features = true
-
-[dependencies.sp-keyring]
-version = "42.0.0"
-default-features = true
-
-[dependencies.sp-keystore]
-version = "0.43.0"
-default-features = true
-
-[dependencies.sp-panic-handler]
-version = "13.0.2"
-default-features = true
-
-[dependencies.sp-runtime]
-version = "42.0.0"
-default-features = true
-
-[dependencies.sp-version]
-version = "40.0.0"
-default-features = true
-
-[dependencies.thiserror]
-version = "1.0.64"
-
-[dependencies.tokio]
-version = "1.45.0"
-features = [
-    "parking_lot",
-    "rt-multi-thread",
-    "signal",
-]
-default-features = true
-[dependencies.hex]
-workspace = true
-[dependencies.rusty-crystals-dilithium]
-workspace = true
-[dependencies.dilithium-crypto]
-workspace = true
-
-[dev-dependencies.futures-timer]
-version = "3.0.2"
-
-[dev-dependencies.tempfile]
-version = "3.8.1"
 
 [lints.clippy.all]
 level = "allow"
