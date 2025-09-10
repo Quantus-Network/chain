@@ -7,9 +7,9 @@ use alloc::vec::Vec;
 use frame_benchmarking::v2::*;
 use frame_support::{ensure, traits::fungible::Inspect};
 use frame_system::RawOrigin;
-use wormhole_circuit::inputs::PublicCircuitInputs;
-use wormhole_verifier::ProofWithPublicInputs;
-use zk_circuits_common::circuit::{C, D, F};
+use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+use qp_wormhole_verifier::ProofWithPublicInputs;
+use qp_zk_circuits_common::circuit::{C, D, F};
 
 fn get_benchmark_proof() -> Vec<u8> {
 	let hex_proof = include_str!("../proof_from_bins.hex");
