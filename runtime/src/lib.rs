@@ -17,7 +17,7 @@ pub use dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatu
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use sp_core::{H160, U512};
+use sp_core::{H160, H256, U512};
 use sp_runtime::transaction_validity::{TransactionValidity, TransactionValidityError};
 use sp_runtime::{
 	generic, impl_opaque_keys,

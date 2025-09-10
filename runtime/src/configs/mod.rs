@@ -637,7 +637,7 @@ impl<T: pallet_mining_rewards::Config> FindAuthor<H160> for FindAuthorImpl<T> {
 	{
 		let account = pallet_mining_rewards::Pallet::<T>::find_author(digests.into_iter());
 
-		return Some(H160::from_slice(&account.encode()[4..24]));
+		account.map(|account| H160::from_slice(&account.encode()[4..24]))
 	}
 }
 

@@ -8824,6 +8824,7 @@ dependencies = [
  "async-trait",
  "circuit-builder",
  "clap",
+ "cumulus-primitives-proof-size-hostfunction",
  "dilithium-crypto",
  "fc-api",
  "fc-cli",

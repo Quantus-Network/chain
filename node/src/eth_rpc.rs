@@ -35,8 +35,6 @@ pub struct EthDeps<B: BlockT, C, P, CT, CIDP> {
 	pub converter: Option<CT>,
 	/// The Node authority flag
 	pub is_authority: bool,
-	/// Whether to enable dev signer
-	pub enable_dev_signer: bool,
 	/// Network service
 	pub network: Arc<dyn NetworkService>,
 	/// Chain syncing service
@@ -88,8 +86,8 @@ where
 	EC: EthConfig<B, C>,
 {
 	use fc_rpc::{
-		Debug, DebugApiServer, Eth, EthApiServer, EthDevSigner, EthFilter, EthFilterApiServer,
-		EthPubSub, EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3, Web3ApiServer,
+		Debug, DebugApiServer, Eth, EthApiServer, EthFilter, EthFilterApiServer, EthPubSub,
+		EthPubSubApiServer, Net, NetApiServer, Web3, Web3ApiServer,
 	};
 
 	let EthDeps {
@@ -98,7 +96,6 @@ where
 		graph,
 		converter,
 		is_authority,
-		enable_dev_signer: _,
 		network,
 		sync,
 		frontier_backend,
@@ -113,6 +110,7 @@ where
 		pending_create_inherent_data_providers,
 	} = deps;
 
+	let signers = vec![];
 	io.merge(
 		Eth::<B, C, P, CT, BE, CIDP, EC>::new(
 			client.clone(),
@@ -178,9 +176,6 @@ where
 	io.merge(
 		Debug::new(client.clone(), frontier_backend, storage_override, block_data_cache).into_rpc(),
 	)?;
-
-	#[cfg(feature = "txpool")]
-	io.merge(TxPool::new(client, graph).into_rpc())?;
 
 	Ok(io)
 }

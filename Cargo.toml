@@ -230,6 +230,8 @@ fc-rpc = { git = "https://github.com/polkadot-evm/frontier", features = ["aura"]
 fc-rpc-core = { git = "https://github.com/polkadot-evm/frontier" }
 fc-storage = { git = "https://github.com/polkadot-evm/frontier" }
 fp-dynamic-fee = { git = "https://github.com/polkadot-evm/frontier", default-features = false, features = ["default"] }
+# Cumulus primitives
+cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2506" }
 
 [patch.crates-io]
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10" }

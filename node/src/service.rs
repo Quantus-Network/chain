@@ -33,11 +33,13 @@ use sp_runtime::traits::Header;
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
-pub(crate) type FullClient = sc_service::TFullClient<
-	Block,
-	RuntimeApi,
-	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
->;
+pub type HostFunctions = (
+	sp_io::SubstrateHostFunctions,
+	cumulus_primitives_proof_size_hostfunction::storage_proof_size::HostFunctions,
+);
+
+pub(crate) type FullClient =
+	sc_service::TFullClient<Block, RuntimeApi, sc_executor::WasmExecutor<HostFunctions>>;
 pub type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_pow::PowBlockImport<
@@ -144,7 +146,7 @@ pub fn new_partial(
 		})
 		.transpose()?;
 
-	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 	let (client, backend, keystore_container, task_manager) =
 		sc_service::new_full_parts::<Block, RuntimeApi, _>(
 			config,
@@ -314,7 +316,6 @@ pub async fn new_full<
 		let sync_service = sync_service.clone();
 
 		let is_authority = role.is_authority();
-		let enable_dev_signer = eth_config.enable_dev_signer;
 		let max_past_logs = eth_config.max_past_logs;
 		let execute_gas_limit_multiplier = eth_config.execute_gas_limit_multiplier;
 		let filter_pool = filter_pool.clone();
@@ -342,7 +343,6 @@ pub async fn new_full<
 				graph: pool.clone(),
 				converter: Some(TransactionConverter::<Block>::default()),
 				is_authority,
-				enable_dev_signer,
 				network: network.clone(),
 				sync: sync_service.clone(),
 				frontier_backend: match &*frontier_backend {
@@ -392,7 +392,7 @@ pub async fn new_full<
 		telemetry: telemetry.as_mut(),
 	})?;
 
-	spawn_frontier_tasks::<RuntimeApi, sp_io::SubstrateHostFunctions>(
+	spawn_frontier_tasks::<RuntimeApi, HostFunctions>(
 		&task_manager,
 		client.clone(),
 		backend,

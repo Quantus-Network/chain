@@ -113,6 +113,9 @@ fp-dynamic-fee = { workspace = true, features = ["default"] }
 fp-evm = { workspace = true, features = ["default"] }
 fp-rpc = { workspace = true, features = ["default"] }
 
+# Cumulus primitives
+cumulus-primitives-proof-size-hostfunction = { workspace = true }
+
 [build-dependencies]
 circuit-builder.workspace = true
 substrate-build-script-utils.default-features = true
