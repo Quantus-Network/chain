@@ -536,7 +536,6 @@ where
 		Err(_) => return Ok(false),
 	};
 
-
 	let pre_hash_arr = pre_hash.0;
 
 	let verified = client
