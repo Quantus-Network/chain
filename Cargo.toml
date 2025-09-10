@@ -36,6 +36,7 @@ async-trait = { version = "0.1.85", default-features = false }
 asynchronous-codec = { version = "0.6" }
 binary-merkle-tree = { version = "16.0.0", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
+chrono = { version = "0.4.31" }
 cid = { version = "0.9.0" }
 clap = { version = "4.5.13" }
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
@@ -97,7 +98,6 @@ uuid = { version = "1.7.0", features = ["serde", "v4"] }
 void = { version = "1.0.2" }
 wasm-timer = { version = "0.2.5" }
 zeroize = { version = "1.7.0", default-features = false }
-chrono = { version = "0.4.31" }
 
 # Own dependencies
 dilithium-crypto = { path = "./dilithium-crypto", default-features = false }
@@ -200,10 +200,10 @@ substrate-wasm-builder = { version = "27.0.0", default-features = false }
 [patch.crates-io]
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
+sc-cli = { path = "./client/cli" }
 sc-network = { path = "./client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
-sc-cli = { path = "./client/cli" }
 
 [profile.release]
 opt-level = 3

@@ -93,7 +93,6 @@ impl Pair for DilithiumPair {
 	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
 		Self::from_string_with_seed(s, password_override).map(|x| x.0)
 	}
-
 }
 
 #[cfg(feature = "std")]
@@ -110,10 +109,7 @@ impl DilithiumPublic {
 	/// this function returns an error.
 	pub fn from_string_with_version(
 		s: &str,
-	) -> Result<(
-		Self,
-		sp_core::crypto::Ss58AddressFormat,
-	), sp_core::crypto::PublicError> {
+	) -> Result<(Self, sp_core::crypto::Ss58AddressFormat), sp_core::crypto::PublicError> {
 		use sp_core::crypto::{default_ss58_version, PublicError};
 		// Accept 0x-prefixed hex of the raw Dilithium public key bytes.
 		let maybe_hex = s.strip_prefix("0x").unwrap_or(s);

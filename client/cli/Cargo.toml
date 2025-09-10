@@ -10,20 +10,20 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
-name = "sc-cli"
-version = "0.53.0"
 authors = ["Parity Technologies <admin@parity.io>"]
-build = false
+autobenches = false
 autobins = false
 autoexamples = false
 autotests = false
-autobenches = false
+build = false
 description = "Substrate CLI interface."
+edition = "2021"
 homepage = "https://paritytech.github.io/polkadot-sdk/"
-readme = "README.md"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-cli"
+readme = "README.md"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
+version = "0.53.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -40,14 +40,18 @@ path = "src/lib.rs"
 array-bytes = { workspace = true, default-features = true }
 bip39 = { version = "2.0.1", features = ["rand"], default-features = true, package = "parity-bip39" }
 chrono = { workspace = true }
-clap = { workspace = true, features = ["derive","string","wrap_help"] }
+clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
 codec = { workspace = true, default-features = true, package = "parity-scale-codec" }
+dilithium-crypto = { workspace = true }
 fdlimit = { version = "0.3.0" }
 futures = { workspace = true }
+hex = { workspace = true }
 itertools = { version = "0.11" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10", features = ["peerid"] }
 log = { workspace = true, default-features = true }
 names = { version = "0.14.0", default-features = false }
+qp-rusty-crystals-dilithium = { workspace = true }
+qp-rusty-crystals-hdwallet = { workspace = true }
 rand = { workspace = true, default-features = true }
 regex = { version = "1.10.2" }
 rpassword = { version = "7.0.0" }
@@ -71,125 +75,8 @@ sp-panic-handler = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 sp-version = { workspace = true, default-features = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["parking_lot","rt-multi-thread","signal"], default-features = true }
-hex = { workspace = true }
-qp-rusty-crystals-dilithium = { workspace = true }
-dilithium-crypto = { workspace = true }
-qp-rusty-crystals-hdwallet = { workspace = true }
+tokio = { workspace = true, features = ["parking_lot", "rt-multi-thread", "signal"], default-features = true }
 
 [dev-dependencies]
 futures-timer = { workspace = true }
 tempfile = { workspace = true }
-
-
-[lints.clippy.all]
-level = "allow"
-priority = 0
-
-[lints.clippy.bind_instead_of_map]
-level = "allow"
-priority = 2
-
-[lints.clippy.borrowed-box]
-level = "allow"
-priority = 2
-
-[lints.clippy.complexity]
-level = "warn"
-priority = 1
-
-[lints.clippy.correctness]
-level = "warn"
-priority = 1
-
-[lints.clippy.default_constructed_unit_structs]
-level = "allow"
-priority = 2
-
-[lints.clippy.derivable_impls]
-level = "allow"
-priority = 2
-
-[lints.clippy.eq_op]
-level = "allow"
-priority = 2
-
-[lints.clippy.erasing_op]
-level = "allow"
-priority = 2
-
-[lints.clippy.extra-unused-type-parameters]
-level = "allow"
-priority = 2
-
-[lints.clippy.identity-op]
-level = "allow"
-priority = 2
-
-[lints.clippy.if-same-then-else]
-level = "allow"
-priority = 2
-
-[lints.clippy.needless-lifetimes]
-level = "allow"
-priority = 2
-
-[lints.clippy.needless_option_as_deref]
-level = "allow"
-priority = 2
-
-[lints.clippy.nonminimal-bool]
-level = "allow"
-priority = 2
-
-[lints.clippy.option-map-unit-fn]
-level = "allow"
-priority = 2
-
-[lints.clippy.stable_sort_primitive]
-level = "allow"
-priority = 2
-
-[lints.clippy.too-many-arguments]
-level = "allow"
-priority = 2
-
-[lints.clippy.type_complexity]
-level = "allow"
-priority = 2
-
-[lints.clippy.unit_arg]
-level = "allow"
-priority = 2
-
-[lints.clippy.unnecessary_cast]
-level = "allow"
-priority = 2
-
-[lints.clippy.useless_conversion]
-level = "allow"
-priority = 2
-
-[lints.clippy.while_immutable_condition]
-level = "allow"
-priority = 2
-
-[lints.clippy.zero-prefixed-literal]
-level = "allow"
-priority = 2
-
-[lints.rust.suspicious_double_ref_op]
-level = "allow"
-priority = 2
-
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(build_opt_level, values("3"))',
-    'cfg(build_profile, values("debug", "release"))',
-    "cfg(enable_alloc_error_handler)",
-    "cfg(fuzzing)",
-    "cfg(ignore_flaky_test)",
-    "cfg(substrate_runtime)",
-]
