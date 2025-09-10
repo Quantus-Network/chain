@@ -547,7 +547,7 @@ where
 	// Convert seal to nonce [u8; 64]
 	let nonce: [u8; 64] = match seal.as_slice().try_into() {
 		Ok(arr) => arr,
-		Err(_) => panic!("Vec<u8> does not have exactly 64 elements"),
+		Err(_) => return Err(Error::Runtime(format!("Seal does not have exactly 64 bytes"))),
 	};
 
 	let parent_hash = match extract_block_hash(parent) {
