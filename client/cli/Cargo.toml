@@ -38,31 +38,31 @@ path = "src/lib.rs"
 
 [dependencies]
 array-bytes = { workspace = true, default-features = true }
-bip39 = { version = "2.0.1", features = ["rand"], default-features = true, package = "parity-bip39" }
+bip39 = { workspace = true, package = "parity-bip39" }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
 codec = { workspace = true, default-features = true, package = "parity-scale-codec" }
 dilithium-crypto = { workspace = true }
-fdlimit = { version = "0.3.0" }
+fdlimit = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
-itertools = { version = "0.11" }
-libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10", features = ["peerid"] }
+itertools = { workspace = true }
+libp2p-identity = { workspace = true, features = ["peerid"] }
 log = { workspace = true, default-features = true }
-names = { version = "0.14.0", default-features = false }
+names = { workspace = true, default-features = false }
 qp-rusty-crystals-dilithium = { workspace = true }
 qp-rusty-crystals-hdwallet = { workspace = true }
 rand = { workspace = true, default-features = true }
-regex = { version = "1.10.2" }
-rpassword = { version = "7.0.0" }
+regex = { workspace = true }
+rpassword = { workspace = true }
 sc-client-api = { workspace = true, default-features = true }
-sc-client-db = { version = "0.47.0", default-features = false }
-sc-keystore = { version = "36.0.0", default-features = true }
-sc-mixnet = { version = "0.21.0", default-features = true }
+sc-client-db = { workspace = true, default-features = false }
+sc-keystore = { workspace = true, default-features = true }
+sc-mixnet = { workspace = true, default-features = true }
 sc-network = { workspace = true, default-features = true }
 sc-service = { workspace = true, default-features = false }
-sc-telemetry = { version = "29.0.0", default-features = true }
-sc-tracing = { version = "40.0.0", default-features = true }
+sc-telemetry = { workspace = true, default-features = true }
+sc-tracing = { workspace = true, default-features = true }
 sc-transaction-pool = { workspace = true, default-features = true }
 sc-utils = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }
@@ -70,7 +70,7 @@ serde_json = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 sp-keyring = { workspace = true, default-features = true }
-sp-keystore = { version = "0.43.0", default-features = true }
+sp-keystore = { workspace = true, default-features = true }
 sp-panic-handler = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 sp-version = { workspace = true, default-features = true }
