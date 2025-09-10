@@ -510,7 +510,7 @@ pub fn new_full<
 					// Local mining
 					let nonce_bytes = nonce.to_big_endian();
 					// Convert pre_hash to [u8; 32] for verification
-					let block_hash = metadata.pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
+					let block_hash = metadata.pre_hash.0;
 
 					// Verify the nonce using runtime api
 					match client.runtime_api().verify_nonce_local_mining(
