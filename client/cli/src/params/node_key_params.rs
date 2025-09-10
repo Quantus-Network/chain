@@ -148,7 +148,6 @@ fn parse_dilithium_secret(byte_string: &str) -> error::Result<sc_network::config
 mod tests {
 	use super::*;
 	use clap::ValueEnum;
-	use sc_network::config::ed25519;
 	use std::fs::{self, File};
 	use libp2p_identity::Keypair;
 	use tempfile::TempDir;
@@ -181,7 +180,7 @@ mod tests {
 
 	#[test]
 	fn test_node_key_config_file() {
-		fn check_key(file: PathBuf, key: &ed25519::SecretKey) {
+		fn check_key(file: PathBuf, key: &libp2p_identity::dilithium::Keypair) {
 			let params = NodeKeyParams {
 				node_key_type: NodeKeyType::Dilithium,
 				node_key: None,
@@ -239,12 +238,12 @@ mod tests {
 					let dir = PathBuf::from(net_config_dir.clone());
 					let typ = params.node_key_type;
 					params.node_key(net_config_dir, role, is_dev).and_then(move |c| match c {
-						NodeKeyConfig::Ed25519(sc_network::config::Secret::File(ref f))
+						NodeKeyConfig::Dilithium(sc_network::config::Secret::File(ref f))
 							if typ == NodeKeyType::Dilithium &&
 								f == &dir.join(NODE_KEY_DILITHIUM_FILE) =>
 							Ok(()),
-						_ => Err(error::Error::Input("Unexpected node key config".into())),
-					})
+							_ => Err(error::Error::Input("Unexpected node key config".into())),
+						})
 				},
 				unsafe_force_node_key_generation,
 			)
