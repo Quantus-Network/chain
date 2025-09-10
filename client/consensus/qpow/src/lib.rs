@@ -295,7 +295,7 @@ where
 	}
 }
 
-/// Import queue for PoW engine.
+/// Import queue for QPoW engine.
 pub fn import_queue<B, C>(
 	block_import: BoxBlockImport<B>,
 	justification_import: Option<BoxJustificationImport<B>>,
@@ -479,26 +479,7 @@ where
 	(worker_ret, task)
 }
 
-/// Find QPoW pre-runtime.
-// fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<Option<Vec<u8>>, Error<B>> {
-// 	let mut pre_digest: Option<_> = None;
-// 	for log in header.digest().logs() {
-// 		trace!(target: LOG_TARGET, "Checking log {:?}, looking for pre runtime digest", log);
-// 		match (log, pre_digest.is_some()) {
-// 			(DigestItem::PreRuntime(POW_ENGINE_ID, _), true) => {
-// 				return Err(Error::MultiplePreRuntimeDigests)
-// 			},
-// 			(DigestItem::PreRuntime(POW_ENGINE_ID, v), false) => {
-// 				pre_digest = Some(v.clone());
-// 			},
-// 			(_, _) => trace!(target: LOG_TARGET, "Ignoring digest not meant for us"),
-// 		}
-// 	}
-//
-// 	Ok(pre_digest)
-// }
-
-/// Fetch PoW seal.
+/// Fetch QPoW seal.
 fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<Vec<u8>, Error<B>> {
 	match digest {
 		Some(DigestItem::Seal(id, seal)) =>
