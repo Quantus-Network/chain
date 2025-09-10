@@ -528,7 +528,7 @@ where
 	// Convert seal to nonce [u8; 64]
 	let nonce: [u8; 64] = match seal.as_slice().try_into() {
 		Ok(arr) => arr,
-		Err(_) => return Err(Error::Runtime(format!("Seal does not have exactly 64 bytes"))),
+		Err(_) => return Err(Error::Runtime("Seal does not have exactly 64 bytes".to_string())),
 	};
 
 	let parent_hash = match extract_block_hash(parent) {
@@ -536,7 +536,8 @@ where
 		Err(_) => return Ok(false),
 	};
 
-	let pre_hash_arr = pre_hash.as_ref().try_into().unwrap_or([0u8; 32]);
+
+	let pre_hash_arr = pre_hash.0;
 
 	let verified = client
 		.runtime_api()
@@ -549,7 +550,7 @@ where
 		.map_err(|e| Error::Runtime(format!("API error getting difficulty: {:?}", e)))?;
 
 	if !verified {
-		log::warn!(
+		warn!(
             "Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime",
             pre_hash_arr,
             parent_hash,
