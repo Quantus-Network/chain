@@ -5,7 +5,7 @@ use super::types::{
 
 use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
 use alloc::vec::Vec;
-use poseidon_resonance::PoseidonHasher;
+use qp_poseidon::PoseidonHasher;
 use sp_core::{
 	crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
 	ByteArray, Hasher, H256,
@@ -39,7 +39,7 @@ use sp_runtime::{
 /// }
 /// ```
 pub fn verify(pub_key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
-	use rusty_crystals_dilithium::ml_dsa_87::PublicKey;
+	use qp_rusty_crystals_dilithium::ml_dsa_87::PublicKey;
 	match PublicKey::from_bytes(pub_key) {
 		Ok(pk) => pk.verify(msg, sig, None),
 		Err(e) => {
