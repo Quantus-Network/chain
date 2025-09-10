@@ -175,7 +175,7 @@ use frame_support::{
 use frame_system as system;
 pub use impl_currency::{NegativeImbalance, PositiveImbalance};
 pub use pallet::*;
-use poseidon_resonance::PoseidonHasher as PoseidonCore;
+use qp_poseidon::PoseidonHasher as PoseidonCore;
 use scale_info::TypeInfo;
 use sp_runtime::{
 	traits::{

@@ -25,7 +25,7 @@ If you prefer manual installation or the script doesn't work for your system:
 
 1. **Download Binary**
 
-   Visit [GitHub Releases](https://github.com/Quantus-Network/chain/releases) and download the appropriate binary for your system.
+   Get the latest binary [GitHub Releases](https://github.com/Quantus-Network/chain/releases/latest) 
 
 2. **Generate Node Identity**
    ```bash
@@ -37,8 +37,26 @@ If you prefer manual installation or the script doesn't work for your system:
    ./quantus-node key quantus
    ```
 
+  The address is in the output like this:
+```sh
+...  
+Address: qzpjg55HuN2vLdQerpZwhsGfRn6b4pc8uh4bdEgsYbJNeu8rn
+...
+```   
    Save the displayed address to `~/.quantus/rewards-address.txt`
 
+4. **Run the node (Resonance testnet)**
+
+Minimal command - see --help for many more options
+```sh
+./quantus-node \
+    --validator \
+    --chain live_resonance \
+    --node-key-file ~/.quantus/node_key.p2p \
+    --rewards-address <REWARDS_ADDRESS> \
+    --max-blocks-per-request 64 \
+    --sync full
+```
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:

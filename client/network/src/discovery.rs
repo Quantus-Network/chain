@@ -1124,17 +1124,8 @@ fn kademlia_protocol_name<Hash: AsRef<[u8]>>(
 mod tests {
 	use super::{kademlia_protocol_name, legacy_kademlia_protocol_name, DiscoveryConfig};
 	use crate::config::ProtocolId;
-	use futures::prelude::*;
-	use libp2p::{identity::Keypair, swarm::Executor, Multiaddr};
+	use libp2p::{identity::Keypair, Multiaddr};
 	use sp_core::hash::H256;
-	use std::pin::Pin;
-
-	struct TokioExecutor(tokio::runtime::Runtime);
-	impl Executor for TokioExecutor {
-		fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
-			let _ = self.0.spawn(f);
-		}
-	}
 
 	#[cfg(ignore_flaky_test)] // https://github.com/paritytech/polkadot-sdk/issues/48
 	#[tokio::test]

@@ -24,15 +24,12 @@ sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
 wormhole-circuit = { workspace = true, default-features = false, features = [
-	"no_std",
 ] }
 wormhole-verifier = { workspace = true, default-features = false, features = [
 	"no_random",
-	"no_std",
 ] }
 zk-circuits-common = { workspace = true, default-features = false, features = [
 	"no_random",
-	"no_std",
 ] }
 
 [dev-dependencies]
@@ -61,6 +58,7 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
+	"wormhole-circuit/std",
 	"wormhole-verifier/std",
 	"zk-circuits-common/std",
 ]

@@ -24,7 +24,7 @@ license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 name = "sc-network"
 readme = "README.md"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
-version = "0.51.0"
+version = "0.51.1"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -73,7 +73,7 @@ libp2p = { workspace = true, features = [
 	"websocket",
 	"yamux",
 ] }
-libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc", features = ["dilithium"] }
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10", features = ["dilithium"] }
 linked_hash_set = { workspace = true }
 log = { workspace = true, default-features = true }
 mockall = { workspace = true }
