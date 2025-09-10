@@ -2,9 +2,9 @@
 
 extern crate alloc;
 
-use al_wormhole_verifier::WormholeVerifier;
 use lazy_static::lazy_static;
 pub use pallet::*;
+use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
 mod mock;
@@ -32,9 +32,6 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::WeightInfo;
-	use al_wormhole_circuit::inputs::PublicCircuitInputs;
-	use al_wormhole_verifier::ProofWithPublicInputs;
-	use al_zk_circuits_common::circuit::{C, D, F};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
@@ -47,6 +44,9 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole::TransferProofs;
+	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+	use qp_wormhole_verifier::ProofWithPublicInputs;
+	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
 		traits::{Saturating, Zero},
 		Perbill,

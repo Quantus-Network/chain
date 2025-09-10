@@ -98,8 +98,8 @@ tokio-util.workspace = true
 uuid.workspace = true
 
 [build-dependencies]
-al-wormhole-circuit-builder.workspace = true
-al-wormhole-verifier.workspace = true
+qp-wormhole-circuit-builder.workspace = true
+qp-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
 
@@ -109,12 +109,12 @@ tempfile = "3.0"
 [features]
 default = ["std"]
 std = [
-	"al-wormhole-verifier/std",
 	"codec/std",
 	"dilithium-crypto/std",
 	"hex/std",
 	"log/std",
 	"primitive-types/std",
+	"qp-wormhole-verifier/std",
 	"quantus-runtime/std",
 	"rand/std",
 	"sc-consensus-qpow/std",

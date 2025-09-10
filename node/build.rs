@@ -1,4 +1,4 @@
-use al_wormhole_verifier::WormholeVerifier;
+use qp_wormhole_verifier::WormholeVerifier;
 use substrate_build_script_utils::{generate_cargo_keys, rerun_if_git_head_changed};
 
 fn main() {
@@ -33,7 +33,7 @@ fn generate_circuit_binaries() {
 
 	// Call the circuit-builder to generate binaries directly in the pallet directory
 	// We don't need the prover binary for the chain, only verifier and common
-	al_wormhole_circuit_builder::generate_circuit_binaries("../pallets/wormhole", false)
+	qp_wormhole_circuit_builder::generate_circuit_binaries("../pallets/wormhole", false)
 		.expect("Failed to generate circuit binaries");
 
 	println!("cargo:trace=✅ Circuit binaries generated successfully");

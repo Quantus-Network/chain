@@ -8,14 +8,6 @@ repository.workspace = true
 version = "0.1.0"
 
 [dependencies]
-al-wormhole-circuit = { workspace = true, default-features = false, features = [
-] }
-al-wormhole-verifier = { workspace = true, default-features = false, features = [
-	"no_random",
-] }
-al-zk-circuits-common = { workspace = true, default-features = false, features = [
-	"no_random",
-] }
 codec = { workspace = true, default-features = false, features = ["derive"] }
 frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
@@ -25,6 +17,14 @@ lazy_static.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
 qp-wormhole.workspace = true
+qp-wormhole-circuit = { workspace = true, default-features = false, features = [
+] }
+qp-wormhole-verifier = { workspace = true, default-features = false, features = [
+	"no_random",
+] }
+qp-zk-circuits-common = { workspace = true, default-features = false, features = [
+	"no_random",
+] }
 scale-info = { workspace = true, default-features = false, features = [
 	"derive",
 ] }
@@ -45,9 +45,6 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 ]
 std = [
-	"al-wormhole-circuit/std",
-	"al-wormhole-verifier/std",
-	"al-zk-circuits-common/std",
 	"codec/std",
 	"frame-benchmarking",
 	"frame-support/std",
@@ -56,7 +53,10 @@ std = [
 	"lazy_static/spin_no_std",
 	"log/std",
 	"pallet-balances/std",
+	"qp-wormhole-circuit/std",
+	"qp-wormhole-verifier/std",
 	"qp-wormhole/std",
+	"qp-zk-circuits-common/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
