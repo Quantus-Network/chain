@@ -19,6 +19,7 @@ use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResul
 use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::{ProvideRuntimeApi, __private::BlockT};
 use sp_consensus_qpow::QPoWApi;
+use qpow_math::mine_range;
 use sp_core::{crypto::AccountId32, RuntimeDebug, U512};
 use sp_runtime::traits::Header;
 use std::{sync::Arc, time::Duration};
@@ -507,31 +508,27 @@ pub fn new_full<
 						}
 					}
 				} else {
-					// Local mining
-					let nonce_bytes = nonce.to_big_endian();
-					// Convert pre_hash to [u8; 32] for verification
-					let block_hash = metadata.pre_hash.0;
+					// Local mining: try a range of N sequential nonces using optimized path
+					let block_hash = metadata.pre_hash.0; // [u8;32]
+					let start_nonce_bytes = nonce.to_big_endian();
+					let threshold = client
+						.runtime_api()
+						.get_distance_threshold(metadata.best_hash)
+						.unwrap_or_else(|e| { log::warn!("API error getting threshold: {:?}", e); U512::zero() });
+					let nonces_to_mine = 3000u64;
 
-					// Verify the nonce using runtime api
-					match client.runtime_api().verify_nonce_local_mining(
-						metadata.best_hash,
+					let found = mine_range(
 						block_hash,
-						nonce_bytes,
-					) {
-						Ok(result) => match result {
-							true => {
-								log::debug!(target: "miner", "Valid solution: {}", nonce);
-							},
-							false => {
-								nonce += U512::one();
-								continue;
-							},
-						},
-						Err(e) => {
-							log::error!("API error in try_nonce: {:?}", e);
-							nonce += U512::one();
-							continue;
-						},
+						start_nonce_bytes,
+						nonces_to_mine,
+						threshold,
+					);
+
+					let nonce_bytes = if let Some((good_nonce, _distance)) = found {
+						good_nonce
+					} else {
+						nonce += U512::from(nonces_to_mine);
+						continue;
 					};
 
 					let current_version = worker_handle.version();
