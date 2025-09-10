@@ -75,6 +75,7 @@ tokio = { workspace = true, features = ["parking_lot","rt-multi-thread","signal"
 hex = { workspace = true }
 qp-rusty-crystals-dilithium = { workspace = true }
 dilithium-crypto = { workspace = true }
+qp-rusty-crystals-hdwallet = { workspace = true }
 
 [dev-dependencies]
 futures-timer = { workspace = true }

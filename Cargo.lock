@@ -9340,6 +9340,7 @@ dependencies = [
  "parity-bip39",
  "parity-scale-codec",
  "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-hdwallet",
  "rand 0.8.5",
  "regex",
  "rpassword",

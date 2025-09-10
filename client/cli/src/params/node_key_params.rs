@@ -23,7 +23,7 @@ use sp_core::H256;
 use std::{path::PathBuf, str::FromStr};
 use libp2p_identity::Keypair;
 use crate::{arg_enums::NodeKeyType, error, Error};
-use rusty_crystals_dilithium::ml_dsa_87;
+use qp_rusty_crystals_dilithium::ml_dsa_87;
 use hex;
 
 /// The file name of the node's dilithium secret key inside the chain-specific

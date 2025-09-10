@@ -77,19 +77,22 @@ pub fn print_from_uri<Pair>(
 {
 	let password = password.as_ref().map(|s| s.expose_secret().as_str());
 	let network_id = String::from(unwrap_or_default_ss58_version(network_override));
-	if let Ok((pair, seed)) = Pair::from_phrase(uri, password) {
-		let public_key = pair.public();
-		let network_override = unwrap_or_default_ss58_version(network_override);
+ if let Ok(hd) = qp_rusty_crystals_hdwallet::HDLattice::from_mnemonic(uri, None) {
+ 		let seed_vec = hd.seed.to_vec();
+ 		let pair = dilithium_crypto::DilithiumPair::from_seed(&seed_vec)
+ 			.expect("Failed to create pair from seed");
+ 		let public_key = pair.public();
+ 		let network_override = unwrap_or_default_ss58_version(network_override);
 
 		match output {
 			OutputType::Json => {
 				let json = json!({
 					"secretPhrase": uri,
 					"networkId": network_id,
-					"secretSeed": format_seed::<Pair>(seed),
-					"publicKey": format_public_key::<Pair>(public_key.clone()),
+					"secretSeed": format_seed::<dilithium_crypto::DilithiumPair>(seed_vec.clone()),
+					"publicKey": format_public_key::<dilithium_crypto::DilithiumPair>(public_key.clone()),
 					"ss58PublicKey": public_key.to_ss58check_with_version(network_override),
-					"accountId": format_account_id::<Pair>(public_key),
+					"accountId": format_account_id::<dilithium_crypto::DilithiumPair>(public_key),
 					"ss58Address": pair.public().into_account().to_ss58check_with_version(network_override),
 				});
 				println!(
@@ -108,9 +111,9 @@ pub fn print_from_uri<Pair>(
 					SS58 Address:      {}",
 					uri,
 					network_id,
-					format_seed::<Pair>(seed),
-					format_public_key::<Pair>(public_key.clone()),
-					format_account_id::<Pair>(public_key.clone()),
+					format_seed::<dilithium_crypto::DilithiumPair>(seed_vec.clone()),
+					format_public_key::<dilithium_crypto::DilithiumPair>(public_key.clone()),
+					format_account_id::<dilithium_crypto::DilithiumPair>(public_key.clone()),
 					public_key.to_ss58check_with_version(network_override),
 					pair.public().into_account().to_ss58check_with_version(network_override),
 				);
