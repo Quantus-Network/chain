@@ -20,7 +20,7 @@
 
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use libp2p_identity::{Keypair};
+use libp2p_identity::Keypair;
 use sc_service::BasePath;
 use std::{
 	fs,

@@ -71,9 +71,7 @@ pub fn print_from_uri<Pair>(
 ) where
 	Pair: sp_core::Pair,
 	Pair::Public: IdentifyAccount,
-	<
-		<Pair as sp_core::Pair>::Public as IdentifyAccount
-	>::AccountId: Ss58Codec + AsRef<[u8]>,
+	<<Pair as sp_core::Pair>::Public as IdentifyAccount>::AccountId: Ss58Codec + AsRef<[u8]>,
 {
 	let password = password.as_ref().map(|s| s.expose_secret().as_str());
 	let network_id = String::from(unwrap_or_default_ss58_version(network_override));
@@ -205,9 +203,7 @@ pub fn print_from_public<Pair>(
 where
 	Pair: sp_core::Pair,
 	Pair::Public: IdentifyAccount,
-	<
-		<Pair as sp_core::Pair>::Public as IdentifyAccount
-	>::AccountId: Ss58Codec + AsRef<[u8]>,
+	<<Pair as sp_core::Pair>::Public as IdentifyAccount>::AccountId: Ss58Codec + AsRef<[u8]>,
 {
 	let public = array_bytes::hex2bytes(public_str)?;
 

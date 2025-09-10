@@ -16,15 +16,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::{arg_enums::NodeKeyType, error, Error};
 use clap::Args;
-use sc_network::config::{NodeKeyConfig};
+use hex;
+use libp2p_identity::Keypair;
+use qp_rusty_crystals_dilithium::ml_dsa_87;
+use sc_network::config::NodeKeyConfig;
 use sc_service::Role;
 use sp_core::H256;
 use std::{path::PathBuf, str::FromStr};
-use libp2p_identity::Keypair;
-use crate::{arg_enums::NodeKeyType, error, Error};
-use qp_rusty_crystals_dilithium::ml_dsa_87;
-use hex;
 
 /// The file name of the node's dilithium secret key inside the chain-specific
 /// network config directory, if neither `--node-key` nor `--node-key-file`
@@ -76,7 +76,8 @@ pub struct NodeKeyParams {
 	/// The contents of the file are parsed according to the choice of `--node-key-type`
 	/// as follows:
 	///
-	/// - `dilithium`: the file must contain an unencoded 32 byte or hex encoded dilithium secret key.
+	/// - `dilithium`: the file must contain an unencoded 32 byte or hex encoded dilithium secret
+	///   key.
 	///
 	/// If the file does not exist, it is created with a newly generated secret key of
 	/// the chosen type.
@@ -148,8 +149,8 @@ fn parse_dilithium_secret(byte_string: &str) -> error::Result<sc_network::config
 mod tests {
 	use super::*;
 	use clap::ValueEnum;
-	use std::fs::{self, File};
 	use libp2p_identity::Keypair;
+	use std::fs::{self, File};
 	use tempfile::TempDir;
 
 	#[test]
@@ -158,7 +159,8 @@ mod tests {
 			NodeKeyType::value_variants().iter().try_for_each(|t| {
 				let node_key_type = *t;
 				let sk = match node_key_type {
-					NodeKeyType::Dilithium => Keypair::generate_dilithium().secret().unwrap().to_vec(),
+					NodeKeyType::Dilithium =>
+						Keypair::generate_dilithium().secret().unwrap().to_vec(),
 				};
 				let params = NodeKeyParams {
 					node_key_type,
@@ -242,8 +244,8 @@ mod tests {
 							if typ == NodeKeyType::Dilithium &&
 								f == &dir.join(NODE_KEY_DILITHIUM_FILE) =>
 							Ok(()),
-							_ => Err(error::Error::Input("Unexpected node key config".into())),
-						})
+						_ => Err(error::Error::Input("Unexpected node key config".into())),
+					})
 				},
 				unsafe_force_node_key_generation,
 			)
