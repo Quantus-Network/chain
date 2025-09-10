@@ -93,6 +93,45 @@ impl Pair for DilithiumPair {
 	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
 		Self::from_string_with_seed(s, password_override).map(|x| x.0)
 	}
+
+}
+
+#[cfg(feature = "std")]
+impl DilithiumPublic {
+	/// Attempt to parse a Dilithium public key from a string and return it with the
+	/// associated SS58 address format (version).
+	///
+	/// This inherent method is provided to avoid relying solely on the generic Ss58Codec
+	/// behavior which expects SS58-encoded keys of the same length as the public key.
+	/// For Dilithium, we primarily support hex-encoded public keys (0x-prefixed) here.
+	///
+	/// Note: SS58 AccountId32 addresses are not convertible back into Dilithium public
+	/// keys. The CLI already includes a fallback to parse AccountId32 addresses when
+	/// this function returns an error.
+	pub fn from_string_with_version(
+		s: &str,
+	) -> Result<(
+		Self,
+		sp_core::crypto::Ss58AddressFormat,
+	), sp_core::crypto::PublicError> {
+		use sp_core::crypto::{default_ss58_version, PublicError};
+		// Accept 0x-prefixed hex of the raw Dilithium public key bytes.
+		let maybe_hex = s.strip_prefix("0x").unwrap_or(s);
+		// Expect exact hex length for a Dilithium public key
+		let expected_hex_len = <Self as ByteArray>::LEN * 2;
+		if maybe_hex.len() == expected_hex_len && maybe_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+			let mut bytes = vec![0u8; <Self as ByteArray>::LEN];
+			for (i, chunk) in maybe_hex.as_bytes().chunks(2).enumerate() {
+				let h = (chunk[0] as char).to_digit(16).ok_or(PublicError::InvalidFormat)? as u8;
+				let l = (chunk[1] as char).to_digit(16).ok_or(PublicError::InvalidFormat)? as u8;
+				bytes[i] = (h << 4) | l;
+			}
+			let pk = <Self as ByteArray>::from_slice(&bytes).map_err(|_| PublicError::BadLength)?;
+			return Ok((pk, default_ss58_version()));
+		}
+		// Not a supported Dilithium public key representation here.
+		Err(PublicError::InvalidFormat)
+	}
 }
 
 /// Generates a new Dilithium ML-DSA-87 keypair
