@@ -166,7 +166,7 @@ pub fn print_from_uri<Pair>(
 					"publicKey": format_public_key::<Pair>(public_key.clone()),
 					"accountId": format_account_id::<Pair>(public_key.clone()),
 					"ss58PublicKey": public_key.to_ss58check_with_version(network_override),
-					"ss58Address": public_key.to_ss58check_with_version(network_override),
+					"ss58Address": public_key.clone().into_account().to_ss58check_with_version(network_override),
 				});
 
 				println!(
@@ -187,7 +187,7 @@ pub fn print_from_uri<Pair>(
 					format_public_key::<Pair>(public_key.clone()),
 					format_account_id::<Pair>(public_key.clone()),
 					public_key.to_ss58check_with_version(network_override),
-					public_key.to_ss58check_with_version(network_override),
+					public_key.clone().into_account().to_ss58check_with_version(network_override),
 				);
 			},
 		}
@@ -223,7 +223,7 @@ where
 				"publicKey": format_public_key::<Pair>(public_key.clone()),
 				"accountId": format_account_id::<Pair>(public_key.clone()),
 				"ss58PublicKey": public_key.to_ss58check_with_version(network_override),
-				"ss58Address": public_key.to_ss58check_with_version(network_override),
+				"ss58Address": public_key.clone().into_account().to_ss58check_with_version(network_override),
 			});
 
 			println!("{}", serde_json::to_string_pretty(&json).expect("Json pretty print failed"));
@@ -239,7 +239,7 @@ where
 				format_public_key::<Pair>(public_key.clone()),
 				format_account_id::<Pair>(public_key.clone()),
 				public_key.to_ss58check_with_version(network_override),
-				public_key.to_ss58check_with_version(network_override),
+				public_key.clone().into_account().to_ss58check_with_version(network_override),
 			);
 		},
 	}
