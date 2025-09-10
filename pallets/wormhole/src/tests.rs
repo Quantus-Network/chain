@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod wormhole_tests {
 	use crate::{get_wormhole_verifier, mock::*, weights, Config, Error, WeightInfo};
-	use frame_support::{assert_noop, assert_ok, weights::WeightToFee};
-	use sp_runtime::Perbill;
 	use al_wormhole_circuit::inputs::PublicCircuitInputs;
 	use al_wormhole_verifier::ProofWithPublicInputs;
+	use frame_support::{assert_noop, assert_ok, weights::WeightToFee};
+	use sp_runtime::Perbill;
 
 	// Helper function to generate proof and inputs for
 	fn get_test_proof() -> Vec<u8> {

@@ -8,6 +8,14 @@ repository.workspace = true
 version = "0.1.0"
 
 [dependencies]
+al-wormhole-circuit = { workspace = true, default-features = false, features = [
+] }
+al-wormhole-verifier = { workspace = true, default-features = false, features = [
+	"no_random",
+] }
+al-zk-circuits-common = { workspace = true, default-features = false, features = [
+	"no_random",
+] }
 codec = { workspace = true, default-features = false, features = ["derive"] }
 frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
@@ -23,14 +31,6 @@ scale-info = { workspace = true, default-features = false, features = [
 sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
-al-wormhole-circuit = { workspace = true, default-features = false, features = [
-] }
-al-wormhole-verifier = { workspace = true, default-features = false, features = [
-	"no_random",
-] }
-al-zk-circuits-common = { workspace = true, default-features = false, features = [
-	"no_random",
-] }
 
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }
@@ -45,6 +45,9 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 ]
 std = [
+	"al-wormhole-circuit/std",
+	"al-wormhole-verifier/std",
+	"al-zk-circuits-common/std",
 	"codec/std",
 	"frame-benchmarking",
 	"frame-support/std",
@@ -58,8 +61,5 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
-	"al-wormhole-circuit/std",
-	"al-wormhole-verifier/std",
-	"al-zk-circuits-common/std",
 ]
 try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime"]

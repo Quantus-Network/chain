@@ -2,9 +2,9 @@
 
 extern crate alloc;
 
+use al_wormhole_verifier::WormholeVerifier;
 use lazy_static::lazy_static;
 pub use pallet::*;
-use al_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
 mod mock;
@@ -32,6 +32,9 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::WeightInfo;
+	use al_wormhole_circuit::inputs::PublicCircuitInputs;
+	use al_wormhole_verifier::ProofWithPublicInputs;
+	use al_zk_circuits_common::circuit::{C, D, F};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
@@ -48,9 +51,6 @@ pub mod pallet {
 		traits::{Saturating, Zero},
 		Perbill,
 	};
-	use al_wormhole_circuit::inputs::PublicCircuitInputs;
-	use al_wormhole_verifier::ProofWithPublicInputs;
-	use al_zk_circuits_common::circuit::{C, D, F};
 
 	pub type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;

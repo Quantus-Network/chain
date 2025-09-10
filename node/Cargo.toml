@@ -99,9 +99,9 @@ uuid.workspace = true
 
 [build-dependencies]
 al-wormhole-circuit-builder.workspace = true
+al-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
-al-wormhole-verifier.workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -109,6 +109,7 @@ tempfile = "3.0"
 [features]
 default = ["std"]
 std = [
+	"al-wormhole-verifier/std",
 	"codec/std",
 	"dilithium-crypto/std",
 	"hex/std",
@@ -119,7 +120,6 @@ std = [
 	"sc-consensus-qpow/std",
 	"serde_json/std",
 	"sp-consensus-qpow/std",
-	"al-wormhole-verifier/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
