@@ -23,12 +23,12 @@ scale-info = { workspace = true, default-features = false, features = [
 sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
-wormhole-circuit = { workspace = true, default-features = false, features = [
+al-wormhole-circuit = { workspace = true, default-features = false, features = [
 ] }
-wormhole-verifier = { workspace = true, default-features = false, features = [
+al-wormhole-verifier = { workspace = true, default-features = false, features = [
 	"no_random",
 ] }
-zk-circuits-common = { workspace = true, default-features = false, features = [
+al-zk-circuits-common = { workspace = true, default-features = false, features = [
 	"no_random",
 ] }
 
@@ -58,8 +58,8 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
-	"wormhole-circuit/std",
-	"wormhole-verifier/std",
-	"zk-circuits-common/std",
+	"al-wormhole-circuit/std",
+	"al-wormhole-verifier/std",
+	"al-zk-circuits-common/std",
 ]
 try-runtime = ["frame-support/try-runtime", "frame-system/try-runtime"]

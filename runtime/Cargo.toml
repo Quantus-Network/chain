@@ -64,9 +64,9 @@ sp-session.workspace = true
 sp-storage.workspace = true
 sp-transaction-pool.workspace = true
 sp-version = { features = ["serde"], workspace = true }
-wormhole-circuit = { workspace = true, default-features = false }
-wormhole-verifier = { workspace = true, default-features = false }
-zk-circuits-common = { workspace = true, default-features = false }
+al-wormhole-circuit = { workspace = true, default-features = false }
+al-wormhole-verifier = { workspace = true, default-features = false }
+al-zk-circuits-common = { workspace = true, default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -132,9 +132,9 @@ std = [
 	"sp-transaction-pool/std",
 	"sp-version/std",
 	"substrate-wasm-builder",
-	"wormhole-circuit/std",
-	"wormhole-verifier/std",
-	"zk-circuits-common/std",
+	"al-wormhole-circuit/std",
+	"al-wormhole-verifier/std",
+	"al-zk-circuits-common/std",
 ]
 
 runtime-benchmarks = [

@@ -4,7 +4,7 @@ extern crate alloc;
 
 use lazy_static::lazy_static;
 pub use pallet::*;
-use wormhole_verifier::WormholeVerifier;
+use al_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
 mod mock;
@@ -48,9 +48,9 @@ pub mod pallet {
 		traits::{Saturating, Zero},
 		Perbill,
 	};
-	use wormhole_circuit::inputs::PublicCircuitInputs;
-	use wormhole_verifier::ProofWithPublicInputs;
-	use zk_circuits_common::circuit::{C, D, F};
+	use al_wormhole_circuit::inputs::PublicCircuitInputs;
+	use al_wormhole_verifier::ProofWithPublicInputs;
+	use al_zk_circuits_common::circuit::{C, D, F};
 
 	pub type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;

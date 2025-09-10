@@ -98,10 +98,10 @@ tokio-util.workspace = true
 uuid.workspace = true
 
 [build-dependencies]
-circuit-builder.workspace = true
+al-wormhole-circuit-builder.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
-wormhole-verifier.workspace = true
+al-wormhole-verifier.workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -119,7 +119,7 @@ std = [
 	"sc-consensus-qpow/std",
 	"serde_json/std",
 	"sp-consensus-qpow/std",
-	"wormhole-verifier/std",
+	"al-wormhole-verifier/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
