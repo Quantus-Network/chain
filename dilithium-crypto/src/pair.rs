@@ -37,7 +37,7 @@ impl IdentifyAccount for DilithiumPair {
 
 impl Pair for DilithiumPair {
 	type Public = DilithiumPublic;
-	type Seed = Vec<u8>;
+	type Seed = [u8; 32];
 	type Signature = DilithiumSignatureWithPublic;
 
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
