@@ -279,7 +279,7 @@ pub fn info_from_weight(w: Weight) -> DispatchInfo {
 	DispatchInfo { call_weight: w, ..Default::default() }
 }
 
-/// Check that the totqp-issuance matches the sum of all accounts' total balances.
+/// Check that the total-issuance matches the sum of all accounts' total balances.
 pub fn ensure_ti_valid() {
 	let mut sum = 0;
 
