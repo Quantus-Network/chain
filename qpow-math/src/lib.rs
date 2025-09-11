@@ -98,6 +98,16 @@ pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U5
 	mod_pow(m, &sum, n)
 }
 
+/// Multiply previous power by base modulo n to advance exponent by +1
+pub fn mod_pow_next(previous: &U512, base: &U512, modulus: &U512) -> U512 {
+	// (base^(e) mod n) * base mod n = base^(e+1) mod n
+	let a_bi = BigUint::from_bytes_be(&previous.to_big_endian());
+	let b_bi = BigUint::from_bytes_be(&base.to_big_endian());
+	let m_bi = BigUint::from_bytes_be(&modulus.to_big_endian());
+	let result = (a_bi * b_bi) % m_bi;
+	U512::from_big_endian(&result.to_bytes_be())
+}
+
 /// Modular exponentiation using Substrate's BigUint
 pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
 	if modulus == &U512::zero() {
@@ -122,6 +132,71 @@ pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
 	}
 
 	U512::from_big_endian(&result.to_bytes_be())
+}
+
+/// Mine a contiguous range of nonces using incremental exponentiation.
+/// Returns the first valid nonce and its distance if one is found.
+pub fn mine_range(
+	header: [u8; 32],
+	start_nonce: [u8; 64],
+	steps: u64,
+	threshold: U512,
+) -> Option<([u8; 64], U512)> {
+	if steps == 0 {
+		return None;
+	}
+
+	let (m, n) = get_random_rsa(&header);
+	let h = U512::from_big_endian(&header);
+	let mut nonce_u = U512::from_big_endian(&start_nonce);
+
+	// Precompute constant target element once
+	let target = hash_to_group_bigint_sha(&h, &m, &n, &U512::zero());
+
+	// Compute initial value base^(h + nonce) mod n
+	let mut value = mod_pow(&m, &h.saturating_add(nonce_u), &n);
+
+	for _ in 0..steps {
+		let nonce_element = sha3_512(value);
+		let distance = target.bitxor(nonce_element);
+		if distance <= threshold {
+			return Some((nonce_u.to_big_endian(), distance));
+		}
+		// Advance to next nonce: exponent increases by 1
+		value = mod_pow_next(&value, &m, &n);
+		nonce_u = nonce_u.saturating_add(U512::from(1u64));
+	}
+
+	None
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn mod_pow_next_matches_mod_pow_for_incrementing_nonce() {
+		// Deterministic header
+		let header = [7u8; 32];
+		let (m, n) = get_random_rsa(&header);
+		let h = U512::from_big_endian(&header);
+
+		// Start at an arbitrary nonce
+		let mut nonce = U512::from(123u64);
+
+		// Initial value using full exponentiation
+		let mut value = mod_pow(&m, &h.saturating_add(nonce), &n);
+
+		// Check equality for 4 consecutive nonces
+		for _ in 0..4u32 {
+			let expected = mod_pow(&m, &h.saturating_add(nonce), &n);
+			assert_eq!(value, expected, "incremental result must match full mod_pow");
+
+			// Advance to next exponent (nonce + 1)
+			value = mod_pow_next(&value, &m, &n);
+			nonce = nonce.saturating_add(U512::from(1u64));
+		}
+	}
 }
 
 // Miller-Rabin primality test
