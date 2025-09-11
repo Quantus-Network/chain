@@ -23,7 +23,7 @@ use crate::{
 use array_bytes::bytes2hex;
 use clap::Parser;
 use sp_core::crypto::SecretString;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 
 /// The `sign` command
 #[derive(Debug, Clone, Parser)]
@@ -69,7 +69,6 @@ impl SignCmd {
 		let message = self.message_params.message_from(create_reader)?;
 		let suri = utils::read_uri(self.suri.as_ref())?;
 		let password = self.keystore_params.read_password()?;
-
 		with_crypto_scheme!(self.crypto_scheme.scheme, sign(&suri, password, message))
 	}
 }
@@ -87,7 +86,7 @@ fn sign<P: sp_core::Pair>(
 mod test {
 	use super::*;
 
-	const SEED: &str = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
+	const SEED: &str = "0x4c0fe0fcc09760f75deb33f2d33017ed3f06a342b7fa7080c517d38a541040a8";
 
 	#[test]
 	fn sign_arg() {
@@ -102,7 +101,6 @@ mod test {
 			"--hex",
 		]);
 		let sig = cmd.sign(|| std::io::stdin().lock()).expect("Must sign");
-
 		assert!(sig.starts_with("0x"), "Signature must start with 0x");
 		assert!(array_bytes::hex2bytes(&sig).is_ok(), "Signature is valid hex");
 	}

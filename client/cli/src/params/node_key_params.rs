@@ -141,8 +141,7 @@ fn invalid_node_key(e: impl std::fmt::Display) -> error::Error {
 /// Parse a Dilithium secret key from a hex string into a `sc_network::Secret`.
 fn parse_dilithium_secret(byte_string: &str) -> error::Result<sc_network::config::DilithiumSecret> {
 	let bytes = hex::decode(byte_string).map_err(|e| invalid_node_key(e))?;
-	let keypair = ml_dsa_87::Keypair::generate(Some(&bytes));
-	Ok(sc_network::config::Secret::Input(keypair.secret.bytes.to_vec()))
+	Ok(sc_network::config::Secret::Input(bytes))
 }
 
 #[cfg(test)]
@@ -151,6 +150,7 @@ mod tests {
 	use clap::ValueEnum;
 	use libp2p_identity::Keypair;
 	use std::fs::{self, File};
+	use std::io::Read;
 	use tempfile::TempDir;
 
 	#[test]
@@ -162,16 +162,22 @@ mod tests {
 					NodeKeyType::Dilithium =>
 						Keypair::generate_dilithium().secret().unwrap().to_vec(),
 				};
+				let hex_sk = hex::encode(sk.clone());
 				let params = NodeKeyParams {
 					node_key_type,
-					node_key: Some(format!("{:x}", H256::from_slice(sk.as_ref()))),
+					node_key: Some(hex_sk.clone()),
 					node_key_file: None,
 					unsafe_force_node_key_generation: false,
 				};
 				params.node_key(net_config_dir, Role::Authority, false).and_then(|c| match c {
-					NodeKeyConfig::Dilithium(sc_network::config::Secret::Input(ref ski))
-						if node_key_type == NodeKeyType::Dilithium && &sk[..] == ski.as_ref() =>
-						Ok(()),
+					NodeKeyConfig::Dilithium(sc_network::config::Secret::Input(ref ski)) => {
+						let hex_ski = hex::encode((*ski).clone());
+						if node_key_type == NodeKeyType::Dilithium && hex_sk == hex_ski {
+							Ok(())
+						} else {
+							Err(error::Error::Input("Unexpected node key config".into()))
+						}
+					}
 					_ => Err(error::Error::Input("Unexpected node key config".into())),
 				})
 			})
@@ -182,7 +188,7 @@ mod tests {
 
 	#[test]
 	fn test_node_key_config_file() {
-		fn check_key(file: PathBuf, key: &libp2p_identity::dilithium::Keypair) {
+		fn check_key(file: PathBuf, key: &libp2p_identity::Keypair) {
 			let params = NodeKeyParams {
 				node_key_type: NodeKeyType::Dilithium,
 				node_key: None,
@@ -196,7 +202,7 @@ mod tests {
 				.into_keypair()
 				.expect("Creates node key pair");
 
-			if node_key.secret().unwrap().as_ref() != key.as_ref() {
+			if node_key.secret().unwrap() != key.secret().unwrap() {
 				panic!("Invalid key")
 			}
 		}
@@ -205,10 +211,10 @@ mod tests {
 		let file = tmp.path().join("mysecret").to_path_buf();
 		let key = Keypair::generate_dilithium();
 
-		fs::write(&file, array_bytes::bytes2hex("", key.as_ref())).expect("Writes secret key");
+		fs::write(&file, array_bytes::bytes2hex("", &key.secret().unwrap())).expect("Writes secret key");
 		check_key(file.clone(), &key);
 
-		fs::write(&file, &key).expect("Writes secret key");
+		fs::write(&file, key.secret().unwrap()).expect("Writes secret key");
 		check_key(file.clone(), &key);
 	}
 

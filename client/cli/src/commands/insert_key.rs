@@ -57,6 +57,7 @@ pub struct InsertKeyCmd {
 impl InsertKeyCmd {
 	/// Run the command
 	pub fn run<C: SubstrateCli>(&self, cli: &C) -> Result<(), Error> {
+		unimplemented!("This command is unimplemented because pubkey is too large to be a file name");
 		let suri = utils::read_uri(self.suri.as_ref())?;
 		let base_path = self
 			.shared_params
@@ -95,9 +96,11 @@ fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec
 mod tests {
 	use super::*;
 	use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
-	use sp_core::{ByteArray, Pair as _};
-	use sp_keystore::Keystore;
-	use tempfile::TempDir;
+	// use sp_core::{ByteArray, Pair as _, Pair};
+	// use sp_keystore::Keystore;
+	// use tempfile::TempDir;
+	// use dilithium_crypto::DilithiumPair;
+	// use dilithium_crypto::DilithiumSigner::Dilithium;
 
 	struct Cli;
 
@@ -140,27 +143,29 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn insert_with_custom_base_path() {
-		let path = TempDir::new().unwrap();
-		let path_str = format!("{}", path.path().display());
-		let (key, uri, _) = Pair::generate_with_phrase(None);
-
-		let inspect = InsertKeyCmd::parse_from(&[
-			"insert-key",
-			"-d",
-			&path_str,
-			"--key-type",
-			"test",
-			"--suri",
-			&uri,
-			"--scheme=dilithium",
-		]);
-		assert!(inspect.run(&Cli).is_ok());
-
-		let keystore =
-			LocalKeystore::open(path.path().join("chains").join("test_id").join("keystore"), None)
-				.unwrap();
-		assert!(keystore.has_keys(&[(key.public().to_raw_vec(), KeyTypeId(*b"test"))]));
-	}
+	// TODO: this test cannot be fixed without forking sc-keystore as it uses the public key in the
+	// filepath and dilithium pubkeys are too big
+	// #[test]
+	// fn insert_with_custom_base_path() {
+	// 	let path = TempDir::new().unwrap();
+	// 	let path_str = format!("{}", path.path().display());
+	// 	let (key, uri, _) = DilithiumPair::generate_with_phrase(None);
+	//
+	// 	let inspect = InsertKeyCmd::parse_from(&[
+	// 		"insert-key",
+	// 		"-d",
+	// 		&path_str,
+	// 		"--key-type",
+	// 		"test",
+	// 		"--suri",
+	// 		&uri,
+	// 		"--scheme=dilithium",
+	// 	]);
+	// 	assert!(inspect.run(&Cli).is_ok());
+	//
+	// 	let keystore =
+	// 		LocalKeystore::open(path.path().join("chains").join("test_id").join("keystore"), None)
+	// 			.unwrap();
+	// 	assert!(keystore.has_keys(&[(key.public().to_raw_vec(), KeyTypeId(*b"test"))]));
+	// }
 }

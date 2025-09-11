@@ -45,8 +45,7 @@ impl Pair for DilithiumPair {
 		_path_iter: Iter,
 		_seed: Option<<DilithiumPair as Pair>::Seed>,
 	) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-		// Dilithium doesn't support hierarchical derivation like BIP32
-		// This is a fundamental limitation of the post-quantum signature scheme
+		// TODO: could do this with hdlattice
 		Err(DeriveError::SoftKeyInPath)
 	}
 
@@ -89,9 +88,9 @@ impl Pair for DilithiumPair {
 		self.secret.to_vec()
 	}
 
-	#[cfg(feature = "std")]
-	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
-		Self::from_string_with_seed(s, password_override).map(|x| x.0)
+	fn from_string(s: &str, _password_override: Option<&str>) -> Result<Self, SecretStringError> {
+		let keypair = Keypair::generate(Some(s.as_bytes()));
+		Ok(DilithiumPair{ secret: keypair.secret.bytes, public: keypair.public.bytes })
 	}
 }
 

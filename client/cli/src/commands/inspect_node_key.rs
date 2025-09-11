@@ -20,7 +20,7 @@
 
 use crate::Error;
 use clap::Parser;
-use libp2p_identity::Keypair;
+use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
 use std::{
 	fs,
 	io::{self, Read},
@@ -69,10 +69,7 @@ impl InspectNodeKeyCmd {
 				.map_err(|_| "failed to decode secret as hex")?;
 		}
 
-		let keypair =
-			Keypair::from_protobuf_encoding(&mut file_data).map_err(|_| "Bad node key file")?;
-
-		println!("{}", keypair.public().to_peer_id());
+		let keypair = Keypair::from_bytes(&file_data).map_err(|_| "Bad node key file")?;
 
 		Ok(())
 	}

@@ -264,7 +264,7 @@ pub fn format_seed<P: sp_core::Pair>(seed: SeedFor<P>) -> String {
 
 /// formats public key as hex
 fn format_public_key<P: sp_core::Pair>(public_key: PublicFor<P>) -> String {
-	format!("0x{}", HexDisplay::from(&public_key.as_ref()))
+	format!("0x{}", hex::encode(public_key))
 }
 
 /// formats public key as accountId as hex
