@@ -13,13 +13,13 @@ use crate::{external_miner_client, prometheus::ResonanceBusinessMetrics};
 use async_trait::async_trait;
 use codec::Encode;
 use jsonrpsee::tokio;
+use qpow_math::mine_range;
 use reqwest::Client;
 use sc_cli::TransactionPoolType;
 use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
 use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::{ProvideRuntimeApi, __private::BlockT};
 use sp_consensus_qpow::QPoWApi;
-use qpow_math::mine_range;
 use sp_core::{crypto::AccountId32, RuntimeDebug, U512};
 use sp_runtime::traits::Header;
 use std::{sync::Arc, time::Duration};
@@ -514,15 +514,14 @@ pub fn new_full<
 					let threshold = client
 						.runtime_api()
 						.get_distance_threshold(metadata.best_hash)
-						.unwrap_or_else(|e| { log::warn!("API error getting threshold: {:?}", e); U512::zero() });
+						.unwrap_or_else(|e| {
+							log::warn!("API error getting threshold: {:?}", e);
+							U512::zero()
+						});
 					let nonces_to_mine = 3000u64;
 
-					let found = mine_range(
-						block_hash,
-						start_nonce_bytes,
-						nonces_to_mine,
-						threshold,
-					);
+					let found =
+						mine_range(block_hash, start_nonce_bytes, nonces_to_mine, threshold);
 
 					let nonce_bytes = if let Some((good_nonce, _distance)) = found {
 						good_nonce
