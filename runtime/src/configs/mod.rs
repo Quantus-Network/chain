@@ -615,10 +615,10 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
-const BLOCK_GAS_LIMIT: u64 = 75_000_000;
+const BLOCK_GAS_LIMIT: u64 = 200_000_000;
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
-const MAX_STORAGE_GROWTH: u64 = 400 * 1024;
+const MAX_STORAGE_GROWTH: u64 = 1000 * 1024;
 
 parameter_types! {
 	pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
@@ -705,4 +705,12 @@ impl pallet_base_fee::Config for Runtime {
 	type Threshold = BaseFeeThreshold;
 	type DefaultBaseFeePerGas = DefaultBaseFeePerGas;
 	type DefaultElasticity = DefaultElasticity;
+}
+
+#[test]
+fn hashed_address_mapping() {
+	let address = H160::from_str("4CaBFFC42dCD21aD8A81C04e991DFD26bDF8D196").unwrap();
+
+	let mapped_address = HashedAddressMapping::<BlakeTwo256>::into_account_id(address);
+	println!("Mapped Address: {:?}", mapped_address);
 }

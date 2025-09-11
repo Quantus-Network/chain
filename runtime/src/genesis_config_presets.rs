@@ -16,12 +16,14 @@
 // limitations under the License.
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
+	configs::TreasuryPalletId, AccountId, BalancesConfig, EVMChainIdConfig, EvmConfig,
+	RuntimeGenesisConfig, SudoConfig, UNIT,
 };
 use alloc::{vec, vec::Vec};
+use core::str::FromStr;
 use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
-use sp_core::crypto::Ss58Codec;
+use sp_core::{crypto::Ss58Codec, H160, U256};
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
@@ -54,6 +56,20 @@ fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		evm: EvmConfig {
+			accounts: alloc::collections::BTreeMap::from([(
+				H160::from_str("0x4CaBFFC42dCD21aD8A81C04e991DFD26bDF8D196")
+					.expect("failed parsing addr"),
+				fp_evm::GenesisAccount {
+					balance: U256::from(ONE_BILLION * UNIT),
+					nonce: Default::default(),
+					code: Default::default(),
+					storage: Default::default(),
+				},
+			)]),
+			..Default::default()
+		},
+		evm_chain_id: EVMChainIdConfig { chain_id: 420420420, ..Default::default() },
 		..Default::default()
 	};
 

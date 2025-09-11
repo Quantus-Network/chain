@@ -17,7 +17,7 @@ pub use dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatu
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use sp_core::{H160, H256, U512};
+use sp_core::{H160, U512};
 use sp_runtime::transaction_validity::{TransactionValidity, TransactionValidityError};
 use sp_runtime::{
 	generic, impl_opaque_keys,
@@ -178,7 +178,7 @@ pub type TxExtension = (
 
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+	fp_self_contained::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
 
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
@@ -364,7 +364,7 @@ mod runtime {
 	pub type Ethereum = pallet_ethereum;
 
 	#[runtime::pallet_index(22)]
-	pub type EVM = pallet_evm;
+	pub type Evm = pallet_evm;
 
 	#[runtime::pallet_index(23)]
 	pub type EVMChainId = pallet_evm_chain_id;
