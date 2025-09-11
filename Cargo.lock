@@ -8430,6 +8430,7 @@ dependencies = [
  "prometheus",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
+ "qpow-math",
  "quantus-runtime",
  "rand 0.8.5",
  "reqwest",
