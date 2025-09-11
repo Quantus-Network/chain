@@ -37,6 +37,7 @@ primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
+qpow-math.workspace = true
 quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
@@ -52,7 +53,6 @@ sc-client-api.default-features = true
 sc-client-api.workspace = true
 sc-consensus.default-features = true
 sc-consensus.workspace = true
-sc-consensus-pow.workspace = true
 sc-consensus-qpow.workspace = true
 sc-executor.default-features = true
 sc-executor.workspace = true
