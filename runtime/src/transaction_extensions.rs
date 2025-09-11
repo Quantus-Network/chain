@@ -351,7 +351,7 @@ mod tests {
 	fn test_high_security_remove_recovery() {
 		new_test_ext().execute_with(|| {
 			// make sure high security account can't remove the recovery
-			let call = RuntimeCall::Recovery(pallet_recovery::Call::remove_recovery  {});
+			let call = RuntimeCall::Recovery(pallet_recovery::Call::remove_recovery {});
 			let result = check_call(call);
 			assert_eq!(
 				result.unwrap_err(),
@@ -359,5 +359,4 @@ mod tests {
 			);
 		});
 	}
-
 }
