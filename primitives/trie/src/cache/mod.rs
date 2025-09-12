@@ -1256,11 +1256,7 @@ mod tests {
 
 		// Read keys and check shared cache hits we should have a lot of misses.
 		let stats = read_to_check_cache(&shared_cache, &mut db, root, &random_keys, value.clone());
-		// Due to internal behavior, the number of shared value cache hits may differ
-		// by at most 1 from the number of entries present in the shared value cache.
-		let svc_len = shared_value_cache_len as i64;
-		let svc_hits = stats.value_cache.shared_hits as i64;
-		assert!((svc_len - svc_hits).abs() <= 1);
+		assert_eq!(stats.value_cache.shared_hits, shared_value_cache_len as u64);
 
 		assert_ne!(stats.value_cache.shared_fetch_attempts, stats.value_cache.shared_hits);
 		assert_ne!(stats.node_cache.shared_fetch_attempts, stats.node_cache.shared_hits);
@@ -1296,20 +1292,11 @@ mod tests {
 		let stats =
 			read_to_check_cache(&shared_cache, &mut db, root, &random_keys, new_value.clone());
 
-		// Internal cache behavior may cause extremely rare off-by-one discrepancies
-		// in counted attempts vs hits (e.g., due to ordering or promotion nuances).
-		// We only require that they match within a tolerance of 1.
-		let vc_attempts = stats.value_cache.shared_fetch_attempts as i64;
-		let vc_hits = stats.value_cache.shared_hits as i64;
-		assert!((vc_attempts - vc_hits).abs() <= 1);
-		let nc_attempts = stats.node_cache.shared_fetch_attempts as i64;
-		let nc_hits = stats.node_cache.shared_hits as i64;
-		assert!((nc_attempts - nc_hits).abs() <= 1);
+		assert_eq!(stats.value_cache.shared_fetch_attempts, stats.value_cache.shared_hits);
+		assert_eq!(stats.node_cache.shared_fetch_attempts, stats.node_cache.shared_hits);
 
-		let vc_local = stats.value_cache.local_fetch_attempts as i64;
-		assert!((vc_attempts - vc_local).abs() <= 1);
-		let nc_local = stats.node_cache.local_fetch_attempts as i64;
-		assert!((nc_attempts - nc_local).abs() <= 1);
+		assert_eq!(stats.value_cache.shared_fetch_attempts, stats.value_cache.local_fetch_attempts);
+		assert_eq!(stats.node_cache.shared_fetch_attempts, stats.node_cache.local_fetch_attempts);
 
 		// The length of the shared value cache should contain everything that existed before + all
 		// keys that got updated with a trusted cache.
