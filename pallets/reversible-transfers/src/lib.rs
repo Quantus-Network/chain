@@ -335,10 +335,6 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-			// Set up recovery mechanisms through the recovery pallet
-			let high_security_account_data =
-				HighSecurityAccountData { interceptor: interceptor.clone(), delay };
-
 			// Set up zero delay recovery for interceptor
 			// The interceptor then simply needs to claim the recovery in order to be able
 			// to make calls on behalf of the high security account.
@@ -346,11 +342,13 @@ pub mod pallet {
 			pallet_recovery::Pallet::<T>::create_recovery(
 				origin,
 				alloc::vec![interceptor.clone()],
-				1u16,
+				One::one(),
 				recovery_delay_blocks,
 			)?;
 
-			// Update interceptor index
+			let high_security_account_data =
+				HighSecurityAccountData { interceptor: interceptor.clone(), delay };
+
 			InterceptorIndex::<T>::try_mutate(interceptor.clone(), |accounts| {
 				if !accounts.contains(&who) {
 					accounts
