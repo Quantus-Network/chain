@@ -100,7 +100,7 @@ where
 mod test {
 	use super::*;
 
-	const ALICE: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+	const ALICE: &str = "qzkmNW7K9J7VghBnDQSmvQs2gzSjZYD4EGVUJKwkz3mcKnj3P";
 	const SIG1: &str = "0x4eb25a2285a82374888880af0024eb30c3a21ce086eae3862888d345af607f0ad6fb081312f11730932564f24a9f8ebcee2d46861413ae61307eca58db2c3e81";
 	const SIG2: &str = "0x026342225155056ea797118c1c8c8b3cc002aa2020c36f4217fa3c302783a572ad3dcd38c231cbaf86cadb93984d329c963ceac0685cc1ee4c1ed50fa443a68f";
 
