@@ -28,7 +28,7 @@ Make sure the following secrets are configured in GitHub:
 Use the GitHub Actions workflow to create a release proposal:
 
 1. Go to **Actions** tab in GitHub
-2. Select **"Create Dilithium Release Proposal"** workflow
+2. Select **"Dilithium - Release Proposal"** workflow
 3. Click **"Run workflow"**
 4. Fill in the parameters:
    - **Version**: The new version number (e.g., `0.1.1`)
@@ -36,7 +36,7 @@ Use the GitHub Actions workflow to create a release proposal:
 
 This will:
 - Create a new branch `release/dilithium-vX.Y.Z`
-- Update the version in `dilithium-crypto/Cargo.toml`
+- Update the version in `primitives/dilithium-crypto/Cargo.toml`
 - Update `Cargo.lock`
 - Create a PR with the `dilithium-release-proposal` label
 
@@ -49,7 +49,7 @@ This will:
 
 ### Step 3: Automatic Release
 
-When the PR is merged, the **"Dilithium Crypto Release"** workflow automatically:
+When the PR is merged, the **"Dlilithium - Publish"** workflow automatically:
 
 1. **Creates Tag**: Creates and pushes `dilithium-vX.Y.Z` tag
 2. **Runs Tests**: Executes format checks, builds, and tests
@@ -63,7 +63,7 @@ When the PR is merged, the **"Dilithium Crypto Release"** workflow automatically
 - **Purpose**: Creates release proposal PRs
 - **Inputs**: Version number and draft flag
 
-### 2. `dilithium-release.yml`
+### 2. `dilithium-publish.yml`
 - **Trigger**: PR merge with `dilithium-release-proposal` label
 - **Purpose**: Handles the complete release process
 - **Jobs**:
@@ -83,11 +83,11 @@ name = "qp-dilithium-crypto"
 version = "0.1.0"
 description = "Dilithium post-quantum cryptographic signatures implementation for Substrate"
 license = "MIT"
-repository = "https://github.com/quantus-labs/chain-rm"
-homepage = "https://github.com/quantus-labs/chain-rm"
+repository = "https://github.com/Quantus-Network/chain"
+homepage = "https://quantus.com"
 documentation = "https://docs.rs/qp-dilithium-crypto"
-authors = ["Quantus Labs"]
-keywords = ["dilithium", "post-quantum", "cryptography", "substrate", "blockchain"]
+authors = ["Quantus Network"]
+keywords = ["cryptography", "dilithium", "post-quantum", "quantus-network", "substrate"]
 categories = ["cryptography", "no-std"]
 readme = "README.md"
 ```
@@ -120,7 +120,7 @@ For testing or pre-releases:
 If automatic publishing fails, you can manually publish:
 
 ```bash
-cd dilithium-crypto
+cd primitives/dilithium-crypto
 cargo publish --token YOUR_TOKEN --allow-dirty
 ```
 
@@ -142,13 +142,13 @@ To release version `0.1.1`:
 This release setup includes:
 
 - **Workflows**:
-  - `.github/workflows/dilithium-release.yml`
-  - `.github/workflows/create-dilithium-release-proposal.yml`
+  - `.github/workflows/dilithium-publish.yml`
+  - `.github/workflows/dilithium-release-proposal.yml`
 
 - **Package Files**:
-  - `dilithium-crypto/Cargo.toml` (updated with metadata)
-  - `dilithium-crypto/README.md`
-  - `dilithium-crypto/LICENSE`
+  - `primitives/dilithium-crypto/Cargo.toml` (updated with metadata)
+  - `primitives/dilithium-crypto/README.md`
+  - `primitives/dilithium-crypto/LICENSE`
 
 - **Documentation**:
-  - `DILITHIUM_RELEASE_PROCESS.md` (this file)
+  - `primitives/dilithium-crypto/DILITHIUM_RELEASE_PROCESS.md` (this file)
