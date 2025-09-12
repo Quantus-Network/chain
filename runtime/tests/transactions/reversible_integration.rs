@@ -142,3 +142,83 @@ fn high_security_end_to_end_flow() {
         );
     });
 }
+
+#[test]
+fn test_recovery_allows_multiple_recovery_configs() {
+	// Test that Account 3 can recover both Account 1 (HS) and Account 2 (interceptor)
+	// This demonstrates that recovery configs are per-account, not per-rescuer
+	let mut ext = TestCommons::new_test_ext();
+	ext.execute_with(|| {
+		// Set up Account 1 as high security with Account 2 as interceptor
+		let delay = BlockNumberOrTimestamp::BlockNumber(5);
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(high_security_account()),
+			delay,
+			interceptor(),
+		));
+
+		// Account 2 initiates recovery of Account 1
+		assert_ok!(Recovery::initiate_recovery(
+			RuntimeOrigin::signed(interceptor()),
+			MultiAddress::Id(high_security_account()),
+		));
+		assert_ok!(Recovery::vouch_recovery(
+			RuntimeOrigin::signed(interceptor()),
+			MultiAddress::Id(high_security_account()),
+			MultiAddress::Id(interceptor()),
+		));
+		assert_ok!(Recovery::claim_recovery(
+			RuntimeOrigin::signed(interceptor()),
+			MultiAddress::Id(high_security_account()),
+		));
+
+		// Set up recovery for Account 2 with Account 3 as friend
+		assert_ok!(Recovery::create_recovery(
+			RuntimeOrigin::signed(interceptor()),
+			vec![recoverer()],
+			1,
+			0,
+		));
+
+		// Now Account 3 can recover Account 2
+		assert_ok!(Recovery::initiate_recovery(
+			RuntimeOrigin::signed(recoverer()),
+			MultiAddress::Id(interceptor()),
+		));
+		assert_ok!(Recovery::vouch_recovery(
+			RuntimeOrigin::signed(recoverer()),
+			MultiAddress::Id(interceptor()),
+			MultiAddress::Id(recoverer()),
+		));
+
+		// This should succeed - Account 3 can recover Account 2
+		assert_ok!(Recovery::claim_recovery(
+			RuntimeOrigin::signed(recoverer()),
+			MultiAddress::Id(interceptor()),
+		));
+
+		// Verify both proxies exist
+		// Account 2 proxies Account 1
+		assert_eq!(Recovery::proxy(interceptor()), Some(high_security_account()));
+		// Account 3 proxies Account 2
+		assert_eq!(Recovery::proxy(recoverer()), Some(interceptor()));
+
+		// Now test nested as_recovered: Account 3 -> Account 2 -> Account 1
+		// Use a simple system remark call that doesn't require funds
+		let inner_call = RuntimeCall::System(frame_system::Call::remark {
+			remark: b"Nested recovery test".to_vec(),
+		});
+		let outer_call = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
+			account: MultiAddress::Id(high_security_account()),
+			call: Box::new(inner_call),
+		});
+
+		// Account 3 calls as_recovered on Account 2, which contains as_recovered on Account 1
+		// This should succeed if nested recovery works
+		assert_ok!(Recovery::as_recovered(
+			RuntimeOrigin::signed(recoverer()),
+			MultiAddress::Id(interceptor()),
+			Box::new(outer_call),
+		));
+	});
+}
