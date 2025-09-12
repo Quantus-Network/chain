@@ -140,8 +140,10 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
+		// high securiry account is charlie
+		// interceptor is alice
 		pallet_reversible_transfers::GenesisConfig::<Runtime> {
-			initial_high_security_accounts: vec![(charlie(), alice(), bob(), 10)],
+			initial_high_security_accounts: vec![(charlie(), alice(), 10)],
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
@@ -342,6 +344,19 @@ mod tests {
 			);
 
 			// no pending tx in this case, this call actually doesn't work.
+		});
+	}
+
+	#[test]
+	fn test_high_security_remove_recovery() {
+		new_test_ext().execute_with(|| {
+			// make sure high security account can't remove the recovery
+			let call = RuntimeCall::Recovery(pallet_recovery::Call::remove_recovery {});
+			let result = check_call(call);
+			assert_eq!(
+				result.unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
 		});
 	}
 }
