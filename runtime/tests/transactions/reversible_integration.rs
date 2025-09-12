@@ -146,7 +146,7 @@ fn high_security_end_to_end_flow() {
 #[test]
 fn test_recovery_allows_multiple_recovery_configs() {
 	// Test that Account 3 can recover both Account 1 (HS) and Account 2 (interceptor)
-	// This demonstrates that recovery configs are per-account, not per-rescuer
+	// This proves our inheritance + high security use case will work
 	let mut ext = TestCommons::new_test_ext();
 	ext.execute_with(|| {
 		// Set up Account 1 as high security with Account 2 as interceptor
