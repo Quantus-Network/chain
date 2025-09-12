@@ -165,7 +165,7 @@ impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
 	fn from(proof: &StorageProof) -> Self {
 		let mut db = crate::MemoryDB::new(&0u64.to_le_bytes());
 		proof.iter_nodes().for_each(|n| {
-			db.insert(crate::EMPTY_PREFIX, &n);
+			db.insert(crate::EMPTY_PREFIX, n);
 		});
 		db
 	}
@@ -201,11 +201,11 @@ impl CompactProof {
 	) -> Result<(StorageProof, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
 		// Since CompactProof now just wraps StorageProof data, convert back to StorageProof
 		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
-		let result = match expected_root {
+
+		match expected_root {
 			Some(root) => Ok((storage_proof, *root)),
 			None => Ok((storage_proof, H::Out::default())),
-		};
-		result
+		}
 	}
 
 	/// Convert self into a [`MemoryDB`](crate::MemoryDB).
@@ -220,11 +220,11 @@ impl CompactProof {
 	{
 		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
 		let db = storage_proof.to_memory_db::<H>();
-		let result = match expected_root {
+
+		match expected_root {
 			Some(root) => Ok((db, *root)),
 			None => Ok((db, H::Out::default())),
-		};
-		result
+		}
 	}
 }
 
