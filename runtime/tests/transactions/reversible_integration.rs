@@ -203,10 +203,22 @@ fn test_recovery_allows_multiple_recovery_configs() {
 		// Account 3 proxies Account 2
 		assert_eq!(Recovery::proxy(recoverer()), Some(interceptor()));
 
+		// Give Account 1 some funds to test transfer
+		let transfer_amount = 100 * UNIT;
+		assert_ok!(Balances::force_set_balance(
+			RuntimeOrigin::root(),
+			MultiAddress::Id(high_security_account()),
+			transfer_amount,
+		));
+
+		// Capture balances before nested transfer
+		let hs_balance_before = Balances::free_balance(&high_security_account());
+		let recoverer_balance_before = Balances::free_balance(&recoverer());
+
 		// Now test nested as_recovered: Account 3 -> Account 2 -> Account 1
-		// Use a simple system remark call that doesn't require funds
-		let inner_call = RuntimeCall::System(frame_system::Call::remark {
-			remark: b"Nested recovery test".to_vec(),
+		let inner_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+			dest: MultiAddress::Id(recoverer()),
+			value: transfer_amount / 2, // Transfer half the amount
 		});
 		let outer_call = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
 			account: MultiAddress::Id(high_security_account()),
@@ -214,11 +226,19 @@ fn test_recovery_allows_multiple_recovery_configs() {
 		});
 
 		// Account 3 calls as_recovered on Account 2, which contains as_recovered on Account 1
-		// This should succeed if nested recovery works
+		// This should succeed and transfer funds: Account 1 -> Account 3
 		assert_ok!(Recovery::as_recovered(
 			RuntimeOrigin::signed(recoverer()),
 			MultiAddress::Id(interceptor()),
 			Box::new(outer_call),
 		));
+
+		// Verify the transfer happened
+		let hs_balance_after = Balances::free_balance(&high_security_account());
+		let recoverer_balance_after = Balances::free_balance(&recoverer());
+
+		assert_eq!(hs_balance_before, transfer_amount);
+		assert!(hs_balance_after < hs_balance_before); // Account 1 lost funds
+		assert!(recoverer_balance_after > recoverer_balance_before); // Account 3 gained funds
 	});
 }
