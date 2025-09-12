@@ -111,27 +111,21 @@ qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
 quantus-runtime = { path = "./runtime", default-features = false }
-sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
 sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
-plonky2 = { git = "https://github.com/Quantus-Network/plonky2", default-features = false, features = ["no_random"] }
-poseidon-resonance = { git = "https://github.com/Quantus-Network/poseidon-resonance", default-features = false }
-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-dilithium", default-features = false, features = ["no_std"] }
-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/rusty-crystals", package = "rusty-crystals-hdwallet" }
-wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false, features = [
-	"no_std",
-] }
-wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-verifier", default-features = false, features = [
+qp-poseidon = { version = "0.9.1", default-features = false }
+qp-rusty-crystals-dilithium = { version = "1.0.1", default-features = false, features = ["no_std"] }
+qp-rusty-crystals-hdwallet = { version = "0.1.2" }
+qp-wormhole-circuit = { version = "0.1.2", default-features = false }
+qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
+qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
 	"no_random",
-	"no_std",
 ] }
-zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", package = "zk-circuits-common", default-features = false, features = [
+qp-zk-circuits-common = { version = "0.1.2", default-features = false, features = [
 	"no_random",
-	"no_std",
 ] }
 
 # polkadot-sdk dependencies
@@ -202,8 +196,8 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "27.0.0", default-features = false }
 
 [patch.crates-io]
-libp2p-identity = { git = "https://github.com/Quantus-Network/libp2p-identity-pqc" }
-libp2p-noise = { git = "https://github.com/Quantus-Network/libp2p-noise-pqc" }
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10" }
+libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-network = { path = "./client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }

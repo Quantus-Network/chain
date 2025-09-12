@@ -35,6 +35,9 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
+qp-rusty-crystals-dilithium.workspace = true
+qp-rusty-crystals-hdwallet.workspace = true
+qpow-math.workspace = true
 quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
@@ -42,8 +45,6 @@ rand = { workspace = true, default-features = false, features = [
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
 resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
-rusty-crystals-dilithium.workspace = true
-rusty-crystals-hdwallet.workspace = true
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
@@ -52,7 +53,6 @@ sc-client-api.default-features = true
 sc-client-api.workspace = true
 sc-consensus.default-features = true
 sc-consensus.workspace = true
-sc-consensus-pow.workspace = true
 sc-consensus-qpow.workspace = true
 sc-executor.default-features = true
 sc-executor.workspace = true
@@ -98,10 +98,10 @@ tokio-util.workspace = true
 uuid.workspace = true
 
 [build-dependencies]
-circuit-builder.workspace = true
+qp-wormhole-circuit-builder.workspace = true
+qp-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
-wormhole-verifier.workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -114,12 +114,12 @@ std = [
 	"hex/std",
 	"log/std",
 	"primitive-types/std",
+	"qp-wormhole-verifier/std",
 	"quantus-runtime/std",
 	"rand/std",
 	"sc-consensus-qpow/std",
 	"serde_json/std",
 	"sp-consensus-qpow/std",
-	"wormhole-verifier/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [

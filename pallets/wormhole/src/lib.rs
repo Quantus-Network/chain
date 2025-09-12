@@ -4,7 +4,7 @@ extern crate alloc;
 
 use lazy_static::lazy_static;
 pub use pallet::*;
-use wormhole_verifier::WormholeVerifier;
+use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
 mod mock;
@@ -44,13 +44,13 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole::TransferProofs;
+	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+	use qp_wormhole_verifier::ProofWithPublicInputs;
+	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
 		traits::{Saturating, Zero},
 		Perbill,
 	};
-	use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
-	use wormhole_verifier::ProofWithPublicInputs;
-	use zk_circuits_common::circuit::{C, D, F};
 
 	pub type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -121,13 +121,8 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
-			ensure!(
-				proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
-				Error::<T>::InvalidPublicInputs
-			);
-
 			// Parse public inputs using the existing parser
-			let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+			let public_inputs = PublicCircuitInputs::try_from(&proof)
 				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
 			let nullifier_bytes = *public_inputs.nullifier;

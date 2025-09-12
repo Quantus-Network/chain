@@ -1,4 +1,3 @@
-use crate::QPowAlgorithm;
 use futures::StreamExt;
 use primitive_types::{H256, U512};
 use sc_client_api::{AuxStore, BlockBackend, BlockchainEvents, Finalizer};
@@ -20,7 +19,6 @@ where
 {
 	backend: Arc<BE>,
 	client: Arc<C>,
-	algorithm: QPowAlgorithm<B, C>,
 	_phantom: PhantomData<B>,
 }
 
@@ -34,7 +32,6 @@ where
 		Self {
 			backend: Arc::clone(&self.backend),
 			client: Arc::clone(&self.client),
-			algorithm: self.algorithm.clone(),
 			_phantom: PhantomData,
 		}
 	}
@@ -47,10 +44,10 @@ where
 	C::Api: QPoWApi<B>,
 	BE: sc_client_api::Backend<B> + 'static,
 {
-	pub fn new(backend: Arc<BE>, client: Arc<C>, algorithm: QPowAlgorithm<B, C>) -> Self {
+	pub fn new(backend: Arc<BE>, client: Arc<C>) -> Self {
 		log::debug!("Creating new HeaviestChain instance");
 
-		Self { backend, client, algorithm, _phantom: PhantomData }
+		Self { backend, client, _phantom: PhantomData }
 	}
 
 	/// Finalizes blocks that are `max_reorg_depth - 1` blocks behind the current best block

@@ -2,7 +2,7 @@ use crate::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, DilithiumSig
 
 use super::types::{DilithiumPair, DilithiumPublic};
 use alloc::vec::Vec;
-use rusty_crystals_dilithium::{
+use qp_rusty_crystals_dilithium::{
 	ml_dsa_87::{Keypair, PublicKey, SecretKey},
 	params::SEEDBYTES,
 };
