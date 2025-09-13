@@ -111,7 +111,8 @@ impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag>
 impl IdentifyAccount for DilithiumPublic {
 	type AccountId = AccountId32;
 	fn into_account(self) -> Self::AccountId {
-		AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
+    	let hash: Vec<u8> = PoseidonHasher::hash_padded(self.0.as_slice());
+    	AccountId32::new(hash.as_slice().try_into().expect("PoseidonHash is always 32 bytes"))
 	}
 }
 
@@ -229,7 +230,8 @@ impl IdentifyAccount for DilithiumSigner {
 
 	fn into_account(self) -> AccountId32 {
 		let Self::Dilithium(who) = self;
-		PoseidonHasher::hash(who.as_ref()).0.into()
+        let hash = PoseidonHasher::hash_padded(who.as_ref());
+       	AccountId32::new(hash.as_slice().try_into().expect("PoseidonHash is always 32 bytes"))
 	}
 }
 

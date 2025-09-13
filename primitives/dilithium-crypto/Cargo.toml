@@ -43,7 +43,6 @@ serde = [
 ]
 std = [
 	"codec/std",
-	"qp-poseidon/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",

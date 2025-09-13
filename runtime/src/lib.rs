@@ -36,8 +36,8 @@ pub mod transaction_extensions;
 
 pub mod governance;
 
+use crate::configs::poseidon::PoseidonHasher;
 use crate::governance::pallet_custom_origins;
-use qp_poseidon::PoseidonHasher;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
