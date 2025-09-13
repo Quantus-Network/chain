@@ -48,7 +48,7 @@ pub mod pallet {
 		traits::{Saturating, Zero},
 		Perbill,
 	};
-	use wormhole_circuit::inputs::{PublicCircuitInputs, PUBLIC_INPUTS_FELTS_LEN};
+	use wormhole_circuit::inputs::PublicCircuitInputs;
 	use wormhole_verifier::ProofWithPublicInputs;
 	use zk_circuits_common::circuit::{C, D, F};
 
@@ -121,13 +121,8 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
-			ensure!(
-				proof.public_inputs.len() == PUBLIC_INPUTS_FELTS_LEN,
-				Error::<T>::InvalidPublicInputs
-			);
-
 			// Parse public inputs using the existing parser
-			let public_inputs = PublicCircuitInputs::try_from(proof.clone())
+			let public_inputs = PublicCircuitInputs::try_from(&proof)
 				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
 			let nullifier_bytes = *public_inputs.nullifier;

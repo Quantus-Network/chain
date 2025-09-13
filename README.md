@@ -57,14 +57,6 @@ bip39 wordlist.
 
 Seed must be a 64-character hex string
 
-### Wormhole address pair generation
-
-```sh
-./quantus-node key quantus --scheme wormhole
-```
-
-This generates a wormhole secret and a wormhole address.
-
 ---
 
 ### Rewards address

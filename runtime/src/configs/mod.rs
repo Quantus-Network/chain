@@ -53,7 +53,7 @@ use frame_system::{
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use poseidon_resonance::PoseidonHasher;
+use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{ConvertInto, One},

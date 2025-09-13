@@ -18,15 +18,17 @@
 
 //! Implementation of the `generate-node-key` subcommand
 
-use crate::{build_network_key_dir_or_default, Error, NODE_KEY_ED25519_FILE};
+use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use libp2p_identity::{ed25519, Keypair};
+use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
 use sc_service::BasePath;
 use std::{
 	fs,
 	io::{self, Write},
 	path::PathBuf,
+	time::{SystemTime, UNIX_EPOCH},
 };
+use sp_core::blake2_256;
 
 /// Common arguments accross all generate key commands, subkey and node.
 #[derive(Debug, Args, Clone)]
@@ -89,6 +91,18 @@ impl GenerateNodeKeyCmd {
 	}
 }
 
+// Function to get current timestamp, hash it, and return hex string
+fn hash_current_time_to_hex() -> [u8; 32] {
+	// Get current timestamp (milliseconds since Unix epoch)
+	let timestamp = SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.expect("Time went backwards")
+		.as_millis() as u64;
+
+	// Convert timestamp to bytes and hash with BLAKE2-256
+	blake2_256(&timestamp.to_le_bytes())
+}
+
 // Utility function for generating a key based on the provided CLI arguments
 //
 // `file`  - Name of file to save secret key to
@@ -101,14 +115,14 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-	let keypair = ed25519::Keypair::generate();
 
-	let secret = keypair.secret();
+	let hashed_timestamp = hash_current_time_to_hex();
+	let keypair = Keypair::generate(Some(&hashed_timestamp));
 
 	let file_data = if bin {
-		secret.as_ref().to_owned()
+		keypair.to_bytes().to_vec()
 	} else {
-		array_bytes::bytes2hex("", secret).into_bytes()
+		array_bytes::bytes2hex("", keypair.to_bytes()).into_bytes()
 	};
 
 	match (file, base_path, default_base_path) {
@@ -122,7 +136,7 @@ fn generate_key(
 
 			fs::create_dir_all(network_path.as_path())?;
 
-			let key_path = network_path.join(NODE_KEY_ED25519_FILE);
+			let key_path = network_path.join(NODE_KEY_DILITHIUM_FILE);
 			if key_path.exists() {
 				eprintln!("Skip generation, a key already exists in {:?}", key_path);
 				return Err(Error::KeyAlreadyExistsInPath(key_path));
@@ -137,8 +151,6 @@ fn generate_key(
 			return Err(Error::Input("Mutually exclusive arguments provided".into()));
 		},
 	}
-
-	eprintln!("{}", Keypair::from(keypair).public().to_peer_id());
 
 	Ok(())
 }
@@ -169,7 +181,7 @@ pub mod tests {
 			.path()
 			.join("chains/test_id/")
 			.join(DEFAULT_NETWORK_CONFIG_PATH)
-			.join(NODE_KEY_ED25519_FILE);
+			.join(NODE_KEY_DILITHIUM_FILE);
 		let base_path = base_dir.path().display().to_string();
 		let generate =
 			GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--base-path", &base_path]);

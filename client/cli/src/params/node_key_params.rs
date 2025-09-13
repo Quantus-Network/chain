@@ -16,18 +16,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::{arg_enums::NodeKeyType, error, Error};
 use clap::Args;
-use sc_network::config::{ed25519, NodeKeyConfig};
+use hex;
+use libp2p_identity::Keypair;
+use qp_rusty_crystals_dilithium::ml_dsa_87;
+use sc_network::config::NodeKeyConfig;
 use sc_service::Role;
 use sp_core::H256;
 use std::{path::PathBuf, str::FromStr};
 
-use crate::{arg_enums::NodeKeyType, error, Error};
-
-/// The file name of the node's Ed25519 secret key inside the chain-specific
+/// The file name of the node's dilithium secret key inside the chain-specific
 /// network config directory, if neither `--node-key` nor `--node-key-file`
-/// is specified in combination with `--node-key-type=ed25519`.
-pub(crate) const NODE_KEY_ED25519_FILE: &str = "secret_ed25519";
+/// is specified in combination with `--node-key-type=dilithium`.
+pub(crate) const NODE_KEY_DILITHIUM_FILE: &str = "secret_dilithium";
 
 /// Parameters used to create the `NodeKeyConfig`, which determines the keypair
 /// used for libp2p networking.
@@ -38,7 +40,7 @@ pub struct NodeKeyParams {
 	/// The value is a string that is parsed according to the choice of
 	/// `--node-key-type` as follows:
 	///
-	///  - `ed25519`: the value is parsed as a hex-encoded Ed25519 32 byte secret key (64 hex
+	///  - `dilithium`: the value is parsed as a hex-encoded Dilithium 32 byte secret key (64 hex
 	///    chars)
 	///
 	/// The value of this option takes precedence over `--node-key-file`.
@@ -66,7 +68,7 @@ pub struct NodeKeyParams {
 	///
 	/// The node's secret key determines the corresponding public key and hence the
 	/// node's peer ID in the context of libp2p.
-	#[arg(long, value_name = "TYPE", value_enum, ignore_case = true, default_value_t = NodeKeyType::Ed25519)]
+	#[arg(long, value_name = "TYPE", value_enum, ignore_case = true, default_value_t = NodeKeyType::Dilithium)]
 	pub node_key_type: NodeKeyType,
 
 	/// File from which to read the node's secret key to use for p2p networking.
@@ -74,7 +76,8 @@ pub struct NodeKeyParams {
 	/// The contents of the file are parsed according to the choice of `--node-key-type`
 	/// as follows:
 	///
-	/// - `ed25519`: the file must contain an unencoded 32 byte or hex encoded Ed25519 secret key.
+	/// - `dilithium`: the file must contain an unencoded 32 byte or hex encoded dilithium secret
+	///   key.
 	///
 	/// If the file does not exist, it is created with a newly generated secret key of
 	/// the chosen type.
@@ -107,14 +110,14 @@ impl NodeKeyParams {
 		is_dev: bool,
 	) -> error::Result<NodeKeyConfig> {
 		Ok(match self.node_key_type {
-			NodeKeyType::Ed25519 => {
+			NodeKeyType::Dilithium => {
 				let secret = if let Some(node_key) = self.node_key.as_ref() {
-					parse_ed25519_secret(node_key)?
+					parse_dilithium_secret(node_key)?
 				} else {
 					let key_path = self
 						.node_key_file
 						.clone()
-						.unwrap_or_else(|| net_config_dir.join(NODE_KEY_ED25519_FILE));
+						.unwrap_or_else(|| net_config_dir.join(NODE_KEY_DILITHIUM_FILE));
 					if !self.unsafe_force_node_key_generation &&
 						role.is_authority() &&
 						!is_dev && !key_path.exists()
@@ -124,7 +127,7 @@ impl NodeKeyParams {
 					sc_network::config::Secret::File(key_path)
 				};
 
-				NodeKeyConfig::Ed25519(secret)
+				NodeKeyConfig::Dilithium(secret)
 			},
 		})
 	}
@@ -135,21 +138,19 @@ fn invalid_node_key(e: impl std::fmt::Display) -> error::Error {
 	error::Error::Input(format!("Invalid node key: {}", e))
 }
 
-/// Parse a Ed25519 secret key from a hex string into a `sc_network::Secret`.
-fn parse_ed25519_secret(hex: &str) -> error::Result<sc_network::config::Ed25519Secret> {
-	H256::from_str(hex).map_err(invalid_node_key).and_then(|bytes| {
-		ed25519::SecretKey::try_from_bytes(bytes)
-			.map(sc_network::config::Secret::Input)
-			.map_err(invalid_node_key)
-	})
+/// Parse a Dilithium secret key from a hex string into a `sc_network::Secret`.
+fn parse_dilithium_secret(byte_string: &str) -> error::Result<sc_network::config::DilithiumSecret> {
+	let bytes = hex::decode(byte_string).map_err(|e| invalid_node_key(e))?;
+	Ok(sc_network::config::Secret::Input(bytes))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use clap::ValueEnum;
-	use sc_network::config::ed25519;
+	use libp2p_identity::Keypair;
 	use std::fs::{self, File};
+	use std::io::Read;
 	use tempfile::TempDir;
 
 	#[test]
@@ -158,18 +159,25 @@ mod tests {
 			NodeKeyType::value_variants().iter().try_for_each(|t| {
 				let node_key_type = *t;
 				let sk = match node_key_type {
-					NodeKeyType::Ed25519 => ed25519::SecretKey::generate().as_ref().to_vec(),
+					NodeKeyType::Dilithium =>
+						Keypair::generate_dilithium().secret().unwrap().to_vec(),
 				};
+				let hex_sk = hex::encode(sk.clone());
 				let params = NodeKeyParams {
 					node_key_type,
-					node_key: Some(format!("{:x}", H256::from_slice(sk.as_ref()))),
+					node_key: Some(hex_sk.clone()),
 					node_key_file: None,
 					unsafe_force_node_key_generation: false,
 				};
 				params.node_key(net_config_dir, Role::Authority, false).and_then(|c| match c {
-					NodeKeyConfig::Ed25519(sc_network::config::Secret::Input(ref ski))
-						if node_key_type == NodeKeyType::Ed25519 && &sk[..] == ski.as_ref() =>
-						Ok(()),
+					NodeKeyConfig::Dilithium(sc_network::config::Secret::Input(ref ski)) => {
+						let hex_ski = hex::encode((*ski).clone());
+						if node_key_type == NodeKeyType::Dilithium && hex_sk == hex_ski {
+							Ok(())
+						} else {
+							Err(error::Error::Input("Unexpected node key config".into()))
+						}
+					}
 					_ => Err(error::Error::Input("Unexpected node key config".into())),
 				})
 			})
@@ -180,9 +188,9 @@ mod tests {
 
 	#[test]
 	fn test_node_key_config_file() {
-		fn check_key(file: PathBuf, key: &ed25519::SecretKey) {
+		fn check_key(file: PathBuf, key: &libp2p_identity::Keypair) {
 			let params = NodeKeyParams {
-				node_key_type: NodeKeyType::Ed25519,
+				node_key_type: NodeKeyType::Dilithium,
 				node_key: None,
 				node_key_file: Some(file),
 				unsafe_force_node_key_generation: false,
@@ -194,19 +202,19 @@ mod tests {
 				.into_keypair()
 				.expect("Creates node key pair");
 
-			if node_key.secret().as_ref() != key.as_ref() {
+			if node_key.secret().unwrap() != key.secret().unwrap() {
 				panic!("Invalid key")
 			}
 		}
 
 		let tmp = tempfile::Builder::new().prefix("alice").tempdir().expect("Creates tempfile");
 		let file = tmp.path().join("mysecret").to_path_buf();
-		let key = ed25519::SecretKey::generate();
+		let key = Keypair::generate_dilithium();
 
-		fs::write(&file, array_bytes::bytes2hex("", key.as_ref())).expect("Writes secret key");
+		fs::write(&file, array_bytes::bytes2hex("", &key.secret().unwrap())).expect("Writes secret key");
 		check_key(file.clone(), &key);
 
-		fs::write(&file, &key).expect("Writes secret key");
+		fs::write(&file, key.secret().unwrap()).expect("Writes secret key");
 		check_key(file.clone(), &key);
 	}
 
@@ -238,9 +246,9 @@ mod tests {
 					let dir = PathBuf::from(net_config_dir.clone());
 					let typ = params.node_key_type;
 					params.node_key(net_config_dir, role, is_dev).and_then(move |c| match c {
-						NodeKeyConfig::Ed25519(sc_network::config::Secret::File(ref f))
-							if typ == NodeKeyType::Ed25519 &&
-								f == &dir.join(NODE_KEY_ED25519_FILE) =>
+						NodeKeyConfig::Dilithium(sc_network::config::Secret::File(ref f))
+							if typ == NodeKeyType::Dilithium &&
+								f == &dir.join(NODE_KEY_DILITHIUM_FILE) =>
 							Ok(()),
 						_ => Err(error::Error::Input("Unexpected node key config".into())),
 					})
@@ -262,7 +270,7 @@ mod tests {
 		));
 
 		let tempdir = TempDir::new().unwrap();
-		let _file = File::create(tempdir.path().join(NODE_KEY_ED25519_FILE)).unwrap();
+		let _file = File::create(tempdir.path().join(NODE_KEY_DILITHIUM_FILE)).unwrap();
 		assert!(some_config_dir(&tempdir.path().into(), false, Role::Authority, false).is_ok());
 	}
 }
