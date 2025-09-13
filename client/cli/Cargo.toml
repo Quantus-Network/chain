@@ -18,7 +18,7 @@ bip39 = { workspace = true, package = "parity-bip39" }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
 codec = { workspace = true, default-features = true, package = "parity-scale-codec" }
-dilithium-crypto = { workspace = true }
+dilithium-crypto = { workspace = true, features = ["serde"] }
 fdlimit = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
