@@ -262,7 +262,7 @@ impl<H: Hasher> crate::TrieRecorderProvider<H> for Recorder<H> {
 	}
 
 	fn as_trie_recorder(&self, storage_root: H::Out) -> Self::Recorder<'_> {
-		Recorder::as_trie_recorder(&self, storage_root)
+		Recorder::as_trie_recorder(self, storage_root)
 	}
 }
 
