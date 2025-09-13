@@ -1,7 +1,7 @@
 use crate::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, DilithiumSigner};
 
 use super::types::{DilithiumPair, DilithiumPublic};
-use alloc::vec::Vec;
+use alloc::{format, string::ToString, vec::Vec};
 use qp_rusty_crystals_dilithium::{
 	ml_dsa_87::{Keypair, PublicKey, SecretKey},
 	params::SEEDBYTES,
@@ -14,6 +14,8 @@ use sp_runtime::{
 	traits::{IdentifyAccount, Verify},
 	AccountId32,
 };
+
+use log;
 
 pub fn crystal_alice() -> DilithiumPair {
 	let seed = [0u8; 32];
@@ -90,8 +92,25 @@ impl Pair for DilithiumPair {
 
 	fn from_string(s: &str, _password_override: Option<&str>) -> Result<Self, SecretStringError> {
 		let keypair = Keypair::generate(Some(s.as_bytes()));
-		Ok(DilithiumPair{ secret: keypair.secret.bytes, public: keypair.public.bytes })
+		Ok(DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes })
 	}
+
+	fn from_string_with_seed(
+		s: &str,
+		password: Option<&str>,
+	) -> Result<(Self, Option<Self::Seed>), SecretStringError> {
+		// For Dilithium, we use the string directly as entropy for key generation
+		// We combine the string with the password if provided
+		log::warn!("hi");
+		let entropy =
+			if let Some(pass) = password { format!("{}{}", s, pass) } else { s.to_string() };
+
+		let keypair = Keypair::generate(Some(entropy.as_bytes()));
+		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+
+		// Return the pair with no seed since Dilithium doesn't use traditional seed-based generation
+		Ok((pair, None))
+	}	
 }
 
 #[cfg(feature = "std")]
