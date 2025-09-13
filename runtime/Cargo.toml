@@ -66,6 +66,7 @@ sp-runtime = { features = ["serde"], workspace = true }
 sp-session.workspace = true
 sp-storage.workspace = true
 sp-transaction-pool.workspace = true
+sp-trie.workspace = true
 sp-version = { features = ["serde"], workspace = true }
 
 [build-dependencies]
@@ -112,7 +113,6 @@ std = [
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
 	"qp-dilithium-crypto/std",
-	"qp-poseidon/std",
 	"qp-scheduler/std",
 	"qp-wormhole-circuit/std",
 	"qp-wormhole-verifier/std",
@@ -133,6 +133,7 @@ std = [
 	"sp-session/std",
 	"sp-storage/std",
 	"sp-transaction-pool/std",
+	"sp-trie/std",
 	"sp-version/std",
 	"substrate-wasm-builder",
 ]

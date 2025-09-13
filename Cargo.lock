@@ -6543,7 +6543,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "paste",
- "qp-poseidon",
+ "qp-poseidon 0.9.1",
  "qp-wormhole",
  "scale-info",
  "sp-core",
@@ -8174,7 +8174,7 @@ dependencies = [
  "env_logger 0.11.8",
  "log",
  "parity-scale-codec",
- "qp-poseidon",
+ "qp-poseidon 0.9.1",
  "qp-rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
@@ -8228,6 +8228,17 @@ dependencies = [
 [[package]]
 name = "qp-poseidon"
 version = "0.9.1"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "qp-plonky2",
+ "scale-info",
+ "serde",
+]
+
+[[package]]
+name = "qp-poseidon"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9392ebae262f54125eecd98eba704e0bdfd77f710cb197ba4c89dde934414016"
 dependencies = [
@@ -8263,7 +8274,7 @@ dependencies = [
  "hex-literal",
  "hmac 0.12.1",
  "nam-tiny-hderive",
- "qp-poseidon",
+ "qp-poseidon 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "qp-rusty-crystals-dilithium",
  "rand 0.8.5",
  "rand_chacha 0.9.0",
@@ -8461,7 +8472,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
- "qp-poseidon",
+ "qp-poseidon 0.9.1",
  "qp-scheduler",
  "qp-wormhole-circuit",
  "qp-wormhole-verifier",
@@ -8481,6 +8492,7 @@ dependencies = [
  "sp-session",
  "sp-storage",
  "sp-transaction-pool",
+ "sp-trie",
  "sp-version",
  "substrate-wasm-builder",
 ]

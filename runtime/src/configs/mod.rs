@@ -23,7 +23,10 @@
 //
 // For more information, please refer to <http://unlicense.org>
 
+pub mod poseidon;
+
 // Substrate and Polkadot dependencies
+use crate::configs::poseidon::PoseidonHasher;
 use crate::{
 	governance::{
 		definitions::{
@@ -53,7 +56,7 @@ use frame_system::{
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use qp_poseidon::PoseidonHasher;
+
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{ConvertInto, One},
