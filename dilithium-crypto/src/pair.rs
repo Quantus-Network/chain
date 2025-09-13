@@ -15,8 +15,6 @@ use sp_runtime::{
 	AccountId32,
 };
 
-use log;
-
 pub fn crystal_alice() -> DilithiumPair {
 	let seed = [0u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
@@ -90,22 +88,40 @@ impl Pair for DilithiumPair {
 		self.secret.to_vec()
 	}
 
-	fn from_string(s: &str, _password_override: Option<&str>) -> Result<Self, SecretStringError> {
-		let keypair = Keypair::generate(Some(s.as_bytes()));
-		Ok(DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes })
+	// NOTE: This method does not parse all secret uris correctly, like "mnemonic///password///account"
+	// This was supported in standard substrate, if there is demand, we can support it in the future
+	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
+		let res = Self::from_phrase(s, password_override)
+			.map_err(|_| SecretStringError::InvalidPhrase)?;
+		Ok(res.0)
 	}
 
+	#[cfg(feature = "std")]
+	fn from_phrase(
+		phrase: &str,
+		password: Option<&str>,
+	) -> Result<(Self, Self::Seed), SecretStringError> {
+		use qp_rusty_crystals_hdwallet::HDLattice;
+		let hd = HDLattice::from_mnemonic(phrase, password)
+			.map_err(|_| SecretStringError::InvalidPhrase)?;
+		let keypair = hd.generate_keys();
+		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+		let mut seed = [0u8; 32];
+		seed.copy_from_slice(&hd.seed[..32]);
+		Ok((pair, seed))
+	}
+
+	#[cfg(feature = "std")]
 	fn from_string_with_seed(
 		s: &str,
 		password: Option<&str>,
 	) -> Result<(Self, Option<Self::Seed>), SecretStringError> {
+		use qp_rusty_crystals_hdwallet::HDLattice;
 		// For Dilithium, we use the string directly as entropy for key generation
 		// We combine the string with the password if provided
-		log::warn!("hi");
-		let entropy =
-			if let Some(pass) = password { format!("{}{}", s, pass) } else { s.to_string() };
-
-		let keypair = Keypair::generate(Some(entropy.as_bytes()));
+		let hd =
+			HDLattice::from_mnemonic(s, password).map_err(|_| SecretStringError::InvalidPhrase)?;
+		let keypair = hd.generate_keys();
 		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
 
 		// Return the pair with no seed since Dilithium doesn't use traditional seed-based generation

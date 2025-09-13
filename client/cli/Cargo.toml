@@ -27,6 +27,7 @@ libp2p-identity = { features = ["dilithium", "peerid"], workspace = true }
 log = { workspace = true, default-features = true }
 names = { workspace = true, default-features = false }
 qp-rusty-crystals-dilithium = { workspace = true }
+qp-rusty-crystals-hdwallet = { workspace = true }
 rand = { workspace = true, default-features = true }
 regex = { workspace = true }
 rpassword = { workspace = true }

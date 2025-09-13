@@ -36,7 +36,7 @@ pallet-transaction-payment-rpc.workspace = true
 primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
 qp-rusty-crystals-dilithium.workspace = true
-qp-rusty-crystals-hdwallet.workspace = true
+qp-rusty-crystals-hdwallet = { workspace = true, features = ["std"] }
 quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
