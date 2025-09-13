@@ -84,7 +84,7 @@ parameter_types! {
 
 	/// We allow for 6 seconds of compute with a 20 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
-		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+		Weight::from_parts(10u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 		NORMAL_DISPATCH_RATIO,
 	);
 	// We estimate to download 5MB blocks it takes a 100Mbs link 600ms and 200ms for 1Gbs link
@@ -615,7 +615,7 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
-const BLOCK_GAS_LIMIT: u64 = 200_000_000;
+const BLOCK_GAS_LIMIT: u64 = 300_000_000;
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
 const MAX_STORAGE_GROWTH: u64 = 1000 * 1024;

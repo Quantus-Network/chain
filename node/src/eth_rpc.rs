@@ -89,6 +89,8 @@ where
 		Debug, DebugApiServer, Eth, EthApiServer, EthFilter, EthFilterApiServer, EthPubSub,
 		EthPubSubApiServer, Net, NetApiServer, Web3, Web3ApiServer,
 	};
+	#[cfg(feature = "txpool")]
+	use fc_rpc::{TxPool, TxPoolApiServer};
 
 	let EthDeps {
 		client,
@@ -176,6 +178,9 @@ where
 	io.merge(
 		Debug::new(client.clone(), frontier_backend, storage_override, block_data_cache).into_rpc(),
 	)?;
+
+	#[cfg(feature = "txpool")]
+	io.merge(TxPool::new(client, graph).into_rpc())?;
 
 	Ok(io)
 }

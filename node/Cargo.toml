@@ -126,7 +126,7 @@ wormhole-verifier.workspace = true
 tempfile = "3.0"
 
 [features]
-default = ["std"]
+default = ["std", "txpool"]
 std = [
 	"codec/std",
 	"dilithium-crypto/std",
@@ -157,3 +157,4 @@ try-runtime = [
 	"quantus-runtime/try-runtime",
 	"sp-runtime/try-runtime",
 ]
+txpool = ["fc-rpc/txpool"]
