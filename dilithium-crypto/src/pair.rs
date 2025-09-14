@@ -43,10 +43,10 @@ impl Pair for DilithiumPair {
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
 		_path_iter: Iter,
-		_seed: Option<<DilithiumPair as Pair>::Seed>,
+		seed: Option<<DilithiumPair as Pair>::Seed>,
 	) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-		// TODO: could do this with hdlattice
-		Err(DeriveError::SoftKeyInPath)
+		// TODO: derive child keys from path
+		Ok((self.clone(), seed))
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
@@ -231,11 +231,9 @@ mod tests {
 		let pair = DilithiumPair::from_seed_slice(&seed).expect("Failed to create pair");
 		let message: Vec<u8> = b"Hello, world!".to_vec();
 
-		log::info!("Signing message: {:?}", &message[..10]);
-
 		let signature = pair.sign(&message);
 
-		log::info!("Signature: {:?}", &message[..10]);
+		println!("Signature: {:?}", &signature);
 
 		let public = pair.public();
 
