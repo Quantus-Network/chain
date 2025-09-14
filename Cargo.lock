@@ -5093,8 +5093,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.10"
-source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.10#c8cc9eb375e0701b2e1fad6a14b60f4b6ca645ba"
+version = "0.2.9"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?rev=d03c31c32f32db17fd3e4fb20877b4310e9e43a9#d03c31c32f32db17fd3e4fb20877b4310e9e43a9"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5179,8 +5179,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-noise"
-version = "0.45.10"
-source = "git+https://github.com/Quantus-Network/qp-libp2p-noise?tag=v0.45.10#901f09f30b32f910395270bba3a566191dc2f61f"
+version = "0.45.0"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-noise?rev=69e5edc8df4359bb6c13bd15e4d5da48ae86af24#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
 dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.10.1",

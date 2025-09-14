@@ -195,9 +195,11 @@ substrate-frame-rpc-system = { version = "45.0.0", default-features = false }
 substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "27.0.0", default-features = false }
 
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", rev = "d03c31c32f32db17fd3e4fb20877b4310e9e43a9" }
+
 [patch.crates-io]
-libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.10" }
-libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", rev = "d03c31c32f32db17fd3e4fb20877b4310e9e43a9" }
+libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", rev = "69e5edc8df4359bb6c13bd15e4d5da48ae86af24" }
 sc-network = { path = "./client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
