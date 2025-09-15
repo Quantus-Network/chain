@@ -45,7 +45,7 @@ pallet-vesting.workspace = true
 pallet-wormhole = { workspace = true, default-features = false }
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
-qp-poseidon = { workspace = true, features = ["serde"] }
+poseidon-resonance = { workspace = true, features = ["serde"] }
 qp-scheduler.workspace = true
 qp-wormhole-circuit = { workspace = true, default-features = false }
 qp-wormhole-verifier = { workspace = true, default-features = false }
@@ -112,7 +112,7 @@ std = [
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
 	"qp-dilithium-crypto/std",
-	"qp-poseidon/std",
+	"poseidon-resonance/std",
 	"qp-scheduler/std",
 	"qp-wormhole-circuit/std",
 	"qp-wormhole-verifier/std",

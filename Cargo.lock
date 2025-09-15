@@ -6543,7 +6543,7 @@ dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
  "paste",
- "qp-poseidon",
+ "poseidon-resonance",
  "qp-wormhole",
  "scale-info",
  "sp-core",
@@ -7319,6 +7319,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
+name = "plonky2"
+version = "1.0.2"
+source = "git+https://github.com/Quantus-Network/plonky2#9c06fe53083dd1672951b6d5bc3aa03bde4d1a66"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "hashbrown 0.14.5",
+ "itertools 0.11.0",
+ "keccak-hash 0.8.0",
+ "log",
+ "num",
+ "plonky2_field",
+ "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "rand 0.8.5",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
+name = "plonky2_field"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#9c06fe53083dd1672951b6d5bc3aa03bde4d1a66"
+dependencies = [
+ "anyhow",
+ "itertools 0.11.0",
+ "num",
+ "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
+ "rustc_version",
+ "serde",
+ "static_assertions",
+ "unroll",
+]
+
+[[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7328,10 +7364,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "plonky2_maybe_rayon"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#9c06fe53083dd1672951b6d5bc3aa03bde4d1a66"
+
+[[package]]
 name = "plonky2_util"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c32c137808ca984ab2458b612b7eb0462d853ee041a3136e83d54b96074c7610"
+
+[[package]]
+name = "plonky2_util"
+version = "1.0.0"
+source = "git+https://github.com/Quantus-Network/plonky2#9c06fe53083dd1672951b6d5bc3aa03bde4d1a66"
 
 [[package]]
 name = "plotters"
@@ -7796,6 +7842,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "poseidon-resonance"
+version = "0.9.0"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance#2663eb5819ac36eac2a74ee3debfd642262c1c54"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "plonky2",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-runtime",
+ "sp-storage",
+ "sp-trie",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8174,7 +8236,7 @@ dependencies = [
  "env_logger 0.11.8",
  "log",
  "parity-scale-codec",
- "qp-poseidon",
+ "poseidon-resonance",
  "qp-rusty-crystals-dilithium",
  "scale-info",
  "sp-core",
@@ -8197,8 +8259,8 @@ dependencies = [
  "keccak-hash 0.8.0",
  "log",
  "num",
- "plonky2_maybe_rayon",
- "plonky2_util",
+ "plonky2_maybe_rayon 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "qp-plonky2-field",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -8217,7 +8279,7 @@ dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
- "plonky2_util",
+ "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.8.5",
  "rustc_version",
  "serde",
@@ -8459,9 +8521,9 @@ dependencies = [
  "pallet-vesting",
  "pallet-wormhole",
  "parity-scale-codec",
+ "poseidon-resonance",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
- "qp-poseidon",
  "qp-scheduler",
  "qp-wormhole-circuit",
  "qp-wormhole-verifier",

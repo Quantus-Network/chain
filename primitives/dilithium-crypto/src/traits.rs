@@ -5,7 +5,7 @@ use super::types::{
 
 use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
 use alloc::vec::Vec;
-use qp_poseidon::PoseidonHasher;
+use poseidon_resonance::PoseidonHasher;
 use sp_core::{
 	crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
 	ByteArray, Hasher, H256,

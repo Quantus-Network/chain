@@ -25,7 +25,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
 	use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature};
-	use qp_poseidon::PoseidonHasher;
+	use poseidon_resonance::PoseidonHasher;
 
 	use sp_runtime::traits::Hash;
 
