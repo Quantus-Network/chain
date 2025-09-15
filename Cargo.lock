@@ -1428,17 +1428,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "circuit-builder"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
-dependencies = [
- "anyhow",
- "plonky2",
- "wormhole-circuit",
- "zk-circuits-common",
-]
-
-[[package]]
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2295,7 +2284,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.106",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -4232,7 +4221,7 @@ dependencies = [
  "hyper 1.7.0",
  "libc",
  "pin-project-lite 0.2.16",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tokio 1.47.1",
  "tower-service",
  "tracing",
@@ -4594,7 +4583,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5120,7 +5109,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identity"
 version = "0.2.9"
-source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc#d03c31c32f32db17fd3e4fb20877b4310e9e43a9"
+source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc?rev=d03c31c32f32db17fd3e4fb20877b4310e9e43a9#d03c31c32f32db17fd3e4fb20877b4310e9e43a9"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5206,7 +5195,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.45.0"
-source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
+source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc?rev=69e5edc8df4359bb6c13bd15e4d5da48ae86af24#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
 dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.10.1",
@@ -7037,13 +7026,13 @@ dependencies = [
  "pallet-balances 40.0.1",
  "parity-scale-codec",
  "qp-wormhole",
+ "qp-wormhole-circuit",
+ "qp-wormhole-verifier",
+ "qp-zk-circuits-common",
  "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",
- "wormhole-circuit",
- "wormhole-verifier",
- "zk-circuits-common",
 ]
 
 [[package]]
@@ -7370,7 +7359,6 @@ source = "git+https://github.com/Quantus-Network/plonky2#9c06fe53083dd1672951b6d
 dependencies = [
  "ahash",
  "anyhow",
- "getrandom 0.2.16",
  "hashbrown 0.14.5",
  "itertools 0.11.0",
  "keccak-hash 0.8.0",
@@ -7380,11 +7368,9 @@ dependencies = [
  "plonky2_maybe_rayon 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
  "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
  "rand 0.8.5",
- "rand_chacha 0.3.1",
  "serde",
  "static_assertions",
  "unroll",
- "web-time",
 ]
 
 [[package]]
@@ -7396,7 +7382,6 @@ dependencies = [
  "itertools 0.11.0",
  "num",
  "plonky2_util 1.0.0 (git+https://github.com/Quantus-Network/plonky2)",
- "rand 0.8.5",
  "rustc_version",
  "serde",
  "static_assertions",
@@ -7408,14 +7393,14 @@ name = "plonky2_maybe_rayon"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1e554181dc95243b8d9948ae7bae5759c7fb2502fed28f671f95ef38079406"
+dependencies = [
+ "rayon",
+]
 
 [[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
 source = "git+https://github.com/Quantus-Network/plonky2#9c06fe53083dd1672951b6d5bc3aa03bde4d1a66"
-dependencies = [
- "rayon",
-]
 
 [[package]]
 name = "plonky2_util"
@@ -8286,6 +8271,7 @@ checksum = "0ec837c755446048b155bfc7d7d955697143795a3f56f76de5e54c38bf6a5110"
 dependencies = [
  "ahash",
  "anyhow",
+ "getrandom 0.2.16",
  "hashbrown 0.14.5",
  "itertools 0.11.0",
  "keccak-hash 0.8.0",
@@ -8295,9 +8281,11 @@ dependencies = [
  "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "qp-plonky2-field",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "serde",
  "static_assertions",
  "unroll",
+ "web-time",
 ]
 
 [[package]]
@@ -8382,6 +8370,53 @@ name = "qp-wormhole"
 version = "0.1.0"
 
 [[package]]
+name = "qp-wormhole-circuit"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea70a3a1bf545450cb6320782389cfbfe58fcf0ecf724aa666383807bf5548b"
+dependencies = [
+ "anyhow",
+ "hex",
+ "qp-plonky2",
+ "qp-zk-circuits-common",
+]
+
+[[package]]
+name = "qp-wormhole-circuit-builder"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d6486fbfd79005d520caff6a32a8fde4eab978110101c9612d140f3e0ebdfd0"
+dependencies = [
+ "anyhow",
+ "qp-plonky2",
+ "qp-wormhole-circuit",
+ "qp-zk-circuits-common",
+]
+
+[[package]]
+name = "qp-wormhole-verifier"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f83ee7ce0fdb40f34eed7a31a575e857d24135a383cdfd6f2429a7ce048b665"
+dependencies = [
+ "anyhow",
+ "qp-plonky2",
+ "qp-wormhole-circuit",
+ "qp-zk-circuits-common",
+]
+
+[[package]]
+name = "qp-zk-circuits-common"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a2a62915be0513d045f4d92829c0a26d6f3e8897353e8f8356a7eabef025329"
+dependencies = [
+ "anyhow",
+ "qp-plonky2",
+ "serde",
+]
+
+[[package]]
 name = "qpow-math"
 version = "0.1.0"
 dependencies = [
@@ -8413,7 +8448,6 @@ name = "quantus-node"
 version = "0.1.6"
 dependencies = [
  "async-trait",
- "circuit-builder",
  "clap",
  "dilithium-crypto",
  "frame-benchmarking-cli",
@@ -8430,6 +8464,8 @@ dependencies = [
  "prometheus",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
+ "qp-wormhole-circuit-builder",
+ "qp-wormhole-verifier",
  "qpow-math",
  "quantus-runtime",
  "rand 0.8.5",
@@ -8466,7 +8502,6 @@ dependencies = [
  "tempfile",
  "tokio-util",
  "uuid",
- "wormhole-verifier",
 ]
 
 [[package]]
@@ -8508,6 +8543,9 @@ dependencies = [
  "poseidon-resonance",
  "primitive-types 0.13.1",
  "qp-scheduler",
+ "qp-wormhole-circuit",
+ "qp-wormhole-verifier",
+ "qp-zk-circuits-common",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -8525,9 +8563,6 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
- "wormhole-circuit",
- "wormhole-verifier",
- "zk-circuits-common",
 ]
 
 [[package]]
@@ -8566,7 +8601,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "thiserror 2.0.16",
  "tokio 1.47.1",
  "tracing",
@@ -8603,7 +8638,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -9140,7 +9175,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9211,7 +9246,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -14419,28 +14454,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 
 [[package]]
-name = "wormhole-circuit"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
-dependencies = [
- "anyhow",
- "hex",
- "plonky2",
- "zk-circuits-common",
-]
-
-[[package]]
-name = "wormhole-verifier"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
-dependencies = [
- "anyhow",
- "plonky2",
- "wormhole-circuit",
- "zk-circuits-common",
-]
-
-[[package]]
 name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14696,16 +14709,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
-]
-
-[[package]]
-name = "zk-circuits-common"
-version = "0.1.0"
-source = "git+https://github.com/Quantus-Network/zk-circuits#a4a549389ba326e9aadc9bc6b9f8efa6129a5a54"
-dependencies = [
- "anyhow",
- "plonky2",
- "serde",
 ]
 
 [[package]]
