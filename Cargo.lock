@@ -2295,7 +2295,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.106",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -4232,7 +4232,7 @@ dependencies = [
  "hyper 1.7.0",
  "libc",
  "pin-project-lite 0.2.16",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tokio 1.47.1",
  "tower-service",
  "tracing",
@@ -4594,7 +4594,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5119,8 +5119,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.9"
-source = "git+https://github.com/Quantus-Network/libp2p-identity-pqc#d03c31c32f32db17fd3e4fb20877b4310e9e43a9"
+version = "0.2.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.10#c8cc9eb375e0701b2e1fad6a14b60f4b6ca645ba"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5205,8 +5205,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-noise"
-version = "0.45.0"
-source = "git+https://github.com/Quantus-Network/libp2p-noise-pqc#69e5edc8df4359bb6c13bd15e4d5da48ae86af24"
+version = "0.45.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-noise?tag=v0.45.10#901f09f30b32f910395270bba3a566191dc2f61f"
 dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.10.1",
@@ -8566,7 +8566,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "thiserror 2.0.16",
  "tokio 1.47.1",
  "tracing",
@@ -8603,7 +8603,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -9140,7 +9140,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9211,7 +9211,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
