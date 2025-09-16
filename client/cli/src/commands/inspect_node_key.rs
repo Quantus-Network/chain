@@ -69,8 +69,6 @@ impl InspectNodeKeyCmd {
 				.map_err(|_| "failed to decode secret as hex")?;
 		}
 
-		let keypair = Keypair::from_bytes(&file_data).map_err(|_| "Bad node key file")?;
-
 		Ok(())
 	}
 }

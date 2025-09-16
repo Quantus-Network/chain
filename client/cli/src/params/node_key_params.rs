@@ -19,12 +19,9 @@
 use crate::{arg_enums::NodeKeyType, error, Error};
 use clap::Args;
 use hex;
-use libp2p_identity::Keypair;
-use qp_rusty_crystals_dilithium::ml_dsa_87;
 use sc_network::config::NodeKeyConfig;
 use sc_service::Role;
-use sp_core::H256;
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 /// The file name of the node's dilithium secret key inside the chain-specific
 /// network config directory, if neither `--node-key` nor `--node-key-file`
@@ -148,9 +145,9 @@ fn parse_dilithium_secret(byte_string: &str) -> error::Result<sc_network::config
 mod tests {
 	use super::*;
 	use clap::ValueEnum;
+	use core::str::FromStr;
 	use libp2p_identity::Keypair;
 	use std::fs::{self, File};
-	use std::io::Read;
 	use tempfile::TempDir;
 
 	#[test]

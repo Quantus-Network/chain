@@ -18,14 +18,12 @@
 
 //! Implementation of the `insert` subcommand
 
-use crate::{
-	utils, with_crypto_scheme, CryptoScheme, Error, KeystoreParams, SharedParams, SubstrateCli,
-};
+use crate::{CryptoScheme, Error, KeystoreParams, SharedParams, SubstrateCli};
 use clap::Parser;
-use sc_keystore::LocalKeystore;
-use sc_service::config::{BasePath, KeystoreConfig};
-use sp_core::crypto::{KeyTypeId, SecretString};
-use sp_keystore::KeystorePtr;
+// use sc_keystore::LocalKeystore;
+// use sc_service::config::{BasePath, KeystoreConfig};
+// use sp_core::crypto::{KeyTypeId, SecretString};
+// use sp_keystore::KeystorePtr;
 
 /// The `insert` command
 #[derive(Debug, Clone, Parser)]
@@ -56,101 +54,102 @@ pub struct InsertKeyCmd {
 
 impl InsertKeyCmd {
 	/// Run the command
-	pub fn run<C: SubstrateCli>(&self, cli: &C) -> Result<(), Error> {
-		unimplemented!("This command is unimplemented because pubkey is too large to be a file name");
-		let suri = utils::read_uri(self.suri.as_ref())?;
-		let base_path = self
-			.shared_params
-			.base_path()?
-			.unwrap_or_else(|| BasePath::from_project("", "", &C::executable_name()));
-		let chain_id = self.shared_params.chain_id(self.shared_params.is_dev());
-		let chain_spec = cli.load_spec(&chain_id)?;
-		let config_dir = base_path.config_dir(chain_spec.id());
+	pub fn run<C: SubstrateCli>(&self, _cli: &C) -> Result<(), Error> {
+		unimplemented!(
+			"This command is unimplemented because pubkey is too large to be a file name; and we likely won't need it too"
+		);
+		// let suri = utils::read_uri(self.suri.as_ref())?;
+		// let base_path = self
+		// 	.shared_params
+		// 	.base_path()?
+		// 	.unwrap_or_else(|| BasePath::from_project("", "", &C::executable_name()));
+		// let chain_id = self.shared_params.chain_id(self.shared_params.is_dev());
+		// let chain_spec = cli.load_spec(&chain_id)?;
+		// let config_dir = base_path.config_dir(chain_spec.id());
 
-		let (keystore, public) = match self.keystore_params.keystore_config(&config_dir)? {
-			KeystoreConfig::Path { path, password } => {
-				let public = with_crypto_scheme!(self.scheme, to_vec(&suri, password.clone()))?;
-				let keystore: KeystorePtr = LocalKeystore::open(path, password)?.into();
-				(keystore, public)
-			},
-			_ => unreachable!("keystore_config always returns path and password; qed"),
-		};
+		// let (keystore, public) = match self.keystore_params.keystore_config(&config_dir)? {
+		// 	KeystoreConfig::Path { path, password } => {
+		// 		let public = with_crypto_scheme!(self.scheme, to_vec(&suri, password.clone()))?;
+		// 		let keystore: KeystorePtr = LocalKeystore::open(path, password)?.into();
+		// 		(keystore, public)
+		// 	},
+		// 	_ => unreachable!("keystore_config always returns path and password; qed"),
+		// };
 
-		let key_type =
-			KeyTypeId::try_from(self.key_type.as_str()).map_err(|_| Error::KeyTypeInvalid)?;
+		// let key_type =
+		// 	KeyTypeId::try_from(self.key_type.as_str()).map_err(|_| Error::KeyTypeInvalid)?;
 
-		keystore
-			.insert(key_type, &suri, &public[..])
-			.map_err(|_| Error::KeystoreOperation)?;
+		// keystore
+		// 	.insert(key_type, &suri, &public[..])
+		// 	.map_err(|_| Error::KeystoreOperation)?;
 
-		Ok(())
+		// Ok(())
 	}
 }
 
-fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec<u8>, Error> {
-	let p = utils::pair_from_suri::<P>(uri, pass)?;
-	Ok(p.public().as_ref().to_vec())
-}
+// fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec<u8>, Error> {
+// 	let p = utils::pair_from_suri::<P>(uri, pass)?;
+// 	Ok(p.public().as_ref().to_vec())
+// }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
-	// use sp_core::{ByteArray, Pair as _, Pair};
+	// use super::*;
+	// use dilithium_crypto::DilithiumPair;
+	// use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
+	// use sp_core::{ByteArray, Pair};
 	// use sp_keystore::Keystore;
 	// use tempfile::TempDir;
-	// use dilithium_crypto::DilithiumPair;
-	// use dilithium_crypto::DilithiumSigner::Dilithium;
 
-	struct Cli;
+	// struct Cli;
 
-	impl SubstrateCli for Cli {
-		fn impl_name() -> String {
-			"test".into()
-		}
+	// impl SubstrateCli for Cli {
+	// 	fn impl_name() -> String {
+	// 		"test".into()
+	// 	}
 
-		fn impl_version() -> String {
-			"2.0".into()
-		}
+	// 	fn impl_version() -> String {
+	// 		"2.0".into()
+	// 	}
 
-		fn description() -> String {
-			"test".into()
-		}
+	// 	fn description() -> String {
+	// 		"test".into()
+	// 	}
 
-		fn support_url() -> String {
-			"test.test".into()
-		}
+	// 	fn support_url() -> String {
+	// 		"test.test".into()
+	// 	}
 
-		fn copyright_start_year() -> i32 {
-			2021
-		}
+	// 	fn copyright_start_year() -> i32 {
+	// 		2021
+	// 	}
 
-		fn author() -> String {
-			"test".into()
-		}
+	// 	fn author() -> String {
+	// 		"test".into()
+	// 	}
 
-		fn load_spec(&self, _: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
-			let builder =
-				GenericChainSpec::<NoExtension, ()>::builder(Default::default(), NoExtension::None);
-			Ok(Box::new(
-				builder
-					.with_name("test")
-					.with_id("test_id")
-					.with_chain_type(ChainType::Development)
-					.with_genesis_config_patch(Default::default())
-					.build(),
-			))
-		}
-	}
+	// 	fn load_spec(&self, _: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
+	// 		let builder =
+	// 			GenericChainSpec::<NoExtension, ()>::builder(Default::default(), NoExtension::None);
+	// 		Ok(Box::new(
+	// 			builder
+	// 				.with_name("test")
+	// 				.with_id("test_id")
+	// 				.with_chain_type(ChainType::Development)
+	// 				.with_genesis_config_patch(Default::default())
+	// 				.build(),
+	// 		))
+	// 	}
+	// }
 
-	// TODO: this test cannot be fixed without forking sc-keystore as it uses the public key in the
-	// filepath and dilithium pubkeys are too big
+	// // TODO: this test cannot be fixed without forking sc-keystore as it uses the public key in the
+	// // filepath and dilithium pubkeys are too big
 	// #[test]
 	// fn insert_with_custom_base_path() {
 	// 	let path = TempDir::new().unwrap();
 	// 	let path_str = format!("{}", path.path().display());
 	// 	let (key, uri, _) = DilithiumPair::generate_with_phrase(None);
-	//
+
 	// 	let inspect = InsertKeyCmd::parse_from(&[
 	// 		"insert-key",
 	// 		"-d",
@@ -162,7 +161,7 @@ mod tests {
 	// 		"--scheme=dilithium",
 	// 	]);
 	// 	assert!(inspect.run(&Cli).is_ok());
-	//
+
 	// 	let keystore =
 	// 		LocalKeystore::open(path.path().join("chains").join("test_id").join("keystore"), None)
 	// 			.unwrap();

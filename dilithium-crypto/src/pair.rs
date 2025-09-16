@@ -1,7 +1,7 @@
 use crate::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, DilithiumSigner};
 
 use super::types::{DilithiumPair, DilithiumPublic};
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::vec::Vec;
 use qp_rusty_crystals_dilithium::{
 	ml_dsa_87::{Keypair, PublicKey, SecretKey},
 	params::SEEDBYTES,
@@ -215,6 +215,12 @@ pub fn create_keypair(
 mod tests {
 	use super::*;
 	use alloc::vec::Vec;
+	use qp_poseidon::PoseidonHasher;
+	use sp_core::{
+		bytes::to_hex,
+		crypto::{Ss58AddressFormat, Ss58Codec},
+	};
+	use sp_runtime::traits::Hash;
 
 	fn setup() {
 		// Initialize the logger once per test run
@@ -232,9 +238,6 @@ mod tests {
 		let message: Vec<u8> = b"Hello, world!".to_vec();
 
 		let signature = pair.sign(&message);
-
-		println!("Signature: {:?}", &signature);
-
 		let public = pair.public();
 
 		let result = DilithiumPair::verify(&signature, message, &public);
@@ -295,5 +298,26 @@ mod tests {
 			pub2.as_ref(),
 			"Different seeds should produce different public keys"
 		);
+	}
+
+	#[test]
+	fn test_sign() {
+		let seed1 = vec![0u8; 32];
+
+		let pair = DilithiumPair::from_seed(&seed1).expect("msg");
+
+		println!("public key {:?}", pair.public());
+
+		let account_id = AccountId32::new(PoseidonHasher::hash(&pair.public().as_ref()).0);
+		println!(
+			"account id {:?}",
+			account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189))
+		);
+		println!("account id {}", to_hex(&PoseidonHasher::hash(&pair.public().as_ref()).0, true));
+
+		// sign some message and log signature
+		let message = b"test message";
+		let signature = pair.sign(message);
+		println!("signature {:?}", to_hex(signature.as_slice(), true));
 	}
 }

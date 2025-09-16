@@ -69,10 +69,7 @@ impl<const N: usize, SubTag> TryFrom<&[u8]> for WrappedPublicBytes<N, SubTag> {
 	fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
 		PublicBytes::from_slice(data)
 			.map(|bytes| WrappedPublicBytes(bytes))
-			.map_err(|e| {
-				log::info!("e{:?}", e);
-				()
-			})
+			.map_err(|_| ())
 	}
 }
 impl<const N: usize, SubTag> ByteArray for WrappedPublicBytes<N, SubTag> {
@@ -102,7 +99,9 @@ impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
 impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag> {
 	#[cfg(feature = "std")]
 	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+		use sp_core::bytes::to_hex;
+
+		write!(f, "{}", to_hex(&self.0.as_ref(), true))
 	}
 
 	#[cfg(not(feature = "std"))]

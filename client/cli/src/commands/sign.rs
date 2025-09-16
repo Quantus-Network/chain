@@ -23,7 +23,7 @@ use crate::{
 use array_bytes::bytes2hex;
 use clap::Parser;
 use sp_core::crypto::SecretString;
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, Write};
 
 /// The `sign` command
 #[derive(Debug, Clone, Parser)]
@@ -84,9 +84,14 @@ fn sign<P: sp_core::Pair>(
 
 #[cfg(test)]
 mod test {
+	use sp_core::bytes::to_hex;
+
 	use super::*;
 
-	const SEED: &str = "0x4c0fe0fcc09760f75deb33f2d33017ed3f06a342b7fa7080c517d38a541040a8";
+	const SEED: &str = "tide power better crop pencil arrange trouble luxury pistol coach daughter senior scatter portion power harsh addict journey carry gloom fox voice volume marble";
+
+	/// Test message to sign
+	const TEST_MESSAGE: &[u8; 5] = b"hello";
 
 	#[test]
 	fn sign_arg() {
@@ -95,7 +100,7 @@ mod test {
 			"--suri",
 			&SEED,
 			"--message",
-			&SEED,
+			&to_hex(TEST_MESSAGE, true),
 			"--password",
 			"12345",
 			"--hex",
