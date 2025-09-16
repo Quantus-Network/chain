@@ -1020,15 +1020,14 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 					KademliaEvent::OutboundQueryProgressed {
 						result: QueryResult::Bootstrap(res),
 						..
-					} => {
-						match res {
-							Ok(ok) => debug!(
-								target: "sub-libp2p",
-								"Libp2p => Bootstrap completed with peer {} and {} remaining",
-								ok.peer, ok.num_remaining
-							),
-							Err(e) => warn!(target: "sub-libp2p", "Libp2p => Bootstrap failed: {:?}", e),
-						}
+					} => match res {
+						Ok(ok) => debug!(
+							target: "sub-libp2p",
+							"Libp2p => Bootstrap completed with peer {} and {} remaining",
+							ok.peer, ok.num_remaining
+						),
+						Err(e) =>
+							warn!(target: "sub-libp2p", "Libp2p => Bootstrap failed: {:?}", e),
 					},
 					// We never start any other type of query.
 					KademliaEvent::OutboundQueryProgressed { result: e, .. } => {
