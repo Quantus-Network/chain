@@ -50,8 +50,6 @@ impl Pair for DilithiumPair {
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
-		#[cfg(feature = "std")]
-		println!("What's here");
 		DilithiumPair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
 	}
 
@@ -94,8 +92,6 @@ impl Pair for DilithiumPair {
 	// "mnemonic///password///account" This was supported in standard substrate, if there is
 	// demand, we can support it in the future
 	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
-		#[cfg(feature = "std")]
-		println!("What's here");
 		let res = Self::from_phrase(s, password_override)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
 		Ok(res.0)

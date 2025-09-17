@@ -247,14 +247,14 @@ where
 pub fn pair_from_suri<P: Pair>(suri: &str, password: Option<SecretString>) -> Result<P, Error> {
 	let result = if let Some(pass) = password {
 		let mut pass_str = pass.expose_secret().clone();
-		let pair = P::from_string_with_seed(suri, Some(&pass_str));
+		let pair = P::from_string(suri, Some(&pass_str));
 		pass_str.zeroize();
 		pair
 	} else {
-		P::from_string_with_seed(suri, None)
+		P::from_string(suri, None)
 	};
 
-	Ok(result.map(|res| res.0).map_err(|err| format!("Invalid phrase {:?}", err))?)
+	Ok(result.map_err(|err| format!("Invalid phrase {:?}", err))?)
 }
 
 /// formats seed as hex
