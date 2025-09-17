@@ -8392,7 +8392,7 @@ dependencies = [
  "reqwest",
  "resonance-miner-api",
  "sc-basic-authorship",
- "sc-cli 0.53.0",
+ "sc-cli 0.53.1",
  "sc-client-api",
  "sc-consensus",
  "sc-consensus-qpow",

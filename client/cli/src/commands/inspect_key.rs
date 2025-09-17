@@ -151,7 +151,7 @@ fn expect_public_from_phrase<Pair: sp_core::Pair>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use dilithium_crypto::DilithiumPair;
+	use qp_dilithium_crypto::DilithiumPair;
 	use sp_core::crypto::{ByteArray, Pair, Ss58AddressFormat};
 	use sp_runtime::traits::IdentifyAccount;
 

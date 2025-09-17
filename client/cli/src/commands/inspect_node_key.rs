@@ -68,6 +68,8 @@ impl InspectNodeKeyCmd {
 				.map_err(|_| "failed to decode secret as hex")?;
 		}
 
+		let _ = file_data;
+
 		Ok(())
 	}
 }

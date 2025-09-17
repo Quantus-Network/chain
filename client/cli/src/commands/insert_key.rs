@@ -95,7 +95,7 @@ impl InsertKeyCmd {
 #[cfg(test)]
 mod tests {
 	// use super::*;
-	// use dilithium_crypto::DilithiumPair;
+	// use qp_dilithium_crypto::DilithiumPair;
 	// use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
 	// use sp_core::{ByteArray, Pair};
 	// use sp_keystore::Keystore;
