@@ -50,6 +50,8 @@ impl Pair for DilithiumPair {
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
+		#[cfg(feature = "std")]
+		println!("What's here");
 		DilithiumPair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
 	}
 
@@ -91,6 +93,8 @@ impl Pair for DilithiumPair {
 	// NOTE: This method does not parse all secret uris correctly, like "mnemonic///password///account"
 	// This was supported in standard substrate, if there is demand, we can support it in the future
 	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
+		#[cfg(feature = "std")]
+		println!("What's here");
 		let res = Self::from_phrase(s, password_override)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
 		Ok(res.0)
@@ -214,13 +218,6 @@ pub fn create_keypair(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use alloc::vec::Vec;
-	use qp_poseidon::PoseidonHasher;
-	use sp_core::{
-		bytes::to_hex,
-		crypto::{Ss58AddressFormat, Ss58Codec},
-	};
-	use sp_runtime::traits::Hash;
 
 	fn setup() {
 		// Initialize the logger once per test run
@@ -235,9 +232,9 @@ mod tests {
 		let seed = vec![0u8; 32];
 
 		let pair = DilithiumPair::from_seed_slice(&seed).expect("Failed to create pair");
-		let message: Vec<u8> = b"Hello, world!".to_vec();
+		let message = b"Something";
+		let signature = pair.sign(message);
 
-		let signature = pair.sign(&message);
 		let public = pair.public();
 
 		let result = DilithiumPair::verify(&signature, message, &public);
@@ -298,26 +295,5 @@ mod tests {
 			pub2.as_ref(),
 			"Different seeds should produce different public keys"
 		);
-	}
-
-	#[test]
-	fn test_sign() {
-		let seed1 = vec![0u8; 32];
-
-		let pair = DilithiumPair::from_seed(&seed1).expect("msg");
-
-		println!("public key {:?}", pair.public());
-
-		let account_id = AccountId32::new(PoseidonHasher::hash(&pair.public().as_ref()).0);
-		println!(
-			"account id {:?}",
-			account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189))
-		);
-		println!("account id {}", to_hex(&PoseidonHasher::hash(&pair.public().as_ref()).0, true));
-
-		// sign some message and log signature
-		let message = b"test message";
-		let signature = pair.sign(message);
-		println!("signature {:?}", to_hex(signature.as_slice(), true));
 	}
 }

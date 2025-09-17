@@ -20,9 +20,8 @@
 use crate::{
 	error, params::MessageParams, utils, with_crypto_scheme, CryptoSchemeFlag, KeystoreParams,
 };
-use array_bytes::bytes2hex;
 use clap::Parser;
-use sp_core::crypto::SecretString;
+use sp_core::{bytes::to_hex, crypto::SecretString};
 use std::io::{BufRead, Write};
 
 /// The `sign` command
@@ -79,7 +78,8 @@ fn sign<P: sp_core::Pair>(
 	message: Vec<u8>,
 ) -> error::Result<String> {
 	let pair = utils::pair_from_suri::<P>(suri, password)?;
-	Ok(bytes2hex("0x", pair.sign(&message).as_ref()))
+	let signature = pair.sign(&message);
+	Ok(to_hex(signature.as_ref(), false))
 }
 
 #[cfg(test)]
@@ -91,7 +91,7 @@ mod test {
 	const SEED: &str = "tide power better crop pencil arrange trouble luxury pistol coach daughter senior scatter portion power harsh addict journey carry gloom fox voice volume marble";
 
 	/// Test message to sign
-	const TEST_MESSAGE: &[u8; 5] = b"hello";
+	const TEST_MESSAGE: &[u8; 9] = b"Something";
 
 	#[test]
 	fn sign_arg() {

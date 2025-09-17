@@ -201,6 +201,7 @@ sp-session = { version = "39.0.0", default-features = false }
 sp-std = { version = "14.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-timestamp = { version = "37.0.0", default-features = false }
+sp-tracing = { version = "17.1.0", default-features = false }
 sp-transaction-pool = { version = "37.0.0", default-features = false }
 sp-trie = { version = "40.0.0", default-features = false }
 sp-version = { version = "40.0.0", default-features = false }

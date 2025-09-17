@@ -18,7 +18,7 @@ bip39 = { workspace = true, package = "parity-bip39" }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
 codec = { workspace = true, default-features = true, package = "parity-scale-codec" }
-dilithium-crypto = { workspace = true, features = ["serde"] }
+dilithium-crypto = { workspace = true, features = ["serde", "std", "full_crypto"] }
 fdlimit = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
@@ -55,7 +55,7 @@ tokio = { workspace = true, features = ["parking_lot", "rt-multi-thread", "signa
 
 [dev-dependencies]
 futures-timer = { workspace = true }
-sp-tracing = { version = "17.1.0", default-features = false }
+sp-tracing = { workspace = true, default-features = false }
 tempfile = { workspace = true }
 
 [features]
