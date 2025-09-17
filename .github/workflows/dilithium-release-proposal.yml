@@ -1,0 +1,211 @@
+name: Dilithium - Release Proposal
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch for the PR (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      version_type:
+        description: 'Type of version bump (major, minor, patch) or specify custom version'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: 'Custom version string (e.g., 0.1.1). Only used if version_type is "custom". Do NOT include "dilithium-v" prefix'
+        required: false
+      is_draft:
+        description: 'Is this a draft release?'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  calculate-next-dilithium-version:
+    name: 🧮 Calculate Next Dilithium Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.versioner.outputs.new_version }}
+      commit_sha_short: ${{ steps.vars.outputs.commit_sha_short }}
+      source_branch: ${{ steps.vars.outputs.source_branch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get current branch and commit SHA
+        id: vars
+        run: |
+          echo "commit_sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "source_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get latest dilithium tag
+        id: latest_tag
+        run: |
+          # Get all dilithium version tags and sort them by version
+          latest_dilithium_tag=$(git tag -l "dilithium-v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
+          
+          # If no tags found, use default
+          if [ -z "$latest_dilithium_tag" ]; then
+            latest_dilithium_tag="dilithium-v0.0.0"
+          fi
+          
+          echo "latest_tag_found=$latest_dilithium_tag" >> $GITHUB_OUTPUT
+          echo "Latest dilithium tag found: $latest_dilithium_tag"
+
+      - name: Calculate new dilithium version
+        id: versioner
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
+        run: |
+          # Remove 'dilithium-v' prefix for processing
+          current_version=${LATEST_TAG#dilithium-v}
+
+          if [[ "$VERSION_TYPE" == "custom" ]]; then
+            if [[ -z "$CUSTOM_VERSION" ]]; then
+              echo "Error: Custom version is selected but no custom_version string provided."
+              exit 1
+            fi
+            if [[ ! "$CUSTOM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: Custom version string must be in format X.Y.Z (e.g., 0.1.1)."
+              exit 1
+            fi
+            new_version="dilithium-v$CUSTOM_VERSION"
+          else
+            # Split version into components
+            IFS='.' read -r major minor patch <<< "$current_version"
+
+            # Increment based on type
+            if [[ "$VERSION_TYPE" == "major" ]]; then
+              if [[ "$major" == "0" ]]; then # Handle 0.x.y -> 0.(x+1).0
+                major=$major
+                minor=$((minor + 1))
+                patch=0
+              else
+                major=$((major + 1))
+                minor=0
+                patch=0
+              fi
+            elif [[ "$VERSION_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+            elif [[ "$VERSION_TYPE" == "patch" ]]; then
+              patch=$((patch + 1))
+            else
+              echo "Error: Invalid version_type: $VERSION_TYPE"
+              exit 1
+            fi
+            new_version="dilithium-v$major.$minor.$patch"
+          fi
+
+          echo "New dilithium version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+  update-dilithium-cargo-toml:
+    name: 📝 Update Dilithium Version Files
+    needs: calculate-next-dilithium-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create dilithium version bump branch and PR
+        env:
+          NEW_VERSION: ${{ needs.calculate-next-dilithium-version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          SOURCE_BRANCH: ${{ needs.calculate-next-dilithium-version.outputs.source_branch }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+        run: |
+          set -ex
+          # Remove 'dilithium-v' prefix for cargo version
+          new_cargo_version=${NEW_VERSION#dilithium-v}
+          branch_name="release/${NEW_VERSION}"
+
+          # Check if version already exists
+          if git tag -l | grep -q "^${NEW_VERSION}$"; then
+            echo "Error: Tag $NEW_VERSION already exists"
+            exit 1
+          fi
+
+          # Create new branch from source branch
+          git checkout "$SOURCE_BRANCH"
+          git checkout -b "$branch_name"
+          
+          # Update dilithium-crypto version in its own Cargo.toml
+          echo "Updating primitives/dilithium-crypto/Cargo.toml to version: $new_cargo_version"
+          sed -i -E "s/^version\s*=\s*\"[0-9a-zA-Z.-]+\"/version = \"$new_cargo_version\"/" primitives/dilithium-crypto/Cargo.toml
+          
+          # Verify the change in primitives/dilithium-crypto/Cargo.toml
+          if ! grep -q "version = \"$new_cargo_version\"" primitives/dilithium-crypto/Cargo.toml; then
+            echo "Error: Failed to update version in primitives/dilithium-crypto/Cargo.toml"
+            exit 1
+          fi
+          
+          # Update qp-dilithium-crypto version in workspace Cargo.toml
+          echo "Updating workspace Cargo.toml qp-dilithium-crypto dependency to version: $new_cargo_version"
+          sed -i -E "s/^qp-dilithium-crypto = \{ path = \"\.\/primitives\/dilithium-crypto\", version = \"[0-9a-zA-Z.-]+\"/qp-dilithium-crypto = { path = \"\.\/primitives\/dilithium-crypto\", version = \"$new_cargo_version\"/" Cargo.toml
+          
+          # Verify the change in workspace Cargo.toml
+          if ! grep -q "qp-dilithium-crypto = { path = \"./primitives/dilithium-crypto\", version = \"$new_cargo_version\"" Cargo.toml; then
+            echo "Error: Failed to update qp-dilithium-crypto version in workspace Cargo.toml"
+            exit 1
+          fi
+          
+          # Update Cargo.lock
+          cargo update --package qp-dilithium-crypto --precise "$new_cargo_version" || echo "cargo update tried, proceeding."
+
+          # Commit changes
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          
+          git add primitives/dilithium-crypto/Cargo.toml Cargo.toml Cargo.lock
+          git commit -m "ci: Dilithium version bump to $NEW_VERSION"
+          git push origin "$branch_name"
+
+          # Prepare PR title and labels
+          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+            PR_TITLE="ci: Dilithium version bump to $NEW_VERSION (DRAFT)"
+            PR_LABELS="automated,dilithium-release-proposal,draft-release"
+          else
+            PR_TITLE="ci: Dilithium version bump to $NEW_VERSION"
+            PR_LABELS="automated,dilithium-release-proposal"
+          fi
+          
+          # Create PR body
+          cat > pr_body.md << EOF
+          ## Dilithium Crypto Release Proposal
+          
+          This PR proposes releasing **qp-dilithium-crypto** version \`${new_cargo_version}\`.
+          
+          ### Changes
+          - Updated \`primitives/dilithium-crypto/Cargo.toml\` version to \`${new_cargo_version}\`
+          - Updated \`Cargo.toml\` workspace dependency version to \`${new_cargo_version}\`
+          - Updated \`Cargo.lock\`
+          EOF
+          
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body-file pr_body.md \
+            --base "$TARGET_BRANCH" \
+            --head "$branch_name" \
+            --label "$PR_LABELS"

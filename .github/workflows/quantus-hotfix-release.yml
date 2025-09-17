@@ -1,71 +1,64 @@
-name: Create Release Tag & Publish
+name: Quantus - Create Hotfix Release (Draft)
 
 on:
-  pull_request:
-    types: [closed]
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      hotfix_name:
+        description: 'Name of the hotfix (e.g., hotfix-1.0.0-security-fix)'
+        required: true
+        type: string
+      source_branch:
+        description: 'Branch to create hotfix from (defaults to current branch)'
+        required: false
+        default: ''
+        type: string
+      is_runtime_upgrade:
+        description: 'Is this a runtime upgrade?'
+        required: false
+        default: false
+        type: boolean
+      is_draft:
+        description: 'Create as draft release? (Hotfixes are always drafts by default)'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
-  create-tag:
-    name: Create Tag
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release-proposal')
+  create-hotfix-tag:
+    name: Create Hotfix Tag
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
-      version: ${{ steps.extract_version.outputs.version }}
-      is_draft: ${{ steps.extract_version.outputs.is_draft }}
-      is_runtime_upgrade: ${{ steps.detect_upgrade.outputs.is_runtime_upgrade }}
-      release_branch: ${{ steps.extract_version.outputs.release_branch }}
+      version: ${{ steps.create_version.outputs.version }}
+      is_draft: ${{ github.event.inputs.is_draft }}
+      is_runtime_upgrade: ${{ github.event.inputs.is_runtime_upgrade }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.source_branch || github.ref_name }}
 
-      - name: Extract version from PR title
-        id: extract_version
+      - name: Create version and branch info
+        id: create_version
         run: |
-          # Extract version from PR title (format: "ci: Automate version bump to vX.Y.Z")
-          VERSION=$(echo "${{ github.event.pull_request.title }}" | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+\(-[a-zA-Z0-9]\+\)*')
-          if [ -z "$VERSION" ]; then
-            echo "Error: Could not extract version from PR title: ${{ github.event.pull_request.title }}"
-            exit 1
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
+          # Clean up the hotfix name to ensure it's a valid version format
+          VERSION=$(echo "$HOTFIX_NAME" | sed 's/[^a-zA-Z0-9._-]//g' | sed 's/^/v/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Created hotfix version: $VERSION"
 
-
-          # Check if this is a draft release
-          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
-            echo "is_draft=true" >> $GITHUB_OUTPUT
-            echo "release_branch=main" >> $GITHUB_OUTPUT
-          else
-            echo "is_draft=false" >> $GITHUB_OUTPUT
-            echo "release_branch=release/$VERSION" >> $GITHUB_OUTPUT
-          fi
-          echo "Extracted version: $VERSION"
-
-      - name: Detect runtime upgrade
-        id: detect_upgrade
-        run: |
-          # If version contains a dash after the numbers, it's a runtime upgrade
-          if [[ "${{ steps.extract_version.outputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z0-9] ]]; then
-            echo "is_runtime_upgrade=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_runtime_upgrade=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create and push tag
+      - name: Create and push hotfix tag
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git tag -a "${{ steps.extract_version.outputs.version }}" -m "Automate release for ${{ steps.extract_version.outputs.version }}"
-          git push origin "${{ steps.extract_version.outputs.version }}"
+          git tag -a "${{ steps.create_version.outputs.version }}" -m "Hotfix release: ${{ github.event.inputs.hotfix_name }}"
+          git push origin "${{ steps.create_version.outputs.version }}"
 
   build-and-release:
-    name: Build & Release
-    needs: create-tag
+    name: Build & Release Hotfix
+    needs: create-hotfix-tag
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -80,7 +73,7 @@ jobs:
       - name: Checkout code at tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-tag.outputs.version }}
+          ref: ${{ needs.create-hotfix-tag.outputs.version }}
 
       - name: Setup Ubuntu
         if: runner.os == 'Linux'
@@ -103,7 +96,7 @@ jobs:
       - name: Prepare Release Assets
         id: prepare_assets
         env:
-          NEW_VERSION: ${{ needs.create-tag.outputs.version }}
+          NEW_VERSION: ${{ needs.create-hotfix-tag.outputs.version }}
           TARGET_ARCH: ${{ matrix.target }}
         shell: bash
         run: |
@@ -124,8 +117,8 @@ jobs:
             asset_name="${NODE_BINARY_NAME}-${NEW_VERSION}-${TARGET_ARCH}.tar.gz"
             checksum_file_name="sha256sums-${NEW_VERSION}-${TARGET_ARCH}.txt"
             mkdir staging
-            cp target/${TARGET_ARCH}/release/${NODE_BINARY_NAME} staging/
-            (cd staging && tar -czvf "../${asset_name}" ${NODE_BINARY_NAME})
+            cp "target/${TARGET_ARCH}/release/${NODE_BINARY_NAME}" staging/
+            (cd staging && tar -czvf "../${asset_name}" "${NODE_BINARY_NAME}")
             if [[ "${{ runner.os }}" == "macOS" ]]; then
               shasum -a 256 "${asset_name}" > "${checksum_file_name}"
             else
@@ -135,26 +128,26 @@ jobs:
           echo "Created asset: ${asset_name}"
           echo "Created checksum file: ${checksum_file_name}"
           asset_paths_json="[\"${asset_name}\", \"${checksum_file_name}\"]"
-          echo "release_assets_json=${asset_paths_json}" >> $GITHUB_OUTPUT
+          echo "release_assets_json=${asset_paths_json}" >> "$GITHUB_OUTPUT"
           ls -la
 
       - name: Upload Release Assets as Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-assets-${{ matrix.target }}
+          name: hotfix-release-assets-${{ matrix.target }}
           path: |
-            quantus-node-${{ needs.create-tag.outputs.version }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
-            sha256sums-${{ needs.create-tag.outputs.version }}-${{ matrix.target }}.txt
+            quantus-node-${{ needs.create-hotfix-tag.outputs.version }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
+            sha256sums-${{ needs.create-hotfix-tag.outputs.version }}-${{ matrix.target }}.txt
 
   build-runtime:
     name: Build Runtime (srtool)
-    if: needs.create-tag.outputs.is_runtime_upgrade == 'true'
-    needs: create-tag
+    if: github.event.inputs.is_runtime_upgrade == 'true'
+    needs: create-hotfix-tag
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-tag.outputs.version }}
+          ref: ${{ needs.create-hotfix-tag.outputs.version }}
           fetch-depth: 0
           fetch-tags: true
       - name: cache target dir
@@ -189,21 +182,21 @@ jobs:
           WASM_PATH=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compact.wasm')
           WASM_COMPRESSED_PATH=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compressed.wasm')
           runtime_ver=$(echo "$JSON_OUTPUT" | jq -r '.runtimes.compact.subwasm.core_version.specVersion')
-          cp "$WASM_PATH" quantus-runtime-v${runtime_ver}.compact.wasm
-          cp "$WASM_COMPRESSED_PATH" quantus-runtime-v${runtime_ver}.compact.compressed.wasm
-          cp srtool-output.json quantus-runtime-srtool-output-v${runtime_ver}.json
+          cp "$WASM_PATH" "quantus-runtime-v${runtime_ver}.compact.wasm"
+          cp "$WASM_COMPRESSED_PATH" "quantus-runtime-v${runtime_ver}.compact.compressed.wasm"
+          cp srtool-output.json "quantus-runtime-srtool-output-v${runtime_ver}.json"
 
       - name: Upload runtime artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: runtime
+          name: hotfix-runtime
           path: |
             quantus-runtime-v*.wasm
             quantus-runtime-srtool-output-v*.json
 
   create-github-release:
-    name: 🚀 Create GitHub Release
-    needs: [create-tag, build-and-release, build-runtime]
+    name: 🚀 Create GitHub Hotfix Release
+    needs: [create-hotfix-tag, build-and-release, build-runtime]
     if: always() && needs.build-and-release.result == 'success' && (needs.build-runtime.result == 'success' || needs.build-runtime.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
@@ -211,11 +204,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-tag.outputs.version }}
+          ref: ${{ needs.create-hotfix-tag.outputs.version }}
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Download all release assets
+      - name: Download all hotfix release assets
         uses: actions/download-artifact@v4
         with:
           path: downloaded-artifacts
@@ -231,9 +224,10 @@ jobs:
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_VERSION: ${{ needs.create-tag.outputs.version }}
+          NEW_VERSION: ${{ needs.create-hotfix-tag.outputs.version }}
         run: |
-          release_notes="Automated release for version $NEW_VERSION."
+          HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
+          release_notes="Hotfix release: $HOTFIX_NAME ($NEW_VERSION).\\n\\n**This is a draft release that will not be marked as the latest release automatically.**\\n\\nCreated from branch: ${{ github.event.inputs.source_branch || github.ref_name }}\\n\\nTo make this the latest release, manually publish the draft and mark it as latest in the GitHub releases page."
           printf "%s" "$release_notes" > release_notes.txt
 
           asset_args=()
@@ -242,7 +236,7 @@ jobs:
           done < asset_files.txt
 
           # Add runtime files if this is a runtime upgrade
-          if [[ "${{ needs.create-tag.outputs.is_runtime_upgrade }}" == "true" ]]; then
+          if [[ "${{ github.event.inputs.is_runtime_upgrade }}" == "true" ]]; then
             compact_wasm_path=$(find . -name "quantus-runtime-v*.compact.wasm" -type f)
             compressed_wasm_path=$(find . -name "quantus-runtime-v*.compact.compressed.wasm" -type f)
             srtool_json_path=$(find . -name "quantus-runtime-srtool-output-v*.json" -type f)
@@ -253,11 +247,8 @@ jobs:
             )
           fi
 
-          # Debug: Print is_draft value
-          echo "is_draft value: ${{ needs.create-tag.outputs.is_draft }}"
-
           # Add draft flag if this is a draft release
-          if [[ "${{ needs.create-tag.outputs.is_draft }}" == "true" ]]; then
+          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
             DRAFT_FLAG="--draft"
           else
             DRAFT_FLAG=""
@@ -267,16 +258,15 @@ jobs:
 
           gh release create "$NEW_VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Quantus $NEW_VERSION" \
+            --title "Hotfix: $HOTFIX_NAME ($NEW_VERSION)" \
             --notes-file release_notes.txt \
-            --target ${{ needs.create-tag.outputs.release_branch }} \
             $DRAFT_FLAG \
             "${asset_args[@]}"
 
-  create-runtime-issue:
-    name: 📝 Create Runtime Upgrade Issue
-    if: needs.create-tag.outputs.is_runtime_upgrade == 'true'
-    needs: [create-tag, create-github-release]
+  create-hotfix-issue:
+    name: 📝 Create Hotfix Issue
+    if: github.event.inputs.is_runtime_upgrade == 'true'
+    needs: [create-hotfix-tag, create-github-release]
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -286,24 +276,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create issue for runtime upgrade
+      - name: Create issue for hotfix runtime upgrade
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_VERSION: ${{ needs.create-tag.outputs.version }}
+          NEW_VERSION: ${{ needs.create-hotfix-tag.outputs.version }}
           ISSUE_BODY: |
-            A new runtime upgrade has been released: [${{ needs.create-tag.outputs.version }}](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-tag.outputs.version }})
+            A new hotfix runtime upgrade has been released: [${{ needs.create-hotfix-tag.outputs.version }}](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-hotfix-tag.outputs.version }})
 
             ## Details
-            - Release version: [`${{ needs.create-tag.outputs.version }}`](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-tag.outputs.version }})
-            - Branch: [`release/${{ needs.create-tag.outputs.version }}`](https://github.com/${{ github.repository }}/tree/release/${{ needs.create-tag.outputs.version }})
+            - Hotfix name: `${{ github.event.inputs.hotfix_name }}`
+            - Release version: [`${{ needs.create-hotfix-tag.outputs.version }}`](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-hotfix-tag.outputs.version }})
+            - Branch: [`hotfix/${{ github.event.inputs.hotfix_name }}`](https://github.com/${{ github.repository }}/tree/hotfix/${{ github.event.inputs.hotfix_name }})
+            - Source branch: `${{ github.event.inputs.source_branch || github.ref_name }}`
 
             ## Next Steps
-            Please review and coordinate the upgrade process.
+            Please review and coordinate the hotfix upgrade process.
         run: |
-          issue_title="Runtime upgrade released: $NEW_VERSION"
+          HOTFIX_NAME="${{ github.event.inputs.hotfix_name }}"
+          issue_title="Hotfix runtime upgrade released: $HOTFIX_NAME ($NEW_VERSION)"
           gh issue create \
             --title "$issue_title" \
             --body "$ISSUE_BODY" \
             --repo "$GITHUB_REPOSITORY" \
-            --label "runtime-upgrade,automated" \
+            --label "hotfix,runtime-upgrade,automated" \
             --assignee "${{ github.actor }}"

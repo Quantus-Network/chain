@@ -9,7 +9,7 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 
-pub use dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
+pub use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
 
 use alloc::vec::Vec;
 use sp_core::U512;

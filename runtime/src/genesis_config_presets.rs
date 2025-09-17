@@ -19,7 +19,7 @@ use crate::{
 	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
 };
 use alloc::{vec, vec::Vec};
-use dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
+use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};

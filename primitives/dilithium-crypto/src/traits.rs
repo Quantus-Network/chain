@@ -31,7 +31,7 @@ use sp_runtime::{
 ///
 /// # Examples
 /// ```ignore
-/// use dilithium_crypto::verify;
+/// use qp_dilithium_crypto::verify;
 ///
 /// let valid = verify(&public_key_bytes, &message, &signature_bytes);
 /// if valid {

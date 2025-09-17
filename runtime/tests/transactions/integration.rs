@@ -1,5 +1,5 @@
 use codec::{Decode, Encode};
-use dilithium_crypto::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, PUB_KEY_BYTES};
+use qp_dilithium_crypto::{DilithiumSignatureScheme, DilithiumSignatureWithPublic, PUB_KEY_BYTES};
 use sp_core::ByteArray;
 use sp_runtime::{
 	generic::{Preamble, UncheckedExtrinsic},
@@ -24,7 +24,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-	use dilithium_crypto::{DilithiumPublic, DilithiumSignature};
+	use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature};
 	use qp_poseidon::PoseidonHasher;
 
 	use sp_runtime::traits::Hash;
@@ -48,7 +48,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair =
-			dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
+			qp_dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
 		println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
@@ -152,7 +152,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair =
-			dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
+			qp_dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 		let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
 		let id = Address::Id(account_id);
@@ -165,7 +165,7 @@ mod tests {
 		// Sign payload with a different key
 		let entropy2 = [1u8; 32]; // Fixed entropy of all zeros
 		let keypair2 =
-			dilithium_crypto::generate(Some(&entropy2)).expect("Failed to generate keypair");
+			qp_dilithium_crypto::generate(Some(&entropy2)).expect("Failed to generate keypair");
 		let sig_bytes_wrong_key = keypair2.sign(&msg, None, false);
 		let signature_wrong_key = DilithiumSignature::try_from(&sig_bytes_wrong_key[..])
 			.expect("Signature length mismatch");
@@ -214,7 +214,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair =
-			dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
+			qp_dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
 		// Create and sign a payload
@@ -275,7 +275,7 @@ mod tests {
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair =
-			dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
+			qp_dilithium_crypto::generate(Some(&entropy)).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
 		// Create and sign a payload

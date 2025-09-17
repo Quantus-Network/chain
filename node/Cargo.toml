@@ -9,7 +9,7 @@ license = "Apache-2.0"
 name = "quantus-node"
 publish = false
 repository.workspace = true
-version = "0.1.6"
+version = "0.2.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -18,7 +18,6 @@ targets = ["x86_64-unknown-linux-gnu"]
 async-trait.workspace = true
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
-dilithium-crypto = { workspace = true }
 frame-benchmarking-cli.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-metadata-hash-extension.default-features = true
@@ -35,8 +34,10 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
+qp-dilithium-crypto = { workspace = true }
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
+qpow-math.workspace = true
 quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
@@ -52,7 +53,6 @@ sc-client-api.default-features = true
 sc-client-api.workspace = true
 sc-consensus.default-features = true
 sc-consensus.workspace = true
-sc-consensus-pow.workspace = true
 sc-consensus-qpow.workspace = true
 sc-executor.default-features = true
 sc-executor.workspace = true
@@ -98,10 +98,10 @@ tokio-util.workspace = true
 uuid.workspace = true
 
 [build-dependencies]
-circuit-builder.workspace = true
+qp-wormhole-circuit-builder.workspace = true
+qp-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
-wormhole-verifier.workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -110,16 +110,16 @@ tempfile = "3.0"
 default = ["std"]
 std = [
 	"codec/std",
-	"dilithium-crypto/std",
 	"hex/std",
 	"log/std",
 	"primitive-types/std",
+	"qp-dilithium-crypto/std",
+	"qp-wormhole-verifier/std",
 	"quantus-runtime/std",
 	"rand/std",
 	"sc-consensus-qpow/std",
 	"serde_json/std",
 	"sp-consensus-qpow/std",
-	"wormhole-verifier/std",
 ]
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [

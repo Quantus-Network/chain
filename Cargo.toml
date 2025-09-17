@@ -10,7 +10,6 @@ members = [
 	"client/cli",
 	"client/consensus/qpow",
 	"client/network",
-	"dilithium-crypto",
 	"node",
 	"pallets/balances",
 	"pallets/merkle-airdrop",
@@ -19,6 +18,7 @@ members = [
 	"pallets/reversible-transfers",
 	"pallets/wormhole",
 	"primitives/consensus/qpow",
+	"primitives/dilithium-crypto",
 	"primitives/state-machine",
 	"primitives/trie",
 	"resonance-miner-api",
@@ -113,7 +113,6 @@ wasm-timer = { version = "0.2.5" }
 zeroize = { version = "1.7.0", default-features = false }
 
 # Own dependencies
-dilithium-crypto = { path = "./dilithium-crypto", default-features = false }
 pallet-balances = { path = "./pallets/balances", default-features = false }
 pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
@@ -121,25 +120,25 @@ pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
+qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.1.1", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
 quantus-runtime = { path = "./runtime", default-features = false }
-sc-consensus-pow = { path = "./client/consensus/pow", default-features = false }
 sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", package = "circuit-builder", default-features = false }
 qp-poseidon = { version = "0.9.1", default-features = false }
 qp-rusty-crystals-dilithium = { version = "1.0.1", default-features = false, features = ["no_std"] }
 qp-rusty-crystals-hdwallet = { version = "0.1.2" }
-wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-circuit", default-features = false }
-wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", package = "wormhole-verifier", default-features = false, features = [
+qp-wormhole-circuit = { version = "0.1.2", default-features = false }
+qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
+qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
 	"no_random",
 ] }
-zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", package = "zk-circuits-common", default-features = false, features = [
+qp-zk-circuits-common = { version = "0.1.2", default-features = false, features = [
 	"no_random",
 ] }
 

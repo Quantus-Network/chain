@@ -1,7 +1,22 @@
 [package]
+authors = ["Quantus Network"]
+categories = ["cryptography", "no-std"]
+description = "Dilithium post-quantum cryptographic signatures implementation for Substrate"
+documentation = "https://docs.rs/qp-dilithium-crypto"
 edition = "2021"
-name = "dilithium-crypto"
-version = "0.1.0"
+homepage = "https://quantus.com"
+keywords = [
+	"cryptography",
+	"dilithium",
+	"post-quantum",
+	"quantus-network",
+	"substrate",
+]
+license = "MIT"
+name = "qp-dilithium-crypto"
+readme = "README.md"
+repository = "https://github.com/Quantus-Network/chain"
+version = "0.1.1"
 
 [dependencies]
 codec = { workspace = true, default-features = false }

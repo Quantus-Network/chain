@@ -12,7 +12,7 @@ use sp_core::{Encode, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
 use sp_runtime::{traits::IdentifyAccount, OpaqueExtrinsic, SaturatedConversion};
 
-use dilithium_crypto::{self, dilithium_bob};
+use qp_dilithium_crypto::{self, dilithium_bob};
 
 use std::{sync::Arc, time::Duration};
 
@@ -98,7 +98,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 /// Note: Should only be used for benchmarking.
 pub fn create_benchmark_extrinsic(
 	client: &FullClient,
-	sender: dilithium_crypto::DilithiumPair,
+	sender: qp_dilithium_crypto::DilithiumPair,
 	call: runtime::RuntimeCall,
 	nonce: u32,
 ) -> runtime::UncheckedExtrinsic {
