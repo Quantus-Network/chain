@@ -20,7 +20,6 @@
 use crate::{node_header::NodeKind, trie_constants};
 use alloc::vec::Vec;
 use hash_db::Hasher;
-use trie_root;
 
 const MAX_INLINE_THRESHOLD: usize = 31;
 

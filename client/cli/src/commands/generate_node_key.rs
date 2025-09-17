@@ -22,13 +22,13 @@ use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
 use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
 use sc_service::BasePath;
+use sp_core::blake2_256;
 use std::{
 	fs,
 	io::{self, Write},
 	path::PathBuf,
 	time::{SystemTime, UNIX_EPOCH},
 };
-use sp_core::blake2_256;
 
 /// Common arguments accross all generate key commands, subkey and node.
 #[derive(Debug, Args, Clone)]
@@ -115,7 +115,6 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-
 	let hashed_timestamp = hash_current_time_to_hex();
 	let keypair = Keypair::generate(Some(&hashed_timestamp));
 

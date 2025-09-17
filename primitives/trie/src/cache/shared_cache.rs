@@ -412,8 +412,8 @@ where
 	H: AsRef<[u8]>,
 {
 	fn eq(&self, rhs: &ValueCacheKey<H>) -> bool {
-		self.storage_root.as_ref() == rhs.storage_root.as_ref() &&
-			self.storage_key == &*rhs.storage_key
+		self.storage_root.as_ref() == rhs.storage_root.as_ref()
+			&& self.storage_key == &*rhs.storage_key
 	}
 }
 
@@ -627,7 +627,7 @@ impl<H: Hasher> SharedTrieCacheInner<H> {
 
 	/// Returns a mutable reference to the [`TrieHitStats`].
 	pub(super) fn stats_add_snapshot(&mut self, snapshot: &TrieHitStatsSnapshot) {
-		self.stats.add_snapshot(&snapshot);
+		self.stats.add_snapshot(snapshot);
 		// Print trie cache stats every 60 seconds.
 		if self.previous_stats_dump.elapsed() > Duration::from_secs(60) {
 			self.previous_stats_dump = Instant::now();
@@ -654,8 +654,8 @@ impl<H: Hasher> Clone for SharedTrieCache<H> {
 	fn clone(&self) -> Self {
 		Self {
 			inner: self.inner.clone(),
-			trusted_node_cache_config: self.trusted_node_cache_config.clone(),
-			trusted_value_cache_config: self.trusted_value_cache_config.clone(),
+			trusted_node_cache_config: self.trusted_node_cache_config,
+			trusted_value_cache_config: self.trusted_value_cache_config,
 		}
 	}
 }

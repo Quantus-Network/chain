@@ -142,8 +142,8 @@ mod tests {
 	// 	}
 	// }
 
-	// // TODO: this test cannot be fixed without forking sc-keystore as it uses the public key in the
-	// // filepath and dilithium pubkeys are too big
+	// // TODO: this test cannot be fixed without forking sc-keystore as it uses the public key in
+	// the // filepath and dilithium pubkeys are too big
 	// #[test]
 	// fn insert_with_custom_base_path() {
 	// 	let path = TempDir::new().unwrap();

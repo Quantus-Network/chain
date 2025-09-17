@@ -90,8 +90,9 @@ impl Pair for DilithiumPair {
 		self.secret.to_vec()
 	}
 
-	// NOTE: This method does not parse all secret uris correctly, like "mnemonic///password///account"
-	// This was supported in standard substrate, if there is demand, we can support it in the future
+	// NOTE: This method does not parse all secret uris correctly, like
+	// "mnemonic///password///account" This was supported in standard substrate, if there is
+	// demand, we can support it in the future
 	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
 		#[cfg(feature = "std")]
 		println!("What's here");
@@ -128,7 +129,8 @@ impl Pair for DilithiumPair {
 		let keypair = hd.generate_keys();
 		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
 
-		// Return the pair with no seed since Dilithium doesn't use traditional seed-based generation
+		// Return the pair with no seed since Dilithium doesn't use traditional seed-based
+		// generation
 		Ok((pair, None))
 	}
 }

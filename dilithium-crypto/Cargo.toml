@@ -30,10 +30,10 @@ serde = [
 std = [
 	"codec/std",
 	"qp-poseidon/std",
+	"qp-rusty-crystals-hdwallet",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",
 	"thiserror",
-	"qp-rusty-crystals-hdwallet",
 ]

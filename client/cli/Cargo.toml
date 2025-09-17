@@ -1,13 +1,13 @@
 [package]
-name = "sc-cli"
-version = "0.53.0"
 authors.workspace = true
 description = "Substrate CLI interface."
 edition.workspace = true
-license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 homepage.workspace = true
-repository.workspace = true
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-cli"
 readme = "README.md"
+repository.workspace = true
+version = "0.53.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -18,7 +18,7 @@ bip39 = { workspace = true, package = "parity-bip39" }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
 codec = { workspace = true, default-features = true, package = "parity-scale-codec" }
-dilithium-crypto = { workspace = true, features = ["serde", "std", "full_crypto"] }
+dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
 fdlimit = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }

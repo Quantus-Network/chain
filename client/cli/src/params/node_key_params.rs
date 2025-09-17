@@ -115,9 +115,9 @@ impl NodeKeyParams {
 						.node_key_file
 						.clone()
 						.unwrap_or_else(|| net_config_dir.join(NODE_KEY_DILITHIUM_FILE));
-					if !self.unsafe_force_node_key_generation
-						&& role.is_authority()
-						&& !is_dev && !key_path.exists()
+					if !self.unsafe_force_node_key_generation &&
+						role.is_authority() &&
+						!is_dev && !key_path.exists()
 					{
 						return Err(Error::NetworkKeyNotFound(key_path));
 					}
@@ -156,9 +156,8 @@ mod tests {
 			NodeKeyType::value_variants().iter().try_for_each(|t| {
 				let node_key_type = *t;
 				let sk = match node_key_type {
-					NodeKeyType::Dilithium => {
-						Keypair::generate_dilithium().secret().unwrap().to_vec()
-					},
+					NodeKeyType::Dilithium =>
+						Keypair::generate_dilithium().secret().unwrap().to_vec(),
 				};
 				let hex_sk = hex::encode(sk.clone());
 				let params = NodeKeyParams {
@@ -247,11 +246,9 @@ mod tests {
 					let typ = params.node_key_type;
 					params.node_key(net_config_dir, role, is_dev).and_then(move |c| match c {
 						NodeKeyConfig::Dilithium(sc_network::config::Secret::File(ref f))
-							if typ == NodeKeyType::Dilithium
-								&& f == &dir.join(NODE_KEY_DILITHIUM_FILE) =>
-						{
-							Ok(())
-						},
+							if typ == NodeKeyType::Dilithium &&
+								f == &dir.join(NODE_KEY_DILITHIUM_FILE) =>
+							Ok(()),
 						_ => Err(error::Error::Input("Unexpected node key config".into())),
 					})
 				},
