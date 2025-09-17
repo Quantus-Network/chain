@@ -479,7 +479,7 @@ pub mod pallet {
 			let per_block = if let Some(vesting_period) = airdrop_metadata.vesting_period {
 				amount
 					.checked_div(&T::BlockNumberToBalance::convert(vesting_period))
-					.ok_or_else(|| Error::<T>::InsufficientAirdropBalance)?
+					.ok_or(Error::<T>::InsufficientAirdropBalance)?
 			} else {
 				amount
 			};

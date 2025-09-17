@@ -240,7 +240,7 @@ impl NotificationService for NotificationHandle {
 				notification.len(),
 			);
 
-			let _ = info.sink.send_sync_notification(notification);
+			info.sink.send_sync_notification(notification);
 		}
 	}
 
@@ -254,7 +254,7 @@ impl NotificationService for NotificationHandle {
 		let sink = &self
 			.peers
 			.get(&peer.into())
-			.ok_or_else(|| error::Error::PeerDoesntExist((*peer).into()))?
+			.ok_or_else(|| error::Error::PeerDoesntExist(*peer))?
 			.sink;
 
 		sink.reserve_notification()
@@ -517,7 +517,7 @@ impl ProtocolHandle {
 				}
 			}
 
-			return tx.send(ValidationResult::Accept);
+			tx.send(ValidationResult::Accept)
 		});
 
 		Ok(ValidationCallResult::WaitForValidation(rx))

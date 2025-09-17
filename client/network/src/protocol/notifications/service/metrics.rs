@@ -21,14 +21,14 @@ use crate::{service::metrics::NotificationMetrics, types::ProtocolName};
 /// Register opened substream to Prometheus.
 pub fn register_substream_opened(metrics: &Option<NotificationMetrics>, protocol: &ProtocolName) {
 	if let Some(metrics) = metrics {
-		metrics.register_substream_opened(&protocol);
+		metrics.register_substream_opened(protocol);
 	}
 }
 
 /// Register closed substream to Prometheus.
 pub fn register_substream_closed(metrics: &Option<NotificationMetrics>, protocol: &ProtocolName) {
 	if let Some(metrics) = metrics {
-		metrics.register_substream_closed(&protocol);
+		metrics.register_substream_closed(protocol);
 	}
 }
 

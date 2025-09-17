@@ -97,7 +97,7 @@ pub fn generate_quantus_key(
 		QuantusAddressType::Wormhole => {
 			let wormhole_pair = WormholePair::generate_new().map_err(|e| {
 				eprintln!("Error generating WormholePair: {:?}", e);
-				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e).into())
+				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e))
 			})?;
 
 			// Convert wormhole address to account ID using WormholeAddress type

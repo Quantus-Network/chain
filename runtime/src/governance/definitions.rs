@@ -358,7 +358,7 @@ impl TechCollectiveTracksInfo {
 				max_deciding: 1,
 				decision_deposit: 1000 * UNIT,
 				prepare_period: 100,
-				decision_period: 1 * DAYS,
+				decision_period: DAYS,
 				confirm_period: 100,
 				min_enactment_period: 100,
 				min_approval: pallet_referenda::Curve::LinearDecreasing {

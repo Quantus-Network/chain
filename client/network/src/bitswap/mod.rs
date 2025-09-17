@@ -57,7 +57,7 @@ const MAX_REQUEST_QUEUE: usize = 20;
 const MAX_WANTED_BLOCKS: usize = 16;
 
 /// Bitswap protocol name
-const PROTOCOL_NAME: &'static str = "/ipfs/bitswap/1.2.0";
+const PROTOCOL_NAME: &str = "/ipfs/bitswap/1.2.0";
 
 /// Prefix represents all metadata of a CID, without the actual content.
 #[derive(PartialEq, Eq, Clone, Debug)]

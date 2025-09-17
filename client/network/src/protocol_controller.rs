@@ -246,11 +246,13 @@ enum Direction {
 
 /// Status of a connection with a peer.
 #[derive(Clone, Debug)]
+#[derive(Default)]
 enum PeerState {
 	/// We are connected to the peer.
 	Connected(Direction),
 	/// We are not connected.
-	NotConnected,
+	#[default]
+ NotConnected,
 }
 
 impl PeerState {
@@ -260,11 +262,6 @@ impl PeerState {
 	}
 }
 
-impl Default for PeerState {
-	fn default() -> PeerState {
-		PeerState::NotConnected
-	}
-}
 
 /// Worker side of [`ProtocolHandle`] responsible for all the logic.
 #[derive(Debug)]

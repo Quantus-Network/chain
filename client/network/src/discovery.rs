@@ -473,7 +473,7 @@ impl DiscoveryBehaviour {
 			if let Err(err) = k.store_mut().put(Record {
 				key: record_key,
 				value: record_value,
-				publisher: publisher.map(|publisher| publisher.into()),
+				publisher: publisher,
 				expires,
 			}) {
 				debug!(
@@ -647,7 +647,7 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 		let mut list: LinkedHashSet<_> = self
 			.permanent_addresses
 			.iter()
-			.filter_map(|(p, a)| (*p == peer_id).then(|| a.clone()))
+			.filter(|&(p, a)| (*p == peer_id)).map(|(p, a)| a.clone())
 			.collect();
 
 		if let Some(ephemeral_addresses) = self.ephemeral_addresses.get(&peer_id) {
@@ -852,18 +852,14 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 					KademliaEvent::PendingRoutablePeer { .. } => {
 						// We are not interested in this event at the moment.
 					},
-					KademliaEvent::InboundRequest { request } => match request {
-						libp2p::kad::InboundRequest::PutRecord { record: Some(record), .. } =>
-							return Poll::Ready(ToSwarm::GenerateEvent(
-								DiscoveryOut::PutRecordRequest(
-									record.key,
-									record.value,
-									record.publisher.map(Into::into),
-									record.expires,
-								),
-							)),
-						_ => {},
-					},
+					KademliaEvent::InboundRequest { request } => if let libp2p::kad::InboundRequest::PutRecord { record: Some(record), .. } = request { return Poll::Ready(ToSwarm::GenerateEvent(
+     								DiscoveryOut::PutRecordRequest(
+     									record.key,
+     									record.value,
+     									record.publisher.map(Into::into),
+     									record.expires,
+     								),
+     							)) },
 					KademliaEvent::OutboundQueryProgressed {
 						result: QueryResult::GetClosestPeers(res),
 						..

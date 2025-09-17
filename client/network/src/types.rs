@@ -61,7 +61,7 @@ impl Deref for ProtocolName {
 	fn deref(&self) -> &str {
 		match self {
 			Self::Static(name) => name,
-			Self::OnHeap(name) => &name,
+			Self::OnHeap(name) => name,
 		}
 	}
 }

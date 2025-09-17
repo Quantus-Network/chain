@@ -238,7 +238,7 @@ struct PeerStoreInner {
 
 impl PeerStoreInner {
 	fn is_banned(&self, peer_id: &PeerId) -> bool {
-		self.peers.get(peer_id).map_or(false, |info| info.is_banned())
+		self.peers.get(peer_id).is_some_and(|info| info.is_banned())
 	}
 
 	fn register_protocol(&mut self, protocol_handle: Arc<dyn ProtocolHandle>) {
@@ -334,7 +334,7 @@ impl PeerStoreInner {
 	}
 
 	fn peer_role(&self, peer_id: &PeerId) -> Option<ObservedRole> {
-		self.peers.get(peer_id).map_or(None, |info| info.role)
+		self.peers.get(peer_id).and_then(|info| info.role)
 	}
 
 	fn outgoing_candidates(&self, count: usize, ignored: HashSet<PeerId>) -> Vec<PeerId> {

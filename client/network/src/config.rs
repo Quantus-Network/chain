@@ -400,16 +400,16 @@ impl NodeKeyConfig {
 				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
 
 			Dilithium(Secret::File(f)) => {
-				let secret = get_secret(
+				
+				get_secret(
 					f,
 					|b| {
 						libp2p_identity::Keypair::from_protobuf_encoding(b)
 							.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 					},
-					|| libp2p_identity::Keypair::generate_dilithium(),
+					libp2p_identity::Keypair::generate_dilithium,
 					|kp| kp.to_protobuf_encoding().unwrap(),
-				);
-				secret
+				)
 			},
 		}
 	}
@@ -917,9 +917,9 @@ impl<B: BlockT + 'static, H: ExHashT, N: NetworkBackend<B, H>> FullNetworkConfig
 				.find(|o| o.peer_id != bootnode.peer_id)
 			{
 				Err(crate::error::Error::DuplicateBootnode {
-					address: bootnode.multiaddr.clone().into(),
-					first_id: bootnode.peer_id.into(),
-					second_id: other.peer_id.into(),
+					address: bootnode.multiaddr.clone(),
+					first_id: bootnode.peer_id,
+					second_id: other.peer_id,
 				})
 			} else {
 				Ok(())

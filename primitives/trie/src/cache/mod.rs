@@ -603,15 +603,14 @@ impl<H: Hasher> Drop for LocalTrieCache<H> {
 		let stats_snapshot = self.stats.snapshot();
 		shared_inner.stats_add_snapshot(&stats_snapshot);
 		let metrics = shared_inner.metrics().cloned();
-		metrics.as_ref().map(|metrics| metrics.observe_hits_stats(&stats_snapshot));
+		if let Some(metrics) = metrics.as_ref() { metrics.observe_hits_stats(&stats_snapshot) }
 		{
 			let _node_update_duration =
 				metrics.as_ref().map(|metrics| metrics.start_shared_node_update_timer());
 			let node_cache = self.node_cache.get_mut();
 
-			metrics
-				.as_ref()
-				.map(|metrics| metrics.observe_local_node_cache_length(node_cache.len()));
+			if let Some(metrics) = metrics
+				.as_ref() { metrics.observe_local_node_cache_length(node_cache.len()) }
 
 			shared_inner.node_cache_mut().update(
 				node_cache.drain(),
@@ -631,9 +630,8 @@ impl<H: Hasher> Drop for LocalTrieCache<H> {
 			let _node_update_duration =
 				metrics.as_ref().map(|metrics| metrics.start_shared_value_update_timer());
 			let value_cache = self.shared_value_cache_access.get_mut();
-			metrics
-				.as_ref()
-				.map(|metrics| metrics.observe_local_value_cache_length(value_cache.len()));
+			if let Some(metrics) = metrics
+				.as_ref() { metrics.observe_local_value_cache_length(value_cache.len()) }
 
 			shared_inner.value_cache_mut().update(
 				self.value_cache.get_mut().drain(),
@@ -823,7 +821,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 
 			// It was not in the local cache; try the shared cache.
 			self.stats.node_cache.shared_fetch_attempts.fetch_add(1, Ordering::Relaxed);
-			if let Some(node) = self.shared_cache.peek_node(&hash) {
+			if let Some(node) = self.shared_cache.peek_node(hash) {
 				self.stats.node_cache.shared_hits.fetch_add(1, Ordering::Relaxed);
 				tracing::trace!(target: LOG_TARGET, ?hash, "Serving node from shared cache");
 

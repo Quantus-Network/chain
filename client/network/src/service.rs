@@ -270,19 +270,11 @@ where
 		let local_peer_id = local_public.to_peer_id();
 
 		// Convert to libp2p types.
-		let local_public: PublicKey = local_public.into();
-		let local_peer_id: PeerId = local_peer_id.into();
+		let local_public: PublicKey = local_public;
+		let local_peer_id: PeerId = local_peer_id;
 
-		network_config.boot_nodes = network_config
-			.boot_nodes
-			.into_iter()
-			.filter(|boot_node| boot_node.peer_id != local_peer_id.into())
-			.collect();
-		network_config.default_peers_set.reserved_nodes = network_config
-			.default_peers_set
-			.reserved_nodes
-			.into_iter()
-			.filter(|reserved_node| {
+		network_config.boot_nodes.retain(|boot_node| boot_node.peer_id != local_peer_id.into());
+		network_config.default_peers_set.reserved_nodes.retain(|reserved_node| {
 				if reserved_node.peer_id == local_peer_id.into() {
 					warn!(
 						target: "sub-libp2p",
@@ -293,8 +285,7 @@ where
 				} else {
 					true
 				}
-			})
-			.collect();
+			});
 
 		// Ensure the listen addresses are consistent with the transport.
 		ensure_addresses_consistent_with_transport(
@@ -339,7 +330,7 @@ where
 				TransportConfig::Normal { .. } => false,
 			};
 
-			transport::build_transport(local_identity.clone().into(), config_mem)
+			transport::build_transport(local_identity.clone(), config_mem)
 		};
 
 		let (to_notifications, from_protocol_controllers) =
@@ -427,9 +418,9 @@ where
 				.find(|o| o.peer_id != bootnode.peer_id)
 			{
 				Err(Error::DuplicateBootnode {
-					address: bootnode.multiaddr.clone().into(),
-					first_id: bootnode.peer_id.into(),
-					second_id: other.peer_id.into(),
+					address: bootnode.multiaddr.clone(),
+					first_id: bootnode.peer_id,
+					second_id: other.peer_id,
 				})
 			} else {
 				Ok(())
@@ -509,7 +500,7 @@ where
 				let result = Behaviour::new(
 					protocol,
 					user_agent,
-					local_public.into(),
+					local_public,
 					discovery_config,
 					request_response_protocols,
 					Arc::clone(&peer_store_handle),
@@ -583,7 +574,7 @@ where
 			listen_addresses: listen_addresses_set.clone(),
 			num_connected: num_connected.clone(),
 			local_peer_id,
-			local_identity: local_identity.into(),
+			local_identity,
 			to_worker,
 			notification_protocol_ids,
 			protocol_handles,
@@ -673,7 +664,7 @@ where
 							swarm.behaviour_mut(),
 							ConnectionId::new_unchecked(0), // dummy value
 							Some(*peer_id),
-							&vec![],
+							&[],
 							Endpoint::Listener,
 						) {
 						addrs.into_iter().collect()
@@ -724,7 +715,7 @@ where
 							swarm.behaviour_mut(),
 							ConnectionId::new_unchecked(0), // dummy value
 							Some(peer_id),
-							&vec![],
+							&[],
 							Endpoint::Listener,
 						) {
 						addrs.into_iter().collect()
@@ -870,7 +861,7 @@ where
 		message: &Vec<u8>,
 	) -> Result<bool, String> {
 		let public_key =
-			PublicKey::try_decode_protobuf(&public_key).map_err(|error| error.to_string())?;
+			PublicKey::try_decode_protobuf(public_key).map_err(|error| error.to_string())?;
 		let peer_id: PeerId = peer_id.into();
 		let remote: libp2p::PeerId = public_key.to_peer_id();
 
@@ -1049,7 +1040,7 @@ where
 				return Err("Local peer ID cannot be added as a reserved peer.".to_string());
 			}
 
-			peers.insert(peer_id.into());
+			peers.insert(peer_id);
 
 			if !addr.is_empty() {
 				let _ = self
@@ -1128,7 +1119,7 @@ where
 			Ok(role) => Some(role.into()),
 			Err(_) => {
 				log::debug!(target: "sub-libp2p", "handshake doesn't contain peer role: {handshake:?}");
-				self.peer_store_handle.peer_role(&(peer_id.into()))
+				self.peer_store_handle.peer_role(&peer_id)
 			},
 		}
 	}
@@ -1176,7 +1167,7 @@ where
 	) -> Result<(Vec<u8>, ProtocolName), RequestFailure> {
 		let (tx, rx) = oneshot::channel();
 
-		self.start_request(target.into(), protocol, request, fallback_request, tx, connect);
+		self.start_request(target, protocol, request, fallback_request, tx, connect);
 
 		match rx.await {
 			Ok(v) => v,
@@ -1198,7 +1189,7 @@ where
 	) {
 		let _ = self.to_worker.unbounded_send(ServiceToWorkerMsg::Request {
 			target: target.into(),
-			protocol: protocol.into(),
+			protocol,
 			request,
 			fallback_request,
 			pending_response: tx,
@@ -1624,22 +1615,19 @@ where
 					.report_notification_received(remote, notification);
 			},
 			SwarmEvent::Behaviour(BehaviourOut::Dht(event, duration)) => {
-				match (self.metrics.as_ref(), duration) {
-					(Some(metrics), Some(duration)) => {
-						let query_type = match event {
-							DhtEvent::ValueFound(_) => "value-found",
-							DhtEvent::ValueNotFound(_) => "value-not-found",
-							DhtEvent::ValuePut(_) => "value-put",
-							DhtEvent::ValuePutFailed(_) => "value-put-failed",
-							DhtEvent::PutRecordRequest(_, _, _, _) => "put-record-request",
-						};
-						metrics
-							.kademlia_query_duration
-							.with_label_values(&[query_type])
-							.observe(duration.as_secs_f64());
-					},
-					_ => {},
-				}
+				if let (Some(metrics), Some(duration)) = (self.metrics.as_ref(), duration) {
+    						let query_type = match event {
+    							DhtEvent::ValueFound(_) => "value-found",
+    							DhtEvent::ValueNotFound(_) => "value-not-found",
+    							DhtEvent::ValuePut(_) => "value-put",
+    							DhtEvent::ValuePutFailed(_) => "value-put-failed",
+    							DhtEvent::PutRecordRequest(_, _, _, _) => "put-record-request",
+    						};
+    						metrics
+    							.kademlia_query_duration
+    							.with_label_values(&[query_type])
+    							.observe(duration.as_secs_f64());
+    					}
 
 				self.event_streams.send(Event::Dht(event));
 			},
@@ -1736,7 +1724,7 @@ where
 								// Only report for address of boot node that was added at startup of
 								// the node and not for any address that the node learned of the
 								// boot node.
-								if addresses.iter().any(|a| address_without_peer_id == *a) {
+								if addresses.contains(&address_without_peer_id) {
 									warn!(
 										"💔 The bootnode you want to connect to at `{address}` provided a \
 										 different peer ID `{obtained}` than the one you expect `{peer_id}`.",

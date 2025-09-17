@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-///! Provides the [`SharedNodeCache`], the [`SharedValueCache`] and the [`SharedTrieCache`]
-///! that combines both caches and is exported to the outside.
+//! Provides the [`SharedNodeCache`], the [`SharedValueCache`] and the [`SharedTrieCache`]
+//! that combines both caches and is exported to the outside.
 use super::{
 	metrics::{Metrics, TrieHitStatsSnapshot},
 	LocalNodeCacheConfig, LocalNodeCacheLimiter, LocalValueCacheConfig, LocalValueCacheLimiter,
@@ -288,17 +288,15 @@ impl<H: AsRef<[u8]> + Eq + std::hash::Hash> SharedNodeCache<H> {
 			self.lru.len() * 100 / config.shared_node_cache_max_replace_percent;
 
 		for (key, cached_node) in list {
-			if cached_node.is_from_shared_cache {
-				if self.lru.get(&key).is_some() {
-					access_count += 1;
+			if cached_node.is_from_shared_cache && self.lru.get(&key).is_some() {
+				access_count += 1;
 
-					if access_count >= config.shared_node_cache_max_promoted_keys {
-						// Stop when we've promoted a large enough number of items.
-						break;
-					}
-
-					continue;
+				if access_count >= config.shared_node_cache_max_promoted_keys {
+					// Stop when we've promoted a large enough number of items.
+					break;
 				}
+
+				continue;
 			}
 
 			self.lru.insert(key, cached_node.node);
@@ -310,10 +308,10 @@ impl<H: AsRef<[u8]> + Eq + std::hash::Hash> SharedNodeCache<H> {
 			}
 		}
 
-		metrics.as_ref().map(|m| {
+		if let Some(m) = metrics {
 			m.observe_node_cache_inline_size(self.lru.memory_usage());
 			m.observe_node_cache_heap_size(self.lru.limiter().heap_size);
-		});
+		}
 
 		tracing::debug!(
 			target: super::LOG_TARGET,
@@ -386,7 +384,7 @@ impl<'a, H> ValueCacheRef<'a, H> {
 	where
 		H: AsRef<[u8]>,
 	{
-		let hash = ValueCacheKey::<H>::hash_data(&storage_key, &storage_root);
+		let hash = ValueCacheKey::<H>::hash_data(storage_key, &storage_root);
 		Self { storage_root, storage_key, hash }
 	}
 }
@@ -412,8 +410,8 @@ where
 	H: AsRef<[u8]>,
 {
 	fn eq(&self, rhs: &ValueCacheKey<H>) -> bool {
-		self.storage_root.as_ref() == rhs.storage_root.as_ref() &&
-			self.storage_key == &*rhs.storage_key
+		self.storage_root.as_ref() == rhs.storage_root.as_ref()
+			&& self.storage_key == &*rhs.storage_key
 	}
 }
 
@@ -563,10 +561,10 @@ impl<H: Eq + std::hash::Hash + Clone + Copy + AsRef<[u8]>> SharedValueCache<H> {
 			}
 		}
 
-		metrics.as_ref().map(|m| {
-			m.observe_value_cache_inline_size(self.lru.memory_usage());
-			m.observe_value_cache_heap_size(self.lru.limiter().heap_size);
-		});
+		if let Some(metrics) = metrics {
+			metrics.observe_value_cache_inline_size(self.lru.memory_usage());
+			metrics.observe_value_cache_heap_size(self.lru.limiter().heap_size);
+		}
 
 		tracing::debug!(
 			target: super::LOG_TARGET,
@@ -627,7 +625,7 @@ impl<H: Hasher> SharedTrieCacheInner<H> {
 
 	/// Returns a mutable reference to the [`TrieHitStats`].
 	pub(super) fn stats_add_snapshot(&mut self, snapshot: &TrieHitStatsSnapshot) {
-		self.stats.add_snapshot(&snapshot);
+		self.stats.add_snapshot(snapshot);
 		// Print trie cache stats every 60 seconds.
 		if self.previous_stats_dump.elapsed() > Duration::from_secs(60) {
 			self.previous_stats_dump = Instant::now();
@@ -654,8 +652,8 @@ impl<H: Hasher> Clone for SharedTrieCache<H> {
 	fn clone(&self) -> Self {
 		Self {
 			inner: self.inner.clone(),
-			trusted_node_cache_config: self.trusted_node_cache_config.clone(),
-			trusted_value_cache_config: self.trusted_value_cache_config.clone(),
+			trusted_node_cache_config: self.trusted_node_cache_config,
+			trusted_value_cache_config: self.trusted_value_cache_config,
 		}
 	}
 }

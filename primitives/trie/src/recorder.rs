@@ -19,6 +19,7 @@
 //!
 //! Provides an implementation of the [`TrieRecorder`](trie_db::TrieRecorder) trait. It can be used
 //! to record storage accesses to the state to generate a [`StorageProof`].
+#![allow(clippy::result_unit_err)]
 
 use crate::{NodeCodec, StorageProof};
 use codec::Encode;
@@ -262,7 +263,7 @@ impl<H: Hasher> crate::TrieRecorderProvider<H> for Recorder<H> {
 	}
 
 	fn as_trie_recorder(&self, storage_root: H::Out) -> Self::Recorder<'_> {
-		Recorder::as_trie_recorder(&self, storage_root)
+		Recorder::as_trie_recorder(self, storage_root)
 	}
 }
 

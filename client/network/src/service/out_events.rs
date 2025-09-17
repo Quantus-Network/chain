@@ -81,8 +81,8 @@ enum SenderWarningState {
 /// Must be associated with an [`OutChannels`] before anything can be sent on it
 ///
 /// > **Note**: Contrary to regular channels, this `Sender` is purposefully designed to not
-/// implement the `Clone` trait e.g. in Order to not complicate the logic keeping the metrics in
-/// sync on drop. If someone adds a `#[derive(Clone)]` below, it is **wrong**.
+/// > implement the `Clone` trait e.g. in Order to not complicate the logic keeping the metrics in
+/// > sync on drop. If someone adds a `#[derive(Clone)]` below, it is **wrong**.
 pub struct Sender {
 	inner: async_channel::Sender<Event>,
 	/// Name to identify the channel (e.g., in Prometheus and logs).
@@ -244,7 +244,7 @@ struct Metrics {
 }
 
 thread_local! {
-	static LABEL_BUFFER: RefCell<String> = RefCell::new(String::new());
+	static LABEL_BUFFER: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 fn format_label(prefix: &str, protocol: &str, callback: impl FnOnce(&str)) {

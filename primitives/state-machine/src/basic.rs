@@ -124,13 +124,14 @@ impl PartialEq for BasicExternalities {
 		self.overlay
 			.changes()
 			.map(|(k, v)| (k, v.value_ref().materialize()))
-			.collect::<BTreeMap<_, _>>() ==
-			other
+			.collect::<BTreeMap<_, _>>()
+			== other
 				.overlay
 				.changes()
 				.map(|(k, v)| (k, v.value_ref().materialize()))
-				.collect::<BTreeMap<_, _>>() &&
-			self.overlay
+				.collect::<BTreeMap<_, _>>()
+			&& self
+				.overlay
 				.children()
 				.map(|(iter, i)| {
 					(
@@ -139,8 +140,8 @@ impl PartialEq for BasicExternalities {
 							.collect::<BTreeMap<_, _>>(),
 					)
 				})
-				.collect::<BTreeMap<_, _>>() ==
-				other
+				.collect::<BTreeMap<_, _>>()
+				== other
 					.overlay
 					.children()
 					.map(|(iter, i)| {
@@ -170,7 +171,7 @@ impl Default for BasicExternalities {
 
 impl From<BTreeMap<StorageKey, StorageValue>> for BasicExternalities {
 	fn from(map: BTreeMap<StorageKey, StorageValue>) -> Self {
-		Self::from_iter(map.into_iter())
+		Self::from_iter(map)
 	}
 }
 
@@ -299,7 +300,7 @@ impl Externalities for BasicExternalities {
 			let delta =
 				data.into_iter().map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
 			crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
-				.child_storage_root(&child_info, delta, state_version)
+				.child_storage_root(child_info, delta, state_version)
 				.0
 		} else {
 			empty_child_trie_root::<LayoutV1<Blake2Hasher>>()

@@ -569,7 +569,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			let (when, agenda_index) = Lookup::<T>::get(&id).ok_or(Error::<T>::NotFound)?;
+			let (when, agenda_index) = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
 			let agenda = Agenda::<T>::get(when);
 			let scheduled = agenda
 				.get(agenda_index as usize)
@@ -606,7 +606,7 @@ pub mod pallet {
 		pub fn cancel_retry_named(origin: OriginFor<T>, id: TaskName) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			let task = Lookup::<T>::get(&id).ok_or(Error::<T>::NotFound)?;
+			let task = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
 			Self::do_cancel_retry(origin.caller(), task)?;
 			Self::deposit_event(Event::RetryCancelled { task, id: Some(id) });
 			Ok(())
@@ -627,14 +627,14 @@ impl<T: Config> Pallet<T> {
 			// Schedule the task at lest one block after this current block.
 			DispatchTime::After(x) => {
 				// get the median block time
-				let res = match x {
+				
+				match x {
 					BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
 						current_block.saturating_add(x).saturating_add(One::one()),
 					),
 					BlockNumberOrTimestamp::Timestamp(_) =>
 						x.normalize(T::TimestampBucketSize::get()),
-				};
-				res
+				}
 			},
 		};
 
@@ -675,14 +675,12 @@ impl<T: Config> Pallet<T> {
 			// will always succeed due to the above check.
 			let _ = agenda.try_push(Some(what));
 			agenda.len() as u32 - 1
-		} else {
-			if let Some(hole_index) = agenda.iter().position(|i| i.is_none()) {
-				agenda[hole_index] = Some(what);
-				hole_index as u32
-			} else {
-				return Err((DispatchError::Exhausted, what));
-			}
-		};
+		} else if let Some(hole_index) = agenda.iter().position(|i| i.is_none()) {
+  				agenda[hole_index] = Some(what);
+  				hole_index as u32
+  			} else {
+  				return Err((DispatchError::Exhausted, what));
+  			};
 		Agenda::<T>::insert(when, agenda);
 		Ok(index)
 	}
@@ -762,7 +760,7 @@ impl<T: Config> Pallet<T> {
 			Self::deposit_event(Event::Canceled { when, index });
 			Ok(())
 		} else {
-			return Err(Error::<T>::NotFound.into());
+			Err(Error::<T>::NotFound.into())
 		}
 	}
 
@@ -796,7 +794,7 @@ impl<T: Config> Pallet<T> {
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
 		// ensure id it is unique
-		if Lookup::<T>::contains_key(&id) {
+		if Lookup::<T>::contains_key(id) {
 			return Err(Error::<T>::FailedToSchedule.into());
 		}
 
@@ -847,7 +845,7 @@ impl<T: Config> Pallet<T> {
 				Self::deposit_event(Event::Canceled { when, index });
 				Ok(())
 			} else {
-				return Err(Error::<T>::NotFound.into());
+				Err(Error::<T>::NotFound.into())
 			}
 		})
 	}
@@ -1285,11 +1283,7 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		let periodic = if let Some(periodic) = maybe_periodic {
-			Some((BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1))
-		} else {
-			None
-		};
+		let periodic = maybe_periodic.map(|periodic| (BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1));
 
 		Self::do_schedule(when.into(), periodic, priority, origin, call)
 	}
@@ -1332,11 +1326,7 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		let periodic = if let Some(periodic) = maybe_periodic {
-			Some((BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1))
-		} else {
-			None
-		};
+		let periodic = maybe_periodic.map(|periodic| (BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1));
 		Self::do_schedule_named(id, when.into(), periodic, priority, origin, call)
 	}
 

@@ -165,7 +165,7 @@ impl InspectNodeKeyCmd {
 	/// runs the command
 	pub fn run(&self) -> Result<(), Error> {
 		let mut file_data = match &self.file {
-			Some(file) => fs::read(&file)?,
+			Some(file) => fs::read(file)?,
 			None => {
 				let mut buf = Vec::new();
 				io::stdin().lock().read_to_end(&mut buf)?;

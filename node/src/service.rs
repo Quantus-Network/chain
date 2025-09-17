@@ -64,8 +64,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 	type Error = I::Error;
 
 	async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
-		self.inner.check_block(block).await.map_err(Into::into)
-	}
+		self.inner.check_block(block).await}
 
 	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
 		log::info!(
@@ -75,8 +74,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 			block.header.extrinsics_root(),
 			block.header.state_root()
 		);
-		self.inner.import_block(block).await.map_err(Into::into)
-	}
+		self.inner.import_block(block).await}
 }
 
 pub type Service = sc_service::PartialComponents<

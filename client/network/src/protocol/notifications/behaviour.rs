@@ -446,7 +446,7 @@ impl Notifications {
 		Self {
 			notif_protocols,
 			protocol_handles,
-			command_streams: StreamMap::from_iter(command_streams.into_iter()),
+			command_streams: StreamMap::from_iter(command_streams),
 			protocol_controller_handles,
 			from_protocol_controllers,
 			peers: FnvHashMap::default(),
@@ -769,7 +769,7 @@ impl Notifications {
 					occ_entry.key().0, set_id);
 				*occ_entry.into_mut() = st;
 			},
-			st @ PeerState::Requested { .. } | st @ PeerState::PendingRequest { .. } => {
+			st @ PeerState::Requested | st @ PeerState::PendingRequest { .. } => {
 				debug!(target: "sub-libp2p",
 					"PSM => Connect({}, {:?}): Duplicate request.",
 					occ_entry.key().0, set_id);
@@ -2246,7 +2246,7 @@ impl NetworkBehaviour for Notifications {
 					self.peerset_report_preaccept(index);
 				},
 				Poll::Ready(Some(Message::Reject(index))) => {
-					let _ = self.peerset_report_reject(index);
+					self.peerset_report_reject(index);
 				},
 				Poll::Ready(Some(Message::Connect { peer_id, set_id, .. })) => {
 					self.peerset_report_connect(peer_id, set_id);

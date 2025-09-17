@@ -14,7 +14,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![allow(clippy::type_complexity)]
 
+use crate::{CompactProofError, MemoryDB};
 use alloc::{collections::btree_set::BTreeSet, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::iter::{DoubleEndedIterator, IntoIterator};
@@ -129,7 +131,7 @@ impl StorageProof {
 	pub fn into_compact_proof<H: Hasher>(
 		self,
 		_root: H::Out,
-	) -> Result<CompactProof, crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
+	) -> Result<CompactProof, CompactProofError<H::Out, crate::Error<H::Out>>> {
 		// Since CompactProof now wraps StorageProof, just create a CompactProof directly
 		Ok(CompactProof::from_storage_proof(self))
 	}
@@ -138,7 +140,7 @@ impl StorageProof {
 	pub fn to_compact_proof<H: Hasher>(
 		&self,
 		_root: H::Out,
-	) -> Result<CompactProof, crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
+	) -> Result<CompactProof, CompactProofError<H::Out, crate::Error<H::Out>>> {
 		// Since CompactProof now wraps StorageProof, just create a CompactProof directly
 		Ok(CompactProof::from_storage_proof(self.clone()))
 	}
@@ -155,17 +157,17 @@ impl StorageProof {
 	}
 }
 
-impl<H: Hasher> From<StorageProof> for crate::MemoryDB<H> {
+impl<H: Hasher> From<StorageProof> for MemoryDB<H> {
 	fn from(proof: StorageProof) -> Self {
 		From::from(&proof)
 	}
 }
 
-impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
+impl<H: Hasher> From<&StorageProof> for MemoryDB<H> {
 	fn from(proof: &StorageProof) -> Self {
-		let mut db = crate::MemoryDB::new(&0u64.to_le_bytes());
+		let mut db = MemoryDB::new(&0u64.to_le_bytes());
 		proof.iter_nodes().for_each(|n| {
-			db.insert(crate::EMPTY_PREFIX, &n);
+			db.insert(crate::EMPTY_PREFIX, n);
 		});
 		db
 	}
@@ -198,14 +200,14 @@ impl CompactProof {
 	pub fn to_storage_proof<H: Hasher>(
 		&self,
 		expected_root: Option<&H::Out>,
-	) -> Result<(StorageProof, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
+	) -> Result<(StorageProof, H::Out), CompactProofError<H::Out, crate::Error<H::Out>>> {
 		// Since CompactProof now just wraps StorageProof data, convert back to StorageProof
 		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
-		let result = match expected_root {
+
+		match expected_root {
 			Some(root) => Ok((storage_proof, *root)),
 			None => Ok((storage_proof, H::Out::default())),
-		};
-		result
+		}
 	}
 
 	/// Convert self into a [`MemoryDB`](crate::MemoryDB).
@@ -216,15 +218,14 @@ impl CompactProof {
 	pub fn to_memory_db<H: Hasher>(
 		&self,
 		expected_root: Option<&H::Out>,
-	) -> Result<(crate::MemoryDB<H>, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>>
-	{
+	) -> Result<(MemoryDB<H>, H::Out), CompactProofError<H::Out, crate::Error<H::Out>>> {
 		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
 		let db = storage_proof.to_memory_db::<H>();
-		let result = match expected_root {
+
+		match expected_root {
 			Some(root) => Ok((db, *root)),
 			None => Ok((db, H::Out::default())),
-		};
-		result
+		}
 	}
 }
 

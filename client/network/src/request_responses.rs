@@ -614,7 +614,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 	) {
 		let p_name = event.0;
 		if let Some(ProtocolDetails { behaviour, .. }) = self.protocols.get_mut(p_name.as_str()) {
-			return behaviour.on_connection_handler_event(peer_id, connection_id, event.1);
+			behaviour.on_connection_handler_event(peer_id, connection_id, event.1)
 		} else {
 			log::warn!(
 				target: "sub-libp2p",

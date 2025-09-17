@@ -153,7 +153,7 @@ impl NotifsHandler {
 			keep_alive: true,
 			keep_alive_timeout_future: Some(Box::pin(tokio::time::sleep(INITIAL_KEEPALIVE_TIME))),
 			events_queue: VecDeque::with_capacity(16),
-			metrics: metrics.map_or(None, |metrics| Some(Arc::new(metrics))),
+			metrics: metrics.map(Arc::new),
 		}
 	}
 }
@@ -528,7 +528,6 @@ impl ConnectionHandler for NotifsHandler {
 						// in mind that it is invalid for the remote to open multiple such
 						// substreams, and therefore sending a "RST" is the most correct thing
 						// to do.
-						return;
 					},
 					State::Opening { ref mut in_substream, .. } |
 					State::Open { ref mut in_substream, .. } => {

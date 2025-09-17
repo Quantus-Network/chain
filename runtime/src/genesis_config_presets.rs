@@ -68,7 +68,7 @@ pub fn development_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!(
 			"🍆 Endowed account: {:?}",
-			account.to_ss58check_with_version(ss58_version.clone())
+			account.to_ss58check_with_version(ss58_version)
 		);
 	}
 
@@ -96,7 +96,7 @@ pub fn heisenberg_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!(
 			"🍆 Endowed account: {:?}",
-			account.to_ss58check_with_version(ss58_version.clone())
+			account.to_ss58check_with_version(ss58_version)
 		);
 	}
 	genesis_template(endowed_accounts, test_root_account())

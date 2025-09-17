@@ -505,9 +505,7 @@ where
 {
 	client
 		.runtime_api()
-		.get_difficulty(parent)
-		.map(U512::from)
-		.map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
+		.get_difficulty(parent).map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
 }
 
 pub fn qpow_verify<B, C>(

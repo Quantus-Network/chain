@@ -382,7 +382,7 @@ impl NotificationMetrics {
 	/// Register opened substream to Prometheus.
 	pub fn register_substream_opened(&self, protocol: &ProtocolName) {
 		if let Some(metrics) = &self.metrics {
-			metrics.notifications_streams_opened_total.with_label_values(&[&protocol]).inc();
+			metrics.notifications_streams_opened_total.with_label_values(&[protocol]).inc();
 		}
 	}
 
