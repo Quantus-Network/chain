@@ -412,8 +412,8 @@ where
 	H: AsRef<[u8]>,
 {
 	fn eq(&self, rhs: &ValueCacheKey<H>) -> bool {
-		self.storage_root.as_ref() == rhs.storage_root.as_ref()
-			&& self.storage_key == &*rhs.storage_key
+		self.storage_root.as_ref() == rhs.storage_root.as_ref() &&
+			self.storage_key == &*rhs.storage_key
 	}
 }
 
