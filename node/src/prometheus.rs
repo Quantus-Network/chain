@@ -45,14 +45,8 @@ impl ResonanceBusinessMetrics {
 		C::Api: sp_consensus_qpow::QPoWApi<Block>,
 	{
 		// Get values via the runtime API - we'll handle potential errors gracefully
-		let block_time_sum =
-			client.runtime_api().get_block_time_sum(block_hash).unwrap_or_else(|e| {
-				log::warn!("Failed to get median_block_time: {:?}", e);
-				0
-			});
-
-		let median_block_time =
-			client.runtime_api().get_median_block_time(block_hash).unwrap_or_else(|e| {
+		let block_time_ema =
+			client.runtime_api().get_block_time_ema(block_hash).unwrap_or_else(|e| {
 				log::warn!("Failed to get median_block_time: {:?}", e);
 				0
 			});
@@ -87,8 +81,7 @@ impl ResonanceBusinessMetrics {
 
 		// Update the metrics with the values we retrieved
 		gauge.with_label_values(&["chain_height"]).set(chain_height as f64);
-		gauge.with_label_values(&["block_time_sum"]).set(block_time_sum as f64);
-		gauge.with_label_values(&["median_block_time"]).set(median_block_time as f64);
+		gauge.with_label_values(&["block_time_ema"]).set(block_time_ema as f64);
 		gauge
 			.with_label_values(&["distance_threshold"])
 			.set(Self::pack_u512_to_f64(distance_threshold));

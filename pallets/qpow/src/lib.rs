@@ -19,7 +19,6 @@ use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::vec::Vec;
 	use core::ops::{Shl, Shr};
 	use frame_support::{
 		pallet_prelude::*,
@@ -42,7 +41,6 @@ pub mod pallet {
 	pub type BlockDuration = u64;
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
-	pub type HistorySizeType = u32;
 	pub type PercentageClamp = u8;
 	pub type ThresholdExponent = u32;
 
@@ -76,10 +74,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistoryIndex<T: Config> = StorageValue<_, HistoryIndexType, ValueQuery>;
 
-	// Current history size
-	#[pallet::storage]
-	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
-
 	// Exponential Moving Average of block times (in milliseconds)
 	#[pallet::storage]
 	pub type BlockTimeEma<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
@@ -98,9 +92,6 @@ pub mod pallet {
 
 		#[pallet::constant]
 		type AdjustmentPeriod: Get<PeriodCount>;
-
-		#[pallet::constant]
-		type BlockTimeHistorySize: Get<HistorySizeType>;
 
 		/// EMA smoothing factor (0-1000, where 1000 = 1.0)
 		#[pallet::constant]
@@ -217,56 +208,6 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		// Block time recording for median calculation
-		fn record_block_time(block_time: u64) {
-			// History size limiter
-			let max_history = T::BlockTimeHistorySize::get();
-			let mut index = <HistoryIndex<T>>::get();
-			let size = <HistorySize<T>>::get();
-
-			// Save block time
-			<BlockTimeHistory<T>>::insert(index, block_time);
-
-			// Update index and time
-			index = (index.saturating_add(1)) % max_history;
-			let new_size = if size < max_history { size.saturating_add(1) } else { max_history };
-
-			<HistoryIndex<T>>::put(index);
-			<HistorySize<T>>::put(new_size);
-
-			// Update EMA
-			Self::update_block_time_ema(block_time);
-
-			log::debug!(target: "qpow",
-				"📊 Recorded block time: {}ms, history size: {}/{}",
-				block_time,
-				new_size,
-				max_history
-			);
-		}
-
-		// Sum of block times
-		pub fn get_block_time_sum() -> u64 {
-			let size = <HistorySize<T>>::get();
-
-			if size == 0 {
-				return T::TargetBlockTime::get();
-			}
-
-			// Take all data
-			let mut sum = 0;
-			for i in 0..size {
-				sum = sum.saturating_add(<BlockTimeHistory<T>>::get(i));
-			}
-
-			log::debug!(target: "qpow",
-				"📊 Calculated total adjustment period time: {}ms from {} samples",
-				sum,
-				size
-			);
-
-			sum
-		}
 
 		fn update_block_time_ema(block_time: u64) {
 			let current_ema = <BlockTimeEma<T>>::get();
@@ -313,39 +254,6 @@ pub mod pallet {
 			);
 
 			scaled_ema
-		}
-
-		pub fn get_median_block_time() -> u64 {
-			let size = <HistorySize<T>>::get();
-
-			if size == 0 {
-				return T::TargetBlockTime::get();
-			}
-
-			// Take all data
-			let mut times = Vec::with_capacity(size as usize);
-			for i in 0..size {
-				times.push(<BlockTimeHistory<T>>::get(i));
-			}
-
-			log::debug!(target: "qpow", "📊 Block times: {:?}", times);
-
-			// Sort it
-			times.sort();
-
-			let median_time = if times.len() % 2 == 0u32 as usize {
-				(times[times.len() / 2 - 1].saturating_add(times[times.len() / 2])) / 2
-			} else {
-				times[times.len() / 2]
-			};
-
-			log::debug!(target: "qpow",
-				"📊 Calculated median block time: {}ms from {} samples",
-				median_time,
-				times.len()
-			);
-
-			median_time
 		}
 
 		fn percentage_change(big_a: U512, big_b: U512) -> (U512, bool) {
@@ -398,8 +306,7 @@ pub mod pallet {
 				// Store the actual block duration
 				<LastBlockDuration<T>>::put(block_time);
 
-				// record new block time
-				Self::record_block_time(block_time);
+				Self::update_block_time_ema(block_time);
 			}
 
 			// Add last block time for the next calculations
@@ -407,41 +314,37 @@ pub mod pallet {
 
 			// Should we correct distance_threshold ?
 			if blocks >= T::AdjustmentPeriod::get() {
-				let history_size = <HistorySize<T>>::get();
-				if history_size > 0 {
-					let observed_block_time = Self::get_block_time_ema();
-					// let observed_block_time = Self::get_block_time_sum();
-					let target_time = T::TargetBlockTime::get().saturating_mul(history_size as u64);
+				let observed_block_time = Self::get_block_time_ema();
+				let target_time = T::TargetBlockTime::get();
 
-					let new_distance_threshold = Self::calculate_distance_threshold(
-						current_distance_threshold,
-						observed_block_time,
-						target_time,
-					);
+				let new_distance_threshold = Self::calculate_distance_threshold(
+					current_distance_threshold,
+					observed_block_time,
+					target_time,
+				);
 
-					// Save new distance_threshold
-					<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
+				// Save new distance_threshold
+				<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
 
-					// Propagate new Event
-					Self::deposit_event(Event::DistanceThresholdAdjusted {
-						old_distance_threshold: current_distance_threshold,
-						new_distance_threshold,
-						observed_block_time,
-					});
+				// Propagate new Event
+				Self::deposit_event(Event::DistanceThresholdAdjusted {
+					old_distance_threshold: current_distance_threshold,
+					new_distance_threshold,
+					observed_block_time,
+				});
 
-					let (pct_change, is_positive) =
-						Self::percentage_change(current_distance_threshold, new_distance_threshold);
+				let (pct_change, is_positive) =
+					Self::percentage_change(current_distance_threshold, new_distance_threshold);
 
-					log::debug!(target: "qpow",
-						"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
-						if is_positive {"+"} else {"-"},
-						pct_change,
-						current_distance_threshold.shr(300),
-						new_distance_threshold.shr(300),
-						observed_block_time,
-						target_time
-					);
-				}
+				log::debug!(target: "qpow",
+					"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
+					if is_positive {"+"} else {"-"},
+					pct_change,
+					current_distance_threshold.shr(300),
+					new_distance_threshold.shr(300),
+					observed_block_time,
+					target_time
+				);
 
 				// Reset counters before new iteration
 				<BlocksInPeriod<T>>::put(0);
