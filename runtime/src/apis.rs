@@ -160,7 +160,7 @@ impl_runtime_apis! {
 		}
 
 		fn get_total_work() -> U512 {
-			pallet_qpow::Pallet::<Self>::get_total_work()
+			pallet_qpow::Pallet::<Self>::total_work()
 		}
 
 		fn get_block_time_sum() -> u64 {

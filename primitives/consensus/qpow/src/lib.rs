@@ -72,3 +72,15 @@ pub enum Error {
 	/// Other error occurred
 	Other(Vec<u8>),
 }
+
+/// Block information trait.
+pub trait BlockInfo<BlockNumber, Timestamp> {
+	/// Returns average block time in milliseconds.
+	fn average_block_time() -> BlockNumber;
+
+	/// Latest block time recorded
+	fn last_block_time() -> Timestamp;
+
+	/// Return the block time for the block number.
+	fn block_time(block_number: BlockNumber) -> Timestamp;
+}

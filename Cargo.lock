@@ -6692,6 +6692,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-qpm"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances 40.0.1",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-consensus-qpow",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-qpow"
 version = "0.1.0"
 dependencies = [
@@ -8444,6 +8460,7 @@ dependencies = [
  "pallet-merkle-airdrop",
  "pallet-mining-rewards",
  "pallet-preimage",
+ "pallet-qpm",
  "pallet-qpow",
  "pallet-ranked-collective",
  "pallet-recovery",

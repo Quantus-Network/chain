@@ -4,15 +4,12 @@ extern crate alloc;
 
 pub use pallet::*;
 
-#[cfg(test)]
-mod mock;
-
-#[cfg(test)]
-mod tests;
-
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
-
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
 pub mod weights;
 use weights::*;
 
@@ -30,7 +27,7 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{get_nonce_distance, get_random_rsa, hash_to_group_bigint, is_valid_nonce};
+	use qpow_math::is_valid_nonce;
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
@@ -50,6 +47,7 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::storage]
+	#[pallet::getter(fn block_distance_thresholds)]
 	pub type BlockDistanceThresholds<T: Config> =
 		StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
 
@@ -63,6 +61,7 @@ pub mod pallet {
 	pub type CurrentDistanceThreshold<T: Config> = StorageValue<_, DistanceThreshold, ValueQuery>;
 
 	#[pallet::storage]
+	#[pallet::getter(fn total_work)]
 	pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
 
 	#[pallet::storage]
@@ -72,7 +71,7 @@ pub mod pallet {
 	pub type BlockTimeHistory<T: Config> =
 		StorageMap<_, Twox64Concat, HistoryIndexType, BlockDuration, ValueQuery>;
 
-	// Index for current position in ring buffer
+	/// Index for current position in ring buffer
 	#[pallet::storage]
 	pub type HistoryIndex<T: Config> = StorageValue<_, HistoryIndexType, ValueQuery>;
 
@@ -133,7 +132,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			let initial_distance_threshold = get_initial_distance_threshold::<T>();
+			let initial_distance_threshold = initial_distance_threshold::<T>();
 
 			// Set current distance_threshold for the genesis block
 			<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
@@ -168,7 +167,7 @@ pub mod pallet {
 		ArithmeticOverflow,
 	}
 
-	pub fn get_initial_distance_threshold<T: Config>() -> DistanceThreshold {
+	pub fn initial_distance_threshold<T: Config>() -> DistanceThreshold {
 		DistanceThreshold::one().shl(T::InitialDistanceThresholdExponent::get())
 	}
 
@@ -184,7 +183,7 @@ pub mod pallet {
 				<LastBlockTime<T>>::put(
 					pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>(),
 				);
-				let initial_distance_threshold: U512 = get_initial_distance_threshold::<T>();
+				let initial_distance_threshold: U512 = initial_distance_threshold::<T>();
 				<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
 			}
 			Weight::zero()
@@ -311,7 +310,7 @@ pub mod pallet {
 
 			// Update TotalWork
 			let old_total_work = <TotalWork<T>>::get();
-			let current_work = Self::get_difficulty();
+			let current_work = Self::difficulty();
 			let new_total_work = old_total_work.saturating_add(current_work);
 			<TotalWork<T>>::put(new_total_work);
 			log::debug!(target: "qpow",
@@ -426,11 +425,11 @@ pub mod pallet {
 				}
 			};
 
-			let min_distance = Self::get_min_distance();
+			let min_distance = DistanceThreshold::one();
 			if adjusted < min_distance {
 				adjusted = min_distance;
 			} else {
-				let max_distance = Self::get_max_distance();
+				let max_distance = Self::max_distance();
 				if adjusted > max_distance {
 					adjusted = max_distance;
 				}
@@ -449,29 +448,6 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		pub fn is_valid_nonce(
-			block_hash: [u8; 32],
-			nonce: NonceType,
-			threshold: DistanceThreshold,
-		) -> (bool, U512) {
-			is_valid_nonce(block_hash, nonce, threshold)
-		}
-
-		pub fn get_nonce_distance(
-			block_hash: [u8; 32], // 256-bit block hash
-			nonce: NonceType,     // 512-bit nonce
-		) -> U512 {
-			get_nonce_distance(block_hash, nonce)
-		}
-
-		pub fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
-			get_random_rsa(block_hash)
-		}
-
-		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
-			hash_to_group_bigint(h, m, n, solution)
-		}
-
 		// Function used to verify a block that's already in the chain
 		pub fn verify_historical_block(
 			block_hash: [u8; 32],
@@ -479,7 +455,7 @@ pub mod pallet {
 			block_number: BlockNumberFor<T>,
 		) -> bool {
 			// Get the stored distance_threshold for this specific block
-			let block_distance_threshold = Self::get_distance_threshold_at_block(block_number);
+			let block_distance_threshold = Self::block_distance_thresholds(block_number);
 
 			if block_distance_threshold == U512::zero() {
 				// No stored distance_threshold - cannot verify
@@ -487,7 +463,7 @@ pub mod pallet {
 			}
 
 			// Verify with historical distance_threshold
-			let (valid, _) = Self::is_valid_nonce(block_hash, nonce, block_distance_threshold);
+			let (valid, _) = is_valid_nonce(block_hash, nonce, block_distance_threshold);
 
 			valid
 		}
@@ -501,10 +477,9 @@ pub mod pallet {
 				);
 				return (false, U512::zero(), U512::zero());
 			}
-			let distance_threshold = Self::get_distance_threshold();
-			let (valid, distance_achieved) =
-				Self::is_valid_nonce(block_hash, nonce, distance_threshold);
-			let difficulty = Self::get_difficulty();
+			let distance_threshold = Self::distance_threshold();
+			let (valid, distance_achieved) = is_valid_nonce(block_hash, nonce, distance_threshold);
+			let difficulty = Self::difficulty();
 
 			(valid, difficulty, distance_achieved)
 		}
@@ -525,46 +500,20 @@ pub mod pallet {
 			verify
 		}
 
-		pub fn get_distance_threshold() -> DistanceThreshold {
+		pub fn distance_threshold() -> DistanceThreshold {
 			let stored = <CurrentDistanceThreshold<T>>::get();
 			if stored == U512::zero() {
-				return get_initial_distance_threshold::<T>();
+				return initial_distance_threshold::<T>();
 			}
 			stored
 		}
 
-		pub fn get_min_distance() -> DistanceThreshold {
-			DistanceThreshold::one()
+		pub fn max_distance() -> DistanceThreshold {
+			initial_distance_threshold::<T>().shl(T::MaxDistanceMultiplier::get())
 		}
 
-		pub fn get_max_distance() -> DistanceThreshold {
-			get_initial_distance_threshold::<T>().shl(T::MaxDistanceMultiplier::get())
-		}
-
-		pub fn get_difficulty() -> U512 {
-			Self::get_max_distance() / Self::get_distance_threshold()
-		}
-
-		pub fn get_distance_threshold_at_block(
-			block_number: BlockNumberFor<T>,
-		) -> DistanceThreshold {
-			<BlockDistanceThresholds<T>>::get(block_number)
-		}
-
-		pub fn get_total_work() -> WorkValue {
-			<TotalWork<T>>::get()
-		}
-
-		pub fn get_last_block_time() -> Timestamp {
-			<LastBlockTime<T>>::get()
-		}
-
-		pub fn get_last_block_duration() -> BlockDuration {
-			<LastBlockDuration<T>>::get()
-		}
-
-		pub fn get_max_reorg_depth() -> u32 {
-			T::MaxReorgDepth::get()
+		pub fn difficulty() -> U512 {
+			Self::max_distance() / Self::distance_threshold()
 		}
 	}
 }

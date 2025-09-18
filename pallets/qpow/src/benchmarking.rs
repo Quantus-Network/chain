@@ -22,7 +22,7 @@ mod benchmarks {
 		let block_number = BlockNumberFor::<T>::from(1000u32);
 		frame_system::Pallet::<T>::set_block_number(block_number);
 
-		let initial_distance_threshold = get_initial_distance_threshold::<T>();
+		let initial_distance_threshold = initial_distance_threshold::<T>();
 		let max_history = T::BlockTimeHistorySize::get();
 		let adjustment_period = T::AdjustmentPeriod::get();
 
