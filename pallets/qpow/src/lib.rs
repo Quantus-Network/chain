@@ -277,41 +277,41 @@ pub mod pallet {
 			// Add last block time for the next calculations
 			<LastBlockTime<T>>::put(now);
 
-    		let observed_block_time = <BlockTimeEma<T>>::get();
-    		let target_time = T::TargetBlockTime::get();
-    
-    		let new_distance_threshold = Self::calculate_distance_threshold(
-    			current_distance_threshold,
-    			observed_block_time,
-    			target_time,
-    		);
-    
-    		// Save new distance_threshold
-    		<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
-    
-    		// Propagate new Event
-    		Self::deposit_event(Event::DistanceThresholdAdjusted {
-    			old_distance_threshold: current_distance_threshold,
-    			new_distance_threshold,
-    			observed_block_time,
-    		});
-    
-    		let (pct_change, is_positive) =
-    			Self::percentage_change(current_distance_threshold, new_distance_threshold);
-    
-    		log::debug!(target: "qpow",
-    			"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
-    			if is_positive {"+"} else {"-"},
-    			pct_change,
-    			current_distance_threshold.shr(300),
-    			new_distance_threshold.shr(300),
-    			observed_block_time,
-    			target_time
-    		);
-    
-    		// Reset counters before new iteration
-    		<BlocksInPeriod<T>>::put(0);
-    		<LastBlockTime<T>>::put(now);
+			let observed_block_time = <BlockTimeEma<T>>::get();
+			let target_time = T::TargetBlockTime::get();
+
+			let new_distance_threshold = Self::calculate_distance_threshold(
+				current_distance_threshold,
+				observed_block_time,
+				target_time,
+			);
+
+			// Save new distance_threshold
+			<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
+
+			// Propagate new Event
+			Self::deposit_event(Event::DistanceThresholdAdjusted {
+				old_distance_threshold: current_distance_threshold,
+				new_distance_threshold,
+				observed_block_time,
+			});
+
+			let (pct_change, is_positive) =
+				Self::percentage_change(current_distance_threshold, new_distance_threshold);
+
+			log::debug!(target: "qpow",
+				"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
+				if is_positive {"+"} else {"-"},
+				pct_change,
+				current_distance_threshold.shr(300),
+				new_distance_threshold.shr(300),
+				observed_block_time,
+				target_time
+			);
+
+			// Reset counters before new iteration
+			<BlocksInPeriod<T>>::put(0);
+			<LastBlockTime<T>>::put(now);
 		}
 
 		pub fn calculate_distance_threshold(
@@ -430,9 +430,9 @@ pub mod pallet {
 		}
 
 		pub fn get_initial_distance_threshold() -> DistanceThreshold {
-		    get_initial_distance_threshold::<T>()
+			get_initial_distance_threshold::<T>()
 		}
-		
+
 		pub fn get_distance_threshold() -> DistanceThreshold {
 			let stored = <CurrentDistanceThreshold<T>>::get();
 			if stored == U512::zero() {
