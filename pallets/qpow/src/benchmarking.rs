@@ -23,21 +23,10 @@ mod benchmarks {
 		frame_system::Pallet::<T>::set_block_number(block_number);
 
 		let initial_distance_threshold = get_initial_distance_threshold::<T>();
-		let max_history = T::BlockTimeHistorySize::get();
 
 		// Set up storage state
 		<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
-		<HistorySize<T>>::put(max_history);
-		<HistoryIndex<T>>::put(max_history / 2);
 		<TotalWork<T>>::put(U512::from(100000u64));
-
-		// Fill up entire history with block times
-		for i in 0..max_history {
-			<BlockTimeHistory<T>>::insert(
-				i,
-				T::TargetBlockTime::get().saturating_add(i as u64 * 10),
-			);
-		}
 
 		// Set timestamp
 		let now = 100000u64;
@@ -49,8 +38,6 @@ mod benchmarks {
 			QPoW::<T>::on_finalize(block_number);
 		}
 
-		assert!(BlockDistanceThresholds::<T>::contains_key(block_number));
-		assert_eq!(<BlocksInPeriod<T>>::get(), 0u32); // Should be reset after adjustment
 	}
 
 	impl_benchmark_test_suite!(QPoW, crate::mock::new_test_ext(), crate::mock::Test);
