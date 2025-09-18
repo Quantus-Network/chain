@@ -358,6 +358,7 @@ pub fn new_full<
 			let mut nonce: U512 = U512::one();
 			let http_client = Client::new();
 			let mut current_job_id: Option<String> = None;
+			let mut mining_start_time: Option<std::time::Instant> = None;
 
 			loop {
 				// Check for cancellation
@@ -440,6 +441,7 @@ pub fn new_full<
 					current_job_id = Some(job_id.clone());
 
 					// Submit new mining job
+					mining_start_time = Some(std::time::Instant::now());
 					if let Err(e) = external_miner_client::submit_mining_job(
 						&http_client,
 						miner_url,
@@ -474,7 +476,10 @@ pub fn new_full<
 									if futures::executor::block_on(
 										worker_handle.submit(seal.encode()),
 									) {
-										log::info!("🥇Successfully mined and submitted a new block via external miner");
+										let mining_time = mining_start_time
+											.map(|start| start.elapsed().as_millis())
+											.unwrap_or(0);
+										log::info!("🥇 Successfully mined and submitted a new block via external miner (mining time: {}ms)", mining_time);
 										nonce = U512::one();
 									} else {
 										log::warn!(
@@ -520,6 +525,7 @@ pub fn new_full<
 						});
 					let nonces_to_mine = 3000u64;
 
+					mining_start_time = Some(std::time::Instant::now());
 					let found =
 						mine_range(block_hash, start_nonce_bytes, nonces_to_mine, threshold);
 
@@ -533,7 +539,10 @@ pub fn new_full<
 					let current_version = worker_handle.version();
 					if current_version == version {
 						if futures::executor::block_on(worker_handle.submit(nonce_bytes.encode())) {
-							log::info!("🥇Successfully mined and submitted a new block");
+							let mining_time = mining_start_time
+								.map(|start| start.elapsed().as_millis())
+								.unwrap_or(0);
+							log::info!("🥇 Successfully mined and submitted a new block (mining time: {}ms)", mining_time);
 							nonce = U512::one();
 						} else {
 							log::warn!("⛏️Failed to submit mined block");

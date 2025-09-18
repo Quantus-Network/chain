@@ -80,6 +80,10 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
 
+	// Exponential Moving Average of block times (in milliseconds)
+	#[pallet::storage]
+	pub type BlockTimeEma<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
+
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		/// Pallet's weight info
@@ -97,6 +101,10 @@ pub mod pallet {
 
 		#[pallet::constant]
 		type BlockTimeHistorySize: Get<HistorySizeType>;
+
+		/// EMA smoothing factor (0-1000, where 1000 = 1.0)
+		#[pallet::constant]
+		type EmaAlpha: Get<u32>;
 
 		#[pallet::constant]
 		type MaxReorgDepth: Get<u32>;
@@ -137,6 +145,9 @@ pub mod pallet {
 
 			// Set current distance_threshold for the genesis block
 			<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
+
+			// Initialize EMA with target block time
+			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
 
 			// Save initial distance_threshold for the genesis block
 			let genesis_block_number = BlockNumberFor::<T>::zero();
@@ -223,6 +234,9 @@ pub mod pallet {
 			<HistoryIndex<T>>::put(index);
 			<HistorySize<T>>::put(new_size);
 
+			// Update EMA
+			Self::update_block_time_ema(block_time);
+
 			log::debug!(target: "qpow",
 				"📊 Recorded block time: {}ms, history size: {}/{}",
 				block_time,
@@ -254,7 +268,53 @@ pub mod pallet {
 			sum
 		}
 
-		// Median calculation
+		fn update_block_time_ema(block_time: u64) {
+			let current_ema = <BlockTimeEma<T>>::get();
+			let alpha = T::EmaAlpha::get();
+
+			// Initialize EMA with target block time if this is the first block
+			if current_ema == 0 {
+				<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
+				return;
+			}
+
+			// Calculate EMA: new_ema = alpha * block_time + (1 - alpha) * current_ema
+			// Alpha is scaled by 1000, so we divide by 1000
+			let alpha_scaled = alpha as u64;
+			let one_minus_alpha = 1000u64.saturating_sub(alpha_scaled);
+
+			let weighted_current = block_time.saturating_mul(alpha_scaled);
+			let weighted_ema = current_ema.saturating_mul(one_minus_alpha);
+			let new_ema = (weighted_current.saturating_add(weighted_ema)) / 1000;
+
+			<BlockTimeEma<T>>::put(new_ema);
+
+			log::debug!(target: "qpow",
+				"📊 Updated EMA: {}ms -> {}ms (new block: {}ms, alpha: {})",
+				current_ema,
+				new_ema,
+				block_time,
+				alpha_scaled
+			);
+		}
+
+		pub fn get_block_time_ema() -> u64 {
+			let ema = <BlockTimeEma<T>>::get();
+			let adjustment_period = T::AdjustmentPeriod::get() as u64;
+
+			// Return EMA scaled by adjustment period to match the sum-based approach
+			let scaled_ema = ema.saturating_mul(adjustment_period);
+
+			log::debug!(target: "qpow",
+				"📊 Calculated EMA-based adjustment period time: {}ms (EMA: {}ms, period: {})",
+				scaled_ema,
+				ema,
+				adjustment_period
+			);
+
+			scaled_ema
+		}
+
 		pub fn get_median_block_time() -> u64 {
 			let size = <HistorySize<T>>::get();
 
@@ -349,7 +409,8 @@ pub mod pallet {
 			if blocks >= T::AdjustmentPeriod::get() {
 				let history_size = <HistorySize<T>>::get();
 				if history_size > 0 {
-					let observed_block_time = Self::get_block_time_sum();
+				    let observed_block_time = Self::get_block_time_ema();
+					// let observed_block_time = Self::get_block_time_sum();
 					let target_time = T::TargetBlockTime::get().saturating_mul(history_size as u64);
 
 					let new_distance_threshold = Self::calculate_distance_threshold(
