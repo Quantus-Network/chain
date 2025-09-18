@@ -243,10 +243,10 @@ fn test_distance_threshold_storage_and_retrieval() {
 		let block_2_difficulty = QPow::get_difficulty();
 		let total_work = QPow::get_total_work();
 		assert_eq!(
-			total_work, block_1_difficulty + block_2_difficulty + 1,
+			total_work,
+			block_1_difficulty + block_2_difficulty + 1,
 			"Difficulties sum to total work"
 		);
-
 	});
 }
 
@@ -281,8 +281,10 @@ fn test_total_distance_threshold_accumulation() {
 		let mut expected_total = U512::one();
 		let max_distance = QPow::get_max_distance();
 		for i in 1..=10 {
-			run_to_block(i);
+			// Get the distance threshold BEFORE running the block, since that's what
+			// gets used to calculate the work that gets added to TotalWork
 			let block_distance_threshold = QPow::get_distance_threshold();
+			run_to_block(i);
 			expected_total = expected_total.saturating_add(max_distance / block_distance_threshold);
 
 			let stored_total = QPow::get_total_work();
@@ -346,7 +348,6 @@ fn test_integrated_verification_flow() {
 		// 1. First, simulate verification by submitting a nonce
 		let valid = QPow::verify_nonce_local_mining(block_hash, nonce);
 		assert!(valid);
-
 	});
 }
 
