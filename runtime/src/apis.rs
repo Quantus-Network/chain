@@ -150,7 +150,7 @@ impl_runtime_apis! {
 		fn get_total_work() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_total_work()
 		}
-		
+
 		fn get_block_time_ema() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_block_time_ema()
 		}

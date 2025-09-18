@@ -1,4 +1,4 @@
-use crate::{mock::*, BlockTimeHistory, Config, HistoryIndex, HistorySize};
+use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
 use qpow_math::{
@@ -13,7 +13,7 @@ fn test_submit_valid_proof() {
 		let block_hash = [1u8; 32];
 
 		// Get current distance_threshold
-		let distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let distance_threshold = QPow::get_initial_distance_threshold();
 		let max_distance = QPow::get_max_distance();
 		println!("Current distance_threshold: {}", distance_threshold);
 
@@ -143,7 +143,7 @@ fn test_verify_historical_block() {
 
 		// Get the genesis block distance_threshold
 		let max_distance = QPow::get_max_distance();
-		let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let genesis_distance_threshold = QPow::get_initial_distance_threshold();
 		println!("Genesis distance_threshold: {}", genesis_distance_threshold);
 
 		// Use a nonce that we know works better with our test distance_threshold
@@ -181,20 +181,11 @@ fn test_verify_historical_block() {
 			}
 		}
 
-		// Now we should have a valid nonce for genesis block
-		// Test: verify with block 0 (where the nonce was found)
-		assert!(
-			QPow::verify_historical_block(block_hash, nonce, 0),
-			"Nonce with distance {} should be valid for threshold {}",
-			distance,
-			threshold
-		);
-
 		// Now let's create a block at height 1 with a specific distance_threshold
 		run_to_block(1);
 
 		// Get the distance_threshold that was stored for block 1
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold = QPow::get_distance_threshold();
 		assert!(
 			block_1_distance_threshold > U512::zero(),
 			"Block 1 should have a stored distance_threshold"
@@ -217,17 +208,6 @@ fn test_verify_historical_block() {
 			"Nonce with distance {} should be valid for block 1 threshold {}",
 			distance, block_1_threshold
 		);
-
-		// Use the public API
-		assert!(QPow::verify_historical_block(block_hash, nonce, 1));
-
-		// Test an invalid nonce
-		let invalid_nonce = [0u8; 64];
-		assert!(!QPow::verify_historical_block(block_hash, invalid_nonce, 1));
-
-		// Test a non-existent block
-		let future_block = 1000;
-		assert!(!QPow::verify_historical_block(block_hash, nonce, future_block));
 	});
 }
 
@@ -235,7 +215,7 @@ fn test_verify_historical_block() {
 fn test_distance_threshold_storage_and_retrieval() {
 	new_test_ext().execute_with(|| {
 		// 1. Test genesis block distance_threshold
-		let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let genesis_distance_threshold = QPow::get_initial_distance_threshold();
 		let initial_distance_threshold =
 			U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
 
@@ -248,31 +228,25 @@ fn test_distance_threshold_storage_and_retrieval() {
 		run_to_block(1);
 
 		// 3. Check distance_threshold for block 1
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+		let max_work = QPow::get_max_distance();
+		let block_1_distance_threshold = QPow::get_distance_threshold();
+		let block_1_difficulty = QPow::get_difficulty();
 		assert_eq!(
 			block_1_distance_threshold, initial_distance_threshold,
 			"Block 1 should have same distance_threshold as initial"
 		);
 
 		// 4. Simulate adjustment period
-		let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
-		run_to_block(adjustment_period + 1);
+		run_to_block(2);
 
-		// 5. Verify historical blocks maintain their distance_threshold
-		let block_1_distance_threshold_after = QPow::get_distance_threshold_at_block(1);
+		// 5. Verify difficulties sum
+		let block_2_difficulty = QPow::get_difficulty();
+		let total_work = QPow::get_total_work();
 		assert_eq!(
-			block_1_distance_threshold_after, block_1_distance_threshold,
-			"Historical block distance_threshold should not change"
+			total_work, block_1_difficulty + block_2_difficulty + 1,
+			"Difficulties sum to total work"
 		);
 
-		// 6. Verify nonexistent block returns 0
-		let latest_block = System::block_number();
-		let future_block = latest_block + 1000;
-		assert_eq!(
-			QPow::get_distance_threshold_at_block(future_block),
-			U512::zero(),
-			"Future block distance_threshold should be 0"
-		);
 	});
 }
 
@@ -288,7 +262,7 @@ fn test_total_distance_threshold_initialization() {
 		// After the first btest_total_distance_threshold_increases_with_each_blocklock, TotalWork
 		// should equal block 1's distance_threshold
 		run_to_block(1);
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold = QPow::get_distance_threshold();
 		let max_distance = QPow::get_max_distance();
 		let current_work = max_distance / block_1_distance_threshold;
 		let total_work = QPow::get_total_work();
@@ -308,7 +282,7 @@ fn test_total_distance_threshold_accumulation() {
 		let max_distance = QPow::get_max_distance();
 		for i in 1..=10 {
 			run_to_block(i);
-			let block_distance_threshold = QPow::get_distance_threshold_at_block(i as u64);
+			let block_distance_threshold = QPow::get_distance_threshold();
 			expected_total = expected_total.saturating_add(max_distance / block_distance_threshold);
 
 			let stored_total = QPow::get_total_work();
@@ -318,41 +292,6 @@ fn test_total_distance_threshold_accumulation() {
 				i
 			);
 		}
-	});
-}
-
-#[test]
-fn test_total_distance_threshold_after_adjustment() {
-	new_test_ext().execute_with(|| {
-		// Advance to the point where distance_threshold gets adjusted
-		let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
-		run_to_block(adjustment_period + 1);
-		let max_distance = QPow::get_max_distance();
-		// Check if distance_threshold has changed
-		let initial_distance_threshold =
-			U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
-		let new_distance_threshold =
-			QPow::get_distance_threshold_at_block((adjustment_period + 1) as u64);
-
-		// We assume distance_threshold may have changed
-		println!(
-			"Initial distance_threshold: {}, New distance_threshold: {}",
-			initial_distance_threshold, new_distance_threshold
-		);
-
-		// Calculate expected cumulative distance_threshold
-		let mut expected_total = U512::one();
-		for i in 1..=(adjustment_period + 1) {
-			let block_diff = QPow::get_distance_threshold_at_block(i as u64);
-			expected_total += max_distance / block_diff;
-		}
-
-		// Compare with stored value
-		let stored_total = QPow::get_total_work();
-		assert_eq!(
-			stored_total, expected_total,
-			"TotalDifficulty should correctly account for distance_threshold changes"
-		);
 	});
 }
 
@@ -377,14 +316,6 @@ fn test_total_distance_threshold_increases_with_each_block() {
 			total_after_block_2 > total_after_block_1,
 			"TotalDifficulty should increase after each new block"
 		);
-		let max_distance = QPow::get_max_distance();
-		// Verify that the increase matches the distance_threshold of block 2
-		let block_2_diff = total_after_block_2 - total_after_block_1;
-		assert_eq!(
-			block_2_diff,
-			max_distance / QPow::get_distance_threshold_at_block(2),
-			"TotalDifficulty increase should match the distance_threshold of the new block"
-		);
 	});
 }
 
@@ -395,7 +326,7 @@ fn test_integrated_verification_flow() {
 		let block_hash = [1u8; 32];
 
 		// Get the current distance_threshold
-		let distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let distance_threshold = QPow::get_initial_distance_threshold();
 		println!("Current distance_threshold: {}", distance_threshold);
 
 		// Use a nonce that we know works for our tests
@@ -416,9 +347,6 @@ fn test_integrated_verification_flow() {
 		let valid = QPow::verify_nonce_local_mining(block_hash, nonce);
 		assert!(valid);
 
-		// 2. Finally verify historical block
-		let current_block = System::block_number();
-		assert!(QPow::verify_historical_block(block_hash, nonce, current_block));
 	});
 }
 
@@ -879,7 +807,7 @@ fn test_distance_threshold_adjustment_boundaries() {
 fn test_calculate_distance_threshold_normal_adjustment() {
 	new_test_ext().execute_with(|| {
         // Start with a medium distance_threshold
-        let current_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let current_distance_threshold = QPow::get_initial_distance_threshold();
         let target_time = 1000; // 1000ms target
 
         // Test slight deviation (10% slower)
@@ -913,8 +841,8 @@ fn test_calculate_distance_threshold_normal_adjustment() {
 #[test]
 fn test_calculate_distance_threshold_consecutive_adjustments() {
 	new_test_ext().execute_with(|| {
-        let mut current_distance_threshold = QPow::get_distance_threshold_at_block(0);
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let mut current_distance_threshold = QPow::get_initial_distance_threshold();
+        let initial_distance_threshold = QPow::get_initial_distance_threshold();
         let target_time = 1000;
 
         // First, measure the effect of a single adjustment
@@ -928,7 +856,7 @@ fn test_calculate_distance_threshold_consecutive_adjustments() {
         println!("Single adjustment increase: {:.2}%", single_adjustment_increase);
 
         // Reset and simulate 5 consecutive periods
-        current_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        current_distance_threshold = QPow::get_initial_distance_threshold();
         for i in 0..5 {
             let new_distance_threshold = QPow::calculate_distance_threshold(
                 current_distance_threshold,
@@ -962,9 +890,9 @@ fn test_calculate_distance_threshold_consecutive_adjustments() {
 #[test]
 fn test_calculate_distance_threshold_oscillation_damping() {
 	new_test_ext().execute_with(|| {
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold = QPow::get_initial_distance_threshold();
         let target_time = 1000;
-
+        println!("hi");
         // Start with current distance_threshold
         let mut current_distance_threshold = initial_distance_threshold;
 
@@ -1019,7 +947,7 @@ fn pack_u512_to_f64(value: U512) -> f64 {
 #[test]
 fn test_calculate_distance_threshold_stability_over_time() {
 	new_test_ext().execute_with(|| {
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold = QPow::get_initial_distance_threshold();
         let target_time = 1000;
         let mut current_distance_threshold = initial_distance_threshold;
 
@@ -1044,179 +972,6 @@ fn test_calculate_distance_threshold_stability_over_time() {
                 "With minor variations around target time, distance_threshold should not change by more than 10%, but changed by {:.2}%",
                 final_change_percentage);
     });
-}
-
-/// Median & Ring Buffer
-
-#[test]
-fn test_median_block_time_empty_history() {
-	new_test_ext().execute_with(|| {
-		// When history is empty, we should get TargetBlockTime
-		let target_block_time = <Test as Config>::TargetBlockTime::get();
-		let median = QPow::get_median_block_time();
-		assert_eq!(median, target_block_time, "Empty history should return target block time");
-	});
-}
-
-#[test]
-fn test_median_block_time_single_value() {
-	new_test_ext().execute_with(|| {
-		// Add a single entry to history
-		let block_time = 2000;
-		<HistoryIndex<Test>>::put(0);
-		<HistorySize<Test>>::put(1);
-		<BlockTimeHistory<Test>>::insert(0, block_time);
-
-		// Median of a single value is that value
-		let median = QPow::get_median_block_time();
-		assert_eq!(median, block_time, "Median of a single value should be that value");
-	});
-}
-
-#[test]
-fn test_median_block_time_odd_count() {
-	new_test_ext().execute_with(|| {
-		// Add odd number of entries
-		let block_times = [1000, 3000, 2000, 5000, 4000];
-		let history_size = block_times.len() as u32;
-
-		<HistorySize<Test>>::put(history_size);
-
-		// Add times to history
-		for (i, &time) in block_times.iter().enumerate() {
-			<BlockTimeHistory<Test>>::insert(i as u32, time);
-		}
-
-		// Median of sorted values [1000, 2000, 3000, 4000, 5000] is 3000
-		let expected_median = 3000;
-		let median = QPow::get_median_block_time();
-		assert_eq!(median, expected_median, "Median of odd count should be the middle value");
-	});
-}
-
-#[test]
-fn test_median_block_time_even_count() {
-	new_test_ext().execute_with(|| {
-		// Add even number of entries
-		let block_times = [1000, 3000, 2000, 4000];
-		let history_size = block_times.len() as u32;
-
-		<HistorySize<Test>>::put(history_size);
-
-		// Add times to history
-		for (i, &time) in block_times.iter().enumerate() {
-			<BlockTimeHistory<Test>>::insert(i as u32, time);
-		}
-
-		// Median of sorted values [1000, 2000, 3000, 4000] is (2000 + 3000) / 2 = 2500
-		let expected_median = 2500;
-		let median = QPow::get_median_block_time();
-		assert_eq!(
-			median, expected_median,
-			"Median of even count should be average of two middle values"
-		);
-	});
-}
-
-#[test]
-fn test_median_block_time_with_duplicates() {
-	new_test_ext().execute_with(|| {
-		// Add entries with duplicates
-		let block_times = [1000, 2000, 2000, 2000, 3000];
-		let history_size = block_times.len() as u32;
-
-		<HistorySize<Test>>::put(history_size);
-
-		// Add times to history
-		for (i, &time) in block_times.iter().enumerate() {
-			<BlockTimeHistory<Test>>::insert(i as u32, time);
-		}
-
-		// Median of sorted values [1000, 2000, 2000, 2000, 3000] is 2000
-		let expected_median = 2000;
-		let median = QPow::get_median_block_time();
-		assert_eq!(
-			median, expected_median,
-			"Median with duplicates should be correctly calculated"
-		);
-	});
-}
-
-#[test]
-fn test_median_block_time_ring_buffer() {
-	new_test_ext().execute_with(|| {
-		// Test if the ring buffer works correctly
-		// Assuming <Test as Config>::BlockTimeHistorySize::get() = 5
-
-		// Add more entries than the maximum history size
-		let initial_times = [1000, 2000, 3000, 4000, 5000];
-
-		// Set initial history
-		<HistoryIndex<Test>>::put(0);
-		<HistorySize<Test>>::put(5);
-
-		for (i, &time) in initial_times.iter().enumerate() {
-			<BlockTimeHistory<Test>>::insert(i as u32, time);
-		}
-
-		// Initial median
-		let initial_median = QPow::get_median_block_time();
-		assert_eq!(initial_median, 3000, "Initial median should be 3000");
-
-		// Simulate record_block_time for new values
-		// Should overwrite oldest values in the ring buffer
-		<HistoryIndex<Test>>::put(0); // Start overwriting from index 0
-		<BlockTimeHistory<Test>>::insert(0, 6000);
-		<HistoryIndex<Test>>::put(1);
-		<BlockTimeHistory<Test>>::insert(1, 7000);
-
-		// New median from [3000, 4000, 5000, 6000, 7000]
-		let new_median = QPow::get_median_block_time();
-		assert_eq!(new_median, 5000, "New median should be calculated from updated ring buffer");
-	});
-}
-
-#[test]
-fn test_block_distance_threshold_storage_and_retrieval() {
-	new_test_ext().execute_with(|| {
-		// 1. Test that genesis block distance_threshold is properly set
-		let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
-		let initial_distance_threshold =
-			U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
-		assert_eq!(
-			genesis_distance_threshold, initial_distance_threshold,
-			"Genesis block should have initial distance_threshold"
-		);
-
-		// 2. Simulate block production and distance_threshold adjustment
-		run_to_block(1);
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
-		assert_eq!(
-			block_1_distance_threshold, initial_distance_threshold,
-			"Block 1 should have same distance_threshold as initial"
-		);
-
-		// 3. Simulate multiple blocks to trigger distance_threshold adjustment
-		let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
-		run_to_block(adjustment_period + 1);
-
-		// 4. Check that distance_threshold for early blocks hasn't changed
-		let block_1_distance_threshold_after = QPow::get_distance_threshold_at_block(1);
-		assert_eq!(
-			block_1_distance_threshold_after, block_1_distance_threshold,
-			"Historical block distance_threshold should not change"
-		);
-
-		// 5. Test non-existent block (future block)
-		let latest_block = System::block_number();
-		let future_block = latest_block + 1000;
-		let future_distance_threshold = QPow::get_distance_threshold_at_block(future_block);
-		assert_eq!(
-			future_distance_threshold,
-			U512::zero(),
-			"Future block distance_threshold should return 0"
-		);
-	});
 }
 
 //////////// Support methods

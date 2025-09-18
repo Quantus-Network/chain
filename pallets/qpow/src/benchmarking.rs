@@ -24,11 +24,9 @@ mod benchmarks {
 
 		let initial_distance_threshold = get_initial_distance_threshold::<T>();
 		let max_history = T::BlockTimeHistorySize::get();
-		let adjustment_period = T::AdjustmentPeriod::get();
 
 		// Set up storage state
 		<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
-		<BlocksInPeriod<T>>::put(adjustment_period);
 		<HistorySize<T>>::put(max_history);
 		<HistoryIndex<T>>::put(max_history / 2);
 		<TotalWork<T>>::put(U512::from(100000u64));

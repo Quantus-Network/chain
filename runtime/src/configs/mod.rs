@@ -147,7 +147,6 @@ impl pallet_qpow::Config for Runtime {
 	type InitialDistanceThresholdExponent = ConstU32<488>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = TargetBlockTime;
-	type AdjustmentPeriod = ConstU32<1>;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
 	type MaxDistanceMultiplier = ConstU32<2>;
