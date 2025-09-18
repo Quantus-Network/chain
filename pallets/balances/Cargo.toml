@@ -41,7 +41,6 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"pallet-transaction-payment/std",
-	"qp-poseidon/std",
 	"qp-wormhole/std",
 	"scale-info/std",
 	"sp-core/std",
