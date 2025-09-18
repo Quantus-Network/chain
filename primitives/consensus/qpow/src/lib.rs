@@ -10,13 +10,6 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
-		/// Verify a nonce for a historical block that's already in the chain
-		fn verify_historical_block(
-			header: [u8; 32],
-			nonce: [u8; 64],
-			block_number: u32,
-		) -> bool;
-
 		/// calculate distance header with nonce to with nonce
 		fn get_nonce_distance(
 			block_hash: [u8; 32],  // 256-bit block hash
@@ -34,9 +27,6 @@ sp_api::decl_runtime_apis! {
 
 		/// Get the current distance_threshold target for proof generation
 		fn get_distance_threshold() -> U512;
-
-		/// Get distance_threshold at block
-		fn get_distance_threshold_at_block(block_number: u32) -> U512;
 
 		/// Get total work
 		fn get_total_work() -> U512;
@@ -56,7 +46,6 @@ sp_api::decl_runtime_apis! {
 		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
-
 	}
 }
 

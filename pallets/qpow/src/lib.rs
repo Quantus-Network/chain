@@ -48,10 +48,6 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::storage]
-	pub type BlockDistanceThresholds<T: Config> =
-		StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
-
-	#[pallet::storage]
 	pub type LastBlockTime<T: Config> = StorageValue<_, Timestamp, ValueQuery>;
 
 	#[pallet::storage]
@@ -139,10 +135,6 @@ pub mod pallet {
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
-
-			// Save initial distance_threshold for the genesis block
-			let genesis_block_number = BlockNumberFor::<T>::zero();
-			<BlockDistanceThresholds<T>>::insert(genesis_block_number, initial_distance_threshold);
 
 			// Initialize the total distance_threshold with the genesis block's distance_threshold
 			<TotalWork<T>>::put(WorkValue::one());
@@ -273,9 +265,6 @@ pub mod pallet {
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
-
-			// Store distance_threshold for block
-			<BlockDistanceThresholds<T>>::insert(current_block_number, current_distance_threshold);
 
 			// Update TotalWork
 			let old_total_work = <TotalWork<T>>::get();
@@ -436,25 +425,25 @@ pub mod pallet {
 			hash_to_group_bigint(h, m, n, solution)
 		}
 
-		// Function used to verify a block that's already in the chain
-		pub fn verify_historical_block(
-			block_hash: [u8; 32],
-			nonce: NonceType,
-			block_number: BlockNumberFor<T>,
-		) -> bool {
-			// Get the stored distance_threshold for this specific block
-			let block_distance_threshold = Self::get_distance_threshold_at_block(block_number);
+		// // Function used to verify a block that's already in the chain
+		// pub fn verify_historical_block(
+		// 	block_hash: [u8; 32],
+		// 	nonce: NonceType,
+		// 	block_number: BlockNumberFor<T>,
+		// ) -> bool {
+		// 	// Get the stored distance_threshold for this specific block
+		// 	let block_distance_threshold = Self::get_distance_threshold(block_hash);
 
-			if block_distance_threshold == U512::zero() {
-				// No stored distance_threshold - cannot verify
-				return false;
-			}
+		// 	if block_distance_threshold == U512::zero() {
+		// 		// No stored distance_threshold - cannot verify
+		// 		return false;
+		// 	}
 
-			// Verify with historical distance_threshold
-			let (valid, _) = Self::is_valid_nonce(block_hash, nonce, block_distance_threshold);
+		// 	// Verify with historical distance_threshold
+		// 	let (valid, _) = Self::is_valid_nonce(block_hash, nonce, block_distance_threshold);
 
-			valid
-		}
+		// 	valid
+		// }
 
 		// Shared verification logic
 		fn verify_nonce_internal(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512, U512) {
@@ -507,12 +496,6 @@ pub mod pallet {
 
 		pub fn get_difficulty() -> U512 {
 			Self::get_max_distance() / Self::get_distance_threshold()
-		}
-
-		pub fn get_distance_threshold_at_block(
-			block_number: BlockNumberFor<T>,
-		) -> DistanceThreshold {
-			<BlockDistanceThresholds<T>>::get(block_number)
 		}
 
 		pub fn get_total_work() -> WorkValue {
