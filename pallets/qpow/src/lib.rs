@@ -409,7 +409,7 @@ pub mod pallet {
 			if blocks >= T::AdjustmentPeriod::get() {
 				let history_size = <HistorySize<T>>::get();
 				if history_size > 0 {
-				    let observed_block_time = Self::get_block_time_ema();
+					let observed_block_time = Self::get_block_time_ema();
 					// let observed_block_time = Self::get_block_time_sum();
 					let target_time = T::TargetBlockTime::get().saturating_mul(history_size as u64);
 
