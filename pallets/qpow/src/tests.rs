@@ -2,7 +2,8 @@ use crate::{mock::*, BlockTimeHistory, Config, HistoryIndex, HistorySize};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
 use qpow_math::{
-	get_random_rsa, hash_to_group_bigint_sha, is_coprime, is_prime, mod_pow, sha3_512,
+	get_nonce_distance, get_random_rsa, hash_to_group_bigint_sha, is_coprime, is_prime,
+	is_valid_nonce, mod_pow, sha3_512,
 };
 use std::ops::Shl;
 
@@ -13,8 +14,8 @@ fn test_submit_valid_proof() {
 		let block_hash = [1u8; 32];
 
 		// Get current distance_threshold
-		let distance_threshold = QPow::get_distance_threshold_at_block(0);
-		let max_distance = QPow::get_max_distance();
+		let distance_threshold = QPow::block_distance_thresholds(0);
+		let max_distance = QPow::max_distance();
 		println!("Current distance_threshold: {}", distance_threshold);
 
 		// We need to find valid and invalid nonces for our test
@@ -27,8 +28,8 @@ fn test_submit_valid_proof() {
 			invalid_nonce[63] = i;
 			valid_nonce[63] = i + 1;
 
-			let invalid_distance = QPow::get_nonce_distance(block_hash, invalid_nonce);
-			let valid_distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			let invalid_distance = get_nonce_distance(block_hash, invalid_nonce);
+			let valid_distance = get_nonce_distance(block_hash, valid_nonce);
 
 			// Check if we found a pair where one is valid and one is invalid
 			if invalid_distance > distance_threshold && valid_distance <= distance_threshold {
@@ -56,7 +57,7 @@ fn test_submit_valid_proof() {
 		assert!(
 			!valid,
 			"Nonce should be invalid with distance {} > threshold {}",
-			QPow::get_nonce_distance(block_hash, invalid_nonce),
+			get_nonce_distance(block_hash, invalid_nonce),
 			max_distance - distance_threshold
 		);
 
@@ -65,7 +66,7 @@ fn test_submit_valid_proof() {
 		assert!(
 			valid,
 			"Nonce should be valid with distance {} <= threshold {}",
-			QPow::get_nonce_distance(block_hash, valid_nonce),
+			get_nonce_distance(block_hash, valid_nonce),
 			max_distance - distance_threshold
 		);
 
@@ -75,7 +76,7 @@ fn test_submit_valid_proof() {
 
 		for i in valid_nonce[63] + 1..255 {
 			second_valid[63] = i;
-			let distance = QPow::get_nonce_distance(block_hash, second_valid);
+			let distance = get_nonce_distance(block_hash, second_valid);
 			if distance <= max_distance - distance_threshold {
 				println!("Found second valid nonce: {}", i);
 				found_second = true;
@@ -102,7 +103,7 @@ fn test_verify_nonce() {
 		let block_hash = [1u8; 32];
 
 		// Get current distance_threshold to understand what we need to target
-		let distance_threshold = QPow::get_distance_threshold();
+		let distance_threshold = QPow::distance_threshold();
 		println!("Current distance_threshold: {}", distance_threshold);
 
 		// Find a nonce that will be valid for the current distance_threshold
@@ -112,7 +113,7 @@ fn test_verify_nonce() {
 		// Try various values until we find one that works
 		for i in 1..255 {
 			valid_nonce[63] = i;
-			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			let distance = get_nonce_distance(block_hash, valid_nonce);
 
 			if distance <= distance_threshold {
 				println!(
@@ -142,8 +143,8 @@ fn test_verify_historical_block() {
 		let block_hash = [1u8; 32];
 
 		// Get the genesis block distance_threshold
-		let max_distance = QPow::get_max_distance();
-		let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let max_distance = QPow::max_distance();
+		let genesis_distance_threshold = QPow::block_distance_thresholds(0);
 		println!("Genesis distance_threshold: {}", genesis_distance_threshold);
 
 		// Use a nonce that we know works better with our test distance_threshold
@@ -151,7 +152,7 @@ fn test_verify_historical_block() {
 		nonce[63] = 186; // This seemed to work in other tests
 
 		// Check if this nonce is valid for genesis distance_threshold
-		let distance = QPow::get_nonce_distance(block_hash, nonce);
+		let distance = get_nonce_distance(block_hash, nonce);
 		let threshold = genesis_distance_threshold;
 
 		println!("Nonce distance: {}, Threshold: {}", distance, threshold);
@@ -165,7 +166,7 @@ fn test_verify_historical_block() {
 			let mut found_valid = false;
 			for byte_value in 1..=255 {
 				nonce[63] = byte_value;
-				let distance = QPow::get_nonce_distance(block_hash, nonce);
+				let distance = get_nonce_distance(block_hash, nonce);
 				if distance <= threshold {
 					println!(
 						"Found valid nonce with byte value {}: distance={}",
@@ -194,7 +195,7 @@ fn test_verify_historical_block() {
 		run_to_block(1);
 
 		// Get the distance_threshold that was stored for block 1
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold = QPow::block_distance_thresholds(1);
 		assert!(
 			block_1_distance_threshold > U512::zero(),
 			"Block 1 should have a stored distance_threshold"
@@ -211,7 +212,7 @@ fn test_verify_historical_block() {
 		}
 
 		// Verify a nonce against block 1's distance_threshold with direct method
-		let (valid, _) = QPow::is_valid_nonce(block_hash, nonce, block_1_distance_threshold);
+		let (valid, _) = is_valid_nonce(block_hash, nonce, block_1_distance_threshold);
 		assert!(
 			valid,
 			"Nonce with distance {} should be valid for block 1 threshold {}",
@@ -235,7 +236,7 @@ fn test_verify_historical_block() {
 fn test_distance_threshold_storage_and_retrieval() {
 	new_test_ext().execute_with(|| {
 		// 1. Test genesis block distance_threshold
-		let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let genesis_distance_threshold = QPow::block_distance_thresholds(0);
 		let initial_distance_threshold =
 			U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
 
@@ -248,7 +249,7 @@ fn test_distance_threshold_storage_and_retrieval() {
 		run_to_block(1);
 
 		// 3. Check distance_threshold for block 1
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold = QPow::block_distance_thresholds(1);
 		assert_eq!(
 			block_1_distance_threshold, initial_distance_threshold,
 			"Block 1 should have same distance_threshold as initial"
@@ -259,7 +260,7 @@ fn test_distance_threshold_storage_and_retrieval() {
 		run_to_block(adjustment_period + 1);
 
 		// 5. Verify historical blocks maintain their distance_threshold
-		let block_1_distance_threshold_after = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold_after = QPow::block_distance_thresholds(1);
 		assert_eq!(
 			block_1_distance_threshold_after, block_1_distance_threshold,
 			"Historical block distance_threshold should not change"
@@ -269,7 +270,7 @@ fn test_distance_threshold_storage_and_retrieval() {
 		let latest_block = System::block_number();
 		let future_block = latest_block + 1000;
 		assert_eq!(
-			QPow::get_distance_threshold_at_block(future_block),
+			QPow::block_distance_thresholds(future_block),
 			U512::zero(),
 			"Future block distance_threshold should be 0"
 		);
@@ -283,15 +284,15 @@ fn test_total_distance_threshold_initialization() {
 	new_test_ext().execute_with(|| {
 		// Initially, total distance_threshold should be as genesis distance_threshold
 		let initial_work = U512::one();
-		assert_eq!(QPow::get_total_work(), initial_work, "Initial TotalWork should be 0");
+		assert_eq!(QPow::total_work(), initial_work, "Initial TotalWork should be 0");
 
 		// After the first btest_total_distance_threshold_increases_with_each_blocklock, TotalWork
 		// should equal block 1's distance_threshold
 		run_to_block(1);
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
-		let max_distance = QPow::get_max_distance();
+		let block_1_distance_threshold = QPow::block_distance_thresholds(1);
+		let max_distance = QPow::max_distance();
 		let current_work = max_distance / block_1_distance_threshold;
-		let total_work = QPow::get_total_work();
+		let total_work = QPow::total_work();
 		assert_eq!(
 			total_work,
 			initial_work + current_work,
@@ -305,13 +306,13 @@ fn test_total_distance_threshold_accumulation() {
 	new_test_ext().execute_with(|| {
 		// Generate consecutive blocks and check distance_threshold accumulation
 		let mut expected_total = U512::one();
-		let max_distance = QPow::get_max_distance();
+		let max_distance = QPow::max_distance();
 		for i in 1..=10 {
 			run_to_block(i);
-			let block_distance_threshold = QPow::get_distance_threshold_at_block(i as u64);
+			let block_distance_threshold = QPow::block_distance_thresholds(i as u64);
 			expected_total = expected_total.saturating_add(max_distance / block_distance_threshold);
 
-			let stored_total = QPow::get_total_work();
+			let stored_total = QPow::total_work();
 			assert_eq!(
 				stored_total, expected_total,
 				"TotalDifficulty after block {} should be the sum of all blocks' difficulties",
@@ -327,12 +328,12 @@ fn test_total_distance_threshold_after_adjustment() {
 		// Advance to the point where distance_threshold gets adjusted
 		let adjustment_period = <Test as Config>::AdjustmentPeriod::get();
 		run_to_block(adjustment_period + 1);
-		let max_distance = QPow::get_max_distance();
+		let max_distance = QPow::max_distance();
 		// Check if distance_threshold has changed
 		let initial_distance_threshold =
 			U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
 		let new_distance_threshold =
-			QPow::get_distance_threshold_at_block((adjustment_period + 1) as u64);
+			QPow::block_distance_thresholds((adjustment_period + 1) as u64);
 
 		// We assume distance_threshold may have changed
 		println!(
@@ -343,12 +344,12 @@ fn test_total_distance_threshold_after_adjustment() {
 		// Calculate expected cumulative distance_threshold
 		let mut expected_total = U512::one();
 		for i in 1..=(adjustment_period + 1) {
-			let block_diff = QPow::get_distance_threshold_at_block(i as u64);
+			let block_diff = QPow::block_distance_thresholds(i as u64);
 			expected_total += max_distance / block_diff;
 		}
 
 		// Compare with stored value
-		let stored_total = QPow::get_total_work();
+		let stored_total = QPow::total_work();
 		assert_eq!(
 			stored_total, expected_total,
 			"TotalDifficulty should correctly account for distance_threshold changes"
@@ -360,11 +361,11 @@ fn test_total_distance_threshold_after_adjustment() {
 fn test_total_distance_threshold_increases_with_each_block() {
 	new_test_ext().execute_with(|| {
 		// Check initial value
-		let initial_total = QPow::get_total_work();
+		let initial_total = QPow::total_work();
 
 		// Run to block 1 and check the increase
 		run_to_block(1);
-		let total_after_block_1 = QPow::get_total_work();
+		let total_after_block_1 = QPow::total_work();
 		assert!(
 			total_after_block_1 > initial_total,
 			"TotalDifficulty should increase after a new block"
@@ -372,17 +373,17 @@ fn test_total_distance_threshold_increases_with_each_block() {
 
 		// Run to block 2 and check the increase again
 		run_to_block(2);
-		let total_after_block_2 = QPow::get_total_work();
+		let total_after_block_2 = QPow::total_work();
 		assert!(
 			total_after_block_2 > total_after_block_1,
 			"TotalDifficulty should increase after each new block"
 		);
-		let max_distance = QPow::get_max_distance();
+		let max_distance = QPow::max_distance();
 		// Verify that the increase matches the distance_threshold of block 2
 		let block_2_diff = total_after_block_2 - total_after_block_1;
 		assert_eq!(
 			block_2_diff,
-			max_distance / QPow::get_distance_threshold_at_block(2),
+			max_distance / QPow::block_distance_thresholds(2),
 			"TotalDifficulty increase should match the distance_threshold of the new block"
 		);
 	});
@@ -395,7 +396,7 @@ fn test_integrated_verification_flow() {
 		let block_hash = [1u8; 32];
 
 		// Get the current distance_threshold
-		let distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let distance_threshold = QPow::block_distance_thresholds(0);
 		println!("Current distance_threshold: {}", distance_threshold);
 
 		// Use a nonce that we know works for our tests
@@ -403,7 +404,7 @@ fn test_integrated_verification_flow() {
 		nonce[63] = 38; // This worked in your previous tests
 
 		// Make sure it's actually valid
-		let distance = QPow::get_nonce_distance(block_hash, nonce);
+		let distance = get_nonce_distance(block_hash, nonce);
 		println!("Nonce distance: {}, Threshold: {}", distance, distance_threshold);
 
 		if distance > distance_threshold {
@@ -429,14 +430,14 @@ fn test_mining_import_flow() {
 		let block_hash = [1u8; 32];
 
 		// Find a valid nonce for testing
-		let distance_threshold = QPow::get_distance_threshold();
+		let distance_threshold = QPow::distance_threshold();
 		let mut valid_nonce = [0u8; 64];
 		let mut found_valid = false;
 
 		for i in 1..1000u16 {
 			valid_nonce[62] = (i >> 8) as u8;
 			valid_nonce[63] = (i & 0xff) as u8;
-			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			let distance = get_nonce_distance(block_hash, valid_nonce);
 			if distance <= distance_threshold {
 				found_valid = true;
 				break;
@@ -466,7 +467,7 @@ fn test_mining_always_importable() {
 			println!("Testing block_hash {}: {:?}", i, hex::encode(block_hash));
 
 			// Find a valid nonce
-			let distance_threshold = QPow::get_distance_threshold();
+			let distance_threshold = QPow::distance_threshold();
 			let mut valid_nonce = [0u8; 64];
 			let mut found_valid = false;
 
@@ -474,7 +475,7 @@ fn test_mining_always_importable() {
 				valid_nonce[62] = (j >> 8) as u8;
 				valid_nonce[63] = (j & 0xff) as u8;
 
-				let distance = QPow::get_nonce_distance(*block_hash, valid_nonce);
+				let distance = get_nonce_distance(*block_hash, valid_nonce);
 				if distance <= distance_threshold {
 					found_valid = true;
 					break;
@@ -519,14 +520,14 @@ fn test_metadata_apis_correctness() {
 			println!("Testing {}: {:?}", description, hex::encode(block_hash));
 
 			// Find and verify a valid nonce
-			let distance_threshold = QPow::get_distance_threshold();
+			let distance_threshold = QPow::distance_threshold();
 			let mut valid_nonce = [0u8; 64];
 			let mut found_valid = false;
 
 			for i in 1..1000u16 {
 				valid_nonce[62] = (i >> 8) as u8;
 				valid_nonce[63] = (i & 0xff) as u8;
-				let distance = QPow::get_nonce_distance(*block_hash, valid_nonce);
+				let distance = get_nonce_distance(*block_hash, valid_nonce);
 				if distance <= distance_threshold {
 					found_valid = true;
 					break;
@@ -549,7 +550,7 @@ fn test_metadata_apis_correctness() {
 fn test_invalid_nonce_no_metadata_storage() {
 	new_test_ext().execute_with(|| {
 		let block_hash = [1u8; 32];
-		let distance_threshold = QPow::get_distance_threshold();
+		let distance_threshold = QPow::distance_threshold();
 
 		// Find an invalid nonce (distance > threshold)
 		let mut invalid_nonce = [0u8; 64];
@@ -559,7 +560,7 @@ fn test_invalid_nonce_no_metadata_storage() {
 			invalid_nonce[62] = (i >> 8) as u8;
 			invalid_nonce[63] = (i & 0xff) as u8;
 
-			let distance = QPow::get_nonce_distance(block_hash, invalid_nonce);
+			let distance = get_nonce_distance(block_hash, invalid_nonce);
 			if distance > distance_threshold {
 				found_invalid = true;
 				break;
@@ -593,7 +594,7 @@ fn test_event_emission_on_import_vs_mining() {
 		let block_hash = [1u8; 32];
 
 		// Get current distance_threshold
-		let distance_threshold = QPow::get_distance_threshold();
+		let distance_threshold = QPow::distance_threshold();
 		println!("Current distance_threshold: {}", distance_threshold);
 
 		// Find a valid nonce for testing
@@ -604,7 +605,7 @@ fn test_event_emission_on_import_vs_mining() {
 			valid_nonce[63] = (i % 256) as u8;
 			valid_nonce[62] = (i / 256) as u8;
 
-			let distance = QPow::get_nonce_distance(block_hash, valid_nonce);
+			let distance = get_nonce_distance(block_hash, valid_nonce);
 			if distance <= distance_threshold {
 				found_valid = true;
 				println!("Found valid nonce: {:?}", valid_nonce);
@@ -845,7 +846,7 @@ fn test_distance_threshold_adjustment_boundaries() {
                    "When adjustment would put distance_threshold below minimum, it should be clamped to minimum");
 
         // 2. Test maximum distance_threshold boundary
-        let max_distance = QPow::get_max_distance();
+        let max_distance = QPow::max_distance();
 
         // A. If initial distance_threshold is already at maximum, it should stay there
         let current_distance_threshold = max_distance;  // Above Maximum
@@ -879,7 +880,7 @@ fn test_distance_threshold_adjustment_boundaries() {
 fn test_calculate_distance_threshold_normal_adjustment() {
 	new_test_ext().execute_with(|| {
         // Start with a medium distance_threshold
-        let current_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let current_distance_threshold = QPow::block_distance_thresholds(0);
         let target_time = 1000; // 1000ms target
 
         // Test slight deviation (10% slower)
@@ -913,8 +914,8 @@ fn test_calculate_distance_threshold_normal_adjustment() {
 #[test]
 fn test_calculate_distance_threshold_consecutive_adjustments() {
 	new_test_ext().execute_with(|| {
-        let mut current_distance_threshold = QPow::get_distance_threshold_at_block(0);
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let mut current_distance_threshold = QPow::block_distance_thresholds(0);
+        let initial_distance_threshold = QPow::block_distance_thresholds(0);
         let target_time = 1000;
 
         // First, measure the effect of a single adjustment
@@ -928,7 +929,7 @@ fn test_calculate_distance_threshold_consecutive_adjustments() {
         println!("Single adjustment increase: {:.2}%", single_adjustment_increase);
 
         // Reset and simulate 5 consecutive periods
-        current_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        current_distance_threshold = QPow::block_distance_thresholds(0);
         for i in 0..5 {
             let new_distance_threshold = QPow::calculate_distance_threshold(
                 current_distance_threshold,
@@ -962,7 +963,7 @@ fn test_calculate_distance_threshold_consecutive_adjustments() {
 #[test]
 fn test_calculate_distance_threshold_oscillation_damping() {
 	new_test_ext().execute_with(|| {
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold = QPow::block_distance_thresholds(0);
         let target_time = 1000;
 
         // Start with current distance_threshold
@@ -1019,7 +1020,7 @@ fn pack_u512_to_f64(value: U512) -> f64 {
 #[test]
 fn test_calculate_distance_threshold_stability_over_time() {
 	new_test_ext().execute_with(|| {
-        let initial_distance_threshold = QPow::get_distance_threshold_at_block(0);
+        let initial_distance_threshold = QPow::block_distance_thresholds(0);
         let target_time = 1000;
         let mut current_distance_threshold = initial_distance_threshold;
 
@@ -1180,7 +1181,7 @@ fn test_median_block_time_ring_buffer() {
 fn test_block_distance_threshold_storage_and_retrieval() {
 	new_test_ext().execute_with(|| {
 		// 1. Test that genesis block distance_threshold is properly set
-		let genesis_distance_threshold = QPow::get_distance_threshold_at_block(0);
+		let genesis_distance_threshold = QPow::block_distance_thresholds(0);
 		let initial_distance_threshold =
 			U512::one().shl(<Test as Config>::InitialDistanceThresholdExponent::get());
 		assert_eq!(
@@ -1190,7 +1191,7 @@ fn test_block_distance_threshold_storage_and_retrieval() {
 
 		// 2. Simulate block production and distance_threshold adjustment
 		run_to_block(1);
-		let block_1_distance_threshold = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold = QPow::block_distance_thresholds(1);
 		assert_eq!(
 			block_1_distance_threshold, initial_distance_threshold,
 			"Block 1 should have same distance_threshold as initial"
@@ -1201,7 +1202,7 @@ fn test_block_distance_threshold_storage_and_retrieval() {
 		run_to_block(adjustment_period + 1);
 
 		// 4. Check that distance_threshold for early blocks hasn't changed
-		let block_1_distance_threshold_after = QPow::get_distance_threshold_at_block(1);
+		let block_1_distance_threshold_after = QPow::block_distance_thresholds(1);
 		assert_eq!(
 			block_1_distance_threshold_after, block_1_distance_threshold,
 			"Historical block distance_threshold should not change"
@@ -1210,7 +1211,7 @@ fn test_block_distance_threshold_storage_and_retrieval() {
 		// 5. Test non-existent block (future block)
 		let latest_block = System::block_number();
 		let future_block = latest_block + 1000;
-		let future_distance_threshold = QPow::get_distance_threshold_at_block(future_block);
+		let future_distance_threshold = QPow::block_distance_thresholds(future_block);
 		assert_eq!(
 			future_distance_threshold,
 			U512::zero(),

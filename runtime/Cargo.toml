@@ -29,6 +29,7 @@ pallet-conviction-voting.workspace = true
 pallet-merkle-airdrop.workspace = true
 pallet-mining-rewards.workspace = true
 pallet-preimage.workspace = true
+pallet-qpm.workspace = true
 pallet-qpow.workspace = true
 pallet-ranked-collective.workspace = true
 pallet-recovery.workspace = true

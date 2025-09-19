@@ -605,3 +605,8 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 		}
 	}
 }
+
+impl pallet_qpm::Config for Runtime {
+	type BlockTimeInfo = QPow;
+	type Timestamp = Moment;
+}
