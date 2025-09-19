@@ -522,15 +522,26 @@ pub fn new_full<
 							log::warn!("API error getting threshold: {:?}", e);
 							U512::zero()
 						});
-					let nonces_to_mine = 3_000_000u64;
+					let nonces_to_mine = 300u64;
 
-					let found =
-						mine_range(block_hash, start_nonce_bytes, nonces_to_mine, threshold);
+					let found = match tokio::task::spawn_blocking(move || {
+						mine_range(block_hash, start_nonce_bytes, nonces_to_mine, threshold)
+					})
+					.await
+					{
+						Ok(res) => res,
+						Err(e) => {
+							log::warn!("⛏️Local mining task failed: {}", e);
+							None
+						},
+					};
 
 					let nonce_bytes = if let Some((good_nonce, _distance)) = found {
 						good_nonce
 					} else {
 						nonce += U512::from(nonces_to_mine);
+						// Yield back to the runtime to avoid starving other tasks
+						tokio::task::yield_now().await;
 						continue;
 					};
 
@@ -547,6 +558,9 @@ pub fn new_full<
 							nonce += U512::one();
 						}
 					}
+
+					// Yield after each mining batch to cooperate with other tasks
+					tokio::task::yield_now().await;
 				}
 			}
 
