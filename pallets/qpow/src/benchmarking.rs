@@ -37,7 +37,6 @@ mod benchmarks {
 		{
 			QPoW::<T>::on_finalize(block_number);
 		}
-
 	}
 
 	impl_benchmark_test_suite!(QPoW, crate::mock::new_test_ext(), crate::mock::Test);
