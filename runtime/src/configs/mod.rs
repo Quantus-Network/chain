@@ -66,7 +66,7 @@ use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
 	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
-	EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
+	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -138,8 +138,8 @@ impl pallet_mining_rewards::Config for Runtime {
 
 parameter_types! {
 	/// Target block time ms
-	pub const TargetBlockTime: u64 = 12000;
-	pub const TimestampBucketSize: u64 = 40000; // Nyquist frequency
+	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
+	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
 }
 
 impl pallet_qpow::Config for Runtime {

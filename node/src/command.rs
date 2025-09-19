@@ -11,7 +11,7 @@ use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
-use sp_core::crypto::{AccountId32, Ss58Codec};
+use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
 
@@ -85,7 +85,7 @@ pub fn generate_quantus_key(
 			let account_id = AccountId32::from(dilithium_pair.public());
 
 			Ok(QuantusKeyDetails {
-				address: account_id.to_ss58check(),
+				address: account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
 				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),

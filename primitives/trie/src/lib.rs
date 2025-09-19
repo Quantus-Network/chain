@@ -642,7 +642,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(db, keyspace);
-	TrieDBBuilder::<L>::new(&db, &root)
+	TrieDBBuilder::<L>::new(&db, root)
 		.with_optional_recorder(recorder)
 		.with_optional_cache(cache)
 		.build()
@@ -663,7 +663,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(db, keyspace);
-	TrieDBBuilder::<L>::new(&db, &root)
+	TrieDBBuilder::<L>::new(&db, root)
 		.with_optional_recorder(recorder)
 		.with_optional_cache(cache)
 		.build()
@@ -684,7 +684,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(db, keyspace);
-	TrieDBBuilder::<L>::new(&db, &root)
+	TrieDBBuilder::<L>::new(&db, root)
 		.with_optional_recorder(recorder)
 		.with_optional_cache(cache)
 		.build()
@@ -1239,10 +1239,10 @@ mod tests {
 
 	fn child_reference_8_byte_boundary_inner<L: TrieConfiguration>() {
 		use crate::NodeCodec;
-		use rand::Rng;
+
 		use trie_db::NodeCodec as NodeCodecT;
 
-		let mut rng = rand::thread_rng();
+		let _rng = rand::thread_rng();
 		let mut nodes_checked = 0;
 		let mut child_refs_checked = 0;
 
@@ -1438,6 +1438,7 @@ mod tests {
 		(n as u64).to_le_bytes()
 	}
 
+	#[allow(dead_code)]
 	fn to_compact(n: u8) -> u8 {
 		Compact(n).encode()[0]
 	}
@@ -1780,7 +1781,7 @@ mod tests {
 			let decoded = NodeCodec::<Blake2Hasher>::decode_plan(&encoded).unwrap();
 
 			// Verify structure
-			if let trie_db::node::NodePlan::Leaf { partial, value } = decoded {
+			if let trie_db::node::NodePlan::Leaf { partial: _, value: _ } = decoded {
 				// Just verify we got a leaf node with a partial key
 				println!("✓ Successfully decoded leaf node with partial key");
 			} else {
@@ -1830,7 +1831,6 @@ mod tests {
 	}
 
 	fn test_reproduce_incomplete_database_scenarios_inner<L: TrieConfiguration>() {
-		use memory_db::{HashKey, MemoryDB};
 		use trie_db::{TrieDBMutBuilder, TrieMut};
 
 		let mut memdb = MemoryDBMeta::<L::Hash>::new(&0u64.to_le_bytes());
@@ -1872,8 +1872,6 @@ mod tests {
 	}
 
 	fn test_child_trie_root_handling_inner<L: TrieConfiguration>() {
-		use codec::Encode;
-		use memory_db::{HashKey, MemoryDB, PrefixedKey};
 		use trie_db::{TrieDBMutBuilder, TrieMut};
 
 		// Step 1: Build a child trie (mimicking the test_db pattern)
@@ -1927,7 +1925,6 @@ mod tests {
 	}
 
 	fn test_unaligned_value_insertion_edge_cases_inner<L: TrieConfiguration>() {
-		use memory_db::{HashKey, MemoryDB};
 		use trie_db::{TrieDBMutBuilder, TrieMut};
 
 		let mut memdb = MemoryDBMeta::<L::Hash>::new(&0u64.to_le_bytes());
@@ -2044,7 +2041,6 @@ mod tests {
 	}
 
 	fn test_minimal_single_insert_inner<L: TrieConfiguration>() {
-		use memory_db::{HashKey, MemoryDB};
 		use trie_db::{TrieDBMutBuilder, TrieMut};
 
 		let mut memdb = MemoryDBMeta::<L::Hash>::new(&0u64.to_le_bytes());
@@ -2074,7 +2070,6 @@ mod tests {
 	}
 
 	fn test_progressive_inserts_inner<L: TrieConfiguration>() {
-		use memory_db::{HashKey, MemoryDB};
 		use trie_db::{TrieDBMutBuilder, TrieMut};
 
 		let mut memdb = MemoryDBMeta::<L::Hash>::new(&0u64.to_le_bytes());

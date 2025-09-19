@@ -20,14 +20,14 @@ const SEED: u32 = 0;
 fn make_transfer_call<T: Config>(
 	dest: T::AccountId,
 	value: u128,
-) -> Result<T::RuntimeCall, &'static str>
+) -> Result<RuntimeCallOf<T>, &'static str>
 where
-	T::RuntimeCall: From<pallet_balances::Call<T>>,
+	RuntimeCallOf<T>: From<pallet_balances::Call<T>>,
 	BalanceOf<T>: From<u128>,
 {
 	let dest_lookup = <T as frame_system::Config>::Lookup::unlookup(dest);
 
-	let call: T::RuntimeCall =
+	let call: RuntimeCallOf<T> =
 		pallet_balances::Call::<T>::transfer_keep_alive { dest: dest_lookup, value: value.into() }
 			.into();
 	Ok(call)
@@ -38,12 +38,8 @@ fn setup_high_security_account<T: Config>(
 	who: T::AccountId,
 	delay: BlockNumberOrTimestampOf<T>,
 	interceptor: T::AccountId,
-	recoverer: T::AccountId,
 ) {
-	HighSecurityAccounts::<T>::insert(
-		who,
-		HighSecurityAccountData { delay, interceptor, recoverer },
-	);
+	HighSecurityAccounts::<T>::insert(who, HighSecurityAccountData { delay, interceptor });
 }
 
 // Helper to fund an account (requires Balances pallet in mock runtime)
@@ -73,7 +69,7 @@ type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
     T: Send + Sync,
     T: Config + pallet_balances::Config,
     <T as pallet_balances::Config>::Balance: From<u128> + Into<u128>,
-    T::RuntimeCall: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
+    RuntimeCallOf<T>: From<pallet_balances::Call<T>> + From<frame_system::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
@@ -81,16 +77,16 @@ mod benchmarks {
 	#[benchmark]
 	fn set_high_security() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		let interceptor: T::AccountId = benchmark_account("interceptor", 0, SEED);
-		let recoverer: T::AccountId = benchmark_account("recoverer", 1, SEED);
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone(), recoverer.clone());
+		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone());
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 
 		Ok(())
@@ -102,17 +98,11 @@ mod benchmarks {
 		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
-		let recoverer: T::AccountId = benchmark_account("recoverer", 2, SEED);
 		let transfer_amount = 100u128;
 
 		// Setup caller as reversible
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(
-			caller.clone(),
-			delay.clone(),
-			interceptor.clone(),
-			recoverer.clone(),
-		);
+		setup_high_security_account::<T>(caller.clone(), delay.clone(), interceptor.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 		let global_nonce = GlobalNonce::<T>::get();
@@ -126,9 +116,10 @@ mod benchmarks {
 		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
 		assert!(PendingTransfers::<T>::contains_key(&tx_id));
 		// Check scheduler state (can be complex, checking count is simpler)
-		let execute_at = T::BlockNumberProvider::current_block_number().saturating_add(
-			delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
-		);
+		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
+			.saturating_add(
+				delay.as_block_number().expect("Timestamp delay not supported in benchmark"),
+			);
 		let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
 		assert_eq!(T::Scheduler::next_dispatch_time(task_name)?, execute_at);
 
@@ -139,7 +130,6 @@ mod benchmarks {
 	fn cancel() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
-		let recoverer: T::AccountId = benchmark_account("recoverer", 2, SEED);
 
 		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
 		fund_account::<T>(&interceptor, BalanceOf::<T>::from(1000u128));
@@ -148,7 +138,7 @@ mod benchmarks {
 
 		// Setup caller as reversible and schedule a task in setup
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone(), recoverer);
+		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
@@ -193,7 +183,7 @@ mod benchmarks {
 
 		// Setup owner as reversible and schedule a task in setup
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(owner.clone(), delay, interceptor, recoverer);
+		setup_high_security_account::<T>(owner.clone(), delay, interceptor);
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
 		let owner_origin = RawOrigin::Signed(owner.clone()).into();
@@ -237,5 +227,9 @@ mod benchmarks {
 		Ok(())
 	}
 
-	impl_benchmark_test_suite!(ReversibleTransfers, crate::mock::new_test_ext(), crate::mock::Test);
+	impl_benchmark_test_suite!(
+		ReversibleTransfers,
+		crate::tests::mock::new_test_ext(),
+		crate::tests::mock::Test
+	);
 }
