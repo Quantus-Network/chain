@@ -316,8 +316,8 @@ pub mod pallet {
 		/// security account.
 		/// - interceptor: The account that can intercept transctions from the
 		/// high security account.
-		/// - recoverer: Account that can recover (act as proxy to) the high security
-		/// account
+		/// - recoverer: Account that can recover (act as proxy to) the high 
+		/// security account
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]
 		pub fn set_high_security(
