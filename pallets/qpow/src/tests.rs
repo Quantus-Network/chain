@@ -307,8 +307,10 @@ fn test_total_distance_threshold_accumulation() {
 		let mut expected_total = U512::one();
 		let max_distance = QPow::get_max_distance();
 		for i in 1..=10 {
+			// Get the distance threshold BEFORE running the block, since that's what
+			// gets used to calculate the work that gets added to TotalWork
+			let block_distance_threshold = QPow::get_distance_threshold();
 			run_to_block(i);
-			let block_distance_threshold = QPow::get_distance_threshold_at_block(i as u64);
 			expected_total = expected_total.saturating_add(max_distance / block_distance_threshold);
 
 			let stored_total = QPow::get_total_work();

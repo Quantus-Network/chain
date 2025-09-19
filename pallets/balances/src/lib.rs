@@ -523,7 +523,7 @@ pub mod pallet {
 	pub type TransferProof<T: Config<I>, I: 'static = ()> = StorageMap<
 		_,
 		PoseidonStorageHasher<T::AccountId>,
-		(u64, T::AccountId, T::AccountId, T::Balance), // (tx_count, from, to, amount)
+		(u64, T::AccountId, T::AccountId, T::Balance, T::AssetId), // (tx_count, from, to, amount, asset_id)
 		(),
 		OptionQuery, // Returns None if not present
 	>;
@@ -870,12 +870,13 @@ pub mod pallet {
 			from: &T::AccountId,
 			to: &T::AccountId,
 			value: T::Balance,
+			asset_id: T::AssetId,
 		) {
 			if from != to {
 				let current_count = Self::transfer_count();
 				TransferCount::<T, I>::put(current_count.saturating_add(One::one()));
 
-				TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
+				TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value, asset_id), ());
 			}
 		}
 
