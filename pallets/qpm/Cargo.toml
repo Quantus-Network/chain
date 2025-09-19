@@ -22,8 +22,8 @@ frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
-sp-runtime.workspace = true
 sp-consensus-qpow.workspace = true
+sp-runtime.workspace = true
 
 [dev-dependencies]
 pallet-balances.features = ["std"]

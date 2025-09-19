@@ -76,7 +76,8 @@ pub mod pallet {
 
 		/// Block buffer time. How many blocks in the future can predictions be made for?
 		///
-		/// This value determines the minimum number of blocks in the future for which predictions can be made.
+		/// This value determines the minimum number of blocks in the future for which predictions
+		/// can be made.
 		#[pallet::constant]
 		type BlockBufferTime: Get<BlockNumberFor<Self>>;
 
