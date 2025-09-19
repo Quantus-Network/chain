@@ -529,7 +529,7 @@ pub fn new_full<
 						Err(e) => {
 							log::warn!("⛏️Local mining task failed: {}", e);
 							None
-						}
+						},
 					};
 
 					let nonce_bytes = if let Some((good_nonce, _distance)) = found {
