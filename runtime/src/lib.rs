@@ -93,10 +93,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 };
 
 // Time is measured by number of blocks.
-pub const TARGET_BLOCK_TIME_MS: u64 = 20_000;
+pub const TARGET_BLOCK_TIME_MS: u64 = 12_000;
 
 /// Derived time units expressed in number of blocks
-pub const MINUTES: BlockNumber = (60_000u64 / TARGET_BLOCK_TIME_MS) as BlockNumber; // e.g., 60/20s = 3 blocks
+pub const MINUTES: BlockNumber = (60_000u64 / TARGET_BLOCK_TIME_MS) as BlockNumber; // e.g., 60/12s = 5 blocks
 pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
 
