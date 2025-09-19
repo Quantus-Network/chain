@@ -75,7 +75,7 @@ parameter_types! {
 	pub const BlockHashCount: BlockNumber = 4096;
 	pub const Version: RuntimeVersion = VERSION;
 
-	/// We allow for 6 seconds of compute with a 20 second average block time.
+	/// We allow for 6 seconds of compute with a 12 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
 		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 		NORMAL_DISPATCH_RATIO,
@@ -138,7 +138,7 @@ impl pallet_mining_rewards::Config for Runtime {
 
 parameter_types! {
 	/// Target block time ms
-	pub const TargetBlockTime: u64 = 20000;
+	pub const TargetBlockTime: u64 = 12000;
 	pub const TimestampBucketSize: u64 = 40000; // Nyquist frequency
 }
 
