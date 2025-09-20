@@ -99,7 +99,9 @@ impl<const N: usize, SubTag> Default for WrappedPublicBytes<N, SubTag> {
 impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag> {
 	#[cfg(feature = "std")]
 	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+		use sp_core::bytes::to_hex;
+
+		write!(f, "{}", to_hex(&self.0.as_ref(), false))
 	}
 
 	#[cfg(not(feature = "std"))]
@@ -174,8 +176,10 @@ impl<const N: usize, SubTag> Default for WrappedSignatureBytes<N, SubTag> {
 
 impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedSignatureBytes<N, SubTag> {
 	#[cfg(feature = "std")]
-	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-		write!(f, "{}", sp_core::hexdisplay::HexDisplay::from(&self.0.as_ref()))
+	fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+		use sp_core::bytes::to_hex;
+
+		write!(f, "{}", to_hex(self.0.as_slice(), false))
 	}
 
 	#[cfg(not(feature = "std"))]
