@@ -24,7 +24,7 @@ pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], threshold: U512) ->
 
 pub fn get_nonce_distance(
 	block_hash: [u8; 32], // 256-bit block_hash
-	nonce: [u8; 64],  // 512-bit nonce
+	nonce: [u8; 64],      // 512-bit nonce
 ) -> U512 {
 	// s = 0 is cheating
 	if nonce == [0u8; 64] {
@@ -61,11 +61,16 @@ pub fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
 	// Keep hashing until we find composite coprime n > m
 	while n % 2u32 == U512::zero() || n <= m || !is_coprime(&m, &n) || is_prime(&n) {
 		log::trace!("Rerolling rsa n = {}", n);
-	    n_bytes = poseidon.hash_512(&n_bytes);
-	    n = U512::from_big_endian(&n_bytes);
+		n_bytes = poseidon.hash_512(&n_bytes);
+		n = U512::from_big_endian(&n_bytes);
 	}
 
-	log::trace!("Generated RSA pair (m, n) = ({}, {}) from block_hash {}", m, n, hex::encode(block_hash));
+	log::trace!(
+		"Generated RSA pair (m, n) = ({}, {}) from block_hash {}",
+		m,
+		n,
+		hex::encode(block_hash)
+	);
 	(m, n)
 }
 
@@ -147,7 +152,7 @@ pub fn mine_range(
 	if steps == 0 {
 		return None;
 	}
-	
+
 	let (m, n) = get_random_rsa(&block_hash);
 	let block_hash_int = U512::from_big_endian(&block_hash);
 
@@ -156,16 +161,16 @@ pub fn mine_range(
 	// Precompute constant target element once
 	let target = hash_to_group_bigint_poseidon(&block_hash_int, &m, &n, &U512::zero());
 
-	// Compute initial value m^(h + nonce) mod 
+	// Compute initial value m^(h + nonce) mod
 	// n
 	let mut value = mod_pow(&m, &block_hash_int.saturating_add(nonce_u), &n);
-	
+
 	let poseidon = Poseidon2Core::new();
 	for _ in 0..steps {
-	    let nonce_element = U512::from_big_endian(&poseidon.hash_512(&value.to_big_endian()));
+		let nonce_element = U512::from_big_endian(&poseidon.hash_512(&value.to_big_endian()));
 		let distance = target.bitxor(nonce_element);
 		if distance <= threshold {
-		    log::debug!(target: "math", "💎 Local miner found nonce {} with distance {} and target {} and nonce_element {} and block_hash {:?} and m = {} and n = {}", nonce_u, distance, target, nonce_element, hex::encode(block_hash), m, n);
+			log::debug!(target: "math", "💎 Local miner found nonce {} with distance {} and target {} and nonce_element {} and block_hash {:?} and m = {} and n = {}", nonce_u, distance, target, nonce_element, hex::encode(block_hash), m, n);
 			return Some((nonce_u.to_big_endian(), distance));
 		}
 		// Advance to next nonce: exponent increases by 1
@@ -275,4 +280,3 @@ pub fn is_prime(n: &U512) -> bool {
 
 	true
 }
-

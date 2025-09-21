@@ -10,10 +10,10 @@ use sp_consensus_qpow::QPoWApi;
 use sp_runtime::generic::BlockId;
 use std::{sync::Arc, time::Duration};
 
-pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
-use hex;
 use crate::worker::UntilImportedOrTimeout;
+pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
 use futures::{Future, StreamExt};
+use hex;
 use log::*;
 use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
