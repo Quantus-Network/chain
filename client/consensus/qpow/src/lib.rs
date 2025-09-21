@@ -11,7 +11,7 @@ use sp_runtime::generic::BlockId;
 use std::{sync::Arc, time::Duration};
 
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
-
+use hex;
 use crate::worker::UntilImportedOrTimeout;
 use futures::{Future, StreamExt};
 use log::*;
@@ -547,7 +547,7 @@ where
 	if !verified {
 		warn!(
             "Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime",
-            pre_hash_arr,
+            hex::encode(pre_hash_arr),
             parent_hash,
             nonce,
             difficulty

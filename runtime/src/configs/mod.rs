@@ -144,7 +144,7 @@ parameter_types! {
 
 impl pallet_qpow::Config for Runtime {
 	// NOTE: InitialDistance will be shifted left by this amount: higher is easier
-	type InitialDistanceThresholdExponent = ConstU32<488>;
+	type InitialDistanceThresholdExponent = ConstU32<496>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
