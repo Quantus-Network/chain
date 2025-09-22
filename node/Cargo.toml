@@ -38,13 +38,13 @@ qp-dilithium-crypto = { workspace = true }
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
 qpow-math.workspace = true
+quantus-miner-api = { path = "../miner-api", default-features = false }
 quantus-runtime.workspace = true
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
 reqwest = { workspace = true, default-features = false, features = ["json"] }
-resonance-miner-api = { path = "../resonance-miner-api", default-features = false }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
