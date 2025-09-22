@@ -324,7 +324,7 @@ pub mod pallet {
 		/// - interceptor: The account that can intercept transctions from the
 		/// high security account.
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]
+		#[pallet::weight(<T as Config>::WeightInfo::set_high_security())]
 		pub fn set_high_security(
 			origin: OriginFor<T>,
 			delay: BlockNumberOrTimestampOf<T>,
@@ -410,7 +410,7 @@ pub mod pallet {
 		/// Schedule a transaction for delayed execution with a custom, one-time delay.
 		///
 		/// This can only be used by accounts that have *not* set up a persistent
-		/// reversibility configuration with `set_reversibility`.
+		/// reversibility configuration with `set_high_security`.
 		///
 		/// - `delay`: The time (in blocks or milliseconds) before the transaction executes.
 		#[pallet::call_index(4)]
