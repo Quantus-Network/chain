@@ -62,6 +62,9 @@ pub struct PendingTransfer<AccountId, Balance, Call> {
 /// Balance type
 type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
+/// AssetId type
+type AssetIdOf<T> = <T as pallet_assets::Config>::AssetId;
+
 /// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
 type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
 
@@ -91,10 +94,13 @@ pub mod pallet {
 	pub trait Config:
 		frame_system::Config<
 			RuntimeCall: From<pallet_balances::Call<Self>>
+			                 + From<pallet_assets::Call<Self>>
 			                 + From<Call<Self>>
 			                 + Dispatchable<PostInfo = PostDispatchInfo>
-			                 + TryInto<pallet_balances::Call<Self>>,
+			                 + TryInto<pallet_balances::Call<Self>>
+			                 + TryInto<pallet_assets::Call<Self>>,
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
+		+ pallet_assets::Config<Balance = <Self as pallet_balances::Config>::Balance>
 		+ pallet_recovery::Config
 	{
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
@@ -249,7 +255,8 @@ pub mod pallet {
 			from: T::AccountId,
 			to: T::AccountId,
 			interceptor: T::AccountId,
-			amount: T::Balance,
+			asset_id: Option<AssetIdOf<T>>,
+			amount: BalanceOf<T>,
 			tx_id: T::Hash,
 			execute_at: DispatchTime<BlockNumberFor<T>, T::Moment>,
 		},
@@ -426,7 +433,48 @@ pub mod pallet {
 			// Validate the provided delay.
 			Self::validate_delay(&delay)?;
 
-			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay)
+			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, None)
+		}
+
+		/// Schedule an asset transfer (pallet-assets) for delayed execution using the configured
+		/// delay.
+		#[pallet::call_index(5)]
+		#[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+		pub fn schedule_asset_transfer(
+			origin: OriginFor<T>,
+			asset_id: AssetIdOf<T>,
+			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let HighSecurityAccountData { delay, interceptor, .. } =
+				Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
+
+			Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay, Some(asset_id))
+		}
+
+		/// Schedule an asset transfer (pallet-assets) with a custom one-time delay.
+		#[pallet::call_index(6)]
+		#[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+		pub fn schedule_asset_transfer_with_delay(
+			origin: OriginFor<T>,
+			asset_id: AssetIdOf<T>,
+			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+			amount: BalanceOf<T>,
+			delay: BlockNumberOrTimestampOf<T>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			// High security accounts cannot use this extrinsic.
+			ensure!(
+				!HighSecurityAccounts::<T>::contains_key(&who),
+				Error::<T>::AccountAlreadyReversibleCannotScheduleOneTime
+			);
+
+			// Validate the provided delay.
+			Self::validate_delay(&delay)?;
+
+			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, Some(asset_id))
 		}
 	}
 
@@ -500,13 +548,28 @@ pub mod pallet {
 			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-			// Release the funds
-			pallet_balances::Pallet::<T>::release(
-				&HoldReason::ScheduledTransfer.into(),
-				&pending.from,
-				pending.amount,
-				Precision::Exact,
-			)?;
+			// If this is an assets transfer, thaw the sender before dispatch
+			if let Ok(assets_call) = call.clone().try_into() {
+				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
+					let _ = pallet_assets::Pallet::<T>::thaw(
+						frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
+						id,
+						T::Lookup::unlookup(pending.from.clone()),
+					);
+				}
+			}
+
+			// Release the funds only for native balances holds
+			if let Ok(balance_call) = call.clone().try_into() {
+				if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
+					pallet_balances::Pallet::<T>::release(
+						&HoldReason::ScheduledTransfer.into(),
+						&pending.from,
+						pending.amount,
+						Precision::Exact,
+					)?;
+				}
+			}
 
 			// Remove transfer from all storage (handles indexes, account count, etc.)
 			Self::transfer_removed(&pending.from, *tx_id, &pending);
@@ -582,19 +645,10 @@ pub mod pallet {
 				list.retain(|&x| x != tx_id);
 			});
 
-			// Extract recipient from the call and clean up recipient index efficiently
-			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending_transfer.call) {
-				if let Ok(balance_call) = call.try_into() {
-					if let pallet_balances::Call::transfer_keep_alive { dest, .. } = balance_call {
-						if let Ok(recipient) = T::Lookup::lookup(dest) {
-							// Clean up recipient index efficiently
-							PendingTransfersByRecipient::<T>::mutate(&recipient, |list| {
-								list.retain(|&x| x != tx_id);
-							});
-						}
-					}
-				}
-			}
+			// Clean up recipient index efficiently using stored recipient
+			PendingTransfersByRecipient::<T>::mutate(&pending_transfer.to, |list| {
+				list.retain(|&x| x != tx_id);
+			});
 		}
 
 		/// Internal logic to schedule a transfer with a given delay.
@@ -604,11 +658,22 @@ pub mod pallet {
 			interceptor: T::AccountId,
 			amount: BalanceOf<T>,
 			delay: BlockNumberOrTimestampOf<T>,
+			asset_id: Option<AssetIdOf<T>>,
 		) -> DispatchResult {
 			let recipient = T::Lookup::lookup(to.clone())?;
-			let transfer_call: RuntimeCallOf<T> =
-				pallet_balances::Call::<T>::transfer_keep_alive { dest: to.clone(), value: amount }
-					.into();
+			let transfer_call: RuntimeCallOf<T> = match asset_id {
+				Some(ref id) => pallet_assets::Call::<T>::transfer_keep_alive {
+					id: id.clone().into(),
+					target: to.clone(),
+					amount,
+				}
+				.into(),
+				None => pallet_balances::Call::<T>::transfer_keep_alive {
+					dest: to.clone(),
+					value: amount,
+				}
+				.into(),
+			};
 
 			let tx_id = T::Hashing::hash_of(
 				&(from.clone(), transfer_call.clone(), GlobalNonce::<T>::get()).encode(),
@@ -670,12 +735,20 @@ pub mod pallet {
 				Error::<T>::SchedulingFailed
 			})?;
 
-			// Hold the funds for the delay period
-			pallet_balances::Pallet::<T>::hold(
-				&HoldReason::ScheduledTransfer.into(),
-				&from,
-				amount,
-			)?;
+			// For assets, freeze the account; for native balances, hold the funds
+			if let Some(ref id) = asset_id {
+				let _ = pallet_assets::Pallet::<T>::freeze(
+					frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
+					id.clone().into(),
+					T::Lookup::unlookup(from.clone()),
+				);
+			} else {
+				pallet_balances::Pallet::<T>::hold(
+					&HoldReason::ScheduledTransfer.into(),
+					&from,
+					amount,
+				)?;
+			}
 
 			GlobalNonce::<T>::mutate(|nonce| nonce.saturating_inc());
 
@@ -683,6 +756,7 @@ pub mod pallet {
 				from,
 				to: recipient,
 				interceptor,
+				asset_id,
 				tx_id,
 				execute_at: dispatch_time,
 				amount,
@@ -702,7 +776,7 @@ pub mod pallet {
 			let HighSecurityAccountData { delay, interceptor, .. } =
 				Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
 
-			Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay)
+			Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay, None)
 		}
 
 		/// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
@@ -729,15 +803,31 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			pallet_balances::Pallet::<T>::transfer_on_hold(
-				&HoldReason::ScheduledTransfer.into(),
-				&pending.from,
-				&interceptor,
-				pending.amount,
-				Precision::Exact,
-				Restriction::Free,
-				Fortitude::Polite,
-			)?;
+			// For assets, thaw the sender; for native balances, transfer held funds to interceptor
+			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
+				if let Ok(assets_call) = call.clone().try_into() {
+					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
+						let _ = pallet_assets::Pallet::<T>::thaw(
+							frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
+							id,
+							T::Lookup::unlookup(pending.from.clone()),
+						);
+					}
+				}
+				if let Ok(balance_call) = call.clone().try_into() {
+					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
+						pallet_balances::Pallet::<T>::transfer_on_hold(
+							&HoldReason::ScheduledTransfer.into(),
+							&pending.from,
+							&interceptor,
+							pending.amount,
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
+						)?;
+					}
+				}
+			}
 
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
