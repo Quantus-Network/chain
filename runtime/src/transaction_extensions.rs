@@ -37,16 +37,16 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		match call {
-			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer { .. }) => {
-				<T as pallet_reversible_transfers::Config>::WeightInfo::schedule_transfer()
-			},
-			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) => {
-				<T as pallet_reversible_transfers::Config>::WeightInfo::cancel()
-			},
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer { .. },
+			) => <T as pallet_reversible_transfers::Config>::WeightInfo::schedule_transfer(),
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				..
+			}) => <T as pallet_reversible_transfers::Config>::WeightInfo::cancel(),
 			_ => {
 				// For all other calls, just account for reading the reversible accounts status
 				T::DbWeight::get().reads(1)
-			}
+			},
 		}
 	}
 
@@ -80,8 +80,12 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		if ReversibleTransfers::is_high_security(&who).is_some() {
 			// High-security accounts can only call schedule_transfer and cancel
 			match call {
-				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer { .. }) |
-				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) => {
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. },
+				) |
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					..
+				}) => {
 					// Allow these calls to proceed
 					return Ok((ValidTransaction::default(), (), origin));
 				},
@@ -90,7 +94,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
 						InvalidTransaction::Custom(1),
 					));
-				}
+				},
 			}
 		}
 
@@ -140,7 +144,6 @@ mod tests {
 
 		sp_io::TestExternalities::new(t)
 	}
-
 
 	#[test]
 	fn test_reversible_transaction_extension() {
@@ -194,19 +197,22 @@ mod tests {
 			assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
 
 			// High-security accounts can call schedule_transfer
-			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
-				dest: MultiAddress::Id(bob()),
-				amount: 10 * EXISTENTIAL_DEPOSIT,
-			});
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Id(bob()),
+					amount: 10 * EXISTENTIAL_DEPOSIT,
+				},
+			);
 
 			// Test the validate method
 			let result = check_call(call);
 			assert!(result.is_ok());
 
 			// High-security accounts can call cancel
-			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
-				tx_id: sp_core::H256::default(),
-			});
+			let call =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id: sp_core::H256::default(),
+				});
 			let result = check_call(call);
 			assert!(result.is_ok());
 
@@ -242,9 +248,7 @@ mod tests {
 		let origin = RuntimeOrigin::signed(charlie());
 
 		// Test the prepare method
-		ext.clone()
-			.prepare((), &origin, &call, &Default::default(), 0)
-			.unwrap();
+		ext.clone().prepare((), &origin, &call, &Default::default(), 0).unwrap();
 
 		assert_eq!((), ());
 
@@ -329,10 +333,12 @@ mod tests {
 	#[test]
 	fn test_high_security_schedule_transfer_allowed() {
 		new_test_ext().execute_with(|| {
-			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
-				dest: MultiAddress::Id(bob()),
-				amount: 10 * EXISTENTIAL_DEPOSIT,
-			});
+			let call = RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer {
+					dest: MultiAddress::Id(bob()),
+					amount: 10 * EXISTENTIAL_DEPOSIT,
+				},
+			);
 			let result = check_call(call);
 
 			// High-security accounts can call schedule_transfer
@@ -343,9 +349,10 @@ mod tests {
 	#[test]
 	fn test_high_security_cancel_allowed() {
 		new_test_ext().execute_with(|| {
-			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
-				tx_id: sp_core::H256::default(),
-			});
+			let call =
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+					tx_id: sp_core::H256::default(),
+				});
 			let result = check_call(call);
 
 			// High-security accounts can call cancel
