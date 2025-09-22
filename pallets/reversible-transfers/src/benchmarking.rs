@@ -213,8 +213,8 @@ mod benchmarks {
 		// Check side effect of inner call (balance transfer)
 		let initial_balance = <pallet_balances::Pallet<T> as frame_support::traits::Currency<
 			T::AccountId,
-		>>::minimum_balance()
-			* 100_u128.into();
+		>>::minimum_balance() *
+			100_u128.into();
 		let expected_balance = initial_balance.saturating_add(transfer_amount.into());
 		assert_eq!(
             <pallet_balances::Pallet<T> as frame_support::traits::Currency<T::AccountId>>::free_balance(
