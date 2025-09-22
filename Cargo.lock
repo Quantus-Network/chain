@@ -7244,6 +7244,7 @@ dependencies = [
  "polkavm 0.21.0",
  "polkavm-common 0.21.0",
  "rand 0.8.5",
+ "rand_pcg",
  "ripemd",
  "rlp 0.6.1",
  "scale-info",
