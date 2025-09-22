@@ -51,7 +51,7 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_reversible_transfers`.
 pub trait WeightInfo {
-	fn set_reversibility() -> Weight;
+	fn set_high_security() -> Weight;
 	fn schedule_transfer() -> Weight;
 	fn cancel() -> Weight;
 	fn execute_transfer() -> Weight;
@@ -62,7 +62,7 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `ReversibleTransfers::ReversibleAccounts` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::ReversibleAccounts` (`max_values`: None, `max_size`: Some(91), added: 2566, mode: `MaxEncodedLen`)
-	fn set_reversibility() -> Weight {
+	fn set_high_security() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `76`
 		//  Estimated: `3556`
@@ -142,7 +142,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	/// Storage: `ReversibleTransfers::ReversibleAccounts` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::ReversibleAccounts` (`max_values`: None, `max_size`: Some(91), added: 2566, mode: `MaxEncodedLen`)
-	fn set_reversibility() -> Weight {
+	fn set_high_security() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `76`
 		//  Estimated: `3556`

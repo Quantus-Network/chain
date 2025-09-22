@@ -605,3 +605,13 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 		}
 	}
 }
+
+impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+		match call {
+			RuntimeCall::Assets(c) => Ok(c),
+			_ => Err(()),
+		}
+	}
+}
