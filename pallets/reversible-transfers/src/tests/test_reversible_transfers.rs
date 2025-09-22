@@ -45,6 +45,28 @@ fn run_to_block(n: u64) {
 	}
 }
 
+// --- Minimal assets helpers for tests ---
+fn create_asset(id: u32, owner: AccountId) {
+	// Create asset with owner as admin/issuer
+	assert_ok!(pallet_assets::Pallet::<Test>::create(
+		RuntimeOrigin::signed(owner),
+		codec::Compact(id),
+		owner,
+		1,
+	));
+	// Mint some supply to owner
+	assert_ok!(pallet_assets::Pallet::<Test>::mint(
+		RuntimeOrigin::signed(owner),
+		codec::Compact(id),
+		owner,
+		1_000_000_000_000,
+	));
+}
+
+fn asset_balance(id: u32, who: AccountId) -> Balance {
+	pallet_assets::Pallet::<Test>::balance(id, who)
+}
+
 #[test]
 fn set_high_security_works() {
 	new_test_ext().execute_with(|| {
@@ -1158,6 +1180,72 @@ fn schedule_transfer_with_delay_works() {
 			),
 			Error::<Test>::AccountAlreadyReversibleCannotScheduleOneTime
 		);
+	});
+}
+
+#[test]
+fn schedule_asset_transfer_works() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 1; // has high-security from genesis
+		let recipient: AccountId = 4;
+		let asset_id: u32 = 42;
+		let amount: Balance = 1_000;
+
+		create_asset(asset_id, sender);
+		let sender_asset_before = asset_balance(asset_id, sender);
+		let recipient_asset_before = asset_balance(asset_id, recipient);
+
+		// Schedule asset transfer using configured delay
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			amount,
+		));
+
+		// Should be frozen (assets path uses freeze, not balances hold)
+		// Verify pending index increments
+		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
+		// Advance to execution and ensure balances moved
+		let HighSecurityAccountData { delay, .. } =
+			ReversibleTransfers::is_high_security(&sender).unwrap();
+		let execute_block = System::block_number() + delay.as_block_number().unwrap();
+		run_to_block(execute_block);
+
+		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
+	});
+}
+
+#[test]
+fn schedule_asset_transfer_with_delay_works() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 3; // not configured; use one-time delay API
+		let recipient: AccountId = 4;
+		let asset_id: u32 = 77;
+		let amount: Balance = 2_000;
+		let custom_delay_blocks: u64 = 8;
+
+		create_asset(asset_id, sender);
+		let sender_asset_before = asset_balance(asset_id, sender);
+		let recipient_asset_before = asset_balance(asset_id, recipient);
+
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer_with_delay(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			amount,
+			BlockNumberOrTimestamp::BlockNumber(custom_delay_blocks),
+		));
+
+		let execute_block = System::block_number() + custom_delay_blocks;
+		run_to_block(execute_block);
+
+		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
 	});
 }
 

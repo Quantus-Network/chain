@@ -55,13 +55,27 @@ mod runtime {
 
 	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
+
+	#[runtime::pallet_index(7)]
+	pub type Assets = pallet_assets::Pallet<Test>;
 }
 
-impl From<RuntimeCall> for pallet_balances::Call<Test> {
-	fn from(call: RuntimeCall) -> Self {
+impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
+    type Error = ();
+    fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+        match call {
+            RuntimeCall::Balances(c) => Ok(c),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<RuntimeCall> for pallet_assets::Call<Test> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
 		match call {
-			RuntimeCall::Balances(c) => c,
-			_ => unreachable!(),
+			RuntimeCall::Assets(c) => Ok(c),
+			_ => Err(()),
 		}
 	}
 }
@@ -145,6 +159,38 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+}
+
+parameter_types! {
+	pub const AssetDeposit: Balance = 0;
+	pub const AssetAccountDeposit: Balance = 0;
+	pub const AssetsStringLimit: u32 = 50;
+	pub const MetadataDepositBase: Balance = 0;
+	pub const MetadataDepositPerByte: Balance = 0;
+}
+
+impl pallet_assets::Config for Test {
+	type Balance = Balance;
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = u32;
+	type AssetIdParameter = codec::Compact<u32>;
+	type Currency = Balances;
+	type CreateOrigin = frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = sp_core::ConstU128<0>;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = ();
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Test,()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+	type Holder = ();
 }
 
 parameter_types! {
