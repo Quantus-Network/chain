@@ -36,15 +36,18 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
-		if matches!(
-			call,
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-				RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
-		) {
-			return <T as pallet_reversible_transfers::Config>::WeightInfo::schedule_transfer();
+		match call {
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer { .. }) => {
+				<T as pallet_reversible_transfers::Config>::WeightInfo::schedule_transfer()
+			},
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) => {
+				<T as pallet_reversible_transfers::Config>::WeightInfo::cancel()
+			},
+			_ => {
+				// For all other calls, just account for reading the reversible accounts status
+				T::DbWeight::get().reads(1)
+			}
 		}
-		// For reading the reversible accounts
-		T::DbWeight::get().reads(1)
 	}
 
 	fn prepare(
@@ -74,35 +77,21 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			)
 		})?;
 
-		if let Some(_data) = ReversibleTransfers::is_high_security(&who) {
-			// Only intercept token transfers
-			let (dest, amount) = match call {
-				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-					dest,
-					value,
-				}) => (dest, value),
-				RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-					dest,
-					value,
-				}) => (dest, value),
-				_ =>
+		if ReversibleTransfers::is_high_security(&who).is_some() {
+			// High-security accounts can only call schedule_transfer and cancel
+			match call {
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer { .. }) |
+				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) => {
+					// Allow these calls to proceed
+					return Ok((ValidTransaction::default(), (), origin));
+				},
+				_ => {
+					// All other calls are forbidden for high-security accounts
 					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
 						InvalidTransaction::Custom(1),
-					)),
-			};
-
-			// Schedule the transfer
-			ReversibleTransfers::do_schedule_transfer(origin.clone(), dest.clone(), *amount)
-				.map_err(|e| {
-					log::error!("Failed to schedule transfer: {:?}", e);
-					frame_support::pallet_prelude::TransactionValidityError::Invalid(
-						InvalidTransaction::Custom(0),
-					)
-				})?;
-
-			return Err(frame_support::pallet_prelude::TransactionValidityError::Unknown(
-				frame_support::pallet_prelude::UnknownTransaction::Custom(u8::MAX),
-			));
+					));
+				}
+			}
 		}
 
 		Ok((ValidTransaction::default(), (), origin))
@@ -114,7 +103,7 @@ mod tests {
 	use super::*;
 	use frame_support::pallet_prelude::{TransactionValidityError, UnknownTransaction};
 	use pallet_reversible_transfers::PendingTransfers;
-	use sp_runtime::{traits::TxBaseImplication, AccountId32};
+	use sp_runtime::{traits::TxBaseImplication, AccountId32, BuildStorage};
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
 	}
@@ -128,6 +117,7 @@ mod tests {
 
 	// Build genesis storage according to the mock runtime.
 	pub fn new_test_ext() -> sp_io::TestExternalities {
+		use frame_support::traits::GenesisBuild;
 		let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
 		pallet_balances::GenesisConfig::<Runtime> {
@@ -148,8 +138,9 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-		t.into()
+		sp_io::TestExternalities::new(t)
 	}
+
 
 	#[test]
 	fn test_reversible_transaction_extension() {
@@ -173,7 +164,7 @@ mod tests {
 			// we should not fail here
 			assert!(result.is_ok());
 
-			// Test the reversible transaction extension
+			// Test that non-high-security accounts can make balance transfers
 			let ext = ReversibleTransactionExtension::<Runtime>::new();
 			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 				dest: MultiAddress::Id(bob()),
@@ -197,59 +188,43 @@ mod tests {
 			);
 			// Alice is not high-security, so this should succeed
 			assert!(result.is_ok());
-			// Pending transactions should be empty
-			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 0);
 
 			// Charlie is already configured as high-security from genesis
 			// Verify Charlie is high-security
 			assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
 
-			// Charlie sends bob a transaction
+			// High-security accounts can call schedule_transfer
+			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
+				dest: MultiAddress::Id(bob()),
+				amount: 10 * EXISTENTIAL_DEPOSIT,
+			});
+
+			// Test the validate method
+			let result = check_call(call);
+			assert!(result.is_ok());
+
+			// High-security accounts can call cancel
+			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				tx_id: sp_core::H256::default(),
+			});
+			let result = check_call(call);
+			assert!(result.is_ok());
+
+			// All other calls are disallowed for high-security accounts
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+			let result = check_call(call);
+			assert_eq!(
+				result.unwrap_err(),
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
+			);
+
+			// Balance transfers are also disallowed for high-security accounts
 			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 				dest: MultiAddress::Id(bob()),
 				value: 10 * EXISTENTIAL_DEPOSIT,
 			});
+			let result = check_call(call);
 
-			let origin = RuntimeOrigin::signed(charlie());
-
-			// Test the prepare method
-			ext.clone().prepare((), &origin, &call, &Default::default(), 0).unwrap();
-
-			assert_eq!((), ());
-
-			// Test the validate method
-			let result = ext.validate(
-				origin,
-				&call,
-				&Default::default(),
-				0,
-				(),
-				&TxBaseImplication::<()>(()),
-				frame_support::pallet_prelude::TransactionSource::External,
-			);
-			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
-			assert_eq!(
-				result.unwrap_err(),
-				TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
-			);
-
-			// Pending transactions should contain the transaction
-			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
-
-			// All other calls are disallowed
-			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
-			let origin = RuntimeOrigin::signed(charlie());
-			let result = ext.validate(
-				origin,
-				&call,
-				&Default::default(),
-				0,
-				(),
-				&TxBaseImplication::<()>(()),
-				frame_support::pallet_prelude::TransactionSource::External,
-			);
-
-			// we should fail here
 			assert_eq!(
 				result.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
@@ -257,11 +232,10 @@ mod tests {
 		});
 	}
 
-	fn check_call(transfer_call: RuntimeCall) -> Result<(), TransactionValidityError> {
+	fn check_call(call: RuntimeCall) -> Result<(), TransactionValidityError> {
 		// Test the reversible transaction extension
 		let ext = ReversibleTransactionExtension::<Runtime>::new();
 
-		// Charlie is already configured as high-security from genesis
 		// Verify Charlie is high-security
 		assert!(ReversibleTransfers::is_high_security(&charlie()).is_some());
 
@@ -269,7 +243,7 @@ mod tests {
 
 		// Test the prepare method
 		ext.clone()
-			.prepare((), &origin, &transfer_call, &Default::default(), 0)
+			.prepare((), &origin, &call, &Default::default(), 0)
 			.unwrap();
 
 		assert_eq!((), ());
@@ -277,7 +251,7 @@ mod tests {
 		// Test the validate method
 		let result = ext.validate(
 			origin,
-			&transfer_call,
+			&call,
 			&Default::default(),
 			0,
 			(),
@@ -297,14 +271,11 @@ mod tests {
 			});
 			let result = check_call(call);
 
-			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
+			// High-security accounts cannot make balance transfers
 			assert_eq!(
 				result.unwrap_err(),
-				TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
-
-			// Pending transactions should contain the transaction
-			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
 		});
 	}
 
@@ -317,14 +288,11 @@ mod tests {
 			});
 			let result = check_call(call);
 
-			// we should fail here with `UnknownTransaction::Custom(u8::MAX)`
+			// High-security accounts cannot make balance transfers
 			assert_eq!(
 				result.unwrap_err(),
-				TransactionValidityError::Unknown(UnknownTransaction::Custom(u8::MAX))
+				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
-
-			// Pending transactions should contain the transaction
-			assert_eq!(PendingTransfers::<Runtime>::iter().count(), 1);
 		});
 	}
 
@@ -337,13 +305,11 @@ mod tests {
 			});
 			let result = check_call(call);
 
-			// we should fail here with `InvalidTransaction::Custom(1)`
+			// High-security accounts cannot make balance transfers
 			assert_eq!(
 				result.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
-
-			// no pending tx in this case, this call actually doesn't work.
 		});
 	}
 
@@ -357,6 +323,33 @@ mod tests {
 				result.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
+		});
+	}
+
+	#[test]
+	fn test_high_security_schedule_transfer_allowed() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::schedule_transfer {
+				dest: MultiAddress::Id(bob()),
+				amount: 10 * EXISTENTIAL_DEPOSIT,
+			});
+			let result = check_call(call);
+
+			// High-security accounts can call schedule_transfer
+			assert!(result.is_ok());
+		});
+	}
+
+	#[test]
+	fn test_high_security_cancel_allowed() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				tx_id: sp_core::H256::default(),
+			});
+			let result = check_call(call);
+
+			// High-security accounts can call cancel
+			assert!(result.is_ok());
 		});
 	}
 }
