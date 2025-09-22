@@ -17,8 +17,8 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
-pallet-balances.workspace = true
 pallet-assets.workspace = true
+pallet-balances.workspace = true
 pallet-recovery.workspace = true
 qp-scheduler.workspace = true
 scale-info = { features = ["derive"], workspace = true }
@@ -43,8 +43,8 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
-	"pallet-balances/std",
 	"pallet-assets/std",
+	"pallet-balances/std",
 	"pallet-preimage/std",
 	"pallet-recovery/std",
 	"pallet-scheduler/std",
