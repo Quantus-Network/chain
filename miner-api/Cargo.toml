@@ -12,7 +12,7 @@ keywords = [
 license.workspace = true
 name = "quantus-miner-api"
 repository.workspace = true
-version = "0.1.0"
+version = "0.0.2"
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["alloc", "derive"] }
