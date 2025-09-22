@@ -61,13 +61,13 @@ mod runtime {
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
-    type Error = ();
-    fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
-        match call {
-            RuntimeCall::Balances(c) => Ok(c),
-            _ => Err(()),
-        }
-    }
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+		match call {
+			RuntimeCall::Balances(c) => Ok(c),
+			_ => Err(()),
+		}
+	}
 }
 
 impl TryFrom<RuntimeCall> for pallet_assets::Call<Test> {
@@ -175,7 +175,8 @@ impl pallet_assets::Config for Test {
 	type AssetId = u32;
 	type AssetIdParameter = codec::Compact<u32>;
 	type Currency = Balances;
-	type CreateOrigin = frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type CreateOrigin =
+		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
 	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
 	type AssetDeposit = AssetDeposit;
 	type MetadataDepositBase = MetadataDepositBase;
@@ -185,7 +186,7 @@ impl pallet_assets::Config for Test {
 	type Freezer = ();
 	type Extra = ();
 	type WeightInfo = ();
-	type CallbackHandle = pallet_assets::AutoIncAssetId<Test,()>;
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
 	type AssetAccountDeposit = AssetAccountDeposit;
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
 	#[cfg(feature = "runtime-benchmarks")]
