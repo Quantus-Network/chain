@@ -8365,6 +8365,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "quantus-miner-api"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "quantus-node"
 version = "0.2.0"
 dependencies = [
@@ -8388,10 +8395,10 @@ dependencies = [
  "qp-wormhole-circuit-builder",
  "qp-wormhole-verifier",
  "qpow-math",
+ "quantus-miner-api",
  "quantus-runtime",
  "rand 0.8.5",
  "reqwest",
- "resonance-miner-api",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client-api",
@@ -8904,13 +8911,6 @@ name = "resolv-conf"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95325155c684b1c89f7765e30bc1c42e4a6da51ca513615660cb8a62ef9a88e3"
-
-[[package]]
-name = "resonance-miner-api"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "rfc6979"

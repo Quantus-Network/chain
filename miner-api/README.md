@@ -1,6 +1,6 @@
-# Resonance Miner API
+# Quantus Miner API
 
-This crate defines the shared data structures and API contract used for communication between a Resonance Network node and external miner services.
+This crate defines the shared data structures and API contract used for communication between a Quantus Network node and external miner services.
 
 It includes:
 
@@ -17,21 +17,21 @@ Add this crate as a dependency in the `Cargo.toml` of both the node and the exte
 **Node:**
 ```toml
 [dependencies]
-resonance-miner-api = { path = "../resonance-miner-api", default-features = false } 
+quantus-miner-api = { path = "../miner-api", default-features = false } 
 # ... other dependencies
 ```
 
 **External Miner:**
 ```toml
 [dependencies]
-resonance-miner-api = { path = "../resonance-miner-api" }
+quantus-miner-api = { path = "../miner-api" }
 # Or if published:
-# resonance-miner-api = "0.1.0"
+# quantus-miner-api = "0.1.0"
 # ... other dependencies
 ```
 
 Then, import the types:
 
 ```rust
-use resonance_miner_api::*;
+use quantus_miner_api::*;
 ``` 

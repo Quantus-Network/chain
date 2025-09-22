@@ -1,7 +1,7 @@
 use primitive_types::{H256, U512};
+use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResponse, MiningResult};
 /// Functions to interact with the external miner service
 use reqwest::Client;
-use resonance_miner_api::{ApiResponseStatus, MiningRequest, MiningResponse, MiningResult};
 
 // Make functions pub(crate) or pub as needed
 pub(crate) async fn submit_mining_job(

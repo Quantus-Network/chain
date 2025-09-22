@@ -9,6 +9,7 @@ repository = "https://github.com/quantus-network/chain#"
 members = [
 	"client/consensus/qpow",
 	"client/network",
+	"miner-api",
 	"node",
 	"pallets/balances",
 	"pallets/merkle-airdrop",
@@ -20,7 +21,6 @@ members = [
 	"primitives/dilithium-crypto",
 	"primitives/state-machine",
 	"primitives/trie",
-	"resonance-miner-api",
 	"runtime",
 ]
 resolver = "2"
