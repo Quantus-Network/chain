@@ -83,6 +83,9 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::schedule_transfer { .. },
 				) |
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_asset_transfer { .. },
+				) |
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					..
 				}) => {
