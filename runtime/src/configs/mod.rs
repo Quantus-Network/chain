@@ -38,8 +38,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin, VariantCountOf,
-		WithdrawReasons,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
+		VariantCountOf, WithdrawReasons,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -49,7 +49,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess,
+	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
@@ -566,33 +566,35 @@ parameter_types! {
 	pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
 }
 
-// /// We allow root to execute privileged asset operations.
-// pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+/// We allow root to execute privileged asset operations.
+pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+type AssetId = u32;
 
-// impl pallet_assets::Config for Runtime {
-//     type Balance = Balance;
-//     type RuntimeEvent = RuntimeEvent;
-//     type AssetId = AssetId;
-//     type AssetIdParameter = codec::Compact<AssetId>;
-//     type Currency = Balances;
-//     type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
-//     type ForceOrigin = AssetsForceOrigin;
-//     type AssetDeposit = AssetDeposit;
-//     type MetadataDepositBase = MetadataDepositBase;
-//     type MetadataDepositPerByte = MetadataDepositPerByte;
-//     type ApprovalDeposit = ExistentialDeposit;
-//     type StringLimit = AssetsStringLimit;
-//     type Freezer = ();
-//     type Extra = ();
-//     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-//     type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
-//     type AssetAccountDeposit = AssetAccountDeposit;
-//     type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-//     /// TODO: we are not using this pallet yet, but when we start using, we should provide a
-// proper implementation.     type Holder = ();
-//     #[cfg(feature = "runtime-benchmarks")]
-//     type BenchmarkHelper = ();
-// }
+impl pallet_assets::Config for Runtime {
+	type Balance = Balance;
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = AssetId;
+	type AssetIdParameter = codec::Compact<AssetId>;
+	type Currency = Balances;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+	type ForceOrigin = AssetsForceOrigin;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ExistentialDeposit;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	/// TODO: we are not using this pallet yet, but when we start using, we should provide a
+	/// proper implementation.
+	type Holder = ();
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();

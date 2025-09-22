@@ -273,4 +273,7 @@ mod runtime {
 
 	#[runtime::pallet_index(20)]
 	pub type Recovery = pallet_recovery;
+
+	#[runtime::pallet_index(21)]
+	pub type Assets = pallet_assets;
 }
