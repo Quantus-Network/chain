@@ -73,9 +73,6 @@ type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldRea
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
 
-// NOTE: Can't alias a trait with generics as a usable type; use alias + qualified path at call
-// sites
-
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
