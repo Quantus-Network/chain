@@ -21,13 +21,11 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{Fortitude, Restriction},
+	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_runtime::traits::StaticLookup;
-use frame_support::traits::tokens::fungibles::MutateHold as AssetsHold;
-use frame_support::traits::tokens::fungibles::MutateHold;
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.
 pub type BlockNumberOrTimestampOf<T> =
@@ -36,7 +34,6 @@ pub type BlockNumberOrTimestampOf<T> =
 /// Type alias for the Recovery pallet's expected block number type
 pub type RecoveryBlockNumberOf<T> =
 	<<T as pallet_recovery::Config>::BlockNumberProvider as sp_runtime::traits::BlockNumberProvider>::BlockNumber;
-
 
 /// High security account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
@@ -76,7 +73,8 @@ type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldRea
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
 
-// NOTE: Can't alias a trait with generics as a usable type; use alias + qualified path at call sites
+// NOTE: Can't alias a trait with generics as a usable type; use alias + qualified path at call
+// sites
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -316,12 +314,12 @@ pub mod pallet {
 		TooManyInterceptorAccounts,
 	}
 
-    #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
-            + pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
-    {
+	#[pallet::call]
+	impl<T: Config> Pallet<T>
+	where
+		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
+			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
+	{
 		/// Enable high-security for the calling account with a specified
 		/// reversibility delay.
 		///
@@ -825,12 +823,13 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// For assets, transfer held funds to interceptor via assets-holder; for native balances, transfer held funds to interceptor
+			// For assets, transfer held funds to interceptor via assets-holder; for native
+			// balances, transfer held funds to interceptor
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(assets_call) = call.clone().try_into() {
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-					let reason = Self::asset_hold_reason();
-					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+						let reason = Self::asset_hold_reason();
+						let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
 							id.into(),
 							&reason,
 							&pending.from,

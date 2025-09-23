@@ -595,8 +595,8 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl pallet_assets_holder::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type RuntimeHoldReason = RuntimeHoldReason;
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
