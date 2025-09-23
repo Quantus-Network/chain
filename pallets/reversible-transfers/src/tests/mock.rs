@@ -189,6 +189,7 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
 	type AssetAccountDeposit = AssetAccountDeposit;
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	type Holder = pallet_reversible_transfers::Pallet<Test>;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
 }
