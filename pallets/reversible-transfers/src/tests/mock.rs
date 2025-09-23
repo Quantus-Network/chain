@@ -191,7 +191,6 @@ impl pallet_assets::Config for Test {
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
-	type Holder = ();
 }
 
 parameter_types! {

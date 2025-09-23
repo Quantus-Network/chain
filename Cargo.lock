@@ -6909,6 +6909,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-assets-holder"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a328a506b0c5a99c7399d8157bb58d33dc0be888627948aa5776489100ca7cb9"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-assets",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-authority-discovery"
 version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9068,6 +9084,7 @@ dependencies = [
  "lazy_static",
  "log",
  "pallet-assets",
+ "pallet-assets-holder",
  "pallet-balances 40.0.1",
  "pallet-conviction-voting",
  "pallet-merkle-airdrop",
