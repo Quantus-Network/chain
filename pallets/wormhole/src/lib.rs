@@ -48,7 +48,7 @@ pub mod pallet {
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
-		traits::{Saturating, Zero},
+		traits::{Hash as HashT, Header, Saturating, Zero},
 		Perbill,
 	};
 
@@ -99,86 +99,15 @@ pub mod pallet {
 		StorageRootMismatch,
 		BlockNotFound,
 		InvalidBlockNumber,
+		HeaderDecodingFailed,
+		HeaderNumberMismatch,
+		HeaderHashMismatch,
 	}
 
-	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::call_index(0)]
-		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
-		pub fn verify_wormhole_proof(
-			origin: OriginFor<T>,
-			proof_bytes: Vec<u8>,
-			block_number: BlockNumberFor<T>,
-		) -> DispatchResult {
-			ensure_none(origin)?;
-
-			let verifier =
-				crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
-
-			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
-				proof_bytes,
-				&verifier.circuit_data.common,
-			)
-			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
-
-			// Parse public inputs using the existing parser
-			let public_inputs = PublicCircuitInputs::try_from(&proof)
-				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-			let nullifier_bytes = *public_inputs.nullifier;
-
-			// Verify nullifier hasn't been used
-			ensure!(
-				!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-				Error::<T>::NullifierAlreadyUsed
-			);
-
-			// Get the block hash for the specified block number
-			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-
-			// Check if block number is not in the future
-			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
-
-			// Validate that the block exists by checking if it's not the default hash
-			// The default hash (all zeros) indicates the block doesn't exist
-			let default_hash = T::Hash::default();
-			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
-
-			// Get the storage root for the specified block
-			let storage_root = sp_io::storage::root(sp_runtime::StateVersion::V1);
-
-			let root_hash = public_inputs.root_hash;
-			let storage_root_bytes = storage_root.as_slice();
-
-			// Compare the root_hash from the proof with the actual storage root
-			// Skip storage root validation in test and benchmark environments since proofs
-			// may have been generated with different state
-			#[cfg(not(any(test, feature = "runtime-benchmarks")))]
-			if root_hash.as_ref() != storage_root_bytes {
-				log::warn!(
-					target: "wormhole",
-					"Storage root mismatch for block {:?}: expected {:?}, got {:?}",
-					block_number,
-					root_hash.as_ref(),
-					storage_root_bytes
-				);
-				return Err(Error::<T>::StorageRootMismatch.into());
-			}
-
-			#[cfg(any(test, feature = "runtime-benchmarks"))]
-			{
-				let _root_hash = root_hash;
-				let _storage_root_bytes = storage_root_bytes;
-				log::debug!(
-					target: "wormhole",
-					"Skipping storage root validation in test/benchmark environment"
-				);
-			}
-
-			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
-
+		fn apply_post_verification(public_inputs: &PublicCircuitInputs) -> DispatchResult {
 			// Mark nullifier as used
+			let nullifier_bytes = *public_inputs.nullifier;
 			UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
 			let exit_balance_u128 = public_inputs.funding_amount;
@@ -227,6 +156,153 @@ pub mod pallet {
 			Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
 
 			Ok(())
+		}
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		#[pallet::call_index(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
+		pub fn verify_wormhole_proof(
+			origin: OriginFor<T>,
+			proof_bytes: Vec<u8>,
+			block_number: BlockNumberFor<T>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			let verifier =
+				crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
+
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes,
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+
+			// Parse public inputs using the existing parser
+			let public_inputs = PublicCircuitInputs::try_from(&proof)
+				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
+			let nullifier_bytes = *public_inputs.nullifier;
+
+			// Verify nullifier hasn't been used
+			ensure!(
+				!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+				Error::<T>::NullifierAlreadyUsed
+			);
+
+			// Get the block hash for the specified block number
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+
+			// Check if block number is not in the future
+			let current_block = frame_system::Pallet::<T>::block_number();
+			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
+
+			// Validate that the block exists by checking if it's not the default hash
+			// The default hash (all zeros) indicates the block doesn't exist
+			let default_hash = T::Hash::default();
+			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
+
+			// Get the storage root for the current state (legacy behavior)
+			let storage_root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+
+			let root_hash = public_inputs.root_hash;
+			let storage_root_bytes = storage_root.as_slice();
+
+			// Compare the root_hash from the proof with the current storage root
+			if root_hash.as_ref() != storage_root_bytes {
+				log::warn!(
+					target: "wormhole",
+					"Storage root mismatch for block {:?}: expected {:?}, got {:?}",
+					block_number,
+					root_hash.as_ref(),
+					storage_root_bytes
+				);
+				return Err(Error::<T>::StorageRootMismatch.into());
+			}
+
+			#[cfg(any(test, feature = "runtime-benchmarks"))]
+			{
+				let _root_hash = root_hash;
+				let _storage_root_bytes = storage_root_bytes;
+				log::debug!(
+					target: "wormhole",
+					"Skipping storage root validation in test/benchmark environment"
+				);
+			}
+
+			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
+
+			Self::apply_post_verification(&public_inputs)
+		}
+
+		#[pallet::call_index(1)]
+		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
+		pub fn verify_wormhole_proof_with_header(
+			origin: OriginFor<T>,
+			proof_bytes: Vec<u8>,
+			block_number: BlockNumberFor<T>,
+			header_bytes: Vec<u8>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			let verifier =
+				crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
+
+			// Decode the supplied header
+			let header: <<T as frame_system::Config>::Block as sp_runtime::traits::Block>::Header =
+				Decode::decode(&mut &header_bytes[..]).map_err(|_| Error::<T>::HeaderDecodingFailed)?;
+
+			// Check if block number is not in the future
+			let current_block = frame_system::Pallet::<T>::block_number();
+			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
+
+			// Validate that the block exists by checking stored block hash ring buffer
+			let expected_hash = frame_system::Pallet::<T>::block_hash(block_number);
+			let default_hash = T::Hash::default();
+			ensure!(expected_hash != default_hash, Error::<T>::BlockNotFound);
+
+			// Cross-check header number
+			ensure!(*header.number() == block_number, Error::<T>::HeaderNumberMismatch);
+
+			// Cross-check header hash equals stored hash
+			let provided_hash = <T as frame_system::Config>::Hashing::hash_of(&header);
+			ensure!(provided_hash == expected_hash, Error::<T>::HeaderHashMismatch);
+
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes,
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
+
+			// Parse public inputs using the existing parser
+			let public_inputs = PublicCircuitInputs::try_from(&proof)
+				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
+			// Verify nullifier hasn't been used
+			let nullifier_bytes = *public_inputs.nullifier;
+			ensure!(
+				!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+				Error::<T>::NullifierAlreadyUsed
+			);
+
+			// Compare root from public inputs with the authenticated header state root
+			let root_hash = public_inputs.root_hash;
+			let header_root_bytes = header.state_root().as_ref();
+			if root_hash.as_ref() != header_root_bytes {
+				log::warn!(
+					target: "wormhole",
+					"Storage root mismatch for block {:?}: expected {:?}, got {:?}",
+					block_number,
+					header_root_bytes,
+					root_hash.as_ref()
+				);
+				return Err(Error::<T>::StorageRootMismatch.into());
+			}
+
+			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
+
+			Self::apply_post_verification(&public_inputs)
 		}
 	}
 }
