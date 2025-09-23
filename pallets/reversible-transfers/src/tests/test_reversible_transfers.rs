@@ -373,8 +373,8 @@ fn schedule_transfer_with_timestamp_works() {
 		let current_time = MockTimestamp::<Test>::now();
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
-		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size +
-			user_delay.as_timestamp().unwrap();
+		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size
+			+ user_delay.as_timestamp().unwrap();
 
 		let bounded = Preimage::bound(call.clone()).unwrap();
 		let expected_timestamp =
@@ -1276,7 +1276,7 @@ fn asset_hold_blocks_spending() {
 		let sender_before = asset_balance(asset_id, sender);
 		let recipient_before = asset_balance(asset_id, recipient);
 		let third_before = asset_balance(asset_id, third_party);
-		let hold_amount = sender_before - spend_amount / 2; 
+		let hold_amount = sender_before - spend_amount / 2;
 
 		// Schedule an asset transfer to create a hold on `sender`.
 		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
@@ -1322,7 +1322,6 @@ fn asset_hold_blocks_only_held_portion() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 		let sender: AccountId = 1; // high-security from genesis
-		let interceptor = 2; // from genesis config for 1
 		let recipient: AccountId = 4;
 		let third_party: AccountId = 9;
 		let asset_id: u32 = 777;
@@ -1356,13 +1355,17 @@ fn asset_hold_blocks_only_held_portion() {
 			pallet_assets::Error::<Test>::BalanceLow
 		);
 
-		// Cancel pending to release hold and credit interceptor
-		let ids = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		assert_eq!(ids.len(), 1);
-		let tx_id = ids[0];
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
-		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
+		// Spend the free amount
+		let free_amount = sender_before - hold_amount;
+		assert_ok!(pallet_assets::Pallet::<Test>::transfer(
+			RuntimeOrigin::signed(sender),
+			codec::Compact(asset_id),
+			third_party,
+			free_amount,
+		));
+		assert_eq!(asset_balance(asset_id, third_party), third_before + free_amount);
+
+
 	});
 }
 
