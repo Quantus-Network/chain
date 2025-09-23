@@ -3,13 +3,17 @@
 use crate::tests::mock::*; // Import mock runtime and types
 use crate::*; // Import items from parent module (lib.rs)
 use frame_support::{
-	assert_err, assert_ok,
-	traits::{fungible::InspectHold, StorePreimage, Time},
+    assert_err, assert_ok,
+    traits::{fungible::InspectHold, StorePreimage, Time},
 };
+use frame_support::traits::fungibles::Inspect as AssetsInspect;
 use pallet_scheduler::Agenda;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
+use frame_support::traits::tokens::fungibles::InspectHold as AssetsInspectHold;
+use frame_support::traits::fungible::MutateHold as BalancesHoldMutate;
+// use frame_support::traits::tokens::fungibles::hold::Mutate as AssetsHoldMutate;
 
 // Helper function to create a transfer call
 pub(crate) fn transfer_call(dest: AccountId, amount: Balance) -> RuntimeCall {
@@ -65,6 +69,12 @@ fn create_asset(id: u32, owner: AccountId) {
 
 fn asset_balance(id: u32, who: AccountId) -> Balance {
 	pallet_assets::Pallet::<Test>::balance(id, who)
+}
+
+// Test-only helper: amount held (by reversible pallet reason) for an asset account
+fn asset_holds(id: u32, who: AccountId) -> Balance {
+    let reason: RuntimeHoldReason = HoldReason::ScheduledTransfer.into();
+    <pallet_assets_holder::Pallet<Test> as AssetsInspectHold<_>>::balance_on_hold(id, &reason, &who)
 }
 
 #[test]
@@ -1246,7 +1256,7 @@ fn schedule_asset_transfer_with_delay_works() {
 
 		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
 		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
-		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
+        assert_eq!(asset_holds(asset_id, sender), 0);
 	});
 }
 
@@ -1275,23 +1285,26 @@ fn asset_hold_does_not_block_spending() {
 			hold_amount,
 		));
 
-		// Hold exists; free balances unchanged so far.
-		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), hold_amount);
-		assert_eq!(asset_balance(asset_id, sender), sender_before);
+		// Hold exists; free balance reduced by hold amount.
+        assert_eq!(asset_holds(asset_id, sender), hold_amount);
+		let free_after_hold = sender_before - hold_amount;
+		assert_eq!(asset_balance(asset_id, sender), free_after_hold);
 		assert_eq!(asset_balance(asset_id, recipient), recipient_before);
 
-		// With no freezer, hold alone does not block spending.
+		// With holds, spending up to free balance is allowed; leave min_balance.
+		let min = <pallet_assets::Pallet<Test> as AssetsInspect<_>>::minimum_balance(asset_id);
+		let spend = free_after_hold.saturating_sub(min);
 		assert_ok!(pallet_assets::Pallet::<Test>::transfer_keep_alive(
 			RuntimeOrigin::signed(sender),
 			codec::Compact(asset_id),
 			third_party,
-			spend_amount,
+			spend,
 		));
 
 		// Verify spend succeeded while hold remains.
-		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), hold_amount);
-		assert_eq!(asset_balance(asset_id, sender), sender_before - spend_amount);
-		assert_eq!(asset_balance(asset_id, third_party), third_before + spend_amount);
+        assert_eq!(asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), min);
+		assert_eq!(asset_balance(asset_id, third_party), third_before + spend);
 
 		// Pending remains and will execute later; cancel it now to clean up and credit interceptor.
 		let ids = ReversibleTransfers::pending_transfers_by_sender(&sender);
@@ -1299,7 +1312,7 @@ fn asset_hold_does_not_block_spending() {
 		let tx_id = ids[0];
 		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
+        assert_eq!(asset_holds(asset_id, sender), 0);
 	});
 }
 
@@ -1325,8 +1338,8 @@ fn asset_hold_blocks_only_held_portion() {
 			recipient,
 			hold_amount,
 		));
-		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), hold_amount);
-		assert_eq!(asset_balance(asset_id, sender), sender_before);
+        assert_eq!(asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_before - hold_amount);
 		assert_eq!(asset_balance(asset_id, recipient), recipient_before);
 
 		// Attempt to cross the held barrier by 1; must fail
@@ -1341,17 +1354,111 @@ fn asset_hold_blocks_only_held_portion() {
 			pallet_assets::Error::<Test>::BalanceLow
 		);
 
-		// Spend the free amount
+		// Spend the free amount but keep account alive with min.
 		let free_amount = sender_before - hold_amount;
-		assert_ok!(pallet_assets::Pallet::<Test>::transfer(
+		let min = <pallet_assets::Pallet<Test> as AssetsInspect<_>>::minimum_balance(asset_id);
+		let spend = free_amount.saturating_sub(min);
+		assert_ok!(pallet_assets::Pallet::<Test>::transfer_keep_alive(
 			RuntimeOrigin::signed(sender),
 			codec::Compact(asset_id),
 			third_party,
-			free_amount,
+			spend,
 		));
-		assert_eq!(asset_balance(asset_id, third_party), third_before + free_amount);
+		assert_eq!(asset_balance(asset_id, sender), min);
+		assert_eq!(asset_balance(asset_id, third_party), third_before + spend);
 
 	});
+}
+
+// Helper: create asset with exact initial supply to owner
+fn create_asset_with_supply(id: u32, owner: AccountId, supply: Balance) {
+    assert_ok!(pallet_assets::Pallet::<Test>::create(
+        RuntimeOrigin::signed(owner),
+        codec::Compact(id),
+        owner,
+        1, // minimum balance
+    ));
+    assert_ok!(pallet_assets::Pallet::<Test>::mint(
+        RuntimeOrigin::signed(owner),
+        codec::Compact(id),
+        owner,
+        supply,
+    ));
+}
+
+#[test]
+fn asset_hold_prevents_spend_over_free() {
+	// Testing asset hold because it was quite confusing in code 
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 3;   // has system account in genesis
+        let recipient: AccountId = 4; // has system account in genesis
+        let asset_id: u32 = 808;
+
+        // Create asset and give sender 20 units
+        create_asset_with_supply(asset_id, sender, 20);
+
+        // Create a 10-unit hold by scheduling an asset transfer with one-time delay (sender is not high-security)
+        assert_ok!(ReversibleTransfers::schedule_asset_transfer_with_delay(
+            RuntimeOrigin::signed(sender),
+            asset_id,
+            recipient,
+            10,
+            BlockNumberOrTimestamp::BlockNumber(5),
+        ));
+        assert_eq!(asset_holds(asset_id, sender), 10);
+
+        // Attempt to send 15 (free is only 10 after hold); must fail with BalanceLow
+        assert_err!(
+            pallet_assets::Pallet::<Test>::transfer_keep_alive(
+                RuntimeOrigin::signed(sender),
+                codec::Compact(asset_id),
+                recipient,
+                15,
+            ),
+            pallet_assets::Error::<Test>::BalanceLow
+        );
+    });
+}
+
+#[test]
+fn balances_hold_prevents_spend_over_free() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        let sender: AccountId = 3;
+        let recipient: AccountId = 4;
+
+        // Set sender's free balance to 20
+        assert_ok!(pallet_balances::Pallet::<Test>::force_set_balance(
+            RuntimeOrigin::root(),
+            sender,
+            20,
+        ));
+
+        // Put 10 on hold
+        assert_ok!(pallet_balances::Pallet::<Test>::hold(
+            &HoldReason::ScheduledTransfer.into(),
+            &sender,
+            10,
+        ));
+
+        // Attempt to send 15, which exceeds free (20 - 10 = 10). Should fail.
+        let res = pallet_balances::Pallet::<Test>::transfer_keep_alive(
+            RuntimeOrigin::signed(sender),
+            recipient,
+            15,
+        );
+        assert!(matches!(
+            res,
+            Err(sp_runtime::DispatchError::Token(sp_runtime::TokenError::FundsUnavailable))
+        ));
+
+        // Held amount remains
+        assert_eq!(
+            pallet_balances::Pallet::<Test>::balance_on_hold(&HoldReason::ScheduledTransfer.into(), &sender),
+            10
+        );
+    });
 }
 
 #[test]
