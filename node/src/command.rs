@@ -8,10 +8,14 @@ use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{generate_mnemonic, wormhole::WormholePair, HDLattice};
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
-use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
+use sp_core::{
+	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
+	H256,
+};
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::IdentifyAccount;
 
@@ -64,7 +68,9 @@ pub fn generate_quantus_key(
 				}
 				actual_seed_for_pair = decoded_seed_bytes;
 			} else {
-				let new_words = generate_mnemonic(24).map_err(|e| {
+				let mut seed = [0u8; 32];
+				rand::thread_rng().fill(&mut seed);
+				let new_words = generate_mnemonic(24, seed).map_err(|e| {
 					eprintln!("Error generating new words: {:?}", e);
 					sc_cli::Error::Input("Failed to generate new words".into())
 				})?;
@@ -95,13 +101,15 @@ pub fn generate_quantus_key(
 			})
 		},
 		QuantusAddressType::Wormhole => {
-			let wormhole_pair = WormholePair::generate_new().map_err(|e| {
+			let mut seed = [0u8; 32];
+			rand::thread_rng().fill(&mut seed);
+			let wormhole_pair = WormholePair::generate_new(seed).map_err(|e| {
 				eprintln!("Error generating WormholePair: {:?}", e);
 				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e).into())
 			})?;
 
 			// Convert wormhole address to account ID using WormholeAddress type
-			let wormhole_address = WormholeAddress(wormhole_pair.address);
+			let wormhole_address = WormholeAddress(H256::from(wormhole_pair.address));
 			let account_id = wormhole_address.into_account();
 
 			Ok(QuantusKeyDetails {

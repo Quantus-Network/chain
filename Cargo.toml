@@ -116,11 +116,12 @@ sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = fal
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-# qp-poseidon = { version = "0.9.1", default-features = false }
-qp-poseidon = { path = "../qp-poseidon/crates/substrate", default-features = false }
-qp-poseidon-core = { path = "../qp-poseidon/crates/core", default-features = false }
-qp-rusty-crystals-dilithium = { version = "1.0.1", default-features = false, features = ["no_std"] }
-qp-rusty-crystals-hdwallet = { version = "0.1.2" }
+qp-poseidon = { version = "0.9.3", default-features = false }
+qp-poseidon-core = { version = "0.9.3", default-features = false }
+qp-rusty-crystals-dilithium = { path = "../qp-rusty-crystals/dilithium", default-features = false, features = ["no_std"] }
+# qp-rusty-crystals-dilithium = { version = "1.0.1", default-features = false, features = ["no_std"] }
+qp-rusty-crystals-hdwallet = { path = "../qp-rusty-crystals/hdwallet", default-features = false }
+# qp-rusty-crystals-hdwallet = { version = "0.1.2" }
 qp-wormhole-circuit = { version = "0.1.2", default-features = false }
 qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
 qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
