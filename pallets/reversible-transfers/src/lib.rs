@@ -68,7 +68,7 @@ type AssetIdOf<T> = <T as pallet_assets::Config>::AssetId;
 /// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
 type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
 
-/// Type aliases for cleaner code
+/// Type aliases for asset holder pallet
 type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldReason;
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
