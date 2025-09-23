@@ -76,13 +76,7 @@ type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldRea
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
 
-// Helper macro to shorten `<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>`
-macro_rules! assets_hold_for {
-    ($t:ty) => {
-        <AssetsHolderOf<$t> as AssetsHold<AccountIdOf<$t>>>
-    };
-}
-// NOTE: Can't alias a trait; use inline path at call sites for clarity
+// NOTE: Can't alias a trait with generics as a usable type; use alias + qualified path at call sites
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -575,7 +569,7 @@ pub mod pallet {
 			if let Ok(assets_call) = call.clone().try_into() {
 				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
 					let reason = Self::asset_hold_reason();
-					let _ = assets_hold_for!(T)::release(
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
 						id.into(),
 						&reason,
 						&pending.from,
@@ -764,7 +758,7 @@ pub mod pallet {
 			// For assets, hold the funds using assets-holder; for native balances, hold the funds
 			if let Some(ref id) = asset_id {
 				let reason = Self::asset_hold_reason();
-				assets_hold_for!(T)::hold(
+				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::hold(
 					id.clone(),
 					&reason,
 					&from,
@@ -836,7 +830,7 @@ pub mod pallet {
 				if let Ok(assets_call) = call.clone().try_into() {
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
 					let reason = Self::asset_hold_reason();
-					let _ = assets_hold_for!(T)::transfer_on_hold(
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
 							id.into(),
 							&reason,
 							&pending.from,
