@@ -26,6 +26,8 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_runtime::traits::StaticLookup;
+use frame_support::traits::tokens::fungibles::MutateHold as AssetsHold;
+use frame_support::traits::tokens::fungibles::MutateHold;
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.
 pub type BlockNumberOrTimestampOf<T> =
@@ -34,6 +36,7 @@ pub type BlockNumberOrTimestampOf<T> =
 /// Type alias for the Recovery pallet's expected block number type
 pub type RecoveryBlockNumberOf<T> =
 	<<T as pallet_recovery::Config>::BlockNumberProvider as sp_runtime::traits::BlockNumberProvider>::BlockNumber;
+
 
 /// High security account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
@@ -67,6 +70,19 @@ type AssetIdOf<T> = <T as pallet_assets::Config>::AssetId;
 
 /// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
 type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
+
+/// Type aliases for cleaner code
+type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldReason;
+type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
+type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
+
+// Helper macro to shorten `<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>`
+macro_rules! assets_hold_for {
+    ($t:ty) => {
+        <AssetsHolderOf<$t> as AssetsHold<AccountIdOf<$t>>>
+    };
+}
+// NOTE: Can't alias a trait; use inline path at call sites for clarity
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -506,11 +522,15 @@ pub mod pallet {
 		ScheduledTransfer,
 	}
 
-    impl<T: Config> Pallet<T>
-    where
-        T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
-            + pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
+	impl<T: Config> Pallet<T>
+	where
+		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
+			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
+		#[inline]
+		fn asset_hold_reason() -> AssetsHoldReasonOf<T> {
+			HoldReason::ScheduledTransfer.into()
+		}
 		/// Check if an account has reversibility enabled and return its delay.
 		pub fn is_high_security(
 			who: &T::AccountId,
@@ -553,13 +573,9 @@ pub mod pallet {
 
 			// If this is an assets transfer, release the held amount before dispatch
 			if let Ok(assets_call) = call.clone().try_into() {
-				use frame_support::traits::tokens::fungibles::MutateHold as AssetsHoldMutate;
 				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-					let reason: <T as pallet_assets_holder::Config>::RuntimeHoldReason =
-						<T as Config>::RuntimeHoldReason::from(HoldReason::ScheduledTransfer);
-					let _ = <pallet_assets_holder::Pallet<T> as AssetsHoldMutate<
-						<T as frame_system::Config>::AccountId,
-					>>::release(
+					let reason = Self::asset_hold_reason();
+					let _ = assets_hold_for!(T)::release(
 						id.into(),
 						&reason,
 						&pending.from,
@@ -747,12 +763,8 @@ pub mod pallet {
 
 			// For assets, hold the funds using assets-holder; for native balances, hold the funds
 			if let Some(ref id) = asset_id {
-				use frame_support::traits::tokens::fungibles::MutateHold as AssetsHoldMutate;
-				let reason: <T as pallet_assets_holder::Config>::RuntimeHoldReason =
-					<T as Config>::RuntimeHoldReason::from(HoldReason::ScheduledTransfer);
-				<pallet_assets_holder::Pallet<T> as AssetsHoldMutate<
-					<T as frame_system::Config>::AccountId,
-				>>::hold(
+				let reason = Self::asset_hold_reason();
+				assets_hold_for!(T)::hold(
 					id.clone(),
 					&reason,
 					&from,
@@ -822,13 +834,9 @@ pub mod pallet {
 			// For assets, transfer held funds to interceptor via assets-holder; for native balances, transfer held funds to interceptor
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(assets_call) = call.clone().try_into() {
-					use frame_support::traits::tokens::fungibles::MutateHold as AssetsHoldMutate;
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-						let reason: <T as pallet_assets_holder::Config>::RuntimeHoldReason =
-							<T as Config>::RuntimeHoldReason::from(HoldReason::ScheduledTransfer);
-						let _ = <pallet_assets_holder::Pallet<T> as AssetsHoldMutate<
-							<T as frame_system::Config>::AccountId,
-						>>::transfer_on_hold(
+					let reason = Self::asset_hold_reason();
+					let _ = assets_hold_for!(T)::transfer_on_hold(
 							id.into(),
 							&reason,
 							&pending.from,
