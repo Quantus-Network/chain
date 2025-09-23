@@ -266,7 +266,7 @@ pub mod pallet {
 			ensure!(*header.number() == block_number, Error::<T>::HeaderNumberMismatch);
 
 			// Cross-check header hash equals stored hash
-			let provided_hash = <T as frame_system::Config>::Hashing::hash_of(&header);
+			let provided_hash = header.hash();
 			ensure!(provided_hash == expected_hash, Error::<T>::HeaderHashMismatch);
 
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
