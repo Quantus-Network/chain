@@ -183,7 +183,7 @@ impl pallet_assets::Config for Test {
 	type MetadataDepositPerByte = MetadataDepositPerByte;
 	type ApprovalDeposit = sp_core::ConstU128<0>;
 	type StringLimit = AssetsStringLimit;
-	type Freezer = ();
+	type Freezer = pallet_reversible_transfers::Pallet<Test>;
 	type Extra = ();
 	type WeightInfo = ();
 	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
@@ -191,7 +191,7 @@ impl pallet_assets::Config for Test {
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
-	type Holder = ();
+	type Holder = pallet_reversible_transfers::Pallet<Test>;
 }
 
 parameter_types! {

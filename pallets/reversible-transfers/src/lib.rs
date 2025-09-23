@@ -25,7 +25,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
-use sp_runtime::traits::StaticLookup;
+use sp_runtime::traits::{Saturating, StaticLookup, Zero};
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.
 pub type BlockNumberOrTimestampOf<T> =
@@ -238,6 +238,26 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn global_nonce)]
 	pub type GlobalNonce<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	/// Internal holds for pallet-assets integration. We expose these via the
+	/// `pallet_assets::BalanceOnHold` trait implementation below.
+	#[pallet::storage]
+	#[pallet::getter(fn asset_holds)]
+	pub type AssetHolds<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		AssetIdOf<T>,
+		Blake2_128Concat,
+		T::AccountId,
+		BalanceOf<T>,
+		ValueQuery,
+	>;
+
+	/// Total held per asset to support efficient `contains_holds` checks.
+	#[pallet::storage]
+	#[pallet::getter(fn asset_hold_totals)]
+	pub type AssetHoldTotals<T: Config> =
+		StorageMap<_, Blake2_128Concat, AssetIdOf<T>, BalanceOf<T>, ValueQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -548,14 +568,14 @@ pub mod pallet {
 			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-			// If this is an assets transfer, thaw the sender before dispatch
+			// If this is an assets transfer, decrement the held amount before dispatch
 			if let Ok(assets_call) = call.clone().try_into() {
 				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-					let _ = pallet_assets::Pallet::<T>::thaw(
-						frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
-						id,
-						T::Lookup::unlookup(pending.from.clone()),
-					);
+					let asset_id: AssetIdOf<T> = id.clone().into();
+					AssetHolds::<T>::mutate(asset_id.clone(), &pending.from, |v| {
+						*v = v.saturating_sub(pending.amount);
+					});
+					AssetHoldTotals::<T>::mutate(asset_id, |t| *t = t.saturating_sub(pending.amount));
 				}
 			}
 
@@ -735,13 +755,10 @@ pub mod pallet {
 				Error::<T>::SchedulingFailed
 			})?;
 
-			// For assets, freeze the account; for native balances, hold the funds
+			// For assets, add a hold; for native balances, hold the funds
 			if let Some(ref id) = asset_id {
-				let _ = pallet_assets::Pallet::<T>::freeze(
-					frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
-					id.clone().into(),
-					T::Lookup::unlookup(from.clone()),
-				);
+				AssetHolds::<T>::mutate(id.clone(), &from, |v| *v = v.saturating_add(amount));
+				AssetHoldTotals::<T>::mutate(id.clone(), |t| *t = t.saturating_add(amount));
 			} else {
 				pallet_balances::Pallet::<T>::hold(
 					&HoldReason::ScheduledTransfer.into(),
@@ -803,14 +820,20 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// For assets, thaw the sender; for native balances, transfer held funds to interceptor
+			// For assets, reduce hold and transfer assets to interceptor; for native balances, transfer held funds to interceptor
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(assets_call) = call.clone().try_into() {
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-						let _ = pallet_assets::Pallet::<T>::thaw(
-							frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
+						let asset_id: AssetIdOf<T> = id.clone().into();
+						AssetHolds::<T>::mutate(asset_id.clone(), &pending.from, |v| {
+							*v = v.saturating_sub(pending.amount);
+						});
+						AssetHoldTotals::<T>::mutate(asset_id.clone(), |t| *t = t.saturating_sub(pending.amount));
+						let _ = pallet_assets::Pallet::<T>::transfer_keep_alive(
+							frame_support::dispatch::RawOrigin::Signed(pending.from.clone()).into(),
 							id,
-							T::Lookup::unlookup(pending.from.clone()),
+							T::Lookup::unlookup(interceptor.clone()),
+							pending.amount,
 						);
 					}
 				}
@@ -868,4 +891,43 @@ pub mod pallet {
 			}
 		}
 	}
+}
+
+// Implement assets hold integration so pallet-assets respects our holds.
+impl<T: pallet::Config> pallet_assets::BalanceOnHold<AssetIdOf<T>, T::AccountId, BalanceOf<T>>
+	for pallet::Pallet<T>
+{
+	fn balance_on_hold(asset: AssetIdOf<T>, who: &T::AccountId) -> Option<BalanceOf<T>> {
+		let v = pallet::AssetHolds::<T>::get(asset, who);
+		if v.is_zero() { None } else { Some(v) }
+	}
+
+	fn died(asset: AssetIdOf<T>, who: &T::AccountId) {
+		pallet::AssetHolds::<T>::remove(asset, who);
+	}
+
+	fn contains_holds(asset: AssetIdOf<T>) -> bool {
+		!pallet::AssetHoldTotals::<T>::get(asset).is_zero()
+	}
+}
+
+// Enforce that held amounts are unspendable by reporting a freeze equal to (held + held).
+// Since pallet-assets computes untouchable as max(frozen - held, ED), setting
+// frozen = held + held makes untouchable = held, blocking spending into the held portion.
+impl<T: pallet::Config> pallet_assets::FrozenBalance<AssetIdOf<T>, T::AccountId, BalanceOf<T>>
+    for pallet::Pallet<T>
+{
+    fn frozen_balance(asset: AssetIdOf<T>, who: &T::AccountId) -> Option<BalanceOf<T>> {
+        let held = pallet::AssetHolds::<T>::get(asset, who);
+        if held.is_zero() { None } else { Some(held.saturating_add(held)) }
+    }
+
+    fn died(asset: AssetIdOf<T>, who: &T::AccountId) {
+        // If an account is removed, clear any residual accounting
+        pallet::AssetHolds::<T>::remove(asset, who);
+    }
+
+    fn contains_freezes(asset: AssetIdOf<T>) -> bool {
+        !pallet::AssetHoldTotals::<T>::get(asset).is_zero()
+    }
 }

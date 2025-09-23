@@ -1204,6 +1204,11 @@ fn schedule_asset_transfer_works() {
 			amount,
 		));
 
+		// Hold is recorded; free asset balances unchanged before execution
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_asset_before);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before);
+
 		// Should be frozen (assets path uses freeze, not balances hold)
 		// Verify pending index increments
 		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
@@ -1216,6 +1221,7 @@ fn schedule_asset_transfer_works() {
 
 		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
 		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
 	});
 }
 
@@ -1241,11 +1247,122 @@ fn schedule_asset_transfer_with_delay_works() {
 			BlockNumberOrTimestamp::BlockNumber(custom_delay_blocks),
 		));
 
+		// Hold is recorded; free balances unchanged before execution
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_asset_before);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before);
+
 		let execute_block = System::block_number() + custom_delay_blocks;
 		run_to_block(execute_block);
 
 		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
 		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
+	});
+}
+
+#[test]
+fn asset_hold_blocks_spending() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 1; // high-security from genesis
+		let interceptor = 2; // from genesis config for 1
+		let recipient: AccountId = 4;
+		let third_party: AccountId = 9;
+		let asset_id: u32 = 314;
+		let spend_amount: Balance = 3_000;
+
+		create_asset(asset_id, sender);
+		let sender_before = asset_balance(asset_id, sender);
+		let recipient_before = asset_balance(asset_id, recipient);
+		let third_before = asset_balance(asset_id, third_party);
+		let hold_amount = sender_before - spend_amount / 2; 
+
+		// Schedule an asset transfer to create a hold on `sender`.
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			hold_amount,
+		));
+
+		// Hold exists; free balances unchanged so far.
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_before);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_before);
+
+		// Spending should now fail because we mirror hold as freeze enforcement.
+		assert_err!(
+			pallet_assets::Pallet::<Test>::transfer_keep_alive(
+				RuntimeOrigin::signed(sender),
+				codec::Compact(asset_id),
+				third_party,
+				spend_amount,
+			),
+			pallet_assets::Error::<Test>::BalanceLow
+		);
+
+		// Verify nothing moved, hold remains.
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_before);
+		assert_eq!(asset_balance(asset_id, third_party), third_before);
+
+		// Pending remains and will execute later; cancel it now to clean up and credit interceptor.
+		let ids = ReversibleTransfers::pending_transfers_by_sender(&sender);
+		assert_eq!(ids.len(), 1);
+		let tx_id = ids[0];
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
+	});
+}
+
+#[test]
+fn asset_hold_blocks_only_held_portion() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 1; // high-security from genesis
+		let interceptor = 2; // from genesis config for 1
+		let recipient: AccountId = 4;
+		let third_party: AccountId = 9;
+		let asset_id: u32 = 777;
+
+		create_asset(asset_id, sender);
+		let sender_before = asset_balance(asset_id, sender);
+		let third_before = asset_balance(asset_id, third_party);
+		let recipient_before = asset_balance(asset_id, recipient);
+
+		// Place a hold smaller than free so some spend is still allowed
+		let hold_amount: Balance = sender_before / 10; // 10%
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			hold_amount,
+		));
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_before);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_before);
+
+		// Attempt to cross the held barrier by 1; must fail
+		let over = (sender_before - hold_amount).saturating_add(1);
+		assert_err!(
+			pallet_assets::Pallet::<Test>::transfer_keep_alive(
+				RuntimeOrigin::signed(sender),
+				codec::Compact(asset_id),
+				third_party,
+				over,
+			),
+			pallet_assets::Error::<Test>::BalanceLow
+		);
+
+		// Cancel pending to release hold and credit interceptor
+		let ids = ReversibleTransfers::pending_transfers_by_sender(&sender);
+		assert_eq!(ids.len(), 1);
+		let tx_id = ids[0];
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(ReversibleTransfers::asset_holds(asset_id, sender), 0);
 	});
 }
 

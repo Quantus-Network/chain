@@ -583,15 +583,13 @@ impl pallet_assets::Config for Runtime {
 	type MetadataDepositPerByte = MetadataDepositPerByte;
 	type ApprovalDeposit = ExistentialDeposit;
 	type StringLimit = AssetsStringLimit;
-	type Freezer = ();
+	type Freezer = pallet_reversible_transfers::Pallet<Runtime>;
 	type Extra = ();
 	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
 	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
 	type AssetAccountDeposit = AssetAccountDeposit;
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-	/// TODO: we are not using this pallet yet, but when we start using, we should provide a
-	/// proper implementation.
-	type Holder = ();
+	type Holder = pallet_reversible_transfers::Pallet<Runtime>;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
 }
