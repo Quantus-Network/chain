@@ -330,23 +330,31 @@ fn test_integrated_verification_flow() {
 		let distance_threshold = QPow::get_initial_distance_threshold();
 		println!("Current distance_threshold: {}", distance_threshold);
 
-		// Use a nonce that we know works for our tests
+		// Find a valid nonce dynamically instead of using hardcoded value
 		let mut nonce = [0u8; 64];
-		nonce[63] = 38; // This worked in your previous tests
+		let mut found_valid = false;
 
-		// Make sure it's actually valid
-		let distance = QPow::get_nonce_distance(block_hash, nonce);
-		println!("Nonce distance: {}, Threshold: {}", distance, distance_threshold);
+		// Try various values until we find one that works
+		for i in 1..1000u16 {
+			nonce[62] = (i >> 8) as u8;
+			nonce[63] = (i & 0xff) as u8;
+			let distance = QPow::get_nonce_distance(block_hash, nonce);
 
-		if distance > distance_threshold {
-			println!("WARNING: Test nonce is not valid for current distance_threshold!");
-			// Either generate a valid nonce here or fail the test
-			assert!(distance <= distance_threshold, "Cannot proceed with invalid test nonce");
+			if distance <= distance_threshold {
+				println!(
+					"Found valid nonce with value {} - distance: {}, threshold: {}",
+					i, distance, distance_threshold
+				);
+				found_valid = true;
+				break;
+			}
 		}
+
+		assert!(found_valid, "Could not find valid nonce for testing. Adjust test parameters.");
 
 		// 1. First, simulate verification by submitting a nonce
 		let valid = QPow::verify_nonce_local_mining(block_hash, nonce);
-		assert!(valid);
+		assert!(valid, "Verification should succeed with dynamically found valid nonce");
 	});
 }
 
