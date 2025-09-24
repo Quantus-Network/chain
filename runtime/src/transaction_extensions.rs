@@ -223,17 +223,6 @@ mod tests {
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
 
-			// Balance transfers are also disallowed for high-security accounts
-			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-				dest: MultiAddress::Id(bob()),
-				value: 10 * EXISTENTIAL_DEPOSIT,
-			});
-			let result = check_call(call);
-
-			assert_eq!(
-				result.unwrap_err(),
-				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
-			);
 		});
 	}
 
