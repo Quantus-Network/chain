@@ -158,13 +158,6 @@ parameter_types! {
 	 pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
 }
 
-impl pallet_wormhole::Config for Runtime {
-	type Currency = Balances;
-	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
-	type WeightToFee = IdentityFee<Balance>;
-	type MintingAccount = MintingAccount;
-}
-
 type Moment = u64;
 
 parameter_types! {
