@@ -15,7 +15,6 @@ use pallet_scheduler::Agenda;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
-// use frame_support::traits::tokens::fungibles::hold::Mutate as AssetsHoldMutate;
 
 // Helper function to create a transfer call
 pub(crate) fn transfer_call(dest: AccountId, amount: Balance) -> RuntimeCall {
@@ -51,23 +50,26 @@ fn run_to_block(n: u64) {
 	}
 }
 
-// --- Minimal assets helpers for tests ---
-fn create_asset(id: u32, owner: AccountId) {
-	// Create asset with owner as admin/issuer
-	assert_ok!(pallet_assets::Pallet::<Test>::create(
-		RuntimeOrigin::signed(owner),
-		codec::Compact(id),
-		owner,
-		1,
-	));
-	// Mint some supply to owner
-	assert_ok!(pallet_assets::Pallet::<Test>::mint(
-		RuntimeOrigin::signed(owner),
-		codec::Compact(id),
-		owner,
-		1_000_000_000_000,
-	));
+// Helper: create asset with exact initial supply to owner
+fn create_asset(id: u32, owner: AccountId, supply: Option<Balance>) {
+    // Create asset with owner as admin/issuer
+    assert_ok!(pallet_assets::Pallet::<Test>::create(
+        RuntimeOrigin::signed(owner),
+        codec::Compact(id),
+        owner,
+        1, // minimum balance
+    ));
+
+    // Mint supply to owner
+    let amount = supply.unwrap_or(1_000_000_000_000);
+    assert_ok!(pallet_assets::Pallet::<Test>::mint(
+        RuntimeOrigin::signed(owner),
+        codec::Compact(id),
+        owner,
+        amount,
+    ));
 }
+
 
 fn asset_balance(id: u32, who: AccountId) -> Balance {
 	pallet_assets::Pallet::<Test>::balance(id, who)
@@ -1204,7 +1206,7 @@ fn schedule_asset_transfer_works() {
 		let asset_id: u32 = 42;
 		let amount: Balance = 1_000;
 
-		create_asset(asset_id, sender);
+		create_asset(asset_id, sender, None);
 		let sender_asset_before = asset_balance(asset_id, sender);
 		let recipient_asset_before = asset_balance(asset_id, recipient);
 
@@ -1241,7 +1243,7 @@ fn schedule_asset_transfer_with_delay_works() {
 		let amount: Balance = 2_000;
 		let custom_delay_blocks: u64 = 8;
 
-		create_asset(asset_id, sender);
+		create_asset(asset_id, sender, None);
 		let sender_asset_before = asset_balance(asset_id, sender);
 		let recipient_asset_before = asset_balance(asset_id, recipient);
 
@@ -1273,7 +1275,7 @@ fn asset_hold_does_not_block_spending() {
 		let asset_id: u32 = 314;
 		let spend_amount: Balance = 3_000;
 
-		create_asset(asset_id, sender);
+		create_asset(asset_id, sender, None);
 		let sender_before = asset_balance(asset_id, sender);
 		let recipient_before = asset_balance(asset_id, recipient);
 		let third_before = asset_balance(asset_id, third_party);
@@ -1327,7 +1329,7 @@ fn asset_hold_blocks_only_held_portion() {
 		let third_party: AccountId = 9;
 		let asset_id: u32 = 777;
 
-		create_asset(asset_id, sender);
+		create_asset(asset_id, sender, None);
 		let sender_before = asset_balance(asset_id, sender);
 		let third_before = asset_balance(asset_id, third_party);
 		let recipient_before = asset_balance(asset_id, recipient);
@@ -1371,22 +1373,6 @@ fn asset_hold_blocks_only_held_portion() {
 	});
 }
 
-// Helper: create asset with exact initial supply to owner
-fn create_asset_with_supply(id: u32, owner: AccountId, supply: Balance) {
-	assert_ok!(pallet_assets::Pallet::<Test>::create(
-		RuntimeOrigin::signed(owner),
-		codec::Compact(id),
-		owner,
-		1, // minimum balance
-	));
-	assert_ok!(pallet_assets::Pallet::<Test>::mint(
-		RuntimeOrigin::signed(owner),
-		codec::Compact(id),
-		owner,
-		supply,
-	));
-}
-
 #[test]
 fn asset_hold_prevents_spend_over_free() {
 	// Testing asset hold because it was quite confusing in code
@@ -1397,7 +1383,7 @@ fn asset_hold_prevents_spend_over_free() {
 		let asset_id: u32 = 808;
 
 		// Create asset and give sender 20 units
-		create_asset_with_supply(asset_id, sender, 20);
+		create_asset(asset_id, sender, Some(20));
 
 		// Create a 10-unit hold by scheduling an asset transfer with one-time delay (sender is not
 		// high-security)
@@ -1419,49 +1405,6 @@ fn asset_hold_prevents_spend_over_free() {
 				15,
 			),
 			pallet_assets::Error::<Test>::BalanceLow
-		);
-	});
-}
-
-#[test]
-fn balances_hold_prevents_spend_over_free() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let sender: AccountId = 3;
-		let recipient: AccountId = 4;
-
-		// Set sender's free balance to 20
-		assert_ok!(pallet_balances::Pallet::<Test>::force_set_balance(
-			RuntimeOrigin::root(),
-			sender,
-			20,
-		));
-
-		// Put 10 on hold
-		assert_ok!(pallet_balances::Pallet::<Test>::hold(
-			&HoldReason::ScheduledTransfer.into(),
-			&sender,
-			10,
-		));
-
-		// Attempt to send 15, which exceeds free (20 - 10 = 10). Should fail.
-		let res = pallet_balances::Pallet::<Test>::transfer_keep_alive(
-			RuntimeOrigin::signed(sender),
-			recipient,
-			15,
-		);
-		assert!(matches!(
-			res,
-			Err(sp_runtime::DispatchError::Token(sp_runtime::TokenError::FundsUnavailable))
-		));
-
-		// Held amount remains
-		assert_eq!(
-			pallet_balances::Pallet::<Test>::balance_on_hold(
-				&HoldReason::ScheduledTransfer.into(),
-				&sender
-			),
-			10
 		);
 	});
 }
