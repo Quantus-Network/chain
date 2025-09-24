@@ -332,7 +332,7 @@ fn test_integrated_verification_flow() {
 
 		// Use a nonce that we know works for our tests
 		let mut nonce = [0u8; 64];
-		nonce[63] = 38; // This worked in your previous tests
+		nonce[63] = 34; // This worked in your previous tests
 
 		// Make sure it's actually valid
 		let distance = QPow::get_nonce_distance(block_hash, nonce);
