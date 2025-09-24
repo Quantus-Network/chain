@@ -8,6 +8,7 @@ use frame_system::ensure_signed;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{traits::TransactionExtension, Weight};
+use frame_support::assert_ok;
 
 /// Transaction extension for reversible accounts
 ///
@@ -152,7 +153,7 @@ mod tests {
 			);
 
 			// we should not fail here
-			assert!(result.is_ok());
+			assert_ok!(result);
 
 			// Test that non-high-security accounts can make balance transfers
 			let ext = ReversibleTransactionExtension::<Runtime>::new();
@@ -177,7 +178,7 @@ mod tests {
 				frame_support::pallet_prelude::TransactionSource::External,
 			);
 			// Alice is not high-security, so this should succeed
-			assert!(result.is_ok());
+			assert_ok!(result);
 
 			// Charlie is already configured as high-security from genesis
 			// Verify Charlie is high-security
@@ -193,7 +194,7 @@ mod tests {
 
 			// Test the validate method
 			let result = check_call(call);
-			assert!(result.is_ok());
+			assert_ok!(result);
 
 			// High-security accounts can call cancel
 			let call =
@@ -201,7 +202,7 @@ mod tests {
 					tx_id: sp_core::H256::default(),
 				});
 			let result = check_call(call);
-			assert!(result.is_ok());
+			assert_ok!(result);
 
 			// All other calls are disallowed for high-security accounts
 			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
