@@ -589,11 +589,14 @@ impl pallet_assets::Config for Runtime {
 	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
 	type AssetAccountDeposit = AssetAccountDeposit;
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-	/// TODO: we are not using this pallet yet, but when we start using, we should provide a
-	/// proper implementation.
-	type Holder = ();
+	type Holder = pallet_assets_holder::Pallet<Runtime>;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
+}
+
+impl pallet_assets_holder::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
@@ -601,6 +604,16 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
 		match call {
 			RuntimeCall::Balances(c) => Ok(c),
+			_ => Err(()),
+		}
+	}
+}
+
+impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+		match call {
+			RuntimeCall::Assets(c) => Ok(c),
 			_ => Err(()),
 		}
 	}

@@ -140,6 +140,7 @@ frame-system-benchmarking = { version = "41.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "37.0.0", default-features = false }
 frame-try-runtime = { version = "0.47.0", default-features = false }
 pallet-assets = { version = "43.0.0", default-features = false }
+pallet-assets-holder = { version = "0.3.0", default-features = false }
 pallet-conviction-voting = { version = "41.0.0", default-features = false }
 pallet-preimage = { version = "41.0.0", default-features = false }
 pallet-ranked-collective = { version = "41.0.0", default-features = false }

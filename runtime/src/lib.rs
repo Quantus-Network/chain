@@ -276,4 +276,7 @@ mod runtime {
 
 	#[runtime::pallet_index(21)]
 	pub type Assets = pallet_assets;
+
+	#[runtime::pallet_index(22)]
+	pub type AssetsHolder = pallet_assets_holder;
 }
