@@ -2,9 +2,10 @@ use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
 use qpow_math::{
-	get_random_rsa, hash_to_group_bigint_sha, is_coprime, is_prime, mod_pow, sha3_512,
+	get_random_rsa, hash_to_group_bigint_poseidon, is_coprime, is_prime, mod_pow
 };
 use std::ops::Shl;
+use qp_poseidon_core::Poseidon2Core;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -646,10 +647,11 @@ fn test_compute_pow_valid_nonce() {
 			&(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
 			&U512::from_big_endian(&n),
 		);
-		let manual_hash = sha3_512(manual_mod);
+		let poseidon = Poseidon2Core::new();
+		let manual_hash = poseidon.hash_512(&manual_mod.to_big_endian());
 
 		// Check if the result is computed correctly
-		assert_eq!(hash, manual_hash);
+		assert_eq!(hash.to_big_endian(), manual_hash);
 	});
 }
 
@@ -675,10 +677,11 @@ fn test_compute_pow_overflow_check() {
 			&(U512::from_big_endian(&h) + U512::from_big_endian(&nonce)),
 			&U512::from_big_endian(&n),
 		);
-		let manual_hash = sha3_512(manual_mod);
+		let poseidon = Poseidon2Core::new();
+		let manual_hash = poseidon.hash_512(&manual_mod.to_big_endian());
 
 		// Check if the result is computed correctly
-		assert_eq!(hash, manual_hash);
+		assert_eq!(hash.to_big_endian(), manual_hash);
 	});
 }
 
@@ -981,7 +984,7 @@ pub fn hash_to_group(h: &[u8; 32], m: &[u8; 32], n: &[u8; 64], nonce: &[u8; 64])
 	let m = U512::from_big_endian(m);
 	let n = U512::from_big_endian(n);
 	let nonce_u = U512::from_big_endian(nonce);
-	hash_to_group_bigint_sha(&h, &m, &n, &nonce_u)
+	hash_to_group_bigint_poseidon(&h, &m, &n, &nonce_u)
 }
 
 fn run_to_block(n: u32) {

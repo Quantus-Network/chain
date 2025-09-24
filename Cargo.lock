@@ -8405,7 +8405,7 @@ dependencies = [
  "qp-poseidon-core",
  "qp-rusty-crystals-dilithium 1.0.1",
  "rand_chacha 0.9.0",
- "rand_core 0.6.4",
+ "rand_core 0.9.3",
  "serde",
  "serde_json",
  "thiserror 2.0.16",
