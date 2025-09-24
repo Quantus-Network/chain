@@ -11,9 +11,6 @@ extern crate alloc;
 pub use pallet::*;
 
 #[cfg(test)]
-mod mock;
-
-#[cfg(test)]
 mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -24,7 +21,7 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{Fortitude, Restriction},
+	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -34,13 +31,15 @@ use sp_runtime::traits::StaticLookup;
 pub type BlockNumberOrTimestampOf<T> =
 	BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
 
+/// Type alias for the Recovery pallet's expected block number type
+pub type RecoveryBlockNumberOf<T> =
+	<<T as pallet_recovery::Config>::BlockNumberProvider as sp_runtime::traits::BlockNumberProvider>::BlockNumber;
+
 /// High security account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub struct HighSecurityAccountData<AccountId, Delay> {
 	/// The account that can reverse the transaction
 	pub interceptor: AccountId,
-	/// The account that is able to do recovery
-	pub recoverer: AccountId,
 	/// The delay period for the account
 	pub delay: Delay,
 }
@@ -63,6 +62,17 @@ pub struct PendingTransfer<AccountId, Balance, Call> {
 /// Balance type
 type BalanceOf<T> = <T as pallet_balances::Config>::Balance;
 
+/// AssetId type
+type AssetIdOf<T> = <T as pallet_assets::Config>::AssetId;
+
+/// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
+type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
+
+/// Type aliases for asset holder pallet
+type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldReason;
+type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
+type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -77,7 +87,7 @@ pub mod pallet {
 	};
 	use sp_runtime::{
 		traits::{
-			AccountIdConversion, AtLeast32Bit, BlockNumberProvider, Dispatchable, Hash, Scale,
+			AccountIdConversion, AtLeast32Bit, BlockNumberProvider, Dispatchable, Hash, Scale, Zero,
 		},
 		Saturating,
 	};
@@ -89,10 +99,15 @@ pub mod pallet {
 	pub trait Config:
 		frame_system::Config<
 			RuntimeCall: From<pallet_balances::Call<Self>>
+			                 + From<pallet_assets::Call<Self>>
 			                 + From<Call<Self>>
 			                 + Dispatchable<PostInfo = PostDispatchInfo>
-			                 + TryInto<pallet_balances::Call<Self>>,
+			                 + TryInto<pallet_balances::Call<Self>>
+			                 + TryInto<pallet_assets::Call<Self>>,
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
+		+ pallet_assets::Config<Balance = <Self as pallet_balances::Config>::Balance>
+		+ pallet_assets_holder::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
+		+ pallet_recovery::Config
 	{
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
 		type Scheduler: ScheduleNamed<
@@ -177,7 +192,7 @@ pub mod pallet {
 		_,
 		Blake2_128Concat,
 		T::Hash,
-		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<T::RuntimeCall, T::Hashing>>,
+		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<RuntimeCallOf<T>, T::Hashing>>,
 		OptionQuery,
 	>;
 
@@ -238,7 +253,6 @@ pub mod pallet {
 		HighSecuritySet {
 			who: T::AccountId,
 			interceptor: T::AccountId,
-			recoverer: T::AccountId,
 			delay: BlockNumberOrTimestampOf<T>,
 		},
 		/// A transaction has been intercepted and scheduled for delayed execution.
@@ -247,7 +261,8 @@ pub mod pallet {
 			from: T::AccountId,
 			to: T::AccountId,
 			interceptor: T::AccountId,
-			amount: T::Balance,
+			asset_id: Option<AssetIdOf<T>>,
+			amount: BalanceOf<T>,
 			tx_id: T::Hash,
 			execute_at: DispatchTime<BlockNumberFor<T>, T::Moment>,
 		},
@@ -299,23 +314,32 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
 	where
-		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
+		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
+			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
-		/// Enable high-security for the calling account with a specified delay
+		/// Enable high-security for the calling account with a specified
+		/// reversibility delay.
 		///
-		/// - `delay`: The time (in milliseconds) after submission before the transaction executes.
+		/// Recoverer and interceptor (aka guardian) could be the same account or
+		/// different accounts.
+		///
+		/// Once an account is set as high security it can only make reversible
+		/// transfers. It is not allowed any other calls.
+		///
+		/// - `delay`: The reversibility time for any transfer made by the high
+		/// security account.
+		/// - interceptor: The account that can intercept transctions from the
+		/// high security account.
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as Config>::WeightInfo::set_reversibility())]
+		#[pallet::weight(<T as Config>::WeightInfo::set_high_security())]
 		pub fn set_high_security(
 			origin: OriginFor<T>,
 			delay: BlockNumberOrTimestampOf<T>,
 			interceptor: T::AccountId,
-			recoverer: T::AccountId,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
+			let who = ensure_signed(origin.clone())?;
 
 			ensure!(interceptor != who.clone(), Error::<T>::InterceptorCannotBeSelf);
-			ensure!(recoverer != who.clone(), Error::<T>::RecovererCannotBeSelf);
 			ensure!(
 				!HighSecurityAccounts::<T>::contains_key(&who),
 				Error::<T>::AccountAlreadyHighSecurity
@@ -323,15 +347,20 @@ pub mod pallet {
 
 			Self::validate_delay(&delay)?;
 
-			// TODO: initiate recovery relationship thru recovery pallet
-			let high_security_account_data = HighSecurityAccountData {
-				interceptor: interceptor.clone(),
-				recoverer: recoverer.clone(),
-				delay,
-			};
+			// Set up zero delay recovery for interceptor
+			// The interceptor then simply needs to claim the recovery in order to be able
+			// to make calls on behalf of the high security account.
+			let recovery_delay_blocks: RecoveryBlockNumberOf<T> = Zero::zero();
+			pallet_recovery::Pallet::<T>::create_recovery(
+				origin,
+				alloc::vec![interceptor.clone()],
+				One::one(),
+				recovery_delay_blocks,
+			)?;
 
-			// TODO: maybe we don't need these if we put all the info in the events
-			// Update interceptor index
+			let high_security_account_data =
+				HighSecurityAccountData { interceptor: interceptor.clone(), delay };
+
 			InterceptorIndex::<T>::try_mutate(interceptor.clone(), |accounts| {
 				if !accounts.contains(&who) {
 					accounts
@@ -343,7 +372,7 @@ pub mod pallet {
 			})?;
 
 			HighSecurityAccounts::<T>::insert(who.clone(), &high_security_account_data);
-			Self::deposit_event(Event::HighSecuritySet { who, interceptor, recoverer, delay });
+			Self::deposit_event(Event::HighSecuritySet { who, interceptor, delay });
 
 			Ok(())
 		}
@@ -388,7 +417,7 @@ pub mod pallet {
 		/// Schedule a transaction for delayed execution with a custom, one-time delay.
 		///
 		/// This can only be used by accounts that have *not* set up a persistent
-		/// reversibility configuration with `set_reversibility`.
+		/// reversibility configuration with `set_high_security`.
 		///
 		/// - `delay`: The time (in blocks or milliseconds) before the transaction executes.
 		#[pallet::call_index(4)]
@@ -400,7 +429,7 @@ pub mod pallet {
 			delay: BlockNumberOrTimestampOf<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			log::debug!(target: "reversible-transfers", "schedule_transfer_with_delay with delay: {:?}", delay);
+			log::debug!(target: "reversible-transfers", "schedule_transfer_with_delay with delay: {delay:?}");
 
 			// Accounts with pre-configured reversibility cannot use this extrinsic.
 			ensure!(
@@ -411,7 +440,48 @@ pub mod pallet {
 			// Validate the provided delay.
 			Self::validate_delay(&delay)?;
 
-			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay)
+			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, None)
+		}
+
+		/// Schedule an asset transfer (pallet-assets) for delayed execution using the configured
+		/// delay.
+		#[pallet::call_index(5)]
+		#[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+		pub fn schedule_asset_transfer(
+			origin: OriginFor<T>,
+			asset_id: AssetIdOf<T>,
+			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let HighSecurityAccountData { delay, interceptor, .. } =
+				Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
+
+			Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay, Some(asset_id))
+		}
+
+		/// Schedule an asset transfer (pallet-assets) with a custom one-time delay.
+		#[pallet::call_index(6)]
+		#[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+		pub fn schedule_asset_transfer_with_delay(
+			origin: OriginFor<T>,
+			asset_id: AssetIdOf<T>,
+			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,
+			amount: BalanceOf<T>,
+			delay: BlockNumberOrTimestampOf<T>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			// High security accounts cannot use this extrinsic.
+			ensure!(
+				!HighSecurityAccounts::<T>::contains_key(&who),
+				Error::<T>::AccountAlreadyReversibleCannotScheduleOneTime
+			);
+
+			// Validate the provided delay.
+			Self::validate_delay(&delay)?;
+
+			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, Some(asset_id))
 		}
 	}
 
@@ -443,8 +513,13 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T>
 	where
-		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
+		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
+			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
+		#[inline]
+		fn asset_hold_reason() -> AssetsHoldReasonOf<T> {
+			HoldReason::ScheduledTransfer.into()
+		}
 		/// Check if an account has reversibility enabled and return its delay.
 		pub fn is_high_security(
 			who: &T::AccountId,
@@ -455,8 +530,9 @@ pub mod pallet {
 		/// Get full details of a pending transfer by its ID
 		pub fn get_pending_transfer_details(
 			tx_id: &T::Hash,
-		) -> Option<PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<T::RuntimeCall, T::Hashing>>>
-		{
+		) -> Option<
+			PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<RuntimeCallOf<T>, T::Hashing>>,
+		> {
 			PendingTransfers::<T>::get(tx_id)
 		}
 
@@ -481,16 +557,34 @@ pub mod pallet {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
 			// get from preimages
-			let (call, _) = T::Preimages::realize::<T::RuntimeCall>(&pending.call)
+			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-			// Release the funds
-			pallet_balances::Pallet::<T>::release(
-				&HoldReason::ScheduledTransfer.into(),
-				&pending.from,
-				pending.amount,
-				Precision::Exact,
-			)?;
+			// If this is an assets transfer, release the held amount before dispatch
+			if let Ok(assets_call) = call.clone().try_into() {
+				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
+					let reason = Self::asset_hold_reason();
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
+						id.into(),
+						&reason,
+						&pending.from,
+						pending.amount,
+						Precision::Exact,
+					);
+				}
+			}
+
+			// Release the funds only for native balances holds
+			if let Ok(balance_call) = call.clone().try_into() {
+				if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
+					pallet_balances::Pallet::<T>::release(
+						&HoldReason::ScheduledTransfer.into(),
+						&pending.from,
+						pending.amount,
+						Precision::Exact,
+					)?;
+				}
+			}
 
 			// Remove transfer from all storage (handles indexes, account count, etc.)
 			Self::transfer_removed(&pending.from, *tx_id, &pending);
@@ -520,7 +614,7 @@ pub mod pallet {
 			pending_transfer: PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<T::RuntimeCall, T::Hashing>,
+				Bounded<RuntimeCallOf<T>, T::Hashing>,
 			>,
 		) -> DispatchResult {
 			// Store the pending transfer
@@ -551,7 +645,7 @@ pub mod pallet {
 			pending_transfer: &PendingTransfer<
 				T::AccountId,
 				BalanceOf<T>,
-				Bounded<T::RuntimeCall, T::Hashing>,
+				Bounded<RuntimeCallOf<T>, T::Hashing>,
 			>,
 		) {
 			// Update account pending count (always decrement for each removed instance)
@@ -566,19 +660,10 @@ pub mod pallet {
 				list.retain(|&x| x != tx_id);
 			});
 
-			// Extract recipient from the call and clean up recipient index efficiently
-			if let Ok((call, _)) = T::Preimages::peek::<T::RuntimeCall>(&pending_transfer.call) {
-				if let Ok(balance_call) = call.try_into() {
-					if let pallet_balances::Call::transfer_keep_alive { dest, .. } = balance_call {
-						if let Ok(recipient) = T::Lookup::lookup(dest) {
-							// Clean up recipient index efficiently
-							PendingTransfersByRecipient::<T>::mutate(&recipient, |list| {
-								list.retain(|&x| x != tx_id);
-							});
-						}
-					}
-				}
-			}
+			// Clean up recipient index efficiently using stored recipient
+			PendingTransfersByRecipient::<T>::mutate(&pending_transfer.to, |list| {
+				list.retain(|&x| x != tx_id);
+			});
 		}
 
 		/// Internal logic to schedule a transfer with a given delay.
@@ -588,18 +673,29 @@ pub mod pallet {
 			interceptor: T::AccountId,
 			amount: BalanceOf<T>,
 			delay: BlockNumberOrTimestampOf<T>,
+			asset_id: Option<AssetIdOf<T>>,
 		) -> DispatchResult {
 			let recipient = T::Lookup::lookup(to.clone())?;
-			let transfer_call: T::RuntimeCall =
-				pallet_balances::Call::<T>::transfer_keep_alive { dest: to.clone(), value: amount }
-					.into();
+			let transfer_call: RuntimeCallOf<T> = match asset_id {
+				Some(ref id) => pallet_assets::Call::<T>::transfer_keep_alive {
+					id: id.clone().into(),
+					target: to.clone(),
+					amount,
+				}
+				.into(),
+				None => pallet_balances::Call::<T>::transfer_keep_alive {
+					dest: to.clone(),
+					value: amount,
+				}
+				.into(),
+			};
 
 			let tx_id = T::Hashing::hash_of(
 				&(from.clone(), transfer_call.clone(), GlobalNonce::<T>::get()).encode(),
 			);
 
-			log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {:?}", delay);
-			log::debug!(target: "reversible-transfers", "Reversible transfer tx_id: {:?}", tx_id);
+			log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {delay:?}");
+			log::debug!(target: "reversible-transfers", "Reversible transfer tx_id: {tx_id:?}");
 
 			// Check if the account can accommodate another pending transaction
 			let current_count = AccountPendingIndex::<T>::get(&from);
@@ -610,7 +706,8 @@ pub mod pallet {
 
 			let dispatch_time = match delay {
 				BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
-					T::BlockNumberProvider::current_block_number().saturating_add(blocks),
+					<T as pallet::Config>::BlockNumberProvider::current_block_number()
+						.saturating_add(blocks),
 				),
 				BlockNumberOrTimestamp::Timestamp(millis) =>
 					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
@@ -618,7 +715,7 @@ pub mod pallet {
 					)),
 			};
 			log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
-			log::debug!(target: "reversible-transfers", "dispatch_time: {:?}", dispatch_time);
+			log::debug!(target: "reversible-transfers", "dispatch_time: {dispatch_time:?}");
 
 			let call = T::Preimages::bound(transfer_call)?;
 
@@ -649,16 +746,26 @@ pub mod pallet {
 				bounded_call,
 			)
 			.map_err(|e| {
-				log::error!("Failed to schedule transaction: {:?}", e);
+				log::error!("Failed to schedule transaction: {e:?}");
 				Error::<T>::SchedulingFailed
 			})?;
 
-			// Hold the funds for the delay period
-			pallet_balances::Pallet::<T>::hold(
-				&HoldReason::ScheduledTransfer.into(),
-				&from,
-				amount,
-			)?;
+			// For assets, hold the funds using assets-holder; for native balances, hold the funds
+			if let Some(ref id) = asset_id {
+				let reason = Self::asset_hold_reason();
+				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::hold(
+					id.clone(),
+					&reason,
+					&from,
+					amount,
+				)?;
+			} else {
+				pallet_balances::Pallet::<T>::hold(
+					&HoldReason::ScheduledTransfer.into(),
+					&from,
+					amount,
+				)?;
+			}
 
 			GlobalNonce::<T>::mutate(|nonce| nonce.saturating_inc());
 
@@ -666,6 +773,7 @@ pub mod pallet {
 				from,
 				to: recipient,
 				interceptor,
+				asset_id,
 				tx_id,
 				execute_at: dispatch_time,
 				amount,
@@ -685,7 +793,7 @@ pub mod pallet {
 			let HighSecurityAccountData { delay, interceptor, .. } =
 				Self::high_security_accounts(&who).ok_or(Error::<T>::AccountNotHighSecurity)?;
 
-			Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay)
+			Self::do_schedule_transfer_inner(who, dest, interceptor, amount, delay, None)
 		}
 
 		/// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
@@ -712,15 +820,38 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			pallet_balances::Pallet::<T>::transfer_on_hold(
-				&HoldReason::ScheduledTransfer.into(),
-				&pending.from,
-				&interceptor,
-				pending.amount,
-				Precision::Exact,
-				Restriction::Free,
-				Fortitude::Polite,
-			)?;
+			// For assets, transfer held funds to interceptor via assets-holder; for native
+			// balances, transfer held funds to interceptor
+			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
+				if let Ok(assets_call) = call.clone().try_into() {
+					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
+						let reason = Self::asset_hold_reason();
+						let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+							id.into(),
+							&reason,
+							&pending.from,
+							&interceptor,
+							pending.amount,
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
+						);
+					}
+				}
+				if let Ok(balance_call) = call.clone().try_into() {
+					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
+						pallet_balances::Pallet::<T>::transfer_on_hold(
+							&HoldReason::ScheduledTransfer.into(),
+							&pending.from,
+							&interceptor,
+							pending.amount,
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
+						)?;
+					}
+				}
+			}
 
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
@@ -733,23 +864,21 @@ pub mod pallet {
 		/// Configure initial reversible accounts. [AccountId, Delay]
 		/// NOTE: using `(bool, BlockNumberFor<T>)` where `bool` indicates if the delay is in block
 		/// numbers
-		pub initial_high_security_accounts:
-			Vec<(T::AccountId, T::AccountId, T::AccountId, BlockNumberFor<T>)>,
+		pub initial_high_security_accounts: Vec<(T::AccountId, T::AccountId, BlockNumberFor<T>)>,
 	}
 
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			for (who, interceptor, recoverer, delay) in &self.initial_high_security_accounts {
+			for (who, interceptor, delay) in &self.initial_high_security_accounts {
 				// Basic validation, ensure delay is reasonable if needed
 				let wrapped_delay = BlockNumberOrTimestampOf::<T>::BlockNumber(*delay);
 
-				if delay >= &T::MinDelayPeriodBlocks::get() {
+				if *delay >= T::MinDelayPeriodBlocks::get() {
 					HighSecurityAccounts::<T>::insert(
 						who,
 						HighSecurityAccountData {
 							interceptor: interceptor.clone(),
-							recoverer: recoverer.clone(),
 							delay: wrapped_delay,
 						},
 					);

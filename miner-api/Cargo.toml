@@ -1,13 +1,18 @@
 [package]
 authors.workspace = true
+categories = ["api-bindings", "data-structures"]
 description = "API definitions for communication between Quantus node and external miners"
 edition.workspace = true
 homepage.workspace = true
+keywords = [
+	"api",
+	"quantus-network",
+	"substrate",
+]
 license.workspace = true
-name = "resonance-miner-api"
-publish = true                                                                             # Make available for third-party miners
+name = "quantus-miner-api"
 repository.workspace = true
-version = "0.1.0"
+version = "0.0.3"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true, features = ["alloc", "derive"] }

@@ -124,9 +124,8 @@ where
 				if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
 					return Err(Error::BadFormat);
 				}
-				let nibble_bytes = (nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) /
-					nibble_ops::NIBBLE_PER_BYTE;
-				let felt_aligned_bytes = ((nibble_bytes + 7) / 8) * 8;
+				let nibble_bytes = nibble_count.div_ceil(nibble_ops::NIBBLE_PER_BYTE);
+				let felt_aligned_bytes = nibble_bytes.div_ceil(8) * 8;
 				let felt_aligned_range = input.take(felt_aligned_bytes)?;
 				// Only pass the actual nibble data to NibbleSlicePlan, not the padding
 				let partial = felt_aligned_range.start..(felt_aligned_range.start + nibble_bytes);
@@ -144,7 +143,7 @@ where
 						length_array.copy_from_slice(length_bytes);
 						let count = u64::from_le_bytes(length_array) as usize;
 						// Calculate felt-aligned length to consume padding
-						let value_aligned_len = ((count + 7) / 8) * 8;
+						let value_aligned_len = count.div_ceil(8) * 8;
 						let value_range = input.take(value_aligned_len)?;
 						// Only return the actual value data, not the padding
 						ValuePlan::Inline(value_range.start..(value_range.start + count))
@@ -180,13 +179,12 @@ where
 				})
 			},
 			NodeHeader::HashedValueLeaf(nibble_count) | NodeHeader::Leaf(nibble_count) => {
-				let nibble_bytes = (nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) /
-					nibble_ops::NIBBLE_PER_BYTE;
+				let nibble_bytes = nibble_count.div_ceil(nibble_ops::NIBBLE_PER_BYTE);
 
 				// Calculate prefix padding to ensure partial key data aligns to felt boundaries
 				let misalignment = nibble_bytes % 8;
 				let prefix_padding = if misalignment == 0 { 0 } else { 8 - misalignment };
-				let total_nibble_section = ((prefix_padding + nibble_bytes + 7) / 8) * 8;
+				let total_nibble_section = (prefix_padding + nibble_bytes).div_ceil(8) * 8;
 
 				let felt_aligned_range = input.take(total_nibble_section)?;
 
@@ -210,7 +208,7 @@ where
 					length_array.copy_from_slice(length_bytes);
 					let count = u64::from_le_bytes(length_array) as usize;
 					// Calculate felt-aligned length to consume padding
-					let value_aligned_len = ((count + 7) / 8) * 8;
+					let value_aligned_len = count.div_ceil(8) * 8;
 					let value_range = input.take(value_aligned_len)?;
 					// Only return the actual value data, not the padding
 					ValuePlan::Inline(value_range.start..(value_range.start + count))
@@ -253,7 +251,7 @@ where
 				output.extend_from_slice(value);
 
 				// Pad value data to 8-byte boundary
-				let value_aligned_len = ((value.len() + 7) / 8) * 8;
+				let value_aligned_len = value.len().div_ceil(8) * 8;
 				let padding_needed = value_aligned_len - value.len();
 				for _ in 0..padding_needed {
 					output.push(0);
@@ -309,7 +307,7 @@ where
 				output.extend_from_slice(value);
 
 				// Pad value data to 8-byte boundary
-				let value_aligned_len = ((value.len() + 7) / 8) * 8;
+				let value_aligned_len = value.len().div_ceil(8) * 8;
 				let padding_needed = value_aligned_len - value.len();
 				for _ in 0..padding_needed {
 					output.push(0);
@@ -356,8 +354,7 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 	nibble_count: usize,
 	node_kind: NodeKind,
 ) -> Vec<u8> {
-	let nibble_bytes =
-		(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE;
+	let nibble_bytes = nibble_count.div_ceil(nibble_ops::NIBBLE_PER_BYTE);
 
 	// For leaf nodes, ensure partial key data aligns to felt boundaries
 	let (prefix_padding, total_nibble_section) = match node_kind {
@@ -366,12 +363,12 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 			// for ZK proof verification - align partial data to end at felt boundary
 			let misalignment = nibble_bytes % 8;
 			let prefix_pad = if misalignment == 0 { 0 } else { 8 - misalignment };
-			let total_section = ((prefix_pad + nibble_bytes + 7) / 8) * 8;
+			let total_section = (prefix_pad + nibble_bytes).div_ceil(8) * 8;
 			(prefix_pad, total_section)
 		},
 		_ => {
 			// Branch nodes use standard padding
-			let felt_aligned_bytes = ((nibble_bytes + 7) / 8) * 8;
+			let felt_aligned_bytes = nibble_bytes.div_ceil(8) * 8;
 			(0, felt_aligned_bytes)
 		},
 	};

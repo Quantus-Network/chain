@@ -288,17 +288,15 @@ impl<H: AsRef<[u8]> + Eq + std::hash::Hash> SharedNodeCache<H> {
 			self.lru.len() * 100 / config.shared_node_cache_max_replace_percent;
 
 		for (key, cached_node) in list {
-			if cached_node.is_from_shared_cache {
-				if self.lru.get(&key).is_some() {
-					access_count += 1;
+			if cached_node.is_from_shared_cache && self.lru.get(&key).is_some() {
+				access_count += 1;
 
-					if access_count >= config.shared_node_cache_max_promoted_keys {
-						// Stop when we've promoted a large enough number of items.
-						break;
-					}
-
-					continue;
+				if access_count >= config.shared_node_cache_max_promoted_keys {
+					// Stop when we've promoted a large enough number of items.
+					break;
 				}
+
+				continue;
 			}
 
 			self.lru.insert(key, cached_node.node);
@@ -386,7 +384,7 @@ impl<'a, H> ValueCacheRef<'a, H> {
 	where
 		H: AsRef<[u8]>,
 	{
-		let hash = ValueCacheKey::<H>::hash_data(&storage_key, &storage_root);
+		let hash = ValueCacheKey::<H>::hash_data(storage_key, &storage_root);
 		Self { storage_root, storage_key, hash }
 	}
 }

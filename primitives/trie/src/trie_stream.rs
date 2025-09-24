@@ -68,7 +68,7 @@ fn fuse_nibbles_node(nibbles: &[u8], kind: NodeKind) -> Vec<u8> {
 	let mut result = header.encode();
 
 	// Calculate nibble bytes needed
-	let nibble_bytes = (size + 1) / 2; // Round up for odd nibble counts
+	let nibble_bytes = size.div_ceil(2); // Round up for odd nibble counts
 
 	// For leaf nodes, ensure partial key data aligns to felt boundaries
 	let (prefix_padding, total_nibble_section) = match kind {
@@ -76,12 +76,12 @@ fn fuse_nibbles_node(nibbles: &[u8], kind: NodeKind) -> Vec<u8> {
 			// Calculate prefix padding to ensure felt boundary alignment
 			let misalignment = nibble_bytes % 8;
 			let prefix_pad = if misalignment == 0 { 0 } else { 8 - misalignment };
-			let total_section = ((prefix_pad + nibble_bytes + 7) / 8) * 8;
+			let total_section = (prefix_pad + nibble_bytes).div_ceil(8) * 8;
 			(prefix_pad, total_section)
 		},
 		_ => {
 			// Branch nodes use standard padding
-			let felt_aligned_bytes = ((nibble_bytes + 7) / 8) * 8;
+			let felt_aligned_bytes = nibble_bytes.div_ceil(8) * 8;
 			(0, felt_aligned_bytes)
 		},
 	};
@@ -135,7 +135,7 @@ impl trie_root::TrieStream for TrieStream {
 				self.buffer.extend_from_slice(value);
 
 				// Pad value data to 8-byte boundary
-				let value_aligned_len = ((value.len() + 7) / 8) * 8;
+				let value_aligned_len = value.len().div_ceil(8) * 8;
 				let padding_needed = value_aligned_len - value.len();
 				for _ in 0..padding_needed {
 					self.buffer.push(0);
@@ -175,7 +175,7 @@ impl trie_root::TrieStream for TrieStream {
 				self.buffer.extend_from_slice(value);
 
 				// Pad value data to 8-byte boundary
-				let value_aligned_len = ((value.len() + 7) / 8) * 8;
+				let value_aligned_len = value.len().div_ceil(8) * 8;
 				let padding_needed = value_aligned_len - value.len();
 				for _ in 0..padding_needed {
 					self.buffer.push(0);

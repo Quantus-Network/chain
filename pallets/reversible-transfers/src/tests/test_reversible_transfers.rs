@@ -1,10 +1,15 @@
 #![cfg(test)]
 
-use super::*; // Import items from parent module (lib.rs)
-use crate::mock::*; // Import mock runtime and types
+use crate::tests::mock::*; // Import mock runtime and types
+use crate::*; // Import items from parent module (lib.rs)
 use frame_support::{
 	assert_err, assert_ok,
-	traits::{fungible::InspectHold, StorePreimage, Time},
+	traits::{
+		fungible::{InspectHold, MutateHold as BalancesHoldMutate},
+		fungibles::Inspect as AssetsInspect,
+		tokens::fungibles::InspectHold as AssetsInspectHold,
+		StorePreimage, Time,
+	},
 };
 use pallet_scheduler::Agenda;
 use qp_scheduler::BlockNumberOrTimestamp;
@@ -12,12 +17,21 @@ use sp_core::H256;
 use sp_runtime::traits::{BadOrigin, BlakeTwo256, Hash};
 
 // Helper function to create a transfer call
-fn transfer_call(dest: AccountId, amount: Balance) -> RuntimeCall {
+pub(crate) fn transfer_call(dest: AccountId, amount: Balance) -> RuntimeCall {
 	RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value: amount })
 }
 
+// Helper: approximate equality for balances to tolerate fee deductions
+fn approx_eq_balance(a: Balance, b: Balance, epsilon: Balance) -> bool {
+	if a >= b {
+		a - b <= epsilon
+	} else {
+		b - a <= epsilon
+	}
+}
+
 // Helper function to calculate TxId (matching the logic in schedule_transfer)
-fn calculate_tx_id<T: Config>(who: AccountId, call: &RuntimeCall) -> H256 {
+pub(crate) fn calculate_tx_id<T: Config>(who: AccountId, call: &RuntimeCall) -> H256 {
 	let global_nonce = GlobalNonce::<T>::get();
 	BlakeTwo256::hash_of(&(who, call, global_nonce).encode())
 }
@@ -36,6 +50,33 @@ fn run_to_block(n: u64) {
 	}
 }
 
+// Helper to create and mint asset
+fn create_asset(id: u32, owner: AccountId, supply: Option<Balance>) {
+	assert_ok!(pallet_assets::Pallet::<Test>::create(
+		RuntimeOrigin::signed(owner),
+		codec::Compact(id),
+		owner,
+		1,
+	));
+	let amount = supply.unwrap_or(1_000_000_000_000);
+	assert_ok!(pallet_assets::Pallet::<Test>::mint(
+		RuntimeOrigin::signed(owner),
+		codec::Compact(id),
+		owner,
+		amount,
+	));
+}
+
+fn asset_balance(id: u32, who: AccountId) -> Balance {
+	pallet_assets::Pallet::<Test>::balance(id, who)
+}
+
+// Test-only helper: amount held (by reversible pallet reason) for an asset account
+fn asset_holds(id: u32, who: AccountId) -> Balance {
+	let reason: RuntimeHoldReason = HoldReason::ScheduledTransfer.into();
+	<pallet_assets_holder::Pallet<Test> as AssetsInspectHold<_>>::balance_on_hold(id, &reason, &who)
+}
+
 #[test]
 fn set_high_security_works() {
 	new_test_ext().execute_with(|| {
@@ -48,27 +89,24 @@ fn set_high_security_works() {
 			Some(HighSecurityAccountData {
 				delay: BlockNumberOrTimestampOf::<Test>::BlockNumber(10),
 				interceptor: 2,
-				recoverer: 3,
 			})
 		);
 
 		// Set the delay
 		let another_user = 4;
 		let interceptor = 5;
-		let recoverer = 6;
 		let delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(5);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(another_user),
 			delay,
 			interceptor,
-			recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&another_user),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 		System::assert_last_event(
-			Event::HighSecuritySet { who: another_user, interceptor, recoverer, delay }.into(),
+			Event::HighSecuritySet { who: another_user, interceptor, delay }.into(),
 		);
 
 		// Calling this again should err
@@ -77,7 +115,6 @@ fn set_high_security_works() {
 				RuntimeOrigin::signed(another_user),
 				delay,
 				interceptor,
-				recoverer,
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
@@ -85,26 +122,22 @@ fn set_high_security_works() {
 		// Use default delay
 		let default_user = 7;
 		let default_interceptor = 8;
-		let default_recoverer = 9;
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(default_user),
 			DefaultDelay::get(),
 			default_interceptor,
-			default_recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&default_user),
 			Some(HighSecurityAccountData {
 				delay: DefaultDelay::get(),
 				interceptor: default_interceptor,
-				recoverer: default_recoverer,
 			})
 		);
 		System::assert_last_event(
 			Event::HighSecuritySet {
 				who: default_user,
 				interceptor: default_interceptor,
-				recoverer: default_recoverer,
 				delay: DefaultDelay::get(),
 			}
 			.into(),
@@ -116,14 +149,12 @@ fn set_high_security_works() {
 
 		let new_user = 10;
 		let new_interceptor = 11;
-		let new_recoverer = 12;
 		let short_delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(1);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(new_user),
 				short_delay,
 				new_interceptor,
-				new_recoverer,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -134,20 +165,8 @@ fn set_high_security_works() {
 				RuntimeOrigin::signed(new_user),
 				delay,
 				new_user,
-				new_recoverer,
 			),
 			Error::<Test>::InterceptorCannotBeSelf
-		);
-
-		// Test recoverer cannot be self
-		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(new_user),
-				delay,
-				new_interceptor,
-				new_user,
-			),
-			Error::<Test>::RecovererCannotBeSelf
 		);
 
 		assert_eq!(ReversibleTransfers::is_high_security(&new_user), None);
@@ -155,16 +174,14 @@ fn set_high_security_works() {
 		// Use explicit reverser
 		let reversible_account = 6;
 		let interceptor = 7;
-		let recoverer = 8;
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 	});
 }
@@ -182,20 +199,16 @@ fn set_reversibility_with_timestamp_delay_works() {
 		let delay = BlockNumberOrTimestamp::Timestamp(5 * TimestampBucketSize::get());
 
 		let interceptor = 16;
-		let recoverer = 17;
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user),
 			delay,
 			interceptor,
-			recoverer,
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&user),
-			Some(HighSecurityAccountData { delay, interceptor, recoverer })
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
-		System::assert_last_event(
-			Event::HighSecuritySet { who: user, interceptor, recoverer, delay }.into(),
-		);
+		System::assert_last_event(Event::HighSecuritySet { who: user, interceptor, delay }.into());
 
 		// Too short timestamp delay
 		// This requires MinDelayPeriodTimestamp to be set and > 0 for this check to be meaningful
@@ -205,13 +218,11 @@ fn set_reversibility_with_timestamp_delay_works() {
 		let another_user = 5;
 
 		let another_interceptor = 18;
-		let another_recoverer = 19;
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(another_user),
 				short_delay_ts,
 				another_interceptor,
-				another_recoverer,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -224,14 +235,12 @@ fn set_reversibility_fails_delay_too_short() {
 		System::set_block_number(1);
 		let user = 20;
 		let interceptor = 21;
-		let recoverer = 22;
 		let short_delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(1);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(user),
 				short_delay,
 				interceptor,
-				recoverer,
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -285,7 +294,8 @@ fn schedule_transfer_works() {
 		run_to_block(expected_block.as_block_number().unwrap());
 
 		// Check that the transfer is executed
-		assert_eq!(Balances::free_balance(user), user_balance - amount);
+		let eps: Balance = 10; // tolerate tiny fee differences
+		assert!(approx_eq_balance(Balances::free_balance(user), user_balance - amount, eps));
 		assert_eq!(Balances::free_balance(dest_user), dest_user_balance + amount);
 
 		// Use explicit reverser
@@ -297,7 +307,6 @@ fn schedule_transfer_works() {
 			RuntimeOrigin::signed(reversible_account),
 			BlockNumberOrTimestamp::BlockNumber(10),
 			interceptor,
-			reversible_account + 100,
 		));
 
 		let tx_id = calculate_tx_id::<Test>(reversible_account, &call);
@@ -368,7 +377,6 @@ fn schedule_transfer_with_timestamp_works() {
 			RuntimeOrigin::signed(user),
 			BlockNumberOrTimestamp::Timestamp(10_000),
 			user + 100,
-			user + 200,
 		));
 
 		let timestamp_bucket_size = TimestampBucketSize::get();
@@ -407,12 +415,11 @@ fn schedule_transfer_with_timestamp_works() {
 		// Check scheduler
 		assert!(Agenda::<Test>::get(expected_timestamp).len() > 0);
 
-		// Skip to the delay timestamp
+		// Advance to expected execution time and ensure it executed
 		MockTimestamp::<Test>::set_timestamp(expected_raw_timestamp);
 		run_to_block(2);
-
-		// Check that the transfer is executed
-		assert_eq!(Balances::free_balance(user), user_balance - amount);
+		let eps: Balance = 10; // tolerate tiny fee differences
+		assert!(approx_eq_balance(Balances::free_balance(user), user_balance - amount, eps));
 		assert_eq!(Balances::free_balance(dest_user), dest_user_balance + amount);
 
 		// Use explicit reverser
@@ -424,7 +431,6 @@ fn schedule_transfer_with_timestamp_works() {
 			RuntimeOrigin::signed(reversible_account),
 			BlockNumberOrTimestamp::BlockNumber(10),
 			interceptor,
-			reversible_account + 100,
 		));
 
 		let tx_id = calculate_tx_id::<Test>(reversible_account, &call);
@@ -694,7 +700,6 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 			RuntimeOrigin::signed(user),
 			user_timestamp_delay,
 			user + 100,
-			user + 200,
 		));
 
 		let user_balance_before = Balances::free_balance(user);
@@ -818,7 +823,6 @@ fn full_flow_execute_with_timestamp_delay_works() {
 			RuntimeOrigin::signed(user),
 			user_timestamp_delay,
 			user + 100,
-			user + 200,
 		));
 
 		let initial_user_balance = Balances::free_balance(user);
@@ -943,7 +947,6 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 			RuntimeOrigin::signed(user),
 			user_timestamp_delay,
 			user + 100,
-			user + 200,
 		));
 
 		let initial_user_balance = Balances::free_balance(user);
@@ -1186,6 +1189,218 @@ fn schedule_transfer_with_delay_works() {
 				custom_delay,
 			),
 			Error::<Test>::AccountAlreadyReversibleCannotScheduleOneTime
+		);
+	});
+}
+
+#[test]
+fn schedule_asset_transfer_works() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 1; // has high-security from genesis
+		let recipient: AccountId = 4;
+		let asset_id: u32 = 42;
+		let amount: Balance = 1_000;
+
+		create_asset(asset_id, sender, None);
+		let sender_asset_before = asset_balance(asset_id, sender);
+		let recipient_asset_before = asset_balance(asset_id, recipient);
+
+		// Schedule asset transfer using configured delay
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			amount,
+		));
+
+		// Should be frozen (assets path uses freeze, not balances hold)
+		// Verify pending index increments
+		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+
+		// Advance to execution and ensure balances moved
+		let HighSecurityAccountData { delay, .. } =
+			ReversibleTransfers::is_high_security(&sender).unwrap();
+		let execute_block = System::block_number() + delay.as_block_number().unwrap();
+		run_to_block(execute_block);
+
+		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
+	});
+}
+
+#[test]
+fn schedule_asset_transfer_with_delay_works() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 3; // not configured; use one-time delay API
+		let recipient: AccountId = 4;
+		let asset_id: u32 = 77;
+		let amount: Balance = 2_000;
+		let custom_delay_blocks: u64 = 8;
+
+		create_asset(asset_id, sender, None);
+		let sender_asset_before = asset_balance(asset_id, sender);
+		let recipient_asset_before = asset_balance(asset_id, recipient);
+
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer_with_delay(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			amount,
+			BlockNumberOrTimestamp::BlockNumber(custom_delay_blocks),
+		));
+
+		let execute_block = System::block_number() + custom_delay_blocks;
+		run_to_block(execute_block);
+
+		assert_eq!(asset_balance(asset_id, sender), sender_asset_before - amount);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_asset_before + amount);
+		assert_eq!(asset_holds(asset_id, sender), 0);
+	});
+}
+
+#[test]
+fn asset_hold_does_not_block_spending() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 1; // high-security from genesis
+		let interceptor = 2; // from genesis config for 1
+		let recipient: AccountId = 4;
+		let third_party: AccountId = 9;
+		let asset_id: u32 = 314;
+		let spend_amount: Balance = 3_000;
+
+		create_asset(asset_id, sender, None);
+		let sender_before = asset_balance(asset_id, sender);
+		let recipient_before = asset_balance(asset_id, recipient);
+		let third_before = asset_balance(asset_id, third_party);
+		let hold_amount = sender_before - spend_amount / 2;
+
+		// Schedule an asset transfer to create a hold on `sender`.
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			hold_amount,
+		));
+
+		// Hold exists; free balance reduced by hold amount.
+		assert_eq!(asset_holds(asset_id, sender), hold_amount);
+		let free_after_hold = sender_before - hold_amount;
+		assert_eq!(asset_balance(asset_id, sender), free_after_hold);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_before);
+
+		// With holds, spending up to free balance is allowed; leave min_balance.
+		let min = <pallet_assets::Pallet<Test> as AssetsInspect<_>>::minimum_balance(asset_id);
+		let spend = free_after_hold.saturating_sub(min);
+		assert_ok!(pallet_assets::Pallet::<Test>::transfer_keep_alive(
+			RuntimeOrigin::signed(sender),
+			codec::Compact(asset_id),
+			third_party,
+			spend,
+		));
+
+		// Verify spend succeeded while hold remains.
+		assert_eq!(asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), min);
+		assert_eq!(asset_balance(asset_id, third_party), third_before + spend);
+
+		// Pending remains and will execute later; cancel it now to clean up and credit interceptor.
+		let ids = ReversibleTransfers::pending_transfers_by_sender(&sender);
+		assert_eq!(ids.len(), 1);
+		let tx_id = ids[0];
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
+		assert_eq!(asset_holds(asset_id, sender), 0);
+	});
+}
+
+#[test]
+fn asset_hold_blocks_only_held_portion() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 1; // high-security from genesis
+		let recipient: AccountId = 4;
+		let third_party: AccountId = 9;
+		let asset_id: u32 = 777;
+
+		create_asset(asset_id, sender, None);
+		let sender_before = asset_balance(asset_id, sender);
+		let third_before = asset_balance(asset_id, third_party);
+		let recipient_before = asset_balance(asset_id, recipient);
+
+		// Place a hold smaller than free so some spend is still allowed
+		let hold_amount: Balance = sender_before / 10; // 10%
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			hold_amount,
+		));
+		assert_eq!(asset_holds(asset_id, sender), hold_amount);
+		assert_eq!(asset_balance(asset_id, sender), sender_before - hold_amount);
+		assert_eq!(asset_balance(asset_id, recipient), recipient_before);
+
+		// Attempt to cross the held barrier by 1; must fail
+		let over = (sender_before - hold_amount).saturating_add(1);
+		assert_err!(
+			pallet_assets::Pallet::<Test>::transfer_keep_alive(
+				RuntimeOrigin::signed(sender),
+				codec::Compact(asset_id),
+				third_party,
+				over,
+			),
+			pallet_assets::Error::<Test>::BalanceLow
+		);
+
+		// Spend the free amount but keep account alive with min.
+		let free_amount = sender_before - hold_amount;
+		let min = <pallet_assets::Pallet<Test> as AssetsInspect<_>>::minimum_balance(asset_id);
+		let spend = free_amount.saturating_sub(min);
+		assert_ok!(pallet_assets::Pallet::<Test>::transfer_keep_alive(
+			RuntimeOrigin::signed(sender),
+			codec::Compact(asset_id),
+			third_party,
+			spend,
+		));
+		assert_eq!(asset_balance(asset_id, sender), min);
+		assert_eq!(asset_balance(asset_id, third_party), third_before + spend);
+	});
+}
+
+#[test]
+fn asset_hold_prevents_spend_over_free() {
+	// Testing asset hold because it was quite confusing in code
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let sender: AccountId = 3; // has system account in genesis
+		let recipient: AccountId = 4; // has system account in genesis
+		let asset_id: u32 = 808;
+
+		// Create asset and give sender 20 units
+		create_asset(asset_id, sender, Some(20));
+
+		// Create a 10-unit hold by scheduling an asset transfer with one-time delay (sender is not
+		// high-security)
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer_with_delay(
+			RuntimeOrigin::signed(sender),
+			asset_id,
+			recipient,
+			10,
+			BlockNumberOrTimestamp::BlockNumber(5),
+		));
+		assert_eq!(asset_holds(asset_id, sender), 10);
+
+		// Attempt to send 15 (free is only 10 after hold); must fail with BalanceLow
+		assert_err!(
+			pallet_assets::Pallet::<Test>::transfer_keep_alive(
+				RuntimeOrigin::signed(sender),
+				codec::Compact(asset_id),
+				recipient,
+				15,
+			),
+			pallet_assets::Error::<Test>::BalanceLow
 		);
 	});
 }
@@ -1628,7 +1843,6 @@ fn interceptor_index_works_with_interceptor() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			reversible_account + 100,
 		));
 
 		// Verify interceptor index is updated
@@ -1639,11 +1853,7 @@ fn interceptor_index_works_with_interceptor() {
 		// Verify account has correct reversibility data
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData {
-				delay,
-				interceptor,
-				recoverer: reversible_account + 100,
-			})
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 	});
 }
@@ -1662,21 +1872,18 @@ fn interceptor_index_handles_multiple_accounts() {
 			RuntimeOrigin::signed(account1),
 			delay,
 			interceptor,
-			account1 + 100,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account2),
 			delay,
 			interceptor,
-			account2 + 100,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account3),
 			delay,
 			interceptor,
-			account3 + 100,
 		));
 
 		// Verify interceptor index contains all accounts
@@ -1700,7 +1907,6 @@ fn interceptor_index_prevents_duplicates() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			reversible_account + 100,
 		));
 
 		// Verify initial state
@@ -1714,7 +1920,6 @@ fn interceptor_index_prevents_duplicates() {
 				RuntimeOrigin::signed(reversible_account),
 				delay,
 				interceptor,
-				reversible_account + 100,
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
@@ -1737,7 +1942,6 @@ fn interceptor_index_respects_max_limit() {
 				RuntimeOrigin::signed(i),
 				delay,
 				interceptor,
-				i + 100,
 			));
 		}
 
@@ -1747,12 +1951,7 @@ fn interceptor_index_respects_max_limit() {
 
 		// Try to add one more account - should fail
 		assert_err!(
-			ReversibleTransfers::set_high_security(
-				RuntimeOrigin::signed(111),
-				delay,
-				interceptor,
-				211,
-			),
+			ReversibleTransfers::set_high_security(RuntimeOrigin::signed(111), delay, interceptor,),
 			Error::<Test>::TooManyInterceptorAccounts
 		);
 
@@ -1774,7 +1973,6 @@ fn interceptor_index_empty_for_non_interceptors() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			reversible_account + 100,
-			reversible_account + 200,
 		));
 
 		// Verify non-interceptor has empty list
@@ -1797,14 +1995,12 @@ fn interceptor_index_different_interceptors_separate_lists() {
 			RuntimeOrigin::signed(account1),
 			delay,
 			interceptor1,
-			account1 + 100,
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account2),
 			delay,
 			interceptor2,
-			account2 + 100,
 		));
 
 		// Verify each interceptor has their own separate list
@@ -1830,7 +2026,6 @@ fn interceptor_index_works_with_intercept_policy() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			reversible_account + 100,
 		));
 
 		// Verify interceptor index is updated regardless of policy
@@ -1841,11 +2036,7 @@ fn interceptor_index_works_with_intercept_policy() {
 		// Verify account has correct policy
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData {
-				delay,
-				interceptor,
-				recoverer: reversible_account + 100,
-			})
+			Some(HighSecurityAccountData { delay, interceptor })
 		);
 	});
 }
@@ -1867,7 +2058,6 @@ fn global_nonce_works() {
 			RuntimeOrigin::signed(reversible_account),
 			delay,
 			interceptor,
-			receiver,
 		));
 
 		assert_ok!(ReversibleTransfers::schedule_transfer(

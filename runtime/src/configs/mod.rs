@@ -38,8 +38,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin, VariantCountOf,
-		WithdrawReasons,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
+		VariantCountOf, WithdrawReasons,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -49,7 +49,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess,
+	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
@@ -66,7 +66,7 @@ use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
 	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
-	EXISTENTIAL_DEPOSIT, MICRO_UNIT, UNIT, VERSION,
+	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -75,7 +75,7 @@ parameter_types! {
 	pub const BlockHashCount: BlockNumber = 4096;
 	pub const Version: RuntimeVersion = VERSION;
 
-	/// We allow for 6 seconds of compute with a 20 second average block time.
+	/// We allow for 6 seconds of compute with a 12 second average block time.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
 		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 		NORMAL_DISPATCH_RATIO,
@@ -138,22 +138,20 @@ impl pallet_mining_rewards::Config for Runtime {
 
 parameter_types! {
 	/// Target block time ms
-	pub const TargetBlockTime: u64 = 20000;
-	pub const TimestampBucketSize: u64 = 40000; // Nyquist frequency
+	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
+	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
 }
 
 impl pallet_qpow::Config for Runtime {
 	// NOTE: InitialDistance will be shifted left by this amount: higher is easier
-	type InitialDistanceThresholdExponent = ConstU32<502>;
+	type InitialDistanceThresholdExponent = ConstU32<488>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = TargetBlockTime;
-	type AdjustmentPeriod = ConstU32<1>;
-	// This is how many blocks to include for the difficulty adjustment
-	type BlockTimeHistorySize = ConstU32<10>;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
 	type MaxDistanceMultiplier = ConstU32<2>;
 	type WeightInfo = ();
+	type EmaAlpha = ConstU32<500>; // Exponent on moving average
 }
 
 parameter_types! {
@@ -568,39 +566,54 @@ parameter_types! {
 	pub const MetadataDepositPerByte: Balance = MILLI_UNIT;
 }
 
-// /// We allow root to execute privileged asset operations.
-// pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+/// We allow root to execute privileged asset operations.
+pub type AssetsForceOrigin = EnsureRoot<AccountId>;
+type AssetId = u32;
 
-// impl pallet_assets::Config for Runtime {
-//     type Balance = Balance;
-//     type RuntimeEvent = RuntimeEvent;
-//     type AssetId = AssetId;
-//     type AssetIdParameter = codec::Compact<AssetId>;
-//     type Currency = Balances;
-//     type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
-//     type ForceOrigin = AssetsForceOrigin;
-//     type AssetDeposit = AssetDeposit;
-//     type MetadataDepositBase = MetadataDepositBase;
-//     type MetadataDepositPerByte = MetadataDepositPerByte;
-//     type ApprovalDeposit = ExistentialDeposit;
-//     type StringLimit = AssetsStringLimit;
-//     type Freezer = ();
-//     type Extra = ();
-//     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-//     type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
-//     type AssetAccountDeposit = AssetAccountDeposit;
-//     type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
-//     /// TODO: we are not using this pallet yet, but when we start using, we should provide a
-// proper implementation.     type Holder = ();
-//     #[cfg(feature = "runtime-benchmarks")]
-//     type BenchmarkHelper = ();
-// }
+impl pallet_assets::Config for Runtime {
+	type Balance = Balance;
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = AssetId;
+	type AssetIdParameter = codec::Compact<AssetId>;
+	type Currency = Balances;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+	type ForceOrigin = AssetsForceOrigin;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ExistentialDeposit;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Runtime, ()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	type Holder = pallet_assets_holder::Pallet<Runtime>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
+
+impl pallet_assets_holder::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeHoldReason = RuntimeHoldReason;
+}
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
 		match call {
 			RuntimeCall::Balances(c) => Ok(c),
+			_ => Err(()),
+		}
+	}
+}
+
+impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+		match call {
+			RuntimeCall::Assets(c) => Ok(c),
 			_ => Err(()),
 		}
 	}

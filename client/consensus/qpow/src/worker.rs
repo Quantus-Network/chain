@@ -170,10 +170,6 @@ where
 					&self.justification_sync_link,
 				);
 
-				info!(
-					target: LOG_TARGET,
-					"🥇 Successfully mined block on top of: {}", build.metadata.best_hash
-				);
 				true
 			},
 			Err(err) => {

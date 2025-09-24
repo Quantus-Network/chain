@@ -127,12 +127,6 @@ impl_runtime_apis! {
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
 
-		fn verify_historical_block(header: [u8; 32], nonce: [u8; 64], block_number: u32) -> bool {
-			// Convert u32 to the appropriate BlockNumber type used by your runtime
-			let block_number_param = block_number;
-			pallet_qpow::Pallet::<Self>::verify_historical_block(header, nonce, block_number_param)
-		}
-
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
 			pallet_qpow::Pallet::<Self>::verify_nonce_on_import_block(block_hash, nonce)
 		}
@@ -153,22 +147,12 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_distance_threshold()
 		}
 
-		fn get_distance_threshold_at_block(block_number: u32) -> U512 {
-			// Convert u32 to the appropriate BlockNumber type used by your runtime
-			let block_number_param = block_number;
-			pallet_qpow::Pallet::<Self>::get_distance_threshold_at_block(block_number_param)
-		}
-
 		fn get_total_work() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_total_work()
 		}
 
-		fn get_block_time_sum() -> u64 {
-			pallet_qpow::Pallet::<Self>::get_block_time_sum()
-		}
-
-		fn get_median_block_time() -> u64 {
-			pallet_qpow::Pallet::<Self>::get_median_block_time()
+		fn get_block_time_ema() -> u64 {
+			pallet_qpow::Pallet::<Self>::get_block_time_ema()
 		}
 
 		fn get_last_block_time() -> u64 {

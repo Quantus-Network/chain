@@ -17,7 +17,10 @@ frame-benchmarking = { optional = true, workspace = true }
 frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
+pallet-assets.workspace = true
+pallet-assets-holder.workspace = true
 pallet-balances.workspace = true
+pallet-recovery.workspace = true
 qp-scheduler.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-runtime.workspace = true
@@ -41,8 +44,11 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
+	"pallet-assets-holder/std",
+	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-preimage/std",
+	"pallet-recovery/std",
 	"pallet-scheduler/std",
 	"pallet-timestamp/std",
 	"pallet-utility/std",

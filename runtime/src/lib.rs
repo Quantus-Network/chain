@@ -93,7 +93,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 };
 
 // Time is measured by number of blocks.
-pub const MINUTES: BlockNumber = 60;
+pub const TARGET_BLOCK_TIME_MS: u64 = 12_000;
+
+/// Derived time units expressed in number of blocks
+pub const MINUTES: BlockNumber = (60_000u64 / TARGET_BLOCK_TIME_MS) as BlockNumber; // e.g., 60/12s = 5 blocks
 pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
 
@@ -270,4 +273,10 @@ mod runtime {
 
 	#[runtime::pallet_index(20)]
 	pub type Recovery = pallet_recovery;
+
+	#[runtime::pallet_index(21)]
+	pub type Assets = pallet_assets;
+
+	#[runtime::pallet_index(22)]
+	pub type AssetsHolder = pallet_assets_holder;
 }

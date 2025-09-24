@@ -71,11 +71,10 @@ impl pallet_timestamp::Config for Test {
 
 impl pallet_qpow::Config for Test {
 	type WeightInfo = ();
+	type EmaAlpha = ConstU32<500>;
 	type InitialDistanceThresholdExponent = ConstU32<508>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = ConstU64<1000>;
-	type AdjustmentPeriod = ConstU32<1>;
-	type BlockTimeHistorySize = ConstU32<5>;
 	type MaxReorgDepth = ConstU32<10>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
 	type MaxDistanceMultiplier = ConstU32<2>;

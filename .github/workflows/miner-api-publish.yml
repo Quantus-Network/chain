@@ -1,0 +1,123 @@
+name: Miner API - Publish
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  create-miner-api-tag:
+    name: Create Miner API Tag
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'miner-api-release-proposal')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+      is_draft: ${{ steps.extract_version.outputs.is_draft }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from PR title
+        id: extract_version
+        run: |
+          # Extract version from PR title (format: "ci: Miner API version bump to quantus-miner-api-vX.Y.Z")
+          VERSION=$(echo "${{ github.event.pull_request.title }}" | grep -o 'quantus-miner-api-v[0-9]\+\.[0-9]\+\.[0-9]\+')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract miner-api version from PR title: ${{ github.event.pull_request.title }}"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if this is a draft release
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'draft-release') }}" == "true" ]]; then
+            echo "is_draft=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_draft=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Extracted miner-api version: $VERSION"
+
+      - name: Create and push miner-api tag
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git tag -a "${{ steps.extract_version.outputs.version }}" -m "Miner API release ${{ steps.extract_version.outputs.version }}"
+          git push origin "${{ steps.extract_version.outputs.version }}"
+
+  format-checks:
+    name: 🏁 Format Checks (Miner API)
+    needs: create-miner-api-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code at tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-miner-api-tag.outputs.version }}
+
+      - name: Install required components
+        run: rustup component add rustfmt --toolchain nightly
+
+      - name: Install taplo
+        run: cargo install taplo-cli --locked
+
+      - name: Run format checks
+        run: |
+          taplo format --check --config taplo.toml
+          cargo +nightly fmt --all -- --check
+
+  build-and-test-miner-api:
+    name: 🛠️ Build & Test Miner API
+    needs: [create-miner-api-tag, format-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code at tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-miner-api-tag.outputs.version }}
+
+      - name: Setup Ubuntu
+        uses: ./.github/actions/ubuntu
+
+      - name: Build miner-api
+        run: cargo build --locked --release --package quantus-miner-api
+
+      - name: Test miner-api
+        run: cargo test --locked --release --package quantus-miner-api
+
+      - name: Run clippy on miner-api
+        run: cargo clippy --locked --package quantus-miner-api --no-deps -- -D warnings
+
+      - name: Build docs for miner-api
+        run: cargo doc --locked --no-deps --package quantus-miner-api
+
+  publish-miner-api-to-crates:
+    name: 📦 Publish to crates.io
+    needs: [create-miner-api-tag, build-and-test-miner-api]
+    if: always() && needs.create-miner-api-tag.outputs.is_draft == 'false'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout code at tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-miner-api-tag.outputs.version }}
+
+      - name: Setup Ubuntu
+        uses: ./.github/actions/ubuntu
+
+      - name: Publish quantus-miner-api to crates.io
+        run: |
+          cd miner-api
+          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

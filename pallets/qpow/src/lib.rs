@@ -19,14 +19,10 @@ use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::vec::Vec;
 	use core::ops::{Shl, Shr};
 	use frame_support::{
 		pallet_prelude::*,
-		sp_runtime::{
-			traits::{One, Zero},
-			SaturatedConversion, Saturating,
-		},
+		sp_runtime::{traits::One, SaturatedConversion, Saturating},
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
@@ -42,16 +38,11 @@ pub mod pallet {
 	pub type BlockDuration = u64;
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
-	pub type HistorySizeType = u32;
 	pub type PercentageClamp = u8;
 	pub type ThresholdExponent = u32;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
-
-	#[pallet::storage]
-	pub type BlockDistanceThresholds<T: Config> =
-		StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
 
 	#[pallet::storage]
 	pub type LastBlockTime<T: Config> = StorageValue<_, Timestamp, ValueQuery>;
@@ -76,9 +67,9 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type HistoryIndex<T: Config> = StorageValue<_, HistoryIndexType, ValueQuery>;
 
-	// Current history size
+	// Exponential Moving Average of block times (in milliseconds)
 	#[pallet::storage]
-	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
+	pub type BlockTimeEma<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
@@ -92,11 +83,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type TargetBlockTime: Get<BlockDuration>;
 
+		/// EMA smoothing factor (0-1000, where 1000 = 1.0)
 		#[pallet::constant]
-		type AdjustmentPeriod: Get<PeriodCount>;
-
-		#[pallet::constant]
-		type BlockTimeHistorySize: Get<HistorySizeType>;
+		type EmaAlpha: Get<u32>;
 
 		#[pallet::constant]
 		type MaxReorgDepth: Get<u32>;
@@ -138,9 +127,8 @@ pub mod pallet {
 			// Set current distance_threshold for the genesis block
 			<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
 
-			// Save initial distance_threshold for the genesis block
-			let genesis_block_number = BlockNumberFor::<T>::zero();
-			<BlockDistanceThresholds<T>>::insert(genesis_block_number, initial_distance_threshold);
+			// Initialize EMA with target block time
+			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
 
 			// Initialize the total distance_threshold with the genesis block's distance_threshold
 			<TotalWork<T>>::put(WorkValue::one());
@@ -206,86 +194,34 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		// Block time recording for median calculation
-		fn record_block_time(block_time: u64) {
-			// History size limiter
-			let max_history = T::BlockTimeHistorySize::get();
-			let mut index = <HistoryIndex<T>>::get();
-			let size = <HistorySize<T>>::get();
+		fn update_block_time_ema(block_time: u64) {
+			let current_ema = <BlockTimeEma<T>>::get();
+			let alpha = T::EmaAlpha::get();
 
-			// Save block time
-			<BlockTimeHistory<T>>::insert(index, block_time);
+			// Initialize EMA with target block time if this is the first block
+			if current_ema == 0 {
+				<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
+				return;
+			}
 
-			// Update index and time
-			index = (index.saturating_add(1)) % max_history;
-			let new_size = if size < max_history { size.saturating_add(1) } else { max_history };
+			// Calculate EMA: new_ema = alpha * block_time + (1 - alpha) * current_ema
+			// Alpha is scaled by 1000, so we divide by 1000
+			let alpha_scaled = alpha as u64;
+			let one_minus_alpha = 1000u64.saturating_sub(alpha_scaled);
 
-			<HistoryIndex<T>>::put(index);
-			<HistorySize<T>>::put(new_size);
+			let weighted_current = block_time.saturating_mul(alpha_scaled);
+			let weighted_ema = current_ema.saturating_mul(one_minus_alpha);
+			let new_ema = (weighted_current.saturating_add(weighted_ema)) / 1000;
+
+			<BlockTimeEma<T>>::put(new_ema);
 
 			log::debug!(target: "qpow",
-				"📊 Recorded block time: {}ms, history size: {}/{}",
+				"📊 Updated EMA: {}ms -> {}ms (new block: {}ms, alpha: {})",
+				current_ema,
+				new_ema,
 				block_time,
-				new_size,
-				max_history
+				alpha_scaled
 			);
-		}
-
-		// Sum of block times
-		pub fn get_block_time_sum() -> u64 {
-			let size = <HistorySize<T>>::get();
-
-			if size == 0 {
-				return T::TargetBlockTime::get();
-			}
-
-			// Take all data
-			let mut sum = 0;
-			for i in 0..size {
-				sum = sum.saturating_add(<BlockTimeHistory<T>>::get(i));
-			}
-
-			log::debug!(target: "qpow",
-				"📊 Calculated total adjustment period time: {}ms from {} samples",
-				sum,
-				size
-			);
-
-			sum
-		}
-
-		// Median calculation
-		pub fn get_median_block_time() -> u64 {
-			let size = <HistorySize<T>>::get();
-
-			if size == 0 {
-				return T::TargetBlockTime::get();
-			}
-
-			// Take all data
-			let mut times = Vec::with_capacity(size as usize);
-			for i in 0..size {
-				times.push(<BlockTimeHistory<T>>::get(i));
-			}
-
-			log::debug!(target: "qpow", "📊 Block times: {:?}", times);
-
-			// Sort it
-			times.sort();
-
-			let median_time = if times.len() % 2 == 0u32 as usize {
-				(times[times.len() / 2 - 1].saturating_add(times[times.len() / 2])) / 2
-			} else {
-				times[times.len() / 2]
-			};
-
-			log::debug!(target: "qpow",
-				"📊 Calculated median block time: {}ms from {} samples",
-				median_time,
-				times.len()
-			);
-
-			median_time
 		}
 
 		fn percentage_change(big_a: U512, big_b: U512) -> (U512, bool) {
@@ -305,9 +241,6 @@ pub mod pallet {
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
-
-			// Store distance_threshold for block
-			<BlockDistanceThresholds<T>>::insert(current_block_number, current_distance_threshold);
 
 			// Update TotalWork
 			let old_total_work = <TotalWork<T>>::get();
@@ -338,56 +271,47 @@ pub mod pallet {
 				// Store the actual block duration
 				<LastBlockDuration<T>>::put(block_time);
 
-				// record new block time
-				Self::record_block_time(block_time);
+				Self::update_block_time_ema(block_time);
 			}
 
 			// Add last block time for the next calculations
 			<LastBlockTime<T>>::put(now);
 
-			// Should we correct distance_threshold ?
-			if blocks >= T::AdjustmentPeriod::get() {
-				let history_size = <HistorySize<T>>::get();
-				if history_size > 0 {
-					let observed_block_time = Self::get_block_time_sum();
-					let target_time = T::TargetBlockTime::get().saturating_mul(history_size as u64);
+			let observed_block_time = <BlockTimeEma<T>>::get();
+			let target_time = T::TargetBlockTime::get();
 
-					let new_distance_threshold = Self::calculate_distance_threshold(
-						current_distance_threshold,
-						observed_block_time,
-						target_time,
-					);
+			let new_distance_threshold = Self::calculate_distance_threshold(
+				current_distance_threshold,
+				observed_block_time,
+				target_time,
+			);
 
-					// Save new distance_threshold
-					<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
+			// Save new distance_threshold
+			<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
 
-					// Propagate new Event
-					Self::deposit_event(Event::DistanceThresholdAdjusted {
-						old_distance_threshold: current_distance_threshold,
-						new_distance_threshold,
-						observed_block_time,
-					});
+			// Propagate new Event
+			Self::deposit_event(Event::DistanceThresholdAdjusted {
+				old_distance_threshold: current_distance_threshold,
+				new_distance_threshold,
+				observed_block_time,
+			});
 
-					let (pct_change, is_positive) =
-						Self::percentage_change(current_distance_threshold, new_distance_threshold);
+			let (pct_change, is_positive) =
+				Self::percentage_change(current_distance_threshold, new_distance_threshold);
 
-					log::debug!(target: "qpow",
-						"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
-						if is_positive {"+"} else {"-"},
-						pct_change,
-						current_distance_threshold.shr(300),
-						new_distance_threshold.shr(300),
-						observed_block_time,
-						target_time
-					);
-				}
+			log::debug!(target: "qpow",
+				"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
+				if is_positive {"+"} else {"-"},
+				pct_change,
+				current_distance_threshold.shr(300),
+				new_distance_threshold.shr(300),
+				observed_block_time,
+				target_time
+			);
 
-				// Reset counters before new iteration
-				<BlocksInPeriod<T>>::put(0);
-				<LastBlockTime<T>>::put(now);
-			} else if blocks == 0 {
-				<LastBlockTime<T>>::put(now);
-			}
+			// Reset counters before new iteration
+			<BlocksInPeriod<T>>::put(0);
+			<LastBlockTime<T>>::put(now);
 		}
 
 		pub fn calculate_distance_threshold(
@@ -472,26 +396,6 @@ pub mod pallet {
 			hash_to_group_bigint(h, m, n, solution)
 		}
 
-		// Function used to verify a block that's already in the chain
-		pub fn verify_historical_block(
-			block_hash: [u8; 32],
-			nonce: NonceType,
-			block_number: BlockNumberFor<T>,
-		) -> bool {
-			// Get the stored distance_threshold for this specific block
-			let block_distance_threshold = Self::get_distance_threshold_at_block(block_number);
-
-			if block_distance_threshold == U512::zero() {
-				// No stored distance_threshold - cannot verify
-				return false;
-			}
-
-			// Verify with historical distance_threshold
-			let (valid, _) = Self::is_valid_nonce(block_hash, nonce, block_distance_threshold);
-
-			valid
-		}
-
 		// Shared verification logic
 		fn verify_nonce_internal(block_hash: [u8; 32], nonce: NonceType) -> (bool, U512, U512) {
 			if nonce == [0u8; 64] {
@@ -525,6 +429,10 @@ pub mod pallet {
 			verify
 		}
 
+		pub fn get_initial_distance_threshold() -> DistanceThreshold {
+			get_initial_distance_threshold::<T>()
+		}
+
 		pub fn get_distance_threshold() -> DistanceThreshold {
 			let stored = <CurrentDistanceThreshold<T>>::get();
 			if stored == U512::zero() {
@@ -545,14 +453,12 @@ pub mod pallet {
 			Self::get_max_distance() / Self::get_distance_threshold()
 		}
 
-		pub fn get_distance_threshold_at_block(
-			block_number: BlockNumberFor<T>,
-		) -> DistanceThreshold {
-			<BlockDistanceThresholds<T>>::get(block_number)
-		}
-
 		pub fn get_total_work() -> WorkValue {
 			<TotalWork<T>>::get()
+		}
+
+		pub fn get_block_time_ema() -> u64 {
+			<BlockTimeEma<T>>::get()
 		}
 
 		pub fn get_last_block_time() -> Timestamp {

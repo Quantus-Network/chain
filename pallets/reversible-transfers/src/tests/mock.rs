@@ -51,14 +51,34 @@ mod runtime {
 	pub type Balances = pallet_balances::Pallet<Test>;
 
 	#[runtime::pallet_index(5)]
+	pub type Recovery = pallet_recovery::Pallet<Test>;
+
+	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
+
+	#[runtime::pallet_index(7)]
+	pub type Assets = pallet_assets::Pallet<Test>;
+
+	#[runtime::pallet_index(8)]
+	pub type AssetsHolder = pallet_assets_holder::Pallet<Test>;
 }
 
-impl From<RuntimeCall> for pallet_balances::Call<Test> {
-	fn from(call: RuntimeCall) -> Self {
+impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
 		match call {
-			RuntimeCall::Balances(c) => c,
-			_ => unreachable!(),
+			RuntimeCall::Balances(c) => Ok(c),
+			_ => Err(()),
+		}
+	}
+}
+
+impl TryFrom<RuntimeCall> for pallet_assets::Call<Test> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+		match call {
+			RuntimeCall::Assets(c) => Ok(c),
+			_ => Err(()),
 		}
 	}
 }
@@ -144,6 +164,63 @@ impl pallet_reversible_transfers::Config for Test {
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 }
 
+parameter_types! {
+	pub const AssetDeposit: Balance = 0;
+	pub const AssetAccountDeposit: Balance = 0;
+	pub const AssetsStringLimit: u32 = 50;
+	pub const MetadataDepositBase: Balance = 0;
+	pub const MetadataDepositPerByte: Balance = 0;
+}
+
+impl pallet_assets::Config for Test {
+	type Balance = Balance;
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = u32;
+	type AssetIdParameter = codec::Compact<u32>;
+	type Currency = Balances;
+	type CreateOrigin =
+		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = sp_core::ConstU128<0>;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = ();
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	type Holder = pallet_assets_holder::Pallet<Test>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
+
+impl pallet_assets_holder::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeHoldReason = RuntimeHoldReason;
+}
+
+parameter_types! {
+	pub const ConfigDepositBase: Balance = 1;
+	pub const FriendDepositFactor: Balance = 1;
+	pub const MaxFriends: u32 = 9;
+	pub const RecoveryDeposit: Balance = 1;
+}
+
+impl pallet_recovery::Config for Test {
+	type WeightInfo = ();
+	type RuntimeCall = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type ConfigDepositBase = ConfigDepositBase;
+	type FriendDepositFactor = FriendDepositFactor;
+	type MaxFriends = MaxFriends;
+	type RecoveryDeposit = RecoveryDeposit;
+	type BlockNumberProvider = System;
+}
+
 impl pallet_preimage::Config for Test {
 	type WeightInfo = ();
 	type Currency = ();
@@ -195,6 +272,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(2, 2),
 			(3, 100_000_000_000),
 			(4, 100_000_000_000),
+			(5, 100_000_000_000),
+			(6, 100_000_000_000),
+			(7, 1_000_000_000_000),
+			(8, 100_000_000_000),
+			(9, 100_000_000_000),
 			(255, 100_000_000_000),
 			(256, 100_000_000_000),
 			// Test accounts for interceptor tests
@@ -216,7 +298,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	.unwrap();
 
 	pallet_reversible_transfers::GenesisConfig::<Test> {
-		initial_high_security_accounts: vec![(1, 2, 3, 10)],
+		initial_high_security_accounts: vec![(1, 2, 10)],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

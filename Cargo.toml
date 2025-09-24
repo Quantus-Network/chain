@@ -10,6 +10,7 @@ members = [
 	"client/cli",
 	"client/consensus/qpow",
 	"client/network",
+	"miner-api",
 	"node",
 	"pallets/balances",
 	"pallets/merkle-airdrop",
@@ -21,7 +22,6 @@ members = [
 	"primitives/dilithium-crypto",
 	"primitives/state-machine",
 	"primitives/trie",
-	"resonance-miner-api",
 	"runtime",
 ]
 resolver = "2"
@@ -124,6 +124,7 @@ qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.1.1
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
+quantus-miner-api = { path = "./miner-api", version = "0.0.3", default-features = false }
 quantus-runtime = { path = "./runtime", default-features = false }
 sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = false }
@@ -152,6 +153,8 @@ frame-system = { version = "41.0.0", default-features = false }
 frame-system-benchmarking = { version = "41.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "37.0.0", default-features = false }
 frame-try-runtime = { version = "0.47.0", default-features = false }
+pallet-assets = { version = "43.0.0", default-features = false }
+pallet-assets-holder = { version = "0.3.0", default-features = false }
 pallet-conviction-voting = { version = "41.0.0", default-features = false }
 pallet-preimage = { version = "41.0.0", default-features = false }
 pallet-ranked-collective = { version = "41.0.0", default-features = false }
