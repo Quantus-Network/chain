@@ -222,7 +222,6 @@ mod tests {
 				result.unwrap_err(),
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(1))
 			);
-
 		});
 	}
 

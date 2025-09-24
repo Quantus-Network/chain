@@ -5,10 +5,8 @@ use crate::*; // Import items from parent module (lib.rs)
 use frame_support::{
 	assert_err, assert_ok,
 	traits::{
-		fungible::InspectHold,
-		fungibles::Inspect as AssetsInspect,
-		tokens::fungibles::InspectHold as AssetsInspectHold,
-		StorePreimage, Time,
+		fungible::InspectHold, fungibles::Inspect as AssetsInspect,
+		tokens::fungibles::InspectHold as AssetsInspectHold, StorePreimage, Time,
 	},
 };
 use pallet_scheduler::Agenda;
