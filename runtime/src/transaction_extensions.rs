@@ -36,18 +36,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
-		match call {
-			RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_transfer { .. },
-			) => <T as pallet_reversible_transfers::Config>::WeightInfo::schedule_transfer(),
-			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
-				..
-			}) => <T as pallet_reversible_transfers::Config>::WeightInfo::cancel(),
-			_ => {
-				// For all other calls, just account for reading the reversible accounts status
-				T::DbWeight::get().reads(1)
-			},
-		}
+		T::DbWeight::get().reads(1)
 	}
 
 	fn prepare(
