@@ -94,9 +94,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::pallet_prelude::TransactionValidityError;
+	use frame_support::{assert_ok, pallet_prelude::TransactionValidityError};
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
-	use frame_support::assert_ok;
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
 	}
