@@ -250,7 +250,6 @@ fn test_distance_threshold_storage_and_retrieval() {
 }
 
 /// Total distance_threshold tests
-
 #[test]
 fn test_total_distance_threshold_initialization() {
 	new_test_ext().execute_with(|| {
