@@ -6,6 +6,7 @@ pub use pallet::*;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+mod impls;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -27,15 +28,15 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::is_valid_nonce;
+	use qpow_math::{get_nonce_distance, get_random_rsa, hash_to_group_bigint, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
+	use sp_runtime::traits::{AtLeast32Bit, Scale, UniqueSaturatedInto};
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
 	pub type DistanceThreshold = U512;
 	pub type WorkValue = U512;
-	pub type Timestamp = u64;
 	pub type BlockDuration = u64;
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
@@ -52,9 +53,11 @@ pub mod pallet {
 		StorageMap<_, Twox64Concat, BlockNumberFor<T>, DistanceThreshold, ValueQuery>;
 
 	#[pallet::storage]
-	pub type LastBlockTime<T: Config> = StorageValue<_, Timestamp, ValueQuery>;
+	#[pallet::getter(fn last_block_time)]
+	pub type LastBlockTime<T: Config> = StorageValue<_, T::Moment, ValueQuery>;
 
 	#[pallet::storage]
+	#[pallet::getter(fn last_block_duration)]
 	pub type LastBlockDuration<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
 
 	#[pallet::storage]
@@ -80,7 +83,7 @@ pub mod pallet {
 	pub type HistorySize<T: Config> = StorageValue<_, HistorySizeType, ValueQuery>;
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_timestamp::Config {
+	pub trait Config: frame_system::Config {
 		/// Pallet's weight info
 		#[pallet::constant]
 		type InitialDistanceThresholdExponent: Get<u32>;
@@ -110,6 +113,17 @@ pub mod pallet {
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
+
+		/// Type that represents the moment in time
+		type Moment: Parameter
+			+ Default
+			+ AtLeast32Bit
+			+ Scale<BlockNumberFor<Self>, Output = Self::Moment>
+			+ Copy
+			+ MaxEncodedLen
+			+ scale_info::StaticTypeInfo;
+
+		type Time: Time<Moment = Self::Moment>;
 	}
 
 	#[pallet::genesis_config]
@@ -180,9 +194,7 @@ pub mod pallet {
 		/// Called when there is remaining weight at the end of the block.
 		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
 			if <LastBlockTime<T>>::get() == 0 {
-				<LastBlockTime<T>>::put(
-					pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>(),
-				);
+				<LastBlockTime<T>>::put(T::Time::now());
 				let initial_distance_threshold: U512 = initial_distance_threshold::<T>();
 				<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
 			}
@@ -231,7 +243,7 @@ pub mod pallet {
 		}
 
 		// Sum of block times
-		pub fn get_block_time_sum() -> u64 {
+		pub fn block_time_sum() -> u64 {
 			let size = <HistorySize<T>>::get();
 
 			if size == 0 {
@@ -254,7 +266,7 @@ pub mod pallet {
 		}
 
 		// Median calculation
-		pub fn get_median_block_time() -> u64 {
+		pub fn median_block_time() -> u64 {
 			let size = <HistorySize<T>>::get();
 
 			if size == 0 {
@@ -299,7 +311,7 @@ pub mod pallet {
 
 		fn adjust_distance_threshold() {
 			// Get current time
-			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
+			let now = T::Time::now();
 			let last_time = <LastBlockTime<T>>::get();
 			let blocks = <BlocksInPeriod<T>>::get();
 			let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
@@ -348,7 +360,7 @@ pub mod pallet {
 			if blocks >= T::AdjustmentPeriod::get() {
 				let history_size = <HistorySize<T>>::get();
 				if history_size > 0 {
-					let observed_block_time = Self::get_block_time_sum();
+					let observed_block_time = Self::block_time_sum();
 					let target_time = T::TargetBlockTime::get().saturating_mul(history_size as u64);
 
 					let new_distance_threshold = Self::calculate_distance_threshold(
@@ -514,6 +526,22 @@ pub mod pallet {
 
 		pub fn difficulty() -> U512 {
 			Self::max_distance() / Self::distance_threshold()
+		}
+
+		/// Re-export `qpow_math` functions for runtime API
+		pub fn random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
+			get_random_rsa(block_hash)
+		}
+
+		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
+			hash_to_group_bigint(h, m, n, solution)
+		}
+
+		pub fn nonce_distance(
+			block_hash: [u8; 32], // 256-bit block hash
+			nonce: NonceType,     // 512-bit nonce
+		) -> U512 {
+			get_nonce_distance(block_hash, nonce)
 		}
 	}
 }

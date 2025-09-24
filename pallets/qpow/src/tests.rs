@@ -1054,7 +1054,7 @@ fn test_median_block_time_empty_history() {
 	new_test_ext().execute_with(|| {
 		// When history is empty, we should get TargetBlockTime
 		let target_block_time = <Test as Config>::TargetBlockTime::get();
-		let median = QPow::get_median_block_time();
+		let median = QPow::median_block_time();
 		assert_eq!(median, target_block_time, "Empty history should return target block time");
 	});
 }
@@ -1069,7 +1069,7 @@ fn test_median_block_time_single_value() {
 		<BlockTimeHistory<Test>>::insert(0, block_time);
 
 		// Median of a single value is that value
-		let median = QPow::get_median_block_time();
+		let median = QPow::median_block_time();
 		assert_eq!(median, block_time, "Median of a single value should be that value");
 	});
 }
@@ -1090,7 +1090,7 @@ fn test_median_block_time_odd_count() {
 
 		// Median of sorted values [1000, 2000, 3000, 4000, 5000] is 3000
 		let expected_median = 3000;
-		let median = QPow::get_median_block_time();
+		let median = QPow::median_block_time();
 		assert_eq!(median, expected_median, "Median of odd count should be the middle value");
 	});
 }
@@ -1111,7 +1111,7 @@ fn test_median_block_time_even_count() {
 
 		// Median of sorted values [1000, 2000, 3000, 4000] is (2000 + 3000) / 2 = 2500
 		let expected_median = 2500;
-		let median = QPow::get_median_block_time();
+		let median = QPow::median_block_time();
 		assert_eq!(
 			median, expected_median,
 			"Median of even count should be average of two middle values"
@@ -1135,7 +1135,7 @@ fn test_median_block_time_with_duplicates() {
 
 		// Median of sorted values [1000, 2000, 2000, 2000, 3000] is 2000
 		let expected_median = 2000;
-		let median = QPow::get_median_block_time();
+		let median = QPow::median_block_time();
 		assert_eq!(
 			median, expected_median,
 			"Median with duplicates should be correctly calculated"
@@ -1161,7 +1161,7 @@ fn test_median_block_time_ring_buffer() {
 		}
 
 		// Initial median
-		let initial_median = QPow::get_median_block_time();
+		let initial_median = QPow::median_block_time();
 		assert_eq!(initial_median, 3000, "Initial median should be 3000");
 
 		// Simulate record_block_time for new values
@@ -1172,7 +1172,7 @@ fn test_median_block_time_ring_buffer() {
 		<BlockTimeHistory<Test>>::insert(1, 7000);
 
 		// New median from [3000, 4000, 5000, 6000, 7000]
-		let new_median = QPow::get_median_block_time();
+		let new_median = QPow::median_block_time();
 		assert_eq!(new_median, 5000, "New median should be calculated from updated ring buffer");
 	});
 }

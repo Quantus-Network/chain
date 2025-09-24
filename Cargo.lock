@@ -6723,6 +6723,7 @@ dependencies = [
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-io",
  "sp-runtime",

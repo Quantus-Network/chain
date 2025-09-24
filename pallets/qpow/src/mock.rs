@@ -79,6 +79,8 @@ impl pallet_qpow::Config for Test {
 	type MaxReorgDepth = ConstU32<10>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
 	type MaxDistanceMultiplier = ConstU32<2>;
+	type Moment = u64;
+	type Time = Timestamp;
 }
 
 // Build genesis storage according to the mock runtime

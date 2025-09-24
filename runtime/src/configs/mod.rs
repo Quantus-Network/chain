@@ -33,7 +33,7 @@ use crate::{
 		},
 		pallet_custom_origins, Spender,
 	},
-	MILLI_UNIT,
+	QPoW, MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
@@ -56,7 +56,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{ConvertInto, One},
+	traits::{AccountIdConversion, ConvertInto, One},
 	Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -606,7 +606,18 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	}
 }
 
+parameter_types! {
+	pub QpmPalletId: PalletId = PalletId(*b"qpm-pall");
+	pub PoolAddress: AccountId = QpmPalletId::get().into_account_truncating();
+}
+
 impl pallet_qpm::Config for Runtime {
-	type BlockTimeInfo = QPow;
-	type Timestamp = Moment;
+	type BlockTimeInfo = QPoW;
+	type Moment = Moment;
+	type BlockBufferTime = ConstU32<5>;
+	type MaxPredictions = ConstU32<256>;
+	type BlockNumberProvider = System;
+	type Currency = Balances;
+	type PredictionDepositAmount = ConstU128<MICRO_UNIT>;
+	type PoolAddress = PoolAddress;
 }

@@ -76,7 +76,7 @@ pub enum Error {
 /// Block information trait.
 pub trait BlockInfo<BlockNumber, Timestamp> {
 	/// Returns average block time in milliseconds.
-	fn average_block_time() -> BlockNumber;
+	fn average_block_time() -> Timestamp;
 
 	/// Latest block time recorded
 	fn last_block_time() -> Timestamp;
