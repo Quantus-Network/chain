@@ -9104,7 +9104,6 @@ dependencies = [
  "pallet-treasury",
  "pallet-utility",
  "pallet-vesting",
- "pallet-wormhole",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
