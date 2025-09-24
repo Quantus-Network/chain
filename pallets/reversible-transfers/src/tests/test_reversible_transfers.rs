@@ -52,24 +52,23 @@ fn run_to_block(n: u64) {
 
 // Helper: create asset with exact initial supply to owner
 fn create_asset(id: u32, owner: AccountId, supply: Option<Balance>) {
-    // Create asset with owner as admin/issuer
-    assert_ok!(pallet_assets::Pallet::<Test>::create(
-        RuntimeOrigin::signed(owner),
-        codec::Compact(id),
-        owner,
-        1, // minimum balance
-    ));
+	// Create asset with owner as admin/issuer
+	assert_ok!(pallet_assets::Pallet::<Test>::create(
+		RuntimeOrigin::signed(owner),
+		codec::Compact(id),
+		owner,
+		1, // minimum balance
+	));
 
-    // Mint supply to owner
-    let amount = supply.unwrap_or(1_000_000_000_000);
-    assert_ok!(pallet_assets::Pallet::<Test>::mint(
-        RuntimeOrigin::signed(owner),
-        codec::Compact(id),
-        owner,
-        amount,
-    ));
+	// Mint supply to owner
+	let amount = supply.unwrap_or(1_000_000_000_000);
+	assert_ok!(pallet_assets::Pallet::<Test>::mint(
+		RuntimeOrigin::signed(owner),
+		codec::Compact(id),
+		owner,
+		amount,
+	));
 }
-
 
 fn asset_balance(id: u32, who: AccountId) -> Balance {
 	pallet_assets::Pallet::<Test>::balance(id, who)
