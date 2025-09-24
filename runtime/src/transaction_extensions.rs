@@ -315,10 +315,8 @@ mod tests {
 					amount: 10 * EXISTENTIAL_DEPOSIT,
 				},
 			);
-			let result = check_call(call);
-
 			// High-security accounts can call schedule_transfer
-			assert!(result.is_ok());
+			assert_ok!(check_call(call));
 		});
 	}
 
