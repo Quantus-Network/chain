@@ -1,11 +1,9 @@
 use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
-use qpow_math::{
-	get_random_rsa, hash_to_group_bigint_poseidon, is_coprime, is_prime, mod_pow
-};
-use std::ops::Shl;
 use qp_poseidon_core::Poseidon2Core;
+use qpow_math::{get_random_rsa, hash_to_group_bigint_poseidon, is_coprime, is_prime, mod_pow};
+use std::ops::Shl;
 
 #[test]
 fn test_submit_valid_proof() {
