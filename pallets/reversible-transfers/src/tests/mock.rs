@@ -58,6 +58,9 @@ mod runtime {
 
 	#[runtime::pallet_index(7)]
 	pub type Assets = pallet_assets::Pallet<Test>;
+
+	#[runtime::pallet_index(8)]
+	pub type AssetsHolder = pallet_assets_holder::Pallet<Test>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
@@ -189,9 +192,14 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
 	type AssetAccountDeposit = AssetAccountDeposit;
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	type Holder = pallet_assets_holder::Pallet<Test>;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
-	type Holder = ();
+}
+
+impl pallet_assets_holder::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
 parameter_types! {

@@ -1,0 +1,211 @@
+name: Miner API - Release Proposal
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch for the PR (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      version_type:
+        description: 'Type of version bump (major, minor, patch) or specify custom version'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: 'Custom version string (e.g., 0.1.1). Only used if version_type is "custom". Do NOT include "quantus-miner-api-v" prefix'
+        required: false
+      is_draft:
+        description: 'Is this a draft release?'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  calculate-next-miner-api-version:
+    name: 🧮 Calculate Next Miner API Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.versioner.outputs.new_version }}
+      commit_sha_short: ${{ steps.vars.outputs.commit_sha_short }}
+      source_branch: ${{ steps.vars.outputs.source_branch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get current branch and commit SHA
+        id: vars
+        run: |
+          echo "commit_sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "source_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get latest miner-api tag
+        id: latest_tag
+        run: |
+          # Get all miner-api version tags and sort them by version
+          latest_miner_api_tag=$(git tag -l "quantus-miner-api-v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
+          
+          # If no tags found, use default
+          if [ -z "$latest_miner_api_tag" ]; then
+            latest_miner_api_tag="quantus-miner-api-v0.0.0"
+          fi
+          
+          echo "latest_tag_found=$latest_miner_api_tag" >> $GITHUB_OUTPUT
+          echo "Latest miner-api tag found: $latest_miner_api_tag"
+
+      - name: Calculate new miner-api version
+        id: versioner
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
+        run: |
+          # Remove 'quantus-miner-api-v' prefix for processing
+          current_version=${LATEST_TAG#quantus-miner-api-v}
+
+          if [[ "$VERSION_TYPE" == "custom" ]]; then
+            if [[ -z "$CUSTOM_VERSION" ]]; then
+              echo "Error: Custom version is selected but no custom_version string provided."
+              exit 1
+            fi
+            if [[ ! "$CUSTOM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: Custom version string must be in format X.Y.Z (e.g., 0.1.1)."
+              exit 1
+            fi
+            new_version="quantus-miner-api-v$CUSTOM_VERSION"
+          else
+            # Split version into components
+            IFS='.' read -r major minor patch <<< "$current_version"
+
+            # Increment based on type
+            if [[ "$VERSION_TYPE" == "major" ]]; then
+              if [[ "$major" == "0" ]]; then # Handle 0.x.y -> 0.(x+1).0
+                major=$major
+                minor=$((minor + 1))
+                patch=0
+              else
+                major=$((major + 1))
+                minor=0
+                patch=0
+              fi
+            elif [[ "$VERSION_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+            elif [[ "$VERSION_TYPE" == "patch" ]]; then
+              patch=$((patch + 1))
+            else
+              echo "Error: Invalid version_type: $VERSION_TYPE"
+              exit 1
+            fi
+            new_version="quantus-miner-api-v$major.$minor.$patch"
+          fi
+
+          echo "New miner-api version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+  update-miner-api-cargo-toml:
+    name: 📝 Update Miner API Version Files
+    needs: calculate-next-miner-api-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create miner-api version bump branch and PR
+        env:
+          NEW_VERSION: ${{ needs.calculate-next-miner-api-version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          SOURCE_BRANCH: ${{ needs.calculate-next-miner-api-version.outputs.source_branch }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+        run: |
+          set -ex
+          # Remove 'quantus-miner-api-v' prefix for cargo version
+          new_cargo_version=${NEW_VERSION#quantus-miner-api-v}
+          branch_name="release/${NEW_VERSION}"
+
+          # Check if version already exists
+          if git tag -l | grep -q "^${NEW_VERSION}$"; then
+            echo "Error: Tag $NEW_VERSION already exists"
+            exit 1
+          fi
+
+          # Create new branch from source branch
+          git checkout "$SOURCE_BRANCH"
+          git checkout -b "$branch_name"
+          
+          # Update miner-api version in its own Cargo.toml
+          echo "Updating miner-api/Cargo.toml to version: $new_cargo_version"
+          sed -i -E "s/^version = \"[0-9]+\.[0-9]+\.[0-9]+\"/version = \"$new_cargo_version\"/" miner-api/Cargo.toml
+          
+          # Verify the change in miner-api/Cargo.toml
+          if ! grep -q "version = \"$new_cargo_version\"" miner-api/Cargo.toml; then
+            echo "Error: Failed to update version in miner-api/Cargo.toml"
+            exit 1
+          fi
+          
+          # Update quantus-miner-api version in workspace Cargo.toml
+          echo "Updating workspace Cargo.toml quantus-miner-api dependency to version: $new_cargo_version"
+          sed -i -E "s/^quantus-miner-api = \{ path = \"\.\/miner-api\", version = \"[0-9]+\.[0-9]+\.[0-9]+\"/quantus-miner-api = { path = \"\.\/miner-api\", version = \"$new_cargo_version\"/" Cargo.toml
+          
+          # Verify the change in workspace Cargo.toml
+          if ! grep -q "quantus-miner-api = { path = \"./miner-api\", version = \"$new_cargo_version\"" Cargo.toml; then
+            echo "Error: Failed to update quantus-miner-api version in workspace Cargo.toml"
+            exit 1
+          fi
+          
+          # Update Cargo.lock
+          cargo update --package quantus-miner-api --precise "$new_cargo_version" || echo "cargo update tried, proceeding."
+
+          # Commit changes
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          
+          git add miner-api/Cargo.toml Cargo.toml Cargo.lock
+          git commit -m "ci: Miner API version bump to $NEW_VERSION"
+          git push origin "$branch_name"
+
+          # Prepare PR title and labels
+          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+            PR_TITLE="ci: Miner API version bump to $NEW_VERSION (DRAFT)"
+            PR_LABELS="automated,miner-api-release-proposal,draft-release"
+          else
+            PR_TITLE="ci: Miner API version bump to $NEW_VERSION"
+            PR_LABELS="automated,miner-api-release-proposal"
+          fi
+          
+          # Create PR body
+          cat > pr_body.md << EOF
+          ## Miner API Release Proposal
+          
+          This PR proposes releasing **quantus-miner-api** version \`${new_cargo_version}\`.
+          
+          ### Changes
+          - Updated \`miner-api/Cargo.toml\` version to \`${new_cargo_version}\`
+          - Updated \`Cargo.toml\` workspace dependency version to \`${new_cargo_version}\`
+          - Updated \`Cargo.lock\`
+          EOF
+          
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body-file pr_body.md \
+            --base "$TARGET_BRANCH" \
+            --head "$branch_name" \
+            --label "$PR_LABELS"

@@ -21,7 +21,7 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{Fortitude, Restriction},
+	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -68,6 +68,11 @@ type AssetIdOf<T> = <T as pallet_assets::Config>::AssetId;
 /// Canonical RuntimeCall for this pallet (disambiguates multiple `RuntimeCall` providers)
 type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
 
+/// Type aliases for asset holder pallet
+type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldReason;
+type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
+type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -101,6 +106,7 @@ pub mod pallet {
 			                 + TryInto<pallet_assets::Call<Self>>,
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
 		+ pallet_assets::Config<Balance = <Self as pallet_balances::Config>::Balance>
+		+ pallet_assets_holder::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
 		+ pallet_recovery::Config
 	{
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
@@ -308,7 +314,8 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
 	where
-		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
+		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
+			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
 		/// Enable high-security for the calling account with a specified
 		/// reversibility delay.
@@ -506,8 +513,13 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T>
 	where
-		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
+		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
+			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
 	{
+		#[inline]
+		fn asset_hold_reason() -> AssetsHoldReasonOf<T> {
+			HoldReason::ScheduledTransfer.into()
+		}
 		/// Check if an account has reversibility enabled and return its delay.
 		pub fn is_high_security(
 			who: &T::AccountId,
@@ -548,13 +560,16 @@ pub mod pallet {
 			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-			// If this is an assets transfer, thaw the sender before dispatch
+			// If this is an assets transfer, release the held amount before dispatch
 			if let Ok(assets_call) = call.clone().try_into() {
 				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-					let _ = pallet_assets::Pallet::<T>::thaw(
-						frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
-						id,
-						T::Lookup::unlookup(pending.from.clone()),
+					let reason = Self::asset_hold_reason();
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
+						id.into(),
+						&reason,
+						&pending.from,
+						pending.amount,
+						Precision::Exact,
 					);
 				}
 			}
@@ -735,13 +750,15 @@ pub mod pallet {
 				Error::<T>::SchedulingFailed
 			})?;
 
-			// For assets, freeze the account; for native balances, hold the funds
+			// For assets, hold the funds using assets-holder; for native balances, hold the funds
 			if let Some(ref id) = asset_id {
-				let _ = pallet_assets::Pallet::<T>::freeze(
-					frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
-					id.clone().into(),
-					T::Lookup::unlookup(from.clone()),
-				);
+				let reason = Self::asset_hold_reason();
+				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::hold(
+					id.clone(),
+					&reason,
+					&from,
+					amount,
+				)?;
 			} else {
 				pallet_balances::Pallet::<T>::hold(
 					&HoldReason::ScheduledTransfer.into(),
@@ -803,14 +820,21 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// For assets, thaw the sender; for native balances, transfer held funds to interceptor
+			// For assets, transfer held funds to interceptor via assets-holder; for native
+			// balances, transfer held funds to interceptor
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(assets_call) = call.clone().try_into() {
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-						let _ = pallet_assets::Pallet::<T>::thaw(
-							frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
-							id,
-							T::Lookup::unlookup(pending.from.clone()),
+						let reason = Self::asset_hold_reason();
+						let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+							id.into(),
+							&reason,
+							&pending.from,
+							&interceptor,
+							pending.amount,
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
 						);
 					}
 				}
