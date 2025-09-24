@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 
 use frame_system::ensure_signed;
-use pallet_reversible_transfers::WeightInfo;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{traits::TransactionExtension, Weight};
@@ -35,7 +34,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 
 	const IDENTIFIER: &'static str = "ReversibleTransactionExtension";
 
-	fn weight(&self, call: &RuntimeCall) -> Weight {
+	fn weight(&self, _call: &RuntimeCall) -> Weight {
 		T::DbWeight::get().reads(1)
 	}
 
