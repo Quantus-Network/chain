@@ -8,7 +8,6 @@ use frame_system::ensure_signed;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{traits::TransactionExtension, Weight};
-use frame_support::assert_ok;
 
 /// Transaction extension for reversible accounts
 ///
@@ -97,6 +96,7 @@ mod tests {
 	use super::*;
 	use frame_support::pallet_prelude::TransactionValidityError;
 	use sp_runtime::{traits::TxBaseImplication, AccountId32};
+	use frame_support::assert_ok;
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
 	}
