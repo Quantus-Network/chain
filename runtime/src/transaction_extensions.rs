@@ -326,10 +326,8 @@ mod tests {
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					tx_id: sp_core::H256::default(),
 				});
-			let result = check_call(call);
-
 			// High-security accounts can call cancel
-			assert!(result.is_ok());
+			assert_ok!(check_call(call));
 		});
 	}
 }
