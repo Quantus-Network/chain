@@ -89,11 +89,9 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					..
 				}) => {
-					// Allow these calls to proceed
 					return Ok((ValidTransaction::default(), (), origin));
 				},
 				_ => {
-					// All other calls are forbidden for high-security accounts
 					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
 						InvalidTransaction::Custom(1),
 					));
@@ -108,9 +106,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use frame_support::pallet_prelude::{TransactionValidityError, UnknownTransaction};
-	use pallet_reversible_transfers::PendingTransfers;
-	use sp_runtime::{traits::TxBaseImplication, AccountId32, BuildStorage};
+	use frame_support::pallet_prelude::TransactionValidityError;
+	use sp_runtime::{traits::TxBaseImplication, AccountId32};
 	fn alice() -> AccountId {
 		AccountId32::from([1; 32])
 	}
@@ -124,7 +121,6 @@ mod tests {
 
 	// Build genesis storage according to the mock runtime.
 	pub fn new_test_ext() -> sp_io::TestExternalities {
-		use frame_support::traits::GenesisBuild;
 		let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
 		pallet_balances::GenesisConfig::<Runtime> {
