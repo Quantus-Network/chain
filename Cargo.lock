@@ -9149,7 +9149,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.2.0"
+version = "0.2.1-ns-lobby"
 dependencies = [
  "async-trait",
  "clap",
@@ -9210,7 +9210,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.1.5-morbo-fix"
+version = "0.2.1-ns-lobby"
 dependencies = [
  "env_logger 0.11.8",
  "frame-benchmarking",
