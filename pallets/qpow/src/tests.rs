@@ -330,7 +330,7 @@ fn test_integrated_verification_flow() {
 		println!("Current distance_threshold: {}", distance_threshold);
 
 		let mut nonce = [0u8; 64];
-		nonce[63] = 34; 
+		nonce[63] = 34;
 
 		let valid = QPow::verify_nonce_local_mining(block_hash, nonce);
 		assert!(valid, "Verification should succeed with dynamically found valid nonce");

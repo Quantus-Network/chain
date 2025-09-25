@@ -8345,9 +8345,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e28c5feaed446d37ba285fc0ed54c0f9b3ba239f0522ce8b64a23d795a00a4d3"
+checksum = "33181134496120c212a0a2098215cf45a68d50fe656de6fb30b31e73babe9383"
 dependencies = [
  "log",
  "p3-field",
@@ -8364,9 +8364,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-core"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f675c5bb6e4942a5fd994ab53c29b33b0bda962c614cbbe5f7f741edbd02cc66"
+checksum = "ec326fc2631a929de09a38af2613a3db5230882c12a2f68205693ec632751e8b"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -8378,9 +8378,9 @@ dependencies = [
 
 [[package]]
 name = "qp-rusty-crystals-dilithium"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97df2e62d22ee45eb8bd4feb7575a36f1273dd9ecc65fcac6f05bd77d61d97fd"
+checksum = "c9e13b64304720dcfa52557209fddc1ac67b08fcaff31c132099fd37b551dfb1"
 dependencies = [
  "rand 0.7.3",
  "sha2 0.10.9",
@@ -8388,9 +8388,9 @@ dependencies = [
 
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4243760c0adfed7efac0974b07d8cb1f3ff4bfbf5e907e68203f6863481f30fa"
+checksum = "9e86ee06c92d0629f6e6c45972f046069a68742577a796b17f5a507457be493d"
 dependencies = [
  "bip39",
  "hex",
