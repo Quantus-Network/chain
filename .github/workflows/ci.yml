@@ -59,22 +59,6 @@ jobs:
       - name: Setup macOS
         if: matrix.os == 'macos-latest'
         uses: ./.github/actions/macos
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-      - name: Cache Cargo target
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-target-
       - name: compile
         run: cargo build --locked --workspace --features runtime-benchmarks,try-runtime,metadata-hash
       - name: Clean build artifacts to free space
