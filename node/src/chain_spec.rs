@@ -113,7 +113,7 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 pub fn schrodinger_chain_spec() -> Result<ChainSpec, String> {
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(12));
-	properties.insert("tokenSymbol".into(), json!("SCH"));
+	properties.insert("tokenSymbol".into(), json!("QU"));
 	properties.insert("ss58Format".into(), json!(189));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
@@ -123,13 +123,13 @@ pub fn schrodinger_chain_spec() -> Result<ChainSpec, String> {
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
-		"/dns/a1.t.res.fm/tcp/30201/p2p/QmYpbayBgKbhfHGn2kNWWhh3DHwBnPaLDMYvaGmT78oAP7"
+		"/dns/a1.quantu.se/tcp/30205/p2p/QmdEk5BbraqEHwB6eG6sPkupkogsAKP9uFMFaAo6A6H3ZM"
 			.parse()
 			.unwrap(),
-		"/dns/a2.t.res.fm/tcp/30203/p2p/QmeN9H9CBdBESd6wib9xetPiYsCLYPTAJn8sxajWi2Bjkb"
+		"/dns/a2.quantu.se/tcp/30208/p2p/QmPUeRrypSFPA2AVdE2vW7N64DTx9hWfrgQaTqja45d9GL"
 			.parse()
 			.unwrap(),
-		"/dns/a3.t.res.fm/tcp/30202/p2p/QmQLf3wj7KqqtTjtrq7iQZY5JokQ3k7HHLGe5hNvHSxnFr"
+		"/dns/a3.quantu.se/tcp/30102/p2p/QmVDQEK3NtJMgUhCNkfUbxvoKPcowkcu16cKCrqqemPbEq"
 			.parse()
 			.unwrap(),
 	];
