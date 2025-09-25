@@ -1,30 +1,30 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::ops::BitXor;
+use hex;
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
 use primitive_types::U512;
-use sha2::{Digest, Sha256};
-use sha3::Sha3_512;
+use qp_poseidon_core::Poseidon2Core;
 
 // Common verification logic
-pub fn is_valid_nonce(header: [u8; 32], nonce: [u8; 64], threshold: U512) -> (bool, U512) {
+pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], threshold: U512) -> (bool, U512) {
 	if nonce == [0u8; 64] {
 		log::error!(
-			"is_valid_nonce should not be called with 0 nonce, but was for header: {:?}",
-			header
+			"is_valid_nonce should not be called with 0 nonce, but was for block_hash: {:?}",
+			block_hash
 		);
 		return (false, U512::zero());
 	}
 
-	let distance_achieved = get_nonce_distance(header, nonce);
+	let distance_achieved = get_nonce_distance(block_hash, nonce);
 	log::debug!(target: "math", "difficulty = {}..., threshold = {}...", distance_achieved, threshold);
 	(distance_achieved <= threshold, distance_achieved)
 }
 
 pub fn get_nonce_distance(
-	header: [u8; 32], // 256-bit header
-	nonce: [u8; 64],  // 512-bit nonce
+	block_hash: [u8; 32], // 256-bit block_hash
+	nonce: [u8; 64],      // 512-bit nonce
 ) -> U512 {
 	// s = 0 is cheating
 	if nonce == [0u8; 64] {
@@ -32,38 +32,45 @@ pub fn get_nonce_distance(
 		return U512::zero();
 	}
 
-	let (m, n) = get_random_rsa(&header);
-	let header_int = U512::from_big_endian(&header);
+	let (m, n) = get_random_rsa(&block_hash);
+	let block_hash_int = U512::from_big_endian(&block_hash);
 	let nonce_int = U512::from_big_endian(&nonce);
 
-	let target = hash_to_group_bigint_sha(&header_int, &m, &n, &U512::zero());
+	let target = hash_to_group_bigint_poseidon(&block_hash_int, &m, &n, &U512::zero());
 
 	// Compare PoW results
-	let nonce_element = hash_to_group_bigint_sha(&header_int, &m, &n, &nonce_int);
+	let nonce_element = hash_to_group_bigint_poseidon(&block_hash_int, &m, &n, &nonce_int);
 
 	let distance = target.bitxor(nonce_element);
-	log::debug!(target: "math", "distance = {}", distance);
+	log::debug!(target: "math", "distance = {} target = {} nonce = {:?}, nonce_element = {}, block_hash = {}, m = {}, n = {}", distance, target, nonce, nonce_element, hex::encode(block_hash), m, n);
 
 	distance
 }
 
-/// Generates a pair of RSA-style numbers (m,n) deterministically from input header
-pub fn get_random_rsa(header: &[u8; 32]) -> (U512, U512) {
-	// Generate m as random 256-bit number from SHA2-256
-	let mut sha256 = Sha256::new();
-	sha256.update(header);
-	let m = U512::from_big_endian(sha256.finalize().as_slice());
+/// Generates a pair of RSA-style numbers (m,n) deterministically from input block_hash
+pub fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
+	// Generate m as random 256-bit number from Poseidon2-256
+	let poseidon = Poseidon2Core::new();
+	let m_bytes = poseidon.hash_no_pad_bytes(block_hash);
+	let m = U512::from_big_endian(&m_bytes);
 
-	// Generate initial n as random 512-bit number from SHA3-512
-	let mut sha3 = Sha3_512::new();
-	sha3.update(header);
-	let mut n = U512::from_big_endian(sha3.finalize().as_slice());
+	// Generate initial n as random 512-bit number from Poseidon2-512
+	let mut n_bytes = poseidon.hash_512(&m_bytes);
+	let mut n = U512::from_big_endian(&n_bytes);
 
 	// Keep hashing until we find composite coprime n > m
 	while n % 2u32 == U512::zero() || n <= m || !is_coprime(&m, &n) || is_prime(&n) {
-		n = sha3_512(n);
+		log::trace!("Rerolling rsa n = {}", n);
+		n_bytes = poseidon.hash_512(&n_bytes);
+		n = U512::from_big_endian(&n_bytes);
 	}
 
+	log::trace!(
+		"Generated RSA pair (m, n) = ({}, {}) from block_hash {}",
+		m,
+		n,
+		hex::encode(block_hash)
+	);
 	(m, n)
 }
 
@@ -81,9 +88,10 @@ pub fn is_coprime(a: &U512, b: &U512) -> bool {
 	x == U512::one()
 }
 
-pub fn hash_to_group_bigint_sha(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
+pub fn hash_to_group_bigint_poseidon(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
 	let result = hash_to_group_bigint(h, m, n, solution);
-	sha3_512(result)
+	let poseidon = Poseidon2Core::new();
+	U512::from_big_endian(&poseidon.hash_512(&result.to_big_endian()))
 }
 
 // no split chunks by Nik
@@ -94,7 +102,6 @@ pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U5
 	// sum);
 
 	// Compute m^sum mod n using modular exponentiation
-
 	mod_pow(m, &sum, n)
 }
 
@@ -137,7 +144,7 @@ pub fn mod_pow(base: &U512, exponent: &U512, modulus: &U512) -> U512 {
 /// Mine a contiguous range of nonces using incremental exponentiation.
 /// Returns the first valid nonce and its distance if one is found.
 pub fn mine_range(
-	header: [u8; 32],
+	block_hash: [u8; 32],
 	start_nonce: [u8; 64],
 	steps: u64,
 	threshold: U512,
@@ -146,20 +153,24 @@ pub fn mine_range(
 		return None;
 	}
 
-	let (m, n) = get_random_rsa(&header);
-	let h = U512::from_big_endian(&header);
+	let (m, n) = get_random_rsa(&block_hash);
+	let block_hash_int = U512::from_big_endian(&block_hash);
+
 	let mut nonce_u = U512::from_big_endian(&start_nonce);
 
 	// Precompute constant target element once
-	let target = hash_to_group_bigint_sha(&h, &m, &n, &U512::zero());
+	let target = hash_to_group_bigint_poseidon(&block_hash_int, &m, &n, &U512::zero());
 
-	// Compute initial value base^(h + nonce) mod n
-	let mut value = mod_pow(&m, &h.saturating_add(nonce_u), &n);
+	// Compute initial value m^(h + nonce) mod
+	// n
+	let mut value = mod_pow(&m, &block_hash_int.saturating_add(nonce_u), &n);
 
+	let poseidon = Poseidon2Core::new();
 	for _ in 0..steps {
-		let nonce_element = sha3_512(value);
+		let nonce_element = U512::from_big_endian(&poseidon.hash_512(&value.to_big_endian()));
 		let distance = target.bitxor(nonce_element);
 		if distance <= threshold {
+			log::debug!(target: "math", "💎 Local miner found nonce {} with distance {} and target {} and nonce_element {} and block_hash {:?} and m = {} and n = {}", nonce_u, distance, target, nonce_element, hex::encode(block_hash), m, n);
 			return Some((nonce_u.to_big_endian(), distance));
 		}
 		// Advance to next nonce: exponent increases by 1
@@ -176,10 +187,10 @@ mod tests {
 
 	#[test]
 	fn mod_pow_next_matches_mod_pow_for_incrementing_nonce() {
-		// Deterministic header
-		let header = [7u8; 32];
-		let (m, n) = get_random_rsa(&header);
-		let h = U512::from_big_endian(&header);
+		// Deterministic block_hash
+		let block_hash = [7u8; 32];
+		let (m, n) = get_random_rsa(&block_hash);
+		let h = U512::from_big_endian(&block_hash);
 
 		// Start at an arbitrary nonce
 		let mut nonce = U512::from(123u64);
@@ -222,7 +233,7 @@ pub fn is_prime(n: &U512) -> bool {
 	// Generate test bases deterministically from n using SHA3
 	let mut bases = [U512::zero(); 32]; // Initialize array of 32 zeros
 	let mut base_count = 0;
-	let mut sha3 = Sha3_512::new();
+	let poseidon = Poseidon2Core::new();
 	let mut counter = U512::zero();
 
 	while base_count < 32 {
@@ -236,10 +247,10 @@ pub fn is_prime(n: &U512) -> bool {
 		bytes[..64].copy_from_slice(&n_bytes);
 		bytes[64..128].copy_from_slice(&counter_bytes);
 
-		sha3.update(bytes);
+		let poseidon_bytes = poseidon.hash_512(&bytes);
 
 		// Use the hash to generate a base between 2 and n-2
-		let hash = U512::from_big_endian(sha3.finalize_reset().as_slice());
+		let hash = U512::from_big_endian(&poseidon_bytes);
 		let base = (hash % (*n - U512::from(4u32))) + U512::from(2u32);
 		bases[base_count] = base;
 		base_count += 1;
@@ -268,13 +279,4 @@ pub fn is_prime(n: &U512) -> bool {
 	}
 
 	true
-}
-
-/// Generate a permutation of byte indices [0, 1, ..., 63] using the hash of h
-pub fn sha3_512(input: U512) -> U512 {
-	let mut sha3 = Sha3_512::new();
-	let bytes = input.to_big_endian();
-	sha3.update(bytes);
-	let output = U512::from_big_endian(sha3.finalize().as_slice());
-	output
 }

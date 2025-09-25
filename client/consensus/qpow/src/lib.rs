@@ -10,10 +10,10 @@ use sp_consensus_qpow::QPoWApi;
 use sp_runtime::generic::BlockId;
 use std::{sync::Arc, time::Duration};
 
-pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
-
 use crate::worker::UntilImportedOrTimeout;
+pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
 use futures::{Future, StreamExt};
+use hex;
 use log::*;
 use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
@@ -547,7 +547,7 @@ where
 	if !verified {
 		warn!(
             "Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime",
-            pre_hash_arr,
+            hex::encode(pre_hash_arr),
             parent_hash,
             nonce,
             difficulty

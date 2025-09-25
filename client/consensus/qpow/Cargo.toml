@@ -10,6 +10,7 @@ async-trait = "0.1"
 codec = { workspace = true, default-features = false }
 futures = { features = ["thread-pool"], workspace = true }
 futures-timer = { workspace = true }
+hex = { workspace = true }
 log = { workspace = true, default-features = false }
 parking_lot = { workspace = true, default-features = true }
 primitive-types = { workspace = true, default-features = false }
