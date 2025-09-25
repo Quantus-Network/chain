@@ -22,6 +22,10 @@ concurrency:
 env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+  # Optimize for CI builds - reduce debug info to save disk space
+  CARGO_PROFILE_DEV_DEBUG: 1
+  CARGO_PROFILE_TEST_DEBUG: 1
 
 jobs:
   fast-checks:
@@ -47,16 +51,32 @@ jobs:
       fail-fast: true
       matrix:
         os:
-          - ubuntu-latest
-          - macos-latest
+          - ubuntu-latest-4-cores
+          - macos-14-large
     steps:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest-4-cores'
         uses: ./.github/actions/ubuntu
       - name: Setup macOS
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14-large'
         uses: ./.github/actions/macos
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Cache Cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-
       - name: compile
         run: cargo build --locked --workspace --features runtime-benchmarks,try-runtime,metadata-hash
       - name: test
