@@ -31,9 +31,20 @@ pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 
+/// Identifier for the schrodinger runtime preset.
+pub const SCHRODINGER_RUNTIME_PRESET: &str = "schrodinger";
+
 fn test_root_account() -> AccountId {
 	account_from_ss58("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
 }
+
+fn schrodinger_root_account() -> AccountId {
+	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
+}
+fn schrodinger_faucet_account() -> AccountId {
+	account_from_ss58("qzkxaHg7h4zgk5jPNkJ3a7r9xNgbJNGpJ6a5LPEThDnjkfrC6")
+}
+
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
@@ -89,6 +100,19 @@ pub fn live_testnet_config_genesis() -> Value {
 	genesis_template(endowed_accounts, test_root_account())
 }
 
+pub fn schrodinger_config_genesis() -> Value {
+	let endowed_accounts = vec![schrodinger_root_account(), schrodinger_faucet_account()];
+	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+	for account in endowed_accounts.iter() {
+		log::info!(
+			"🍆 Endowed account: {:?}",
+			account.to_ss58check_with_version(ss58_version.clone())
+		);
+	}
+
+	genesis_template(endowed_accounts, schrodinger_root_account())
+}
+
 pub fn heisenberg_config_genesis() -> Value {
 	let mut endowed_accounts = vec![test_root_account()];
 	endowed_accounts.extend(dilithium_default_accounts());
@@ -108,6 +132,7 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
 		LIVE_TESTNET_RUNTIME_PRESET => live_testnet_config_genesis(),
 		HEISENBERG_RUNTIME_PRESET => heisenberg_config_genesis(),
+		SCHRODINGER_RUNTIME_PRESET => schrodinger_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -129,5 +154,6 @@ pub fn preset_names() -> Vec<PresetId> {
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
 		PresetId::from(LIVE_TESTNET_RUNTIME_PRESET),
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
+		PresetId::from(SCHRODINGER_RUNTIME_PRESET),
 	]
 }
