@@ -229,9 +229,6 @@ mod runtime {
 	#[runtime::pallet_index(5)]
 	pub type QPoW = pallet_qpow;
 
-	#[runtime::pallet_index(6)]
-	pub type Wormhole = pallet_wormhole;
-
 	#[runtime::pallet_index(7)]
 	pub type MiningRewards = pallet_mining_rewards;
 

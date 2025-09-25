@@ -144,7 +144,7 @@ parameter_types! {
 
 impl pallet_qpow::Config for Runtime {
 	// NOTE: InitialDistance will be shifted left by this amount: higher is easier
-	type InitialDistanceThresholdExponent = ConstU32<488>;
+	type InitialDistanceThresholdExponent = ConstU32<496>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
@@ -156,13 +156,6 @@ impl pallet_qpow::Config for Runtime {
 
 parameter_types! {
 	 pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
-}
-
-impl pallet_wormhole::Config for Runtime {
-	type Currency = Balances;
-	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
-	type WeightToFee = IdentityFee<Balance>;
-	type MintingAccount = MintingAccount;
 }
 
 type Moment = u64;

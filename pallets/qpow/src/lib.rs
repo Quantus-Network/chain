@@ -410,6 +410,15 @@ pub mod pallet {
 				Self::is_valid_nonce(block_hash, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
 
+			log::debug!(
+				"verify_nonce_internal: block_hash: {:?}, nonce: {:?}, valid: {:?}, difficulty: {:?}, distance_threshold: {:?}, distance_achieved: {:?}",
+				hex::encode(block_hash),
+				nonce,
+				valid,
+				difficulty,
+				distance_threshold,
+				distance_achieved
+			);
 			(valid, difficulty, distance_achieved)
 		}
 
