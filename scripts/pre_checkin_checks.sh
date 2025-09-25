@@ -21,7 +21,7 @@ echo "[5/8] Running 'cargo clippy'..."
 SKIP_WASM_BUILD=1 cargo clippy --locked --workspace || { echo "Error: 'cargo clippy' failed."; exit 1; }
 
 echo "[6/8] Building with runtime-benchmarks..."
-cargo build --locked --workspace --features runtime-benchmarks || { echo "Error: 'cargo build' with benchmarks failed."; exit 1; }
+cargo cargo build --locked --workspace --features runtime-benchmarks,try-runtime,metadata-hash || { echo "Error: 'cargo build' with benchmarks failed."; exit 1; }
 
 echo "[7/8] Running tests..."
 SKIP_WASM_BUILD=1 cargo test --locked --workspace || { echo "Error: 'cargo test' failed."; exit 1; }
