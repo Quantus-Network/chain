@@ -7,7 +7,7 @@
 #
 # If you are reading this file be aware that the original Cargo.toml
 # will likely look very different (and much more reasonable).
-# See Cargo.toml.orig for the original contents.
+# See Cargo.toml for the original contents.
 
 [package]
 authors = ["Parity Technologies <admin@parity.io>"]

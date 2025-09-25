@@ -37,24 +37,23 @@ impl IdentifyAccount for DilithiumPair {
 
 impl Pair for DilithiumPair {
 	type Public = DilithiumPublic;
-	type Seed = Vec<u8>;
+	type Seed = [u8; 32];
 	type Signature = DilithiumSignatureWithPublic;
 
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
 		_path_iter: Iter,
-		_seed: Option<<DilithiumPair as Pair>::Seed>,
+		seed: Option<<DilithiumPair as Pair>::Seed>,
 	) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-		// Dilithium doesn't support hierarchical derivation like BIP32
-		// This is a fundamental limitation of the post-quantum signature scheme
-		Err(DeriveError::SoftKeyInPath)
+		// TODO: derive child keys from path
+		Ok((self.clone(), seed))
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
 		DilithiumPair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
 	}
 
-	#[cfg(any(feature = "default", feature = "full_crypto"))]
+	#[cfg(any(feature = "full_crypto", feature = "serde"))]
 	fn sign(&self, message: &[u8]) -> DilithiumSignatureWithPublic {
 		// Create keypair struct
 
@@ -89,9 +88,81 @@ impl Pair for DilithiumPair {
 		self.secret.to_vec()
 	}
 
-	#[cfg(feature = "std")]
+	// NOTE: This method does not parse all secret uris correctly, like
+	// "mnemonic///password///account" This was supported in standard substrate, if there is
+	// demand, we can support it in the future
 	fn from_string(s: &str, password_override: Option<&str>) -> Result<Self, SecretStringError> {
-		Self::from_string_with_seed(s, password_override).map(|x| x.0)
+		let res = Self::from_phrase(s, password_override)
+			.map_err(|_| SecretStringError::InvalidPhrase)?;
+		Ok(res.0)
+	}
+
+	#[cfg(feature = "std")]
+	fn from_phrase(
+		phrase: &str,
+		password: Option<&str>,
+	) -> Result<(Self, Self::Seed), SecretStringError> {
+		use qp_rusty_crystals_hdwallet::HDLattice;
+		let hd = HDLattice::from_mnemonic(phrase, password)
+			.map_err(|_| SecretStringError::InvalidPhrase)?;
+		let keypair = hd.generate_keys();
+		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+		let mut seed = [0u8; 32];
+		seed.copy_from_slice(&hd.seed[..32]);
+		Ok((pair, seed))
+	}
+
+	#[cfg(feature = "std")]
+	fn from_string_with_seed(
+		s: &str,
+		password: Option<&str>,
+	) -> Result<(Self, Option<Self::Seed>), SecretStringError> {
+		use qp_rusty_crystals_hdwallet::HDLattice;
+		// For Dilithium, we use the string directly as entropy for key generation
+		// We combine the string with the password if provided
+		let hd =
+			HDLattice::from_mnemonic(s, password).map_err(|_| SecretStringError::InvalidPhrase)?;
+		let keypair = hd.generate_keys();
+		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+
+		// Return the pair with no seed since Dilithium doesn't use traditional seed-based
+		// generation
+		Ok((pair, None))
+	}
+}
+
+#[cfg(feature = "std")]
+impl DilithiumPublic {
+	/// Attempt to parse a Dilithium public key from a string and return it with the
+	/// associated SS58 address format (version).
+	///
+	/// This inherent method is provided to avoid relying solely on the generic Ss58Codec
+	/// behavior which expects SS58-encoded keys of the same length as the public key.
+	/// For Dilithium, we primarily support hex-encoded public keys (0x-prefixed) here.
+	///
+	/// Note: SS58 AccountId32 addresses are not convertible back into Dilithium public
+	/// keys. The CLI already includes a fallback to parse AccountId32 addresses when
+	/// this function returns an error.
+	pub fn from_string_with_version(
+		s: &str,
+	) -> Result<(Self, sp_core::crypto::Ss58AddressFormat), sp_core::crypto::PublicError> {
+		use sp_core::crypto::{default_ss58_version, PublicError};
+		// Accept 0x-prefixed hex of the raw Dilithium public key bytes.
+		let maybe_hex = s.strip_prefix("0x").unwrap_or(s);
+		// Expect exact hex length for a Dilithium public key
+		let expected_hex_len = <Self as ByteArray>::LEN * 2;
+		if maybe_hex.len() == expected_hex_len && maybe_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+			let mut bytes = vec![0u8; <Self as ByteArray>::LEN];
+			for (i, chunk) in maybe_hex.as_bytes().chunks(2).enumerate() {
+				let h = (chunk[0] as char).to_digit(16).ok_or(PublicError::InvalidFormat)? as u8;
+				let l = (chunk[1] as char).to_digit(16).ok_or(PublicError::InvalidFormat)? as u8;
+				bytes[i] = (h << 4) | l;
+			}
+			let pk = <Self as ByteArray>::from_slice(&bytes).map_err(|_| PublicError::BadLength)?;
+			return Ok((pk, default_ss58_version()));
+		}
+		// Not a supported Dilithium public key representation here.
+		Err(PublicError::InvalidFormat)
 	}
 }
 
@@ -145,7 +216,6 @@ pub fn create_keypair(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use alloc::vec::Vec;
 
 	fn setup() {
 		// Initialize the logger once per test run
@@ -160,13 +230,8 @@ mod tests {
 		let seed = vec![0u8; 32];
 
 		let pair = DilithiumPair::from_seed_slice(&seed).expect("Failed to create pair");
-		let message: Vec<u8> = b"Hello, world!".to_vec();
-
-		log::info!("Signing message: {:?}", &message[..10]);
-
-		let signature = pair.sign(&message);
-
-		log::info!("Signature: {:?}", &message[..10]);
+		let message = b"Something";
+		let signature = pair.sign(message);
 
 		let public = pair.public();
 

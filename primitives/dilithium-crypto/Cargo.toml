@@ -22,7 +22,8 @@ version = "0.1.1"
 codec = { workspace = true, default-features = false }
 log = { workspace = true }
 qp-poseidon = { workspace = true }
-qp-rusty-crystals-dilithium.workspace = true
+qp-rusty-crystals-dilithium = { workspace = true, default-features = false }
+qp-rusty-crystals-hdwallet = { workspace = true, optional = true }
 scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
@@ -44,6 +45,7 @@ serde = [
 std = [
 	"codec/std",
 	"qp-poseidon/std",
+	"qp-rusty-crystals-hdwallet",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",

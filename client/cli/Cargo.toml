@@ -1,0 +1,63 @@
+[package]
+authors.workspace = true
+description = "Substrate CLI interface."
+edition.workspace = true
+homepage.workspace = true
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-cli"
+readme = "README.md"
+repository.workspace = true
+version = "0.53.0"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+array-bytes = { workspace = true, default-features = true }
+bip39 = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
+codec = { workspace = true, default-features = true }
+fdlimit = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+itertools = { workspace = true }
+libp2p-identity = { features = ["dilithium", "peerid"], workspace = true }
+log = { workspace = true, default-features = true }
+names = { workspace = true, default-features = false }
+qp-dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
+qp-rusty-crystals-dilithium = { workspace = true }
+qp-rusty-crystals-hdwallet = { workspace = true }
+rand = { workspace = true, default-features = true }
+regex = { workspace = true }
+rpassword = { workspace = true }
+sc-client-api = { workspace = true, default-features = true }
+sc-client-db = { workspace = true, default-features = false }
+sc-keystore = { workspace = true, default-features = true }
+sc-mixnet = { workspace = true, default-features = true }
+sc-network = { workspace = true, default-features = true }
+sc-service = { workspace = true, default-features = false }
+sc-telemetry = { workspace = true, default-features = true }
+sc-tracing = { workspace = true, default-features = true }
+sc-transaction-pool = { workspace = true, default-features = true }
+sc-utils = { workspace = true, default-features = true }
+serde = { workspace = true, default-features = true }
+serde_json = { workspace = true, default-features = true }
+sp-blockchain = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-keyring = { workspace = true, default-features = true }
+sp-keystore = { workspace = true, default-features = true }
+sp-panic-handler = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+sp-version = { workspace = true, default-features = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["parking_lot", "rt-multi-thread", "signal"], default-features = true }
+
+[dev-dependencies]
+futures-timer = { workspace = true }
+sp-tracing = { workspace = true, default-features = false }
+tempfile = { workspace = true }
+
+[features]
+default = ["rocksdb"]
+rocksdb = ["sc-client-db/rocksdb"]
