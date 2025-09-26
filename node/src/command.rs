@@ -159,6 +159,11 @@ impl SubstrateCli for Cli {
 			"live_resonance" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/live-resonance.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
+			"schrodinger_live_spec" =>
+				Box::new(chain_spec::schrodinger_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"schrodinger" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
+				"chain-specs/schrodinger.json"
+			))?) as Box<dyn sc_service::ChainSpec>,
 			"heisenberg_live_spec" =>
 				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
