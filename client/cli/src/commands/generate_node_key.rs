@@ -91,18 +91,6 @@ impl GenerateNodeKeyCmd {
 	}
 }
 
-// Function to get current timestamp, hash it, and return hex string
-fn hash_current_time_to_hex() -> [u8; 32] {
-	// Get current timestamp (milliseconds since Unix epoch)
-	let timestamp = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.expect("Time went backwards")
-		.as_millis() as u64;
-
-	// Convert timestamp to bytes and hash with BLAKE2-256
-	blake2_256(&timestamp.to_le_bytes())
-}
-
 // Utility function for generating a key based on the provided CLI arguments
 //
 // `file`  - Name of file to save secret key to
