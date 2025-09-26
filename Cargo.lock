@@ -9116,7 +9116,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.2.3-ns-fog"
+version = "0.2.4-ns-broccoli"
 dependencies = [
  "async-trait",
  "clap",
@@ -9177,7 +9177,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.2.3-ns-fog"
+version = "0.2.4-ns-broccoli"
 dependencies = [
  "env_logger 0.11.8",
  "frame-benchmarking",
