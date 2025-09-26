@@ -53,7 +53,7 @@ impl Pair for DilithiumPair {
 		DilithiumPair::from_seed(seed).map_err(|_| SecretStringError::InvalidSeed)
 	}
 
-	#[cfg(any(feature = "full_crypto", feature = "serde"))]
+	#[cfg(any(feature = "default", feature = "full_crypto"))]
 	fn sign(&self, message: &[u8]) -> DilithiumSignatureWithPublic {
 		// Create keypair struct
 
