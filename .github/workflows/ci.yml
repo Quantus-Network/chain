@@ -60,7 +60,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         uses: ./.github/actions/macos
       - name: compile
-        run: cargo build --locked --workspace --features runtime-benchmarks,try-runtime,metadata-hash
+        run: cargo build --locked --workspace --features runtime-benchmarks,try-runtime
       - name: Clean build artifacts to free space
         run: |
           cargo clean
