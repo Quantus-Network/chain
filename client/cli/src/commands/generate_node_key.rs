@@ -20,7 +20,7 @@
 
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
-use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
+use libp2p_identity::Keypair as Libp2pKeypair;
 use sc_service::BasePath;
 use sp_core::blake2_256;
 use std::{
@@ -91,18 +91,6 @@ impl GenerateNodeKeyCmd {
 	}
 }
 
-// Function to get current timestamp, hash it, and return hex string
-fn hash_current_time_to_hex() -> [u8; 32] {
-	// Get current timestamp (milliseconds since Unix epoch)
-	let timestamp = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.expect("Time went backwards")
-		.as_millis() as u64;
-
-	// Convert timestamp to bytes and hash with BLAKE2-256
-	blake2_256(&timestamp.to_le_bytes())
-}
-
 // Utility function for generating a key based on the provided CLI arguments
 //
 // `file`  - Name of file to save secret key to
@@ -115,17 +103,33 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-	let hashed_timestamp = hash_current_time_to_hex();
-	let keypair = Keypair::generate(Some(&hashed_timestamp));
+	// Generate a new Dilithium libp2p keypair
+	let kp = Libp2pKeypair::generate_dilithium();
+	let encoded = kp.to_protobuf_encoding().map_err(|e| Error::Application(Box::new(e)))?;
 
-	let file_data = if bin {
-		keypair.to_bytes().to_vec()
-	} else {
-		array_bytes::bytes2hex("", keypair.to_bytes()).into_bytes()
-	};
-
+	// Always write protobuf bytes to files. For stdout, respect --bin and otherwise hex-encode.
 	match (file, base_path, default_base_path) {
-		(Some(file), None, false) => fs::write(file, file_data)?,
+		(Some(path), None, false) => {
+			// Write with restrictive permissions on unix
+			#[cfg(unix)]
+			{
+				use std::os::unix::fs::OpenOptionsExt;
+				let mut f = fs::OpenOptions::new()
+					.write(true)
+					.create(true)
+					.truncate(true)
+					.mode(0o600)
+					.open(path)?;
+				f.write_all(&encoded)?;
+			}
+			#[cfg(not(unix))]
+			{
+				let mut f =
+					fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+				f.write_all(&encoded)?;
+			}
+			eprintln!("peer-id: {}", kp.public().to_peer_id());
+		},
 		(None, Some(_), false) | (None, None, true) => {
 			let network_path = build_network_key_dir_or_default(
 				base_path.clone().map(BasePath::new),
@@ -141,11 +145,39 @@ fn generate_key(
 				return Err(Error::KeyAlreadyExistsInPath(key_path));
 			} else {
 				eprintln!("Generating key in {:?}", key_path);
-				fs::write(key_path, file_data)?
+				#[cfg(unix)]
+				{
+					use std::os::unix::fs::OpenOptionsExt;
+					let mut f = fs::OpenOptions::new()
+						.write(true)
+						.create(true)
+						.truncate(true)
+						.mode(0o600)
+						.open(&key_path)?;
+					f.write_all(&encoded)?;
+				}
+				#[cfg(not(unix))]
+				{
+					let mut f = fs::OpenOptions::new()
+						.write(true)
+						.create(true)
+						.truncate(true)
+						.open(&key_path)?;
+					f.write_all(&encoded)?;
+				}
+				eprintln!("peer-id: {}", kp.public().to_peer_id());
 			}
 		},
-		(None, None, false) => io::stdout().lock().write_all(&file_data)?,
-		(_, _, _) => {
+		(None, None, false) => {
+			if bin {
+				io::stdout().lock().write_all(&encoded)?;
+			} else {
+				let hex = array_bytes::bytes2hex("", &encoded);
+				writeln!(io::stdout().lock(), "{}", hex)?;
+			}
+			eprintln!("peer-id: {}", kp.public().to_peer_id());
+		},
+		_ => {
 			// This should not happen, arguments are marked as mutually exclusive.
 			return Err(Error::Input("Mutually exclusive arguments provided".into()));
 		},
@@ -168,9 +200,9 @@ pub mod tests {
 		let file_path = file.path().display().to_string();
 		let generate = GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--file", &file_path]);
 		assert!(generate.run("test", &String::from("test")).is_ok());
-		let mut buf = String::new();
-		assert!(file.read_to_string(&mut buf).is_ok());
-		assert!(array_bytes::hex2bytes(&buf).is_ok());
+		let mut buf = Vec::new();
+		assert!(file.read_to_end(&mut buf).is_ok());
+		assert!(libp2p_identity::Keypair::from_protobuf_encoding(&buf).is_ok());
 	}
 
 	#[test]
@@ -185,14 +217,11 @@ pub mod tests {
 		let generate =
 			GenerateNodeKeyCmd::parse_from(&["generate-node-key", "--base-path", &base_path]);
 		assert!(generate.run("test_id", &String::from("test")).is_ok());
-		let buf = fs::read_to_string(key_path.as_path()).unwrap();
-		assert!(array_bytes::hex2bytes(&buf).is_ok());
+		let buf = fs::read(key_path.as_path()).unwrap();
+		assert!(libp2p_identity::Keypair::from_protobuf_encoding(&buf).is_ok());
 
 		assert!(generate.run("test_id", &String::from("test")).is_err());
-		let new_buf = fs::read_to_string(key_path).unwrap();
-		assert_eq!(
-			array_bytes::hex2bytes(&new_buf).unwrap(),
-			array_bytes::hex2bytes(&buf).unwrap()
-		);
+		let new_buf = fs::read(key_path).unwrap();
+		assert_eq!(new_buf, buf);
 	}
 }
