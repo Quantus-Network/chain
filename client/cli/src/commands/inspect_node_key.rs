@@ -25,6 +25,8 @@ use std::{
 	io::{self, Read},
 	path::PathBuf,
 };
+use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
+use libp2p_identity::PublicKey;
 
 /// The `inspect-node-key` command
 #[derive(Debug, Parser)]
@@ -68,8 +70,13 @@ impl InspectNodeKeyCmd {
 				.map_err(|_| "failed to decode secret as hex")?;
 		}
 
-		let _ = file_data;
-
+		let key = Keypair::from_bytes(file_data.as_slice())
+			.map_err(|_| "failed to decode secret as hex")?;
+		
+		let keypair = PublicKey::from(key.public);
+		
+		println!("{}", keypair.to_peer_id());
+		
 		Ok(())
 	}
 }

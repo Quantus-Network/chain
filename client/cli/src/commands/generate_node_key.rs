@@ -170,7 +170,7 @@ pub mod tests {
 		assert!(generate.run("test", &String::from("test")).is_ok());
 		let mut buf = String::new();
 		assert!(file.read_to_string(&mut buf).is_ok());
-		assert!(array_bytes::hex2bytes(&buf).is_ok());
+		assert!(Keypair::from_bytes(array_bytes::hex2bytes(&buf).unwrap().as_slice()).is_ok());
 	}
 
 	#[test]
