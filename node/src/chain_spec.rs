@@ -138,7 +138,7 @@ pub fn schrodinger_chain_spec() -> Result<ChainSpec, String> {
 		WASM_BINARY.ok_or_else(|| "Schrodinger wasm not available".to_string())?,
 		None,
 	)
-	.with_name("Schrodinger")
+	.with_name("Quantus Testnet")
 	.with_id("schrodinger")
 	.with_protocol_id("schrodinger")
 	.with_boot_nodes(boot_nodes)
