@@ -336,7 +336,6 @@ impl<K> fmt::Debug for Secret<K> {
 }
 
 impl NodeKeyConfig {
-
 	/// Create a new Dilithium (Post-Quantum) node key configuration.
 	pub fn dilithium(secret: DilithiumSecret) -> Self {
 		NodeKeyConfig::Dilithium(secret)
@@ -358,14 +357,12 @@ impl NodeKeyConfig {
 	///  * If the secret is configured to be new, it is generated and the corresponding keypair is
 	///    returned.
 	pub fn into_keypair(self) -> io::Result<libp2p_identity::Keypair> {
-	    use NodeKeyConfig::*;
+		use NodeKeyConfig::*;
 		match self {
 			Dilithium(Secret::New) => Ok(libp2p_identity::Keypair::generate_dilithium()),
 
-			Dilithium(Secret::Input(k)) => {
-				libp2p_identity::Keypair::dilithium_from_bytes(k)
-					.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-			}
+			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(k)
+				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
 
 			Dilithium(Secret::File(f)) => {
 				let secret = get_secret(
