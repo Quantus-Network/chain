@@ -294,8 +294,6 @@ impl NonReservedPeerMode {
 #[derive(Clone, Debug)]
 /// Node key configuration.
 pub enum NodeKeyConfig {
-	/// A Ed25519 secret key configuration.
-	Ed25519(Secret<ed25519::SecretKey>),
 	/// A Dilithium (Post-Quantum) secret key configuration.
 	Dilithium(Secret<Vec<u8>>),
 }
@@ -338,10 +336,6 @@ impl<K> fmt::Debug for Secret<K> {
 }
 
 impl NodeKeyConfig {
-	/// Create a new Ed25519 node key configuration.
-	pub fn ed25519(secret: Ed25519Secret) -> Self {
-		NodeKeyConfig::Ed25519(secret)
-	}
 
 	/// Create a new Dilithium (Post-Quantum) node key configuration.
 	pub fn dilithium(secret: DilithiumSecret) -> Self {
@@ -364,50 +358,24 @@ impl NodeKeyConfig {
 	///  * If the secret is configured to be new, it is generated and the corresponding keypair is
 	///    returned.
 	pub fn into_keypair(self) -> io::Result<libp2p_identity::Keypair> {
-		use NodeKeyConfig::*;
+	    use NodeKeyConfig::*;
 		match self {
-			Ed25519(Secret::New) => Ok(libp2p_identity::Keypair::generate_ed25519()),
-
-			Ed25519(Secret::Input(k)) => {
-				let keypair = ed25519::Keypair::from(k);
-				Ok(libp2p_identity::Keypair::from(libp2p_identity::ed25519::Keypair::from(keypair)))
-			},
-
-			Ed25519(Secret::File(f)) => get_secret(
-				f,
-				|mut b| match String::from_utf8(b.to_vec()).ok().and_then(|s| {
-					if s.len() == 64 {
-						array_bytes::hex2bytes(&s).ok()
-					} else {
-						None
-					}
-				}) {
-					Some(s) => ed25519::SecretKey::try_from_bytes(s),
-					_ => ed25519::SecretKey::try_from_bytes(&mut b),
-				},
-				ed25519::SecretKey::generate,
-				|b| b.as_ref().to_vec(),
-			)
-			.map(|sk| {
-				libp2p_identity::Keypair::from(libp2p_identity::ed25519::Keypair::from(
-					ed25519::Keypair::from(sk),
-				))
-			}),
-
 			Dilithium(Secret::New) => Ok(libp2p_identity::Keypair::generate_dilithium()),
 
-			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::from_protobuf_encoding(&k)
-				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+			Dilithium(Secret::Input(k)) => {
+				libp2p_identity::Keypair::dilithium_from_bytes(k)
+					.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+			}
 
 			Dilithium(Secret::File(f)) => {
 				let secret = get_secret(
 					f,
 					|b| {
-						libp2p_identity::Keypair::from_protobuf_encoding(b)
+						libp2p_identity::Keypair::dilithium_from_bytes(b)
 							.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 					},
 					|| libp2p_identity::Keypair::generate_dilithium(),
-					|kp| kp.to_protobuf_encoding().unwrap(),
+					|kp| kp.dilithium_to_bytes(),
 				);
 				secret
 			},
