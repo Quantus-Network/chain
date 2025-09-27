@@ -332,6 +332,11 @@ impl<K> fmt::Debug for Secret<K> {
 	}
 }
 
+fn is_hex_data(data: &[u8]) -> bool {
+	// Check if all bytes are valid hex characters (0-9, a-f, A-F) or whitespace
+	data.iter().all(|&b| b.is_ascii_hexdigit() || b.is_ascii_whitespace())
+}
+
 impl NodeKeyConfig {
 	/// Create a new Dilithium (Post-Quantum) node key configuration.
 	pub fn dilithium(secret: DilithiumSecret) -> Self {
@@ -365,7 +370,21 @@ impl NodeKeyConfig {
 				let secret = get_secret(
 					f,
 					|b| {
-						libp2p_identity::Keypair::dilithium_from_bytes(b)
+						let mut bytes;
+						if is_hex_data(b) {
+							// Convert hex to Vec<u8>, handle the Result, and convert to mutable
+							// slice
+							let vec = array_bytes::hex2bytes(b).map_err(|_| {
+								io::Error::new(
+									io::ErrorKind::InvalidData,
+									"Failed to decode hex data",
+								)
+							})?;
+							bytes = vec;
+						} else {
+							bytes = b.to_vec(); // Convert &mut [u8] to Vec<u8> for binary data
+						}
+						libp2p_identity::Keypair::dilithium_from_bytes(&mut bytes)
 							.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 					},
 					|| libp2p_identity::Keypair::generate_dilithium(),
