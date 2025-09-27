@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - chore/ci_checks_for_monorepo_deps  # Add current branch for testing
     paths-ignore:
       - "docs/**"
       - "*.md"
