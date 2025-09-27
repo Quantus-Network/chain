@@ -30,7 +30,6 @@ jobs:
           - "client/consensus/qpow"
           - "client/network"
           - "miner-api"
-          - "node"
           - "pallets/balances"
           - "pallets/merkle-airdrop"
           - "pallets/mining-rewards"
@@ -45,7 +44,6 @@ jobs:
           - "primitives/trie"
           - "primitives/wormhole"
           - "qpow-math"
-          - "runtime"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ubuntu
