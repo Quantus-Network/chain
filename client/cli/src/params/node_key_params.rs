@@ -208,12 +208,10 @@ mod tests {
 		let file = tmp.path().join("mysecret").to_path_buf();
 		let key = Keypair::generate_dilithium();
 
-		fs::write(&file, &key.to_protobuf_encoding().expect("Converts key to protobuf encoding"))
-			.expect("Writes secret key");
+		fs::write(&file, &key.dilithium_to_bytes()).expect("Writes secret key");
 		check_key(file.clone(), &key);
 
-		fs::write(&file, &key.to_protobuf_encoding().expect("Converts key to protobuf encoding"))
-			.expect("Writes secret key");
+		fs::write(&file, &key.dilithium_to_bytes()).expect("Writes secret key");
 		check_key(file.clone(), &key);
 	}
 
