@@ -5471,8 +5471,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.10"
-source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.10#c8cc9eb375e0701b2e1fad6a14b60f4b6ca645ba"
+version = "0.2.999"
+source = "git+https://github.com/czareko/qp-libp2p-identity?tag=v0.2.999#c005141fcaf2a5400aaf978062915753aec26b80"
 dependencies = [
  "bs58",
  "ed25519-dalek",
