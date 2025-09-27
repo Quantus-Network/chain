@@ -20,6 +20,7 @@
 
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
+use libp2p_identity::PublicKey;
 use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
 use sc_service::BasePath;
 use sp_core::blake2_256;
@@ -150,6 +151,10 @@ fn generate_key(
 			return Err(Error::Input("Mutually exclusive arguments provided".into()));
 		},
 	}
+
+	let k = PublicKey::from(keypair.public);
+
+	eprintln!("{}", k.to_peer_id());
 
 	Ok(())
 }
