@@ -12,16 +12,16 @@ on:
       - "LICENSE"
   workflow_dispatch:
     inputs:
-      branch:
-        description: 'Branch to run consistency check on'
-        required: true
-        default: 'main'
+      target_branch:
+        description: 'Branch to run quality check on'
+        required: false
         type: string
+        default: 'main'
       crates_filter:
         description: 'Run only specific crates (comma-separated, leave empty for all)'
         required: false
-        default: ''
         type: string
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
+          ref: ${{ github.event.inputs.target_branch || github.ref }}
       
       - name: Check if crate should run
         id: should-run
