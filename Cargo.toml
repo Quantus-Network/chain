@@ -17,11 +17,16 @@ members = [
 	"pallets/mining-rewards",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
+	"pallets/scheduler",
 	"pallets/wormhole",
+	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
+	"primitives/scheduler",
 	"primitives/state-machine",
 	"primitives/trie",
+	"primitives/wormhole",
+	"qpow-math",
 	"runtime",
 ]
 resolver = "2"

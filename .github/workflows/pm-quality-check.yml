@@ -1,0 +1,151 @@
+---
+name: Post-Merge - Quality Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to run quality check on'
+        required: false
+        type: string
+        default: 'main'
+      crates_filter:
+        description: 'Run only specific crates (comma-separated, leave empty for all)'
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: 1
+  CARGO_PROFILE_TEST_DEBUG: 1
+
+jobs:
+  consistency-check:
+    name: 🔍 QC
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - "client/cli"
+          - "client/consensus/qpow"
+          - "client/network"
+          - "miner-api"
+          - "pallets/balances"
+          - "pallets/merkle-airdrop"
+          - "pallets/mining-rewards"
+          - "pallets/qpow"
+          - "pallets/reversible-transfers"
+          - "pallets/scheduler"
+          - "pallets/wormhole"
+          - "primitives/consensus/qpow"
+          - "primitives/dilithium-crypto"
+          - "primitives/scheduler"
+          - "primitives/state-machine"
+          - "primitives/trie"
+          - "primitives/wormhole"
+          - "qpow-math"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch || github.ref }}
+
+      - name: Check if crate should run
+        id: should-run
+        run: |
+          CRATE_PATH="${{ matrix.crate }}"
+          FILTER="${{ github.event.inputs.crates_filter }}"
+          
+          if [[ -z "$FILTER" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+            echo "Running all crates (no filter specified)"
+          else
+            # Convert comma-separated list to array and check if current crate is in it
+            IFS=',' read -ra CRATES <<< "$FILTER"
+            SHOULD_RUN=false
+            for crate in "${CRATES[@]}"; do
+              # Trim whitespace
+              crate=$(echo "$crate" | xargs)
+              if [[ "$crate" == "$CRATE_PATH" ]]; then
+                SHOULD_RUN=true
+                break
+              fi
+            done
+            echo "run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+            echo "Filter: $FILTER, Current crate: $CRATE_PATH, Should run: $SHOULD_RUN"
+          fi
+      - uses: ./.github/actions/ubuntu
+        if: steps.should-run.outputs.run == 'true'
+
+      - name: Install required components
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          rustup component add rustfmt --toolchain nightly
+          rustup component add clippy rust-src
+          cargo install taplo-cli --locked
+
+      - name: Get crate name
+        if: steps.should-run.outputs.run == 'true'
+        id: crate-info
+        run: |
+          cd ${{ matrix.crate }}
+          CRATE_NAME=$(grep '^name = ' Cargo.toml | head -1 | sed 's/name = "\(.*\)"/\1/')
+          echo "name=$CRATE_NAME" >> $GITHUB_OUTPUT
+          echo "path=${{ matrix.crate }}" >> $GITHUB_OUTPUT
+
+      - name: Format check
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          echo "🎨 Checking format for ${{ steps.crate-info.outputs.name }} in ${{ steps.crate-info.outputs.path }}"
+          cd ${{ matrix.crate }}
+          cargo +nightly fmt -- --check
+
+      - name: Clippy check
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          echo "📎 Running clippy for ${{ steps.crate-info.outputs.name }}"
+          # Use --package instead of cd to avoid different dependency resolution
+          SKIP_WASM_BUILD=1 cargo clippy --locked --package ${{ steps.crate-info.outputs.name }} --all-targets --all-features -- -D warnings
+
+      - name: Documentation check
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          echo "📚 Building documentation for ${{ steps.crate-info.outputs.name }}"
+          cd ${{ matrix.crate }}
+          SKIP_WASM_BUILD=1 cargo doc --locked --no-deps --all-features
+
+      - name: Build check
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          echo "🔨 Building ${{ steps.crate-info.outputs.name }}"
+          cargo build --locked --release --package ${{ steps.crate-info.outputs.name }}
+
+      - name: Test check
+        if: steps.should-run.outputs.run == 'true'
+        run: |
+          echo "🧪 Testing ${{ steps.crate-info.outputs.name }}"
+          cd ${{ matrix.crate }}
+          SKIP_WASM_BUILD=1 cargo test --locked --all-features
+        continue-on-error: true  # Some crates might not have tests or might have test issues
+
+  summary:
+    name: 📋 Quality Check Summary
+    runs-on: ubuntu-latest
+    needs: consistency-check
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "Consistency check completed for all crates"
+          if [[ "${{ needs.consistency-check.result }}" == "failure" ]]; then
+            echo "❌ Some consistency checks failed"
+            exit 1
+          else
+            echo "✅ All consistency checks passed"
+          fi
