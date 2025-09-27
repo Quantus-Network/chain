@@ -70,8 +70,8 @@ jobs:
       - name: Clippy check
         run: |
           echo "📎 Running clippy for ${{ steps.crate-info.outputs.name }}"
-          cd ${{ matrix.crate }}
-          SKIP_WASM_BUILD=1 cargo clippy --locked --all-targets --all-features -- -D warnings
+          # Use --package instead of cd to avoid different dependency resolution
+          SKIP_WASM_BUILD=1 cargo clippy --locked --package ${{ steps.crate-info.outputs.name }} --all-targets --all-features -- -D warnings
       
       - name: Documentation check
         run: |
