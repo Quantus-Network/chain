@@ -1,5 +1,5 @@
 ---
-name: Post-Merge Quality Check
+name: Post-Merge - Quality Check
 
 on:
   workflow_dispatch:
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.target_branch || github.ref }}
-      
+
       - name: Check if crate should run
         id: should-run
         run: |
@@ -82,14 +82,14 @@ jobs:
           fi
       - uses: ./.github/actions/ubuntu
         if: steps.should-run.outputs.run == 'true'
-      
+
       - name: Install required components
         if: steps.should-run.outputs.run == 'true'
         run: |
           rustup component add rustfmt --toolchain nightly
           rustup component add clippy rust-src
           cargo install taplo-cli --locked
-      
+
       - name: Get crate name
         if: steps.should-run.outputs.run == 'true'
         id: crate-info
@@ -98,34 +98,34 @@ jobs:
           CRATE_NAME=$(grep '^name = ' Cargo.toml | head -1 | sed 's/name = "\(.*\)"/\1/')
           echo "name=$CRATE_NAME" >> $GITHUB_OUTPUT
           echo "path=${{ matrix.crate }}" >> $GITHUB_OUTPUT
-      
+
       - name: Format check
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "🎨 Checking format for ${{ steps.crate-info.outputs.name }} in ${{ steps.crate-info.outputs.path }}"
           cd ${{ matrix.crate }}
           cargo +nightly fmt -- --check
-      
+
       - name: Clippy check
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "📎 Running clippy for ${{ steps.crate-info.outputs.name }}"
           # Use --package instead of cd to avoid different dependency resolution
           SKIP_WASM_BUILD=1 cargo clippy --locked --package ${{ steps.crate-info.outputs.name }} --all-targets --all-features -- -D warnings
-      
+
       - name: Documentation check
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "📚 Building documentation for ${{ steps.crate-info.outputs.name }}"
           cd ${{ matrix.crate }}
           SKIP_WASM_BUILD=1 cargo doc --locked --no-deps --all-features
-      
+
       - name: Build check
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "🔨 Building ${{ steps.crate-info.outputs.name }}"
           cargo build --locked --release --package ${{ steps.crate-info.outputs.name }}
-      
+
       - name: Test check
         if: steps.should-run.outputs.run == 'true'
         run: |
