@@ -35,7 +35,7 @@ pub use crate::{
 	types::ProtocolName,
 };
 
-pub use sc_network_types::{build_multiaddr, ed25519};
+pub use sc_network_types::build_multiaddr;
 use sc_network_types::{
 	multiaddr::{self, Multiaddr},
 	PeerId,
@@ -294,8 +294,6 @@ impl NonReservedPeerMode {
 #[derive(Clone, Debug)]
 /// Node key configuration.
 pub enum NodeKeyConfig {
-	/// A Ed25519 secret key configuration.
-	Ed25519(Secret<ed25519::SecretKey>),
 	/// A Dilithium (Post-Quantum) secret key configuration.
 	Dilithium(Secret<Vec<u8>>),
 }
@@ -305,9 +303,6 @@ impl Default for NodeKeyConfig {
 		Self::Dilithium(Secret::New)
 	}
 }
-
-/// The options for obtaining a Ed25519 secret key.
-pub type Ed25519Secret = Secret<ed25519::SecretKey>;
 
 /// The options for obtaining a Dilithium secret key.
 pub type DilithiumSecret = Secret<Vec<u8>>;
@@ -338,11 +333,6 @@ impl<K> fmt::Debug for Secret<K> {
 }
 
 impl NodeKeyConfig {
-	/// Create a new Ed25519 node key configuration.
-	pub fn ed25519(secret: Ed25519Secret) -> Self {
-		NodeKeyConfig::Ed25519(secret)
-	}
-
 	/// Create a new Dilithium (Post-Quantum) node key configuration.
 	pub fn dilithium(secret: DilithiumSecret) -> Self {
 		NodeKeyConfig::Dilithium(secret)
@@ -366,48 +356,20 @@ impl NodeKeyConfig {
 	pub fn into_keypair(self) -> io::Result<libp2p_identity::Keypair> {
 		use NodeKeyConfig::*;
 		match self {
-			Ed25519(Secret::New) => Ok(libp2p_identity::Keypair::generate_ed25519()),
-
-			Ed25519(Secret::Input(k)) => {
-				let keypair = ed25519::Keypair::from(k);
-				Ok(libp2p_identity::Keypair::from(libp2p_identity::ed25519::Keypair::from(keypair)))
-			},
-
-			Ed25519(Secret::File(f)) => get_secret(
-				f,
-				|mut b| match String::from_utf8(b.to_vec()).ok().and_then(|s| {
-					if s.len() == 64 {
-						array_bytes::hex2bytes(&s).ok()
-					} else {
-						None
-					}
-				}) {
-					Some(s) => ed25519::SecretKey::try_from_bytes(s),
-					_ => ed25519::SecretKey::try_from_bytes(&mut b),
-				},
-				ed25519::SecretKey::generate,
-				|b| b.as_ref().to_vec(),
-			)
-			.map(|sk| {
-				libp2p_identity::Keypair::from(libp2p_identity::ed25519::Keypair::from(
-					ed25519::Keypair::from(sk),
-				))
-			}),
-
 			Dilithium(Secret::New) => Ok(libp2p_identity::Keypair::generate_dilithium()),
 
-			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::from_protobuf_encoding(&k)
+			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(&k)
 				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
 
 			Dilithium(Secret::File(f)) => {
 				let secret = get_secret(
 					f,
 					|b| {
-						libp2p_identity::Keypair::from_protobuf_encoding(b)
+						libp2p_identity::Keypair::dilithium_from_bytes(b)
 							.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 					},
 					|| libp2p_identity::Keypair::generate_dilithium(),
-					|kp| kp.to_protobuf_encoding().unwrap(),
+					|kp| kp.dilithium_to_bytes(),
 				);
 				secret
 			},
@@ -987,23 +949,27 @@ mod tests {
 		let tmp = tempdir_with_prefix("x");
 		std::fs::remove_dir(tmp.path()).unwrap(); // should be recreated
 		let file = tmp.path().join("x").to_path_buf();
-		let kp1 = NodeKeyConfig::Ed25519(Secret::File(file.clone())).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Ed25519(Secret::File(file.clone())).into_keypair().unwrap();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		assert!(file.is_file() && secret_bytes(kp1) == secret_bytes(kp2))
 	}
 
 	#[test]
 	fn test_secret_input() {
-		let sk = ed25519::SecretKey::generate();
-		let kp1 = NodeKeyConfig::Ed25519(Secret::Input(sk.clone())).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Ed25519(Secret::Input(sk)).into_keypair().unwrap();
+		let sk = Keypair::generate_dilithium();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.dilithium_to_bytes()))
+			.into_keypair()
+			.unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk.dilithium_to_bytes()))
+			.into_keypair()
+			.unwrap();
 		assert!(secret_bytes(kp1) == secret_bytes(kp2));
 	}
 
 	#[test]
 	fn test_secret_new() {
-		let kp1 = NodeKeyConfig::Ed25519(Secret::New).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Ed25519(Secret::New).into_keypair().unwrap();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) != secret_bytes(kp2));
 	}
 

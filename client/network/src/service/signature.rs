@@ -51,11 +51,6 @@ impl Keypair {
 		Self(keypair)
 	}
 
-	/// Generate ed25519 keypair.
-	pub fn generate_ed25519() -> Self {
-		Keypair(libp2p_identity::Keypair::generate_ed25519())
-	}
-
 	/// Generate Dilithium (Post-Quantum) keypair.
 	pub fn generate_dilithium() -> Self {
 		Keypair(libp2p_identity::Keypair::generate_dilithium())

@@ -480,6 +480,7 @@ pub fn new_full<
 										let mining_time = mining_start_time.elapsed().as_secs();
 										log::info!("🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)", mining_time);
 										nonce = U512::one();
+										mining_start_time = std::time::Instant::now();
 									} else {
 										log::warn!(
 											"⛏️ Failed to submit mined block from external miner"
