@@ -18,6 +18,7 @@
 //! Utility functions to interact with Substrate's Base-16 Modified Merkle Patricia tree ("trie").
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(clippy::all)]
 
 extern crate alloc;
 
