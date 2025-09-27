@@ -361,7 +361,7 @@ impl NodeKeyConfig {
 		match self {
 			Dilithium(Secret::New) => Ok(libp2p_identity::Keypair::generate_dilithium()),
 
-			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(k)
+			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(&k)
 				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
 
 			Dilithium(Secret::File(f)) => {
