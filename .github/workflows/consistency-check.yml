@@ -3,6 +3,8 @@ name: Post-Merge Quality Check
 
 on:
   push:
+    branches:
+      - main
     paths-ignore:
       - "docs/**"
       - "*.md"
