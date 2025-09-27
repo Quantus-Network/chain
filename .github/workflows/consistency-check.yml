@@ -20,13 +20,12 @@ env:
 
 jobs:
   consistency-check:
-    name: 🔍 Consistency Check - All Crates
+    name: 🔍 Consistency Check
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         crate:
-          # Workspace members
           - "client/cli"
           - "client/consensus/qpow"
           - "client/network"
@@ -37,18 +36,16 @@ jobs:
           - "pallets/mining-rewards"
           - "pallets/qpow"
           - "pallets/reversible-transfers"
+          - "pallets/scheduler"
           - "pallets/wormhole"
           - "primitives/consensus/qpow"
           - "primitives/dilithium-crypto"
+          - "primitives/scheduler"
           - "primitives/state-machine"
           - "primitives/trie"
-          - "runtime"
-          # Non-workspace members (potentially missed by standard CI)
-          - "qpow-math"
-          - "primitives/consensus/pow"
-          - "primitives/scheduler"
           - "primitives/wormhole"
-          - "pallets/scheduler"
+          - "qpow-math"
+          - "runtime"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ubuntu
@@ -87,8 +84,7 @@ jobs:
       - name: Build check
         run: |
           echo "🔨 Building ${{ steps.crate-info.outputs.name }}"
-          cd ${{ matrix.crate }}
-          cargo build --locked --all-features
+          cargo build --locked --release --package ${{ steps.crate-info.outputs.name }}
       
       - name: Test check
         run: |

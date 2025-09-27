@@ -18,10 +18,15 @@ members = [
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/wormhole",
+	"pallets/scheduler",
+	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
 	"primitives/state-machine",
+	"primitives/scheduler",
+	"primitives/wormhole",
 	"primitives/trie",
+	"qpow-math",
 	"runtime",
 ]
 resolver = "2"
