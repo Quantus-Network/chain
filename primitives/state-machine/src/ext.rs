@@ -140,6 +140,8 @@ where
 	H::Out: Ord + 'static,
 	B: 'a + Backend<H>,
 {
+	/// Returns all storage key-value pairs from both backend and overlay.
+	/// This method is only available in test builds.
 	pub fn storage_pairs(&mut self) -> Vec<(StorageKey, StorageValue)> {
 		use std::collections::HashMap;
 

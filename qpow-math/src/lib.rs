@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::ops::BitXor;
-use hex;
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
 use primitive_types::U512;
@@ -181,35 +180,6 @@ pub fn mine_range(
 	None
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn mod_pow_next_matches_mod_pow_for_incrementing_nonce() {
-		// Deterministic block_hash
-		let block_hash = [7u8; 32];
-		let (m, n) = get_random_rsa(&block_hash);
-		let h = U512::from_big_endian(&block_hash);
-
-		// Start at an arbitrary nonce
-		let mut nonce = U512::from(123u64);
-
-		// Initial value using full exponentiation
-		let mut value = mod_pow(&m, &h.saturating_add(nonce), &n);
-
-		// Check equality for 4 consecutive nonces
-		for _ in 0..4u32 {
-			let expected = mod_pow(&m, &h.saturating_add(nonce), &n);
-			assert_eq!(value, expected, "incremental result must match full mod_pow");
-
-			// Advance to next exponent (nonce + 1)
-			value = mod_pow_next(&value, &m, &n);
-			nonce = nonce.saturating_add(U512::from(1u64));
-		}
-	}
-}
-
 // Miller-Rabin primality test
 pub fn is_prime(n: &U512) -> bool {
 	if *n <= U512::one() {
@@ -279,4 +249,33 @@ pub fn is_prime(n: &U512) -> bool {
 	}
 
 	true
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn mod_pow_next_matches_mod_pow_for_incrementing_nonce() {
+		// Deterministic block_hash
+		let block_hash = [7u8; 32];
+		let (m, n) = get_random_rsa(&block_hash);
+		let h = U512::from_big_endian(&block_hash);
+
+		// Start at an arbitrary nonce
+		let mut nonce = U512::from(123u64);
+
+		// Initial value using full exponentiation
+		let mut value = mod_pow(&m, &h.saturating_add(nonce), &n);
+
+		// Check equality for 4 consecutive nonces
+		for _ in 0..4u32 {
+			let expected = mod_pow(&m, &h.saturating_add(nonce), &n);
+			assert_eq!(value, expected, "incremental result must match full mod_pow");
+
+			// Advance to next exponent (nonce + 1)
+			value = mod_pow_next(&value, &m, &n);
+			nonce = nonce.saturating_add(U512::from(1u64));
+		}
+	}
 }

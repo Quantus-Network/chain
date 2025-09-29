@@ -18,6 +18,7 @@
 //! Substrate state machine implementation.
 
 #![warn(missing_docs)]
+#![allow(clippy::all)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -1929,7 +1930,7 @@ mod tests {
 		// check full values in proof
 		assert!(remote_proof.encode().len() > 800);
 		assert!(remote_proof.encoded_size() > 800);
-		let root1 = root;
+		let _root1 = root;
 
 		// do switch
 		state_version = StateVersion::V1;
@@ -1941,7 +1942,7 @@ mod tests {
 			trie.insert(b"foo", vec![1u8; 1000].as_slice()) // inner hash
 				.expect("insert failed");
 		}
-		let root3 = root;
+		let _root3 = root;
 		// assert!(root1 != root3); // ZK-trie may handle state versioning differently
 		let remote_proof = check_proof(mdb.clone(), root, state_version);
 		// nodes foo is replaced by its hashed value form.
@@ -1990,6 +1991,7 @@ mod tests {
 		assert_eq!(nb_loop, 13);
 	}
 
+	#[allow(dead_code)]
 	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
 		// this root will be queried
 		let child_info1 = ChildInfo::new_default(b"sub1");
