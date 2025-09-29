@@ -30,7 +30,7 @@ mod benchmarks {
 
 		// Set timestamp
 		let now = 100000u64;
-		pallet_timestamp::Pallet::<T>::set_timestamp(now.into());
+		pallet_timestamp::Pallet::<T>::set_timestamp(now);
 		<LastBlockTime<T>>::put(now.saturating_sub(T::TargetBlockTime::get()));
 
 		#[block]

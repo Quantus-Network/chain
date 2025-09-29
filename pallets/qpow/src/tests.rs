@@ -227,7 +227,7 @@ fn test_distance_threshold_storage_and_retrieval() {
 		run_to_block(1);
 
 		// 3. Check distance_threshold for block 1
-		let max_work = QPow::get_max_distance();
+		let _max_work = QPow::get_max_distance();
 		let block_1_distance_threshold = QPow::get_distance_threshold();
 		let block_1_difficulty = QPow::get_difficulty();
 		assert_eq!(
@@ -421,8 +421,8 @@ fn test_metadata_apis_correctness() {
 			(
 				{
 					let mut h = [0u8; 32];
-					for i in 0..32 {
-						h[i] = (i * 8) as u8;
+					for (i, item) in h.iter_mut().enumerate() {
+						*item = (i * 8) as u8;
 					}
 					h
 				},
