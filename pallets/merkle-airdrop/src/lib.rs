@@ -164,7 +164,7 @@ pub mod pallet {
 		AirdropId,
 		Blake2_128Concat,
 		T::AccountId,
-		(),
+		bool,
 		ValueQuery,
 	>;
 
@@ -468,7 +468,7 @@ pub mod pallet {
 			ensure!(airdrop_metadata.balance >= amount, Error::<T>::InsufficientAirdropBalance);
 
 			// Mark as claimed before performing the transfer
-			Claimed::<T>::insert(airdrop_id, &recipient, ());
+			Claimed::<T>::insert(airdrop_id, &recipient, true);
 
 			AirdropInfo::<T>::mutate(airdrop_id, |maybe_metadata| {
 				if let Some(metadata) = maybe_metadata {
@@ -479,7 +479,7 @@ pub mod pallet {
 			let per_block = if let Some(vesting_period) = airdrop_metadata.vesting_period {
 				amount
 					.checked_div(&T::BlockNumberToBalance::convert(vesting_period))
-					.ok_or_else(|| Error::<T>::InsufficientAirdropBalance)?
+					.ok_or(Error::<T>::InsufficientAirdropBalance)?
 			} else {
 				amount
 			};
