@@ -101,7 +101,7 @@ impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag>
 	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		use sp_core::bytes::to_hex;
 
-		write!(f, "{}", to_hex(&self.0.as_ref(), false))
+		write!(f, "{}", to_hex(self.0.as_ref(), false))
 	}
 
 	#[cfg(not(feature = "std"))]
