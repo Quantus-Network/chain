@@ -203,7 +203,7 @@ pub mod pallet {
 			// This does not affect total issuance and does not create an imbalance
 			<T::Currency as Unbalanced<_>>::increase_balance(
 				&exit_account,
-				exit_balance.into(),
+				exit_balance,
 				frame_support::traits::tokens::Precision::Exact,
 			)?;
 

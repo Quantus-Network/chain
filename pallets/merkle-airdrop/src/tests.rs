@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{mock::*, Error, Event};
 use codec::Encode;
 use frame_support::{
@@ -98,13 +96,13 @@ fn fund_airdrop_works() {
 
 		// Check that the balance was transferred
 		assert_eq!(Balances::free_balance(1), 9999900); // 10000000 - 100
-		assert_eq!(Balances::free_balance(&MerkleAirdrop::account_id()), 101);
+		assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 101);
 
 		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, amount * 2);
 		assert_eq!(Balances::free_balance(1), 9999800); // 9999900 - 100
-		assert_eq!(Balances::free_balance(&MerkleAirdrop::account_id()), 201); // locked for vesting
+		assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 201); // locked for vesting
 	});
 }
 
@@ -136,7 +134,7 @@ fn claim_works() {
 
 		System::assert_last_event(Event::Claimed { airdrop_id: 0, account: 2, amount: 500 }.into());
 
-		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
+		assert!(MerkleAirdrop::is_claimed(0, 2));
 		assert_eq!(Balances::balance_locked(VESTING_ID, &2), 500); // Unlocked
 
 		assert_eq!(Balances::free_balance(2), 500);
@@ -398,7 +396,7 @@ fn claim_updates_balances_correctly() {
 		);
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 500);
-		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
+		assert!(MerkleAirdrop::is_claimed(0, 2));
 	});
 }
 
@@ -446,9 +444,9 @@ fn multiple_users_can_claim() {
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 1);
 
-		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
-		assert_eq!(MerkleAirdrop::is_claimed(0, 3), ());
-		assert_eq!(MerkleAirdrop::is_claimed(0, 4), ());
+		assert!(MerkleAirdrop::is_claimed(0, 2));
+		assert!(MerkleAirdrop::is_claimed(0, 3));
+		assert!(MerkleAirdrop::is_claimed(0, 4));
 	});
 }
 
