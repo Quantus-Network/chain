@@ -2550,7 +2550,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -4554,7 +4554,7 @@ dependencies = [
  "hyper 1.7.0",
  "libc",
  "pin-project-lite 0.2.16",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tokio 1.47.1",
  "tower-service",
  "tracing",
@@ -4936,7 +4936,7 @@ checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8838,7 +8838,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -9000,9 +9000,9 @@ dependencies = [
 
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e86ee06c92d0629f6e6c45972f046069a68742577a796b17f5a507457be493d"
+checksum = "6959505d08c8374f3b63553c76296da26beb7072951b376b0d469abb4205e6f6"
 dependencies = [
  "bip39",
  "hex",
@@ -9279,7 +9279,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "thiserror 2.0.16",
  "tokio 1.47.1",
  "tracing",
@@ -9316,7 +9316,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -9968,7 +9968,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

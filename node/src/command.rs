@@ -242,7 +242,7 @@ pub fn run() -> sc_cli::Result<()> {
 										println!("Derivation disabled (--no-derivation). Using master seed.");
 									} else {
 										println!(
-											"Deriving child with index {} (path m/{}/0'/{}'/0'/0')",
+											"Deriving child with index {} (path m/44'/{}/{}'/0/0)",
 											wallet_index, QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
@@ -259,7 +259,7 @@ pub fn run() -> sc_cli::Result<()> {
 										println!("Derivation path: master (no derivation)");
 									} else {
 										println!(
-											"Derivation path: m/{}/0'/{}'/0'/0'",
+											"Derivation path: m/44'/{}/{}'/0/0",
 											QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
