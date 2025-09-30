@@ -76,6 +76,14 @@ pub enum QuantusKeySubcommand {
 		/// This is mutually exclusive with --seed.
 		#[arg(long, value_name = "WORDS_PHRASE", conflicts_with = "seed")]
 		words: Option<String>,
+
+		/// Optional: HD wallet derivation index (default 0). Ignored if --no-derivation is set.
+		#[arg(long, value_name = "INDEX", default_value_t = 0u32)]
+		wallet_index: u32,
+
+		/// Disable HD derivation. Generates the same result as current behavior.
+		#[arg(long, default_value_t = false)]
+		no_derivation: bool,
 	},
 }
 

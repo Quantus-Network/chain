@@ -50,6 +50,14 @@ pub struct InsertKeyCmd {
 	/// The cryptography scheme that should be used to generate the key out of the given URI.
 	#[arg(long, value_name = "SCHEME", value_enum, ignore_case = true)]
 	pub scheme: CryptoScheme,
+
+	/// Optional: HD wallet derivation index (default 0). Ignored if --no-derivation is set.
+	#[arg(long, value_name = "INDEX", default_value_t = 0u32)]
+	pub wallet_index: u32,
+
+	/// Disable HD derivation. Generates the same result as current behavior.
+	#[arg(long, default_value_t = false)]
+	pub no_derivation: bool,
 }
 
 impl InsertKeyCmd {
