@@ -7,7 +7,7 @@ use crate::{
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
-    generate_mnemonic, wormhole::WormholePair, HDLattice, QUANTUS_DILITHIUM_CHAIN_ID,
+	generate_mnemonic, wormhole::WormholePair, HDLattice, QUANTUS_DILITHIUM_CHAIN_ID,
 };
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rand::Rng;
@@ -33,23 +33,23 @@ pub struct QuantusKeyDetails {
 }
 
 pub fn generate_quantus_key(
-    scheme: QuantusAddressType,
-    seed: Option<String>,
-    words: Option<String>,
-    wallet_index: u32,
-    no_derivation: bool,
+	scheme: QuantusAddressType,
+	seed: Option<String>,
+	words: Option<String>,
+	wallet_index: u32,
+	no_derivation: bool,
 ) -> Result<QuantusKeyDetails, sc_cli::Error> {
 	match scheme {
 		QuantusAddressType::Standard => {
 			let hd_lattice: Option<HDLattice>;
-            let mut words_to_print: Option<String> = None;
+			let mut words_to_print: Option<String> = None;
 
 			if let Some(words_phrase) = words {
-                let hd = HDLattice::from_mnemonic(&words_phrase, None).map_err(|e| {
+				let hd = HDLattice::from_mnemonic(&words_phrase, None).map_err(|e| {
 					eprintln!("Error processing provided words: {:?}", e);
 					sc_cli::Error::Input("Failed to process provided words".into())
 				})?;
-                hd_lattice = Some(hd);
+				hd_lattice = Some(hd);
 				words_to_print = Some(words_phrase.clone());
 			} else if let Some(mut hex_seed_str) = seed {
 				if hex_seed_str.starts_with("0x") {
@@ -70,13 +70,13 @@ pub fn generate_quantus_key(
 					eprintln!("Error: Decoded hex seed must be exactly 64 bytes.");
 					return Err("Invalid decoded hex seed length".into());
 				}
-                let mut seed64 = [0u8; 64];
-                seed64.copy_from_slice(&decoded_seed_bytes);
-                let hd = HDLattice::from_seed(seed64).map_err(|e| {
-                    eprintln!("Error creating HD lattice from seed: {:?}", e);
-                    sc_cli::Error::Input("Failed to process provided seed".into())
-                })?;
-                hd_lattice = Some(hd);
+				let mut seed64 = [0u8; 64];
+				seed64.copy_from_slice(&decoded_seed_bytes);
+				let hd = HDLattice::from_seed(seed64).map_err(|e| {
+					eprintln!("Error creating HD lattice from seed: {:?}", e);
+					sc_cli::Error::Input("Failed to process provided seed".into())
+				})?;
+				hd_lattice = Some(hd);
 			} else {
 				let mut seed = [0u8; 32];
 				rand::thread_rng().fill(&mut seed);
@@ -85,37 +85,34 @@ pub fn generate_quantus_key(
 					sc_cli::Error::Input("Failed to generate new words".into())
 				})?;
 
-                let hd = HDLattice::from_mnemonic(&new_words, None).map_err(|e| {
+				let hd = HDLattice::from_mnemonic(&new_words, None).map_err(|e| {
 					eprintln!("Error creating HD lattice from new words: {:?}", e);
 					sc_cli::Error::Input("Failed to process new words".into())
 				})?;
-                hd_lattice = Some(hd);
+				hd_lattice = Some(hd);
 				words_to_print = Some(new_words);
 			}
 
-            let hd = hd_lattice.expect("HD lattice must be initialized");
-            // Compute seed for pair: master seed or derived child entropy
-            let seed_for_pair: Vec<u8> = if no_derivation {
-                hd.seed.to_vec()
-            } else {
-                // Example: m/44'/189189'/<index>'/0/0
+			let hd = hd_lattice.expect("HD lattice must be initialized");
+			// Compute seed for pair: master seed or derived child entropy
+			let seed_for_pair: Vec<u8> = if no_derivation {
+				hd.seed.to_vec()
+			} else {
+				// Example: m/44'/189189'/<index>'/0/0
 				// Explanation: "m/$purpose'/$coinType'/$account'/$change/$addressIndex";
-                let path = format!(
-                    "m/44'/189189'/{index}'/0/0",
-                    index = wallet_index
-                );
+				let path = format!("m/44'/189189'/{index}'/0/0", index = wallet_index);
 				println!("Deriving HD path: {}", path);
-                let child = hd.derive_entropy(&path).map_err(|e| {
-                    eprintln!("Error deriving HD path {}: {:?}", path, e);
-                    sc_cli::Error::Input("Failed to derive HD child".into())
-                })?;
-                child.to_vec()
-            };
+				let child = hd.derive_entropy(&path).map_err(|e| {
+					eprintln!("Error deriving HD path {}: {:?}", path, e);
+					sc_cli::Error::Input("Failed to derive HD child".into())
+				})?;
+				child.to_vec()
+			};
 
-            let dilithium_pair = DilithiumPair::from_seed(&seed_for_pair).map_err(|e| {
-                eprintln!("Error creating DilithiumPair: {:?}", e);
-                sc_cli::Error::Input("Failed to create keypair".into())
-            })?;
+			let dilithium_pair = DilithiumPair::from_seed(&seed_for_pair).map_err(|e| {
+				eprintln!("Error creating DilithiumPair: {:?}", e);
+				sc_cli::Error::Input("Failed to create keypair".into())
+			})?;
 
 			let account_id = AccountId32::from(dilithium_pair.public());
 
@@ -124,7 +121,7 @@ pub fn generate_quantus_key(
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
 				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
-                seed_hex: format!("0x{}", hex::encode(&seed_for_pair)),
+				seed_hex: format!("0x{}", hex::encode(&seed_for_pair)),
 				secret_phrase: words_to_print,
 				inner_hash: None,
 			})
@@ -213,7 +210,13 @@ pub fn run() -> sc_cli::Result<()> {
 		Some(Subcommand::Key(cmd)) => {
 			match cmd {
 				QuantusKeySubcommand::Sc(sc_cmd) => sc_cmd.run(&cli),
-				QuantusKeySubcommand::Quantus { scheme, seed, words, wallet_index, no_derivation } => {
+				QuantusKeySubcommand::Quantus {
+					scheme,
+					seed,
+					words,
+					wallet_index,
+					no_derivation,
+				} => {
 					match generate_quantus_key(
 						scheme.clone(),
 						seed.clone(),
@@ -237,14 +240,12 @@ pub fn run() -> sc_cli::Result<()> {
 
 									if *no_derivation {
 										println!("Derivation disabled (--no-derivation). Using master seed.");
-                                    } else {
-                                        println!(
-                                            "Deriving child with index {} (path m/{}/0'/{}'/0'/0')",
-                                            wallet_index,
-                                            QUANTUS_DILITHIUM_CHAIN_ID,
-                                            wallet_index
-                                        );
-                                    }
+									} else {
+										println!(
+											"Deriving child with index {} (path m/{}/0'/{}'/0'/0')",
+											wallet_index, QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
+										);
+									}
 
 									println!(
 										"XXXXXXXXXXXXXXX Quantus Account Details XXXXXXXXXXXXXXXXX"
@@ -252,17 +253,16 @@ pub fn run() -> sc_cli::Result<()> {
 									if let Some(phrase) = &details.secret_phrase {
 										println!("Secret phrase: {}", phrase);
 									}
-								// Include account index and derivation path in the output
-								println!("Account index: {}", wallet_index);
-								if *no_derivation {
-									println!("Derivation path: master (no derivation)");
-								} else {
-									println!(
-										"Derivation path: m/{}/0'/{}'/0'/0'",
-										QUANTUS_DILITHIUM_CHAIN_ID,
-										wallet_index
-									);
-								}
+									// Include account index and derivation path in the output
+									println!("Account index: {}", wallet_index);
+									if *no_derivation {
+										println!("Derivation path: master (no derivation)");
+									} else {
+										println!(
+											"Derivation path: m/{}/0'/{}'/0'/0'",
+											QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
+										);
+									}
 									println!("Address: {}", details.address);
 									println!("Seed: {}", details.seed_hex);
 									println!("Pub key: {}", details.public_key_hex);
@@ -472,8 +472,8 @@ mod tests {
 	use crate::{
 		cli::QuantusAddressType,
 		tests::data::quantus_key_test_data::{
-			EXPECTED_PUBLIC_KEY_HEX, EXPECTED_SECRET_KEY_HEX, TEST_ADDRESS, TEST_ADDRESS_HD_0, TEST_ADDRESS_HD_1, TEST_MNEMONIC,
-			TEST_SEED_HEX,
+			EXPECTED_PUBLIC_KEY_HEX, EXPECTED_SECRET_KEY_HEX, TEST_ADDRESS, TEST_ADDRESS_HD_0,
+			TEST_ADDRESS_HD_1, TEST_MNEMONIC, TEST_SEED_HEX,
 		},
 	};
 
@@ -651,6 +651,5 @@ mod tests {
 		assert_eq!(master.address, TEST_ADDRESS);
 		assert_eq!(child0.address, TEST_ADDRESS_HD_0);
 		assert_eq!(child1.address, TEST_ADDRESS_HD_1);
-
 	}
 }
