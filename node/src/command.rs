@@ -243,7 +243,7 @@ pub fn run() -> sc_cli::Result<()> {
 									} else {
 										println!(
 											"Deriving child with index {} (path m/44'/{}/{}'/0/0)",
-											QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
+											wallet_index, QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
 
