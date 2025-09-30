@@ -98,10 +98,10 @@ pub fn generate_quantus_key(
             let seed_for_pair: Vec<u8> = if no_derivation {
                 hd.seed.to_vec()
             } else {
-                // Example: m/189189'/0'/<index>'/0/0
+                // Example: m/44'/189189'/<index>'/0/0
 				// Explanation: "m/$purpose'/$coinType'/$account'/$change/$addressIndex";
                 let path = format!(
-                    "m/189189'/0'/{index}'/0/0",
+                    "m/44'/189189'/{index}'/0/0",
                     index = wallet_index
                 );
 				println!("Deriving HD path: {}", path);
