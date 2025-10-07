@@ -164,7 +164,7 @@ pub mod pallet {
 		AirdropId,
 		Blake2_128Concat,
 		T::AccountId,
-		(),
+		bool,
 		ValueQuery,
 	>;
 
@@ -447,10 +447,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			ensure!(
-				!Claimed::<T>::contains_key(airdrop_id, &recipient),
-				Error::<T>::AlreadyClaimed
-			);
+			ensure!(!Claimed::<T>::get(airdrop_id, &recipient), Error::<T>::AlreadyClaimed);
 
 			let airdrop_metadata =
 				AirdropInfo::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
@@ -468,7 +465,7 @@ pub mod pallet {
 			ensure!(airdrop_metadata.balance >= amount, Error::<T>::InsufficientAirdropBalance);
 
 			// Mark as claimed before performing the transfer
-			Claimed::<T>::insert(airdrop_id, &recipient, ());
+			Claimed::<T>::insert(airdrop_id, &recipient, true);
 
 			AirdropInfo::<T>::mutate(airdrop_id, |maybe_metadata| {
 				if let Some(metadata) = maybe_metadata {
@@ -479,7 +476,7 @@ pub mod pallet {
 			let per_block = if let Some(vesting_period) = airdrop_metadata.vesting_period {
 				amount
 					.checked_div(&T::BlockNumberToBalance::convert(vesting_period))
-					.ok_or_else(|| Error::<T>::InsufficientAirdropBalance)?
+					.ok_or(Error::<T>::InsufficientAirdropBalance)?
 			} else {
 				amount
 			};
@@ -551,7 +548,7 @@ pub mod pallet {
 				})?;
 
 				// 2. Check if already claimed
-				if Claimed::<T>::contains_key(airdrop_id, recipient) {
+				if Claimed::<T>::get(airdrop_id, recipient) {
 					let error = Error::<T>::AlreadyClaimed;
 					return InvalidTransaction::Custom(error.to_code()).into();
 				}
