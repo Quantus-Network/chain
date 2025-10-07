@@ -19,5 +19,6 @@
 const PROTOS: &[&str] = &["src/schema/bitswap.v1.2.0.proto"];
 
 fn main() {
+	println!("cargo::rustc-check-cfg=cfg(ignore_flaky_test)");
 	prost_build::compile_protos(PROTOS, &["src/schema"]).unwrap();
 }
