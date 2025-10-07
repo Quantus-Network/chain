@@ -1,3 +1,5 @@
+#![allow(clippy::unit_cmp)]
+
 use crate::{mock::*, Error, Event};
 use codec::Encode;
 use frame_support::{
@@ -134,7 +136,7 @@ fn claim_works() {
 
 		System::assert_last_event(Event::Claimed { airdrop_id: 0, account: 2, amount: 500 }.into());
 
-		assert!(MerkleAirdrop::is_claimed(0, 2));
+		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
 		assert_eq!(Balances::balance_locked(VESTING_ID, &2), 500); // Unlocked
 
 		assert_eq!(Balances::free_balance(2), 500);
@@ -396,7 +398,7 @@ fn claim_updates_balances_correctly() {
 		);
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 500);
-		assert!(MerkleAirdrop::is_claimed(0, 2));
+		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
 	});
 }
 
@@ -444,9 +446,9 @@ fn multiple_users_can_claim() {
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 1);
 
-		assert!(MerkleAirdrop::is_claimed(0, 2));
-		assert!(MerkleAirdrop::is_claimed(0, 3));
-		assert!(MerkleAirdrop::is_claimed(0, 4));
+		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
+		assert_eq!(MerkleAirdrop::is_claimed(0, 3), ());
+		assert_eq!(MerkleAirdrop::is_claimed(0, 4), ());
 	});
 }
 

@@ -158,13 +158,14 @@ pub mod pallet {
 	/// Storage for claimed status
 	#[pallet::storage]
 	#[pallet::getter(fn is_claimed)]
+	#[allow(clippy::unused_unit)]
 	pub type Claimed<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
 		AirdropId,
 		Blake2_128Concat,
 		T::AccountId,
-		bool,
+		(),
 		ValueQuery,
 	>;
 
@@ -447,7 +448,10 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			ensure!(!Claimed::<T>::get(airdrop_id, &recipient), Error::<T>::AlreadyClaimed);
+			ensure!(
+				!Claimed::<T>::contains_key(airdrop_id, &recipient),
+				Error::<T>::AlreadyClaimed
+			);
 
 			let airdrop_metadata =
 				AirdropInfo::<T>::get(airdrop_id).ok_or(Error::<T>::AirdropNotFound)?;
@@ -465,7 +469,7 @@ pub mod pallet {
 			ensure!(airdrop_metadata.balance >= amount, Error::<T>::InsufficientAirdropBalance);
 
 			// Mark as claimed before performing the transfer
-			Claimed::<T>::insert(airdrop_id, &recipient, true);
+			Claimed::<T>::insert(airdrop_id, &recipient, ());
 
 			AirdropInfo::<T>::mutate(airdrop_id, |maybe_metadata| {
 				if let Some(metadata) = maybe_metadata {
@@ -548,7 +552,7 @@ pub mod pallet {
 				})?;
 
 				// 2. Check if already claimed
-				if Claimed::<T>::get(airdrop_id, recipient) {
+				if Claimed::<T>::contains_key(airdrop_id, recipient) {
 					let error = Error::<T>::AlreadyClaimed;
 					return InvalidTransaction::Custom(error.to_code()).into();
 				}
