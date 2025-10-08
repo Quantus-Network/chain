@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![allow(clippy::unit_cmp)]
 
 use crate::{mock::*, Error, Event};
 use codec::Encode;
@@ -98,13 +98,13 @@ fn fund_airdrop_works() {
 
 		// Check that the balance was transferred
 		assert_eq!(Balances::free_balance(1), 9999900); // 10000000 - 100
-		assert_eq!(Balances::free_balance(&MerkleAirdrop::account_id()), 101);
+		assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 101);
 
 		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount));
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, amount * 2);
 		assert_eq!(Balances::free_balance(1), 9999800); // 9999900 - 100
-		assert_eq!(Balances::free_balance(&MerkleAirdrop::account_id()), 201); // locked for vesting
+		assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 201); // locked for vesting
 	});
 }
 

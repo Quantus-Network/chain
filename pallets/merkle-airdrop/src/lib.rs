@@ -158,6 +158,7 @@ pub mod pallet {
 	/// Storage for claimed status
 	#[pallet::storage]
 	#[pallet::getter(fn is_claimed)]
+	#[allow(clippy::unused_unit)]
 	pub type Claimed<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
@@ -479,7 +480,7 @@ pub mod pallet {
 			let per_block = if let Some(vesting_period) = airdrop_metadata.vesting_period {
 				amount
 					.checked_div(&T::BlockNumberToBalance::convert(vesting_period))
-					.ok_or_else(|| Error::<T>::InsufficientAirdropBalance)?
+					.ok_or(Error::<T>::InsufficientAirdropBalance)?
 			} else {
 				amount
 			};
