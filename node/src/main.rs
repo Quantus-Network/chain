@@ -12,6 +12,7 @@ mod service;
 #[cfg(test)]
 mod tests;
 
+#[allow(clippy::result_large_err)]
 fn main() -> sc_cli::Result<()> {
 	command::run()
 }
