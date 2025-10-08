@@ -77,10 +77,7 @@ pub fn development_config_genesis() -> Value {
 	endowed_accounts.extend(dilithium_default_accounts());
 	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
-		log::info!(
-			"🍆 Endowed account: {:?}",
-			account.to_ss58check_with_version(ss58_version.clone())
-		);
+		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 
 	genesis_template(endowed_accounts, crystal_alice().into_account())
@@ -104,10 +101,7 @@ pub fn schrodinger_config_genesis() -> Value {
 	let endowed_accounts = vec![schrodinger_root_account(), schrodinger_faucet_account()];
 	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
-		log::info!(
-			"🍆 Endowed account: {:?}",
-			account.to_ss58check_with_version(ss58_version.clone())
-		);
+		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 
 	genesis_template(endowed_accounts, schrodinger_root_account())
@@ -118,10 +112,7 @@ pub fn heisenberg_config_genesis() -> Value {
 	endowed_accounts.extend(dilithium_default_accounts());
 	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
-		log::info!(
-			"🍆 Endowed account: {:?}",
-			account.to_ss58check_with_version(ss58_version.clone())
-		);
+		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 	genesis_template(endowed_accounts, test_root_account())
 }

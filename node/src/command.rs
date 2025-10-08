@@ -131,7 +131,7 @@ pub fn generate_quantus_key(
 			rand::thread_rng().fill(&mut seed);
 			let wormhole_pair = WormholePair::generate_new(seed).map_err(|e| {
 				eprintln!("Error generating WormholePair: {:?}", e);
-				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e).into())
+				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e))
 			})?;
 
 			// Convert wormhole address to account ID using WormholeAddress type
