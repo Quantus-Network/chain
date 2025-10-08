@@ -39,7 +39,16 @@ use std::{
 	str::FromStr,
 	time::Duration,
 };
-use substrate_test_runtime_client::runtime;
+// use substrate_test_runtime_client::runtime; // QUANTUS: Not available in this project
+// Define simple types for benchmarking instead
+use sp_core::H256;
+use sp_runtime::{
+	generic::{Block, Header},
+	traits::BlakeTwo256,
+};
+
+type TestBlock = Block<Header<u32, BlakeTwo256>, sp_runtime::OpaqueExtrinsic>;
+type TestHash = H256;
 
 const MAX_SIZE: u64 = 2u64.pow(30);
 const SAMPLE_SIZE: usize = 50;
@@ -67,20 +76,19 @@ fn get_listen_address() -> sc_network::Multiaddr {
 pub fn create_network_worker(
 	listen_addr: sc_network::Multiaddr,
 ) -> (
-	NetworkWorker<runtime::Block, runtime::Hash>,
+	NetworkWorker<TestBlock, TestHash>,
 	async_channel::Receiver<IncomingRequest>,
 	Box<dyn NotificationService>,
 ) {
 	let (tx, rx) = async_channel::bounded(10);
-	let request_response_config =
-		NetworkWorker::<runtime::Block, runtime::Hash>::request_response_config(
-			"/request-response/1".into(),
-			vec![],
-			MAX_SIZE,
-			MAX_SIZE,
-			Duration::from_secs(2),
-			Some(tx),
-		);
+	let request_response_config = NetworkWorker::<TestBlock, TestHash>::request_response_config(
+		"/request-response/1".into(),
+		vec![],
+		MAX_SIZE,
+		MAX_SIZE,
+		Duration::from_secs(2),
+		Some(tx),
+	);
 	let mut net_conf = NetworkConfiguration::new_local();
 	net_conf.listen_addresses = vec![listen_addr];
 	let mut network_config = FullNetworkConfiguration::new(&net_conf, None);
@@ -89,11 +97,11 @@ pub fn create_network_worker(
 		"/block-announces/1".into(),
 		vec![],
 		1024,
-		Some(NotificationHandshake::new(BlockAnnouncesHandshake::<runtime::Block>::build(
+		Some(NotificationHandshake::new(BlockAnnouncesHandshake::<TestBlock>::build(
 			Roles::from(&Role::Full),
 			Zero::zero(),
-			runtime::Hash::zero(),
-			runtime::Hash::zero(),
+			TestHash::zero(),
+			TestHash::zero(),
 		))),
 		SetConfig {
 			in_peers: 1,
@@ -102,9 +110,9 @@ pub fn create_network_worker(
 			non_reserved_mode: NonReservedPeerMode::Accept,
 		},
 	);
-	let worker = NetworkWorker::<runtime::Block, runtime::Hash>::new(Params::<
-		runtime::Block,
-		runtime::Hash,
+	let worker = NetworkWorker::<TestBlock, TestHash>::new(Params::<
+		TestBlock,
+		TestHash,
 		NetworkWorker<_, _>,
 	> {
 		block_announce_config,
@@ -112,7 +120,7 @@ pub fn create_network_worker(
 		executor: Box::new(|f| {
 			tokio::spawn(f);
 		}),
-		genesis_hash: runtime::Hash::zero(),
+		genesis_hash: TestHash::zero(),
 		network_config,
 		protocol_id: ProtocolId::from("bench-request-response-protocol"),
 		fork_id: None,

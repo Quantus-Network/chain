@@ -37,7 +37,16 @@ use std::{
 	net::{IpAddr, Ipv4Addr, TcpListener},
 	str::FromStr,
 };
-use substrate_test_runtime_client::runtime;
+// use substrate_test_runtime_client::runtime; // QUANTUS: Not available in this project
+// Define simple types for benchmarking instead
+use sp_core::H256;
+use sp_runtime::{
+	generic::{Block, Header},
+	traits::BlakeTwo256,
+};
+
+type TestBlock = Block<Header<u32, BlakeTwo256>, sp_runtime::OpaqueExtrinsic>;
+type TestHash = H256;
 
 const MAX_SIZE: u64 = 2u64.pow(30);
 const SAMPLE_SIZE: usize = 50;
@@ -65,14 +74,14 @@ fn get_listen_address() -> sc_network::Multiaddr {
 
 pub fn create_network_worker(
 	listen_addr: sc_network::Multiaddr,
-) -> (NetworkWorker<runtime::Block, runtime::Hash>, Box<dyn NotificationService>) {
+) -> (NetworkWorker<TestBlock, TestHash>, Box<dyn NotificationService>) {
 	let role = Role::Full;
-	let genesis_hash = runtime::Hash::zero();
+	let genesis_hash = TestHash::zero();
 	let (block_announce_config, notification_service) = NonDefaultSetConfig::new(
 		"/block-announces/1".into(),
 		vec!["/bench-notifications-protocol/block-announces/1".into()],
 		MAX_SIZE,
-		Some(NotificationHandshake::new(BlockAnnouncesHandshake::<runtime::Block>::build(
+		Some(NotificationHandshake::new(BlockAnnouncesHandshake::<TestBlock>::build(
 			Roles::from(&role),
 			Zero::zero(),
 			genesis_hash,
@@ -87,9 +96,9 @@ pub fn create_network_worker(
 	);
 	let mut net_conf = NetworkConfiguration::new_local();
 	net_conf.listen_addresses = vec![listen_addr];
-	let worker = NetworkWorker::<runtime::Block, runtime::Hash>::new(Params::<
-		runtime::Block,
-		runtime::Hash,
+	let worker = NetworkWorker::<TestBlock, TestHash>::new(Params::<
+		TestBlock,
+		TestHash,
 		NetworkWorker<_, _>,
 	> {
 		block_announce_config,
