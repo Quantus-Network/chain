@@ -5,9 +5,10 @@ use frame_support::{
 	weights::IdentityFee,
 };
 use sp_core::H256;
-use sp_runtime::traits::{BlakeTwo256, IdentityLookup};
-#[cfg(test)]
-use sp_runtime::BuildStorage;
+use sp_runtime::{
+	traits::{BlakeTwo256, IdentityLookup},
+	BuildStorage,
+};
 // --- MOCK RUNTIME ---
 
 construct_runtime!(
@@ -97,7 +98,6 @@ impl pallet_wormhole::Config for Test {
 }
 
 // Helper function to build a genesis configuration
-#[cfg(test)]
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
