@@ -1,7 +1,6 @@
 //! Benchmarking setup for pallet-wormhole
 
 use super::*;
-use crate::Pallet as Wormhole;
 use alloc::vec::Vec;
 use frame_benchmarking::v2::*;
 use frame_support::{ensure, traits::fungible::Inspect};
@@ -53,20 +52,14 @@ mod benchmarks {
 
 		let block_number = frame_system::Pallet::<T>::block_number();
 
-		#[block]
-		{
-			let _ = Wormhole::<T>::verify_wormhole_proof(
-				RawOrigin::None.into(),
-				proof_bytes,
-				block_number,
-			);
-		}
+		#[extrinsic_call]
+		verify_wormhole_proof(RawOrigin::None, proof_bytes, block_number);
 
 		Ok(())
 	}
 
 	impl_benchmark_test_suite! {
-		Wormhole,
+		Pallet,
 		crate::mock::new_test_ext(),
 		crate::mock::Test,
 	}
