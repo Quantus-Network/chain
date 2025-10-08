@@ -135,6 +135,7 @@ where
 
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
 	/// successful.
+	#[allow(clippy::await_holding_lock)]
 	pub async fn submit(&self, seal: Seal) -> bool {
 		let build = if let Some(build) = {
 			let mut build = self.build.lock();
@@ -160,9 +161,9 @@ where
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
 		let header = import_block.post_header();
-		let block_import = self.block_import.lock();
+		let import_result = self.block_import.lock().import_block(import_block).await;
 
-		match block_import.import_block(import_block).await {
+		match import_result {
 			Ok(res) => {
 				res.handle_justification(
 					&header.hash(),
