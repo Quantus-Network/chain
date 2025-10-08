@@ -13,7 +13,6 @@ use std::{sync::Arc, time::Duration};
 use crate::worker::UntilImportedOrTimeout;
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
 use futures::{Future, StreamExt};
-use hex;
 use log::*;
 use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
@@ -320,6 +319,8 @@ where
 ///
 /// `pre_runtime` is a parameter that allows a custom additional pre-runtime digest to be inserted
 /// for blocks being built. This can encode authorship information, or just be a graffiti.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
 	block_import: BoxBlockImport<Block>,
 	client: Arc<C>,
@@ -506,7 +507,6 @@ where
 	client
 		.runtime_api()
 		.get_difficulty(parent)
-		.map(U512::from)
 		.map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
 }
 

@@ -420,8 +420,8 @@ fn test_metadata_apis_correctness() {
 			(
 				{
 					let mut h = [0u8; 32];
-					for i in 0..32 {
-						h[i] = (i * 8) as u8;
+					for (i, item) in h.iter_mut().enumerate() {
+						*item = (i * 8) as u8;
 					}
 					h
 				},
