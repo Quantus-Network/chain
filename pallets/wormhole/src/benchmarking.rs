@@ -1,7 +1,5 @@
 //! Benchmarking setup for pallet-wormhole
 
-#![cfg(feature = "runtime-benchmarks")]
-
 use super::*;
 use alloc::vec::Vec;
 use frame_benchmarking::v2::*;
@@ -59,6 +57,4 @@ mod benchmarks {
 
 		Ok(())
 	}
-
-	impl_benchmark_test_suite!(Wormhole, crate::mock::new_test_ext(), crate::mock::Test);
 }

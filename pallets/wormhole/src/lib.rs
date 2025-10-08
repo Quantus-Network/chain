@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 pub use pallet::*;
 use qp_wormhole_verifier::WormholeVerifier;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "runtime-benchmarks"))]
 mod mock;
 #[cfg(test)]
 mod tests;
@@ -203,7 +203,7 @@ pub mod pallet {
 			// This does not affect total issuance and does not create an imbalance
 			<T::Currency as Unbalanced<_>>::increase_balance(
 				&exit_account,
-				exit_balance.into(),
+				exit_balance,
 				frame_support::traits::tokens::Precision::Exact,
 			)?;
 
