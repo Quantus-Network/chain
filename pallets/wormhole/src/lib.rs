@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 pub use pallet::*;
 use qp_wormhole_verifier::WormholeVerifier;
 
-#[cfg(any(test, feature = "runtime-benchmarks"))]
+#[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod tests;
