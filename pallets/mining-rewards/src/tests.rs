@@ -260,7 +260,7 @@ fn rewards_go_to_treasury_when_no_miner() {
 	new_test_ext().execute_with(|| {
 		// Get Treasury account
 		let treasury_account = TreasuryPalletId::get().into_account_truncating();
-		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+		let initial_treasury_balance = Balances::free_balance(treasury_account);
 
 		// Fund Treasury
 		let treasury_funding = 1000 * UNIT;
@@ -274,7 +274,7 @@ fn rewards_go_to_treasury_when_no_miner() {
 		// When no miner, treasury gets both miner reward and treasury block reward
 		let expected_reward = BlockReward::get() + TreasuryBlockReward::get(); // 50 + 50 = 100
 		assert_eq!(
-			Balances::free_balance(&treasury_account),
+			Balances::free_balance(treasury_account),
 			initial_treasury_balance + treasury_funding + expected_reward
 		);
 
@@ -300,7 +300,7 @@ fn test_fees_split_between_treasury_and_miner() {
 		// Set up initial balances
 		let miner = 1;
 		let _ = Balances::deposit_creating(&miner, 0); // Create account, balance might become ExistentialDeposit
-		let actual_initial_balance_after_creation = Balances::free_balance(&miner);
+		let actual_initial_balance_after_creation = Balances::free_balance(miner);
 
 		// Set transaction fees
 		let tx_fees = 100;
@@ -314,11 +314,11 @@ fn test_fees_split_between_treasury_and_miner() {
 		MiningRewards::on_finalize(System::block_number());
 
 		// Get Treasury account
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account: u64 = TreasuryPalletId::get().into_account_truncating();
 
 		// Get actual values from the system AFTER on_finalize
-		let treasury_balance_after_finalize = Balances::free_balance(&treasury_account);
-		let miner_balance_after_finalize = Balances::free_balance(&miner);
+		let treasury_balance_after_finalize = Balances::free_balance(treasury_account);
+		let miner_balance_after_finalize = Balances::free_balance(miner);
 
 		// Calculate expected values using the same method as in the implementation
 		// Current implementation: miner gets all fees, treasury gets block reward
