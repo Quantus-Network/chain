@@ -42,11 +42,11 @@ echo ""
 QUANTUS_NODE_BIN="./target/release/quantus-node"
 GITHUB_REPO="Quantus-Network/chain"
 
-echo "🔄 Checking current git status..."
-if ! git diff-index --quiet HEAD --; then
-    echo "❌ Error: Your working directory is not clean. Please commit or stash your changes before running this script."
-    exit 1
-fi
+#echo "🔄 Checking current git status..."
+#if ! git diff-index --quiet HEAD --; then
+#    echo "❌ Error: Your working directory is not clean. Please commit or stash your changes before running this script."
+#    exit 1
+#fi
 
 echo "⬇️ Fetching latest tags from origin..."
 git fetch --all --tags
