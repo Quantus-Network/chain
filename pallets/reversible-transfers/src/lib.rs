@@ -21,7 +21,7 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Precision, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -170,6 +170,14 @@ pub mod pallet {
 
 		/// Time provider for scheduling.
 		type TimeProvider: Time<Moment = Self::Moment>;
+
+		/// Volume fee taken from reversed transactions, expressed in basis points (e.g., 10 =
+		/// 0.1%).
+		#[pallet::constant]
+		type VolumeFee: Get<u16>;
+
+		/// Treasury account ID where volume fees are sent.
+		type TreasuryAccountId: Get<Self::AccountId>;
 	}
 
 	/// Maps accounts to their chosen reversibility delay period (in milliseconds).
@@ -272,6 +280,9 @@ pub mod pallet {
 		/// A scheduled transaction was executed by the scheduler.
 		/// [tx_id, dispatch_result]
 		TransactionExecuted { tx_id: T::Hash, result: DispatchResultWithPostInfo },
+
+		/// Volume fee was collected from a reversed transaction. [tx_id, fee_amount]
+		VolumeFeeCollected { tx_id: T::Hash, fee_amount: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -820,39 +831,87 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// For assets, transfer held funds to interceptor via assets-holder; for native
-			// balances, transfer held funds to interceptor
+			// Calculate volume fee (in basis points: 10 = 0.1%)
+			let volume_fee_bp = T::VolumeFee::get();
+			let fee_amount = pending.amount.saturating_mul(volume_fee_bp.into()) / 10000u32.into();
+			let remaining_amount = pending.amount.saturating_sub(fee_amount);
+			let treasury_account = T::TreasuryAccountId::get();
+
+			// For assets, transfer held funds to treasury (fee) and interceptor (remaining)
+			// For native balances, transfer held funds to treasury (fee) and interceptor
+			// (remaining)
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(assets_call) = call.clone().try_into() {
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
 						let reason = Self::asset_hold_reason();
-						let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-							id.into(),
-							&reason,
-							&pending.from,
-							&interceptor,
-							pending.amount,
-							Precision::Exact,
-							Restriction::Free,
-							Fortitude::Polite,
-						);
+						let asset_id = id.into();
+
+						// Transfer fee to treasury if fee_amount > 0
+						if !fee_amount.is_zero() {
+							let _ =
+								<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+									asset_id.clone(),
+									&reason,
+									&pending.from,
+									&treasury_account,
+									fee_amount,
+									Precision::Exact,
+									Restriction::Free,
+									Fortitude::Polite,
+								);
+						}
+
+						// Transfer remaining amount to interceptor
+						if !remaining_amount.is_zero() {
+							let _ =
+								<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+									asset_id,
+									&reason,
+									&pending.from,
+									&interceptor,
+									remaining_amount,
+									Precision::Exact,
+									Restriction::Free,
+									Fortitude::Polite,
+								);
+						}
 					}
 				}
 				if let Ok(balance_call) = call.clone().try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
-						pallet_balances::Pallet::<T>::transfer_on_hold(
-							&HoldReason::ScheduledTransfer.into(),
-							&pending.from,
-							&interceptor,
-							pending.amount,
-							Precision::Exact,
-							Restriction::Free,
-							Fortitude::Polite,
-						)?;
+						// Transfer fee to treasury if fee_amount > 0
+						if !fee_amount.is_zero() {
+							pallet_balances::Pallet::<T>::transfer_on_hold(
+								&HoldReason::ScheduledTransfer.into(),
+								&pending.from,
+								&treasury_account,
+								fee_amount,
+								Precision::Exact,
+								Restriction::Free,
+								Fortitude::Polite,
+							)?;
+						}
+
+						// Transfer remaining amount to interceptor
+						if !remaining_amount.is_zero() {
+							pallet_balances::Pallet::<T>::transfer_on_hold(
+								&HoldReason::ScheduledTransfer.into(),
+								&pending.from,
+								&interceptor,
+								remaining_amount,
+								Precision::Exact,
+								Restriction::Free,
+								Fortitude::Polite,
+							)?;
+						}
 					}
 				}
 			}
 
+			// Emit events
+			if !fee_amount.is_zero() {
+				Self::deposit_event(Event::VolumeFeeCollected { tx_id, fee_amount });
+			}
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
 		}

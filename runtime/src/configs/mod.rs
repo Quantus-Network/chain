@@ -56,7 +56,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{ConvertInto, One},
+	traits::{AccountIdConversion, ConvertInto, One},
 	Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -476,6 +476,15 @@ parameter_types! {
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
 	pub const MaxReversibleTransfers: u32 = 10;
 	pub const MaxInterceptorAccounts: u32 = 32;
+	/// Volume fee for reversed transactions in basis points (10 = 0.1%)
+	pub const ReversibleTransfersVolumeFee: u16 = 10;
+}
+
+pub struct TreasuryAccount;
+impl Get<AccountId> for TreasuryAccount {
+	fn get() -> AccountId {
+		TreasuryPalletId::get().into_account_truncating()
+	}
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
@@ -493,6 +502,8 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type Moment = Moment;
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type VolumeFee = ReversibleTransfersVolumeFee;
+	type TreasuryAccountId = TreasuryAccount;
 }
 
 parameter_types! {
