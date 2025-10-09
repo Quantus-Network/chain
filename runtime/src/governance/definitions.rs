@@ -358,7 +358,7 @@ impl TechCollectiveTracksInfo {
 				max_deciding: 1,
 				decision_deposit: 1000 * UNIT,
 				prepare_period: 100,
-				decision_period: 1 * DAYS,
+				decision_period: DAYS,
 				confirm_period: 100,
 				min_enactment_period: 100,
 				min_approval: pallet_referenda::Curve::LinearDecreasing {
@@ -438,6 +438,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 /// - Track 1 might require rank 0
 /// - Track 2 might require rank 1
 /// - Track 3 might require rank 2
+///
 /// This would allow for a hierarchical voting system where higher-ranked
 /// members can vote on more important proposals.
 pub struct MinRankOfClassConverter<Delta>(PhantomData<Delta>);

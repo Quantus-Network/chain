@@ -451,7 +451,7 @@ parameter_types! {
 	/// Base deposit for creating a recovery configuration
 	pub const ConfigDepositBase: Balance = 10 * UNIT;
 	/// Deposit required per friend
-	pub const FriendDepositFactor: Balance = 1 * UNIT;
+	pub const FriendDepositFactor: Balance = UNIT;
 	/// Maximum number of friends allowed in a recovery configuration
 	pub const MaxFriends: u32 = 9;
 	/// Deposit required to initiate a recovery
@@ -512,7 +512,7 @@ impl pallet_merkle_airdrop::Config for Runtime {
 parameter_types! {
 	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
 	pub const ProposalBond: Permill = Permill::from_percent(5);
-	pub const ProposalBondMinimum: Balance = 1 * UNIT;
+	pub const ProposalBondMinimum: Balance = UNIT;
 	pub const ProposalBondMaximum: Option<Balance> = None;
 	pub const SpendPeriod: BlockNumber = 2 * DAYS;
 	pub const Burn: Permill = Permill::from_percent(0);
@@ -544,7 +544,7 @@ impl pallet_treasury::Config for Runtime {
 }
 
 parameter_types! {
-	pub const MaxBalance: Balance = Balance::max_value();
+	pub const MaxBalance: Balance = Balance::MAX;
 }
 
 pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;

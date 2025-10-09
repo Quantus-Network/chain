@@ -32,6 +32,7 @@ pub struct QuantusKeyDetails {
 	pub inner_hash: Option<String>, // If wormhole key, this is first hash
 }
 
+#[allow(clippy::result_large_err)]
 pub fn generate_quantus_key(
 	scheme: QuantusAddressType,
 	seed: Option<String>,
@@ -131,7 +132,7 @@ pub fn generate_quantus_key(
 			rand::thread_rng().fill(&mut seed);
 			let wormhole_pair = WormholePair::generate_new(seed).map_err(|e| {
 				eprintln!("Error generating WormholePair: {:?}", e);
-				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e).into())
+				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e))
 			})?;
 
 			// Convert wormhole address to account ID using WormholeAddress type
@@ -203,6 +204,7 @@ impl SubstrateCli for Cli {
 }
 
 /// Parse and run command line arguments
+#[allow(clippy::result_large_err)]
 pub fn run() -> sc_cli::Result<()> {
 	sp_core::crypto::set_default_ss58_version(sp_core::crypto::Ss58AddressFormat::custom(189));
 	let cli = Cli::from_args();

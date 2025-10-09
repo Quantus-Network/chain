@@ -64,7 +64,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 	type Error = I::Error;
 
 	async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
-		self.inner.check_block(block).await.map_err(Into::into)
+		self.inner.check_block(block).await
 	}
 
 	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
@@ -75,7 +75,7 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 			block.header.extrinsics_root(),
 			block.header.state_root()
 		);
-		self.inner.import_block(block).await.map_err(Into::into)
+		self.inner.import_block(block).await
 	}
 }
 
@@ -88,6 +88,7 @@ pub type Service = sc_service::PartialComponents<
 	(LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
 >;
 //TODO Question - for what is this method?
+#[allow(clippy::result_large_err)]
 pub fn build_inherent_data_providers() -> Result<
 	Box<
 		dyn sp_inherents::CreateInherentDataProviders<
@@ -116,6 +117,7 @@ pub fn build_inherent_data_providers() -> Result<
 	Ok(Box::new(Provider))
 }
 
+#[allow(clippy::result_large_err)]
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 	let telemetry = config
 		.telemetry_endpoints
@@ -195,6 +197,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 }
 
 /// Builds a new service for a full client.
+#[allow(clippy::result_large_err)]
 pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
