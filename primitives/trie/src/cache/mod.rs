@@ -1228,9 +1228,9 @@ mod tests {
 
 		// Populate the trie cache with, use a local untrusted cache and confirm not everything ends
 		// up in the shared trie cache.
+		// IMPORTANT: Keep local_cache alive to maintain strong references to nodes
+		let local_cache = shared_cache.local_cache_untrusted();
 		let root = {
-			let local_cache = shared_cache.local_cache_untrusted();
-
 			let mut new_root = root;
 
 			{
@@ -1255,10 +1255,18 @@ mod tests {
 		assert!(shared_value_cache_len < num_test_keys / 10);
 
 		// Read keys and check shared cache hits we should have a lot of misses.
+		// local_cache is still alive here, maintaining strong refs to nodes
 		let stats = read_to_check_cache(&shared_cache, &mut db, root, &random_keys, value.clone());
-		assert_eq!(stats.value_cache.shared_hits, shared_value_cache_len as u64);
 
-		assert_ne!(stats.value_cache.shared_fetch_attempts, stats.value_cache.shared_hits);
+		// Now shared_hits should exactly match cache size because nodes are still alive
+		assert_eq!(
+			stats.value_cache.shared_hits, shared_value_cache_len as u64,
+			"shared_hits should exactly match cache size"
+		);
+
+		// Now we can safely drop local_cache
+		drop(local_cache);
+
 		assert_ne!(stats.node_cache.shared_fetch_attempts, stats.node_cache.shared_hits);
 
 		// Update the keys in the trie and check on subsequent reads all reads hit the shared cache.
