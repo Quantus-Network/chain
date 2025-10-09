@@ -1255,14 +1255,8 @@ mod tests {
 		assert!(shared_value_cache_len < num_test_keys / 10);
 
 		// Read keys and check shared cache hits we should have a lot of misses.
-		// local_cache is still alive here, maintaining strong refs to nodes
 		let stats = read_to_check_cache(&shared_cache, &mut db, root, &random_keys, value.clone());
-
-		// Now shared_hits should exactly match cache size because nodes are still alive
-		assert_eq!(
-			stats.value_cache.shared_hits, shared_value_cache_len as u64,
-			"shared_hits should exactly match cache size"
-		);
+		assert_eq!(stats.value_cache.shared_hits, shared_value_cache_len as u64);
 
 		// Now we can safely drop local_cache
 		drop(local_cache);
