@@ -41,7 +41,7 @@ runtime-benchmarks = [
 ]
 std = [
 	"codec/std",
-	"frame-benchmarking",
+	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
 	"hex/std",
