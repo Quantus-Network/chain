@@ -5,8 +5,7 @@ use frame_support::{
 };
 use quantus_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
-use sp_runtime::traits::AccountIdConversion;
-use sp_runtime::BuildStorage;
+use sp_runtime::{traits::AccountIdConversion, BuildStorage};
 
 pub struct TestCommons;
 

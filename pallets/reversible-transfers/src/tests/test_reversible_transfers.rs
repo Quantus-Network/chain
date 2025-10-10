@@ -387,8 +387,8 @@ fn schedule_transfer_with_timestamp_works() {
 		let current_time = MockTimestamp::<Test>::now();
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
-		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size
-			+ user_delay.as_timestamp().unwrap();
+		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size +
+			user_delay.as_timestamp().unwrap();
 
 		let bounded = Preimage::bound(call.clone()).unwrap();
 		let expected_timestamp =
