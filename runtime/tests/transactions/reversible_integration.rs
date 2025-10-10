@@ -67,7 +67,12 @@ fn high_security_end_to_end_flow() {
         let a4_after_cancel = Balances::free_balance(&acc(4));
 
         assert!(hs_after_cancel <= hs_start - amount, "sender should lose at least the scheduled amount");
-        assert_eq!(interceptor_after_cancel, interceptor_start + amount, "interceptor should receive the cancelled amount");
+        // With volume fee: amount = 10 * EXISTENTIAL_DEPOSIT = 10_000_000_000
+        // Fee (10 basis points): 10_000_000_000 * 10 / 10000 = 10_000_000
+        // Remaining to interceptor: 10_000_000_000 - 10_000_000 = 9_990_000_000
+        let expected_fee = amount * 10 / 10000; // 10 basis points
+        let expected_amount_to_interceptor = amount - expected_fee;
+        assert_eq!(interceptor_after_cancel, interceptor_start + expected_amount_to_interceptor, "interceptor should receive the cancelled amount minus volume fee");
         assert_eq!(a4_after_cancel, a4_start, "recipient should not receive funds after cancel");
 
         // 4) HS account tries to schedule a one-time transfer with a custom delay -> should fail

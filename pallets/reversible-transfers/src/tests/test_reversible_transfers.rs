@@ -342,7 +342,13 @@ fn schedule_transfer_works() {
 			0
 		);
 
-		assert_eq!(Balances::free_balance(interceptor), interceptor_balance + amount);
+		// With 100 tokens and 100 basis points (1%) fee: 100 * 100 / 10000 = 1 token fee
+		let expected_fee = 1;
+		let expected_amount_to_interceptor = amount - expected_fee;
+		assert_eq!(
+			Balances::free_balance(interceptor),
+			interceptor_balance + expected_amount_to_interceptor
+		);
 
 		// Unchanged balance for `reversible_account`
 		assert_eq!(Balances::free_balance(reversible_account), reversible_account_balance);
@@ -381,8 +387,8 @@ fn schedule_transfer_with_timestamp_works() {
 		let current_time = MockTimestamp::<Test>::now();
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
-		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size +
-			user_delay.as_timestamp().unwrap();
+		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size
+			+ user_delay.as_timestamp().unwrap();
 
 		let bounded = Preimage::bound(call.clone()).unwrap();
 		let expected_timestamp =
@@ -467,7 +473,13 @@ fn schedule_transfer_with_timestamp_works() {
 			0
 		);
 
-		assert_eq!(Balances::free_balance(interceptor), interceptor_balance + amount);
+		// With 100 tokens and 100 basis points (1%) fee: 100 * 100 / 10000 = 1 token fee
+		let expected_fee = 1;
+		let expected_amount_to_interceptor = amount - expected_fee;
+		assert_eq!(
+			Balances::free_balance(interceptor),
+			interceptor_balance + expected_amount_to_interceptor
+		);
 
 		// Unchanged balance for `reversible_account`
 		assert_eq!(Balances::free_balance(reversible_account), reversible_account_balance);
@@ -568,8 +580,11 @@ fn schedule_transfer_fails_too_many_pending() {
 fn cancel_dispatch_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
-		let user = 1;
-		let call = transfer_call(2, 50);
+		let user = 1; // High-security account from genesis
+		let interceptor = 2;
+		let treasury = 999;
+		let amount = 10_000;
+		let call = transfer_call(interceptor, amount);
 		let tx_id = calculate_tx_id::<Test>(user, &call);
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
@@ -577,10 +592,18 @@ fn cancel_dispatch_works() {
 			System::block_number() + user_delay.as_block_number().unwrap(),
 		);
 
+		// Record initial balances
+		let initial_interceptor_balance = Balances::free_balance(interceptor);
+		let initial_treasury_balance = Balances::free_balance(treasury);
+
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
 		// Schedule first
-		assert_ok!(ReversibleTransfers::schedule_transfer(RuntimeOrigin::signed(user), 2, 50));
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(user),
+			interceptor,
+			amount
+		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 		assert!(!ReversibleTransfers::account_pending_index(user).is_zero());
 
@@ -589,7 +612,7 @@ fn cancel_dispatch_works() {
 
 		// Now cancel (must be called by interceptor, which is user 2 from genesis)
 		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(2), // interceptor from genesis config
+			RuntimeOrigin::signed(interceptor), // interceptor from genesis config
 			tx_id
 		));
 
@@ -599,8 +622,96 @@ fn cancel_dispatch_works() {
 
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
-		// Check event
-		System::assert_last_event(Event::TransactionCancelled { who: 2, tx_id }.into());
+		// Verify volume fee was applied for high-security account
+		// Expected fee: 10,000 * 100 / 10,000 = 100 tokens
+		let expected_fee = 100;
+		let expected_remaining = amount - expected_fee;
+
+		// Check that interceptor received the remaining amount (after fee)
+		assert_eq!(
+			Balances::free_balance(interceptor),
+			initial_interceptor_balance + expected_remaining,
+			"High-security account should have volume fee deducted"
+		);
+
+		// Check that treasury received the fee
+		assert_eq!(
+			Balances::free_balance(treasury),
+			initial_treasury_balance + expected_fee,
+			"Treasury should receive volume fee from high-security account cancellation"
+		);
+
+		// Check events
+		System::assert_has_event(
+			Event::VolumeFeeCollected { tx_id, fee_amount: expected_fee }.into(),
+		);
+		System::assert_last_event(Event::TransactionCancelled { who: interceptor, tx_id }.into());
+	});
+}
+
+#[test]
+fn no_volume_fee_for_regular_reversible_accounts() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let user = 3; // Regular account (not high-security)
+		let recipient = 4;
+		let treasury = 999;
+		let amount = 10_000;
+
+		// Check initial balances
+		let initial_user_balance = Balances::free_balance(user);
+		let initial_recipient_balance = Balances::free_balance(recipient);
+		let initial_treasury_balance = Balances::free_balance(treasury);
+
+		let call = transfer_call(recipient, amount);
+		let tx_id = calculate_tx_id::<Test>(user, &call);
+
+		// Schedule transfer with delay (regular accounts use schedule_transfer_with_delay)
+		let delay = BlockNumberOrTimestamp::BlockNumber(5);
+		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
+			RuntimeOrigin::signed(user),
+			recipient,
+			amount,
+			delay
+		));
+
+		// Cancel the transfer (user can cancel their own for regular accounts)
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(user), tx_id));
+
+		// Verify user got full amount back (no volume fee for regular accounts)
+		// For regular accounts, cancellation returns funds to the original sender
+		assert_eq!(
+			Balances::free_balance(user),
+			initial_user_balance, // Should be back to original balance
+			"Regular accounts should get full refund with no volume fee deducted"
+		);
+
+		// Verify recipient balance unchanged (they never received the funds)
+		assert_eq!(
+			Balances::free_balance(recipient),
+			initial_recipient_balance,
+			"Recipient should not receive funds when transaction is cancelled"
+		);
+
+		// Verify treasury balance unchanged
+		assert_eq!(
+			Balances::free_balance(treasury),
+			initial_treasury_balance,
+			"Treasury should not receive fee from regular account cancellation"
+		);
+
+		// Verify no VolumeFeeCollected event was emitted
+		let events = System::events();
+		assert!(
+			!events.iter().any(|record| matches!(
+				record.event,
+				RuntimeEvent::ReversibleTransfers(Event::VolumeFeeCollected { .. })
+			)),
+			"No volume fee event should be emitted for regular accounts"
+		);
+
+		// Should still have TransactionCancelled event
+		System::assert_has_event(Event::TransactionCancelled { who: user, tx_id }.into());
 	});
 }
 

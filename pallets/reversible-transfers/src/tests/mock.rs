@@ -145,6 +145,16 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const HighSecurityVolumeFee: u16 = 100;
+	/// Mock treasury account ID for tests
+	pub const TreasuryAccount: AccountId = 999;
+}
+
+pub struct MockTreasuryAccountId;
+impl frame_support::traits::Get<AccountId> for MockTreasuryAccountId {
+	fn get() -> AccountId {
+		TreasuryAccount::get()
+	}
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -162,6 +172,8 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type VolumeFee = HighSecurityVolumeFee;
+	type TreasuryAccountId = MockTreasuryAccountId;
 }
 
 parameter_types! {
@@ -292,6 +304,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(109, 100_000_000_000),
 			(110, 100_000_000_000),
 			(111, 100_000_000_000),
+			// Treasury account for fee collection tests (must meet existential deposit)
+			(999, 1),
 		],
 	}
 	.assimilate_storage(&mut t)

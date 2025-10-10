@@ -4,6 +4,12 @@
 //! It manages the state of accounts opting into reversibility and the pending
 //! transactions associated with them. Transaction interception is handled
 //! separately via a `SignedExtension`.
+//!
+//! ## Volume Fee for High-Security Accounts
+//!
+//! When high-security accounts reverse transactions, a configurable volume fee
+//! (expressed in basis points) is deducted from the transaction amount and sent
+//! to the treasury. Regular accounts do not incur any fees when reversing transactions.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -21,7 +27,7 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Precision, Restriction},
+	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -171,8 +177,8 @@ pub mod pallet {
 		/// Time provider for scheduling.
 		type TimeProvider: Time<Moment = Self::Moment>;
 
-		/// Volume fee taken from reversed transactions, expressed in basis points (e.g., 10 =
-		/// 0.1%).
+		/// Volume fee taken from reversed transactions for high-security accounts only,
+		/// expressed in basis points (e.g., 10 = 0.1%). Regular accounts incur no fees.
 		#[pallet::constant]
 		type VolumeFee: Get<u16>;
 
@@ -500,15 +506,15 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn integrity_test() {
 			assert!(
-				!T::MinDelayPeriodBlocks::get().is_zero() &&
-					!T::MinDelayPeriodMoment::get().is_zero(),
+				!T::MinDelayPeriodBlocks::get().is_zero()
+					&& !T::MinDelayPeriodMoment::get().is_zero(),
 				"Minimum delay periods must be greater than 0"
 			);
 
 			// NOTE: default delay is always in blocks
 			assert!(
-				BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get()) <=
-					T::DefaultDelay::get(),
+				BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get())
+					<= T::DefaultDelay::get(),
 				"Minimum delay periods must be less or equal to `T::DefaultDelay`"
 			);
 		}
@@ -720,10 +726,11 @@ pub mod pallet {
 					<T as pallet::Config>::BlockNumberProvider::current_block_number()
 						.saturating_add(blocks),
 				),
-				BlockNumberOrTimestamp::Timestamp(millis) =>
+				BlockNumberOrTimestamp::Timestamp(millis) => {
 					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
 						T::TimeProvider::now().saturating_add(millis),
-					)),
+					))
+				},
 			};
 			log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
 			log::debug!(target: "reversible-transfers", "dispatch_time: {dispatch_time:?}");
@@ -831,10 +838,16 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// Calculate volume fee (in basis points: 10 = 0.1%)
-			let volume_fee_bp = T::VolumeFee::get();
-			let fee_amount = pending.amount.saturating_mul(volume_fee_bp.into()) / 10000u32.into();
-			let remaining_amount = pending.amount.saturating_sub(fee_amount);
+			// Calculate volume fee only for high-security accounts (in basis points: 10 = 0.1%)
+			let (fee_amount, remaining_amount) = if high_security_account_data.is_some() {
+				let volume_fee_bp = T::VolumeFee::get();
+				let fee = pending.amount.saturating_mul(volume_fee_bp.into()) / 10000u32.into();
+				let remaining = pending.amount.saturating_sub(fee);
+				(fee, remaining)
+			} else {
+				// No fee for regular accounts
+				(Zero::zero(), pending.amount)
+			};
 			let treasury_account = T::TreasuryAccountId::get();
 
 			// For assets, transfer held funds to treasury (fee) and interceptor (remaining)
