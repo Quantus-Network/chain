@@ -35,7 +35,7 @@ pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 pub const SCHRODINGER_RUNTIME_PRESET: &str = "schrodinger";
 
 fn test_root_account() -> AccountId {
-	account_from_ss58("5FktBKPnRkY5QvF2NmFNUNh55mJvBtgMth5QoBjFJ4E4BbFf")
+	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
 }
 
 fn schrodinger_root_account() -> AccountId {

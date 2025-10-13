@@ -5,7 +5,9 @@
   "bootNodes": [
     "/dns/a1.quantu.se/tcp/30205/p2p/QmdEk5BbraqEHwB6eG6sPkupkogsAKP9uFMFaAo6A6H3ZM",
     "/dns/a2.quantu.se/tcp/30208/p2p/QmPUeRrypSFPA2AVdE2vW7N64DTx9hWfrgQaTqja45d9GL",
-    "/dns/a3.quantu.se/tcp/30102/p2p/QmVDQEK3NtJMgUhCNkfUbxvoKPcowkcu16cKCrqqemPbEq"
+    "/dns/a3.quantu.se/tcp/30102/p2p/QmVDQEK3NtJMgUhCNkfUbxvoKPcowkcu16cKCrqqemPbEq",
+    "/ip4/149.50.101.107/tcp/30333/p2p/QmPTQDR9QvhnsGnTHq6dZdTjnJttov39cqDtkfSgXgYwLh",
+    "/ip4/37.60.245.157/tcp/30333/p2p/QmbRppEYHKNdf5kkisCGvz1EnrHLqdY53BNRPvtXbJ3unv"
   ],
   "telemetryEndpoints": [
     [
