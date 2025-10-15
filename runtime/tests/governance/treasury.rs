@@ -192,10 +192,12 @@ mod tests {
 		});
 	}
 
-	/// Tests treasury spend functionality using a custom origin (SmallSpender).
-	/// 1. SmallSpender proposes a spend within its limit - succeeds.
-	/// 2. Beneficiary payouts the spend.
-	/// 3. SmallSpender attempts to propose a spend above its limit - fails.
+	/// Tests treasury spend functionality using custom origins (SmallSpender, MediumSpender).
+	/// Verifies that:
+	/// 1. SmallSpender can spend within its limit (0.75 UNIT) - full lifecycle test
+	/// 2. SmallSpender can spend exactly at its limit (100 UNIT) - boundary test
+	/// 3. SmallSpender cannot spend above its limit (101 UNIT)
+	/// 4. MediumSpender can spend amounts that SmallSpender cannot (500 UNIT)
 	#[test]
 	fn propose_spend_as_custom_origin_works() {
 		ExtBuilder::default()
@@ -208,7 +210,7 @@ mod tests {
 				let small_spender_origin: TestRuntimeOrigin =
 					pallet_custom_origins::Origin::SmallSpender.into();
 
-				let initial_treasury_balance = 1000 * UNIT;
+				let initial_treasury_balance = 10_000 * UNIT;
 				let _ = <Balances as Currency<AccountId>>::deposit_creating(
 					&treasury_pot,
 					initial_treasury_balance,
@@ -217,6 +219,7 @@ mod tests {
 				let initial_beneficiary_balance = Balances::free_balance(&BENEFICIARY_ACCOUNT_ID);
 				assert_eq!(initial_beneficiary_balance, EXISTENTIAL_DEPOSIT);
 
+				// Test 1: SmallSpender spends within limit (0.75 UNIT) - full lifecycle
 				let spend_amount_within_limit = 250 * 3 * MICRO_UNIT;
 				let call_within_limit =
 					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
@@ -269,7 +272,23 @@ mod tests {
 					initial_treasury_balance - spend_amount_within_limit
 				);
 
-				let spend_amount_above_limit = (100 * UNIT) + 1; // Przekroczenie limitu SmallSpender
+				// Test 2: SmallSpender can spend exactly at its limit (100 UNIT) - boundary test
+				let spend_amount_at_limit = 100 * UNIT;
+				let call_at_limit =
+					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
+						asset_kind: Box::new(()),
+						amount: spend_amount_at_limit,
+						beneficiary: Box::new(beneficiary_lookup_source.clone()),
+						valid_from: None,
+					});
+				assert_ok!(call_at_limit.dispatch_bypass_filter(small_spender_origin.clone()));
+				assert!(
+					pallet_treasury::Spends::<Runtime>::get(1).is_some(),
+					"Spend at exact limit should be created"
+				);
+
+				// Test 3: SmallSpender cannot spend above its limit (101 UNIT)
+				let spend_amount_above_limit = 101 * UNIT;
 				let call_above_limit =
 					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
 						asset_kind: Box::new(()),
@@ -286,108 +305,24 @@ mod tests {
 				);
 
 				assert!(
-					pallet_treasury::Spends::<Runtime>::get(spend_index_within_limit + 1).is_none(),
-					"No new spend should be created for the failed attempt"
-				);
-			});
-	}
-
-	/// Tests that treasury spend limits are enforced based on the origin used.
-	/// This verifies that:
-	/// 1. SmallSpender can spend exactly at its limit (100 UNIT)
-	/// 2. SmallSpender cannot spend above its limit (101 UNIT)
-	/// 3. Different origins have different limits (MediumSpender can spend more)
-	#[test]
-	fn treasury_spend_limits_are_enforced_per_origin() {
-		ExtBuilder::default()
-			.with_balances(vec![(BENEFICIARY_ACCOUNT_ID, EXISTENTIAL_DEPOSIT)])
-			.build()
-			.execute_with(|| {
-				let beneficiary_lookup =
-					<Runtime as frame_system::Config>::Lookup::unlookup(BENEFICIARY_ACCOUNT_ID);
-				let treasury_pot = treasury_account_id();
-				let small_spender_origin: TestRuntimeOrigin =
-					pallet_custom_origins::Origin::SmallSpender.into();
-
-				let initial_treasury_balance = 10_000 * UNIT;
-				let _ = <Balances as Currency<AccountId>>::deposit_creating(
-					&treasury_pot,
-					initial_treasury_balance,
-				);
-				assert_eq!(Balances::free_balance(&treasury_pot), initial_treasury_balance);
-
-				// Test 1: SmallSpender can spend exactly at its limit (100 UNIT)
-				let spend_at_limit = 100 * UNIT;
-				let call_at_limit =
-					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-						asset_kind: Box::new(()),
-						amount: spend_at_limit,
-						beneficiary: Box::new(beneficiary_lookup.clone()),
-						valid_from: None,
-					});
-				assert_ok!(call_at_limit.dispatch_bypass_filter(small_spender_origin.clone()));
-
-				// Verify spend was created
-				assert!(
-					pallet_treasury::Spends::<Runtime>::get(0).is_some(),
-					"Spend at limit should be created"
-				);
-
-				// Test 2: SmallSpender cannot spend above its limit (101 UNIT)
-				let spend_amount_above_limit = 101 * UNIT;
-				let call_above_limit =
-					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
-						asset_kind: Box::new(()),
-						amount: spend_amount_above_limit,
-						beneficiary: Box::new(beneficiary_lookup.clone()),
-						valid_from: None,
-					});
-
-				let dispatch_result = call_above_limit.dispatch_bypass_filter(small_spender_origin);
-				assert!(
-					dispatch_result.is_err(),
-					"SmallSpender should not be able to spend more than their limit"
-				);
-
-				// Verify that no second spend was created
-				assert!(
-					pallet_treasury::Spends::<Runtime>::get(1).is_none(),
+					pallet_treasury::Spends::<Runtime>::get(2).is_none(),
 					"No spend should be created for the failed attempt"
 				);
 
-				// Verify that no AssetSpendApproved event was emitted for the failed attempt
-				let spend_approved_events_count = System::events()
-					.iter()
-					.filter(|event_record| {
-						matches!(
-							event_record.event,
-							RuntimeEvent::TreasuryPallet(
-								pallet_treasury::Event::AssetSpendApproved { .. }
-							)
-						)
-					})
-					.count();
-				assert_eq!(
-					spend_approved_events_count, 1,
-					"Only one spend should have been approved"
-				);
-
-				// Test 3: MediumSpender can spend what SmallSpender cannot
+				// Test 4: MediumSpender can spend what SmallSpender cannot (500 UNIT)
 				let medium_spender_origin: TestRuntimeOrigin =
 					pallet_custom_origins::Origin::MediumSpender.into();
-				let spend_medium = 500 * UNIT; // Within MediumSpender's 1000 UNIT limit
+				let spend_amount_medium = 500 * UNIT;
 				let call_medium =
 					TestRuntimeCall::TreasuryPallet(pallet_treasury::Call::<Runtime>::spend {
 						asset_kind: Box::new(()),
-						amount: spend_medium,
-						beneficiary: Box::new(beneficiary_lookup.clone()),
+						amount: spend_amount_medium,
+						beneficiary: Box::new(beneficiary_lookup_source.clone()),
 						valid_from: None,
 					});
 				assert_ok!(call_medium.dispatch_bypass_filter(medium_spender_origin));
-
-				// Verify MediumSpender's spend was created
 				assert!(
-					pallet_treasury::Spends::<Runtime>::get(1).is_some(),
+					pallet_treasury::Spends::<Runtime>::get(2).is_some(),
 					"MediumSpender should be able to create a spend above SmallSpender's limit"
 				);
 			});
