@@ -1252,11 +1252,25 @@ mod tests {
 			new_root
 		};
 		let shared_value_cache_len = shared_cache.read_lock_inner().value_cache().lru.len();
+		println!("shared_value_cache_len: {}", shared_value_cache_len);
 		assert!(shared_value_cache_len < num_test_keys / 10);
 
-		// Read keys and check shared cache hits we should have a lot of misses.
+		// Count values in the shared cache whose weak refs can be upgraded right now.
+		// We assert against this number to avoid non-determinism from evicted nodes.
+		let accessible_values = {
+			let inner = shared_cache.read_lock_inner();
+			inner
+				.value_cache()
+				.lru
+				.iter()
+				.filter(|(_, v)| v.data().flatten().is_some())
+				.count()
+		};
+
+		// Read keys and check shared cache hits; the shared hit count should match
+		// the number of actually accessible (upgradable) values in the shared cache.
 		let stats = read_to_check_cache(&shared_cache, &mut db, root, &random_keys, value.clone());
-		assert_eq!(stats.value_cache.shared_hits, shared_value_cache_len as u64);
+		assert_eq!(stats.value_cache.shared_hits as usize, accessible_values);
 
 		assert_ne!(stats.value_cache.shared_fetch_attempts, stats.value_cache.shared_hits);
 		assert_ne!(stats.node_cache.shared_fetch_attempts, stats.node_cache.shared_hits);
