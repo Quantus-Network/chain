@@ -324,7 +324,7 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 				pallet_custom_origins::Origin::SmallSpender => return Ok(2),
 				pallet_custom_origins::Origin::MediumSpender => return Ok(3),
 				pallet_custom_origins::Origin::BigSpender => return Ok(4),
-				pallet_custom_origins::Origin::Treasurer => return Ok(2),
+				pallet_custom_origins::Origin::Treasurer => return Ok(5),
 			}
 		}
 
