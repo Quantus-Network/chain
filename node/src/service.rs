@@ -21,7 +21,7 @@ use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::{ProvideRuntimeApi, __private::BlockT};
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, RuntimeDebug, U512};
-use sp_runtime::traits::Header;
+use sp_runtime::traits::{Header, Zero};
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
@@ -68,13 +68,25 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 	}
 
 	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
-		log::info!(
-			"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-			block.header.number(),
-			block.header.hash(),
-			block.header.extrinsics_root(),
-			block.header.state_root()
-		);
+		let block_number = *block.header.number();
+		let hundred = 1000u32.into();
+		if block_number % hundred == Zero::zero() {
+			log::info!(
+				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block.header.number(),
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		} else {
+			log::debug!(
+				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block.header.number(),
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		}
 		self.inner.import_block(block).await
 	}
 }
