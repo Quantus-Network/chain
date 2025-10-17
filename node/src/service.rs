@@ -327,7 +327,7 @@ pub fn new_full<
 					Some(account.encode())
 				},
 				Err(_) => {
-					log::warn!("⛏️Invalid rewards address format: {}", addr_str);
+					log::error!("⛏️Invalid rewards address format: {}", addr_str);
 					None
 				},
 			}
