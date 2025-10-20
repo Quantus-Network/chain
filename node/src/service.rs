@@ -429,11 +429,12 @@ pub fn new_full<
 					}
 
 					// Get current distance_threshold from runtime
-					let distance_threshold =
-						match client.runtime_api().get_distance_threshold(metadata.best_hash) {
+					let mining_metadata = metadata.clone();
+					let difficulty =
+						match client.runtime_api().get_difficulty(metadata.best_hash) {
 							Ok(d) => d,
 							Err(e) => {
-								log::warn!("⛏️Failed to get distance_threshold: {:?}", e);
+								log::warn!("⛏️Failed to get difficulty: {:?}", e);
 								tokio::select! {
 									_ = tokio::time::sleep(Duration::from_millis(250)) => {},
 									_ = mining_cancellation_token.cancelled() => continue,
@@ -451,7 +452,7 @@ pub fn new_full<
 						miner_url,
 						&job_id,
 						&metadata.pre_hash,
-						distance_threshold,
+						difficulty,
 						nonce,
 						U512::max_value(),
 					)
@@ -519,17 +520,17 @@ pub fn new_full<
 					// Local mining: try a range of N sequential nonces using optimized path
 					let block_hash = metadata.pre_hash.0; // [u8;32]
 					let start_nonce_bytes = nonce.to_big_endian();
-					let threshold = client
+					let difficulty = client
 						.runtime_api()
-						.get_distance_threshold(metadata.best_hash)
+						.get_difficulty(metadata.best_hash)
 						.unwrap_or_else(|e| {
-							log::warn!("API error getting threshold: {:?}", e);
+							log::warn!("API error getting difficulty: {:?}", e);
 							U512::zero()
 						});
 					let nonces_to_mine = 300u64;
 
 					let found = match tokio::task::spawn_blocking(move || {
-						mine_range(block_hash, start_nonce_bytes, nonces_to_mine, threshold)
+						mine_range(block_hash, start_nonce_bytes, nonces_to_mine, difficulty)
 					})
 					.await
 					{

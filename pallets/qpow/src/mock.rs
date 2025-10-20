@@ -72,7 +72,7 @@ impl pallet_timestamp::Config for Test {
 impl pallet_qpow::Config for Test {
 	type WeightInfo = ();
 	type EmaAlpha = ConstU32<500>;
-	type InitialDistanceThresholdExponent = ConstU32<508>;
+	type InitialDifficultyExponent = ConstU32<508>;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = ConstU64<1000>;
 	type MaxReorgDepth = ConstU32<10>;
@@ -86,8 +86,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	// Add QPow genesis configuration
 	pallet_qpow::GenesisConfig::<Test> {
-		initial_distance: U512::one()
-			.shl(<Test as pallet_qpow::Config>::InitialDistanceThresholdExponent::get()),
+		initial_difficulty: U512::one()
+			.shl(<Test as pallet_qpow::Config>::InitialDifficultyExponent::get()),
 		_phantom: Default::default(),
 	}
 	.assimilate_storage(&mut t)

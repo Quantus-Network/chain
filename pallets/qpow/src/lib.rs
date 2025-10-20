@@ -26,20 +26,20 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{get_nonce_distance, get_random_rsa, hash_to_group_bigint, is_valid_nonce};
+	use qpow_math::{get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
-	pub type DistanceThreshold = U512;
+	pub type Difficulty = U512;
 	pub type WorkValue = U512;
 	pub type Timestamp = u64;
 	pub type BlockDuration = u64;
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
 	pub type PercentageClamp = u8;
-	pub type ThresholdExponent = u32;
+	pub type DifficultyExponent = u32;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -51,7 +51,7 @@ pub mod pallet {
 	pub type LastBlockDuration<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
 
 	#[pallet::storage]
-	pub type CurrentDistanceThreshold<T: Config> = StorageValue<_, DistanceThreshold, ValueQuery>;
+	pub type CurrentDifficulty<T: Config> = StorageValue<_, Difficulty, ValueQuery>;
 
 	#[pallet::storage]
 	pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
@@ -75,7 +75,7 @@ pub mod pallet {
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		/// Pallet's weight info
 		#[pallet::constant]
-		type InitialDistanceThresholdExponent: Get<u32>;
+		type InitialDifficultyExponent: Get<u32>;
 
 		#[pallet::constant]
 		type DifficultyAdjustPercentClamp: Get<PercentageClamp>;
@@ -104,7 +104,7 @@ pub mod pallet {
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
-		pub initial_distance: DistanceThreshold,
+		pub initial_difficulty: Difficulty,
 		#[serde(skip)]
 		pub _phantom: PhantomData<T>,
 	}
@@ -112,8 +112,7 @@ pub mod pallet {
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self {
-				initial_distance: DistanceThreshold::one()
-					.shl(T::InitialDistanceThresholdExponent::get()),
+				initial_difficulty: Difficulty::one().shl(T::InitialDifficultyExponent::get()),
 				_phantom: PhantomData,
 			}
 		}
@@ -122,15 +121,15 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			let initial_distance_threshold = get_initial_distance_threshold::<T>();
+			let initial_difficulty = get_initial_difficulty::<T>();
 
-			// Set current distance_threshold for the genesis block
-			<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
+			// Set current difficulty for the genesis block
+			<CurrentDifficulty<T>>::put(initial_difficulty);
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
 
-			// Initialize the total distance_threshold with the genesis block's distance_threshold
+			// Initialize the total work with the genesis block's difficulty
 			<TotalWork<T>>::put(WorkValue::one());
 		}
 	}
@@ -141,11 +140,11 @@ pub mod pallet {
 		ProofSubmitted {
 			nonce: NonceType,
 			difficulty: U512,
-			distance_achieved: U512,
+			hash_achieved: U512,
 		},
-		DistanceThresholdAdjusted {
-			old_distance_threshold: DistanceThreshold,
-			new_distance_threshold: DistanceThreshold,
+		DifficultyAdjusted {
+			old_difficulty: Difficulty,
+			new_difficulty: Difficulty,
 			observed_block_time: BlockDuration,
 		},
 	}
@@ -156,8 +155,8 @@ pub mod pallet {
 		ArithmeticOverflow,
 	}
 
-	pub fn get_initial_distance_threshold<T: Config>() -> DistanceThreshold {
-		DistanceThreshold::one().shl(T::InitialDistanceThresholdExponent::get())
+	pub fn get_initial_difficulty<T: Config>() -> Difficulty {
+		Difficulty::one().shl(T::InitialDifficultyExponent::get())
 	}
 
 	#[pallet::hooks]
@@ -172,8 +171,8 @@ pub mod pallet {
 				<LastBlockTime<T>>::put(
 					pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>(),
 				);
-				let initial_distance_threshold: U512 = get_initial_distance_threshold::<T>();
-				<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
+				let initial_difficulty: U512 = get_initial_difficulty::<T>();
+				<CurrentDifficulty<T>>::put(initial_difficulty);
 			}
 			Weight::zero()
 		}
@@ -181,15 +180,15 @@ pub mod pallet {
 		/// Called at the end of each block.
 		fn on_finalize(block_number: BlockNumberFor<T>) {
 			let blocks = <BlocksInPeriod<T>>::get();
-			let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
-				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_distance_threshold={}",
+				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_difficulty={}",
 				block_number,
 				blocks,
-				current_distance_threshold.shr(300)
+				current_difficulty.shr(300)
 			);
 
-			Self::adjust_distance_threshold();
+			Self::adjust_difficulty();
 		}
 	}
 
@@ -227,6 +226,12 @@ pub mod pallet {
 		fn percentage_change(big_a: U512, big_b: U512) -> (U512, bool) {
 			let a = big_a.shr(10);
 			let b = big_b.shr(10);
+
+			// Prevent division by zero
+			if a == U512::zero() {
+				return (U512::zero(), b >= a);
+			}
+
 			let (larger, smaller) = if a > b { (a, b) } else { (b, a) };
 			let abs_diff = larger - smaller;
 			let change = abs_diff.saturating_mul(U512::from(100u64)) / a;
@@ -234,12 +239,12 @@ pub mod pallet {
 			(change, b >= a)
 		}
 
-		fn adjust_distance_threshold() {
+		fn adjust_difficulty() {
 			// Get current time
 			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
 			let last_time = <LastBlockTime<T>>::get();
 			let blocks = <BlocksInPeriod<T>>::get();
-			let current_distance_threshold = <CurrentDistanceThreshold<T>>::get();
+			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
 
 			// Update TotalWork
@@ -280,31 +285,28 @@ pub mod pallet {
 			let observed_block_time = <BlockTimeEma<T>>::get();
 			let target_time = T::TargetBlockTime::get();
 
-			let new_distance_threshold = Self::calculate_distance_threshold(
-				current_distance_threshold,
-				observed_block_time,
-				target_time,
-			);
+			let new_difficulty =
+				Self::calculate_difficulty(current_difficulty, observed_block_time, target_time);
 
-			// Save new distance_threshold
-			<CurrentDistanceThreshold<T>>::put(new_distance_threshold);
+			// Save new difficulty
+			<CurrentDifficulty<T>>::put(new_difficulty);
 
 			// Propagate new Event
-			Self::deposit_event(Event::DistanceThresholdAdjusted {
-				old_distance_threshold: current_distance_threshold,
-				new_distance_threshold,
+			Self::deposit_event(Event::DifficultyAdjusted {
+				old_difficulty: current_difficulty,
+				new_difficulty,
 				observed_block_time,
 			});
 
 			let (pct_change, is_positive) =
-				Self::percentage_change(current_distance_threshold, new_distance_threshold);
+				Self::percentage_change(current_difficulty, new_difficulty);
 
 			log::debug!(target: "qpow",
-				"🟢 Adjusted mining distance threshold {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
+				"🟢 Adjusted mining difficulty {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
 				if is_positive {"+"} else {"-"},
 				pct_change,
-				current_distance_threshold.shr(300),
-				new_distance_threshold.shr(300),
+				current_difficulty.shr(300),
+				new_difficulty.shr(300),
 				observed_block_time,
 				target_time
 			);
@@ -314,12 +316,12 @@ pub mod pallet {
 			<LastBlockTime<T>>::put(now);
 		}
 
-		pub fn calculate_distance_threshold(
-			current_distance_threshold: U512,
+		pub fn calculate_difficulty(
+			current_difficulty: U512,
 			observed_block_time: u64,
 			target_block_time: u64,
 		) -> U512 {
-			log::debug!(target: "qpow", "📊 Calculating new distance_threshold ---------------------------------------------");
+			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
 			// Calculate ratio using FixedU128
 			let clamp =
 				FixedU128::from_rational(T::DifficultyAdjustPercentClamp::get() as u128, 100u128);
@@ -330,41 +332,54 @@ pub mod pallet {
 					.max(one.saturating_sub(clamp));
 			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
 
-			// Calculate adjusted distance_threshold
+			// Calculate adjusted difficulty (Bitcoin-style: if blocks are fast, increase difficulty)
 			let mut adjusted = if ratio == one {
-				current_distance_threshold
+				current_difficulty
 			} else {
 				let ratio_512 = U512::from(ratio.into_inner());
+				let scale = U512::from(T::FixedU128Scale::get());
 
-				// Apply to current distance_threshold, divide first because it's too big already
-				let adj =
-					current_distance_threshold.checked_div(U512::from(T::FixedU128Scale::get()));
-				match adj {
-					Some(value) => value.saturating_mul(ratio_512),
+				// Prevent division by zero
+				if ratio_512 == U512::zero() || scale == U512::zero() {
+					log::warn!(target: "qpow", "Zero ratio or scale in difficulty calculation, returning current difficulty");
+					return current_difficulty;
+				}
+
+				// For Bitcoin-style difficulty adjustment:
+				// If observed_time > target_time (slow blocks), ratio > 1, difficulty should decrease
+				// If observed_time < target_time (fast blocks), ratio < 1, difficulty should increase
+				// new_difficulty = current_difficulty * target_time / observed_time
+				// Which is: current_difficulty * scale / ratio_512
+				match current_difficulty.checked_mul(scale) {
+					Some(numerator) => match numerator.checked_div(ratio_512) {
+						Some(result) => result,
+						None => {
+							log::warn!(target: "qpow", "Division overflow in difficulty calculation");
+							current_difficulty
+						},
+					},
 					None => {
-						log::warn!(target: "qpow",
-							"Division by zero or overflow in distance_threshold calculation"
-						);
-						return current_distance_threshold;
+						log::warn!(target: "qpow", "Multiplication overflow in difficulty calculation");
+						current_difficulty
 					},
 				}
 			};
 
-			let min_distance = Self::get_min_distance();
-			if adjusted < min_distance {
-				adjusted = min_distance;
+			let min_difficulty = Self::get_min_difficulty();
+			if adjusted < min_difficulty {
+				adjusted = min_difficulty;
 			} else {
-				let max_distance = Self::get_max_distance();
-				if adjusted > max_distance {
-					adjusted = max_distance;
+				let max_difficulty = Self::get_max_difficulty();
+				if adjusted > max_difficulty {
+					adjusted = max_difficulty;
 				}
 			}
 
 			log::debug!(target: "qpow",
-				"🟢 Current Distance Threshold: {}..",
-				current_distance_threshold.shr(300)
+				"🟢 Current Difficulty: {}..",
+				current_difficulty.shr(300)
 			);
-			log::debug!(target: "qpow", "🟢 Next Distance Threshold:    {}..", adjusted.shr(300));
+			log::debug!(target: "qpow", "🟢 Next Difficulty:    {}..", adjusted.shr(300));
 			log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
 			log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
@@ -376,24 +391,16 @@ pub mod pallet {
 		pub fn is_valid_nonce(
 			block_hash: [u8; 32],
 			nonce: NonceType,
-			threshold: DistanceThreshold,
+			difficulty: Difficulty,
 		) -> (bool, U512) {
-			is_valid_nonce(block_hash, nonce, threshold)
+			is_valid_nonce(block_hash, nonce, difficulty)
 		}
 
-		pub fn get_nonce_distance(
+		pub fn get_nonce_hash(
 			block_hash: [u8; 32], // 256-bit block hash
 			nonce: NonceType,     // 512-bit nonce
 		) -> U512 {
-			get_nonce_distance(block_hash, nonce)
-		}
-
-		pub fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
-			get_random_rsa(block_hash)
-		}
-
-		pub fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512 {
-			hash_to_group_bigint(h, m, n, solution)
+			get_nonce_hash(block_hash, nonce)
 		}
 
 		// Shared verification logic
@@ -405,29 +412,25 @@ pub mod pallet {
 				);
 				return (false, U512::zero(), U512::zero());
 			}
-			let distance_threshold = Self::get_distance_threshold();
-			let (valid, distance_achieved) =
-				Self::is_valid_nonce(block_hash, nonce, distance_threshold);
 			let difficulty = Self::get_difficulty();
+			let (valid, hash_achieved) = Self::is_valid_nonce(block_hash, nonce, difficulty);
 
 			log::debug!(
-				"verify_nonce_internal: block_hash: {:?}, nonce: {:?}, valid: {:?}, difficulty: {:?}, distance_threshold: {:?}, distance_achieved: {:?}",
+				"verify_nonce_internal: block_hash: {:?}, nonce: {:?}, valid: {:?}, difficulty: {:?}, hash_achieved: {:?}",
 				hex::encode(block_hash),
 				nonce,
 				valid,
 				difficulty,
-				distance_threshold,
-				distance_achieved
+				hash_achieved
 			);
-			(valid, difficulty, distance_achieved)
+			(valid, difficulty, hash_achieved)
 		}
 
 		// Block verification with event emission
 		pub fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: NonceType) -> bool {
-			let (valid, difficulty, distance_achieved) =
-				Self::verify_nonce_internal(block_hash, nonce);
+			let (valid, difficulty, hash_achieved) = Self::verify_nonce_internal(block_hash, nonce);
 			if valid {
-				Self::deposit_event(Event::ProofSubmitted { nonce, difficulty, distance_achieved });
+				Self::deposit_event(Event::ProofSubmitted { nonce, difficulty, hash_achieved });
 			}
 
 			valid
@@ -438,28 +441,24 @@ pub mod pallet {
 			verify
 		}
 
-		pub fn get_initial_distance_threshold() -> DistanceThreshold {
-			get_initial_distance_threshold::<T>()
+		pub fn get_initial_difficulty() -> Difficulty {
+			get_initial_difficulty::<T>()
 		}
 
-		pub fn get_distance_threshold() -> DistanceThreshold {
-			let stored = <CurrentDistanceThreshold<T>>::get();
+		pub fn get_difficulty() -> Difficulty {
+			let stored = <CurrentDifficulty<T>>::get();
 			if stored == U512::zero() {
-				return get_initial_distance_threshold::<T>();
+				return get_initial_difficulty::<T>();
 			}
 			stored
 		}
 
-		pub fn get_min_distance() -> DistanceThreshold {
-			DistanceThreshold::one()
+		pub fn get_min_difficulty() -> Difficulty {
+			Difficulty::one()
 		}
 
-		pub fn get_max_distance() -> DistanceThreshold {
-			get_initial_distance_threshold::<T>().shl(T::MaxDistanceMultiplier::get())
-		}
-
-		pub fn get_difficulty() -> U512 {
-			Self::get_max_distance() / Self::get_distance_threshold()
+		pub fn get_max_difficulty() -> Difficulty {
+			get_initial_difficulty::<T>().shl(T::MaxDistanceMultiplier::get())
 		}
 
 		pub fn get_total_work() -> WorkValue {
