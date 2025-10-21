@@ -29,24 +29,17 @@ pub fn get_nonce_hash(
 	block_hash: [u8; 32], // 256-bit block_hash
 	nonce: [u8; 64],      // 512-bit nonce
 ) -> U512 {
-	// Return zero for zero nonce (invalid)
-	if nonce == [0u8; 64] {
-		log::debug!(target: "math", "zero nonce");
-		return U512::zero();
-	}
-
 	// Concatenate block hash + nonce (like Bitcoin does with header + nonce)
 	let mut input = [0u8; 96]; // 32 + 64 bytes
 	input[..32].copy_from_slice(&block_hash);
 	input[32..96].copy_from_slice(&nonce);
 
 	let poseidon = Poseidon2Core::new();
-	// Hash twice (like Bitcoin's first SHA256)
-	let first_hash = poseidon.hash_squeeze_twice(&input);
-	let final_hash = poseidon.hash_squeeze_twice(&first_hash);
+	// Hash squeezing out 512 bits
+	let hash = poseidon.hash_squeeze_twice(&input);
 
 	// Convert to U512 for difficulty comparison
-	let result = U512::from_big_endian(&final_hash);
+	let result = U512::from_big_endian(&hash);
 
 	log::debug!(target: "math", "hash = {} block_hash = {}, nonce = {:?}",
 		result, hex::encode(block_hash), nonce);

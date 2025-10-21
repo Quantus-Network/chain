@@ -145,7 +145,7 @@ parameter_types! {
 impl pallet_qpow::Config for Runtime {
 	// NOTE: InitialDifficulty will be shifted left by this amount: higher is harder
 	type InitialDifficultyExponent = ConstU32<12>;
-	type DifficultyAdjustPercentClamp = ConstU8<10>;
+	type DifficultyAdjustPercentClamp = ConstU8<12>;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;

@@ -337,22 +337,19 @@ pub mod pallet {
 				current_difficulty
 			} else {
 				let ratio_512 = U512::from(ratio.into_inner());
-				let scale = U512::from(T::FixedU128Scale::get());
-
-				// Prevent division by zero
-				if ratio_512 == U512::zero() || scale == U512::zero() {
-					log::warn!(target: "qpow", "Zero ratio or scale in difficulty calculation, returning current difficulty");
-					return current_difficulty;
-				}
 
 				// For Bitcoin-style difficulty adjustment:
-				// If observed_time > target_time (slow blocks), ratio > 1, difficulty should decrease
-				// If observed_time < target_time (fast blocks), ratio < 1, difficulty should increase
+				// If observed_time > target_time (slow blocks), difficulty should decrease
+				// If observed_time < target_time (fast blocks), difficulty should increase
 				// new_difficulty = current_difficulty * target_time / observed_time
-				// Which is: current_difficulty * scale / ratio_512
-				match current_difficulty.checked_mul(scale) {
-					Some(numerator) => match numerator.checked_div(ratio_512) {
-						Some(result) => result,
+				match current_difficulty.checked_mul(target_u512) {
+					Some(numerator) => match numerator.checked_div(observed_u512) {
+						Some(result) => {
+							log::debug!(target: "qpow",
+								"Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
+								current_difficulty, target_block_time, observed_block_time, result);
+							result
+						},
 						None => {
 							log::warn!(target: "qpow", "Division overflow in difficulty calculation");
 							current_difficulty
