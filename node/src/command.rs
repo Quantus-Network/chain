@@ -4,7 +4,6 @@ use crate::{
 	cli::{Cli, QuantusAddressType, QuantusKeySubcommand, Subcommand},
 	service,
 };
-use clap::CommandFactory;
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
@@ -208,15 +207,6 @@ impl SubstrateCli for Cli {
 #[allow(clippy::result_large_err)]
 pub fn run() -> sc_cli::Result<()> {
 	sp_core::crypto::set_default_ss58_version(sp_core::crypto::Ss58AddressFormat::custom(189));
-
-	// Check if no arguments were provided
-	let args: Vec<String> = std::env::args().collect();
-	if args.len() == 1 {
-		// No arguments provided, show help
-		let mut cmd = <Cli as clap::CommandFactory>::command();
-		cmd.print_help().unwrap();
-		return Ok(());
-	}
 
 	let cli = Cli::from_args();
 	match &cli.subcommand {
