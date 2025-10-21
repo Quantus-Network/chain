@@ -142,18 +142,18 @@ parameter_types! {
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
 	/// Initial mining difficulty - low value for development
-	pub const InitialDifficulty: U512 = U512([0, 0, 0, 0, 0, 0, 0, 1000]);
+	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 impl pallet_qpow::Config for Runtime {
 	// Starting difficulty - should be challenging enough to require some work but not too high
-	type InitialDifficulty = InitialDifficulty;
+	type InitialDifficulty = QPoWInitialDifficulty;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
 	type WeightInfo = ();
-	type EmaAlpha = ConstU32<500>; // Exponent on moving average
+	type EmaAlpha = ConstU32<100>; // out of 1000, last_block_time * alpha + (previous_ema * (1 - alpha)) on moving average
 }
 
 parameter_types! {

@@ -70,7 +70,7 @@ impl pallet_timestamp::Config for Test {
 }
 
 parameter_types! {
-	pub const TestInitialDifficulty: U512 = U512([0, 0, 0, 0, 0, 0, 0, 1000000]);
+	pub const TestInitialDifficulty: U512 = U512([1000000, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 impl pallet_qpow::Config for Test {
