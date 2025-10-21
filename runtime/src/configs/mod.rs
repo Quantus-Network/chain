@@ -68,6 +68,7 @@ use super::{
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
+use sp_core::U512;
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -140,16 +141,17 @@ parameter_types! {
 	/// Target block time ms
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
+	/// Initial mining difficulty - low value for development
+	pub const InitialDifficulty: U512 = U512([0, 0, 0, 0, 0, 0, 0, 1000]);
 }
 
 impl pallet_qpow::Config for Runtime {
-	// NOTE: InitialDifficulty will be shifted left by this amount: higher is harder
-	type InitialDifficultyExponent = ConstU32<12>;
-	type DifficultyAdjustPercentClamp = ConstU8<12>;
+	// Starting difficulty - should be challenging enough to require some work but not too high
+	type InitialDifficulty = InitialDifficulty;
+	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
-	type MaxDistanceMultiplier = ConstU32<2>;
 	type WeightInfo = ();
 	type EmaAlpha = ConstU32<500>; // Exponent on moving average
 }

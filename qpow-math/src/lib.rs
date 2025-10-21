@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+use alloc::string::{String, ToString};
+use core::fmt::Write;
 use primitive_types::U512;
 use qp_poseidon_core::Poseidon2Core;
 
@@ -14,7 +17,8 @@ pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -
 	}
 
 	let hash_result = get_nonce_hash(block_hash, nonce);
-	log::debug!(target: "math", "hash_result = {}..., difficulty = {}...", hash_result, difficulty);
+	log::debug!(target: "math", "hash_result = {}, difficulty = {}",
+		print_u512_hex_prefix(hash_result, 32), print_u512_hex_prefix(difficulty, 32));
 
 	// In Bitcoin-style PoW, we check if hash < target
 	// Where target = max_target / difficulty
@@ -35,14 +39,15 @@ pub fn get_nonce_hash(
 	input[32..96].copy_from_slice(&nonce);
 
 	let poseidon = Poseidon2Core::new();
-	// Hash squeezing out 512 bits
+
+	// Double hash with Poseidon2 (like Bitcoin's double SHA256)
 	let hash = poseidon.hash_squeeze_twice(&input);
 
 	// Convert to U512 for difficulty comparison
 	let result = U512::from_big_endian(&hash);
 
 	log::debug!(target: "math", "hash = {} block_hash = {}, nonce = {:?}",
-		result, hex::encode(block_hash), nonce);
+		print_u512_hex_prefix(result, 32), hex::encode(block_hash), nonce);
 
 	result
 }
@@ -69,7 +74,8 @@ pub fn mine_range(
 
 		if hash_result < target {
 			log::debug!(target: "math", "💎 Local miner found nonce {} with hash {} and target {} and block_hash {:?}",
-				nonce_u, hash_result, target, hex::encode(block_hash));
+				print_u512_hex_prefix(nonce_u, 32), print_u512_hex_prefix(hash_result, 32),
+				print_u512_hex_prefix(target, 32), hex::encode(block_hash));
 			return Some((nonce_bytes, hash_result));
 		}
 
@@ -78,6 +84,14 @@ pub fn mine_range(
 	}
 
 	None
+}
+
+/// Helper function to print the first n hex digits of a U512
+pub fn print_u512_hex_prefix(value: U512, n: usize) -> String {
+	let mut hex_string = String::new();
+	let _ = write!(hex_string, "{:0128x}", value);
+	let prefix_len = core::cmp::min(n, hex_string.len());
+	hex_string[..prefix_len].to_string()
 }
 
 #[cfg(test)]

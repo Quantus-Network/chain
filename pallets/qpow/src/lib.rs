@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+use alloc::string::{String, ToString};
+use core::fmt::Write;
 
 pub use pallet::*;
 
@@ -39,7 +41,6 @@ pub mod pallet {
 	pub type PeriodCount = u32;
 	pub type HistoryIndexType = u32;
 	pub type PercentageClamp = u8;
-	pub type DifficultyExponent = u32;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -75,7 +76,7 @@ pub mod pallet {
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
 		/// Pallet's weight info
 		#[pallet::constant]
-		type InitialDifficultyExponent: Get<u32>;
+		type InitialDifficulty: Get<U512>;
 
 		#[pallet::constant]
 		type DifficultyAdjustPercentClamp: Get<PercentageClamp>;
@@ -94,10 +95,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type FixedU128Scale: Get<u128>;
 
-		/// Maximum distance threshold multiplier (default: 4)
-		#[pallet::constant]
-		type MaxDistanceMultiplier: Get<u32>;
-
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 	}
@@ -111,10 +108,7 @@ pub mod pallet {
 
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
-			Self {
-				initial_difficulty: Difficulty::one().shl(T::InitialDifficultyExponent::get()),
-				_phantom: PhantomData,
-			}
+			Self { initial_difficulty: T::InitialDifficulty::get(), _phantom: PhantomData }
 		}
 	}
 
@@ -156,7 +150,7 @@ pub mod pallet {
 	}
 
 	pub fn get_initial_difficulty<T: Config>() -> Difficulty {
-		Difficulty::one().shl(T::InitialDifficultyExponent::get())
+		T::InitialDifficulty::get()
 	}
 
 	#[pallet::hooks]
@@ -185,7 +179,7 @@ pub mod pallet {
 				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_difficulty={}",
 				block_number,
 				blocks,
-				current_difficulty.shr(300)
+				print_u512_hex_prefix(current_difficulty, 32)
 			);
 
 			Self::adjust_difficulty();
@@ -302,11 +296,11 @@ pub mod pallet {
 				Self::percentage_change(current_difficulty, new_difficulty);
 
 			log::debug!(target: "qpow",
-				"🟢 Adjusted mining difficulty {}{}%: {}.. -> {}.. (observed block time: {}ms, target: {}ms) ",
+				"🟢 Adjusted mining difficulty {}{}%: {} -> {} (observed block time: {}ms, target: {}ms) ",
 				if is_positive {"+"} else {"-"},
 				pct_change,
-				current_difficulty.shr(300),
-				new_difficulty.shr(300),
+				print_u512_hex_prefix(current_difficulty, 32),
+				print_u512_hex_prefix(new_difficulty, 32),
 				observed_block_time,
 				target_time
 			);
@@ -342,12 +336,12 @@ pub mod pallet {
 				// If observed_time > target_time (slow blocks), difficulty should decrease
 				// If observed_time < target_time (fast blocks), difficulty should increase
 				// new_difficulty = current_difficulty * target_time / observed_time
-				match current_difficulty.checked_mul(target_u512) {
-					Some(numerator) => match numerator.checked_div(observed_u512) {
+				match current_difficulty.checked_mul(ratio_512) {
+					Some(numerator) => match numerator.checked_div(ratio_512) {
 						Some(result) => {
 							log::debug!(target: "qpow",
 								"Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
-								current_difficulty, target_block_time, observed_block_time, result);
+								print_u512_hex_prefix(current_difficulty, 32), target_block_time, observed_block_time, print_u512_hex_prefix(result, 32));
 							result
 						},
 						None => {
@@ -364,19 +358,28 @@ pub mod pallet {
 
 			let min_difficulty = Self::get_min_difficulty();
 			if adjusted < min_difficulty {
+				log::warn!(
+					"Min difficulty achieved, clipping to: {}",
+					print_u512_hex_prefix(min_difficulty, 32)
+				);
+
 				adjusted = min_difficulty;
 			} else {
 				let max_difficulty = Self::get_max_difficulty();
 				if adjusted > max_difficulty {
+					log::warn!(
+						"Max difficulty achieved, clipping to: {}",
+						print_u512_hex_prefix(max_difficulty, 32)
+					);
 					adjusted = max_difficulty;
 				}
 			}
 
 			log::debug!(target: "qpow",
-				"🟢 Current Difficulty: {}..",
-				current_difficulty.shr(300)
+				"🟢 Current Difficulty: {}",
+				print_u512_hex_prefix(current_difficulty, 32)
 			);
-			log::debug!(target: "qpow", "🟢 Next Difficulty:    {}..", adjusted.shr(300));
+			log::debug!(target: "qpow", "🟢 Next Difficulty:    {}", print_u512_hex_prefix(adjusted, 32));
 			log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
 			log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
@@ -455,7 +458,7 @@ pub mod pallet {
 		}
 
 		pub fn get_max_difficulty() -> Difficulty {
-			get_initial_difficulty::<T>().shl(T::MaxDistanceMultiplier::get())
+			U512::MAX
 		}
 
 		pub fn get_total_work() -> WorkValue {
@@ -477,5 +480,13 @@ pub mod pallet {
 		pub fn get_max_reorg_depth() -> u32 {
 			T::MaxReorgDepth::get()
 		}
+	}
+
+	/// Helper function to print the first n hex digits of a U512
+	pub fn print_u512_hex_prefix(value: U512, n: usize) -> String {
+		let mut hex_string = String::new();
+		let _ = write!(hex_string, "{:0128x}", value);
+		let prefix_len = core::cmp::min(n, hex_string.len());
+		hex_string[..prefix_len].to_string()
 	}
 }

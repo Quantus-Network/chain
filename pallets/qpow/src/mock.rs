@@ -69,15 +69,18 @@ impl pallet_timestamp::Config for Test {
 	type WeightInfo = ();
 }
 
+parameter_types! {
+	pub const TestInitialDifficulty: U512 = U512([0, 0, 0, 0, 0, 0, 0, 1000000]);
+}
+
 impl pallet_qpow::Config for Test {
 	type WeightInfo = ();
 	type EmaAlpha = ConstU32<500>;
-	type InitialDifficultyExponent = ConstU32<508>;
+	type InitialDifficulty = TestInitialDifficulty;
 	type DifficultyAdjustPercentClamp = ConstU8<10>;
 	type TargetBlockTime = ConstU64<1000>;
 	type MaxReorgDepth = ConstU32<10>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
-	type MaxDistanceMultiplier = ConstU32<2>;
 }
 
 // Build genesis storage according to the mock runtime
@@ -85,13 +88,9 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	// Add QPow genesis configuration
-	pallet_qpow::GenesisConfig::<Test> {
-		initial_difficulty: U512::one()
-			.shl(<Test as pallet_qpow::Config>::InitialDifficultyExponent::get()),
-		_phantom: Default::default(),
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	pallet_qpow::GenesisConfig::<Test> { initial_difficulty: None, _phantom: Default::default() }
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 	t.into()
 }
