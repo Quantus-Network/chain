@@ -1610,9 +1610,9 @@ mod tests {
 				prepare_period, decision_period, confirm_period
 			);
 
-			TestCommons::run_to_block(System::block_number() + prepare_period + 1);
-			TestCommons::run_to_block(System::block_number() + decision_period + 1);
-			TestCommons::run_to_block(System::block_number() + confirm_period + 1);
+			// Run to the end of all voting periods (prepare + decision + confirm)
+			let total_voting_period = prepare_period + decision_period + confirm_period + 1;
+			TestCommons::run_to_block(System::block_number() + total_voting_period);
 
 			// Wait for enactment
 			let enactment_period = track_info.min_enactment_period;
@@ -1633,20 +1633,16 @@ mod tests {
 				"Referendum should be approved"
 			);
 
-			// Wait for treasury spend to be created
+			// Wait for treasury spend to be created (after enactment + scheduler execution)
 			let spend_index = 0;
 			let max_wait_blocks = 20;
-			for _ in 0..max_wait_blocks {
-				if pallet_treasury::Spends::<Runtime>::get(spend_index).is_some() {
-					break;
-				}
-				TestCommons::run_to_block(System::block_number() + 1);
-			}
+			TestCommons::run_to_block(System::block_number() + max_wait_blocks);
 
 			// Verify treasury spend was created
 			assert!(
 				pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
-				"Treasury spend should be created"
+				"Treasury spend should be created within {} blocks after enactment",
+				max_wait_blocks
 			);
 
 			// Execute payout
