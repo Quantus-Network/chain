@@ -150,7 +150,6 @@ parameter_types! {
 	pub const TreasuryAccount: AccountId = 999;
 }
 
-
 impl pallet_reversible_transfers::Config for Test {
 	type SchedulerOrigin = OriginCaller;
 	type RuntimeHoldReason = RuntimeHoldReason;

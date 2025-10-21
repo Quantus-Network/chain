@@ -184,7 +184,8 @@ pub mod pallet {
 		type TimeProvider: Time<Moment = Self::Moment>;
 
 		/// Volume fee taken from reversed transactions for high-security accounts only,
-		/// expressed as a Permill (e.g., Permill::from_percent(1) = 1%). Regular accounts incur no fees.
+		/// expressed as a Permill (e.g., Permill::from_percent(1) = 1%). Regular accounts incur no
+		/// fees.
 		#[pallet::constant]
 		type VolumeFee: Get<Permill>;
 
@@ -512,15 +513,15 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn integrity_test() {
 			assert!(
-				!T::MinDelayPeriodBlocks::get().is_zero()
-					&& !T::MinDelayPeriodMoment::get().is_zero(),
+				!T::MinDelayPeriodBlocks::get().is_zero() &&
+					!T::MinDelayPeriodMoment::get().is_zero(),
 				"Minimum delay periods must be greater than 0"
 			);
 
 			// NOTE: default delay is always in blocks
 			assert!(
-				BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get())
-					<= T::DefaultDelay::get(),
+				BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get()) <=
+					T::DefaultDelay::get(),
 				"Minimum delay periods must be less or equal to `T::DefaultDelay`"
 			);
 		}
@@ -732,11 +733,10 @@ pub mod pallet {
 					<T as pallet::Config>::BlockNumberProvider::current_block_number()
 						.saturating_add(blocks),
 				),
-				BlockNumberOrTimestamp::Timestamp(millis) => {
+				BlockNumberOrTimestamp::Timestamp(millis) =>
 					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
 						T::TimeProvider::now().saturating_add(millis),
-					))
-				},
+					)),
 			};
 			log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
 			log::debug!(target: "reversible-transfers", "dispatch_time: {dispatch_time:?}");
