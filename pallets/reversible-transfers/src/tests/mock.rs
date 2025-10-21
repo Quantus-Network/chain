@@ -9,7 +9,7 @@ use frame_support::{
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::{ConstU128, ConstU32};
-use sp_runtime::{BuildStorage, Perbill, Weight};
+use sp_runtime::{BuildStorage, Perbill, Permill, Weight};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 pub type Balance = u128;
@@ -145,7 +145,7 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
-	pub const HighSecurityVolumeFee: u16 = 100;
+	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 	/// Mock treasury account ID for tests
 	pub const TreasuryAccount: AccountId = 999;
 }
