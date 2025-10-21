@@ -27,7 +27,10 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+	traits::{
+	    Currency,
+		tokens::{ExistenceRequirement, fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+	},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -891,39 +894,25 @@ pub mod pallet {
 				}
 				if let Ok(balance_call) = call.clone().try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
-						// Transfer fee to treasury if fee_amount > 0
-						if !fee_amount.is_zero() {
-							pallet_balances::Pallet::<T>::transfer_on_hold(
-								&HoldReason::ScheduledTransfer.into(),
-								&pending.from,
-								&treasury_account,
-								fee_amount,
-								Precision::Exact,
-								Restriction::Free,
-								Fortitude::Polite,
-							)?;
-						}
-
+						// Transfer fee to treasury
+						pallet_balances::Pallet::<T>::transfer(
+                            &pending.from,
+                            &treasury_account,
+                            fee_amount,
+                            ExistenceRequirement::KeepAlive,  // keep the source account alive
+                        )?;
+						
 						// Transfer remaining amount to interceptor
-						if !remaining_amount.is_zero() {
-							pallet_balances::Pallet::<T>::transfer_on_hold(
-								&HoldReason::ScheduledTransfer.into(),
-								&pending.from,
-								&interceptor,
-								remaining_amount,
-								Precision::Exact,
-								Restriction::Free,
-								Fortitude::Polite,
-							)?;
-						}
+						pallet_balances::Pallet::<T>::transfer(
+                            &pending.from,
+                            &interceptor,
+                            remaining_amount,
+                            ExistenceRequirement::KeepAlive,  // keep the source account alive
+                        )?;
 					}
 				}
 			}
 
-			// Emit events
-			if !fee_amount.is_zero() {
-				Self::deposit_event(Event::VolumeFeeCollected { tx_id, fee_amount });
-			}
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
 		}
