@@ -332,7 +332,8 @@ pub mod pallet {
 					.max(one.saturating_sub(clamp));
 			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
 
-			// Calculate adjusted difficulty (Bitcoin-style: if blocks are fast, increase difficulty)
+			// Calculate adjusted difficulty (Bitcoin-style: if blocks are fast, increase
+			// difficulty)
 			let mut adjusted = if ratio == one {
 				current_difficulty
 			} else {
@@ -343,18 +344,19 @@ pub mod pallet {
 				// If observed_time < target_time (fast blocks), difficulty should increase
 				// new_difficulty = current_difficulty * target_time / observed_time
 				match current_difficulty.checked_mul(ratio_512) {
-    				Some(numerator) => match numerator.checked_div(U512::from(FixedU128::one().into_inner())) {
-    					Some(result) => {
-    						log::debug!(target: "qpow",
+					Some(numerator) =>
+						match numerator.checked_div(U512::from(FixedU128::one().into_inner())) {
+							Some(result) => {
+								log::debug!(target: "qpow",
     							"Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
     							print_u512_hex_prefix(current_difficulty, 32), target_block_time, observed_block_time, print_u512_hex_prefix(result, 32));
-    						result
-    					},
-    					None => {
-    						log::warn!(target: "qpow", "Division overflow in difficulty calculation");
-    						current_difficulty
-    					},
-    				},
+								result
+							},
+							None => {
+								log::warn!(target: "qpow", "Division overflow in difficulty calculation");
+								current_difficulty
+							},
+						},
 					None => {
 						log::warn!(target: "qpow", "Multiplication overflow in difficulty calculation");
 						current_difficulty
