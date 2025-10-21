@@ -8,7 +8,7 @@
 //! ## Volume Fee for High-Security Accounts
 //!
 //! When high-security accounts reverse transactions, a configurable volume fee
-//! (expressed in basis points) is deducted from the transaction amount and sent
+//! (expressed as a Permill) is deducted from the transaction amount and sent
 //! to the treasury. Regular accounts do not incur any fees when reversing transactions.
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -28,12 +28,15 @@ use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
 	traits::{
-	    Currency,
-		tokens::{ExistenceRequirement, fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+		tokens::{
+			fungibles::MutateHold as AssetsHold, ExistenceRequirement, Fortitude, Restriction,
+		},
+		Currency,
 	},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
+use sp_arithmetic::Permill;
 use sp_runtime::traits::StaticLookup;
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.
@@ -181,9 +184,9 @@ pub mod pallet {
 		type TimeProvider: Time<Moment = Self::Moment>;
 
 		/// Volume fee taken from reversed transactions for high-security accounts only,
-		/// expressed in basis points (e.g., 10 = 0.1%). Regular accounts incur no fees.
+		/// expressed as a Permill (e.g., Permill::from_percent(1) = 1%). Regular accounts incur no fees.
 		#[pallet::constant]
-		type VolumeFee: Get<u16>;
+		type VolumeFee: Get<Permill>;
 
 		/// Treasury account ID where volume fees are sent.
 		type TreasuryAccountId: Get<Self::AccountId>;
@@ -509,15 +512,15 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn integrity_test() {
 			assert!(
-				!T::MinDelayPeriodBlocks::get().is_zero() &&
-					!T::MinDelayPeriodMoment::get().is_zero(),
+				!T::MinDelayPeriodBlocks::get().is_zero()
+					&& !T::MinDelayPeriodMoment::get().is_zero(),
 				"Minimum delay periods must be greater than 0"
 			);
 
 			// NOTE: default delay is always in blocks
 			assert!(
-				BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get()) <=
-					T::DefaultDelay::get(),
+				BlockNumberOrTimestampOf::<T>::BlockNumber(T::MinDelayPeriodBlocks::get())
+					<= T::DefaultDelay::get(),
 				"Minimum delay periods must be less or equal to `T::DefaultDelay`"
 			);
 		}
@@ -729,10 +732,11 @@ pub mod pallet {
 					<T as pallet::Config>::BlockNumberProvider::current_block_number()
 						.saturating_add(blocks),
 				),
-				BlockNumberOrTimestamp::Timestamp(millis) =>
+				BlockNumberOrTimestamp::Timestamp(millis) => {
 					DispatchTime::After(BlockNumberOrTimestamp::Timestamp(
 						T::TimeProvider::now().saturating_add(millis),
-					)),
+					))
+				},
 			};
 			log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
 			log::debug!(target: "reversible-transfers", "dispatch_time: {dispatch_time:?}");
@@ -840,10 +844,10 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// Calculate volume fee only for high-security accounts (in basis points: 10 = 0.1%)
+			// Calculate volume fee only for high-security accounts
 			let (fee_amount, remaining_amount) = if high_security_account_data.is_some() {
-				let volume_fee_bp = T::VolumeFee::get();
-				let fee = pending.amount.saturating_mul(volume_fee_bp.into()) / 10000u32.into();
+				let volume_fee = T::VolumeFee::get();
+				let fee = volume_fee * pending.amount;
 				let remaining = pending.amount.saturating_sub(fee);
 				(fee, remaining)
 			} else {
@@ -896,19 +900,19 @@ pub mod pallet {
 					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
 						// Transfer fee to treasury
 						pallet_balances::Pallet::<T>::transfer(
-                            &pending.from,
-                            &treasury_account,
-                            fee_amount,
-                            ExistenceRequirement::KeepAlive,  // keep the source account alive
-                        )?;
-						
+							&pending.from,
+							&treasury_account,
+							fee_amount,
+							ExistenceRequirement::KeepAlive, // keep the source account alive
+						)?;
+
 						// Transfer remaining amount to interceptor
 						pallet_balances::Pallet::<T>::transfer(
-                            &pending.from,
-                            &interceptor,
-                            remaining_amount,
-                            ExistenceRequirement::KeepAlive,  // keep the source account alive
-                        )?;
+							&pending.from,
+							&interceptor,
+							remaining_amount,
+							ExistenceRequirement::KeepAlive, // keep the source account alive
+						)?;
 					}
 				}
 			}

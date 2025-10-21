@@ -150,12 +150,6 @@ parameter_types! {
 	pub const TreasuryAccount: AccountId = 999;
 }
 
-pub struct MockTreasuryAccountId;
-impl frame_support::traits::Get<AccountId> for MockTreasuryAccountId {
-	fn get() -> AccountId {
-		TreasuryAccount::get()
-	}
-}
 
 impl pallet_reversible_transfers::Config for Test {
 	type SchedulerOrigin = OriginCaller;
@@ -173,7 +167,7 @@ impl pallet_reversible_transfers::Config for Test {
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-	type TreasuryAccountId = MockTreasuryAccountId;
+	type TreasuryAccountId = TreasuryAccount;
 }
 
 parameter_types! {

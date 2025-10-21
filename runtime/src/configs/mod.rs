@@ -477,14 +477,9 @@ parameter_types! {
 	pub const MaxReversibleTransfers: u32 = 10;
 	pub const MaxInterceptorAccounts: u32 = 32;
 	/// Volume fee for reversed transactions from high-security accounts only, in basis points (10 = 0.1%)
-	pub const HighSecurityVolumeFee: u16 = 10;
-}
-
-pub struct TreasuryAccountId;
-impl Get<AccountId> for TreasuryAccountId {
-	fn get() -> AccountId {
-		TreasuryPalletId::get().into_account_truncating()
-	}
+	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
+	/// Treasury account ID
+	pub TreasuryAccountId: AccountId = TreasuryPalletId::get().into_account_truncating();
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
