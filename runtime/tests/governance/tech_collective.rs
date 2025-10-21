@@ -1497,4 +1497,183 @@ mod tests {
 			);
 		});
 	}
+
+	/// Test that Tech Collective can spend from treasury using Root origin
+	#[test]
+	fn tech_collective_can_spend_with_root_origin() {
+		use quantus_runtime::{TreasuryPallet, EXISTENTIAL_DEPOSIT};
+		use sp_runtime::traits::AccountIdConversion;
+
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let proposer = TestCommons::account_id(1);
+			let voter = TestCommons::account_id(2);
+			let beneficiary = TestCommons::account_id(10);
+
+			// Setup: Add proposer and voter as Tech Collective members
+			Balances::make_free_balance_be(&proposer, 5000 * UNIT);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(proposer.clone())
+			));
+
+			Balances::make_free_balance_be(&voter, 5000 * UNIT);
+			assert_ok!(TechCollective::add_member(
+				RuntimeOrigin::root(),
+				MultiAddress::from(voter.clone())
+			));
+
+			// Fund treasury
+			let treasury_account =
+				quantus_runtime::configs::TreasuryPalletId::get().into_account_truncating();
+			Balances::make_free_balance_be(&treasury_account, 500_000 * UNIT);
+			let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+			// Setup beneficiary with existential deposit
+			Balances::make_free_balance_be(&beneficiary, EXISTENTIAL_DEPOSIT);
+			let initial_beneficiary_balance = Balances::free_balance(&beneficiary);
+
+			// Amount to spend (large amount to demonstrate Root has no limit)
+			let spend_amount = 200_000 * UNIT;
+
+			// Create the treasury spend call
+			let beneficiary_lookup =
+				<Runtime as frame_system::Config>::Lookup::unlookup(beneficiary.clone());
+			let treasury_spend_call = RuntimeCall::TreasuryPallet(pallet_treasury::Call::spend {
+				asset_kind: Box::new(()),
+				amount: spend_amount,
+				beneficiary: Box::new(beneficiary_lookup),
+				valid_from: None,
+			});
+
+			// Encode and submit preimage
+			let encoded_call = treasury_spend_call.encode();
+			let preimage_hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded_call);
+			assert_ok!(Preimage::note_preimage(
+				RuntimeOrigin::signed(proposer.clone()),
+				encoded_call.clone()
+			));
+
+			let bounded_call = frame_support::traits::Bounded::Lookup {
+				hash: preimage_hash,
+				len: encoded_call.len() as u32,
+			};
+
+			// Submit referendum with Root origin (uses track 0)
+			assert_ok!(TechReferenda::submit(
+				RuntimeOrigin::signed(proposer.clone()),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+				bounded_call,
+				frame_support::traits::schedule::DispatchTime::After(0u32)
+			));
+
+			let referendum_index =
+				pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
+
+			// Verify the referendum is on track 0 (Root track)
+			let referendum_info = pallet_referenda::ReferendumInfoFor::<
+				Runtime,
+				TechReferendaInstance,
+			>::get(referendum_index)
+			.expect("Referendum should exist");
+
+			if let pallet_referenda::ReferendumInfo::Ongoing(status) = referendum_info {
+				assert_eq!(status.track, 0, "Referendum should be on track 0 (Root track)");
+			} else {
+				panic!("Referendum should be in Ongoing state");
+			}
+
+			// Place decision deposit
+			assert_ok!(TechReferenda::place_decision_deposit(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index
+			));
+
+			// Vote in favor
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(voter.clone()),
+				referendum_index,
+				true
+			));
+
+			// Get track info for track 0
+			let track_info =
+				<Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(0)
+					.expect("Track 0 should exist");
+
+			// Advance through governance periods
+			let prepare_period = track_info.prepare_period;
+			let decision_period = track_info.decision_period;
+			let confirm_period = track_info.confirm_period;
+
+			println!(
+				"Track 0 periods: prepare={}, decision={}, confirm={}",
+				prepare_period, decision_period, confirm_period
+			);
+
+			TestCommons::run_to_block(System::block_number() + prepare_period + 1);
+			TestCommons::run_to_block(System::block_number() + decision_period + 1);
+			TestCommons::run_to_block(System::block_number() + confirm_period + 1);
+
+			// Wait for enactment
+			let enactment_period = track_info.min_enactment_period;
+			TestCommons::run_to_block(System::block_number() + enactment_period + 5);
+
+			// Verify referendum was approved
+			let final_referendum_info = pallet_referenda::ReferendumInfoFor::<
+				Runtime,
+				TechReferendaInstance,
+			>::get(referendum_index)
+			.expect("Referendum should exist");
+
+			assert!(
+				matches!(
+					final_referendum_info,
+					pallet_referenda::ReferendumInfo::Approved(_, _, _)
+				),
+				"Referendum should be approved"
+			);
+
+			// Wait for treasury spend to be created
+			let spend_index = 0;
+			let max_wait_blocks = 20;
+			for _ in 0..max_wait_blocks {
+				if pallet_treasury::Spends::<Runtime>::get(spend_index).is_some() {
+					break;
+				}
+				TestCommons::run_to_block(System::block_number() + 1);
+			}
+
+			// Verify treasury spend was created
+			assert!(
+				pallet_treasury::Spends::<Runtime>::get(spend_index).is_some(),
+				"Treasury spend should be created"
+			);
+
+			// Execute payout
+			assert_ok!(TreasuryPallet::payout(
+				RuntimeOrigin::signed(beneficiary.clone()),
+				spend_index
+			));
+
+			// Verify balances
+			let final_beneficiary_balance = Balances::free_balance(&beneficiary);
+			assert_eq!(
+				final_beneficiary_balance,
+				initial_beneficiary_balance + spend_amount,
+				"Beneficiary should receive the treasury spend amount"
+			);
+
+			let final_treasury_balance = Balances::free_balance(&treasury_account);
+			assert_eq!(
+				final_treasury_balance,
+				initial_treasury_balance - spend_amount,
+				"Treasury should be reduced by the spend amount"
+			);
+
+			println!(
+				"✅ Tech Collective successfully spent {} UNIT from treasury via Root origin (track 0)",
+				spend_amount / UNIT
+			);
+		});
+	}
 }
