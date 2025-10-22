@@ -27,12 +27,7 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::{
-		tokens::{
-			fungibles::MutateHold as AssetsHold, ExistenceRequirement, Fortitude, Restriction,
-		},
-		Currency,
-	},
+	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -293,9 +288,6 @@ pub mod pallet {
 		/// A scheduled transaction was executed by the scheduler.
 		/// [tx_id, dispatch_result]
 		TransactionExecuted { tx_id: T::Hash, result: DispatchResultWithPostInfo },
-
-		/// Volume fee was collected from a reversed transaction. [tx_id, fee_amount]
-		VolumeFeeCollected { tx_id: T::Hash, fee_amount: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -847,6 +839,7 @@ pub mod pallet {
 			// Calculate volume fee only for high-security accounts
 			let (fee_amount, remaining_amount) = if high_security_account_data.is_some() {
 				let volume_fee = T::VolumeFee::get();
+				// unchecked ok because volume_fee < 1 so overflow impossible
 				let fee = volume_fee * pending.amount;
 				let remaining = pending.amount.saturating_sub(fee);
 				(fee, remaining)
@@ -866,52 +859,54 @@ pub mod pallet {
 						let asset_id = id.into();
 
 						// Transfer fee to treasury if fee_amount > 0
-						if !fee_amount.is_zero() {
-							let _ =
-								<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-									asset_id.clone(),
-									&reason,
-									&pending.from,
-									&treasury_account,
-									fee_amount,
-									Precision::Exact,
-									Restriction::Free,
-									Fortitude::Polite,
-								);
-						}
+						let _ =
+							<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+								asset_id.clone(),
+								&reason,
+								&pending.from,
+								&treasury_account,
+								fee_amount,
+								Precision::Exact,
+								Restriction::Free,
+								Fortitude::Polite,
+							)?;
 
 						// Transfer remaining amount to interceptor
-						if !remaining_amount.is_zero() {
-							let _ =
-								<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-									asset_id,
-									&reason,
-									&pending.from,
-									&interceptor,
-									remaining_amount,
-									Precision::Exact,
-									Restriction::Free,
-									Fortitude::Polite,
-								);
-						}
+						let _ =
+							<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+								asset_id,
+								&reason,
+								&pending.from,
+								&interceptor,
+								remaining_amount,
+								Precision::Exact,
+								Restriction::Free,
+								Fortitude::Polite,
+							)?;
 					}
 				}
 				if let Ok(balance_call) = call.clone().try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
 						// Transfer fee to treasury
-						pallet_balances::Pallet::<T>::transfer(
+						pallet_balances::Pallet::<T>::transfer_on_hold(
+							&HoldReason::ScheduledTransfer.into(),
 							&pending.from,
 							&treasury_account,
 							fee_amount,
-							ExistenceRequirement::KeepAlive, // keep the source account alive
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
 						)?;
 
 						// Transfer remaining amount to interceptor
-						pallet_balances::Pallet::<T>::transfer(
+						pallet_balances::Pallet::<T>::transfer_on_hold(
+							&HoldReason::ScheduledTransfer.into(),
 							&pending.from,
 							&interceptor,
 							remaining_amount,
-							ExistenceRequirement::KeepAlive, // keep the source account alive
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
 						)?;
 					}
 				}

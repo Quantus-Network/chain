@@ -641,10 +641,7 @@ fn cancel_dispatch_works() {
 			"Treasury should receive volume fee from high-security account cancellation"
 		);
 
-		// Check events
-		System::assert_has_event(
-			Event::VolumeFeeCollected { tx_id, fee_amount: expected_fee }.into(),
-		);
+		// Check event
 		System::assert_last_event(Event::TransactionCancelled { who: interceptor, tx_id }.into());
 	});
 }
@@ -698,16 +695,6 @@ fn no_volume_fee_for_regular_reversible_accounts() {
 			Balances::free_balance(treasury),
 			initial_treasury_balance,
 			"Treasury should not receive fee from regular account cancellation"
-		);
-
-		// Verify no VolumeFeeCollected event was emitted
-		let events = System::events();
-		assert!(
-			!events.iter().any(|record| matches!(
-				record.event,
-				RuntimeEvent::ReversibleTransfers(Event::VolumeFeeCollected { .. })
-			)),
-			"No volume fee event should be emitted for regular accounts"
 		);
 
 		// Should still have TransactionCancelled event
