@@ -109,7 +109,7 @@ pub mod pallet {
 			<CurrentDifficulty<T>>::put(initial_difficulty);
 
 			log::info!(target: "qpow", "Genesis: Set initial difficulty to {}",
-				print_u512_hex_prefix(initial_difficulty, 128));
+				initial_difficulty.low_u128());
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
@@ -151,7 +151,7 @@ pub mod pallet {
 			log::debug!(target: "qpow",
 				"📢 QPoW: before submit at block {:?}, current_difficulty={}",
 				block_number,
-				print_u512_hex_prefix(current_difficulty, 128)
+				current_difficulty.low_u128()
 			);
 
 			Self::adjust_difficulty();
@@ -254,7 +254,7 @@ pub mod pallet {
 			<CurrentDifficulty<T>>::put(new_difficulty);
 
 			log::debug!(target: "qpow", "Stored new difficulty: {}",
-				print_u512_hex_prefix(new_difficulty, 128));
+				new_difficulty.low_u128());
 
 			// Propagate new Event
 			Self::deposit_event(Event::DifficultyAdjusted {
@@ -270,8 +270,8 @@ pub mod pallet {
 				"🟢 Adjusted mining difficulty {}{}%: {} -> {} (observed block time: {}ms, target: {}ms) ",
 				if is_positive {"+"} else {"-"},
 				pct_change,
-				print_u512_hex_prefix(current_difficulty, 128),
-				print_u512_hex_prefix(new_difficulty, 128),
+				current_difficulty.low_u128(),
+				new_difficulty.low_u128(),
 				observed_block_time,
 				target_time
 			);
@@ -304,7 +304,7 @@ pub mod pallet {
 					let result = numerator / U512::from(one.into_inner());
 					log::debug!(target: "qpow",
 					    "Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
-						print_u512_hex_prefix(current_difficulty, 32), target_block_time, observed_block_time, print_u512_hex_prefix(result, 32));
+						current_difficulty.low_u32(), target_block_time, observed_block_time, result.low_u32());
 					result
 				},
 				None => {
@@ -315,10 +315,7 @@ pub mod pallet {
 
 			let min_difficulty = Self::get_min_difficulty();
 			if adjusted < min_difficulty {
-				log::warn!(
-					"Min difficulty achieved, clipping to: {}",
-					print_u512_hex_prefix(min_difficulty, 128)
-				);
+				log::warn!("Min difficulty achieved, clipping to: {}", min_difficulty.low_u128());
 
 				adjusted = min_difficulty;
 			} else {
@@ -326,7 +323,7 @@ pub mod pallet {
 				if adjusted > max_difficulty {
 					log::warn!(
 						"Max difficulty achieved, clipping to: {}",
-						print_u512_hex_prefix(max_difficulty, 128)
+						max_difficulty.low_u128()
 					);
 					adjusted = max_difficulty;
 				}
@@ -334,9 +331,9 @@ pub mod pallet {
 
 			log::debug!(target: "qpow",
 				"🟢 Current Difficulty: {}",
-				print_u512_hex_prefix(current_difficulty, 128)
+				current_difficulty.low_u128()
 			);
-			log::debug!(target: "qpow", "🟢 Next Difficulty:    {}", print_u512_hex_prefix(adjusted, 128));
+			log::debug!(target: "qpow", "🟢 Next Difficulty:    {}", adjusted.low_u128());
 			log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
 			log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
@@ -407,8 +404,7 @@ pub mod pallet {
 			let initial = get_initial_difficulty::<T>();
 
 			if stored == U512::zero() {
-				log::warn!(target: "qpow", "Stored difficulty is zero, using initial: {}",
-					print_u512_hex_prefix(initial, 128));
+				log::warn!(target: "qpow", "Stored difficulty is zero, using initial: {}", initial.low_u128());
 				return initial;
 			}
 			stored
@@ -441,10 +437,5 @@ pub mod pallet {
 		pub fn get_max_reorg_depth() -> u32 {
 			T::MaxReorgDepth::get()
 		}
-	}
-
-	/// Helper function to print the first n hex digits of a U512
-	pub fn print_u512_hex_prefix(value: U512, n: usize) -> String {
-		value.low_u128().to_string()
 	}
 }
