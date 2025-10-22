@@ -66,6 +66,14 @@ pub fn mine_range(
 		return None;
 	}
 
+	if difficulty == U512::zero() {
+		log::error!(
+			"mine_range should not be called with 0 difficulty, but was for block_hash: {:?}",
+			block_hash
+		);
+		return None;
+	}
+
 	let mut nonce_u = U512::from_big_endian(&start_nonce);
 	let max_target = U512::MAX;
 	let target = max_target / difficulty;
