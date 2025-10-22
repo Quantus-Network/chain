@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-use alloc::string::{String, ToString};
-use core::fmt::Write;
 use primitive_types::U512;
 use qp_poseidon_core::Poseidon2Core;
 
@@ -84,7 +82,7 @@ pub fn mine_range(
 
 		if hash_result < target {
 			log::debug!(target: "math", "💎 Local miner found nonce {} with hash {} and target {} and block_hash {:?}",
-			nonce.low_u32(), hash_result.low_u32(),
+			nonce_u.low_u32(), hash_result.low_u32(),
 				target.low_u32(), hex::encode(block_hash));
 			return Some((nonce_bytes, hash_result));
 		}

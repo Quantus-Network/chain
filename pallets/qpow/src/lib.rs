@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-use alloc::string::{String, ToString};
-use core::fmt::Write;
 
 pub use pallet::*;
 
@@ -31,7 +29,6 @@ pub mod pallet {
 	use qpow_math::{get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
-	use sp_runtime::Perbill;
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
@@ -189,14 +186,11 @@ pub mod pallet {
 			let a = big_a.shr(10);
 			let b = big_b.shr(10);
 
-			// Prevent division by zero
-			if a == U512::zero() {
-				return (U512::zero(), b >= a);
-			}
-
-			let (larger, smaller) = if a > b { (a, b) } else { (b, a) };
-			let abs_diff = larger - smaller;
-			let change = abs_diff.saturating_mul(U512::from(100u64)) / a;
+			let abs_diff = a.abs_diff(b);
+			let change = abs_diff
+				.saturating_mul(U512::from(100u64))
+				.checked_div(a)
+				.unwrap_or(U512::zero());
 
 			(change, b >= a)
 		}
