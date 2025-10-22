@@ -110,7 +110,7 @@ fn test_difficulty_bounds() {
 	new_test_ext().execute_with(|| {
 		let min_difficulty = QPow::get_min_difficulty();
 		let max_difficulty = QPow::get_max_difficulty();
-		let initial_difficulty = QPow::get_initial_difficulty();
+		let initial_difficulty = QPow::initial_difficulty();
 
 		assert_eq!(min_difficulty, U512::from(1u64));
 		assert!(max_difficulty > initial_difficulty);
@@ -154,7 +154,7 @@ fn test_difficulty_adjustment() {
 fn test_difficulty_storage_and_retrieval() {
 	new_test_ext().execute_with(|| {
 		// 1. Test genesis block difficulty
-		let genesis_difficulty = QPow::get_initial_difficulty();
+		let genesis_difficulty = QPow::initial_difficulty();
 		let initial_difficulty = <Test as Config>::InitialDifficulty::get();
 
 		assert_eq!(

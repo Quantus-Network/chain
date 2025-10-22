@@ -103,7 +103,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			let initial_difficulty = get_initial_difficulty::<T>();
+			let initial_difficulty = T::InitialDifficulty::get();
 
 			// Set current difficulty for the genesis block
 			<CurrentDifficulty<T>>::put(initial_difficulty);
@@ -132,10 +132,6 @@ pub mod pallet {
 			new_difficulty: Difficulty,
 			observed_block_time: BlockDuration,
 		},
-	}
-
-	pub fn get_initial_difficulty<T: Config>() -> Difficulty {
-		T::InitialDifficulty::get()
 	}
 
 	#[pallet::hooks]
@@ -395,13 +391,13 @@ pub mod pallet {
 			verify
 		}
 
-		pub fn get_initial_difficulty() -> Difficulty {
-			get_initial_difficulty::<T>()
+		pub fn initial_difficulty() -> Difficulty {
+			T::InitialDifficulty::get()
 		}
 
 		pub fn get_difficulty() -> Difficulty {
 			let stored = <CurrentDifficulty<T>>::get();
-			let initial = get_initial_difficulty::<T>();
+			let initial = Self::initial_difficulty();
 
 			if stored == U512::zero() {
 				log::warn!(target: "qpow", "Stored difficulty is zero, using initial: {}", initial.low_u128());
