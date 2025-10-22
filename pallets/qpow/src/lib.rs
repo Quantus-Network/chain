@@ -21,7 +21,7 @@ use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use core::ops::{Shl, Shr};
+	use core::ops::Shr;
 	use frame_support::{
 		pallet_prelude::*,
 		sp_runtime::{traits::One, SaturatedConversion, Saturating},
@@ -38,8 +38,6 @@ pub mod pallet {
 	pub type WorkValue = U512;
 	pub type Timestamp = u64;
 	pub type BlockDuration = u64;
-	pub type PeriodCount = u32;
-	pub type HistoryIndexType = u32;
 	pub type PercentageClamp = u8;
 
 	#[pallet::pallet]
@@ -56,17 +54,6 @@ pub mod pallet {
 
 	#[pallet::storage]
 	pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
-
-	#[pallet::storage]
-	pub type BlocksInPeriod<T: Config> = StorageValue<_, PeriodCount, ValueQuery>;
-
-	#[pallet::storage]
-	pub type BlockTimeHistory<T: Config> =
-		StorageMap<_, Twox64Concat, HistoryIndexType, BlockDuration, ValueQuery>;
-
-	// Index for current position in ring buffer
-	#[pallet::storage]
-	pub type HistoryIndex<T: Config> = StorageValue<_, HistoryIndexType, ValueQuery>;
 
 	// Exponential Moving Average of block times (in milliseconds)
 	#[pallet::storage]
@@ -158,11 +145,13 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		// TODO: update this
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
 			<T as crate::Config>::WeightInfo::on_finalize_max_history()
 		}
 
 		/// Called when there is remaining weight at the end of the block.
+		/// TODO: do we need this?
 		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
 			if <LastBlockTime<T>>::get() == 0 {
 				<LastBlockTime<T>>::put(
@@ -176,12 +165,10 @@ pub mod pallet {
 
 		/// Called at the end of each block.
 		fn on_finalize(block_number: BlockNumberFor<T>) {
-			let blocks = <BlocksInPeriod<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
-				"📢 QPoW: before submit at block {:?}, blocks_in_period={}, current_difficulty={}",
+				"📢 QPoW: before submit at block {:?}, current_difficulty={}",
 				block_number,
-				blocks,
 				print_u512_hex_prefix(current_difficulty, 128)
 			);
 
@@ -240,7 +227,6 @@ pub mod pallet {
 			// Get current time
 			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
 			let last_time = <LastBlockTime<T>>::get();
-			let blocks = <BlocksInPeriod<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
 
@@ -255,9 +241,6 @@ pub mod pallet {
 				old_total_work,
 				new_total_work - old_total_work
 			);
-
-			// Increment number of blocks in period
-			<BlocksInPeriod<T>>::put(blocks.saturating_add(1));
 
 			// Only calculate block time if we're past the genesis block
 			if current_block_number > One::one() {
@@ -310,10 +293,6 @@ pub mod pallet {
 				observed_block_time,
 				target_time
 			);
-
-			// Reset counters before new iteration
-			<BlocksInPeriod<T>>::put(0);
-			<LastBlockTime<T>>::put(now);
 		}
 
 		pub fn calculate_difficulty(
@@ -332,8 +311,6 @@ pub mod pallet {
 					.max(one.saturating_sub(clamp));
 			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
 
-			// Calculate adjusted difficulty (Bitcoin-style: if blocks are fast, increase
-			// difficulty)
 			let ratio_512 = U512::from(ratio.into_inner());
 
 			// For Bitcoin-style difficulty adjustment:

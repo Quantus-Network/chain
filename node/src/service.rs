@@ -429,7 +429,6 @@ pub fn new_full<
 					}
 
 					// Get current distance_threshold from runtime
-					let mining_metadata = metadata.clone();
 					let difficulty =
 						match client.runtime_api().get_difficulty(metadata.best_hash) {
 							Ok(d) => d,
