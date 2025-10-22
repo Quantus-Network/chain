@@ -8,9 +8,9 @@ use qp_poseidon_core::Poseidon2Core;
 
 // Bitcoin-style validation logic with double Poseidon2 hashing
 pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -> (bool, U512) {
-	if nonce == [0u8; 64] {
+	if difficulty == U512::zero() {
 		log::error!(
-			"is_valid_nonce should not be called with 0 nonce, but was for block_hash: {:?}",
+			"is_valid_nonce should not be called with 0 difficulty, but was for block_hash: {:?}",
 			block_hash
 		);
 		return (false, U512::zero());
@@ -23,6 +23,7 @@ pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -
 	// In Bitcoin-style PoW, we check if hash < target
 	// Where target = max_target / difficulty
 	let max_target = U512::MAX;
+	// Unchecked division because we catch difficulty == 0 above
 	let target = max_target / difficulty;
 
 	(hash_result < target, hash_result)
@@ -54,6 +55,7 @@ pub fn get_nonce_hash(
 
 /// Mine a contiguous range of nonces using simple incremental search.
 /// Returns the first valid nonce and its hash if one is found.
+/// This is called during local mining
 pub fn mine_range(
 	block_hash: [u8; 32],
 	start_nonce: [u8; 64],

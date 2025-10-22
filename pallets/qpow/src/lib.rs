@@ -334,34 +334,24 @@ pub mod pallet {
 
 			// Calculate adjusted difficulty (Bitcoin-style: if blocks are fast, increase
 			// difficulty)
-			let mut adjusted = if ratio == one {
-				current_difficulty
-			} else {
-				let ratio_512 = U512::from(ratio.into_inner());
+			let ratio_512 = U512::from(ratio.into_inner());
 
-				// For Bitcoin-style difficulty adjustment:
-				// If observed_time > target_time (slow blocks), difficulty should decrease
-				// If observed_time < target_time (fast blocks), difficulty should increase
-				// new_difficulty = current_difficulty * target_time / observed_time
-				match current_difficulty.checked_mul(ratio_512) {
-					Some(numerator) =>
-						match numerator.checked_div(U512::from(FixedU128::one().into_inner())) {
-							Some(result) => {
-								log::debug!(target: "qpow",
-    							"Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
-    							print_u512_hex_prefix(current_difficulty, 32), target_block_time, observed_block_time, print_u512_hex_prefix(result, 32));
-								result
-							},
-							None => {
-								log::warn!(target: "qpow", "Division overflow in difficulty calculation");
-								current_difficulty
-							},
-						},
-					None => {
-						log::warn!(target: "qpow", "Multiplication overflow in difficulty calculation");
-						current_difficulty
-					},
-				}
+			// For Bitcoin-style difficulty adjustment:
+			// If observed_time > target_time (slow blocks), difficulty should decrease
+			// If observed_time < target_time (fast blocks), difficulty should increase
+			// new_difficulty = current_difficulty * target_time / observed_time
+			let mut adjusted = match current_difficulty.checked_mul(ratio_512) {
+				Some(numerator) => {
+					// unchecked division, we know the denominator is not zero
+					let result = numerator / U512::from(FixedU128::one().into_inner());
+					log::debug!(target: "qpow",
+					    "Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
+						print_u512_hex_prefix(current_difficulty, 32), target_block_time, observed_block_time, print_u512_hex_prefix(result, 32));
+					result
+				},
+				None => {
+					panic!("Multiplication overflow in difficulty calculation");
+				},
 			};
 
 			let min_difficulty = Self::get_min_difficulty();
