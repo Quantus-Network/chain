@@ -1,6 +1,6 @@
 use crate as pallet_qpow;
 use frame_support::{
-	pallet_prelude::{ConstU32, TypedGet},
+	pallet_prelude::ConstU32,
 	parameter_types,
 	traits::{ConstU128, ConstU64, ConstU8, Everything},
 };
@@ -10,7 +10,6 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	BuildStorage,
 };
-use std::ops::Shl;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -88,9 +87,12 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	// Add QPow genesis configuration
-	pallet_qpow::GenesisConfig::<Test> { initial_difficulty: None, _phantom: Default::default() }
-		.assimilate_storage(&mut t)
-		.unwrap();
+	pallet_qpow::GenesisConfig::<Test> {
+		initial_difficulty: TestInitialDifficulty::get(),
+		_phantom: Default::default(),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
 	t.into()
 }

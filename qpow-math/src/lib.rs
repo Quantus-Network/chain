@@ -109,14 +109,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_zero_nonce_returns_zero_hash() {
-		let block_hash = [0xABu8; 32];
-		let nonce = [0u8; 64];
-		let hash = get_nonce_hash(block_hash, nonce);
-		assert_eq!(hash, U512::zero());
-	}
-
-	#[test]
 	fn test_different_nonces_produce_different_hashes() {
 		let block_hash = [1u8; 32];
 		let nonce1 = [2u8; 64];

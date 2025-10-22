@@ -133,12 +133,6 @@ pub mod pallet {
 		},
 	}
 
-	#[pallet::error]
-	pub enum Error<T> {
-		InvalidSolution,
-		ArithmeticOverflow,
-	}
-
 	pub fn get_initial_difficulty<T: Config>() -> Difficulty {
 		T::InitialDifficulty::get()
 	}

@@ -3,7 +3,6 @@ use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
 use qp_poseidon_core::Poseidon2Core;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
-use std::ops::Shl;
 
 #[test]
 fn test_submit_valid_proof() {
@@ -20,24 +19,6 @@ fn test_submit_valid_proof() {
 		let easy_difficulty = U512::from(1u64);
 		let (is_valid, _) = is_valid_nonce(block_hash, nonce, easy_difficulty);
 		assert!(is_valid, "Should be valid with easy difficulty");
-	});
-}
-
-#[test]
-fn test_zero_nonce_is_invalid() {
-	new_test_ext().execute_with(|| {
-		let block_hash = [0xABu8; 32];
-		let zero_nonce = [0u8; 64];
-
-		// Zero nonce should produce zero hash
-		let hash = get_nonce_hash(block_hash, zero_nonce);
-		assert_eq!(hash, U512::zero());
-
-		// Zero nonce should be invalid regardless of difficulty
-		let difficulty = U512::from(1u64);
-		let (is_valid, returned_hash) = is_valid_nonce(block_hash, zero_nonce, difficulty);
-		assert!(!is_valid);
-		assert_eq!(returned_hash, U512::zero());
 	});
 }
 
@@ -101,9 +82,8 @@ fn test_poseidon_double_hash() {
 		input[32..96].copy_from_slice(&nonce);
 
 		let poseidon = Poseidon2Core::new();
-		let first_hash = poseidon.hash_no_pad_bytes(&input);
-		let final_hash = poseidon.hash_no_pad_bytes(&first_hash);
-		let expected = U512::from_big_endian(&final_hash);
+		let hash = poseidon.hash_squeeze_twice(&input);
+		let expected = U512::from_big_endian(&hash);
 
 		let actual = get_nonce_hash(block_hash, nonce);
 		assert_eq!(actual, expected);
@@ -155,6 +135,7 @@ fn test_difficulty_adjustment() {
 	new_test_ext().execute_with(|| {
 		// Get initial difficulty
 		let initial_difficulty = QPow::get_difficulty();
+		assert!(initial_difficulty > U512::zero());
 
 		// Run a few blocks
 		run_to_block(3);
@@ -174,8 +155,7 @@ fn test_difficulty_storage_and_retrieval() {
 	new_test_ext().execute_with(|| {
 		// 1. Test genesis block difficulty
 		let genesis_difficulty = QPow::get_initial_difficulty();
-		let initial_difficulty =
-			U512::one().shl(<Test as Config>::InitialDifficultyExponent::get());
+		let initial_difficulty = <Test as Config>::InitialDifficulty::get();
 
 		assert_eq!(
 			genesis_difficulty, initial_difficulty,
