@@ -9,7 +9,7 @@ use frame_support::{
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::{ConstU128, ConstU32};
-use sp_runtime::{BuildStorage, Perbill, Weight};
+use sp_runtime::{BuildStorage, Perbill, Permill, Weight};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 pub type Balance = u128;
@@ -145,6 +145,9 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
+	/// Mock treasury account ID for tests
+	pub const TreasuryAccount: AccountId = 999;
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -162,6 +165,8 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type VolumeFee = HighSecurityVolumeFee;
+	type TreasuryAccountId = TreasuryAccount;
 }
 
 parameter_types! {
@@ -292,6 +297,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(109, 100_000_000_000),
 			(110, 100_000_000_000),
 			(111, 100_000_000_000),
+			// Treasury account for fee collection tests (must meet existential deposit)
+			(999, 1),
 		],
 	}
 	.assimilate_storage(&mut t)

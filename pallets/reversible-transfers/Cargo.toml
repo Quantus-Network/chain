@@ -23,6 +23,7 @@ pallet-balances.workspace = true
 pallet-recovery.workspace = true
 qp-scheduler.workspace = true
 scale-info = { features = ["derive"], workspace = true }
+sp-arithmetic.workspace = true
 sp-runtime.workspace = true
 
 [dev-dependencies]

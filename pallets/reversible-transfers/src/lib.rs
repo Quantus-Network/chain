@@ -4,6 +4,12 @@
 //! It manages the state of accounts opting into reversibility and the pending
 //! transactions associated with them. Transaction interception is handled
 //! separately via a `SignedExtension`.
+//!
+//! ## Volume Fee for High-Security Accounts
+//!
+//! When high-security accounts reverse transactions, a configurable volume fee
+//! (expressed as a Permill) is deducted from the transaction amount and sent
+//! to the treasury. Regular accounts do not incur any fees when reversing transactions.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -25,6 +31,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
+use sp_arithmetic::Permill;
 use sp_runtime::traits::StaticLookup;
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.
@@ -170,6 +177,15 @@ pub mod pallet {
 
 		/// Time provider for scheduling.
 		type TimeProvider: Time<Moment = Self::Moment>;
+
+		/// Volume fee taken from reversed transactions for high-security accounts only,
+		/// expressed as a Permill (e.g., Permill::from_percent(1) = 1%). Regular accounts incur no
+		/// fees.
+		#[pallet::constant]
+		type VolumeFee: Get<Permill>;
+
+		/// Treasury account ID where volume fees are sent.
+		type TreasuryAccountId: Get<Self::AccountId>;
 	}
 
 	/// Maps accounts to their chosen reversibility delay period (in milliseconds).
@@ -820,31 +836,74 @@ pub mod pallet {
 			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// For assets, transfer held funds to interceptor via assets-holder; for native
-			// balances, transfer held funds to interceptor
+			// Calculate volume fee only for high-security accounts
+			let (fee_amount, remaining_amount) = if high_security_account_data.is_some() {
+				let volume_fee = T::VolumeFee::get();
+				// unchecked ok because volume_fee < 1 so overflow impossible
+				let fee = volume_fee * pending.amount;
+				let remaining = pending.amount.saturating_sub(fee);
+				(fee, remaining)
+			} else {
+				// No fee for regular accounts
+				(Zero::zero(), pending.amount)
+			};
+			let treasury_account = T::TreasuryAccountId::get();
+
+			// For assets, transfer held funds to treasury (fee) and interceptor (remaining)
+			// For native balances, transfer held funds to treasury (fee) and interceptor
+			// (remaining)
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(assets_call) = call.clone().try_into() {
 					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
 						let reason = Self::asset_hold_reason();
-						let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-							id.into(),
-							&reason,
-							&pending.from,
-							&interceptor,
-							pending.amount,
-							Precision::Exact,
-							Restriction::Free,
-							Fortitude::Polite,
-						);
+						let asset_id = id.into();
+
+						// Transfer fee to treasury if fee_amount > 0
+						let _ =
+							<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+								asset_id.clone(),
+								&reason,
+								&pending.from,
+								&treasury_account,
+								fee_amount,
+								Precision::Exact,
+								Restriction::Free,
+								Fortitude::Polite,
+							)?;
+
+						// Transfer remaining amount to interceptor
+						let _ =
+							<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+								asset_id,
+								&reason,
+								&pending.from,
+								&interceptor,
+								remaining_amount,
+								Precision::Exact,
+								Restriction::Free,
+								Fortitude::Polite,
+							)?;
 					}
 				}
 				if let Ok(balance_call) = call.clone().try_into() {
 					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
+						// Transfer fee to treasury
+						pallet_balances::Pallet::<T>::transfer_on_hold(
+							&HoldReason::ScheduledTransfer.into(),
+							&pending.from,
+							&treasury_account,
+							fee_amount,
+							Precision::Exact,
+							Restriction::Free,
+							Fortitude::Polite,
+						)?;
+
+						// Transfer remaining amount to interceptor
 						pallet_balances::Pallet::<T>::transfer_on_hold(
 							&HoldReason::ScheduledTransfer.into(),
 							&pending.from,
 							&interceptor,
-							pending.amount,
+							remaining_amount,
 							Precision::Exact,
 							Restriction::Free,
 							Fortitude::Polite,

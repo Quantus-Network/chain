@@ -1,10 +1,11 @@
 use frame_support::{
 	__private::sp_io,
 	traits::{Currency, OnFinalize, OnInitialize},
+	PalletId,
 };
 use quantus_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
-use sp_runtime::BuildStorage;
+use sp_runtime::{traits::AccountIdConversion, BuildStorage};
 
 pub struct TestCommons;
 
@@ -27,6 +28,10 @@ impl TestCommons {
 			Balances::make_free_balance_be(&Self::account_id(2), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(3), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(4), 1000 * UNIT);
+			// Set up treasury account for volume fee collection
+			let treasury_pallet_id = PalletId(*b"py/trsry");
+			let treasury_account = treasury_pallet_id.into_account_truncating();
+			Balances::make_free_balance_be(&treasury_account, 1000 * UNIT);
 		});
 
 		ext

@@ -7328,6 +7328,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-scheduler",
  "scale-info",
+ "sp-arithmetic",
  "sp-core",
  "sp-io",
  "sp-runtime",
