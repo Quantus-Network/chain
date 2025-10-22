@@ -207,6 +207,7 @@ impl SubstrateCli for Cli {
 #[allow(clippy::result_large_err)]
 pub fn run() -> sc_cli::Result<()> {
 	sp_core::crypto::set_default_ss58_version(sp_core::crypto::Ss58AddressFormat::custom(189));
+
 	let cli = Cli::from_args();
 	match &cli.subcommand {
 		Some(Subcommand::Key(cmd)) => {
