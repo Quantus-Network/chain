@@ -57,7 +57,7 @@ use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{ConvertInto, One},
-	Perbill, Permill,
+	FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -143,12 +143,14 @@ parameter_types! {
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
 	/// Initial mining difficulty - low value for development
 	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
+	/// Difficulty adjustment percent clamp
+	pub const DifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
 }
 
 impl pallet_qpow::Config for Runtime {
 	// Starting difficulty - should be challenging enough to require some work but not too high
 	type InitialDifficulty = QPoWInitialDifficulty;
-	type DifficultyAdjustPercentClamp = ConstU8<10>;
+	type DifficultyAdjustPercentClamp = DifficultyAdjustPercentClamp;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;

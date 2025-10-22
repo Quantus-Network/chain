@@ -31,6 +31,7 @@ pub mod pallet {
 	use qpow_math::{get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
+	use sp_runtime::Perbill;
 
 	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
@@ -66,7 +67,7 @@ pub mod pallet {
 		type InitialDifficulty: Get<U512>;
 
 		#[pallet::constant]
-		type DifficultyAdjustPercentClamp: Get<PercentageClamp>;
+		type DifficultyAdjustPercentClamp: Get<FixedU128>;
 
 		#[pallet::constant]
 		type TargetBlockTime: Get<BlockDuration>;
@@ -142,19 +143,6 @@ pub mod pallet {
 		// TODO: update this
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
 			<T as crate::Config>::WeightInfo::on_finalize_max_history()
-		}
-
-		/// Called when there is remaining weight at the end of the block.
-		/// TODO: do we need this?
-		fn on_idle(_block_number: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
-			if <LastBlockTime<T>>::get() == 0 {
-				<LastBlockTime<T>>::put(
-					pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>(),
-				);
-				let initial_difficulty: U512 = get_initial_difficulty::<T>();
-				<CurrentDifficulty<T>>::put(initial_difficulty);
-			}
-			Weight::zero()
 		}
 
 		/// Called at the end of each block.
@@ -296,8 +284,7 @@ pub mod pallet {
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
 			// Calculate ratio using FixedU128
-			let clamp =
-				FixedU128::from_rational(T::DifficultyAdjustPercentClamp::get() as u128, 100u128);
+			let clamp = T::DifficultyAdjustPercentClamp::get();
 			let one = FixedU128::one();
 			let ratio =
 				FixedU128::from_rational(target_block_time as u128, observed_block_time as u128)
@@ -314,14 +301,15 @@ pub mod pallet {
 			let mut adjusted = match current_difficulty.checked_mul(ratio_512) {
 				Some(numerator) => {
 					// unchecked division, we know the denominator is not zero
-					let result = numerator / U512::from(FixedU128::one().into_inner());
+					let result = numerator / U512::from(one.into_inner());
 					log::debug!(target: "qpow",
 					    "Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
 						print_u512_hex_prefix(current_difficulty, 32), target_block_time, observed_block_time, print_u512_hex_prefix(result, 32));
 					result
 				},
 				None => {
-					panic!("Multiplication overflow in difficulty calculation");
+					log::error!("Multiplication overflow in difficulty calculation");
+					return current_difficulty;
 				},
 			};
 
@@ -457,9 +445,6 @@ pub mod pallet {
 
 	/// Helper function to print the first n hex digits of a U512
 	pub fn print_u512_hex_prefix(value: U512, n: usize) -> String {
-		let mut hex_string = String::new();
-		let _ = write!(hex_string, "{:0128x}", value);
-		let prefix_len = core::cmp::min(n, hex_string.len());
-		hex_string[..prefix_len].to_string()
+		value.low_u128().to_string()
 	}
 }
