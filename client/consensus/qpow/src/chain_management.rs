@@ -149,7 +149,7 @@ where
 			finalize_number
 		);
 
-		log::info!("✓ Finalized block #{} ({:?})", finalize_number, finalize_hash);
+		log::debug!("✓ Finalized block #{} ({:?})", finalize_number, finalize_hash);
 
 		Ok(())
 	}
