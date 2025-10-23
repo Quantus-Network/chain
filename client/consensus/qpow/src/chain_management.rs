@@ -838,7 +838,7 @@ impl ChainManagement {
 				log::info!("⛓️ Chain finalization task spawned");
 
 				let mut import_notification_stream =
-					select_chain.client.import_notification_stream();
+					select_chain.client.every_import_notification_stream();
 				log::debug!("⛓️ Listening for block import notifications");
 
 				while let Some(notification) = import_notification_stream.next().await {
