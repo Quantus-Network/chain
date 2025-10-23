@@ -7569,8 +7569,6 @@ dependencies = [
 [[package]]
 name = "pallet-treasury"
 version = "40.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77efcc0e81cf6025128d463fa56d024f1abb6ff26e190fc091da3bafd3882d2a"
 dependencies = [
  "docify",
  "frame-benchmarking",
@@ -7578,11 +7576,13 @@ dependencies = [
  "frame-system",
  "impl-trait-for-tuples",
  "log",
- "pallet-balances 42.0.0",
+ "pallet-balances 40.0.1",
+ "pallet-utility",
  "parity-scale-codec",
  "scale-info",
  "serde",
  "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
