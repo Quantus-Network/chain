@@ -69,19 +69,21 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 
 	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
 		let block_number = *block.header.number();
-		let hundred = 1000u32.into();
-		if block_number % hundred == Zero::zero() {
+		let freq = 1000u32.into();
+		if block_number % freq == Zero::zero() {
 			log::info!(
-				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block.header.number(),
+				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number - freq,
+				block_number,
 				block.header.hash(),
 				block.header.extrinsics_root(),
 				block.header.state_root()
 			);
 		} else {
 			log::debug!(
+				target: "qpow",
 				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block.header.number(),
+				block_number,
 				block.header.hash(),
 				block.header.extrinsics_root(),
 				block.header.state_root()
