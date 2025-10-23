@@ -14,5 +14,5 @@ qp-poseidon-core = { workspace = true }
 [features]
 default = ["std"]
 std = [
-	"primitive-types/std"
+	"primitive-types/std",
 ]
