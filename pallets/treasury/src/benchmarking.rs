@@ -18,6 +18,7 @@
 //! Treasury pallet benchmarking.
 
 #![cfg(feature = "runtime-benchmarks")]
+#![allow(clippy::all)]
 
 use super::{Pallet as Treasury, *};
 

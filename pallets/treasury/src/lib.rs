@@ -15,6 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// This is a forked pallet from upstream polkadot-sdk
+// Skip all clippy lints to avoid modifying upstream code
+#![allow(clippy::all)]
+
 //! > Made with *Substrate*, for *Polkadot*.
 //!
 //! [![github]](https://github.com/paritytech/substrate/frame/fast-unstake) -

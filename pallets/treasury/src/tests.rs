@@ -18,6 +18,7 @@
 //! Treasury pallet tests.
 
 #![cfg(test)]
+#![allow(clippy::all)]
 
 use core::{cell::RefCell, marker::PhantomData};
 use sp_runtime::{

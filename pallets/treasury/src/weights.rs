@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(clippy::all)]
+
 // This file is part of Substrate.
 
 // Copyright (C) Parity Technologies (UK) Ltd.

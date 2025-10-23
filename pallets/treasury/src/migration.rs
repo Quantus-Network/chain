@@ -17,6 +17,8 @@
 
 //! Treasury pallet migrations.
 
+#![allow(clippy::all)]
+
 use super::*;
 use alloc::collections::BTreeSet;
 #[cfg(feature = "try-runtime")]
