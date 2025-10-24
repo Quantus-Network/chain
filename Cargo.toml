@@ -136,8 +136,10 @@ sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = fal
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-qp-poseidon = { version = "0.9.5", default-features = false }
-qp-poseidon-core = { version = "0.9.5", default-features = false }
+# qp-poseidon = { version = "0.9.5", default-features = false }
+# qp-poseidon-core = { version = "0.9.5", default-features = false }
+qp-poseidon = { path = "../qp-poseidon/substrate", default-features = false }
+qp-poseidon-core = { path = "../qp-poseidon/core", default-features = false }
 qp-rusty-crystals-dilithium = { version = "1.0.3", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "0.1.5" }
 qp-wormhole-circuit = { version = "0.1.2", default-features = false }
