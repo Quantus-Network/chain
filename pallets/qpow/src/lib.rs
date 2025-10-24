@@ -105,8 +105,8 @@ pub mod pallet {
 			// Set current difficulty for the genesis block
 			<CurrentDifficulty<T>>::put(initial_difficulty);
 
-			log::info!(target: "qpow", "Genesis: Set initial difficulty to {}",
-				initial_difficulty.low_u128());
+			log::info!(target: "qpow", "Genesis: Set initial difficulty to {:x}",
+				initial_difficulty.low_u64());
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
@@ -142,9 +142,9 @@ pub mod pallet {
 		fn on_finalize(block_number: BlockNumberFor<T>) {
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
-				"📢 QPoW: before submit at block {:?}, current_difficulty={}",
+				"📢 QPoW: before submit at block {:?}, current_difficulty={:?}",
 				block_number,
-				current_difficulty.low_u128()
+				current_difficulty.low_u64()
 			);
 
 			Self::adjust_difficulty();
@@ -257,11 +257,11 @@ pub mod pallet {
 				Self::percentage_change(current_difficulty, new_difficulty);
 
 			log::debug!(target: "qpow",
-				"🟢 Adjusted mining difficulty {}{}%: {} -> {} (observed block time: {}ms, target: {}ms) ",
+				"🟢 Adjusted mining difficulty {}{}%: {:x} -> {:x} (observed block time: {}ms, target: {}ms) ",
 				if is_positive {"+"} else {"-"},
 				pct_change,
-				current_difficulty.low_u128(),
-				new_difficulty.low_u128(),
+				current_difficulty.low_u64(),
+				new_difficulty.low_u64(),
 				observed_block_time,
 				target_time
 			);
@@ -283,6 +283,7 @@ pub mod pallet {
 			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
 
 			let ratio_512 = U512::from(ratio.into_inner());
+			let max_difficulty = Self::get_max_difficulty();
 
 			// For Bitcoin-style difficulty adjustment:
 			// If observed_time > target_time (slow blocks), difficulty should decrease
@@ -293,37 +294,35 @@ pub mod pallet {
 					// unchecked division, we know the denominator is not zero
 					let result = numerator / U512::from(one.into_inner());
 					log::debug!(target: "qpow",
-					    "Difficulty calculation: current={}, target_time={}, observed_time={}, new={}",
-						current_difficulty.low_u32(), target_block_time, observed_block_time, result.low_u32());
+					    "Difficulty calculation: current={:x}, target_time={}, observed_time={}, new={:x}",
+						current_difficulty.low_u32() as u16, target_block_time, observed_block_time, result.low_u32() as u16);
 					result
 				},
 				None => {
 					log::error!("Multiplication overflow in difficulty calculation");
-					return current_difficulty;
+					return max_difficulty;
 				},
 			};
 
 			let min_difficulty = Self::get_min_difficulty();
 			if adjusted < min_difficulty {
-				log::warn!("Min difficulty achieved, clipping to: {}", min_difficulty.low_u128());
-
+				log::warn!("Min difficulty achieved, clipping to: {:x}", min_difficulty.low_u64());
 				adjusted = min_difficulty;
 			} else {
-				let max_difficulty = Self::get_max_difficulty();
 				if adjusted > max_difficulty {
 					log::warn!(
-						"Max difficulty achieved, clipping to: {}",
-						max_difficulty.low_u128()
+						"Max difficulty achieved, clipping to: {:x}",
+						max_difficulty.low_u64()
 					);
 					adjusted = max_difficulty;
 				}
 			}
 
 			log::debug!(target: "qpow",
-				"🟢 Current Difficulty: {}",
-				current_difficulty.low_u128()
+				"🟢 Current Difficulty: {:x}",
+				current_difficulty.low_u64()
 			);
-			log::debug!(target: "qpow", "🟢 Next Difficulty:    {}", adjusted.low_u128());
+			log::debug!(target: "qpow", "🟢 Next Difficulty:    {:x}", adjusted.low_u64());
 			log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
 			log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
@@ -394,7 +393,7 @@ pub mod pallet {
 			let initial = Self::initial_difficulty();
 
 			if stored == U512::zero() {
-				log::warn!(target: "qpow", "Stored difficulty is zero, using initial: {}", initial.low_u128());
+				log::warn!(target: "qpow", "Stored difficulty is zero, using initial: {:x}", initial.low_u64());
 				return initial;
 			}
 			stored

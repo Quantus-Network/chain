@@ -15,8 +15,8 @@ pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -
 	}
 
 	let hash_result = get_nonce_hash(block_hash, nonce);
-	log::debug!(target: "math", "hash_result = {}, difficulty = {}",
-		hash_result.low_u32(), difficulty.low_u32());
+	log::debug!(target: "math", "hash_result = {:x}, difficulty = {:x}",
+		hash_result.low_u32() as u16, difficulty.low_u32() as u16);
 
 	// In Bitcoin-style PoW, we check if hash < target
 	// Where target = max_target / difficulty
@@ -45,8 +45,8 @@ pub fn get_nonce_hash(
 	// Convert to U512 for difficulty comparison
 	let result = U512::from_big_endian(&hash);
 
-	log::debug!(target: "math", "hash = {} block_hash = {}, nonce = {:?}",
-		result.low_u32(), hex::encode(block_hash), nonce);
+	log::debug!(target: "math", "hash = {:x} block_hash = {}, nonce = {:?}",
+		result.low_u32() as u16, hex::encode(block_hash), nonce);
 
 	result
 }
@@ -81,9 +81,9 @@ pub fn mine_range(
 		let hash_result = get_nonce_hash(block_hash, nonce_bytes);
 
 		if hash_result < target {
-			log::debug!(target: "math", "💎 Local miner found nonce {} with hash {} and target {} and block_hash {:?}",
-			nonce_u.low_u32(), hash_result.low_u32(),
-				target.low_u32(), hex::encode(block_hash));
+			log::debug!(target: "math", "💎 Local miner found nonce {:x} with hash {:x} and target {:x} and block_hash {:?}",
+			nonce_u.low_u32() as u16, hash_result.low_u32() as u16,
+				target.low_u32() as u16, hex::encode(block_hash));
 			return Some((nonce_bytes, hash_result));
 		}
 
