@@ -9089,8 +9089,6 @@ dependencies = [
  "num-traits",
  "primitive-types 0.13.1",
  "qp-poseidon-core",
- "sha2 0.10.9",
- "sha3",
 ]
 
 [[package]]
