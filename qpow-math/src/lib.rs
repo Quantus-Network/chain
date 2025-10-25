@@ -2,7 +2,7 @@
 
 extern crate alloc;
 use primitive_types::U512;
-use qp_poseidon_core::Poseidon2Core;
+use qp_poseidon_core;
 
 // Bitcoin-style validation logic with double Poseidon2 hashing
 pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -> (bool, U512) {
@@ -37,13 +37,12 @@ pub fn get_nonce_hash(
 	input[..32].copy_from_slice(&block_hash);
 	input[32..96].copy_from_slice(&nonce);
 
-	let poseidon = Poseidon2Core::new();
-
 	// Double hash with Poseidon2 (like Bitcoin's double SHA256)
-	let hash = poseidon.hash_squeeze_twice(&input);
+	let first_hash = qp_poseidon_core::hash_squeeze_twice(&input);
+	let second_hash = qp_poseidon_core::hash_squeeze_twice(&first_hash);
 
 	// Convert to U512 for difficulty comparison
-	let result = U512::from_big_endian(&hash);
+	let result = U512::from_big_endian(&second_hash);
 
 	log::debug!(target: "math", "hash = {:x} block_hash = {}, nonce = {:?}",
 		result.low_u32() as u16, hex::encode(block_hash), nonce);

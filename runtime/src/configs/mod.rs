@@ -56,7 +56,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{ConvertInto, One},
+	traits::{ConvertInto, One, AccountIdConversion},
 	FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
