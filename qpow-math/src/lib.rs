@@ -167,6 +167,10 @@ pub fn mine_range(
 	let poseidon = Poseidon2Core::new();
 	for _ in 0..steps {
 		let nonce_element = U512::from_big_endian(&poseidon.hash_512(&value.to_big_endian()));
+		if nonce_element == U512::zero() {
+			log::debug!(target: "math", "zero nonce");
+			continue;
+		}
 		let distance = target.bitxor(nonce_element);
 		if distance <= threshold {
 			log::debug!(target: "math", "💎 Local miner found nonce {} with distance {} and target {} and nonce_element {} and block_hash {:?} and m = {} and n = {}", nonce_u, distance, target, nonce_element, hex::encode(block_hash), m, n);
