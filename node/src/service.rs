@@ -311,9 +311,6 @@ pub fn new_full<
 		telemetry: telemetry.as_mut(),
 	})?;
 
-	// Start deterministic-depth finalization task
-	ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
-
 	if role.is_authority() {
 		let proposer = sc_basic_authorship::ProposerFactory::new(
 			task_manager.spawn_handle(),
@@ -600,6 +597,9 @@ pub fn new_full<
 
 		log::info!(target: "miner", "⛏️  Pow miner spawned");
 	}
+
+	// Start deterministic-depth finalization task
+	ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
 
 	Ok(task_manager)
 }
