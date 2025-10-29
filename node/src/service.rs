@@ -358,8 +358,6 @@ pub fn new_full<
 			&task_manager,
 		);
 
-		ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
-
 		let mining_cancellation_token = CancellationToken::new();
 		let mining_token_clone = mining_cancellation_token.clone();
 
@@ -599,6 +597,9 @@ pub fn new_full<
 
 		log::info!(target: "miner", "⛏️  Pow miner spawned");
 	}
+
+	// Start deterministic-depth finalization task
+	ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
 
 	Ok(task_manager)
 }
