@@ -1,7 +1,7 @@
 use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
-use qp_poseidon_core::Poseidon2Core;
+use qp_poseidon_core;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
 
 #[test]
@@ -81,9 +81,9 @@ fn test_poseidon_double_hash() {
 		input[..32].copy_from_slice(&block_hash);
 		input[32..96].copy_from_slice(&nonce);
 
-		let poseidon = Poseidon2Core::new();
-		let hash = poseidon.hash_squeeze_twice(&input);
-		let expected = U512::from_big_endian(&hash);
+		let first_hash = qp_poseidon_core::hash_squeeze_twice(&input);
+		let second_hash = qp_poseidon_core::hash_squeeze_twice(&first_hash);
+		let expected = U512::from_big_endian(&second_hash);
 
 		let actual = get_nonce_hash(block_hash, nonce);
 		assert_eq!(actual, expected);
