@@ -21,7 +21,7 @@ use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::{ProvideRuntimeApi, __private::BlockT};
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, RuntimeDebug, U512};
-use sp_runtime::traits::Header;
+use sp_runtime::traits::{Header, Zero};
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
@@ -68,13 +68,27 @@ impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<
 	}
 
 	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
-		log::info!(
-			"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-			block.header.number(),
-			block.header.hash(),
-			block.header.extrinsics_root(),
-			block.header.state_root()
-		);
+		let block_number = *block.header.number();
+		let freq = 1000u32.into();
+		if block_number % freq == Zero::zero() {
+			log::info!(
+				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number - freq,
+				block_number,
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		} else {
+			log::debug!(
+				target: "qpow",
+				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number,
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		}
 		self.inner.import_block(block).await
 	}
 }
@@ -315,7 +329,7 @@ pub fn new_full<
 					Some(account.encode())
 				},
 				Err(_) => {
-					log::warn!("⛏️Invalid rewards address format: {}", addr_str);
+					log::error!("⛏️Invalid rewards address format: {}", addr_str);
 					None
 				},
 			}
@@ -343,8 +357,6 @@ pub fn new_full<
 			prometheus_registry.clone(),
 			&task_manager,
 		);
-
-		ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
 
 		let mining_cancellation_token = CancellationToken::new();
 		let mining_token_clone = mining_cancellation_token.clone();
@@ -585,6 +597,9 @@ pub fn new_full<
 
 		log::info!(target: "miner", "⛏️  Pow miner spawned");
 	}
+
+	// Start deterministic-depth finalization task
+	ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
 
 	Ok(task_manager)
 }
