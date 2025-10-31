@@ -149,7 +149,7 @@ where
 			finalize_number
 		);
 
-		log::info!("✓ Finalized block #{} ({:?})", finalize_number, finalize_hash);
+		log::debug!("✓ Finalized block #{} ({:?})", finalize_number, finalize_hash);
 
 		Ok(())
 	}
@@ -838,7 +838,7 @@ impl ChainManagement {
 				log::info!("⛓️ Chain finalization task spawned");
 
 				let mut import_notification_stream =
-					select_chain.client.import_notification_stream();
+					select_chain.client.every_import_notification_stream();
 				log::debug!("⛓️ Listening for block import notifications");
 
 				while let Some(notification) = import_notification_stream.next().await {
