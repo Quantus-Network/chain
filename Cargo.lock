@@ -7251,7 +7251,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core 0.9.5",
+ "qp-poseidon-core 1.0.1",
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
@@ -8958,13 +8958,15 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "0.9.5"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0353086f7af1df7d45a1ecb995cf84b583c8211d7122f542044b37388b5effcd"
 dependencies = [
  "log",
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
- "qp-poseidon-core 0.9.5",
+ "qp-poseidon-core 1.0.1",
  "scale-info",
  "serde",
  "sp-core",
@@ -8975,24 +8977,14 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-constants"
-version = "0.9.5"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d56b56652e9f44a43de9593e75d7c3e0c3a352e10675cf3024e5b3175711cd3"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
  "p3-poseidon2",
  "rand 0.9.2",
- "rand_chacha 0.9.0",
-]
-
-[[package]]
-name = "qp-poseidon-core"
-version = "0.9.5"
-dependencies = [
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "qp-poseidon-constants",
  "rand_chacha 0.9.0",
 ]
 
@@ -9007,6 +8999,20 @@ dependencies = [
  "p3-poseidon2",
  "p3-symmetric",
  "rand 0.9.2",
+ "rand_chacha 0.9.0",
+]
+
+[[package]]
+name = "qp-poseidon-core"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e658a373a7fb22babeda9ffcc8af0a894e6e3c008272ed735509eccb7769ead3"
+dependencies = [
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "qp-poseidon-constants",
  "rand_chacha 0.9.0",
 ]
 
@@ -9030,7 +9036,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "nam-tiny-hderive",
- "qp-poseidon-core 0.9.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "qp-poseidon-core 0.9.5",
  "qp-rusty-crystals-dilithium",
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -9109,7 +9115,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "primitive-types 0.13.1",
- "qp-poseidon-core 0.9.5",
+ "qp-poseidon-core 1.0.1",
 ]
 
 [[package]]
