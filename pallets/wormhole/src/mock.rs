@@ -20,8 +20,15 @@ construct_runtime!(
 );
 
 pub type Balance = u128;
-pub type AccountId = u64;
+pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block = frame_system::mocking::MockBlock<Test>;
+
+/// Helper function to convert a u64 to an AccountId32
+pub fn account_id(id: u64) -> AccountId {
+	let mut bytes = [0u8; 32];
+	bytes[0..8].copy_from_slice(&id.to_le_bytes());
+	AccountId::new(bytes)
+}
 
 // --- FRAME SYSTEM ---
 
@@ -87,7 +94,10 @@ impl pallet_balances::Config for Test {
 // --- PALLET WORMHOLE ---
 
 parameter_types! {
-	pub const MintingAccount: u64 = 999;
+	pub const MintingAccount: AccountId = AccountId::new([
+		231, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	]);
 }
 
 impl pallet_wormhole::Config for Test {

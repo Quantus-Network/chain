@@ -80,7 +80,7 @@ mod wormhole_tests {
 	fn test_wormhole_exit_balance_and_fees() {
 		new_test_ext().execute_with(|| {
             let proof = get_test_proof();
-            let expected_exit_account = 8226349481601990196u64;
+            let expected_exit_account = account_id(8226349481601990196u64);
 
             // Parse the proof to get expected funding amount
             let verifier = get_wormhole_verifier().expect("Verifier should be available");
@@ -100,7 +100,7 @@ mod wormhole_tests {
             let expected_net_balance_increase = expected_funding_amount.saturating_sub(expected_total_fee);
 
             let initial_exit_balance =
-                pallet_balances::Pallet::<Test>::free_balance(expected_exit_account);
+                pallet_balances::Pallet::<Test>::free_balance(&expected_exit_account);
 
             let block_number = frame_system::Pallet::<Test>::block_number();
             let result =
@@ -108,7 +108,7 @@ mod wormhole_tests {
             assert_ok!(result);
 
             let final_exit_balance =
-                pallet_balances::Pallet::<Test>::free_balance(expected_exit_account);
+                pallet_balances::Pallet::<Test>::free_balance(&expected_exit_account);
 
             let balance_increase = final_exit_balance - initial_exit_balance;
 

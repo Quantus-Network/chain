@@ -44,7 +44,7 @@ impl frame_system::Config for Test {
 	type Nonce = u64;
 	type Hash = H256;
 	type Hashing = BlakeTwo256;
-	type AccountId = u64;
+	type AccountId = sp_core::crypto::AccountId32;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type BlockHashCount = BlockHashCount;
@@ -85,7 +85,7 @@ impl pallet_balances::Config for Test {
 
 parameter_types! {
 	pub const TreasuryBlockReward: u128 = 50;
-	pub const MintingAccount: u64 = 999;
+	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
 }
 
 impl pallet_mining_rewards::Config for Test {
@@ -97,16 +97,25 @@ impl pallet_mining_rewards::Config for Test {
 	type MintingAccount = MintingAccount;
 }
 
+/// Helper function to convert a u8 to an AccountId32
+pub fn account_id(id: u8) -> sp_core::crypto::AccountId32 {
+	sp_core::crypto::AccountId32::from([id; 32])
+}
+
 // Configure a default miner account for tests
-pub const MINER: u64 = 1;
-pub const MINER2: u64 = 2;
+pub fn miner() -> sp_core::crypto::AccountId32 {
+	account_id(1)
+}
+pub fn miner2() -> sp_core::crypto::AccountId32 {
+	account_id(2)
+}
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(MINER, ExistentialDeposit::get()), (MINER2, ExistentialDeposit::get())],
+		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
@@ -117,7 +126,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 // Helper function to create a block digest with a miner pre-runtime digest
-pub fn set_miner_digest(miner: u64) {
+pub fn set_miner_digest(miner: sp_core::crypto::AccountId32) {
 	let miner_bytes = miner.encode();
 	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, miner_bytes);
 	let digest = Digest { logs: vec![pre_digest] };

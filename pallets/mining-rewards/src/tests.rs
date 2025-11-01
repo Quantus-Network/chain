@@ -8,22 +8,22 @@ const UNIT: u128 = 1_000_000_000_000;
 fn miner_reward_works() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance (ExistentialDeposit)
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Add a miner to the pre-runtime digest
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 
 		// Run the on_finalize hook
 		MiningRewards::on_finalize(1);
 
 		// Check that the miner received the block reward (no fees in this test)
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 50 // Initial + base reward only
 		);
 
 		// Check the event was emitted
-		System::assert_has_event(Event::MinerRewarded { miner: MINER, reward: 50 }.into());
+		System::assert_has_event(Event::MinerRewarded { miner: miner(), reward: 50 }.into());
 	});
 }
 
@@ -31,10 +31,10 @@ fn miner_reward_works() {
 fn miner_reward_with_transaction_fees_works() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Add a miner to the pre-runtime digest
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 
 		// Manually add some transaction fees
 		let fees: Balance = 25;
@@ -49,7 +49,7 @@ fn miner_reward_with_transaction_fees_works() {
 		// Check that the miner received the block reward + all fees
 		// Current implementation: miner gets base reward (50) + all fees (25)
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 50 + 25 // Initial + base + all fees
 		);
 
@@ -64,7 +64,7 @@ fn miner_reward_with_transaction_fees_works() {
 		// Second event: miner reward for fees
 		System::assert_has_event(
 			Event::MinerRewarded {
-				miner: MINER,
+				miner: miner(),
 				reward: 25, // all fees go to miner
 			}
 			.into(),
@@ -72,7 +72,7 @@ fn miner_reward_with_transaction_fees_works() {
 		// Third event: miner reward for base reward
 		System::assert_has_event(
 			Event::MinerRewarded {
-				miner: MINER,
+				miner: miner(),
 				reward: 50, // base reward
 			}
 			.into(),
@@ -84,7 +84,7 @@ fn miner_reward_with_transaction_fees_works() {
 fn on_unbalanced_collects_fees() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Use collect_transaction_fees instead of directly calling on_unbalanced
 		MiningRewards::collect_transaction_fees(30);
@@ -93,14 +93,14 @@ fn on_unbalanced_collects_fees() {
 		assert_eq!(MiningRewards::collected_fees(), 30);
 
 		// Add a miner to the pre-runtime digest and distribute rewards
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 		MiningRewards::on_finalize(1);
 
 		// Check that the miner received the block reward + all fees
 		// Check miner received rewards
 		// Current implementation: miner gets base reward (50) + all fees (30)
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 50 + 30 // Initial + base + all fees
 		);
 	});
@@ -110,26 +110,26 @@ fn on_unbalanced_collects_fees() {
 fn multiple_blocks_accumulate_rewards() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Block 1
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 		MiningRewards::collect_transaction_fees(10);
 		MiningRewards::on_finalize(1);
 
 		// Current implementation: miner gets base reward (50) + all fees (10)
 		let balance_after_block_1 = initial_balance + 50 + 10; // Initial + base + all fees
-		assert_eq!(Balances::free_balance(MINER), balance_after_block_1);
+		assert_eq!(Balances::free_balance(miner()), balance_after_block_1);
 
 		// Block 2
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 		MiningRewards::collect_transaction_fees(15);
 		MiningRewards::on_finalize(2);
 
 		// Check total rewards for both blocks
 		// Block 1: 50 + 10 = 60, Block 2: 50 + 15 = 65, Total: 125
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 50 + 10 + 50 + 15 // Initial + block1 + block2
 		);
 	});
@@ -139,34 +139,34 @@ fn multiple_blocks_accumulate_rewards() {
 fn different_miners_get_different_rewards() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balances
-		let initial_balance_miner1 = Balances::free_balance(MINER);
-		let initial_balance_miner2 = Balances::free_balance(MINER2);
+		let initial_balance_miner1 = Balances::free_balance(miner());
+		let initial_balance_miner2 = Balances::free_balance(miner2());
 
 		// Block 1 - First miner
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 		MiningRewards::collect_transaction_fees(10);
 		MiningRewards::on_finalize(1);
 
 		// Check first miner balance
 		// Current implementation: miner gets base reward (50) + all fees (10)
 		let balance_after_block_1 = initial_balance_miner1 + 50 + 10; // Initial + base + all fees
-		assert_eq!(Balances::free_balance(MINER), balance_after_block_1);
+		assert_eq!(Balances::free_balance(miner()), balance_after_block_1);
 
 		// Block 2 - Second miner
 		System::set_block_number(2);
-		set_miner_digest(MINER2);
+		set_miner_digest(miner2());
 		MiningRewards::collect_transaction_fees(20);
 		MiningRewards::on_finalize(2);
 
 		// Check second miner balance
 		// Current implementation: miner gets base reward (50) + all fees (20)
 		assert_eq!(
-			Balances::free_balance(MINER2),
+			Balances::free_balance(miner2()),
 			initial_balance_miner2 + 50 + 20 // Initial + base + all fees
 		);
 
 		// First miner balance should remain unchanged
-		assert_eq!(Balances::free_balance(MINER), balance_after_block_1);
+		assert_eq!(Balances::free_balance(miner()), balance_after_block_1);
 	});
 }
 
@@ -174,7 +174,7 @@ fn different_miners_get_different_rewards() {
 fn transaction_fees_collector_works() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Use collect_transaction_fees to gather fees
 		MiningRewards::collect_transaction_fees(10);
@@ -185,14 +185,14 @@ fn transaction_fees_collector_works() {
 		assert_eq!(MiningRewards::collected_fees(), 30);
 
 		// Reward miner
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 		MiningRewards::on_finalize(1);
 
 		// Check miner got base reward + 90% of all fees
 		// Check that the miner received the block reward + all collected fees
 		// Base reward: 50, Fees: 30 (from the collect_transaction_fees call)
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 50 + 30 // Initial + base + all fees
 		);
 	});
@@ -202,7 +202,7 @@ fn transaction_fees_collector_works() {
 fn block_lifecycle_works() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Run through a complete block lifecycle
 
@@ -214,13 +214,13 @@ fn block_lifecycle_works() {
 		MiningRewards::collect_transaction_fees(15);
 
 		// 3. on_finalize - should reward the miner
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 		MiningRewards::on_finalize(1);
 
 		// Check miner received rewards
 		// Current implementation: miner gets base reward (50) + all fees (15 in this test)
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 50 + 15 // Initial + base reward + fees
 		);
 	});
@@ -230,10 +230,10 @@ fn block_lifecycle_works() {
 fn test_run_to_block_helper() {
 	new_test_ext().execute_with(|| {
 		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER);
+		let initial_balance = Balances::free_balance(miner());
 
 		// Set up miner
-		set_miner_digest(MINER);
+		set_miner_digest(miner());
 
 		// Add fees for block 1
 		MiningRewards::collect_transaction_fees(10);
@@ -246,7 +246,7 @@ fn test_run_to_block_helper() {
 		// Block 2: 50 (base) + 0 (no new fees) = 50
 		// Total: 110
 		assert_eq!(
-			Balances::free_balance(MINER),
+			Balances::free_balance(miner()),
 			initial_balance + 110 // Initial + 50 + 10 + 50
 		);
 
@@ -260,7 +260,7 @@ fn rewards_go_to_treasury_when_no_miner() {
 	new_test_ext().execute_with(|| {
 		// Get Treasury account
 		let treasury_account = TreasuryPalletId::get().into_account_truncating();
-		let initial_treasury_balance = Balances::free_balance(treasury_account);
+		let initial_treasury_balance = Balances::free_balance(&treasury_account);
 
 		// Fund Treasury
 		let treasury_funding = 1000 * UNIT;
@@ -298,9 +298,9 @@ fn rewards_go_to_treasury_when_no_miner() {
 fn test_fees_split_between_treasury_and_miner() {
 	new_test_ext().execute_with(|| {
 		// Set up initial balances
-		let miner = 1;
+		let miner = account_id(1);
 		let _ = Balances::deposit_creating(&miner, 0); // Create account, balance might become ExistentialDeposit
-		let actual_initial_balance_after_creation = Balances::free_balance(miner);
+		let actual_initial_balance_after_creation = Balances::free_balance(&miner);
 
 		// Set transaction fees
 		let tx_fees = 100;
@@ -308,17 +308,18 @@ fn test_fees_split_between_treasury_and_miner() {
 
 		// Create a block with a miner
 		System::set_block_number(1);
-		set_miner_digest(miner);
+		set_miner_digest(miner.clone());
 
 		// Run on_finalize
 		MiningRewards::on_finalize(System::block_number());
 
 		// Get Treasury account
-		let treasury_account: u64 = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account: sp_core::crypto::AccountId32 =
+			TreasuryPalletId::get().into_account_truncating();
 
 		// Get actual values from the system AFTER on_finalize
-		let treasury_balance_after_finalize = Balances::free_balance(treasury_account);
-		let miner_balance_after_finalize = Balances::free_balance(miner);
+		let treasury_balance_after_finalize = Balances::free_balance(&treasury_account);
+		let miner_balance_after_finalize = Balances::free_balance(&miner);
 
 		// Calculate expected values using the same method as in the implementation
 		// Current implementation: miner gets all fees, treasury gets block reward
@@ -349,7 +350,7 @@ fn test_fees_split_between_treasury_and_miner() {
 
 		System::assert_has_event(
 			Event::MinerRewarded {
-				miner,
+				miner: miner.clone(),
 				reward: 100, // all fees go to miner
 			}
 			.into(),

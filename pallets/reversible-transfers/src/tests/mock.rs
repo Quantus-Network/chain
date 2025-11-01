@@ -13,9 +13,57 @@ use sp_runtime::{BuildStorage, Perbill, Permill, Weight};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 pub type Balance = u128;
-pub type AccountId = u64;
+pub type AccountId = sp_core::crypto::AccountId32;
 
 pub(crate) type ReversibleTransfersCall = pallet_reversible_transfers::Call<Test>;
+
+/// Helper function to convert a u8 to an AccountId32
+pub fn account_id(id: u8) -> AccountId {
+	AccountId::new([id; 32])
+}
+
+/// Helper function for account 256 (which can't be represented as a single u8)
+pub fn account_256() -> AccountId {
+	let mut bytes = [0u8; 32];
+	bytes[0] = 0;
+	bytes[1] = 1;
+	AccountId::new(bytes)
+}
+
+/// Helper functions for commonly used test account IDs
+pub fn alice() -> AccountId {
+	account_id(1)
+}
+pub fn bob() -> AccountId {
+	account_id(2)
+}
+pub fn charlie() -> AccountId {
+	account_id(3)
+}
+pub fn dave() -> AccountId {
+	account_id(4)
+}
+pub fn eve() -> AccountId {
+	account_id(5)
+}
+pub fn ferdie() -> AccountId {
+	account_id(255)
+}
+pub fn treasury() -> AccountId {
+	account_id(99)
+}
+
+/// Helper function for interceptor account (avoiding + 100 calculations)
+pub fn interceptor_1() -> AccountId {
+	account_id(101)
+}
+
+/// Helper function for interceptor account 2
+pub fn interceptor_255() -> AccountId {
+	let mut bytes = [255u8; 32];
+	bytes[0] = 100; // Make it different from ferdie
+	AccountId::new(bytes)
+}
 
 #[frame_support::runtime]
 mod runtime {
@@ -87,6 +135,7 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Test> {
 impl frame_system::Config for Test {
 	type Block = Block;
 	type AccountId = AccountId;
+	type Lookup = sp_runtime::traits::IdentityLookup<Self::AccountId>;
 	type AccountData = pallet_balances::AccountData<Balance>;
 }
 
@@ -147,7 +196,7 @@ parameter_types! {
 	pub const MaxInterceptorAccounts: u32 = 10;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 	/// Mock treasury account ID for tests
-	pub const TreasuryAccount: AccountId = 999;
+	pub const TreasuryAccount: AccountId = AccountId::new([99u8; 32]);
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -229,7 +278,7 @@ impl pallet_recovery::Config for Test {
 impl pallet_preimage::Config for Test {
 	type WeightInfo = ();
 	type Currency = ();
-	type ManagerOrigin = EnsureRoot<u64>;
+	type ManagerOrigin = EnsureRoot<AccountId>;
 	type Consideration = ();
 	type RuntimeEvent = RuntimeEvent;
 }
@@ -242,7 +291,7 @@ parameter_types! {
 }
 
 ord_parameter_types! {
-	pub const One: u64 = 1;
+	pub const One: AccountId = AccountId::new([1u8; 32]);
 }
 
 impl pallet_scheduler::Config for Test {
@@ -250,7 +299,7 @@ impl pallet_scheduler::Config for Test {
 	type PalletsOrigin = OriginCaller;
 	type RuntimeCall = RuntimeCall;
 	type MaximumWeight = MaximumSchedulerWeight;
-	type ScheduleOrigin = EitherOfDiverse<EnsureRoot<u64>, EnsureSignedBy<One, u64>>;
+	type ScheduleOrigin = EitherOfDiverse<EnsureRoot<AccountId>, EnsureSignedBy<One, AccountId>>;
 	type OriginPrivilegeCmp = EqualPrivilegeOnly;
 	type MaxScheduledPerBlock = ConstU32<10>;
 	type WeightInfo = ();
@@ -273,39 +322,39 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
-			(1, 1_000_000_000_000_000),
-			(2, 2),
-			(3, 100_000_000_000),
-			(4, 100_000_000_000),
-			(5, 100_000_000_000),
-			(6, 100_000_000_000),
-			(7, 1_000_000_000_000),
-			(8, 100_000_000_000),
-			(9, 100_000_000_000),
-			(255, 100_000_000_000),
-			(256, 100_000_000_000),
+			(account_id(1), 1_000_000_000_000_000),
+			(account_id(2), 2),
+			(account_id(3), 100_000_000_000),
+			(account_id(4), 100_000_000_000),
+			(account_id(5), 100_000_000_000),
+			(account_id(6), 100_000_000_000),
+			(account_id(7), 1_000_000_000_000),
+			(account_id(8), 100_000_000_000),
+			(account_id(9), 100_000_000_000),
+			(account_id(255), 100_000_000_000),
+			(account_256(), 100_000_000_000), // 256
 			// Test accounts for interceptor tests
-			(100, 100_000_000_000),
-			(101, 100_000_000_000),
-			(102, 100_000_000_000),
-			(103, 100_000_000_000),
-			(104, 100_000_000_000),
-			(105, 100_000_000_000),
-			(106, 100_000_000_000),
-			(107, 100_000_000_000),
-			(108, 100_000_000_000),
-			(109, 100_000_000_000),
-			(110, 100_000_000_000),
-			(111, 100_000_000_000),
+			(account_id(100), 100_000_000_000),
+			(account_id(101), 100_000_000_000),
+			(account_id(102), 100_000_000_000),
+			(account_id(103), 100_000_000_000),
+			(account_id(104), 100_000_000_000),
+			(account_id(105), 100_000_000_000),
+			(account_id(106), 100_000_000_000),
+			(account_id(107), 100_000_000_000),
+			(account_id(108), 100_000_000_000),
+			(account_id(109), 100_000_000_000),
+			(account_id(110), 100_000_000_000),
+			(account_id(111), 100_000_000_000),
 			// Treasury account for fee collection tests (must meet existential deposit)
-			(999, 1),
+			(account_id(99), 1),
 		],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
 
 	pallet_reversible_transfers::GenesisConfig::<Test> {
-		initial_high_security_accounts: vec![(1, 2, 10)],
+		initial_high_security_accounts: vec![(account_id(1), account_id(2), 10)],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
