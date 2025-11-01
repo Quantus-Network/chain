@@ -22,7 +22,7 @@ mod benchmarks {
 		let block_number = BlockNumberFor::<T>::from(1000u32);
 		frame_system::Pallet::<T>::set_block_number(block_number);
 
-		let initial_difficulty = QPoW::initial_difficulty();
+		let initial_difficulty = QPoW::<T>::initial_difficulty();
 
 		// Set up storage state
 		<CurrentDifficulty<T>>::put(initial_difficulty);
