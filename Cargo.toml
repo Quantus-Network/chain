@@ -140,12 +140,12 @@ qp-poseidon = { version = "0.9.5", default-features = false }
 qp-poseidon-core = { version = "0.9.5", default-features = false }
 qp-rusty-crystals-dilithium = { version = "1.0.3", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "0.1.5" }
-qp-wormhole-circuit = { version = "0.1.2", default-features = false }
-qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
-qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
+qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "feat/block-header-proof", default-features = false }
+qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "feat/block-header-proof", default-features = false }
+qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "feat/block-header-proof", default-features = false, features = [
 	"no_random",
 ] }
-qp-zk-circuits-common = { version = "0.1.2", default-features = false, features = [
+qp-zk-circuits-common = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "feat/block-header-proof", default-features = false, features = [
 	"no_random",
 ] }
 

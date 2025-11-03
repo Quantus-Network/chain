@@ -50,10 +50,12 @@ mod benchmarks {
 			.verify(proof)
 			.map_err(|_| BenchmarkError::Stop("Proof verification failed"))?;
 
-		let block_number = frame_system::Pallet::<T>::block_number();
+		let block_number = 1u32.into();
+		frame_system::Pallet::<T>::set_block_number(block_number);
+		let header = frame_system::Pallet::<T>::finalize();
 
 		#[extrinsic_call]
-		verify_wormhole_proof(RawOrigin::None, proof_bytes, block_number);
+		verify_wormhole_proof(RawOrigin::None, proof_bytes, block_number, header);
 
 		Ok(())
 	}

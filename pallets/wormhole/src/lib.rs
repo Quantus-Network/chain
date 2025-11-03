@@ -38,6 +38,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Mutate, Unbalanced},
+			fungibles::Mutate,
 			Currency, ExistenceRequirement, WithdrawReasons,
 		},
 		weights::WeightToFee,
@@ -48,7 +49,7 @@ pub mod pallet {
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
-		traits::{Saturating, Zero},
+		traits::{Header, Saturating, Zero},
 		Perbill,
 	};
 
@@ -109,6 +110,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			proof_bytes: Vec<u8>,
 			block_number: BlockNumberFor<T>,
+			header: HeaderFor<T>,
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
@@ -136,6 +138,11 @@ pub mod pallet {
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
 
+			// get the hash of the header
+			let header_block_hash = header.hash();
+
+			ensure!(header_block_hash == block_hash, Error::<T>::InvalidBlockNumber);
+
 			// Check if block number is not in the future
 			let current_block = frame_system::Pallet::<T>::block_number();
 			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
@@ -145,36 +152,7 @@ pub mod pallet {
 			let default_hash = T::Hash::default();
 			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
 
-			// Get the storage root for the specified block
-			let storage_root = sp_io::storage::root(sp_runtime::StateVersion::V1);
-
-			let root_hash = public_inputs.root_hash;
-			let storage_root_bytes = storage_root.as_slice();
-
-			// Compare the root_hash from the proof with the actual storage root
-			// Skip storage root validation in test and benchmark environments since proofs
-			// may have been generated with different state
-			#[cfg(not(any(test, feature = "runtime-benchmarks")))]
-			if root_hash.as_ref() != storage_root_bytes {
-				log::warn!(
-					target: "wormhole",
-					"Storage root mismatch for block {:?}: expected {:?}, got {:?}",
-					block_number,
-					root_hash.as_ref(),
-					storage_root_bytes
-				);
-				return Err(Error::<T>::StorageRootMismatch.into());
-			}
-
-			#[cfg(any(test, feature = "runtime-benchmarks"))]
-			{
-				let _root_hash = root_hash;
-				let _storage_root_bytes = storage_root_bytes;
-				log::debug!(
-					target: "wormhole",
-					"Skipping storage root validation in test/benchmark environment"
-				);
-			}
+			ensure!(header_block_hash == public_inputs.block_hash, Error::<T>::InvalidPublicInputs)
 
 			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
 
