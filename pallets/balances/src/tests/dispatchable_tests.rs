@@ -26,7 +26,9 @@ use frame_support::traits::{fungible::Unbalanced, tokens::Preservation::Expendab
 use fungible::{hold::Mutate as HoldMutate, Inspect, Mutate};
 
 /// Alice account ID for more readable tests.
-const ALICE: u64 = 1;
+fn alice() -> AccountId {
+	account_id(1)
+}
 
 #[test]
 fn default_indexing_on_new_accounts_should_not_work2() {
@@ -37,10 +39,10 @@ fn default_indexing_on_new_accounts_should_not_work2() {
 			// account 5 should not exist
 			// ext_deposit is 10, value is 9, not satisfies for ext_deposit
 			assert_noop!(
-				Balances::transfer_allow_death(Some(1).into(), 5, 9),
+				Balances::transfer_allow_death(Some(account_id(1)).into(), account_id(5), 9),
 				TokenError::BelowMinimum,
 			);
-			assert_eq!(Balances::free_balance(1), 100);
+			assert_eq!(Balances::free_balance(account_id(1)), 100);
 		});
 }
 
@@ -50,45 +52,57 @@ fn dust_account_removal_should_work() {
 		.existential_deposit(100)
 		.monied(true)
 		.build_and_execute_with(|| {
-			System::inc_account_nonce(2);
-			assert_eq!(System::account_nonce(2), 1);
-			assert_eq!(Balances::total_balance(&2), 2000);
+			System::inc_account_nonce(account_id(2));
+			assert_eq!(System::account_nonce(account_id(2)), 1);
+			assert_eq!(Balances::total_balance(&account_id(2)), 2000);
 			// index 1 (account 2) becomes zombie
-			assert_ok!(Balances::transfer_allow_death(Some(2).into(), 5, 1901));
-			assert_eq!(Balances::total_balance(&2), 0);
-			assert_eq!(Balances::total_balance(&5), 1901);
-			assert_eq!(System::account_nonce(2), 0);
+			assert_ok!(Balances::transfer_allow_death(
+				Some(account_id(2)).into(),
+				account_id(5),
+				1901
+			));
+			assert_eq!(Balances::total_balance(&account_id(2)), 0);
+			assert_eq!(Balances::total_balance(&account_id(5)), 1901);
+			assert_eq!(System::account_nonce(account_id(2)), 0);
 		});
 }
 
 #[test]
 fn balance_transfer_works() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 111);
-		assert_ok!(Balances::transfer_allow_death(Some(1).into(), 2, 69));
-		assert_eq!(Balances::total_balance(&1), 42);
-		assert_eq!(Balances::total_balance(&2), 69);
+		let _ = Balances::mint_into(&account_id(1), 111);
+		assert_ok!(Balances::transfer_allow_death(Some(account_id(1)).into(), account_id(2), 69));
+		assert_eq!(Balances::total_balance(&account_id(1)), 42);
+		assert_eq!(Balances::total_balance(&account_id(2)), 69);
 	});
 }
 
 #[test]
 fn force_transfer_works() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 111);
-		assert_noop!(Balances::force_transfer(Some(2).into(), 1, 2, 69), BadOrigin,);
-		assert_ok!(Balances::force_transfer(RawOrigin::Root.into(), 1, 2, 69));
-		assert_eq!(Balances::total_balance(&1), 42);
-		assert_eq!(Balances::total_balance(&2), 69);
+		let _ = Balances::mint_into(&account_id(1), 111);
+		assert_noop!(
+			Balances::force_transfer(Some(account_id(2)).into(), account_id(1), account_id(2), 69),
+			BadOrigin,
+		);
+		assert_ok!(Balances::force_transfer(
+			RawOrigin::Root.into(),
+			account_id(1),
+			account_id(2),
+			69
+		));
+		assert_eq!(Balances::total_balance(&account_id(1)), 42);
+		assert_eq!(Balances::total_balance(&account_id(2)), 69);
 	});
 }
 
 #[test]
 fn balance_transfer_when_on_hold_should_not_work() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 111);
-		assert_ok!(Balances::hold(&TestId::Foo, &1, 69));
+		let _ = Balances::mint_into(&account_id(1), 111);
+		assert_ok!(Balances::hold(&TestId::Foo, &account_id(1), 69));
 		assert_noop!(
-			Balances::transfer_allow_death(Some(1).into(), 2, 69),
+			Balances::transfer_allow_death(Some(account_id(1)).into(), account_id(2), 69),
 			TokenError::FundsUnavailable,
 		);
 	});
@@ -97,24 +111,24 @@ fn balance_transfer_when_on_hold_should_not_work() {
 #[test]
 fn transfer_keep_alive_works() {
 	ExtBuilder::default().existential_deposit(1).build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 100);
+		let _ = Balances::mint_into(&account_id(1), 100);
 		assert_noop!(
-			Balances::transfer_keep_alive(Some(1).into(), 2, 100),
+			Balances::transfer_keep_alive(Some(account_id(1)).into(), account_id(2), 100),
 			TokenError::NotExpendable
 		);
-		assert_eq!(Balances::total_balance(&1), 100);
-		assert_eq!(Balances::total_balance(&2), 0);
+		assert_eq!(Balances::total_balance(&account_id(1)), 100);
+		assert_eq!(Balances::total_balance(&account_id(2)), 0);
 	});
 }
 
 #[test]
 fn transfer_keep_alive_all_free_succeed() {
 	ExtBuilder::default().existential_deposit(100).build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 300));
-		assert_ok!(Balances::hold(&TestId::Foo, &1, 100));
-		assert_ok!(Balances::transfer_keep_alive(Some(1).into(), 2, 100));
-		assert_eq!(Balances::total_balance(&1), 200);
-		assert_eq!(Balances::total_balance(&2), 100);
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(1), 300));
+		assert_ok!(Balances::hold(&TestId::Foo, &account_id(1), 100));
+		assert_ok!(Balances::transfer_keep_alive(Some(account_id(1)).into(), account_id(2), 100));
+		assert_eq!(Balances::total_balance(&account_id(1)), 200);
+		assert_eq!(Balances::total_balance(&account_id(2)), 100);
 	});
 }
 
@@ -122,12 +136,12 @@ fn transfer_keep_alive_all_free_succeed() {
 fn transfer_all_works_1() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 200));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(1), 200));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(2), 0));
 		// transfer all and allow death
-		assert_ok!(Balances::transfer_all(Some(1).into(), 2, false));
-		assert_eq!(Balances::total_balance(&1), 0);
-		assert_eq!(Balances::total_balance(&2), 200);
+		assert_ok!(Balances::transfer_all(Some(account_id(1)).into(), account_id(2), false));
+		assert_eq!(Balances::total_balance(&account_id(1)), 0);
+		assert_eq!(Balances::total_balance(&account_id(2)), 200);
 	});
 }
 
@@ -135,12 +149,12 @@ fn transfer_all_works_1() {
 fn transfer_all_works_2() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 200));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(1), 200));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(2), 0));
 		// transfer all and keep alive
-		assert_ok!(Balances::transfer_all(Some(1).into(), 2, true));
-		assert_eq!(Balances::total_balance(&1), 100);
-		assert_eq!(Balances::total_balance(&2), 100);
+		assert_ok!(Balances::transfer_all(Some(account_id(1)).into(), account_id(2), true));
+		assert_eq!(Balances::total_balance(&account_id(1)), 100);
+		assert_eq!(Balances::total_balance(&account_id(2)), 100);
 	});
 }
 
@@ -148,13 +162,13 @@ fn transfer_all_works_2() {
 fn transfer_all_works_3() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 210));
-		assert_ok!(Balances::hold(&TestId::Foo, &1, 10));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(1), 210));
+		assert_ok!(Balances::hold(&TestId::Foo, &account_id(1), 10));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(2), 0));
 		// transfer all and allow death w/ reserved
-		assert_ok!(Balances::transfer_all(Some(1).into(), 2, false));
-		assert_eq!(Balances::total_balance(&1), 110);
-		assert_eq!(Balances::total_balance(&2), 100);
+		assert_ok!(Balances::transfer_all(Some(account_id(1)).into(), account_id(2), false));
+		assert_eq!(Balances::total_balance(&account_id(1)), 110);
+		assert_eq!(Balances::total_balance(&account_id(2)), 100);
 	});
 }
 
@@ -162,23 +176,23 @@ fn transfer_all_works_3() {
 fn transfer_all_works_4() {
 	ExtBuilder::default().existential_deposit(100).build().execute_with(|| {
 		// setup
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1, 210));
-		assert_ok!(Balances::hold(&TestId::Foo, &1, 10));
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 2, 0));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(1), 210));
+		assert_ok!(Balances::hold(&TestId::Foo, &account_id(1), 10));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(2), 0));
 		// transfer all and keep alive w/ reserved
-		assert_ok!(Balances::transfer_all(Some(1).into(), 2, true));
-		assert_eq!(Balances::total_balance(&1), 110);
-		assert_eq!(Balances::total_balance(&2), 100);
+		assert_ok!(Balances::transfer_all(Some(account_id(1)).into(), account_id(2), true));
+		assert_eq!(Balances::total_balance(&account_id(1)), 110);
+		assert_eq!(Balances::total_balance(&account_id(2)), 100);
 	});
 }
 
 #[test]
 fn set_balance_handles_killing_account() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		let _ = Balances::mint_into(&1, 111);
-		assert_ok!(frame_system::Pallet::<Test>::inc_consumers(&1));
+		let _ = Balances::mint_into(&account_id(1), 111);
+		assert_ok!(frame_system::Pallet::<Test>::inc_consumers(&account_id(1)));
 		assert_noop!(
-			Balances::force_set_balance(RuntimeOrigin::root(), 1, 0),
+			Balances::force_set_balance(RuntimeOrigin::root(), account_id(1), 0),
 			DispatchError::ConsumerRemaining,
 		);
 	});
@@ -188,10 +202,10 @@ fn set_balance_handles_killing_account() {
 fn set_balance_handles_total_issuance() {
 	ExtBuilder::default().build_and_execute_with(|| {
 		let old_total_issuance = pallet_balances::TotalIssuance::<Test>::get();
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 69));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(137), 69));
 		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), old_total_issuance + 69);
-		assert_eq!(Balances::total_balance(&1337), 69);
-		assert_eq!(Balances::free_balance(1337), 69);
+		assert_eq!(Balances::total_balance(&account_id(137)), 69);
+		assert_eq!(Balances::free_balance(account_id(137)), 69);
 	});
 }
 
@@ -201,9 +215,9 @@ fn upgrade_accounts_should_work() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			System::inc_providers(&7);
+			System::inc_providers(&account_id(7));
 			assert_ok!(<Test as Config>::AccountStore::try_mutate_exists(
-				&7,
+				&account_id(7),
 				|a| -> DispatchResult {
 					*a = Some(AccountData {
 						free: 5,
@@ -214,19 +228,27 @@ fn upgrade_accounts_should_work() {
 					Ok(())
 				}
 			));
-			assert!(!Balances::account(&7).flags.is_new_logic());
-			assert_eq!(System::providers(&7), 1);
-			assert_eq!(System::consumers(&7), 0);
-			assert_ok!(Balances::upgrade_accounts(Some(1).into(), vec![7]));
-			assert!(Balances::account(&7).flags.is_new_logic());
-			assert_eq!(System::providers(&7), 1);
-			assert_eq!(System::consumers(&7), 1);
+			assert!(!Balances::account(&account_id(7)).flags.is_new_logic());
+			assert_eq!(System::providers(&account_id(7)), 1);
+			assert_eq!(System::consumers(&account_id(7)), 0);
+			assert_ok!(Balances::upgrade_accounts(Some(account_id(1)).into(), vec![account_id(7)]));
+			assert!(Balances::account(&account_id(7)).flags.is_new_logic());
+			assert_eq!(System::providers(&account_id(7)), 1);
+			assert_eq!(System::consumers(&account_id(7)), 1);
 
-			<Balances as frame_support::traits::ReservableCurrency<_>>::unreserve(&7, 5);
-			assert_ok!(<Balances as fungible::Mutate<_>>::transfer(&7, &1, 10, Expendable));
-			assert_eq!(Balances::total_balance(&7), 0);
-			assert_eq!(System::providers(&7), 0);
-			assert_eq!(System::consumers(&7), 0);
+			<Balances as frame_support::traits::ReservableCurrency<_>>::unreserve(
+				&account_id(7),
+				5,
+			);
+			assert_ok!(<Balances as fungible::Mutate<_>>::transfer(
+				&account_id(7),
+				&account_id(1),
+				10,
+				Expendable
+			));
+			assert_eq!(Balances::total_balance(&account_id(7)), 0);
+			assert_eq!(System::providers(&account_id(7)), 0);
+			assert_eq!(System::consumers(&account_id(7)), 0);
 		});
 }
 
@@ -235,7 +257,7 @@ fn upgrade_accounts_should_work() {
 fn force_adjust_total_issuance_example() {
 	ExtBuilder::default().build_and_execute_with(|| {
 		// First we set the TotalIssuance to 64 by giving Alice a balance of 64.
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), ALICE, 64));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), alice(), 64));
 		let old_ti = pallet_balances::TotalIssuance::<Test>::get();
 		assert_eq!(old_ti, 64, "TI should be 64");
 
@@ -246,7 +268,7 @@ fn force_adjust_total_issuance_example() {
 
 		// If Alice tries to call it, it errors:
 		assert_noop!(
-			Balances::force_adjust_total_issuance(RawOrigin::Signed(ALICE).into(), Inc, 32),
+			Balances::force_adjust_total_issuance(RawOrigin::Signed(alice()).into(), Inc, 69),
 			BadOrigin,
 		);
 	});
@@ -255,7 +277,7 @@ fn force_adjust_total_issuance_example() {
 #[test]
 fn force_adjust_total_issuance_works() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 64));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(137), 64));
 		let ti = pallet_balances::TotalIssuance::<Test>::get();
 
 		// Increase works:
@@ -279,7 +301,7 @@ fn force_adjust_total_issuance_works() {
 #[test]
 fn force_adjust_total_issuance_saturates() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 64));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(137), 64));
 		let ti = pallet_balances::TotalIssuance::<Test>::get();
 		let max = <Test as Config>::Balance::max_value();
 		assert_eq!(ti, 64);
@@ -313,7 +335,7 @@ fn force_adjust_total_issuance_rejects_zero_delta() {
 #[test]
 fn force_adjust_total_issuance_rejects_more_than_inactive() {
 	ExtBuilder::default().build_and_execute_with(|| {
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), 1337, 64));
+		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account_id(137), 64));
 		Balances::deactivate(16u32.into());
 
 		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), 64);
@@ -340,22 +362,26 @@ fn force_adjust_total_issuance_rejects_more_than_inactive() {
 fn burn_works() {
 	ExtBuilder::default().build().execute_with(|| {
 		// Prepare account with initial balance
-		let (account, init_balance) = (1, 37);
-		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), account, init_balance));
+		let (account, init_balance) = (account_id(1), 37);
+		assert_ok!(Balances::force_set_balance(
+			RuntimeOrigin::root(),
+			account.clone(),
+			init_balance
+		));
 		let init_issuance = pallet_balances::TotalIssuance::<Test>::get();
 		let (keep_alive, allow_death) = (true, false);
 
 		// 1. Cannot burn more than what's available
 		assert_noop!(
-			Balances::burn(Some(account).into(), init_balance + 1, allow_death),
+			Balances::burn(Some(account.clone()).into(), init_balance + 1, allow_death),
 			TokenError::FundsUnavailable,
 		);
 
 		// 2. Burn some funds, without reaping the account
 		let burn_amount_1 = 1;
-		assert_ok!(Balances::burn(Some(account).into(), burn_amount_1, allow_death));
+		assert_ok!(Balances::burn(Some(account.clone()).into(), burn_amount_1, allow_death));
 		System::assert_last_event(RuntimeEvent::Balances(Event::Burned {
-			who: account,
+			who: account.clone(),
 			amount: burn_amount_1,
 		}));
 		assert_eq!(pallet_balances::TotalIssuance::<Test>::get(), init_issuance - burn_amount_1);
@@ -365,14 +391,14 @@ fn burn_works() {
 		let burn_amount_2 =
 			init_balance - burn_amount_1 - <Test as Config>::ExistentialDeposit::get() + 1;
 		assert_noop!(
-			Balances::burn(Some(account).into(), init_balance + 1, keep_alive),
+			Balances::burn(Some(account.clone()).into(), init_balance + 1, keep_alive),
 			TokenError::FundsUnavailable,
 		);
 
 		// 4. Burn some more funds, this time reaping the account
-		assert_ok!(Balances::burn(Some(account).into(), burn_amount_2, allow_death));
+		assert_ok!(Balances::burn(Some(account.clone()).into(), burn_amount_2, allow_death));
 		System::assert_last_event(RuntimeEvent::Balances(Event::Burned {
-			who: account,
+			who: account.clone(),
 			amount: burn_amount_2,
 		}));
 		assert_eq!(

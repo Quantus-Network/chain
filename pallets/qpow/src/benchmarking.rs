@@ -22,10 +22,10 @@ mod benchmarks {
 		let block_number = BlockNumberFor::<T>::from(1000u32);
 		frame_system::Pallet::<T>::set_block_number(block_number);
 
-		let initial_distance_threshold = get_initial_distance_threshold::<T>();
+		let initial_difficulty = QPoW::<T>::initial_difficulty();
 
 		// Set up storage state
-		<CurrentDistanceThreshold<T>>::put(initial_distance_threshold);
+		<CurrentDifficulty<T>>::put(initial_difficulty);
 		<TotalWork<T>>::put(U512::from(100000u64));
 
 		// Set timestamp

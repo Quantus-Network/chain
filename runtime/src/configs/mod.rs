@@ -57,7 +57,7 @@ use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{AccountIdConversion, ConvertInto, One},
-	Perbill, Permill,
+	FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -68,6 +68,7 @@ use super::{
 	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
+use sp_core::U512;
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -140,18 +141,21 @@ parameter_types! {
 	/// Target block time ms
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
+	/// Initial mining difficulty - low value for development
+	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
+	/// Difficulty adjustment percent clamp
+	pub const DifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
 }
 
 impl pallet_qpow::Config for Runtime {
-	// NOTE: InitialDistance will be shifted left by this amount: higher is easier
-	type InitialDistanceThresholdExponent = ConstU32<496>;
-	type DifficultyAdjustPercentClamp = ConstU8<10>;
+	// Starting difficulty - should be challenging enough to require some work but not too high
+	type InitialDifficulty = QPoWInitialDifficulty;
+	type DifficultyAdjustPercentClamp = DifficultyAdjustPercentClamp;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
-	type MaxDistanceMultiplier = ConstU32<2>;
 	type WeightInfo = ();
-	type EmaAlpha = ConstU32<500>; // Exponent on moving average
+	type EmaAlpha = ConstU32<100>; // out of 1000, last_block_time * alpha + (previous_ema * (1 - alpha)) on moving average
 }
 
 parameter_types! {

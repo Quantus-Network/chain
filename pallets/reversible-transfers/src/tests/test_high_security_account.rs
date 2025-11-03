@@ -12,29 +12,29 @@ use frame_support::assert_ok;
 #[test]
 fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 	new_test_ext().execute_with(|| {
-		let hs_user = 1; // reversible from genesis with interceptor=2
-		let guardian = 2;
-		let dest = 3;
-		let treasury = 999;
+		let hs_user = alice(); // reversible from genesis with interceptor=2
+		let guardian = bob();
+		let dest = charlie();
+		let treasury = treasury();
 		let amount = 10_000u128; // Use larger amount so volume fee is visible
 
 		// Record initial balances
-		let initial_guardian_balance = Balances::free_balance(guardian);
-		let initial_treasury_balance = Balances::free_balance(treasury);
+		let initial_guardian_balance = Balances::free_balance(&guardian);
+		let initial_treasury_balance = Balances::free_balance(&treasury);
 
 		// Compute tx_id BEFORE scheduling (matches pallet logic using current GlobalNonce)
-		let call = transfer_call(dest, amount);
-		let tx_id = calculate_tx_id::<Test>(hs_user, &call);
+		let call = transfer_call(dest.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(hs_user.clone(), &call);
 
 		// Schedule a reversible transfer
 		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(hs_user),
-			dest,
+			RuntimeOrigin::signed(hs_user.clone()),
+			dest.clone(),
 			amount
 		));
 
 		// Guardian cancels it
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian), tx_id));
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 
 		// Verify volume fee was applied for high-security account
@@ -44,14 +44,14 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 
 		// Check that guardian received the remaining amount (after fee)
 		assert_eq!(
-			Balances::free_balance(guardian),
+			Balances::free_balance(&guardian),
 			initial_guardian_balance + expected_remaining,
 			"Guardian should receive remaining amount after volume fee deduction"
 		);
 
 		// Check that treasury received the fee
 		assert_eq!(
-			Balances::free_balance(treasury),
+			Balances::free_balance(&treasury),
 			initial_treasury_balance + expected_fee,
 			"Treasury should receive volume fee from high-security account cancellation"
 		);

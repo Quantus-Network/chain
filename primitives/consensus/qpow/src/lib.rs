@@ -10,7 +10,7 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
-		/// calculate distance header with nonce to with nonce
+		/// calculate hash of header with nonce using Bitcoin-style double Poseidon2
 		fn get_nonce_distance(
 			block_hash: [u8; 32],  // 256-bit block hash
 			nonce: [u8; 64], // 512-bit nonce
@@ -19,14 +19,13 @@ sp_api::decl_runtime_apis! {
 		/// Get the max possible reorg depth
 		fn get_max_reorg_depth() -> u32;
 
-		/// Get the max possible distance_threshold for work calculation
-		fn get_max_distance() -> U512;
+		/// Get the max possible difficulty for work calculation
+		fn get_max_difficulty() -> U512;
 
 		/// Get the current difficulty (max_distance / distance_threshold)
 		fn get_difficulty() -> U512;
 
-		/// Get the current distance_threshold target for proof generation
-		fn get_distance_threshold() -> U512;
+
 
 		/// Get total work
 		fn get_total_work() -> U512;
@@ -42,8 +41,6 @@ sp_api::decl_runtime_apis! {
 
 		fn get_chain_height() -> u32;
 
-		fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512);
-		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512;
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 	}
