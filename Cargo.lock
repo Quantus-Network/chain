@@ -9035,8 +9035,7 @@ version = "0.1.0"
 [[package]]
 name = "qp-wormhole-circuit"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fea70a3a1bf545450cb6320782389cfbfe58fcf0ecf724aa666383807bf5548b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#bed50a5d6e692988cba2fc38a1347afd4b559751"
 dependencies = [
  "anyhow",
  "hex",
@@ -9047,8 +9046,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d6486fbfd79005d520caff6a32a8fde4eab978110101c9612d140f3e0ebdfd0"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#bed50a5d6e692988cba2fc38a1347afd4b559751"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9059,8 +9057,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f83ee7ce0fdb40f34eed7a31a575e857d24135a383cdfd6f2429a7ce048b665"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#bed50a5d6e692988cba2fc38a1347afd4b559751"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9071,8 +9068,7 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a2a62915be0513d045f4d92829c0a26d6f3e8897353e8f8356a7eabef025329"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#bed50a5d6e692988cba2fc38a1347afd4b559751"
 dependencies = [
  "anyhow",
  "qp-plonky2",
