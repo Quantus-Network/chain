@@ -66,7 +66,8 @@ lazy_static = { version = "1.5.0", default-features = false, features = [
 	"spin_no_std",
 ] }
 libp2p = { version = "0.54.1" }
-libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_1" }
+libp2p-identity = { path = "../qp-libp2p-identity" }
+# libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_1" }
 linked_hash_set = { version = "0.1.4" }
 log = { version = "0.4.22", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
@@ -138,8 +139,10 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 # Quantus network dependencies
 qp-poseidon = { version = "1.0.1", default-features = false }
 qp-poseidon-core = { version = "1.0.1", default-features = false, features = ["p3"] }
-qp-rusty-crystals-dilithium = { version = "1.0.3", default-features = false }
-qp-rusty-crystals-hdwallet = { version = "0.1.5" }
+# qp-rusty-crystals-dilithium = { version = "1.0.3", default-features = false }
+# qp-rusty-crystals-hdwallet = { version = "0.1.5" }
+qp-rusty-crystals-dilithium = { path = "../qp-rusty-crystals/dilithium", default-features = false }
+qp-rusty-crystals-hdwallet = { path = "../qp-rusty-crystals/hdwallet" }
 qp-wormhole-circuit = { version = "0.1.2", default-features = false }
 qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
 qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
@@ -220,12 +223,16 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "27.0.0", default-features = false }
 
 [patch.crates-io]
-libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_1" }
+libp2p-identity = { path = "../qp-libp2p-identity" }
+# libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_1" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }
 sc-network = { path = "./client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
+qp-rusty-crystals-dilithium = { path = "../qp-rusty-crystals/dilithium", default-features = false }
+qp-rusty-crystals-hdwallet = { path = "../qp-rusty-crystals/hdwallet" }
+
 
 [profile.release]
 opt-level = 3
