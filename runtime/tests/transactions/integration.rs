@@ -47,8 +47,7 @@ mod tests {
 
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
-		let keypair =
-			qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
+		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
 		println!("Gen Public Key (hex): {:?}", format_hex_truncated(&pk_bytes));
@@ -151,8 +150,7 @@ mod tests {
 
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
-		let keypair =
-			qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
+		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 		let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
 		let id = Address::Id(account_id);
@@ -213,8 +211,7 @@ mod tests {
 
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
-		let keypair =
-			qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
+		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
 		// Create and sign a payload
@@ -274,8 +271,7 @@ mod tests {
 
 		// Generate a keypair
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
-		let keypair =
-			qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
+		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 
 		// Create and sign a payload
