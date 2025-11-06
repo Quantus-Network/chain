@@ -105,7 +105,7 @@ jobs:
           context: ./source_code_for_build
           file: ./Dockerfile
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION_ARG=${{ env.TARGET_VERSION_WITH_V }}
           tags: |
