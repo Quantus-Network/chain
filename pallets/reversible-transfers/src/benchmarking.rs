@@ -82,7 +82,7 @@ mod benchmarks {
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), delay.clone(), interceptor.clone());
+		_(RawOrigin::Signed(caller.clone()), delay, interceptor.clone());
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
@@ -102,7 +102,7 @@ mod benchmarks {
 
 		// Setup caller as reversible
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay.clone(), interceptor.clone());
+		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 		let global_nonce = GlobalNonce::<T>::get();
@@ -114,7 +114,7 @@ mod benchmarks {
 		_(RawOrigin::Signed(caller.clone()), recipient_lookup, transfer_amount.into());
 
 		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
-		assert!(PendingTransfers::<T>::contains_key(&tx_id));
+		assert!(PendingTransfers::<T>::contains_key(tx_id));
 		// Check scheduler state (can be complex, checking count is simpler)
 		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
 			.saturating_add(
@@ -156,14 +156,14 @@ mod benchmarks {
 
 		// Ensure setup worked before benchmarking cancel
 		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
-		assert!(PendingTransfers::<T>::contains_key(&tx_id));
+		assert!(PendingTransfers::<T>::contains_key(tx_id));
 
 		// Benchmark the cancel extrinsic
 		#[extrinsic_call]
 		_(RawOrigin::Signed(interceptor), tx_id);
 
 		assert_eq!(AccountPendingIndex::<T>::get(&caller), 0);
-		assert!(!PendingTransfers::<T>::contains_key(&tx_id));
+		assert!(!PendingTransfers::<T>::contains_key(tx_id));
 		// Check scheduler cancelled (agenda item removed)
 		let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
 		assert!(T::Scheduler::next_dispatch_time(task_name).is_err());
@@ -198,7 +198,7 @@ mod benchmarks {
 
 		// Ensure setup worked
 		assert_eq!(AccountPendingIndex::<T>::get(&owner), 1);
-		assert!(PendingTransfers::<T>::contains_key(&tx_id));
+		assert!(PendingTransfers::<T>::contains_key(tx_id));
 
 		let pallet_account = pallet_account::<T>();
 		fund_account::<T>(&pallet_account, BalanceOf::<T>::from(10000u128));
@@ -209,7 +209,7 @@ mod benchmarks {
 
 		// Check state cleaned up
 		assert_eq!(AccountPendingIndex::<T>::get(&owner), 0);
-		assert!(!PendingTransfers::<T>::contains_key(&tx_id));
+		assert!(!PendingTransfers::<T>::contains_key(tx_id));
 		// Check side effect of inner call (balance transfer)
 		let initial_balance = <pallet_balances::Pallet<T> as frame_support::traits::Currency<
 			T::AccountId,
