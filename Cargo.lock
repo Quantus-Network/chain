@@ -5467,7 +5467,7 @@ dependencies = [
  "hkdf",
  "log",
  "multihash 0.19.3",
- "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-dilithium 1.0.3",
  "quick-protobuf",
  "rand 0.8.5",
  "sha2 0.10.9",
@@ -8893,7 +8893,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-dilithium 2.0.0",
  "qp-rusty-crystals-hdwallet",
  "scale-info",
  "sp-core",
@@ -8997,18 +8997,33 @@ dependencies = [
  "aes",
  "cipher 0.4.4",
  "sha2 0.10.9",
+ "subtle 2.6.1",
+]
+
+[[package]]
+name = "qp-rusty-crystals-dilithium"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e77a42bfb3430fa3bf3f5a148f8132de301876ceb1bdf0891909c2728f044a58"
+dependencies = [
+ "aes",
+ "cipher 0.4.4",
+ "sha2 0.10.9",
+ "subtle 2.6.1",
 ]
 
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
-version = "0.1.5"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48fa242963fcd6bc970948b6904f18074673ff89cab8ed0133846a53c69deca7"
 dependencies = [
  "bip39",
  "hex",
  "hex-literal",
  "nam-tiny-hderive",
  "qp-poseidon-core",
- "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-dilithium 2.0.0",
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
  "serde",
@@ -9130,7 +9145,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "prometheus",
  "qp-dilithium-crypto",
- "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-dilithium 2.0.0",
  "qp-rusty-crystals-hdwallet",
  "qp-wormhole-circuit-builder",
  "qp-wormhole-verifier",
@@ -10165,7 +10180,7 @@ dependencies = [
  "parity-bip39",
  "parity-scale-codec",
  "qp-dilithium-crypto",
- "qp-rusty-crystals-dilithium",
+ "qp-rusty-crystals-dilithium 2.0.0",
  "qp-rusty-crystals-hdwallet",
  "rand 0.8.5",
  "regex",
@@ -15625,3 +15640,7 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "qp-rusty-crystals-hdwallet"
+version = "0.1.5"
