@@ -1098,10 +1098,12 @@ mod tests {
 		use quantus_runtime::governance::definitions::CommunityTracksInfo;
 
 		ExtBuilder::default().build().execute_with(|| {
-			let treasury_origins = [Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::SmallSpender)),
+			let treasury_origins = [
+				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::SmallSpender)),
 				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::MediumSpender)),
 				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::BigSpender)),
-				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::Treasurer))];
+				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::Treasurer)),
+			];
 
 			let mut track_ids = Vec::new();
 

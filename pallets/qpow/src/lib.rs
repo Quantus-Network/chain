@@ -309,12 +309,9 @@ pub mod pallet {
 				log::warn!("Min difficulty achieved, clipping to: {:x}", min_difficulty.low_u64());
 				adjusted = min_difficulty;
 			} else if adjusted > max_difficulty {
-   					log::warn!(
-   						"Max difficulty achieved, clipping to: {:x}",
-   						max_difficulty.low_u64()
-   					);
-   					adjusted = max_difficulty;
-   				}
+				log::warn!("Max difficulty achieved, clipping to: {:x}", max_difficulty.low_u64());
+				adjusted = max_difficulty;
+			}
 
 			log::debug!(target: "qpow",
 				"🟢 Current Difficulty: {:x}",
