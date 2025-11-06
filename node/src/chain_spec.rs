@@ -36,10 +36,10 @@ pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenSymbol".into(), json!("RES"));
 	properties.insert("ss58Format".into(), json!(189));
 
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
-		"/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
-		0,
-	)])
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![
+		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+	])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
@@ -76,10 +76,10 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenSymbol".into(), json!("HEI"));
 	properties.insert("ss58Format".into(), json!(189));
 
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
-		"/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
-		0,
-	)])
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![
+		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+	])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
@@ -116,10 +116,10 @@ pub fn schrodinger_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenSymbol".into(), json!("QU"));
 	properties.insert("ss58Format".into(), json!(189));
 
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
-		"/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
-		0,
-	)])
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![
+		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+	])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
