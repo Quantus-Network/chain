@@ -551,7 +551,7 @@ mod tests {
 				RuntimeOrigin::signed(member_one.clone()),
 				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
 				bounded_call_one,
-				frame_support::traits::schedule::DispatchTime::After(0u32.into())
+				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
 			// Submit second referendum
@@ -564,7 +564,7 @@ mod tests {
 				RuntimeOrigin::signed(member_two.clone()),
 				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
 				bounded_call_two,
-				frame_support::traits::schedule::DispatchTime::After(0u32.into())
+				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
 			// Check referendum indices
@@ -1345,7 +1345,7 @@ mod tests {
 				RuntimeOrigin::signed(tech_member.clone()),
 				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
 				bounded_call,
-				frame_support::traits::schedule::DispatchTime::After(0u32.into())
+				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
 			let referendum_index = 0;
