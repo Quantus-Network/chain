@@ -5461,13 +5461,14 @@ dependencies = [
 [[package]]
 name = "libp2p-identity"
 version = "0.2.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.11_patch_qp_rusty_crystals_dilithium_2_0#aed0b5465d05cecfaa604df0953549dffc9cc38a"
 dependencies = [
  "bs58",
  "ed25519-dalek",
  "hkdf",
  "log",
  "multihash 0.19.3",
- "qp-rusty-crystals-dilithium 1.0.3",
+ "qp-rusty-crystals-dilithium",
  "quick-protobuf",
  "rand 0.8.5",
  "sha2 0.10.9",
@@ -8893,7 +8894,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-rusty-crystals-dilithium 2.0.0",
+ "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "scale-info",
  "sp-core",
@@ -8992,16 +8993,6 @@ dependencies = [
 
 [[package]]
 name = "qp-rusty-crystals-dilithium"
-version = "1.0.3"
-dependencies = [
- "aes",
- "cipher 0.4.4",
- "sha2 0.10.9",
- "subtle 2.6.1",
-]
-
-[[package]]
-name = "qp-rusty-crystals-dilithium"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e77a42bfb3430fa3bf3f5a148f8132de301876ceb1bdf0891909c2728f044a58"
@@ -9023,7 +9014,7 @@ dependencies = [
  "hex-literal",
  "nam-tiny-hderive",
  "qp-poseidon-core",
- "qp-rusty-crystals-dilithium 2.0.0",
+ "qp-rusty-crystals-dilithium",
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
  "serde",
@@ -9145,7 +9136,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "prometheus",
  "qp-dilithium-crypto",
- "qp-rusty-crystals-dilithium 2.0.0",
+ "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "qp-wormhole-circuit-builder",
  "qp-wormhole-verifier",
@@ -10180,7 +10171,7 @@ dependencies = [
  "parity-bip39",
  "parity-scale-codec",
  "qp-dilithium-crypto",
- "qp-rusty-crystals-dilithium 2.0.0",
+ "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "rand 0.8.5",
  "regex",
@@ -15640,6 +15631,10 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "qp-rusty-crystals-dilithium"
+version = "1.0.3"
 
 [[patch.unused]]
 name = "qp-rusty-crystals-hdwallet"
