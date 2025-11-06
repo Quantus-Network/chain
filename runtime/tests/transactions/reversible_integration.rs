@@ -31,9 +31,9 @@ fn high_security_end_to_end_flow() {
 	ext.execute_with(|| {
         // Initial balances snapshot
 
-        let hs_start = Balances::free_balance(&high_security_account());
-        let interceptor_start = Balances::free_balance(&interceptor());
-        let a4_start = Balances::free_balance(&acc(4));
+        let hs_start = Balances::free_balance(high_security_account());
+        let interceptor_start = Balances::free_balance(interceptor());
+        let a4_start = Balances::free_balance(acc(4));
 
         // 1) Enable high-security for account 1
         // Use a small delay in blocks for reversible transfers; recovery delay must be >= 7 DAYS
@@ -62,15 +62,15 @@ fn high_security_end_to_end_flow() {
         assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor()), tx_id));
 
         // Funds should have been moved from 1 to 2 (transfer_on_hold). 4 didn't receive anything.
-        let hs_after_cancel = Balances::free_balance(&high_security_account());
-        let interceptor_after_cancel = Balances::free_balance(&interceptor());
-        let a4_after_cancel = Balances::free_balance(&acc(4));
+        let hs_after_cancel = Balances::free_balance(high_security_account());
+        let interceptor_after_cancel = Balances::free_balance(interceptor());
+        let a4_after_cancel = Balances::free_balance(acc(4));
 
         assert!(hs_after_cancel <= hs_start - amount, "sender should lose at least the scheduled amount");
         // With volume fee: amount = 10 * EXISTENTIAL_DEPOSIT = 10_000_000_000
         // Fee (1%): 10_000_000_000 * 1 / 100 = 100_000_000
         // Remaining to interceptor: 10_000_000_000 - 100_000_000 = 9_900_000_000
-        let expected_fee = amount * 1 / 100; // 1% 
+        let expected_fee = amount / 100; // 1% 
         let expected_amount_to_interceptor = amount - expected_fee;
         assert_eq!(interceptor_after_cancel, interceptor_start + expected_amount_to_interceptor, "interceptor should receive the cancelled amount minus volume fee");
         assert_eq!(a4_after_cancel, a4_start, "recipient should not receive funds after cancel");
@@ -118,7 +118,7 @@ fn high_security_end_to_end_flow() {
             MultiAddress::Id(high_security_account()),
         ));
 
-        let interceptor_before_recovery = Balances::free_balance(&interceptor());
+        let interceptor_before_recovery = Balances::free_balance(interceptor());
 
         // 6.4 Interceptor recovers all funds
         let call = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
@@ -131,8 +131,8 @@ fn high_security_end_to_end_flow() {
             Box::new(call),
         ));
 
-        let hs_after_recovery = Balances::free_balance(&high_security_account());
-        let interceptor_after_recovery = Balances::free_balance(&interceptor());
+        let hs_after_recovery = Balances::free_balance(high_security_account());
+        let interceptor_after_recovery = Balances::free_balance(interceptor());
 
         // HS should be drained to existential deposit; account 2 increased accordingly
         assert_eq!(hs_after_recovery, EXISTENTIAL_DEPOSIT);
@@ -217,8 +217,8 @@ fn test_recovery_allows_multiple_recovery_configs() {
 		));
 
 		// Capture balances before nested transfer
-		let hs_balance_before = Balances::free_balance(&high_security_account());
-		let recoverer_balance_before = Balances::free_balance(&recoverer());
+		let hs_balance_before = Balances::free_balance(high_security_account());
+		let recoverer_balance_before = Balances::free_balance(recoverer());
 
 		// Now test nested as_recovered: Account 3 -> Account 2 -> Account 1
 		let inner_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
@@ -239,8 +239,8 @@ fn test_recovery_allows_multiple_recovery_configs() {
 		));
 
 		// Verify the transfer happened
-		let hs_balance_after = Balances::free_balance(&high_security_account());
-		let recoverer_balance_after = Balances::free_balance(&recoverer());
+		let hs_balance_after = Balances::free_balance(high_security_account());
+		let recoverer_balance_after = Balances::free_balance(recoverer());
 
 		assert_eq!(hs_balance_before, transfer_amount);
 		assert!(hs_balance_after < hs_balance_before); // Account 1 lost funds

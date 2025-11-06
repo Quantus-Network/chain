@@ -152,7 +152,7 @@ impl pallet_balances::Config for Test {
 
 // In memory storage
 thread_local! {
-	static MOCKED_TIME: RefCell<Moment> = RefCell::new(69420);
+	static MOCKED_TIME: RefCell<Moment> = const { RefCell::new(69420) };
 }
 
 type Moment = u64;

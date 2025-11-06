@@ -468,7 +468,7 @@ mod tests {
 
 			let vesting_schedules = Vesting::vesting(grantee.clone()).unwrap_or_default();
 			assert!(
-				vesting_schedules.len() >= 1,
+				!vesting_schedules.is_empty(),
 				"Should have active vesting schedules from Tech Collective decisions"
 			);
 
@@ -598,7 +598,7 @@ mod tests {
 			});
 
 			// Execute emergency intervention if vesting exists
-			if Vesting::vesting(grantee.clone()).unwrap().len() > 0 {
+			if !Vesting::vesting(grantee.clone()).unwrap().is_empty() {
 				let calls = vec![RuntimeCall::Vesting(pallet_vesting::Call::merge_schedules {
 					schedule1_index: 0,
 					schedule2_index: 0,

@@ -5461,6 +5461,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identity"
 version = "0.2.10"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.11_patch_qp_rusty_crystals_dilithium_2_0#aed0b5465d05cecfaa604df0953549dffc9cc38a"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -8992,16 +8993,21 @@ dependencies = [
 
 [[package]]
 name = "qp-rusty-crystals-dilithium"
-version = "1.0.3"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e77a42bfb3430fa3bf3f5a148f8132de301876ceb1bdf0891909c2728f044a58"
 dependencies = [
  "aes",
  "cipher 0.4.4",
  "sha2 0.10.9",
+ "subtle 2.6.1",
 ]
 
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
-version = "0.1.5"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48fa242963fcd6bc970948b6904f18074673ff89cab8ed0133846a53c69deca7"
 dependencies = [
  "bip39",
  "hex",

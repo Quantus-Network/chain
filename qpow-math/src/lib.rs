@@ -2,7 +2,6 @@
 
 extern crate alloc;
 use primitive_types::U512;
-use qp_poseidon_core;
 
 // Bitcoin-style validation logic with double Poseidon2 hashing
 pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -> (bool, U512) {

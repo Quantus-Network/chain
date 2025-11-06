@@ -1,7 +1,6 @@
 use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
 use primitive_types::U512;
-use qp_poseidon_core;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
 
 #[test]

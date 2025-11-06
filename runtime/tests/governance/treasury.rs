@@ -897,7 +897,7 @@ mod tests {
 
             let track_info_2 = CommunityTracksInfo::info(2).unwrap();
 
-            let dispatch_time = ScheduleDispatchTime::After(1u32.into());
+            let dispatch_time = ScheduleDispatchTime::After(1u32);
             const TEST_REFERENDUM_INDEX: ReferendumIndex = 0;
             let referendum_index: ReferendumIndex = TEST_REFERENDUM_INDEX;
 
@@ -1098,7 +1098,7 @@ mod tests {
 		use quantus_runtime::governance::definitions::CommunityTracksInfo;
 
 		ExtBuilder::default().build().execute_with(|| {
-			let treasury_origins = vec![
+			let treasury_origins = [
 				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::SmallSpender)),
 				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::MediumSpender)),
 				Box::new(OriginCaller::Origins(pallet_custom_origins::Origin::BigSpender)),

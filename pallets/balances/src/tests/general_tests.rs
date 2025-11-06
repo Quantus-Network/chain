@@ -121,7 +121,7 @@ fn try_state_works() {
 
 	ExtBuilder::default().build_and_execute_with(|| {
 		storage::unhashed::put(
-			&Holds::<Test>::hashed_key_for(1),
+			&Holds::<Test>::hashed_key_for(account_id(1)),
 			&vec![0u8; <Test as Config>::RuntimeHoldReason::VARIANT_COUNT as usize + 1],
 		);
 
@@ -133,7 +133,7 @@ fn try_state_works() {
 		let max_freezes: u32 = <Test as Config>::MaxFreezes::get();
 
 		storage::unhashed::put(
-			&Freezes::<Test>::hashed_key_for(1),
+			&Freezes::<Test>::hashed_key_for(account_id(1)),
 			&vec![0u8; max_freezes as usize + 1],
 		);
 
