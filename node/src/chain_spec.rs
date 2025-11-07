@@ -83,13 +83,10 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
-		"/dns/a1.i.res.fm/tcp/30104/p2p/QmQ5UgQyHs3UiGyvruYxXTmfgrJnciobqiUe5peXZqnjvq"
+		"/dns/a1-heisenberg.quantus.cat/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt"
 			.parse()
 			.unwrap(),
-		"/dns/a2.i.res.fm/tcp/30105/p2p/QmWwvxdtnaej2qxn4yqS2z8S1TrVfrxz1zjJ8f8Y8LK8Wq"
-			.parse()
-			.unwrap(),
-		"/dns/a3.i.res.fm/tcp/30215/p2p/QmNZH7cLXAnNTeS6tw29KRmFYygFgL18GXjk6pXGHfRvAe"
+		"/dns/a2-heisenberg.quantus.cat/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
 			.parse()
 			.unwrap(),
 	];
