@@ -9119,7 +9119,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.3.1"
+version = "0.4.0-misty-mountains"
 dependencies = [
  "async-trait",
  "clap",
@@ -9180,7 +9180,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.3.0-kingfisher"
+version = "0.4.0-misty-mountains"
 dependencies = [
  "env_logger 0.11.8",
  "frame-benchmarking",
