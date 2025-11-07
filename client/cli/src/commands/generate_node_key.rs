@@ -117,7 +117,7 @@ fn generate_key(
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
 	let hashed_timestamp = hash_current_time_to_hex();
-	let keypair = Keypair::generate(Some(&hashed_timestamp));
+	let keypair = Keypair::generate(&hashed_timestamp);
 
 	let file_data = if bin {
 		keypair.to_bytes().to_vec()

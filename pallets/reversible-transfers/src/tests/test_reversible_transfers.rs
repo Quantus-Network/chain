@@ -267,7 +267,7 @@ fn schedule_transfer_works() {
 		let bounded = Preimage::bound(call.clone()).unwrap();
 		let expected_block = BlockNumberOrTimestamp::BlockNumber(expected_block);
 
-		assert!(Agenda::<Test>::get(expected_block).len() == 0);
+		assert!(Agenda::<Test>::get(expected_block).is_empty());
 
 		assert_ok!(ReversibleTransfers::schedule_transfer(
 			RuntimeOrigin::signed(user.clone()),
@@ -289,7 +289,7 @@ fn schedule_transfer_works() {
 		assert_eq!(ReversibleTransfers::account_pending_index(&user), 1);
 
 		// Check scheduler
-		assert!(Agenda::<Test>::get(expected_block).len() > 0);
+		assert!(!Agenda::<Test>::get(expected_block).is_empty());
 
 		// Skip to the delay block
 		run_to_block(expected_block.as_block_number().unwrap());
@@ -397,7 +397,7 @@ fn schedule_transfer_with_timestamp_works() {
 		let expected_timestamp =
 			BlockNumberOrTimestamp::Timestamp(expected_raw_timestamp + TimestampBucketSize::get());
 
-		assert!(Agenda::<Test>::get(expected_timestamp).len() == 0);
+		assert!(Agenda::<Test>::get(expected_timestamp).is_empty());
 
 		assert_ok!(ReversibleTransfers::schedule_transfer(
 			RuntimeOrigin::signed(user.clone()),
@@ -420,7 +420,7 @@ fn schedule_transfer_with_timestamp_works() {
 		assert_eq!(ReversibleTransfers::account_pending_index(&user), 1);
 
 		// Check scheduler
-		assert!(Agenda::<Test>::get(expected_timestamp).len() > 0);
+		assert!(!Agenda::<Test>::get(expected_timestamp).is_empty());
 
 		// Advance to expected execution time and ensure it executed
 		MockTimestamp::<Test>::set_timestamp(expected_raw_timestamp);
@@ -830,7 +830,7 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 				.normalize(bucket_size);
 
 		assert!(
-			Agenda::<Test>::get(expected_execution_time).len() > 0,
+			!Agenda::<Test>::get(expected_execution_time).is_empty(),
 			"Task not found in agenda for timestamp"
 		);
 		assert_eq!(
@@ -895,7 +895,7 @@ fn full_flow_execute_works() {
 			amount,
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
-		assert!(Agenda::<Test>::get(execute_block).len() > 0);
+		assert!(!Agenda::<Test>::get(execute_block).is_empty());
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - 50); // Not executed yet, but on hold
 
 		run_to_block(execute_block.as_block_number().unwrap());
@@ -952,7 +952,7 @@ fn full_flow_execute_with_timestamp_delay_works() {
 				.normalize(TimestampBucketSize::get());
 
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
-		assert!(Agenda::<Test>::get(expected_execution_time).len() > 0);
+		assert!(!Agenda::<Test>::get(expected_execution_time).is_empty());
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount); // On hold
 
 		// Advance time to execution
@@ -1104,7 +1104,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount);
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance);
 		// Interceptor should have received the cancelled amount
-		let interceptor_balance = Balances::free_balance(&interceptor_255());
+		let interceptor_balance = Balances::free_balance(interceptor_255());
 		assert_eq!(interceptor_balance, amount); // interceptor started with 0, now has the cancelled amount
 
 		let expected_event_pattern = |e: &RuntimeEvent| match e {

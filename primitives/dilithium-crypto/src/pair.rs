@@ -61,7 +61,7 @@ impl Pair for DilithiumPair {
 		let keypair = create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
 		// Sign the message
-		let signature = keypair.sign(message, None, false);
+		let signature = keypair.sign(message, None, None);
 
 		let signature =
 			DilithiumSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
@@ -177,14 +177,12 @@ impl DilithiumPublic {
 ///
 /// # Errors
 /// Returns an error if the provided entropy is shorter than SEEDBYTES
-pub fn generate(entropy: Option<&[u8]>) -> Result<Keypair, crate::types::Error> {
-	if let Some(entropy_bytes) = entropy {
-		if entropy_bytes.len() < SEEDBYTES {
-			return Err(crate::types::Error::InsufficientEntropy {
-				required: SEEDBYTES,
-				actual: entropy_bytes.len(),
-			});
-		}
+pub fn generate(entropy: &[u8]) -> Result<Keypair, crate::types::Error> {
+	if entropy.len() < SEEDBYTES {
+		return Err(crate::types::Error::InsufficientEntropy {
+			required: SEEDBYTES,
+			actual: entropy.len(),
+		});
 	}
 	Ok(Keypair::generate(entropy))
 }
