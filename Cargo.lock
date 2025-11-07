@@ -9142,7 +9142,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.3.0-kingfisher"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "clap",
