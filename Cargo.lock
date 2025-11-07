@@ -7141,6 +7141,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-dag-consensus"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "indexmap 1.9.3",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-merkle-airdrop"
 version = "0.1.0"
 dependencies = [

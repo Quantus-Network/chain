@@ -13,6 +13,7 @@ members = [
 	"miner-api",
 	"node",
 	"pallets/balances",
+	"pallets/dag-consensus",
 	"pallets/merkle-airdrop",
 	"pallets/mining-rewards",
 	"pallets/qpow",
