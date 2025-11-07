@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "quantus-runtime"
 publish = false
 repository.workspace = true
-version = "0.3.0-kingfisher"
+version = "0.4.0-misty-mountains"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
