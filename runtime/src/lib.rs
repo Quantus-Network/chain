@@ -12,10 +12,10 @@ pub mod configs;
 pub use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
 
 use alloc::vec::Vec;
-use sp_core::U512;
+use sp_core::{Hasher, H256, U512};
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{IdentifyAccount, Verify},
+	traits::{Hash as HashT, IdentifyAccount, Verify},
 	MultiAddress,
 };
 #[cfg(feature = "std")]
@@ -37,7 +37,66 @@ pub mod transaction_extensions;
 pub mod governance;
 
 use crate::governance::pallet_custom_origins;
+use codec::{Decode, Encode};
 use qp_poseidon::PoseidonHasher;
+use scale_info::TypeInfo;
+use serde::{Deserialize, Serialize};
+
+/// A standard library hasher implementation using Poseidon
+#[derive(Default)]
+pub struct PoseidonStdHasher(Vec<u8>);
+
+impl core::hash::Hasher for PoseidonStdHasher {
+	fn finish(&self) -> u64 {
+		let hash = PoseidonHasher::hash_variable_length_bytes(self.0.as_slice());
+		u64::from_le_bytes(hash[0..8].try_into().unwrap())
+	}
+
+	fn write(&mut self, bytes: &[u8]) {
+		self.0.extend_from_slice(bytes)
+	}
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Encode, Decode, TypeInfo, Serialize, Deserialize)]
+pub struct PoseidonHasherNoCircuitPadding;
+
+impl Hasher for PoseidonHasherNoCircuitPadding {
+	type Out = H256;
+	type StdHasher = PoseidonStdHasher;
+	const LENGTH: usize = 32;
+
+	fn hash(x: &[u8]) -> H256 {
+		let h = PoseidonHasher::hash_variable_length_bytes(x);
+		H256::from_slice(&h)
+	}
+}
+
+impl HashT for PoseidonHasherNoCircuitPadding {
+	type Output = H256;
+
+	fn hash(s: &[u8]) -> Self::Output {
+		H256::from_slice(&PoseidonHasher::hash_variable_length_bytes(s))
+	}
+
+	/// Produce the hash of some codec-encodable value.
+	fn hash_of<S: Encode>(s: &S) -> Self::Output {
+		Encode::using_encoded(s, <Self as Hasher>::hash)
+	}
+
+	fn ordered_trie_root(
+		input: Vec<Vec<u8>>,
+		state_version: sp_storage::StateVersion,
+	) -> Self::Output {
+		PoseidonHasher::ordered_trie_root(input, state_version)
+	}
+
+	fn trie_root(
+		input: Vec<(Vec<u8>, Vec<u8>)>,
+		version: sp_storage::StateVersion,
+	) -> Self::Output {
+		PoseidonHasher::trie_root(input, version)
+	}
+}
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -55,7 +114,7 @@ pub mod opaque {
 	// However, some internal checks in dev build expect extrinsics_root to be computed with same
 	// Hash function, so we change the configs/mod.rs Hashing type as well
 	// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+	pub type Header = generic::Header<BlockNumber, PoseidonHasherNoCircuitPadding>;
 
 	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -63,7 +122,7 @@ pub mod opaque {
 	pub type BlockId = generic::BlockId<Block>;
 
 	// Opaque block hash type.
-	pub type Hash = <PoseidonHasher as HashT>::Output;
+	pub type Hash = <PoseidonHasherNoCircuitPadding as HashT>::Output;
 }
 
 impl_opaque_keys! {
@@ -143,7 +202,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
+pub type Header = generic::Header<BlockNumber, PoseidonHasherNoCircuitPadding>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
