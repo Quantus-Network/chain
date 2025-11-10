@@ -25,34 +25,21 @@ use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
-/// Identifier for the Resonance testnet runtime preset.
-pub const LIVE_TESTNET_RUNTIME_PRESET: &str = "live_testnet";
-
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
-
-/// Identifier for the schrodinger runtime preset.
-pub const SCHRODINGER_RUNTIME_PRESET: &str = "schrodinger";
 
 /// Identifier for the dirac runtime preset.
 pub const DIRAC_RUNTIME_PRESET: &str = "dirac";
 
-fn test_root_account() -> AccountId {
-	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
-}
-
-fn schrodinger_root_account() -> AccountId {
-	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
-}
-fn schrodinger_faucet_account() -> AccountId {
-	account_from_ss58("qzkxaHg7h4zgk5jPNkJ3a7r9xNgbJNGpJ6a5LPEThDnjkfrC6")
+fn heisenberg_root_account() -> AccountId {
+	account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB")
 }
 
 fn dirac_root_account() -> AccountId {
-	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
+	account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB")
 }
 fn dirac_faucet_account() -> AccountId {
-	account_from_ss58("qzkxaHg7h4zgk5jPNkJ3a7r9xNgbJNGpJ6a5LPEThDnjkfrC6")
+	account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr")
 }
 
 fn dilithium_default_accounts() -> Vec<AccountId> {
@@ -60,7 +47,6 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 		crystal_alice().into_account(),
 		dilithium_bob().into_account(),
 		crystal_charlie().into_account(),
-		account_from_ss58("qzq3VLu6DHcWDtWRAqWXtTkDMPqz4BdJNvy3e7SYaqhZX49PQ"),
 	]
 }
 // Returns the genesis config presets populated with given parameters.
@@ -93,38 +79,14 @@ pub fn development_config_genesis() -> Value {
 	genesis_template(endowed_accounts, crystal_alice().into_account())
 }
 
-/// Return the live testnet genesis config.
-///
-/// Endows only the specified test account and sets it as Sudo.
-pub fn live_testnet_config_genesis() -> Value {
-	let endowed_accounts = vec![test_root_account()];
-	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
-	log::info!(
-		"🍆 Endowed account: {:?}",
-		test_root_account().to_ss58check_with_version(ss58_version)
-	);
-
-	genesis_template(endowed_accounts, test_root_account())
-}
-
-pub fn schrodinger_config_genesis() -> Value {
-	let endowed_accounts = vec![schrodinger_root_account(), schrodinger_faucet_account()];
-	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
-	for account in endowed_accounts.iter() {
-		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
-	}
-
-	genesis_template(endowed_accounts, schrodinger_root_account())
-}
-
 pub fn heisenberg_config_genesis() -> Value {
-	let mut endowed_accounts = vec![test_root_account()];
+	let mut endowed_accounts = vec![heisenberg_root_account()];
 	endowed_accounts.extend(dilithium_default_accounts());
 	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	genesis_template(endowed_accounts, test_root_account())
+	genesis_template(endowed_accounts, heisenberg_root_account())
 }
 
 pub fn dirac_config_genesis() -> Value {
@@ -141,9 +103,7 @@ pub fn dirac_config_genesis() -> Value {
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
-		LIVE_TESTNET_RUNTIME_PRESET => live_testnet_config_genesis(),
 		HEISENBERG_RUNTIME_PRESET => heisenberg_config_genesis(),
-		SCHRODINGER_RUNTIME_PRESET => schrodinger_config_genesis(),
 		DIRAC_RUNTIME_PRESET => dirac_config_genesis(),
 		_ => return None,
 	};
@@ -164,9 +124,7 @@ fn account_from_ss58(ss58: &str) -> AccountId {
 pub fn preset_names() -> Vec<PresetId> {
 	vec![
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
-		PresetId::from(LIVE_TESTNET_RUNTIME_PRESET),
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
-		PresetId::from(SCHRODINGER_RUNTIME_PRESET),
 		PresetId::from(DIRAC_RUNTIME_PRESET),
 	]
 }

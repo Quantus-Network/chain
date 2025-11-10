@@ -1,8 +1,5 @@
 use quantus_runtime::{
-	genesis_config_presets::{
-		DIRAC_RUNTIME_PRESET, HEISENBERG_RUNTIME_PRESET, LIVE_TESTNET_RUNTIME_PRESET,
-		SCHRODINGER_RUNTIME_PRESET,
-	},
+	genesis_config_presets::{DIRAC_RUNTIME_PRESET, HEISENBERG_RUNTIME_PRESET},
 	WASM_BINARY,
 };
 use sc_service::{ChainType, Properties};
@@ -30,45 +27,6 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
 	.with_properties(properties)
 	.build())
 }
-/// Configure a new chain spec for the live testnet.
-pub fn live_testnet_chain_spec() -> Result<ChainSpec, String> {
-	let mut properties = Properties::new();
-	properties.insert("tokenDecimals".into(), json!(12));
-	properties.insert("tokenSymbol".into(), json!("RES"));
-	properties.insert("ss58Format".into(), json!(189));
-
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![
-		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-	])
-	.expect("Telemetry endpoints config is valid; qed");
-
-	let boot_nodes = vec![
-		"/dns/a1.t.res.fm/tcp/30201/p2p/QmYpbayBgKbhfHGn2kNWWhh3DHwBnPaLDMYvaGmT78oAP7"
-			.parse()
-			.unwrap(),
-		"/dns/a2.t.res.fm/tcp/30203/p2p/QmeN9H9CBdBESd6wib9xetPiYsCLYPTAJn8sxajWi2Bjkb"
-			.parse()
-			.unwrap(),
-		"/dns/a3.t.res.fm/tcp/30202/p2p/QmQLf3wj7KqqtTjtrq7iQZY5JokQ3k7HHLGe5hNvHSxnFr"
-			.parse()
-			.unwrap(),
-	];
-
-	Ok(ChainSpec::builder(
-		WASM_BINARY.ok_or_else(|| "Resonance wasm not available".to_string())?,
-		None,
-	)
-	.with_name("Resonance")
-	.with_id("resonance")
-	.with_protocol_id("resonance")
-	.with_boot_nodes(boot_nodes)
-	.with_telemetry_endpoints(telemetry_endpoints)
-	.with_chain_type(ChainType::Live)
-	.with_genesis_config_preset_name(LIVE_TESTNET_RUNTIME_PRESET)
-	.with_properties(properties)
-	.build())
-}
 
 /// Integration environment chain spec - internal use only.
 pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
@@ -77,17 +35,17 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenSymbol".into(), json!("HEI"));
 	properties.insert("ss58Format".into(), json!(189));
 
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![
-		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-	])
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
+		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
+		0,
+	)])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
-		"/dns/a1-heisenberg.quantus.cat/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt"
+		"/dns/a1-p2p-heisenberg.quantus.cat/tcp/30333/p2p/Qmdts9fu3NCMFnvLdD1dHAHFer8EPzVDXxVnyPxRKA3Gkt"
 			.parse()
 			.unwrap(),
-		"/dns/a2-heisenberg.quantus.cat/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
+		"/dns/a2-p2p-heisenberg.quantus.cat/tcp/30333/p2p/QmcKHndoiNRdiT6iVp6ugj8bNse5Vd5WmCoE9YWn9kNaTM"
 			.parse()
 			.unwrap(),
 	];
@@ -107,46 +65,6 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	.build())
 }
 
-/// Configure a new chain spec for the schrodinger testnet.
-pub fn schrodinger_chain_spec() -> Result<ChainSpec, String> {
-	let mut properties = Properties::new();
-	properties.insert("tokenDecimals".into(), json!(12));
-	properties.insert("tokenSymbol".into(), json!("QU"));
-	properties.insert("ss58Format".into(), json!(189));
-
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![
-		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-	])
-	.expect("Telemetry endpoints config is valid; qed");
-
-	let boot_nodes = vec![
-		"/dns/a1.quantu.se/tcp/30205/p2p/QmdEk5BbraqEHwB6eG6sPkupkogsAKP9uFMFaAo6A6H3ZM"
-			.parse()
-			.unwrap(),
-		"/dns/a2.quantu.se/tcp/30208/p2p/QmPUeRrypSFPA2AVdE2vW7N64DTx9hWfrgQaTqja45d9GL"
-			.parse()
-			.unwrap(),
-		"/dns/a3.quantu.se/tcp/30102/p2p/QmVDQEK3NtJMgUhCNkfUbxvoKPcowkcu16cKCrqqemPbEq"
-			.parse()
-			.unwrap(),
-	];
-
-	Ok(ChainSpec::builder(
-		WASM_BINARY.ok_or_else(|| "Schrodinger wasm not available".to_string())?,
-		None,
-	)
-	.with_name("Quantus Testnet")
-	.with_id("schrodinger")
-	.with_protocol_id("schrodinger")
-	.with_boot_nodes(boot_nodes)
-	.with_telemetry_endpoints(telemetry_endpoints)
-	.with_chain_type(ChainType::Live)
-	.with_genesis_config_preset_name(SCHRODINGER_RUNTIME_PRESET)
-	.with_properties(properties)
-	.build())
-}
-
 /// Configure a new chain spec for the dirac testnet.
 pub fn dirac_chain_spec() -> Result<ChainSpec, String> {
 	let mut properties = Properties::new();
@@ -154,26 +72,23 @@ pub fn dirac_chain_spec() -> Result<ChainSpec, String> {
 	properties.insert("tokenSymbol".into(), json!("QU"));
 	properties.insert("ss58Format".into(), json!(189));
 
-	let telemetry_endpoints = TelemetryEndpoints::new(vec![
-		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
-	])
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
+		"/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(),
+		0,
+	)])
 	.expect("Telemetry endpoints config is valid; qed");
 
 	let boot_nodes = vec![
-		"/dns/a1.quantu.se/tcp/30205/p2p/QmdEk5BbraqEHwB6eG6sPkupkogsAKP9uFMFaAo6A6H3ZM"
+		"/dns/a1-p2p-dirac.quantus.cat/tcp/30333/p2p/QmUpQe7KmRW9WiKamEJm1ocJjx38x5TECTtgcvvhAovebA"
 			.parse()
 			.unwrap(),
-		"/dns/a2.quantu.se/tcp/30208/p2p/QmPUeRrypSFPA2AVdE2vW7N64DTx9hWfrgQaTqja45d9GL"
-			.parse()
-			.unwrap(),
-		"/dns/a3.quantu.se/tcp/30102/p2p/QmVDQEK3NtJMgUhCNkfUbxvoKPcowkcu16cKCrqqemPbEq"
+		"/dns/a2-p2p-dirac.quantus.cat/tcp/30333/p2p/QmV2q5givrE3Dxhu7Fv21MkZ5T3CdFWnmxt8ktweRYJ9AE"
 			.parse()
 			.unwrap(),
 	];
 
 	Ok(ChainSpec::builder(WASM_BINARY.ok_or_else(|| "Dirac wasm not available".to_string())?, None)
-		.with_name("Quantus Testnet")
+		.with_name("Quantus Dirac Testnet")
 		.with_id("dirac")
 		.with_protocol_id("dirac")
 		.with_boot_nodes(boot_nodes)
