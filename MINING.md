@@ -45,13 +45,13 @@ Address: qzpjg55HuN2vLdQerpZwhsGfRn6b4pc8uh4bdEgsYbJNeu8rn
 ```   
    Save the displayed address to `~/.quantus/rewards-address.txt`
 
-4. **Run the node (Resonance testnet)**
+4. **Run the node (Dirac testnet)**
 
 Minimal command - see --help for many more options
 ```sh
 ./quantus-node \
     --validator \
-    --chain live_resonance \
+    --chain dirac_live_spec \
     --node-key-file ~/.quantus/node_key.p2p \
     --rewards-address <REWARDS_ADDRESS> \
     --max-blocks-per-request 64 \
@@ -123,7 +123,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain live_resonance \
+  --chain dirac_live_spec \
   --node-key-file /var/lib/quantus/node_key.p2p \
   --rewards-address /var/lib/quantus/rewards-address.txt
 ```
@@ -191,7 +191,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain live_resonance \
+  --chain dirac_live_spec \
   --rewards-address YOUR_ADDRESS_HERE
 ```
 
@@ -207,7 +207,7 @@ docker run -d \
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
 | `--rewards-address` | Path to rewards address file | Required |
-| `--chain` | Chain specification | `live_resonance` |
+| `--chain` | Chain specification | `dirac_live_spec` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
 | `--name` | Node display name | Auto-generated |
@@ -222,7 +222,7 @@ docker run -d \
 **View Logs**
 ```bash
 # Real-time logs
-tail -f ~/.local/share/quantus-node/chains/live_resonance/network/quantus-node.log
+tail -f ~/.local/share/quantus-node/chains/dirac/network/quantus-node.log
 
 # Or run with verbose logging
 RUST_LOG=info quantus-node [options]
@@ -253,7 +253,7 @@ curl -H "Content-Type: application/json" \
 
 ## Testnet Information
 
-- **Chain**: Resonance Live Testnet
+- **Chain**: Dirac Testnet
 - **Consensus**: Quantum Proof of Work (QPoW)
 - **Block Time**: ~6 seconds target
 - **Network Explorer**: Coming soon
@@ -272,7 +272,7 @@ quantus-node --port 30334 --prometheus-port 9617 [other options]
 **Database Corruption**
 ```bash
 # Purge and resync
-quantus-node purge-chain --chain live_resonance
+quantus-node purge-chain --chain dirac_live_spec
 ```
 
 **Mining Not Working**
