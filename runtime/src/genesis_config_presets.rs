@@ -34,6 +34,9 @@ pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 /// Identifier for the schrodinger runtime preset.
 pub const SCHRODINGER_RUNTIME_PRESET: &str = "schrodinger";
 
+/// Identifier for the dirac runtime preset.
+pub const DIRAC_RUNTIME_PRESET: &str = "dirac";
+
 fn test_root_account() -> AccountId {
 	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
 }
@@ -42,6 +45,13 @@ fn schrodinger_root_account() -> AccountId {
 	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
 }
 fn schrodinger_faucet_account() -> AccountId {
+	account_from_ss58("qzkxaHg7h4zgk5jPNkJ3a7r9xNgbJNGpJ6a5LPEThDnjkfrC6")
+}
+
+fn dirac_root_account() -> AccountId {
+	account_from_ss58("qznmhjyihwB7LYcfAiMUhwg46FqDugc9LJG3BTKmriJDfm9kR")
+}
+fn dirac_faucet_account() -> AccountId {
 	account_from_ss58("qzkxaHg7h4zgk5jPNkJ3a7r9xNgbJNGpJ6a5LPEThDnjkfrC6")
 }
 
@@ -117,6 +127,16 @@ pub fn heisenberg_config_genesis() -> Value {
 	genesis_template(endowed_accounts, test_root_account())
 }
 
+pub fn dirac_config_genesis() -> Value {
+	let endowed_accounts = vec![dirac_root_account(), dirac_faucet_account()];
+	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+	for account in endowed_accounts.iter() {
+		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
+	}
+
+	genesis_template(endowed_accounts, dirac_root_account())
+}
+
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
@@ -124,6 +144,7 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 		LIVE_TESTNET_RUNTIME_PRESET => live_testnet_config_genesis(),
 		HEISENBERG_RUNTIME_PRESET => heisenberg_config_genesis(),
 		SCHRODINGER_RUNTIME_PRESET => schrodinger_config_genesis(),
+		DIRAC_RUNTIME_PRESET => dirac_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -146,5 +167,6 @@ pub fn preset_names() -> Vec<PresetId> {
 		PresetId::from(LIVE_TESTNET_RUNTIME_PRESET),
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
 		PresetId::from(SCHRODINGER_RUNTIME_PRESET),
+		PresetId::from(DIRAC_RUNTIME_PRESET),
 	]
 }

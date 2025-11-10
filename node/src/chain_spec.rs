@@ -1,6 +1,7 @@
 use quantus_runtime::{
 	genesis_config_presets::{
-		HEISENBERG_RUNTIME_PRESET, LIVE_TESTNET_RUNTIME_PRESET, SCHRODINGER_RUNTIME_PRESET,
+		DIRAC_RUNTIME_PRESET, HEISENBERG_RUNTIME_PRESET, LIVE_TESTNET_RUNTIME_PRESET,
+		SCHRODINGER_RUNTIME_PRESET,
 	},
 	WASM_BINARY,
 };
@@ -144,4 +145,41 @@ pub fn schrodinger_chain_spec() -> Result<ChainSpec, String> {
 	.with_genesis_config_preset_name(SCHRODINGER_RUNTIME_PRESET)
 	.with_properties(properties)
 	.build())
+}
+
+/// Configure a new chain spec for the dirac testnet.
+pub fn dirac_chain_spec() -> Result<ChainSpec, String> {
+	let mut properties = Properties::new();
+	properties.insert("tokenDecimals".into(), json!(12));
+	properties.insert("tokenSymbol".into(), json!("QU"));
+	properties.insert("ss58Format".into(), json!(189));
+
+	let telemetry_endpoints = TelemetryEndpoints::new(vec![
+		("/dns/telemetry.res.fm/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+		("/dns/shard-telemetry.quantus.cat/tcp/443/x-parity-wss/%2Fsubmit%2F".to_string(), 0),
+	])
+	.expect("Telemetry endpoints config is valid; qed");
+
+	let boot_nodes = vec![
+		"/dns/a1.quantu.se/tcp/30205/p2p/QmdEk5BbraqEHwB6eG6sPkupkogsAKP9uFMFaAo6A6H3ZM"
+			.parse()
+			.unwrap(),
+		"/dns/a2.quantu.se/tcp/30208/p2p/QmPUeRrypSFPA2AVdE2vW7N64DTx9hWfrgQaTqja45d9GL"
+			.parse()
+			.unwrap(),
+		"/dns/a3.quantu.se/tcp/30102/p2p/QmVDQEK3NtJMgUhCNkfUbxvoKPcowkcu16cKCrqqemPbEq"
+			.parse()
+			.unwrap(),
+	];
+
+	Ok(ChainSpec::builder(WASM_BINARY.ok_or_else(|| "Dirac wasm not available".to_string())?, None)
+		.with_name("Quantus Testnet")
+		.with_id("dirac")
+		.with_protocol_id("dirac")
+		.with_boot_nodes(boot_nodes)
+		.with_telemetry_endpoints(telemetry_endpoints)
+		.with_chain_type(ChainType::Live)
+		.with_genesis_config_preset_name(DIRAC_RUNTIME_PRESET)
+		.with_properties(properties)
+		.build())
 }
