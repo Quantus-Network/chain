@@ -120,7 +120,6 @@ std = [
 	"qp-wormhole-verifier/std",
 	"qp-zk-circuits-common/std",
 	"scale-info/std",
-	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
