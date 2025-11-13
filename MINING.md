@@ -50,7 +50,7 @@ Minimal command - see --help for many more options
 ```sh
 ./quantus-node \
     --validator \
-    --chain dirac_live_spec \
+    --chain dirac \
     --node-key-file ~/.quantus/node_key.p2p \
     --rewards-address <COPIED_REWARDS_ADDRESS> \
     --max-blocks-per-request 64 \
@@ -118,7 +118,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain dirac_live_spec \
+  --chain dirac \
   --node-key-file /var/lib/quantus/node_key.p2p \
   --rewards-address <COPIED_REWARDS_ADDRESS>
 ```
@@ -182,7 +182,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain dirac_live_spec \
+  --chain dirac \
   --rewards-address YOUR_ADDRESS_HERE
 ```
 
@@ -198,7 +198,7 @@ docker run -d \
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
 | `--rewards-address` | Path to rewards address file | Required |
-| `--chain` | Chain specification | `dirac_live_spec` |
+| `--chain` | Chain specification | `dirac` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
 | `--name` | Node display name | Auto-generated |
@@ -263,7 +263,7 @@ quantus-node --port 30334 --prometheus-port 9617 [other options]
 **Database Corruption**
 ```bash
 # Purge and resync
-quantus-node purge-chain --chain dirac_live_spec
+quantus-node purge-chain --chain dirac
 ```
 
 **Mining Not Working**
