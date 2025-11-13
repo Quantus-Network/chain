@@ -12,7 +12,7 @@ rm -rf /tmp/validator1
 
 ./target/release/quantus-node \
   --base-path /tmp/validator1 \
-  --chain dirac_live_spec \
+  --chain dirac \
   --port 30333 \
   --prometheus-port 9616 \
   --name DiracTestnetNode \
