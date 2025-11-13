@@ -264,12 +264,13 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) =>
+		Some(DigestItem::Seal(id, seal)) => {
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			},
+			}
+		},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -328,7 +329,7 @@ pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
 	mut env: E,
 	sync_oracle: SO,
 	justification_sync_link: L,
-	pre_runtime: Option<Vec<u8>>,
+	pre_runtime: Vec<u8>,
 	create_inherent_data_providers: CIDP,
 	timeout: Duration,
 	build_time: Duration,
@@ -430,9 +431,7 @@ where
 			};
 
 			let mut inherent_digest = Digest::default();
-			if let Some(pre_runtime) = &pre_runtime {
-				inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
-			}
+			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
 
 			let pre_runtime = pre_runtime.clone();
 
@@ -467,7 +466,7 @@ where
 				metadata: MiningMetadata {
 					best_hash,
 					pre_hash: proposal.block.header().hash(),
-					pre_runtime: pre_runtime.clone(),
+					pre_runtime,
 					difficulty,
 				},
 				proposal,
@@ -492,8 +491,9 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<R
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) =>
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
+		BlockId::Number(_) => {
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
+		},
 	}
 }
 
