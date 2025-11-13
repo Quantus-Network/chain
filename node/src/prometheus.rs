@@ -15,15 +15,15 @@ impl ResonanceBusinessMetrics {
 		// Convert U512 to big-endian bytes (64 bytes)
 		let bytes = value.to_big_endian();
 
-		// Take the highest-order 8 bytes (first 8 bytes in big-endian)
-		let mut highest_8_bytes = [0u8; 8];
-		highest_8_bytes.copy_from_slice(&bytes[0..8]);
+		// Take the lowest-order 8 bytes (first 8 bytes in big-endian)
+		let mut lowest_8_bytes = [0u8; 8];
+		lowest_8_bytes.copy_from_slice(&bytes[56..64]);
 
 		// Convert to u64
-		let highest_64_bits = u64::from_be_bytes(highest_8_bytes);
+		let lowest_64_bits = u64::from_be_bytes(lowest_8_bytes);
 
 		// Cast to f64
-		highest_64_bits as f64
+		lowest_64_bits as f64
 	}
 
 	/// Register QPoW metrics gauge vector with Prometheus
