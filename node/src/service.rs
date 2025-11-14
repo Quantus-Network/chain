@@ -344,7 +344,7 @@ pub fn new_full<
 			proposer,
 			sync_service.clone(),
 			sync_service.clone(),
-			encoded_miner,
+			encoded_miner.expect("Rewards address is required for mining"),
 			inherent_data_providers,
 			Duration::from_secs(10),
 			Duration::from_secs(10),

@@ -328,7 +328,7 @@ pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
 	mut env: E,
 	sync_oracle: SO,
 	justification_sync_link: L,
-	pre_runtime: Option<Vec<u8>>,
+	pre_runtime: Vec<u8>,
 	create_inherent_data_providers: CIDP,
 	timeout: Duration,
 	build_time: Duration,
@@ -430,9 +430,7 @@ where
 			};
 
 			let mut inherent_digest = Digest::default();
-			if let Some(pre_runtime) = &pre_runtime {
-				inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
-			}
+			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
 
 			let pre_runtime = pre_runtime.clone();
 
@@ -467,7 +465,7 @@ where
 				metadata: MiningMetadata {
 					best_hash,
 					pre_hash: proposal.block.header().hash(),
-					pre_runtime: pre_runtime.clone(),
+					pre_runtime,
 					difficulty,
 				},
 				proposal,
