@@ -11,7 +11,7 @@ pub struct Cli {
 
 	/// Specify a rewards address for the miner
 	#[arg(long, value_name = "REWARDS_ADDRESS")]
-	pub rewards_address: String,
+	pub rewards_address: Option<String>,
 
 	/// Specify the URL of an external QPoW miner service
 	#[arg(long, value_name = "EXTERNAL_MINER_URL")]

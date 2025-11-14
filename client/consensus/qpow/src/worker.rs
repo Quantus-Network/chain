@@ -52,7 +52,7 @@ pub struct MiningMetadata<H, D> {
 	/// Mining pre-hash.
 	pub pre_hash: H,
 	/// Pre-runtime digest item.
-	pub pre_runtime: Vec<u8>,
+	pub pre_runtime: Option<Vec<u8>>,
 	/// Mining target difficulty.
 	pub difficulty: D,
 }
