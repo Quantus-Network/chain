@@ -24,6 +24,8 @@ frame-system-rpc-runtime-api.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
 lazy_static.workspace = true
 log.workspace = true
+p3-field = { workspace = true }
+p3-goldilocks = { workspace = true }
 pallet-assets.workspace = true
 pallet-assets-holder = { workspace = true, default-features = false }
 pallet-balances.workspace = true
@@ -47,6 +49,7 @@ pallet-vesting.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
 qp-poseidon = { workspace = true, features = ["serde"] }
+qp-poseidon-core = { workspace = true }
 qp-scheduler.workspace = true
 qp-wormhole-circuit = { workspace = true, default-features = false }
 qp-wormhole-verifier = { workspace = true, default-features = false }
