@@ -1,0 +1,52 @@
+services:
+  quantus-node:
+    image: ${DOCKER_IMAGE:-ghcr.io/quantus/dirac-chain:latest}
+    container_name: ${CONTAINER_NAME:-quantus-node}
+    platform: linux/amd64
+    restart: unless-stopped
+    
+    volumes:
+      # Persistent node key (separate from chain data - survives chain data deletion)
+      - ./node-keys:/node-keys
+      # Chain data (can be deleted for re-sync without losing node key)
+      - ./data:/data
+      # Entrypoint script
+      - ./entrypoint.sh:/entrypoint.sh:ro
+    
+    environment:
+      # Required: Your rewards address from .env file
+      - REWARDS_ADDRESS=${REWARDS_ADDRESS}
+      
+      # Chain configuration
+      - CHAIN=${CHAIN:-dirac}
+      - BASE_PATH=/data
+      - NODE_KEY_PATH=/node-keys
+      
+      # Node configuration (with defaults)
+      - NODE_NAME=${NODE_NAME:-my-quantus-node}
+      - IN_PEERS=${IN_PEERS:-256}
+      - OUT_PEERS=${OUT_PEERS:-256}
+      
+      # Logging
+      - RUST_LOG=${RUST_LOG:-info,sc_network=warn}
+      
+      # Optional features
+      - EXTERNAL_MINER_URL=${EXTERNAL_MINER_URL:-}
+      - ENABLE_PEER_SHARING=${ENABLE_PEER_SHARING:-false}
+      
+    ports:
+      - "${P2P_PORT:-30333}:30333"      # P2P network port
+      - "${RPC_PORT:-9944}:9944"        # JSON-RPC port (optional)
+      - "${PROMETHEUS_PORT:-9615}:9615" # Prometheus metrics (optional)
+    
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    
+    # Resource limits (adjust based on your server)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
