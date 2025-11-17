@@ -19,7 +19,7 @@
 
 use crate::{
 	system::AccountInfo,
-	tests::{ensure_ti_valid, Balances, ExtBuilder, System, Test, TestId, UseSystem},
+	tests::{account_id, ensure_ti_valid, Balances, ExtBuilder, System, Test, TestId, UseSystem},
 	AccountData, ExtraFlags, TotalIssuance,
 };
 use frame_support::{
@@ -39,7 +39,7 @@ use sp_runtime::DispatchError;
 fn regression_historic_acc_does_not_evaporate_reserve() {
 	ExtBuilder::default().build_and_execute_with(|| {
 		UseSystem::set(true);
-		let (alice, bob) = (0, 1);
+		let (alice, bob) = (account_id(0), account_id(1));
 		// Alice is in a bad state with consumer == 0 && reserved > 0:
 		Balances::set_balance(&alice, 100);
 		TotalIssuance::<Test>::put(100);
@@ -50,7 +50,7 @@ fn regression_historic_acc_does_not_evaporate_reserve() {
 		System::dec_consumers(&alice);
 
 		assert_eq!(
-			System::account(alice),
+			System::account(&alice),
 			AccountInfo {
 				data: AccountData {
 					free: 90,
@@ -69,23 +69,23 @@ fn regression_historic_acc_does_not_evaporate_reserve() {
 
 		// Reaping the account is prevented by the new logic:
 		assert_noop!(
-			Balances::transfer_allow_death(Some(alice).into(), bob, 90),
+			Balances::transfer_allow_death(Some(alice.clone()).into(), bob.clone(), 90),
 			DispatchError::ConsumerRemaining
 		);
 		assert_noop!(
-			Balances::transfer_all(Some(alice).into(), bob, false),
+			Balances::transfer_all(Some(alice.clone()).into(), bob.clone(), false),
 			DispatchError::ConsumerRemaining
 		);
 
 		// normal transfers still work:
 		hypothetically!({
-			assert_ok!(Balances::transfer_keep_alive(Some(alice).into(), bob, 40));
+			assert_ok!(Balances::transfer_keep_alive(Some(alice.clone()).into(), bob.clone(), 40));
 			// Alice got back her consumer ref:
 			assert_eq!(System::consumers(&alice), 1);
 			ensure_ti_valid();
 		});
 		hypothetically!({
-			assert_ok!(Balances::transfer_all(Some(alice).into(), bob, true));
+			assert_ok!(Balances::transfer_all(Some(alice.clone()).into(), bob.clone(), true));
 			// Alice got back her consumer ref:
 			assert_eq!(System::consumers(&alice), 1);
 			ensure_ti_valid();
@@ -95,7 +95,7 @@ fn regression_historic_acc_does_not_evaporate_reserve() {
 		hypothetically!({
 			assert_ok!(Balances::release(&TestId::Foo, &alice, 10, Precision::Exact));
 			assert_eq!(System::consumers(&alice), 0);
-			assert_ok!(Balances::transfer_keep_alive(Some(alice).into(), bob, 40));
+			assert_ok!(Balances::transfer_keep_alive(Some(alice.clone()).into(), bob.clone(), 40));
 			assert_eq!(System::consumers(&alice), 0);
 			ensure_ti_valid();
 		});
@@ -103,7 +103,7 @@ fn regression_historic_acc_does_not_evaporate_reserve() {
 		hypothetically!({
 			assert_ok!(Balances::release(&TestId::Foo, &alice, 5, Precision::Exact));
 			assert_eq!(System::consumers(&alice), 1);
-			assert_ok!(Balances::transfer_keep_alive(Some(alice).into(), bob, 40));
+			assert_ok!(Balances::transfer_keep_alive(Some(alice.clone()).into(), bob.clone(), 40));
 			assert_eq!(System::consumers(&alice), 1);
 			ensure_ti_valid();
 		});
@@ -121,7 +121,7 @@ fn try_state_works() {
 
 	ExtBuilder::default().build_and_execute_with(|| {
 		storage::unhashed::put(
-			&Holds::<Test>::hashed_key_for(1),
+			&Holds::<Test>::hashed_key_for(account_id(1)),
 			&vec![0u8; <Test as Config>::RuntimeHoldReason::VARIANT_COUNT as usize + 1],
 		);
 
@@ -133,7 +133,7 @@ fn try_state_works() {
 		let max_freezes: u32 = <Test as Config>::MaxFreezes::get();
 
 		storage::unhashed::put(
-			&Freezes::<Test>::hashed_key_for(1),
+			&Freezes::<Test>::hashed_key_for(account_id(1)),
 			&vec![0u8; max_freezes as usize + 1],
 		);
 

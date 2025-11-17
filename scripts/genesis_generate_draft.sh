@@ -6,7 +6,7 @@
 # It's designed for adding completely new chains to the project.
 #
 # What it does:
-# 1. Generates chain spec from a runtime preset (e.g., schrodinger_live_spec)
+# 1. Generates chain spec from a runtime preset (e.g., dirac_live_spec)
 # 2. Downloads runtime WASM from a GitHub release
 # 3. Replaces the runtime code in the generated chain spec
 #
@@ -21,7 +21,7 @@
 # - Working with development releases
 #
 # Usage: ./genesis_generate_draft.sh <release_tag> <profile>
-# Example: ./genesis_generate_draft.sh v0.2.3-ns-fog schrodinger
+# Example: ./genesis_generate_draft.sh v0.2.3-ns-fog dirac
 
 set -e
 
@@ -29,7 +29,7 @@ set -e
 if [ -z "$1" ] || [ -z "$2" ]; then
   echo "❌ Error: Missing parameters."
   echo "Usage: $0 <release_tag> <profile>"
-  echo "Example: $0 v0.2.3-ns-fog schrodinger"
+  echo "Example: $0 v0.2.3-ns-fog dirac"
   echo ""
   echo "This script will:"
   echo "  1. Generate chain spec from profile preset"
@@ -42,8 +42,8 @@ RELEASE_TAG=$1
 PROFILE=$2
 
 # Dynamic generation based on naming convention
-PROFILE_SPEC="${PROFILE}_live_spec"                                    # schrodinger -> schrodinger_live_spec
-OUTPUT_FILE="node/src/chain-specs/${PROFILE//_/-}.json"               # schrodinger -> schrodinger.json
+PROFILE_SPEC="${PROFILE}_live_spec"                                    # dirac -> dirac_live_spec
+OUTPUT_FILE="node/src/chain-specs/${PROFILE//_/-}.json"               # dirac -> dirac.json
 
 echo "🔧 Generating chain spec for '$PROFILE' with WASM from draft release..."
 echo "📁 Output file: $OUTPUT_FILE"

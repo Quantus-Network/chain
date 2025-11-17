@@ -249,7 +249,7 @@ impl From<DilithiumPublic> for AccountId32 {
 
 impl DilithiumPair {
 	pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
-		let keypair = crate::pair::generate(Some(seed))?;
+		let keypair = crate::pair::generate(seed)?;
 		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
 	}
 	pub fn public(&self) -> DilithiumPublic {

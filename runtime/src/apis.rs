@@ -143,9 +143,7 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
-		fn get_distance_threshold() -> U512 {
-			pallet_qpow::Pallet::<Self>::get_distance_threshold()
-		}
+
 
 		fn get_total_work() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_total_work()
@@ -167,21 +165,15 @@ impl_runtime_apis! {
 			frame_system::pallet::Pallet::<Self>::block_number()
 		}
 
-		fn get_random_rsa(block_hash: &[u8; 32]) -> (U512, U512) {
-			pallet_qpow::Pallet::<Self>::get_random_rsa(block_hash)
-		}
 
-		fn hash_to_group_bigint(h: &U512, m: &U512, n: &U512, solution: &U512) -> U512{
-			pallet_qpow::Pallet::<Self>::hash_to_group_bigint(h,m,n,solution)
-		}
-		fn get_max_distance() -> U512 {
-			pallet_qpow::Pallet::<Self>::get_max_distance()
+		fn get_max_difficulty() -> U512 {
+			pallet_qpow::Pallet::<Self>::get_max_difficulty()
 		}
 		fn get_nonce_distance(
 			block_hash: [u8; 32],
 			nonce: [u8; 64]
 		) -> U512 {
-			pallet_qpow::Pallet::<Self>::get_nonce_distance(block_hash, nonce)
+			pallet_qpow::Pallet::<Self>::get_nonce_hash(block_hash, nonce)
 		}
 	}
 

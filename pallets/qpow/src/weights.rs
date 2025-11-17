@@ -57,24 +57,14 @@ pub trait WeightInfo {
 /// Weights for `pallet_qpow` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `QPoW::BlocksInPeriod` (r:1 w:1)
-	/// Proof: `QPoW::BlocksInPeriod` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::CurrentDistanceThreshold` (r:1 w:1)
-	/// Proof: `QPoW::CurrentDistanceThreshold` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
+	/// Storage: `QPoW::CurrentDifficulty` (r:1 w:1)
+	/// Proof: `QPoW::CurrentDifficulty` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
 	/// Storage: `Timestamp::Now` (r:1 w:0)
 	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockTime` (r:1 w:1)
 	/// Proof: `QPoW::LastBlockTime` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::TotalWork` (r:1 w:1)
 	/// Proof: `QPoW::TotalWork` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::HistoryIndex` (r:1 w:1)
-	/// Proof: `QPoW::HistoryIndex` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::HistorySize` (r:1 w:1)
-	/// Proof: `QPoW::HistorySize` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::BlockTimeHistory` (r:9 w:1)
-	/// Proof: `QPoW::BlockTimeHistory` (`max_values`: None, `max_size`: Some(20), added: 2495, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::BlockDistanceThresholds` (r:0 w:1)
-	/// Proof: `QPoW::BlockDistanceThresholds` (`max_values`: None, `max_size`: Some(76), added: 2551, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockDuration` (r:0 w:1)
 	/// Proof: `QPoW::LastBlockDuration` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn on_finalize_max_history() -> Weight {
@@ -90,24 +80,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Storage: `QPoW::BlocksInPeriod` (r:1 w:1)
-	/// Proof: `QPoW::BlocksInPeriod` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::CurrentDistanceThreshold` (r:1 w:1)
-	/// Proof: `QPoW::CurrentDistanceThreshold` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
+	/// Storage: `QPoW::CurrentDifficulty` (r:1 w:1)
+	/// Proof: `QPoW::CurrentDifficulty` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
 	/// Storage: `Timestamp::Now` (r:1 w:0)
 	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockTime` (r:1 w:1)
 	/// Proof: `QPoW::LastBlockTime` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::TotalWork` (r:1 w:1)
 	/// Proof: `QPoW::TotalWork` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::HistoryIndex` (r:1 w:1)
-	/// Proof: `QPoW::HistoryIndex` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::HistorySize` (r:1 w:1)
-	/// Proof: `QPoW::HistorySize` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::BlockTimeHistory` (r:9 w:1)
-	/// Proof: `QPoW::BlockTimeHistory` (`max_values`: None, `max_size`: Some(20), added: 2495, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::BlockDistanceThresholds` (r:0 w:1)
-	/// Proof: `QPoW::BlockDistanceThresholds` (`max_values`: None, `max_size`: Some(76), added: 2551, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockDuration` (r:0 w:1)
 	/// Proof: `QPoW::LastBlockDuration` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn on_finalize_max_history() -> Weight {

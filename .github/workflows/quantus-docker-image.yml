@@ -64,6 +64,9 @@ jobs:
       TARGET_VERSION_WITH_V: ${{ needs.determine_version.outputs.version_with_v }}
 
     steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+    
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -105,7 +108,7 @@ jobs:
           context: ./source_code_for_build
           file: ./Dockerfile
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION_ARG=${{ env.TARGET_VERSION_WITH_V }}
           tags: |

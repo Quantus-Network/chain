@@ -25,7 +25,7 @@ If you prefer manual installation or the script doesn't work for your system:
 
 1. **Download Binary**
 
-   Get the latest binary [GitHub Releases](https://github.com/Quantus-Network/chain/releases/latest) 
+   Get the latest binary [GitHub Releases](https://github.com/Quantus-Network/chain/releases/latest)
 
 2. **Generate Node Identity**
    ```bash
@@ -39,21 +39,20 @@ If you prefer manual installation or the script doesn't work for your system:
 
   The address is in the output like this:
 ```sh
-...  
+...
 Address: qzpjg55HuN2vLdQerpZwhsGfRn6b4pc8uh4bdEgsYbJNeu8rn
 ...
-```   
-   Save the displayed address to `~/.quantus/rewards-address.txt`
+```
 
-4. **Run the node (Resonance testnet)**
+4. **Run the node (Dirac testnet)**
 
 Minimal command - see --help for many more options
 ```sh
 ./quantus-node \
     --validator \
-    --chain live_resonance \
+    --chain dirac \
     --node-key-file ~/.quantus/node_key.p2p \
-    --rewards-address <REWARDS_ADDRESS> \
+    --rewards-address <COPIED_REWARDS_ADDRESS> \
     --max-blocks-per-request 64 \
     --sync full
 ```
@@ -73,7 +72,7 @@ mkdir -p ./quantus_node_data
 ```
 This command creates a directory named `quantus_node_data` in your current working directory.
 
-**Optional Linux**  
+**Optional Linux**
 On linux you may need to make sure this directory has generous permissions so Docker can access it
 
 ```bash
@@ -103,11 +102,7 @@ docker run --rm ghcr.io/quantus-network/quantus-node:latest key quantus
 Replace `quantus-node:v0.0.4` with your desired image.
 This command will display your secret phrase, public key, address, and seed.
 **Important: Securely back up your secret phrase!**
-Next, **copy the displayed `Address`**. Create a file named `rewards-address.txt` inside your `./quantus_node_data` directory and paste the copied address into this file. For example:
-```bash
-echo "YOUR_COPIED_REWARDS_ADDRESS_HERE" > ./quantus_node_data/rewards-address.txt
-```
-Replace `YOUR_COPIED_REWARDS_ADDRESS_HERE` with the actual address.
+Next, **copy the displayed `Address`.
 
 **Step 4: Run the Validator Node**
 
@@ -123,14 +118,10 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain live_resonance \
+  --chain dirac \
   --node-key-file /var/lib/quantus/node_key.p2p \
-  --rewards-address /var/lib/quantus/rewards-address.txt
+  --rewards-address <COPIED_REWARDS_ADDRESS>
 ```
-
-This command:
-- Mounts your local `./quantus_node_data` directory (containing `node_key.p2p` and `rewards-address.txt`) to `/var/lib/quantus` inside the container.
-- Explicitly points to the node key file and the rewards address file within the container.
 
 *Note for Apple Silicon (M1/M2/M3) users:* As mentioned above, if you are using an `amd64` based Docker image on an ARM-based Mac, you will likely need to add the `--platform linux/amd64` flag to your `docker run` commands.
 
@@ -191,7 +182,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain live_resonance \
+  --chain dirac \
   --rewards-address YOUR_ADDRESS_HERE
 ```
 
@@ -207,7 +198,7 @@ docker run -d \
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
 | `--rewards-address` | Path to rewards address file | Required |
-| `--chain` | Chain specification | `live_resonance` |
+| `--chain` | Chain specification | `dirac` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
 | `--name` | Node display name | Auto-generated |
@@ -222,7 +213,7 @@ docker run -d \
 **View Logs**
 ```bash
 # Real-time logs
-tail -f ~/.local/share/quantus-node/chains/live_resonance/network/quantus-node.log
+tail -f ~/.local/share/quantus-node/chains/dirac/network/quantus-node.log
 
 # Or run with verbose logging
 RUST_LOG=info quantus-node [options]
@@ -253,7 +244,7 @@ curl -H "Content-Type: application/json" \
 
 ## Testnet Information
 
-- **Chain**: Resonance Live Testnet
+- **Chain**: Dirac Testnet
 - **Consensus**: Quantum Proof of Work (QPoW)
 - **Block Time**: ~6 seconds target
 - **Network Explorer**: Coming soon
@@ -272,7 +263,7 @@ quantus-node --port 30334 --prometheus-port 9617 [other options]
 **Database Corruption**
 ```bash
 # Purge and resync
-quantus-node purge-chain --chain live_resonance
+quantus-node purge-chain --chain dirac
 ```
 
 **Mining Not Working**

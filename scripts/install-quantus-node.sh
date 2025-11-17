@@ -267,5 +267,5 @@ $NODE_BINARY_PATH \\
   --node-key-file "$NODE_IDENTITY_PATH" \\
   --rewards-address "$REWARDS_ADDRESS_PATH" \\
   --validator \\
-  --chain live_resonance
+  --chain dirac
 EOF

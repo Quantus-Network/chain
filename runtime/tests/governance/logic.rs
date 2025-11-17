@@ -636,7 +636,7 @@ mod tests {
 					hash: signed_hash,
 					len: signed_encoded.len() as u32
 				},
-				frame_support::traits::schedule::DispatchTime::After(0u32.into())
+				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
 			// Signaling track (1)
@@ -647,7 +647,7 @@ mod tests {
 					hash: signal_hash,
 					len: signal_encoded.len() as u32
 				},
-				frame_support::traits::schedule::DispatchTime::After(0u32.into())
+				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
 			// Check each referendum is on the correct track
@@ -832,7 +832,7 @@ mod tests {
 				// Place decision deposit
 				assert_ok!(Referenda::place_decision_deposit(
 					RuntimeOrigin::signed(proposer.clone()),
-					i as u32
+					i
 				));
 			}
 
@@ -842,7 +842,7 @@ mod tests {
 			// Count how many referenda are in deciding phase
 			let mut deciding_count = 0;
 			for i in 0..max_deciding + 1 {
-				let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(i as u32).unwrap();
+				let info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(i).unwrap();
 				if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
 					if status.deciding.is_some() {
 						deciding_count += 1;

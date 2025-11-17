@@ -3960,17 +3960,6 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fc3cb4d91f53b50155bdcfd23f6a4c39ae1969c2ae85982b135750cccaf5fce"
-dependencies = [
- "cfg-if",
- "libc",
- "wasi 0.9.0+wasi-snapshot-preview1",
-]
-
-[[package]]
-name = "getrandom"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "335ff9f135e4384c8150d6f27c6daed433577f86b4750418338c01a1a2528592"
@@ -5472,7 +5461,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identity"
 version = "0.2.10"
-source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.11_patch_1#c409d4f1eab466f41135a08ccb43d4dfaf961da9"
+source = "git+https://github.com/Quantus-Network/qp-libp2p-identity?tag=v0.2.11_patch_qp_rusty_crystals_dilithium_2_0#aed0b5465d05cecfaa604df0953549dffc9cc38a"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -8899,7 +8888,7 @@ dependencies = [
 
 [[package]]
 name = "qp-dilithium-crypto"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "env_logger 0.11.8",
  "log",
@@ -8958,9 +8947,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "0.9.5"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33181134496120c212a0a2098215cf45a68d50fe656de6fb30b31e73babe9383"
+checksum = "0353086f7af1df7d45a1ecb995cf84b583c8211d7122f542044b37388b5effcd"
 dependencies = [
  "log",
  "p3-field",
@@ -8976,34 +8965,49 @@ dependencies = [
 ]
 
 [[package]]
-name = "qp-poseidon-core"
-version = "0.9.5"
+name = "qp-poseidon-constants"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec326fc2631a929de09a38af2613a3db5230882c12a2f68205693ec632751e8b"
+checksum = "4d56b56652e9f44a43de9593e75d7c3e0c3a352e10675cf3024e5b3175711cd3"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
  "p3-poseidon2",
- "p3-symmetric",
  "rand 0.9.2",
  "rand_chacha 0.9.0",
 ]
 
 [[package]]
-name = "qp-rusty-crystals-dilithium"
-version = "1.0.3"
+name = "qp-poseidon-core"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9e13b64304720dcfa52557209fddc1ac67b08fcaff31c132099fd37b551dfb1"
+checksum = "e658a373a7fb22babeda9ffcc8af0a894e6e3c008272ed735509eccb7769ead3"
 dependencies = [
- "rand 0.7.3",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "qp-poseidon-constants",
+ "rand_chacha 0.9.0",
+]
+
+[[package]]
+name = "qp-rusty-crystals-dilithium"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e77a42bfb3430fa3bf3f5a148f8132de301876ceb1bdf0891909c2728f044a58"
+dependencies = [
+ "aes",
+ "cipher 0.4.4",
  "sha2 0.10.9",
+ "subtle 2.6.1",
 ]
 
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
-version = "0.1.5"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6959505d08c8374f3b63553c76296da26beb7072951b376b0d469abb4205e6f6"
+checksum = "48fa242963fcd6bc970948b6904f18074673ff89cab8ed0133846a53c69deca7"
 dependencies = [
  "bip39",
  "hex",
@@ -9111,7 +9115,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.2.10-matcha-shot"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "clap",
@@ -9172,7 +9176,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.2.10-matcha-shot"
+version = "0.4.0-misty-mountains"
 dependencies = [
  "env_logger 0.11.8",
  "frame-benchmarking",
@@ -9339,19 +9343,6 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a6b1679d49b24bbfe0c803429aa1874472f50d9b363131f0e89fc356b544d03"
-dependencies = [
- "getrandom 0.1.16",
- "libc",
- "rand_chacha 0.2.2",
- "rand_core 0.5.1",
- "rand_hc",
-]
-
-[[package]]
-name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
@@ -9374,16 +9365,6 @@ dependencies = [
 
 [[package]]
 name = "rand_chacha"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c8ed856279c9737206bf725bf36935d8666ead7aa69b52be55af369d193402"
-dependencies = [
- "ppv-lite86",
- "rand_core 0.5.1",
-]
-
-[[package]]
-name = "rand_chacha"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
@@ -9400,15 +9381,6 @@ checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
 dependencies = [
  "ppv-lite86",
  "rand_core 0.9.3",
-]
-
-[[package]]
-name = "rand_core"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90bde5296fc891b0cef12a6d03ddccc162ce7b2aff54160af9338f8d40df6d19"
-dependencies = [
- "getrandom 0.1.16",
 ]
 
 [[package]]
@@ -9438,15 +9410,6 @@ checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
  "rand 0.8.5",
-]
-
-[[package]]
-name = "rand_hc"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca3129af7b92a17112d59ad498c6f81eaf463253766b90396d39ea7a39d6613c"
-dependencies = [
- "rand_core 0.5.1",
 ]
 
 [[package]]
@@ -14326,12 +14289,6 @@ checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
 ]
-
-[[package]]
-name = "wasi"
-version = "0.9.0+wasi-snapshot-preview1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
 
 [[package]]
 name = "wasi"

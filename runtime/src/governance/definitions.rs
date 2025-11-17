@@ -562,7 +562,7 @@ impl ConversionFromAssetBalance<Balance, (), Balance> for RuntimeNativeBalanceCo
 	}
 
 	#[cfg(feature = "runtime-benchmarks")]
-	fn ensure_successful(_asset_kind: ()) -> () {
+	fn ensure_successful(_asset_kind: ()) {
 		// For an identity conversion with AssetKind = (), there are no
 		// external conditions to set up for the conversion itself to succeed.
 		// The from_asset_balance call is trivial.

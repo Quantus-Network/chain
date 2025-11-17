@@ -15,15 +15,15 @@ impl ResonanceBusinessMetrics {
 		// Convert U512 to big-endian bytes (64 bytes)
 		let bytes = value.to_big_endian();
 
-		// Take the highest-order 8 bytes (first 8 bytes in big-endian)
-		let mut highest_8_bytes = [0u8; 8];
-		highest_8_bytes.copy_from_slice(&bytes[0..8]);
+		// Take the lowest-order 8 bytes (first 8 bytes in big-endian)
+		let mut lowest_8_bytes = [0u8; 8];
+		lowest_8_bytes.copy_from_slice(&bytes[56..64]);
 
 		// Convert to u64
-		let highest_64_bits = u64::from_be_bytes(highest_8_bytes);
+		let lowest_64_bits = u64::from_be_bytes(lowest_8_bytes);
 
 		// Cast to f64
-		highest_64_bits as f64
+		lowest_64_bits as f64
 	}
 
 	/// Register QPoW metrics gauge vector with Prometheus
@@ -51,11 +51,10 @@ impl ResonanceBusinessMetrics {
 				0
 			});
 
-		let distance_threshold =
-			client.runtime_api().get_distance_threshold(block_hash).unwrap_or_else(|e| {
-				log::warn!("Failed to get distance_threshold: {:?}", e);
-				U512::zero()
-			});
+		let difficulty = client.runtime_api().get_difficulty(block_hash).unwrap_or_else(|e| {
+			log::warn!("Failed to get difficulty: {:?}", e);
+			U512::zero()
+		});
 
 		let last_block_time =
 			client.runtime_api().get_last_block_time(block_hash).unwrap_or_else(|e| {
@@ -74,18 +73,10 @@ impl ResonanceBusinessMetrics {
 			0
 		});
 
-		let difficulty = client.runtime_api().get_difficulty(block_hash).unwrap_or_else(|e| {
-			log::warn!("Failed to get difficulty: {:?}", e);
-			U512::zero()
-		});
-
 		// Update the metrics with the values we retrieved
 		gauge.with_label_values(&["chain_height"]).set(chain_height as f64);
 		gauge.with_label_values(&["block_time_ema"]).set(block_time_ema as f64);
-		gauge
-			.with_label_values(&["distance_threshold"])
-			.set(Self::pack_u512_to_f64(distance_threshold));
-		gauge.with_label_values(&["difficulty"]).set(difficulty.low_u64() as f64);
+		gauge.with_label_values(&["difficulty"]).set(Self::pack_u512_to_f64(difficulty));
 		gauge.with_label_values(&["last_block_time"]).set(last_block_time as f64);
 		gauge
 			.with_label_values(&["last_block_duration"])

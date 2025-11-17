@@ -1,16 +1,15 @@
 use crate as pallet_qpow;
 use frame_support::{
-	pallet_prelude::{ConstU32, TypedGet},
+	pallet_prelude::ConstU32,
 	parameter_types,
-	traits::{ConstU128, ConstU64, ConstU8, Everything},
+	traits::{ConstU128, ConstU64, Everything},
 };
 use primitive_types::U512;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage,
+	BuildStorage, FixedU128,
 };
-use std::ops::Shl;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -69,15 +68,19 @@ impl pallet_timestamp::Config for Test {
 	type WeightInfo = ();
 }
 
+parameter_types! {
+	pub const TestInitialDifficulty: U512 = U512([1000000, 0, 0, 0, 0, 0, 0, 0]);
+	pub const TestDifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
+}
+
 impl pallet_qpow::Config for Test {
 	type WeightInfo = ();
 	type EmaAlpha = ConstU32<500>;
-	type InitialDistanceThresholdExponent = ConstU32<508>;
-	type DifficultyAdjustPercentClamp = ConstU8<10>;
+	type InitialDifficulty = TestInitialDifficulty;
+	type DifficultyAdjustPercentClamp = TestDifficultyAdjustPercentClamp;
 	type TargetBlockTime = ConstU64<1000>;
 	type MaxReorgDepth = ConstU32<10>;
 	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
-	type MaxDistanceMultiplier = ConstU32<2>;
 }
 
 // Build genesis storage according to the mock runtime
@@ -86,8 +89,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	// Add QPow genesis configuration
 	pallet_qpow::GenesisConfig::<Test> {
-		initial_distance: U512::one()
-			.shl(<Test as pallet_qpow::Config>::InitialDistanceThresholdExponent::get()),
+		initial_difficulty: TestInitialDifficulty::get(),
 		_phantom: Default::default(),
 	}
 	.assimilate_storage(&mut t)
