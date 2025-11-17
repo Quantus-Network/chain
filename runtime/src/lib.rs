@@ -50,28 +50,34 @@ use serde::{Deserialize, Serialize};
 
 fn hash_header(x: &[u8]) -> [u8; 32] {
 	let mut y = x;
-	if let Ok(header) = generic::Header::<BlockNumber, PoseidonHeaderHasher>::decode(&mut y) {
-		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts for injective digest encoding
-		let mut felts = Vec::with_capacity(max_encoded_felts);
-		let parent_hash = header.parent_hash.as_bytes();
-		let number = header.number;
-		let state_root = header.state_root.as_bytes();
-		let extrinsics_root = header.extrinsics_root.as_bytes();
-		let digest = header.digest.encode();
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-			parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
-		));
-		felts.push(Goldilocks::from_int(number as u64));
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-			state_root.try_into().expect("State root expected to equal 32 bytes"),
-		));
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-			extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
-		));
-		felts.extend(injective_bytes_to_felts::<Goldilocks>(&digest));
-		return hash_variable_length(felts);
+	if let Ok(header) = opaque::Header::decode(&mut y) {
+		// Only treat this as a header if we consumed the entire input.
+		if y.is_empty() {
+			let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts
+			let mut felts = Vec::with_capacity(max_encoded_felts);
+
+			let parent_hash = header.parent_hash.as_bytes();
+			let number = header.number;
+			let state_root = header.state_root.as_bytes();
+			let extrinsics_root = header.extrinsics_root.as_bytes();
+			let digest = header.digest.encode();
+
+			felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
+			));
+			felts.push(Goldilocks::from_int(number as u64));
+			felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				state_root.try_into().expect("State root expected to equal 32 bytes"),
+			));
+			felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
+			));
+			felts.extend(injective_bytes_to_felts::<Goldilocks>(&digest));
+
+			return hash_variable_length(felts);
+		}
 	}
-	// Fallback: canonical bytes hashing
+	// Fallback: canonical bytes hashing for non-header data
 	PoseidonHasher::hash_padded(x)
 }
 

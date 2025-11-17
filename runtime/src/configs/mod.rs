@@ -24,7 +24,6 @@
 // For more information, please refer to <http://unlicense.org>
 
 // Substrate and Polkadot dependencies
-use crate::PoseidonHeaderHasher;
 use crate::{
 	governance::{
 		definitions::{
@@ -34,7 +33,7 @@ use crate::{
 		},
 		pallet_custom_origins, Spender,
 	},
-	MILLI_UNIT,
+	PoseidonHeaderHasher, MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
