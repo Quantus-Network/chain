@@ -1,6 +1,6 @@
 services:
   quantus-node:
-    image: ${NODE_IMAGE:-ghcr.io/quantus-network/quantus-node:v0.4.2}
+    image: ghcr.io/quantus-network/quantus-node:${NODE_VERSION:-v0.4.2}
     container_name: ${CONTAINER_NAME:-quantus-node}
     platform: linux/amd64
     restart: unless-stopped
@@ -12,17 +12,19 @@ services:
       --node-key-file /node-keys/key_node
       --rewards-address ${REWARDS_ADDRESS}
       --name ${NODE_NAME:-my-quantus-node}
-      --execution native-else-wasm
       --wasm-execution compiled
       --db-cache 2048
       --rpc-cors all
       --in-peers ${IN_PEERS:-256}
       --out-peers ${OUT_PEERS:-256}
       --prometheus-external
+      --external-miner-url http://quantus-miner:9833
     volumes:
       - ./init-node.sh:/init-node.sh:ro
       - ./node-keys:/node-keys
       - ./node-data:/var/lib/quantus
+    depends_on:
+      - quantus-miner
     ports:
       - "${P2P_PORT:-30333}:30333"
       - "${RPC_PORT:-9944}:9944"
@@ -34,15 +36,12 @@ services:
           memory: 8G
 
   quantus-miner:
-    image: ${MINER_IMAGE:-ghcr.io/quantus-network/quantus-miner:v1.0.0}
+    image: ghcr.io/quantus-network/quantus-miner:${MINER_VERSION:-v1.0.0}
     container_name: ${MINER_CONTAINER_NAME:-quantus-miner}
     platform: linux/amd64
     restart: unless-stopped
     environment:
       - WORKERS=${WORKERS:-4}
-      - NODE_RPC_URL=http://quantus-node:9944
-    depends_on:
-      - quantus-node
     deploy:
       resources:
         limits:
