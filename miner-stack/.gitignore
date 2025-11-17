@@ -3,6 +3,7 @@
 
 # Chain data directory (blockchain database - can be deleted for re-sync)
 data/
+node-data/
 
 # Node keys (IMPORTANT: backup these!)
 node-keys/

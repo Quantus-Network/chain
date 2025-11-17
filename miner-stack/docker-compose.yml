@@ -1,52 +1,50 @@
 services:
   quantus-node:
-    image: ${DOCKER_IMAGE:-ghcr.io/quantus/dirac-chain:latest}
+    image: ${NODE_IMAGE:-ghcr.io/quantus-network/quantus-node:v0.4.2}
     container_name: ${CONTAINER_NAME:-quantus-node}
     platform: linux/amd64
     restart: unless-stopped
-    
+    entrypoint: ["/init-node.sh"]
+    command: >
+      --validator
+      --base-path /var/lib/quantus
+      --chain ${CHAIN:-dirac}
+      --node-key-file /node-keys/key_node
+      --rewards-address ${REWARDS_ADDRESS}
+      --name ${NODE_NAME:-my-quantus-node}
+      --execution native-else-wasm
+      --wasm-execution compiled
+      --db-cache 2048
+      --rpc-cors all
+      --in-peers ${IN_PEERS:-256}
+      --out-peers ${OUT_PEERS:-256}
+      --prometheus-external
     volumes:
-      # Persistent node key (separate from chain data - survives chain data deletion)
+      - ./init-node.sh:/init-node.sh:ro
       - ./node-keys:/node-keys
-      # Chain data (can be deleted for re-sync without losing node key)
-      - ./data:/data
-      # Entrypoint script
-      - ./entrypoint.sh:/entrypoint.sh:ro
-    
-    environment:
-      # Required: Your rewards address from .env file
-      - REWARDS_ADDRESS=${REWARDS_ADDRESS}
-      
-      # Chain configuration
-      - CHAIN=${CHAIN:-dirac}
-      - BASE_PATH=/data
-      - NODE_KEY_PATH=/node-keys
-      
-      # Node configuration (with defaults)
-      - NODE_NAME=${NODE_NAME:-my-quantus-node}
-      - IN_PEERS=${IN_PEERS:-256}
-      - OUT_PEERS=${OUT_PEERS:-256}
-      
-      # Logging
-      - RUST_LOG=${RUST_LOG:-info,sc_network=warn}
-      
-      # Optional features
-      - EXTERNAL_MINER_URL=${EXTERNAL_MINER_URL:-}
-      - ENABLE_PEER_SHARING=${ENABLE_PEER_SHARING:-false}
-      
+      - ./node-data:/var/lib/quantus
     ports:
-      - "${P2P_PORT:-30333}:30333"      # P2P network port
-      - "${RPC_PORT:-9944}:9944"        # JSON-RPC port (optional)
-      - "${PROMETHEUS_PORT:-9615}:9615" # Prometheus metrics (optional)
-    
-    entrypoint: ["/bin/bash", "/entrypoint.sh"]
-    
-    # Resource limits (adjust based on your server)
+      - "${P2P_PORT:-30333}:30333"
+      - "${RPC_PORT:-9944}:9944"
+      - "${PROMETHEUS_PORT:-9615}:9615"
     deploy:
       resources:
         limits:
           cpus: '4'
           memory: 8G
-        reservations:
-          cpus: '2'
+
+  quantus-miner:
+    image: ${MINER_IMAGE:-ghcr.io/quantus-network/quantus-miner:v1.0.0}
+    container_name: ${MINER_CONTAINER_NAME:-quantus-miner}
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      - WORKERS=${WORKERS:-4}
+      - NODE_RPC_URL=http://quantus-node:9944
+    depends_on:
+      - quantus-node
+    deploy:
+      resources:
+        limits:
+          cpus: '${WORKERS:-4}'
           memory: 4G
