@@ -40,8 +40,12 @@ services:
     container_name: ${MINER_CONTAINER_NAME:-quantus-miner}
     platform: linux/amd64
     restart: unless-stopped
+    command: --metrics-port 9900
     environment:
       - WORKERS=${WORKERS:-4}
+    ports:
+      - "9833:9833"  # Miner API
+      - "9900:9900"  # Miner metrics
     deploy:
       resources:
         limits:
