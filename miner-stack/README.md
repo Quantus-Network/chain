@@ -18,14 +18,25 @@ Edit these values:
 ### 2. Start
 
 ```bash
+# Start node and miner
 docker compose up -d
+
+# Optional: Start with monitoring (Prometheus + Grafana)
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 ```
 
 ### 3. Monitor
 
 ```bash
+# Check logs
 docker compose logs -f quantus-node
 docker compose logs -f quantus-miner
+
+# Grafana dashboard (if monitoring enabled)
+# http://localhost:3000 (admin/admin)
+
+# Prometheus (if monitoring enabled)
+# http://localhost:9090
 ```
 
 ## 📋 Configuration
@@ -61,6 +72,8 @@ PROMETHEUS_PORT=9615
 
 ## 🛠️ Commands
 
+### Basic (Node + Miner)
+
 ```bash
 docker compose up -d        # Start
 docker compose down         # Stop
@@ -69,17 +82,35 @@ docker compose restart      # Restart
 docker compose ps           # Check status
 ```
 
+### With Monitoring
+
+```bash
+# Start all (node + miner + monitoring)
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+
+# Stop all
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down
+
+# Stop only monitoring (keep node + miner running)
+docker compose -f docker-compose.monitoring.yml down
+```
+
 ## 📁 Data Structure
 
 ```
 miner-stack/
-├── docker-compose.yml
+├── docker-compose.yml            # Main: node + miner
+├── docker-compose.monitoring.yml # Optional: Prometheus + Grafana
 ├── init-node.sh
 ├── .env
-├── node-keys/          # Node identity (persistent)
+├── node-keys/                    # Node identity (persistent)
 │   └── key_node
-└── node-data/          # Chain data (can be deleted)
-    └── chains/
+├── node-data/                    # Chain data (can be deleted)
+│   └── chains/
+├── prometheus/
+│   └── prometheus.yml
+└── grafana/
+    └── provisioning/
 ```
 
 **Important:** `node-keys/` persists your node identity. Backup this directory!

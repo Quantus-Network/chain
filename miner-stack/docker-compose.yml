@@ -29,6 +29,8 @@ services:
       - "${P2P_PORT:-30333}:30333"
       - "${RPC_PORT:-9944}:9944"
       - "${PROMETHEUS_PORT:-9615}:9615"
+    networks:
+      - quantus
     deploy:
       resources:
         limits:
@@ -46,8 +48,14 @@ services:
     ports:
       - "9833:9833"  # Miner API
       - "9900:9900"  # Miner metrics
+    networks:
+      - quantus
     deploy:
       resources:
         limits:
           cpus: '${WORKERS:-4}'
           memory: 4G
+
+networks:
+  quantus:
+    driver: bridge

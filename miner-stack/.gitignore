@@ -17,6 +17,10 @@ backups/
 # Logs
 *.log
 
+# Monitoring data (Prometheus & Grafana volumes)
+grafana-data/
+prometheus-data/
+
 # OS files
 .DS_Store
 Thumbs.db
