@@ -33,7 +33,7 @@ docker compose logs -f quantus-node
 docker compose logs -f quantus-miner
 
 # Grafana dashboard (if monitoring enabled)
-# http://localhost:3000 (admin/admin)
+# http://localhost:3000 (default: quantus/quantus)
 
 # Prometheus (if monitoring enabled)
 # http://localhost:9090
@@ -68,6 +68,10 @@ OUT_PEERS=256
 P2P_PORT=30333
 RPC_PORT=9944
 PROMETHEUS_PORT=9615
+
+# Grafana credentials (only if using monitoring)
+GRAFANA_USER=quantus
+GRAFANA_PASSWORD=quantus
 ```
 
 ## 🛠️ Commands

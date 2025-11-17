@@ -23,7 +23,10 @@ services:
           memory: 512M
 
   grafana:
-    image: grafana/grafana:latest
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
+    image: quantus/grafana:11.3.0
     container_name: grafana
     restart: unless-stopped
     environment:
@@ -36,6 +39,7 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"

@@ -16,14 +16,15 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "fixedColor": "blue",
+            "mode": "fixed"
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               }
             ]
@@ -73,14 +74,15 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "fixedColor": "purple",
+            "mode": "fixed"
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "purple",
                 "value": null
               }
             ]
@@ -138,7 +140,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
@@ -146,7 +148,7 @@
                 "value": 10
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": 50
               }
             ]
@@ -161,7 +163,7 @@
       },
       "id": 3,
       "options": {
-        "colorMode": "value",
+        "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -196,14 +198,15 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "fixedColor": "orange",
+            "mode": "fixed"
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "orange",
                 "value": null
               }
             ]
@@ -263,15 +266,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#1f1fa3",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#ed4cce",
                 "value": 70
               },
               {
-                "color": "red",
+                "color": "#ffe91f",
                 "value": 90
               }
             ]
@@ -329,15 +332,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#1f1fa3",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#ed4cce",
                 "value": 70
               },
               {
-                "color": "red",
+                "color": "#ffe91f",
                 "value": 90
               }
             ]
@@ -564,4 +567,3 @@
   "uid": "quantus-overview",
   "version": 0
 }
-
