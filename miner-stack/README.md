@@ -51,12 +51,13 @@ REWARDS_ADDRESS=your_ss58_address_here
 CHAIN=dirac
 NODE_NAME=my-quantus-node
 NODE_VERSION=v0.4.2
-MINER_VERSION=v1.0.0
 ```
 
 ### Optional Settings
 
 ```bash
+MINER_VERSION=v1.0.0
+
 # Miner workers (default: auto-detect)
 WORKERS=4
 

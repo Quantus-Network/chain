@@ -38,7 +38,7 @@ services:
           memory: 8G
 
   quantus-miner:
-    image: ghcr.io/quantus-network/quantus-miner:${MINER_VERSION:-v1.0.0}
+    image: ghcr.io/quantus-network/quantus-miner:${MINER_VERSION:-latest}
     container_name: ${MINER_CONTAINER_NAME:-quantus-miner}
     platform: linux/amd64
     restart: unless-stopped
