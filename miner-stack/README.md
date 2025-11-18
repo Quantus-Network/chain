@@ -31,13 +31,15 @@ docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 # Check logs
 docker compose logs -f quantus-node
 docker compose logs -f quantus-miner
-
-# Grafana dashboard (if monitoring enabled)
-# http://localhost:3000 (default: quantus/quantus)
-
-# Prometheus (if monitoring enabled)
-# http://localhost:9090
 ```
+
+**If monitoring is enabled**, access dashboards:
+
+- **Grafana** (metrics visualization): http://localhost:3000
+  - Default login: `quantus` / `quantus`
+  - Change credentials in `.env` via `GRAFANA_USER` and `GRAFANA_PASSWORD`
+  
+- **Prometheus** (metrics storage): http://localhost:9090
 
 ## 📋 Configuration
 
@@ -50,12 +52,12 @@ Edit `.env` file:
 REWARDS_ADDRESS=your_ss58_address_here
 CHAIN=dirac
 NODE_NAME=my-quantus-node
-NODE_VERSION=v0.4.2
 ```
 
 ### Optional Settings
 
 ```bash
+NODE_VERSION=v0.4.2
 MINER_VERSION=v1.0.0
 
 # Miner workers (default: auto-detect)

@@ -1,6 +1,6 @@
 services:
   quantus-node:
-    image: ghcr.io/quantus-network/quantus-node:${NODE_VERSION:-v0.4.2}
+    image: ghcr.io/quantus-network/quantus-node:${NODE_VERSION:-latest}
     container_name: ${CONTAINER_NAME:-quantus-node}
     platform: linux/amd64
     restart: unless-stopped
