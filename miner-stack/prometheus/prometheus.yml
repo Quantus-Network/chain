@@ -1,0 +1,38 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Quantus Node metrics
+  - job_name: 'quantus-node'
+    static_configs:
+      - targets: ['quantus-node:9615']
+        labels:
+          service: 'quantus-node'
+          environment: 'local'
+
+  # Quantus Miner metrics
+  - job_name: 'quantus-miner'
+    static_configs:
+      - targets: ['quantus-miner:9900']
+        labels:
+          service: 'quantus-miner'
+          environment: 'local'
+
+  # Host system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+          environment: 'local'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          environment: 'local'
+

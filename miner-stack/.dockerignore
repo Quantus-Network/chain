@@ -1,0 +1,9 @@
+# Don't copy these into Docker context
+data/
+backups/
+*.tar.gz
+.git/
+.env
+*.log
+README.md
+
