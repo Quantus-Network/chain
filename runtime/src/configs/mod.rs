@@ -621,3 +621,14 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 		}
 	}
 }
+
+parameter_types! {
+	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
+}
+
+impl pallet_wormhole::Config for Runtime {
+	type MintingAccount = WormholeMintingAccount;
+	type WeightInfo = ();
+	type Currency = Balances;
+	type WeightToFee = IdentityFee<Balance>;
+}

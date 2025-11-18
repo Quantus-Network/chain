@@ -1,17 +1,21 @@
 #[cfg(test)]
 mod wormhole_tests {
+	use crate::mock::System;
 	use crate::{get_wormhole_verifier, mock::*, weights, Config, Error, WeightInfo};
 	use frame_support::{assert_noop, assert_ok, weights::WeightToFee};
-	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+	use qp_wormhole_circuit::inputs::CircuitInputs;
 	use qp_wormhole_verifier::ProofWithPublicInputs;
-	use sp_runtime::Perbill;
-	use crate::mock::System;
+	use qp_zk_circuits_common::circuit::{C, F};
 	use sp_runtime::traits::Header;
+	use sp_runtime::Perbill;
 
 	// Helper function to generate proof and inputs for
-	fn get_test_proof() -> Vec<u8> {
-		let hex_proof = include_str!("../proof_from_bins.hex");
-		hex::decode(hex_proof.trim()).expect("Failed to decode hex proof")
+	fn generate_proof(inputs: CircuitInputs) -> ProofWithPublicInputs<F, C, 2> {
+		let config = CircuitConfig::standard_recursion_config();
+		let prover = WormholeProver::new(config);
+		let prover_next = prover.commit(&inputs);
+		let proof = prover_next.prove(&inputs);
+		proof
 	}
 
 	#[test]
@@ -35,7 +39,12 @@ mod wormhole_tests {
 			System::set_block_number(block_number);
 			let header = System::finalize();
 			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), empty_proof, block_number, header),
+				Wormhole::verify_wormhole_proof(
+					RuntimeOrigin::none(),
+					empty_proof,
+					block_number,
+					header
+				),
 				Error::<Test>::ProofDeserializationFailed
 			);
 		});
@@ -50,7 +59,12 @@ mod wormhole_tests {
 			System::set_block_number(block_number);
 			let header = System::finalize();
 			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), invalid_proof, block_number, header),
+				Wormhole::verify_wormhole_proof(
+					RuntimeOrigin::none(),
+					invalid_proof,
+					block_number,
+					header
+				),
 				Error::<Test>::ProofDeserializationFailed
 			);
 		});
@@ -92,16 +106,16 @@ mod wormhole_tests {
 	#[test]
 	fn test_wormhole_exit_balance_and_fees() {
 		new_test_ext().execute_with(|| {
-            let proof = get_test_proof();
+			let proof = get_test_proof();
 			let block_number = 1;
 			System::set_block_number(block_number);
 			let header = System::finalize();
 
-            assert_noop!(
+			assert_noop!(
 				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof, block_number, header),
 				Error::<Test>::InvalidPublicInputs
 			);
-        });
+		});
 	}
 
 	#[test]
@@ -179,20 +193,14 @@ mod wormhole_tests {
 			let header2 = System::finalize(); // current is 3, header2 is for 2
 
 			// Test with current block (which is 2, but we use header2 for it)
-			assert_noop!(Wormhole::verify_wormhole_proof(
-				RuntimeOrigin::none(),
-				proof.clone(),
-				2,
-				header2
-			), Error::<Test>::InvalidPublicInputs);
+			assert_noop!(
+				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof.clone(), 2, header2),
+				Error::<Test>::InvalidPublicInputs
+			);
 
 			// Test with a recent block (block 1)
-			let result = Wormhole::verify_wormhole_proof(
-				RuntimeOrigin::none(),
-				proof.clone(),
-				1,
-				header1,
-			);
+			let result =
+				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof.clone(), 1, header1);
 			assert_noop!(result, Error::<Test>::InvalidPublicInputs);
 		});
 	}

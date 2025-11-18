@@ -401,6 +401,13 @@ pub mod pallet {
 		Thawed { who: T::AccountId, amount: T::Balance },
 		/// The `TotalIssuance` was forcefully changed.
 		TotalIssuanceForced { old: T::Balance, new: T::Balance },
+		/// Transfer proof was stored.
+		TransferProofStored {
+			transfer_count: u64,
+			source: T::AccountId,
+			dest: T::AccountId,
+			funding_amount: T::Balance,
+		},
 	}
 
 	#[pallet::error]
@@ -599,8 +606,8 @@ pub mod pallet {
 		#[cfg(feature = "try-runtime")]
 		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Holds::<T, I>::iter_keys().try_for_each(|k| {
-				if Holds::<T, I>::decode_len(k).unwrap_or(0) >
-					T::RuntimeHoldReason::VARIANT_COUNT as usize
+				if Holds::<T, I>::decode_len(k).unwrap_or(0)
+					> T::RuntimeHoldReason::VARIANT_COUNT as usize
 				{
 					Err("Found `Hold` with too many elements")
 				} else {
@@ -874,9 +881,15 @@ pub mod pallet {
 		) {
 			if from != to {
 				let current_count = Self::transfer_count();
+				TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
 				TransferCount::<T, I>::put(current_count.saturating_add(One::one()));
 
-				TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
+				Self::deposit_event(Event::TransferProofStored {
+					transfer_count: current_count,
+					source: from.clone(),
+					dest: to.clone(),
+					funding_amount: value,
+				});
 			}
 		}
 
@@ -1289,16 +1302,18 @@ pub mod pallet {
 					ensure!(!is_new, Error::<T, I>::DeadAccount);
 					Self::try_mutate_account(slashed, |from_account, _| -> DispatchResult {
 						match status {
-							Status::Free =>
+							Status::Free => {
 								to_account.free = to_account
 									.free
 									.checked_add(&actual)
-									.ok_or(ArithmeticError::Overflow)?,
-							Status::Reserved =>
+									.ok_or(ArithmeticError::Overflow)?
+							},
+							Status::Reserved => {
 								to_account.reserved = to_account
 									.reserved
 									.checked_add(&actual)
-									.ok_or(ArithmeticError::Overflow)?,
+									.ok_or(ArithmeticError::Overflow)?
+							},
 						}
 						from_account.reserved.saturating_reduce(actual);
 						Ok(())

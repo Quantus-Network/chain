@@ -38,7 +38,6 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Mutate, Unbalanced},
-			fungibles::Mutate,
 			Currency, ExistenceRequirement, WithdrawReasons,
 		},
 		weights::WeightToFee,
@@ -152,7 +151,10 @@ pub mod pallet {
 			let default_hash = T::Hash::default();
 			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
 
-			ensure!(header_block_hash == public_inputs.block_hash, Error::<T>::InvalidPublicInputs)
+			ensure!(
+				header_block_hash.as_ref() == public_inputs.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
 
 			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
 
