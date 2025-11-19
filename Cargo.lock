@@ -8958,7 +8958,7 @@ dependencies = [
  "p3-goldilocks",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.1 (git+https://github.com/Quantus-Network/qp-poseidon.git?branch=feat%2Fplonky2-update)",
  "scale-info",
  "serde",
  "serde_json",
