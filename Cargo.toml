@@ -136,7 +136,9 @@ sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = fal
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-
+qp-plonky2 = { git = "https://github.com/Quantus-Network/qp-plonky2", default-features = false, features = [
+	"no_random",
+] }
 qp-poseidon = { git = "https://github.com/Quantus-Network/qp-poseidon.git", branch = "feat/plonky2-update", default-features = false }
 qp-poseidon-core = { git = "https://github.com/Quantus-Network/qp-poseidon.git", branch = "feat/plonky2-update", default-features = false, features = ["p3", "p2"] }
 qp-rusty-crystals-dilithium = { version = "2.0.0", default-features = false }

@@ -11,7 +11,7 @@ mod wormhole_tests {
 
 	// Helper function to generate proof and inputs for
 	fn generate_proof(inputs: CircuitInputs) -> ProofWithPublicInputs<F, C, 2> {
-		let config = CircuitConfig::standard_recursion_config();
+		let config = plonky2::CircuitConfig::standard_recursion_config();
 		let prover = WormholeProver::new(config);
 		let prover_next = prover.commit(&inputs);
 		let proof = prover_next.prove(&inputs);

@@ -7654,6 +7654,7 @@ dependencies = [
  "log",
  "pallet-balances 40.0.1",
  "parity-scale-codec",
+ "qp-plonky2",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",

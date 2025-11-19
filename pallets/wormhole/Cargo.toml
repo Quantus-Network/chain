@@ -30,6 +30,7 @@ sp-runtime.workspace = true
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }
 qp-wormhole-circuit-builder = { workspace = true, default-features = false }
+qp-plonky2 = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
