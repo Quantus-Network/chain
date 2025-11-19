@@ -12,10 +12,10 @@ pub mod configs;
 pub use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme};
 
 use alloc::vec::Vec;
-use sp_core::{Hasher, H256, U512};
+use sp_core::U512;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{Hash as HashT, IdentifyAccount, Verify},
+	traits::{IdentifyAccount, Verify},
 	MultiAddress,
 };
 #[cfg(feature = "std")]
@@ -37,106 +37,7 @@ pub mod transaction_extensions;
 pub mod governance;
 
 use crate::governance::pallet_custom_origins;
-use codec::{Decode, Encode};
-use p3_field::integers::QuotientMap;
-use p3_goldilocks::Goldilocks;
 use qp_poseidon::PoseidonHasher;
-use qp_poseidon_core::{
-	hash_variable_length,
-	serialization::{injective_bytes_to_felts, unsafe_digest_bytes_to_felts},
-};
-use scale_info::TypeInfo;
-use serde::{Deserialize, Serialize};
-
-fn hash_header(x: &[u8]) -> [u8; 32] {
-	let mut y = x;
-	if let Ok(header) = opaque::Header::decode(&mut y) {
-		// Only treat this as a header if we consumed the entire input.
-		if y.is_empty() {
-			let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts
-			let mut felts = Vec::with_capacity(max_encoded_felts);
-
-			let parent_hash = header.parent_hash.as_bytes();
-			let number = header.number;
-			let state_root = header.state_root.as_bytes();
-			let extrinsics_root = header.extrinsics_root.as_bytes();
-			let digest = header.digest.encode();
-
-			felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-				parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
-			));
-			felts.push(Goldilocks::from_int(number as u64));
-			felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-				state_root.try_into().expect("State root expected to equal 32 bytes"),
-			));
-			felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-				extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
-			));
-			felts.extend(injective_bytes_to_felts::<Goldilocks>(&digest));
-
-			return hash_variable_length(felts);
-		}
-	}
-	// Fallback: canonical bytes hashing for non-header data
-	PoseidonHasher::hash_padded(x)
-}
-
-/// A standard library hasher implementation using Poseidon
-#[derive(Default)]
-pub struct PoseidonStdHasher(Vec<u8>);
-
-impl core::hash::Hasher for PoseidonStdHasher {
-	fn finish(&self) -> u64 {
-		let hash = hash_header(self.0.as_slice());
-		u64::from_le_bytes(hash[0..8].try_into().unwrap())
-	}
-
-	fn write(&mut self, bytes: &[u8]) {
-		self.0.extend_from_slice(bytes)
-	}
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, Encode, Decode, TypeInfo, Serialize, Deserialize)]
-pub struct PoseidonHeaderHasher;
-
-impl Hasher for PoseidonHeaderHasher {
-	type Out = H256;
-	type StdHasher = PoseidonStdHasher;
-	const LENGTH: usize = 32;
-
-	fn hash(x: &[u8]) -> H256 {
-		let h = hash_header(x);
-		H256::from_slice(&h)
-	}
-}
-
-impl HashT for PoseidonHeaderHasher {
-	type Output = H256;
-
-	fn hash(s: &[u8]) -> Self::Output {
-		H256::from_slice(&hash_header(s))
-	}
-
-	/// Produce the hash of some codec-encodable value.
-	fn hash_of<S: Encode>(s: &S) -> Self::Output {
-		Encode::using_encoded(s, <Self as Hasher>::hash)
-	}
-
-	fn ordered_trie_root(
-		input: Vec<Vec<u8>>,
-		state_version: sp_storage::StateVersion,
-	) -> Self::Output {
-		PoseidonHasher::ordered_trie_root(input, state_version)
-	}
-
-	fn trie_root(
-		input: Vec<(Vec<u8>, Vec<u8>)>,
-		version: sp_storage::StateVersion,
-	) -> Self::Output {
-		PoseidonHasher::trie_root(input, version)
-	}
-}
-
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
@@ -153,7 +54,7 @@ pub mod opaque {
 	// However, some internal checks in dev build expect extrinsics_root to be computed with same
 	// Hash function, so we change the configs/mod.rs Hashing type as well
 	// Opaque block header type.
-	pub type Header = generic::Header<BlockNumber, PoseidonHeaderHasher>;
+	pub type Header = qp_header::Header<BlockNumber, PoseidonHasher>;
 
 	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -161,7 +62,7 @@ pub mod opaque {
 	pub type BlockId = generic::BlockId<Block>;
 
 	// Opaque block hash type.
-	pub type Hash = <PoseidonHeaderHasher as HashT>::Output;
+	pub type Hash = <PoseidonHasher as HashT>::Output;
 }
 
 impl_opaque_keys! {
@@ -241,7 +142,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, PoseidonHeaderHasher>;
+pub type Header = qp_header::Header<BlockNumber, PoseidonHasher>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;

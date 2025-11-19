@@ -33,7 +33,7 @@ use crate::{
 		},
 		pallet_custom_origins, Spender,
 	},
-	PoseidonHeaderHasher, MILLI_UNIT,
+	MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
@@ -53,6 +53,7 @@ use frame_system::{
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{AccountIdConversion, ConvertInto, One},
@@ -108,7 +109,7 @@ impl frame_system::Config for Runtime {
 	/// The type for hashing blocks and tries.
 	type Hash = Hash;
 	/// The type for hash function that computes extrinsic root
-	type Hashing = PoseidonHeaderHasher;
+	type Hashing = PoseidonHasher;
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;
 	/// The weight of database operations that the runtime can invoke.

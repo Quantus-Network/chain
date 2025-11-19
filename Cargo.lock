@@ -8904,6 +8904,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-header"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "log",
+ "p3-field",
+ "p3-goldilocks",
+ "parity-scale-codec",
+ "qp-poseidon",
+ "qp-poseidon-core",
+ "scale-info",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "qp-plonky2"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9193,8 +9212,6 @@ dependencies = [
  "frame-try-runtime",
  "lazy_static",
  "log",
- "p3-field",
- "p3-goldilocks",
  "pallet-assets",
  "pallet-assets-holder",
  "pallet-balances 40.0.1",
@@ -9218,14 +9235,13 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
+ "qp-header",
  "qp-poseidon",
- "qp-poseidon-core",
  "qp-scheduler",
  "qp-wormhole-circuit",
  "qp-wormhole-verifier",
  "qp-zk-circuits-common",
  "scale-info",
- "serde",
  "serde_json",
  "sp-api",
  "sp-block-builder",
