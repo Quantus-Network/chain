@@ -118,7 +118,8 @@ where
 		log::debug!(target: "header", "Retrieving mutable reference to digest");
 		&mut self.digest
 	}
-
+	// We override the default hashing function to use
+	// a felt aligned pre-image for poseidon hashing.
 	fn hash(&self) -> Self::Hash {
 		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts for injective digest encoding
 		let mut felts = Vec::with_capacity(max_encoded_felts);
@@ -150,52 +151,6 @@ where
 		poseidon_hash.into()
 	}
 }
-
-/// Poseidon-based header hash.
-// impl<Number, Hash> Header<Number, Hash>
-// where
-// 	Number: Member
-// 		+ core::hash::Hash
-// 		+ Copy
-// 		+ MaybeDisplay
-// 		+ AtLeast32BitUnsigned
-// 		+ codec::Codec
-// 		+ Into<U256>
-// 		+ TryFrom<U256>,
-// 	Hash: HashT,
-// 	Hash::Output: AsRef<[u8]> + From<[u8; 32]>,
-// {
-// 	pub fn hash(&self) -> Hash::Output {
-// 		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts for injective
-// digest encoding 		let mut felts = Vec::with_capacity(max_encoded_felts);
-
-// 		// parent_hash : 32 bytes → 4 felts
-// 		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-// 			self.parent_hash.as_ref().try_into().expect("hash is 32 bytes"),
-// 		));
-
-// 		// block number as u64 (compact encoded, but we only need the value)
-// 		// constrain the block number to be with u32 range for simplicity
-// 		let number = self.number.into();
-// 		felts.push(Goldilocks::from_int(number.as_u32() as u64));
-
-// 		// state_root : 32 bytes → 4 felts
-// 		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-// 			self.state_root.as_ref().try_into().expect("hash is 32 bytes"),
-// 		));
-
-// 		// extrinsics_root : 32 bytes → 4 felts
-// 		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
-// 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
-// 		));
-
-// 		// digest – injective encoding
-// 		felts.extend(injective_bytes_to_felts::<Goldilocks>(&self.digest.encode()));
-
-// 		let poseidon_hash: [u8; 32] = hash_variable_length(felts);
-// 		poseidon_hash.into()
-// 	}
-// }
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
