@@ -1,5 +1,7 @@
 //! Custom origins for governance interventions.
 
+// TODO: this needs an upstream fix, since #[pallet::pallet] macro expansion contains `expect()`
+#![allow(clippy::expect_used)]
 #[frame_support::pallet]
 pub mod pallet_custom_origins {
 	use crate::{Balance, UNIT};
