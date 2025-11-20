@@ -22,6 +22,7 @@ members = [
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
+	"primitives/header",
 	"primitives/scheduler",
 	"primitives/state-machine",
 	"primitives/trie",
@@ -76,6 +77,8 @@ names = { version = "0.14.0", default-features = false }
 nohash-hasher = { version = "0.2.0" }
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 once_cell = { version = "1.21.3" }
+p3-field = { version = "0.3.0" }
+p3-goldilocks = { version = "0.3.0" }
 parking_lot = { version = "0.12.1", default-features = false }
 partial_sort = { version = "0.2.0" }
 paste = { version = "1.0.15", default-features = false }
@@ -126,6 +129,7 @@ pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.2.0", default-features = false }
+qp-header = { path = "./primitives/header", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }

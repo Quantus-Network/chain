@@ -74,6 +74,7 @@ pub fn development_config_genesis() -> Value {
 	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
+		log::info!("🍆 Endowed account raw: {:?}", account);
 	}
 
 	genesis_template(endowed_accounts, crystal_alice().into_account())
