@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct Header<Number: Copy + Into<U256> + TryFrom<U256> + HasCompact, Hash: HashT> {
+pub struct Header<Number: Copy + Into<U256> + TryFrom<U256>, Hash: HashT> {
 	pub parent_hash: Hash::Output,
 	#[cfg_attr(
 		feature = "serde",
