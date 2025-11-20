@@ -32,6 +32,8 @@ use std::{sync::Arc, time::Duration};
 #[allow(deprecated)]
 pub use libp2p::bandwidth::BandwidthSinks;
 
+const MAX_YAMUX_STREAMS: usize = 1024 * 1024;
+
 /// Builds the transport that serves as a common ground for all connections.
 ///
 /// If `memory_only` is true, then only communication within the same process are allowed. Only
@@ -81,7 +83,8 @@ pub fn build_transport(
 	};
 
 	let authentication_config = noise::Config::new(&keypair).expect("Can create noise config. qed");
-	let multiplexing_config = libp2p::yamux::Config::default();
+	let mut multiplexing_config = libp2p::yamux::Config::default();
+	multiplexing_config.set_max_num_streams(MAX_YAMUX_STREAMS);
 
 	let transport = transport
 		.upgrade(upgrade::Version::V1Lazy)
