@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, DecodeWithMemTracking, Encode, HasCompact};
+use codec::{Codec, Decode, DecodeWithMemTracking, Encode};
 use p3_field::integers::QuotientMap;
 use p3_goldilocks::Goldilocks;
 use qp_poseidon_core::{
@@ -14,7 +14,7 @@ use scale_info::TypeInfo;
 use sp_core::U256;
 use sp_runtime::{
 	generic::Digest,
-	traits::{BlockNumber, Hash as HashT},
+	traits::{AtLeast32BitUnsigned, BlockNumber, Hash as HashT, MaybeDisplay, Member},
 	RuntimeDebug,
 };
 extern crate alloc;
@@ -123,6 +123,26 @@ where
 	// We override the default hashing function to use
 	// a felt aligned pre-image for poseidon hashing.
 	fn hash(&self) -> Self::Hash {
+		Header::hash(&self)
+	}
+}
+
+impl<Number, Hash> Header<Number, Hash>
+where
+	Number: Member
+		+ core::hash::Hash
+		+ Copy
+		+ MaybeDisplay
+		+ AtLeast32BitUnsigned
+		+ Codec
+		+ Into<U256>
+		+ TryFrom<U256>,
+	Hash: HashT,
+	Hash::Output: From<[u8; 32]>,
+{
+	/// Convenience helper for computing the hash of the header without having
+	/// to import the trait.
+	pub fn hash(&self) -> Hash::Output {
 		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts for injective digest encoding
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
@@ -159,10 +179,7 @@ mod tests {
 	use super::*;
 	use qp_poseidon::PoseidonHasher;
 	use sp_core::H256;
-	use sp_runtime::{
-		traits::{BlakeTwo256, Header as HeaderT},
-		DigestItem,
-	};
+	use sp_runtime::{traits::BlakeTwo256, DigestItem};
 
 	#[test]
 	fn should_serialize_numbers() {
