@@ -113,9 +113,7 @@ pub mod pallet {
 			log::debug!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
 
 			// Send fees to miner if any
-			if tx_fees > Zero::zero() {
-				Self::mint_reward(miner.clone(), tx_fees);
-			}
+			Self::mint_reward(miner.clone(), tx_fees);
 
 			// Send rewards separately for accounting
 			Self::mint_reward(miner, miner_reward);
@@ -157,6 +155,10 @@ pub mod pallet {
 		}
 
 		fn mint_reward(maybe_miner: Option<T::AccountId>, reward: BalanceOf<T>) {
+			if reward.is_zero() {
+				return;
+			}
+
 			let mint_account = T::MintingAccount::get();
 
 			match maybe_miner {

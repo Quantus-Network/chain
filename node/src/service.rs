@@ -216,7 +216,7 @@ pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
-	rewards_address: Option<String>,
+	rewards_address: AccountId32,
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
 ) -> Result<TaskManager, ServiceError> {
@@ -322,21 +322,6 @@ pub fn new_full<
 
 		let inherent_data_providers = build_inherent_data_providers()?;
 
-		let encoded_miner = if let Some(addr_str) = rewards_address {
-			match addr_str.parse::<AccountId32>() {
-				Ok(account) => {
-					log::info!("⛏️Using provided rewards address: {:?}", account);
-					Some(account.encode())
-				},
-				Err(_) => {
-					log::error!("⛏️Invalid rewards address format: {}", addr_str);
-					None
-				},
-			}
-		} else {
-			None
-		};
-
 		let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
 			Box::new(pow_block_import),
 			client.clone(),
@@ -344,7 +329,7 @@ pub fn new_full<
 			proposer,
 			sync_service.clone(),
 			sync_service.clone(),
-			encoded_miner.expect("Rewards address is required for mining"),
+			rewards_address,
 			inherent_data_providers,
 			Duration::from_secs(10),
 			Duration::from_secs(10),

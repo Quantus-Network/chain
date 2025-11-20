@@ -33,7 +33,7 @@ use sp_consensus::{BlockOrigin, Proposal};
 use sp_consensus_pow::{Seal, POW_ENGINE_ID};
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
-	DigestItem,
+	AccountId32, DigestItem,
 };
 use std::{
 	pin::Pin,
@@ -51,8 +51,8 @@ pub struct MiningMetadata<H, D> {
 	pub best_hash: H,
 	/// Mining pre-hash.
 	pub pre_hash: H,
-	/// Pre-runtime digest item.
-	pub pre_runtime: Vec<u8>,
+	/// Rewards address.
+	pub rewards_address: AccountId32,
 	/// Mining target difficulty.
 	pub difficulty: D,
 }
