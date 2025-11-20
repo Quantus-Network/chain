@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{external_miner_client, prometheus::ResonanceBusinessMetrics};
 use async_trait::async_trait;
 use codec::Encode;
+use frame_support::traits::Get;
 use jsonrpsee::tokio;
 use qpow_math::mine_range;
 use reqwest::Client;
@@ -21,7 +22,7 @@ use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::{ProvideRuntimeApi, __private::BlockT};
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, RuntimeDebug, U512};
-use sp_runtime::traits::{Header, Zero};
+use sp_runtime::traits::{AccountIdConversion, Header, Zero};
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
@@ -326,15 +327,20 @@ pub fn new_full<
 			match addr_str.parse::<AccountId32>() {
 				Ok(account) => {
 					log::info!("⛏️Using provided rewards address: {:?}", account);
-					Some(account.encode())
+					account.encode()
 				},
 				Err(_) => {
-					log::error!("⛏️Invalid rewards address format: {}", addr_str);
-					None
+					return Err(ServiceError::Other(format!(
+						"⛏️Invalid rewards address format: {}",
+						addr_str
+					)))
 				},
 			}
 		} else {
-			None
+			let treasury_account: AccountId32 =
+				quantus_runtime::configs::TreasuryPalletId::get().into_account_truncating();
+			log::info!("⛏️Using treasury address for rewards: {:?}", treasury_account);
+			treasury_account.encode()
 		};
 
 		let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
@@ -344,7 +350,7 @@ pub fn new_full<
 			proposer,
 			sync_service.clone(),
 			sync_service.clone(),
-			encoded_miner.expect("Rewards address is required for mining"),
+			encoded_miner,
 			inherent_data_providers,
 			Duration::from_secs(10),
 			Duration::from_secs(10),
