@@ -4,11 +4,10 @@ use frame_support::{
 	traits::{ConstU32, Everything},
 	weights::IdentityFee,
 };
+use frame_system::mocking::MockUncheckedExtrinsic;
+use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
-use sp_runtime::{
-	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage,
-};
+use sp_runtime::{traits::IdentityLookup, BuildStorage};
 // --- MOCK RUNTIME ---
 
 construct_runtime!(
@@ -21,7 +20,10 @@ construct_runtime!(
 
 pub type Balance = u128;
 pub type AccountId = sp_core::crypto::AccountId32;
-pub type Block = frame_system::mocking::MockBlock<Test>;
+pub type Block<T> = sp_runtime::generic::Block<
+	qp_header::Header<u64, PoseidonHasher>,
+	MockUncheckedExtrinsic<T, qp_dilithium_crypto::DilithiumSignatureScheme>,
+>;
 
 /// Helper function to convert a u64 to an AccountId32
 pub fn account_id(id: u64) -> AccountId {
@@ -46,10 +48,10 @@ impl frame_system::Config for Test {
 	type RuntimeTask = ();
 	type Nonce = u64;
 	type Hash = H256;
-	type Hashing = BlakeTwo256;
+	type Hashing = PoseidonHasher;
 	type AccountId = AccountId;
 	type Lookup = IdentityLookup<Self::AccountId>;
-	type Block = Block;
+	type Block = Block<Self>;
 	type BlockHashCount = BlockHashCount;
 	type DbWeight = ();
 	type Version = ();
@@ -108,12 +110,15 @@ impl pallet_wormhole::Config for Test {
 }
 
 // Helper function to build a genesis configuration
-pub fn new_test_ext() -> sp_io::TestExternalities {
+pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
-	pallet_balances::GenesisConfig::<Test> { balances: vec![] }
-		.assimilate_storage(&mut t)
-		.unwrap();
+	let endowment = 1e18 as Balance;
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![(account_id(1), endowment), (account_id(2), endowment)],
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
 	t.into()
 }

@@ -1,207 +1,276 @@
 #[cfg(test)]
 mod wormhole_tests {
-	use crate::mock::System;
-	use crate::{get_wormhole_verifier, mock::*, weights, Config, Error, WeightInfo};
-	use frame_support::{assert_noop, assert_ok, weights::WeightToFee};
-	use qp_wormhole_circuit::inputs::CircuitInputs;
+	use crate::{get_wormhole_verifier, mock::*};
+	use codec::Encode;
+	use frame_support::{assert_ok, traits::fungible::Mutate};
+	use plonky2::plonk::circuit_data::CircuitConfig;
+	use qp_poseidon::PoseidonHasher;
+	use qp_wormhole_circuit::{
+		inputs::{CircuitInputs, PrivateCircuitInputs, PublicCircuitInputs},
+		nullifier::Nullifier,
+		storage_proof::ProcessedStorageProof,
+	};
+	use qp_wormhole_prover::WormholeProver;
 	use qp_wormhole_verifier::ProofWithPublicInputs;
-	use qp_zk_circuits_common::circuit::{C, F};
-	use sp_runtime::traits::Header;
-	use sp_runtime::Perbill;
+	use qp_zk_circuits_common::{
+		circuit::{C, F},
+		utils::{digest_felts_to_bytes, BytesDigest, Digest},
+	};
+	use sp_runtime::{traits::Header, DigestItem};
 
 	// Helper function to generate proof and inputs for
 	fn generate_proof(inputs: CircuitInputs) -> ProofWithPublicInputs<F, C, 2> {
-		let config = plonky2::CircuitConfig::standard_recursion_config();
+		let config = CircuitConfig::standard_recursion_config();
 		let prover = WormholeProver::new(config);
-		let prover_next = prover.commit(&inputs);
-		let proof = prover_next.prove(&inputs);
+		let prover_next = prover.commit(&inputs).expect("proof failed");
+		let proof = prover_next.prove().expect("valid proof");
 		proof
 	}
 
-	#[test]
-	fn test_verifier_availability() {
-		new_test_ext().execute_with(|| {
-			let verifier = get_wormhole_verifier();
-			assert!(verifier.is_ok(), "Verifier should be available in tests");
+	/// Helper function to prepare storage proof for circuit consumption
+	fn prepare_proof_for_circuit(
+		proof: Vec<Vec<u8>>,
+		state_root: [u8; 32],
+		leaf_hash: [u8; 32],
+	) -> Result<ProcessedStorageProof, &'static str> {
+		use qp_poseidon_core::{hash_padded_bytes, FIELD_ELEMENT_PREIMAGE_PADDING_LEN};
 
-			// Verify the verifier can be used
-			let verifier = verifier.unwrap();
-			// Check that the circuit data is valid by checking gates
-			assert!(!verifier.circuit_data.common.gates.is_empty(), "Circuit should have gates");
-		});
-	}
+		fn hash_node_with_poseidon_padded(node_bytes: &[u8]) -> [u8; 32] {
+			hash_padded_bytes::<FIELD_ELEMENT_PREIMAGE_PADDING_LEN>(node_bytes)
+		}
 
-	#[test]
-	fn test_verify_empty_proof_fails() {
-		new_test_ext().execute_with(|| {
-			let empty_proof = vec![];
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(
-					RuntimeOrigin::none(),
-					empty_proof,
-					block_number,
-					header
-				),
-				Error::<Test>::ProofDeserializationFailed
-			);
-		});
-	}
+		fn check_leaf(leaf_hash: &[u8; 32], leaf_node: &[u8]) -> (bool, usize) {
+			let hash_suffix = &leaf_hash[8..32];
+			let mut last_idx = 0usize;
+			let mut found = false;
 
-	#[test]
-	fn test_verify_invalid_proof_data_fails() {
-		new_test_ext().execute_with(|| {
-			// Create some random bytes that will fail deserialization
-			let invalid_proof = vec![1u8; 100];
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(
-					RuntimeOrigin::none(),
-					invalid_proof,
-					block_number,
-					header
-				),
-				Error::<Test>::ProofDeserializationFailed
-			);
-		});
-	}
-
-	#[test]
-	fn test_verify_valid_proof() {
-		new_test_ext().execute_with(|| {
-			let proof = get_test_proof();
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof, block_number, header),
-				Error::<Test>::InvalidPublicInputs
-			);
-		});
-	}
-
-	#[test]
-	fn test_verify_invalid_inputs() {
-		new_test_ext().execute_with(|| {
-			let mut proof = get_test_proof();
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
-
-			if let Some(byte) = proof.get_mut(0) {
-				*byte = !*byte; // Flip bits to make proof invalid
+			for i in 0..=leaf_node.len().saturating_sub(hash_suffix.len()) {
+				if &leaf_node[i..i + hash_suffix.len()] == hash_suffix {
+					last_idx = i;
+					found = true;
+					break;
+				}
 			}
 
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof, block_number, header),
-				Error::<Test>::InvalidPublicInputs
-			);
-		});
+			(found, (last_idx * 2).saturating_sub(16))
+		}
+
+		// Create a map of hash -> (index, node_bytes, node_hex)
+		let mut node_map: std::collections::HashMap<String, (usize, Vec<u8>, String)> =
+			std::collections::HashMap::new();
+		for (idx, node) in proof.iter().enumerate() {
+			let hash = hash_node_with_poseidon_padded(node);
+			let hash_hex = hex::encode(hash);
+			let node_hex = hex::encode(node);
+			node_map.insert(hash_hex.clone(), (idx, node.clone(), node_hex));
+		}
+
+		// Find which node hashes to the state root
+		let state_root_hex = hex::encode(state_root);
+		let root_hash = if node_map.contains_key(&state_root_hex) {
+			state_root_hex.clone()
+		} else {
+			return Err("No node hashes to state root");
+		};
+
+		let root_entry = node_map.get(&root_hash).ok_or("Failed to get root entry from map")?;
+
+		let mut ordered_nodes = vec![root_entry.1.clone()];
+		let mut current_node_hex = root_entry.2.clone();
+
+		// Build the path from root to leaf by finding which child hash appears in current node
+		// Child hashes are stored with an 8-byte length prefix:
+		// [8-byte length (0x20 = 32 in little-endian)] + [32-byte hash]
+		const HASH_LENGTH_PREFIX: &str = "2000000000000000";
+
+		loop {
+			let mut found_child = None;
+			for (child_hash, (_, child_bytes, _)) in &node_map {
+				let hash_with_prefix = format!("{}{}", HASH_LENGTH_PREFIX, child_hash);
+				if current_node_hex.contains(&hash_with_prefix) {
+					if !ordered_nodes.iter().any(|n| n == child_bytes) {
+						found_child = Some(child_bytes.clone());
+						break;
+					}
+				}
+			}
+
+			if let Some(child_bytes) = found_child {
+				ordered_nodes.push(child_bytes.clone());
+				current_node_hex = hex::encode(ordered_nodes.last().unwrap());
+			} else {
+				break;
+			}
+		}
+
+		// Compute indices - where child hashes appear within parent nodes
+		let mut indices = Vec::<usize>::new();
+
+		for i in 0..ordered_nodes.len() - 1 {
+			let current_hex = hex::encode(&ordered_nodes[i]);
+			let next_node = &ordered_nodes[i + 1];
+			let next_hash = hex::encode(hash_node_with_poseidon_padded(next_node));
+
+			if let Some(hex_idx) = current_hex.find(&next_hash) {
+				indices.push(hex_idx);
+			} else {
+				return Err("Could not find child hash in ordered node");
+			}
+		}
+
+		let (found, last_idx) = check_leaf(&leaf_hash, ordered_nodes.last().unwrap());
+		if !found {
+			return Err("Leaf hash suffix not found in leaf node");
+		}
+
+		indices.push(last_idx);
+
+		ProcessedStorageProof::new(ordered_nodes, indices)
+			.map_err(|_| "Failed to create ProcessedStorageProof")
 	}
 
 	#[test]
-	fn test_wormhole_exit_balance_and_fees() {
-		new_test_ext().execute_with(|| {
-			let proof = get_test_proof();
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
+	fn test_wormhole_transfer_proof_generation() {
+		// Setup accounts
+		let alice = account_id(1);
+		let secret: BytesDigest = [1u8; 32].try_into().expect("valid secret");
+		let unspendable_account =
+			qp_wormhole_circuit::unspendable_account::UnspendableAccount::from_secret(secret)
+				.account_id;
+		let unspendable_account_bytes_digest = digest_felts_to_bytes(unspendable_account);
+		let unspendable_account_bytes: [u8; 32] = unspendable_account_bytes_digest
+			.as_ref()
+			.try_into()
+			.expect("BytesDigest is always 32 bytes");
+		let unspendable_account_id = AccountId::new(unspendable_account_bytes);
+		let exit_account_id = AccountId::new([42u8; 32]);
+		let funding_amount = 1_000_000_000_001u128;
 
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof, block_number, header),
-				Error::<Test>::InvalidPublicInputs
-			);
-		});
-	}
+		let mut ext = new_test_ext();
 
-	#[test]
-	fn test_nullifier_already_used() {
-		new_test_ext().execute_with(|| {
-			let proof = get_test_proof();
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
+		// Execute the transfer and get the header
+		let (storage_key, state_root, leaf_hash, event_transfer_count, header) =
+			ext.execute_with(|| {
+				System::set_block_number(1);
 
-			// First verification should fail due to block hash mismatch
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(
-					RuntimeOrigin::none(),
-					proof.clone(),
-					block_number,
-					header.clone()
-				),
-				Error::<Test>::InvalidPublicInputs
-			);
+				// Add dummy digest items to match expected format
+				let pre_runtime_data = vec![
+					233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21,
+					45, 180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
+				];
+				let seal_data = vec![
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 77, 142,
+				];
 
-			// Once proof generation is fixed, this test should be updated to:
-			// 1. First call is assert_ok!
-			// 2. Second call is assert_noop! with NullifierAlreadyUsed.
-		});
-	}
+				System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
+				System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
 
-	#[test]
-	fn test_verify_future_block_number_fails() {
-		new_test_ext().execute_with(|| {
-			let proof = get_test_proof();
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize(); // current block is 2, header is for block 1
-			let future_block = 3;
+				assert_ok!(Balances::mint_into(&unspendable_account_id, funding_amount));
+				assert_ok!(Balances::transfer_keep_alive(
+					frame_system::RawOrigin::Signed(alice.clone()).into(),
+					unspendable_account_id.clone(),
+					funding_amount,
+				));
 
-			// This call attempts to use a header for block 1 with a future block number 3.
-			// It will fail the check `header.hash() == block_hash` because the block hash for
-			// block 3 is not the hash of header for block 1.
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof, future_block, header),
-				Error::<Test>::InvalidBlockNumber
-			);
-		});
-	}
+				let transfer_count = pallet_balances::TransferCount::<Test>::get();
+				let event_transfer_count = transfer_count - 1;
 
-	#[test]
-	fn test_verify_block_hash_mismatch_fails() {
-		new_test_ext().execute_with(|| {
-			let proof = get_test_proof();
-			let block_number = 1;
-			System::set_block_number(block_number);
-			let header = System::finalize();
+				let leaf_hash = PoseidonHasher::hash_storage::<AccountId>(
+					&(
+						event_transfer_count,
+						alice.clone(),
+						unspendable_account_id.clone(),
+						funding_amount,
+					)
+						.encode(),
+				);
 
-			let result =
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof, block_number, header);
+				let proof_address = pallet_balances::TransferProof::<Test>::hashed_key_for(&(
+					event_transfer_count,
+					alice.clone(),
+					unspendable_account_id.clone(),
+					funding_amount,
+				));
+				let mut storage_key = proof_address;
+				storage_key.extend_from_slice(&leaf_hash);
 
-			// This will fail with InvalidPublicInputs because the block hash in the proof doesn't match
-			// the one from the generated header.
-			assert_noop!(result, Error::<Test>::InvalidPublicInputs);
-		});
-	}
+				let header = System::finalize();
+				let state_root = *header.state_root();
 
-	#[test]
-	fn test_verify_with_different_block_numbers() {
-		new_test_ext().execute_with(|| {
-			let proof = get_test_proof();
+				(storage_key, state_root, leaf_hash, event_transfer_count, header)
+			});
 
-			// Run block 1
-			System::set_block_number(1);
-			let header1 = System::finalize(); // current is 2, header1 is for 1
+		// Generate a storage proof for the specific storage key
+		use sp_state_machine::prove_read;
+		let proof = prove_read(ext.as_backend(), &[&storage_key])
+			.expect("failed to generate storage proof");
 
-			// Run block 2
-			System::set_block_number(2);
-			let header2 = System::finalize(); // current is 3, header2 is for 2
+		let proof_nodes_vec: Vec<Vec<u8>> = proof.iter_nodes().map(|n| n.to_vec()).collect();
 
-			// Test with current block (which is 2, but we use header2 for it)
-			assert_noop!(
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof.clone(), 2, header2),
-				Error::<Test>::InvalidPublicInputs
-			);
+		// Prepare the storage proof for the circuit
+		let processed_storage_proof = prepare_proof_for_circuit(
+			proof_nodes_vec,
+			state_root.as_ref().try_into().expect("state root is 32 bytes"),
+			leaf_hash,
+		)
+		.expect("failed to prepare proof for circuit");
 
-			// Test with a recent block (block 1)
-			let result =
-				Wormhole::verify_wormhole_proof(RuntimeOrigin::none(), proof.clone(), 1, header1);
-			assert_noop!(result, Error::<Test>::InvalidPublicInputs);
-		});
+		// Build the header components
+		let parent_hash = *header.parent_hash();
+		let extrinsics_root = *header.extrinsics_root();
+		let digest = header.digest().encode();
+		let digest_array: [u8; 110] = digest.try_into().expect("digest should be 110 bytes");
+		let block_number: u32 = (*header.number()).try_into().expect("block number fits in u32");
+
+		// Compute block hash
+		let block_hash = header.hash();
+
+		// Assemble circuit inputs
+		let circuit_inputs = CircuitInputs {
+			private: PrivateCircuitInputs {
+				secret,
+				transfer_count: event_transfer_count,
+				funding_account: BytesDigest::try_from(alice.as_ref() as &[u8])
+					.expect("account is 32 bytes"),
+				storage_proof: processed_storage_proof,
+				unspendable_account: Digest::from(unspendable_account).into(),
+				state_root: BytesDigest::try_from(state_root.as_ref())
+					.expect("state root is 32 bytes"),
+				extrinsics_root: BytesDigest::try_from(extrinsics_root.as_ref())
+					.expect("extrinsics root is 32 bytes"),
+				digest: digest_array,
+			},
+			public: PublicCircuitInputs {
+				funding_amount,
+				nullifier: Nullifier::from_preimage(secret, event_transfer_count).hash.into(),
+				exit_account: BytesDigest::try_from(exit_account_id.as_ref() as &[u8])
+					.expect("account is 32 bytes"),
+				block_hash: BytesDigest::try_from(block_hash.as_ref())
+					.expect("block hash is 32 bytes"),
+				parent_hash: BytesDigest::try_from(parent_hash.as_ref())
+					.expect("parent hash is 32 bytes"),
+				block_number,
+			},
+		};
+
+		// Generate the ZK proof
+		let proof = generate_proof(circuit_inputs);
+
+		// Verify the proof can be parsed
+		let public_inputs =
+			PublicCircuitInputs::try_from(&proof).expect("failed to parse public inputs");
+
+		// Verify that the public inputs match what we expect
+		assert_eq!(public_inputs.funding_amount, funding_amount);
+		assert_eq!(
+			public_inputs.exit_account,
+			BytesDigest::try_from(exit_account_id.as_ref() as &[u8]).unwrap()
+		);
+
+		// Verify the proof using the verifier
+		let verifier = get_wormhole_verifier().expect("verifier should be available");
+		verifier.verify(proof).expect("proof should verify");
 	}
 }

@@ -7654,16 +7654,23 @@ dependencies = [
  "log",
  "pallet-balances 40.0.1",
  "parity-scale-codec",
+ "qp-dilithium-crypto",
+ "qp-header",
  "qp-plonky2",
+ "qp-poseidon",
+ "qp-poseidon-core 1.0.1 (git+https://github.com/Quantus-Network/qp-poseidon.git?branch=feat%2Fplonky2-update)",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
+ "qp-wormhole-prover",
  "qp-wormhole-verifier",
  "qp-zk-circuits-common",
  "scale-info",
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-state-machine",
+ "sp-trie",
 ]
 
 [[package]]
@@ -9130,7 +9137,7 @@ version = "0.1.0"
 [[package]]
 name = "qp-wormhole-circuit"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#157483740ef5f1e86a28ba93f3d868c793ba8cdf"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#8edb333d9a92a4279ae5416a5ad96a93864e4375"
 dependencies = [
  "anyhow",
  "hex",
@@ -9142,7 +9149,18 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#157483740ef5f1e86a28ba93f3d868c793ba8cdf"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#8edb333d9a92a4279ae5416a5ad96a93864e4375"
+dependencies = [
+ "anyhow",
+ "qp-plonky2",
+ "qp-wormhole-circuit",
+ "qp-zk-circuits-common",
+]
+
+[[package]]
+name = "qp-wormhole-prover"
+version = "0.1.2"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#8edb333d9a92a4279ae5416a5ad96a93864e4375"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9153,7 +9171,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#157483740ef5f1e86a28ba93f3d868c793ba8cdf"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#8edb333d9a92a4279ae5416a5ad96a93864e4375"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9164,7 +9182,7 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#157483740ef5f1e86a28ba93f3d868c793ba8cdf"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#8edb333d9a92a4279ae5416a5ad96a93864e4375"
 dependencies = [
  "anyhow",
  "qp-plonky2",

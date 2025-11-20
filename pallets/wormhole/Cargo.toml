@@ -29,8 +29,17 @@ sp-runtime.workspace = true
 
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }
-qp-wormhole-circuit-builder = { workspace = true, default-features = false }
+qp-dilithium-crypto = { workspace = true, features = ["std"] }
+qp-header = { workspace = true, features = ["serde"] }
 qp-plonky2 = { workspace = true, default-features = false }
+qp-poseidon.workspace = true
+qp-poseidon-core.workspace = true
+qp-wormhole-circuit.workspace = true
+qp-wormhole-circuit-builder = { workspace = true, default-features = false }
+qp-wormhole-prover.workspace = true
+qp-zk-circuits-common.workspace = true
+sp-state-machine = { path = "../../primitives/state-machine" }
+sp-trie.workspace = true
 
 [features]
 default = ["std"]

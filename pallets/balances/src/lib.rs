@@ -606,8 +606,8 @@ pub mod pallet {
 		#[cfg(feature = "try-runtime")]
 		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Holds::<T, I>::iter_keys().try_for_each(|k| {
-				if Holds::<T, I>::decode_len(k).unwrap_or(0)
-					> T::RuntimeHoldReason::VARIANT_COUNT as usize
+				if Holds::<T, I>::decode_len(k).unwrap_or(0) >
+					T::RuntimeHoldReason::VARIANT_COUNT as usize
 				{
 					Err("Found `Hold` with too many elements")
 				} else {
@@ -1302,18 +1302,16 @@ pub mod pallet {
 					ensure!(!is_new, Error::<T, I>::DeadAccount);
 					Self::try_mutate_account(slashed, |from_account, _| -> DispatchResult {
 						match status {
-							Status::Free => {
+							Status::Free =>
 								to_account.free = to_account
 									.free
 									.checked_add(&actual)
-									.ok_or(ArithmeticError::Overflow)?
-							},
-							Status::Reserved => {
+									.ok_or(ArithmeticError::Overflow)?,
+							Status::Reserved =>
 								to_account.reserved = to_account
 									.reserved
 									.checked_add(&actual)
-									.ok_or(ArithmeticError::Overflow)?
-							},
+									.ok_or(ArithmeticError::Overflow)?,
 						}
 						from_account.reserved.saturating_reduce(actual);
 						Ok(())
