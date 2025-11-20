@@ -174,7 +174,7 @@ where
 	}
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use qp_poseidon::PoseidonHasher;
