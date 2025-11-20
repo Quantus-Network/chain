@@ -2,8 +2,10 @@
 
 extern crate alloc;
 
+use frame_system::pallet_prelude::BlockNumberFor;
 use lazy_static::lazy_static;
 pub use pallet::*;
+use qp_poseidon::PoseidonHasher;
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
@@ -28,6 +30,9 @@ lazy_static! {
 pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str> {
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
 }
+
+/// Our own version of the header
+pub type HeaderFor<T> = qp_header::Header<BlockNumberFor<T>, PoseidonHasher>;
 
 #[frame_support::pallet]
 pub mod pallet {

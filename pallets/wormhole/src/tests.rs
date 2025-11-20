@@ -2,7 +2,7 @@
 mod wormhole_tests {
 	use crate::{get_wormhole_verifier, mock::*};
 	use codec::Encode;
-	use frame_support::{assert_ok, traits::fungible::Mutate};
+	use frame_support::{assert_ok, traits::fungible::{Inspect, Mutate}};
 	use plonky2::plonk::circuit_data::CircuitConfig;
 	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole_circuit::{
@@ -271,6 +271,64 @@ mod wormhole_tests {
 
 		// Verify the proof using the verifier
 		let verifier = get_wormhole_verifier().expect("verifier should be available");
-		verifier.verify(proof).expect("proof should verify");
+		verifier.verify(proof.clone()).expect("proof should verify");
+
+		// Serialize the proof to bytes for extrinsic testing
+		let proof_bytes = proof.to_bytes();
+
+		// Now test the extrinsic in a new environment
+		new_test_ext().execute_with(|| {
+			// Set up the blockchain state to have block 1
+			System::set_block_number(1);
+
+			// Add the same digest items
+			let pre_runtime_data = vec![
+				233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21,
+				45, 180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
+			];
+			let seal_data = vec![
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 77, 142,
+			];
+
+			System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
+			System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
+
+			// Execute the same transfer to recreate the exact state
+			assert_ok!(Balances::mint_into(&unspendable_account_id, funding_amount));
+			assert_ok!(Balances::transfer_keep_alive(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				unspendable_account_id.clone(),
+				funding_amount,
+			));
+
+			// Finalize the block to get the same header and store the block hash
+			let block_1_header = System::finalize();
+
+			// Initialize block 2 to store block 1's hash
+			System::reset_events();
+			System::initialize(&2, &block_1_header.hash(), block_1_header.digest());
+
+			// Check exit account balance before verification
+			let balance_before = Balances::balance(&exit_account_id);
+			assert_eq!(balance_before, 0);
+
+			// Call the verify_wormhole_proof extrinsic
+			assert_ok!(Wormhole::verify_wormhole_proof(
+				frame_system::RawOrigin::None.into(),
+				proof_bytes,
+				1u64,
+				block_1_header,
+			));
+
+			// Check that the exit account received the funds (minus fees)
+			let balance_after = Balances::balance(&exit_account_id);
+
+			// The balance should be funding_amount minus fees
+			// Weight fee + 0.1% volume fee
+			assert!(balance_after > 0, "Exit account should have received funds");
+			assert!(balance_after < funding_amount, "Exit account balance should be less than funding amount due to fees");
+		});
 	}
 }
