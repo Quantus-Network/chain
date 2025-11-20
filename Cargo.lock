@@ -9125,6 +9125,7 @@ dependencies = [
  "clap",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
+ "frame-support",
  "frame-system",
  "futures 0.3.31",
  "hex",

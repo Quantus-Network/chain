@@ -22,6 +22,7 @@ frame-benchmarking-cli.default-features = true
 frame-benchmarking-cli.workspace = true
 frame-metadata-hash-extension.default-features = true
 frame-metadata-hash-extension.workspace = true
+frame-support.workspace = true
 frame-system.default-features = true
 frame-system.workspace = true
 futures = { features = ["thread-pool"], workspace = true }
