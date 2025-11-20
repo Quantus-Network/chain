@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, DecodeWithMemTracking, Encode, HasCompact};
+use codec::{Codec, Decode, DecodeWithMemTracking, Encode};
 use p3_field::integers::QuotientMap;
 use p3_goldilocks::Goldilocks;
 use qp_poseidon_core::{
@@ -17,7 +17,9 @@ use sp_runtime::{
 	traits::{AtLeast32BitUnsigned, BlockNumber, Hash as HashT, MaybeDisplay, Member},
 	RuntimeDebug,
 };
-use sp_std::vec::Vec;
+extern crate alloc;
+
+use alloc::vec::Vec;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -28,7 +30,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct Header<Number: Copy + Into<U256> + TryFrom<U256> + HasCompact, Hash: HashT> {
+pub struct Header<Number: Copy + Into<U256> + TryFrom<U256>, Hash: HashT> {
 	pub parent_hash: Hash::Output,
 	#[cfg_attr(
 		feature = "serde",
@@ -121,6 +123,26 @@ where
 	// We override the default hashing function to use
 	// a felt aligned pre-image for poseidon hashing.
 	fn hash(&self) -> Self::Hash {
+		Header::hash(&self)
+	}
+}
+
+impl<Number, Hash> Header<Number, Hash>
+where
+	Number: Member
+		+ core::hash::Hash
+		+ Copy
+		+ MaybeDisplay
+		+ AtLeast32BitUnsigned
+		+ Codec
+		+ Into<U256>
+		+ TryFrom<U256>,
+	Hash: HashT,
+	Hash::Output: From<[u8; 32]>,
+{
+	/// Convenience helper for computing the hash of the header without having
+	/// to import the trait.
+	pub fn hash(&self) -> Hash::Output {
 		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts for injective digest encoding
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
@@ -152,15 +174,12 @@ where
 	}
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use qp_poseidon::PoseidonHasher;
 	use sp_core::H256;
-	use sp_runtime::{
-		traits::{BlakeTwo256, Header as HeaderT},
-		DigestItem,
-	};
+	use sp_runtime::{traits::BlakeTwo256, DigestItem};
 
 	#[test]
 	fn should_serialize_numbers() {
@@ -207,11 +226,11 @@ mod tests {
 			header_encoded,
 			vec![
 				146, 205, 245, 120, 196, 112, 133, 165, 153, 34, 86, 240, 220, 249, 125, 11, 25,
-				241, 241, 201, 222, 77, 95, 227, 12, 58, 206, 97, 145, 182, 229, 219, 8, 88, 19,
-				72, 51, 123, 15, 62, 20, 134, 32, 23, 61, 170, 165, 249, 77, 0, 216, 129, 112, 93,
-				203, 240, 170, 131, 239, 218, 186, 97, 210, 237, 225, 235, 134, 73, 33, 73, 151,
-				87, 78, 32, 196, 100, 56, 138, 23, 36, 32, 210, 84, 3, 104, 43, 187, 184, 12, 73,
-				104, 49, 200, 204, 31, 143, 13, 4, 0, 4, 54
+				241, 241, 201, 222, 77, 95, 227, 12, 58, 206, 97, 145, 182, 229, 219, 2, 0, 0, 0,
+				88, 19, 72, 51, 123, 15, 62, 20, 134, 32, 23, 61, 170, 165, 249, 77, 0, 216, 129,
+				112, 93, 203, 240, 170, 131, 239, 218, 186, 97, 210, 237, 225, 235, 134, 73, 33,
+				73, 151, 87, 78, 32, 196, 100, 56, 138, 23, 36, 32, 210, 84, 3, 104, 43, 187, 184,
+				12, 73, 104, 49, 200, 204, 31, 143, 13, 4, 0, 4, 54
 			],
 		);
 		assert_eq!(Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(), header);
@@ -229,11 +248,11 @@ mod tests {
 			header_encoded,
 			vec![
 				197, 243, 254, 225, 31, 117, 21, 218, 179, 213, 92, 6, 247, 164, 230, 25, 47, 166,
-				140, 117, 142, 159, 195, 202, 67, 196, 238, 26, 44, 18, 33, 92, 65, 31, 219, 225,
-				47, 12, 107, 88, 153, 146, 55, 21, 226, 186, 110, 48, 167, 187, 67, 183, 228, 232,
-				118, 136, 30, 254, 11, 87, 48, 112, 7, 97, 31, 82, 146, 110, 96, 87, 152, 68, 98,
-				162, 227, 222, 78, 14, 244, 194, 120, 154, 112, 97, 222, 144, 174, 101, 220, 44,
-				111, 126, 54, 34, 155, 220, 253, 124, 4, 0, 16, 53, 48, 48, 48
+				140, 117, 142, 159, 195, 202, 67, 196, 238, 26, 44, 18, 33, 92, 208, 7, 0, 0, 219,
+				225, 47, 12, 107, 88, 153, 146, 55, 21, 226, 186, 110, 48, 167, 187, 67, 183, 228,
+				232, 118, 136, 30, 254, 11, 87, 48, 112, 7, 97, 31, 82, 146, 110, 96, 87, 152, 68,
+				98, 162, 227, 222, 78, 14, 244, 194, 120, 154, 112, 97, 222, 144, 174, 101, 220,
+				44, 111, 126, 54, 34, 155, 220, 253, 124, 4, 0, 16, 53, 48, 48, 48
 			],
 		);
 		assert_eq!(Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(), header);

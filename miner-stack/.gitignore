@@ -1,0 +1,33 @@
+# Environment configuration (contains sensitive data)
+.env
+
+# Chain data directory (blockchain database - can be deleted for re-sync)
+data/
+node-data/
+
+# Node keys (IMPORTANT: backup these!)
+node-keys/
+*.key
+
+# Backup files
+backups/
+*.tar.gz
+*.backup
+
+# Logs
+*.log
+
+# Monitoring data (Prometheus & Grafana volumes)
+grafana-data/
+prometheus-data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

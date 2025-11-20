@@ -8964,7 +8964,6 @@ dependencies = [
  "serde_json",
  "sp-core",
  "sp-runtime",
- "sp-std",
 ]
 
 [[package]]

@@ -1,0 +1,61 @@
+services:
+  quantus-node:
+    image: ghcr.io/quantus-network/quantus-node:${NODE_VERSION:-latest}
+    container_name: ${CONTAINER_NAME:-quantus-node}
+    platform: linux/amd64
+    restart: unless-stopped
+    entrypoint: ["/init-node.sh"]
+    command: >
+      --validator
+      --base-path /var/lib/quantus
+      --chain ${CHAIN:-dirac}
+      --node-key-file /node-keys/key_node
+      --rewards-address ${REWARDS_ADDRESS}
+      --name ${NODE_NAME:-my-quantus-node}
+      --wasm-execution compiled
+      --db-cache 2048
+      --rpc-cors all
+      --in-peers ${IN_PEERS:-256}
+      --out-peers ${OUT_PEERS:-256}
+      --prometheus-external
+      --external-miner-url http://quantus-miner:9833
+    volumes:
+      - ./init-node.sh:/init-node.sh:ro
+      - ./node-keys:/node-keys
+      - ./node-data:/var/lib/quantus
+    depends_on:
+      - quantus-miner
+    ports:
+      - "${P2P_PORT:-30333}:30333"
+      - "${RPC_PORT:-9944}:9944"
+      - "${PROMETHEUS_PORT:-9615}:9615"
+    networks:
+      - quantus
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+
+  quantus-miner:
+    image: ghcr.io/quantus-network/quantus-miner:${MINER_VERSION:-latest}
+    container_name: ${MINER_CONTAINER_NAME:-quantus-miner}
+    platform: linux/amd64
+    restart: unless-stopped
+    command: --metrics-port 9900
+    environment:
+      - WORKERS=${WORKERS:-4}
+    ports:
+      - "9833:9833"  # Miner API
+      - "9900:9900"  # Miner metrics
+    networks:
+      - quantus
+    deploy:
+      resources:
+        limits:
+          cpus: '${WORKERS:-4}'
+          memory: 4G
+
+networks:
+  quantus:
+    driver: bridge
