@@ -2,7 +2,10 @@
 mod wormhole_tests {
 	use crate::{get_wormhole_verifier, mock::*};
 	use codec::Encode;
-	use frame_support::{assert_ok, traits::fungible::{Inspect, Mutate}};
+	use frame_support::{
+		assert_ok,
+		traits::fungible::{Inspect, Mutate},
+	};
 	use plonky2::plonk::circuit_data::CircuitConfig;
 	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole_circuit::{
@@ -283,13 +286,13 @@ mod wormhole_tests {
 
 			// Add the same digest items
 			let pre_runtime_data = vec![
-				233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21,
-				45, 180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
+				233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21, 45,
+				180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
 			];
 			let seal_data = vec![
-				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 77, 142,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 30, 77, 142,
 			];
 
 			System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
@@ -317,7 +320,7 @@ mod wormhole_tests {
 			// Call the verify_wormhole_proof extrinsic
 			assert_ok!(Wormhole::verify_wormhole_proof(
 				frame_system::RawOrigin::None.into(),
-				proof_bytes,
+				proof_bytes.clone(),
 				1u64,
 				block_1_header,
 			));
@@ -328,7 +331,41 @@ mod wormhole_tests {
 			// The balance should be funding_amount minus fees
 			// Weight fee + 0.1% volume fee
 			assert!(balance_after > 0, "Exit account should have received funds");
-			assert!(balance_after < funding_amount, "Exit account balance should be less than funding amount due to fees");
+			assert!(
+				balance_after < funding_amount,
+				"Exit account balance should be less than funding amount due to fees"
+			);
+		});
+
+		// Test that proof fails when state doesn't match
+		new_test_ext().execute_with(|| {
+			// Set up block 1 but DON'T recreate the exact same state
+			System::set_block_number(1);
+
+			// Add different digest items with same 110-byte format but different content
+			let pre_runtime_data = vec![1u8; 32]; // Different data
+			let seal_data = vec![2u8; 64]; // Different data
+
+			System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
+			System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
+
+			// Finalize block 1 with different state
+			let different_header = System::finalize();
+
+			// Initialize block 2
+			System::reset_events();
+			System::initialize(&2, &different_header.hash(), different_header.digest());
+
+			// Try to use the proof with the original header (which has different block hash)
+			let result = Wormhole::verify_wormhole_proof(
+				frame_system::RawOrigin::None.into(),
+				proof_bytes.clone(),
+				1u64,
+				header.clone(),
+			);
+
+			// This should fail because the block hash in the proof doesn't match
+			assert!(result.is_err(), "Proof verification should fail with mismatched state");
 		});
 	}
 }
