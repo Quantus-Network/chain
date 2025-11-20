@@ -19,7 +19,7 @@ use sp_core::{
 	H256,
 };
 use sp_keyring::Sr25519Keyring;
-use sp_runtime::traits::IdentifyAccount;
+use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
@@ -448,14 +448,32 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.network_backend = NetworkBackendType::Libp2p;
 
-				// Automatically set Alice's address as rewards address when --dev is used
-				let rewards_address = cli.rewards_address.clone().or_else(|| {
-					if cli.run.shared_params.is_dev() {
-						Some(Sr25519Keyring::Alice.to_account_id().to_string())
-					} else {
-						None
-					}
-				});
+				let rewards_account = match cli.rewards_address {
+					Some(address) => {
+						let account = address.parse::<AccountId32>().map_err(|_| {
+							sc_cli::Error::Input("Invalid rewards address format".into())
+						})?;
+						log::info!("⛏️ Using address for rewards: {:?}", account);
+						account
+					},
+					None => {
+						// Automatically set rewards_address to Treasury when --dev is used
+						if cli.run.shared_params.is_dev() {
+							let treasury_account =
+								quantus_runtime::configs::TreasuryPalletId::get()
+									.into_account_truncating();
+							log::info!(
+								"⛏️ Using treasury address for rewards: {:?}",
+								treasury_account
+							);
+
+							treasury_account
+						} else {
+							// Should never happen
+							return Err(sc_cli::Error::Input("No rewards address provided".into()));
+						}
+					},
+				};
 
 				service::new_full::<
 					sc_network::NetworkWorker<
@@ -463,7 +481,7 @@ pub fn run() -> sc_cli::Result<()> {
 						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 					>,
 				>(
-					config, rewards_address, cli.external_miner_url.clone(), cli.enable_peer_sharing
+					config, rewards_account, cli.external_miner_url.clone(), cli.enable_peer_sharing
 				)
 				.map_err(sc_cli::Error::Service)
 			})
