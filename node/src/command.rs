@@ -447,16 +447,23 @@ pub fn run() -> sc_cli::Result<()> {
 				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
 				config.network.network_backend = NetworkBackendType::Libp2p;
+
+				// Automatically set Alice's address as rewards address when --dev is used
+				let rewards_address = cli.rewards_address.clone().or_else(|| {
+					if cli.run.shared_params.is_dev() {
+						Some(Sr25519Keyring::Alice.to_account_id().to_string())
+					} else {
+						None
+					}
+				});
+
 				service::new_full::<
 					sc_network::NetworkWorker<
 						quantus_runtime::opaque::Block,
 						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 					>,
 				>(
-					config,
-					cli.rewards_address.clone(),
-					cli.external_miner_url.clone(),
-					cli.enable_peer_sharing,
+					config, rewards_address, cli.external_miner_url.clone(), cli.enable_peer_sharing
 				)
 				.map_err(sc_cli::Error::Service)
 			})
