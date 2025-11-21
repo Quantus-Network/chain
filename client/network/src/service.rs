@@ -536,14 +536,16 @@ where
 					}
 				}
 
-				let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
-					.with_substream_upgrade_protocol_override(upgrade::Version::V1)
-					.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-					// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
-					// necessary. See <https://github.com/paritytech/substrate/pull/6080>
-					.with_per_connection_event_buffer_size(24)
-					.with_max_negotiating_inbound_streams(2048)
-					.with_idle_connection_timeout(Duration::from_secs(10));
+			let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
+				.with_substream_upgrade_protocol_override(upgrade::Version::V1)
+				.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
+				// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
+				// necessary. See <https://github.com/paritytech/substrate/pull/6080>
+				.with_per_connection_event_buffer_size(24)
+				// Increased from 2048 to handle many peers simultaneously opening substreams
+				// for DHT queries, sync requests, etc. on bootnodes.
+				.with_max_negotiating_inbound_streams(16384)
+				.with_idle_connection_timeout(Duration::from_secs(10));
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};
