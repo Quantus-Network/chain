@@ -320,9 +320,7 @@ mod wormhole_tests {
 			// Call the verify_wormhole_proof extrinsic
 			assert_ok!(Wormhole::verify_wormhole_proof(
 				frame_system::RawOrigin::None.into(),
-				proof_bytes.clone(),
-				1u64,
-				block_1_header,
+				proof_bytes.clone()
 			));
 
 			// Check that the exit account received the funds (minus fees)
@@ -360,8 +358,6 @@ mod wormhole_tests {
 			let result = Wormhole::verify_wormhole_proof(
 				frame_system::RawOrigin::None.into(),
 				proof_bytes.clone(),
-				1u64,
-				header.clone(),
 			);
 
 			// This should fail because the block hash in the proof doesn't match

@@ -55,7 +55,7 @@ mod benchmarks {
 		let header = frame_system::Pallet::<T>::finalize();
 
 		#[extrinsic_call]
-		verify_wormhole_proof(RawOrigin::None, proof_bytes, block_number, header);
+		verify_wormhole_proof(RawOrigin::None, proof_bytes);
 
 		Ok(())
 	}

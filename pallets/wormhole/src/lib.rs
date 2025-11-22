@@ -2,10 +2,8 @@
 
 extern crate alloc;
 
-use frame_system::pallet_prelude::BlockNumberFor;
 use lazy_static::lazy_static;
 pub use pallet::*;
-use qp_poseidon::PoseidonHasher;
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
@@ -31,9 +29,6 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
 }
 
-/// Our own version of the header
-pub type HeaderFor<T> = qp_header::Header<BlockNumberFor<T>, PoseidonHasher>;
-
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::WeightInfo;
@@ -53,7 +48,7 @@ pub mod pallet {
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
-		traits::{Header, Saturating, Zero},
+		traits::{Saturating, Zero},
 		Perbill,
 	};
 
@@ -110,12 +105,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
-		pub fn verify_wormhole_proof(
-			origin: OriginFor<T>,
-			proof_bytes: Vec<u8>,
-			block_number: BlockNumberFor<T>,
-			header: HeaderFor<T>,
-		) -> DispatchResult {
+		pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
 			ensure_none(origin)?;
 
 			let verifier =
@@ -139,13 +129,12 @@ pub mod pallet {
 				Error::<T>::NullifierAlreadyUsed
 			);
 
+			// Extract the block number from public inputs
+			let block_number = BlockNumberFor::<T>::try_from(public_inputs.block_number)
+				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-
-			// get the hash of the header
-			let header_block_hash = header.hash();
-
-			ensure!(header_block_hash == block_hash, Error::<T>::InvalidBlockNumber);
 
 			// Check if block number is not in the future
 			let current_block = frame_system::Pallet::<T>::block_number();
@@ -156,8 +145,9 @@ pub mod pallet {
 			let default_hash = T::Hash::default();
 			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
 
+			// Ensure that the block hash from storage matches the one in public inputs
 			ensure!(
-				header_block_hash.as_ref() == public_inputs.block_hash.as_ref(),
+				block_hash.as_ref() == public_inputs.block_hash.as_ref(),
 				Error::<T>::InvalidPublicInputs
 			);
 
