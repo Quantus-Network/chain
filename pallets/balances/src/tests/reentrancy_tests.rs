@@ -56,7 +56,7 @@ fn transfer_dust_removal_tst1_should_work() {
 			assert_eq!(Balances::free_balance(account_id(1)), 1050);
 
 			// Verify the events
-			assert_eq!(System::events().len(), 14);
+			assert_eq!(System::events().len(), 15);
 
 			System::assert_has_event(RuntimeEvent::Balances(crate::Event::Transfer {
 				from: account_id(2),
@@ -99,7 +99,7 @@ fn transfer_dust_removal_tst2_should_work() {
 			// Dust balance is deposited to account 1
 			assert_eq!(Balances::free_balance(account_id(1)), 1000 + 450 + 50);
 			// Verify the events
-			assert_eq!(System::events().len(), 12);
+			assert_eq!(System::events().len(), 13);
 
 			System::assert_has_event(RuntimeEvent::Balances(crate::Event::Transfer {
 				from: account_id(2),
@@ -149,7 +149,7 @@ fn repatriating_reserved_balance_dust_removal_should_work() {
 			assert_eq!(Balances::free_balance(account_id(1)), 1500);
 
 			// Verify the events
-			assert_eq!(System::events().len(), 12);
+			assert_eq!(System::events().len(), 13);
 
 			System::assert_has_event(RuntimeEvent::Balances(crate::Event::Transfer {
 				from: account_id(2),
