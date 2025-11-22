@@ -523,8 +523,9 @@ where
 
 				match result {
 					Ok(b) => b,
-					Err(crate::request_responses::RegisterError::DuplicateProtocol(proto)) =>
-						return Err(Error::DuplicateRequestResponseProtocol { protocol: proto }),
+					Err(crate::request_responses::RegisterError::DuplicateProtocol(proto)) => {
+						return Err(Error::DuplicateRequestResponseProtocol { protocol: proto })
+					},
 				}
 			};
 
@@ -536,16 +537,16 @@ where
 					}
 				}
 
-			let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
-				.with_substream_upgrade_protocol_override(upgrade::Version::V1)
-				.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-				// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
-				// necessary. See <https://github.com/paritytech/substrate/pull/6080>
-				.with_per_connection_event_buffer_size(24)
-				// Increased from 2048 to handle many peers simultaneously opening substreams
-				// for DHT queries, sync requests, etc. on bootnodes.
-				.with_max_negotiating_inbound_streams(16384)
-				.with_idle_connection_timeout(Duration::from_secs(10));
+				let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
+					.with_substream_upgrade_protocol_override(upgrade::Version::V1)
+					.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
+					// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
+					// necessary. See <https://github.com/paritytech/substrate/pull/6080>
+					.with_per_connection_event_buffer_size(24)
+					// Increased from 2048 to handle many peers simultaneously opening substreams
+					// for DHT queries, sync requests, etc. on bootnodes.
+					.with_max_negotiating_inbound_streams(16384)
+					.with_idle_connection_timeout(Duration::from_secs(10));
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};
@@ -607,6 +608,7 @@ where
 			reported_invalid_boot_nodes: Default::default(),
 			peer_store_handle: Arc::clone(&peer_store_handle),
 			notif_protocol_handles,
+			bootstrap_initiated: false,
 			_marker: Default::default(),
 			_block: Default::default(),
 		})
@@ -681,7 +683,7 @@ where
 						addrs.into_iter().collect()
 					} else {
 						error!(target: "sub-libp2p", "Was not able to get known addresses for {:?}", peer_id);
-						return None
+						return None;
 					};
 
 					let endpoint = if let Some(e) =
@@ -691,7 +693,7 @@ where
 					} else {
 						error!(target: "sub-libp2p", "Found state inconsistency between custom protocol \
 						and debug information about {:?}", peer_id);
-						return None
+						return None;
 					};
 
 					Some((
@@ -1338,6 +1340,9 @@ where
 	peer_store_handle: Arc<dyn PeerStoreProvider>,
 	/// Notification protocol handles.
 	notif_protocol_handles: Vec<protocol::ProtocolHandle>,
+	/// Tracks whether Kademlia bootstrap has been initiated.
+	/// Bootstrap is delayed until the first peer connection to ensure bootnodes are available.
+	bootstrap_initiated: bool,
 	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
 	/// compatibility.
 	_marker: PhantomData<H>,
@@ -1409,10 +1414,12 @@ where
 	/// Process the next message coming from the `NetworkService`.
 	fn handle_worker_message(&mut self, msg: ServiceToWorkerMsg) {
 		match msg {
-			ServiceToWorkerMsg::GetValue(key) =>
-				self.network_service.behaviour_mut().get_value(key.into()),
-			ServiceToWorkerMsg::PutValue(key, value) =>
-				self.network_service.behaviour_mut().put_value(key.into(), value),
+			ServiceToWorkerMsg::GetValue(key) => {
+				self.network_service.behaviour_mut().get_value(key.into())
+			},
+			ServiceToWorkerMsg::PutValue(key, value) => {
+				self.network_service.behaviour_mut().put_value(key.into(), value)
+			},
 			ServiceToWorkerMsg::PutRecordTo { record, peers, update_local_storage } => self
 				.network_service
 				.behaviour_mut()
@@ -1421,8 +1428,9 @@ where
 				.network_service
 				.behaviour_mut()
 				.store_record(key.into(), value, publisher, expires),
-			ServiceToWorkerMsg::AddKnownAddress(peer_id, addr) =>
-				self.network_service.behaviour_mut().add_known_address(peer_id, addr),
+			ServiceToWorkerMsg::AddKnownAddress(peer_id, addr) => {
+				self.network_service.behaviour_mut().add_known_address(peer_id, addr)
+			},
 			ServiceToWorkerMsg::EventStream(sender) => self.event_streams.push(sender),
 			ServiceToWorkerMsg::Request {
 				target,
@@ -1469,18 +1477,23 @@ where
 						},
 						Err(err) => {
 							let reason = match err {
-								ResponseFailure::Network(InboundFailure::Timeout) =>
-									Some("timeout"),
+								ResponseFailure::Network(InboundFailure::Timeout) => {
+									Some("timeout")
+								},
 								ResponseFailure::Network(InboundFailure::UnsupportedProtocols) =>
 								// `UnsupportedProtocols` is reported for every single
 								// inbound request whenever a request with an unsupported
 								// protocol is received. This is not reported in order to
 								// avoid confusions.
-									None,
-								ResponseFailure::Network(InboundFailure::ResponseOmission) =>
-									Some("busy-omitted"),
-								ResponseFailure::Network(InboundFailure::ConnectionClosed) =>
-									Some("connection-closed"),
+								{
+									None
+								},
+								ResponseFailure::Network(InboundFailure::ResponseOmission) => {
+									Some("busy-omitted")
+								},
+								ResponseFailure::Network(InboundFailure::ConnectionClosed) => {
+									Some("connection-closed")
+								},
 								ResponseFailure::Network(InboundFailure::Io(_)) => Some("io"),
 							};
 
@@ -1499,7 +1512,7 @@ where
 				duration,
 				result,
 				..
-			}) =>
+			}) => {
 				if let Some(metrics) = self.metrics.as_ref() {
 					match result {
 						Ok(_) => {
@@ -1514,13 +1527,16 @@ where
 								RequestFailure::UnknownProtocol => "unknown-protocol",
 								RequestFailure::Refused => "refused",
 								RequestFailure::Obsolete => "obsolete",
-								RequestFailure::Network(OutboundFailure::DialFailure) =>
-									"dial-failure",
+								RequestFailure::Network(OutboundFailure::DialFailure) => {
+									"dial-failure"
+								},
 								RequestFailure::Network(OutboundFailure::Timeout) => "timeout",
-								RequestFailure::Network(OutboundFailure::ConnectionClosed) =>
-									"connection-closed",
-								RequestFailure::Network(OutboundFailure::UnsupportedProtocols) =>
-									"unsupported",
+								RequestFailure::Network(OutboundFailure::ConnectionClosed) => {
+									"connection-closed"
+								},
+								RequestFailure::Network(OutboundFailure::UnsupportedProtocols) => {
+									"unsupported"
+								},
 								RequestFailure::Network(OutboundFailure::Io(_)) => "io",
 							};
 
@@ -1530,7 +1546,8 @@ where
 								.inc();
 						},
 					}
-				},
+				}
+			},
 			SwarmEvent::Behaviour(BehaviourOut::ReputationChanges { peer, changes }) => {
 				for change in changes {
 					self.peer_store_handle.report_peer(peer.into(), change);
@@ -1672,6 +1689,27 @@ where
 						metrics.distinct_peers_connections_opened_total.inc();
 					}
 				}
+
+				// Initiate Kademlia bootstrap after the first peer connection.
+				// This ensures bootnodes are connected before attempting DHT discovery.
+				// Bootstrap is performed only once per node lifetime.
+				if !self.bootstrap_initiated && self.num_connected.load(Ordering::Relaxed) > 0 {
+					self.bootstrap_initiated = true;
+					match self.network_service.behaviour_mut().bootstrap() {
+						Ok(query_id) => {
+							info!(
+								target: "sub-libp2p",
+								"Kademlia bootstrap initiated (query_id: {:?})", query_id
+							);
+						},
+						Err(e) => {
+							warn!(
+								target: "sub-libp2p",
+								"Failed to initiate Kademlia bootstrap: {}", e
+							);
+						},
+					}
+				}
 			},
 			SwarmEvent::ConnectionClosed {
 				connection_id,
@@ -1754,18 +1792,19 @@ where
 				if let Some(metrics) = self.metrics.as_ref() {
 					#[allow(deprecated)]
 					let reason = match error {
-						DialError::Denied { cause } =>
+						DialError::Denied { cause } => {
 							if cause.downcast::<Exceeded>().is_ok() {
 								Some("limit-reached")
 							} else {
 								None
-							},
+							}
+						},
 						DialError::LocalPeerId { .. } => Some("local-peer-id"),
 						DialError::WrongPeerId { .. } => Some("invalid-peer-id"),
 						DialError::Transport(_) => Some("transport-error"),
-						DialError::NoAddresses |
-						DialError::DialPeerConditionFalse(_) |
-						DialError::Aborted => None, // ignore them
+						DialError::NoAddresses
+						| DialError::DialPeerConditionFalse(_)
+						| DialError::Aborted => None, // ignore them
 					};
 					if let Some(reason) = reason {
 						metrics.pending_connections_errors_total.with_label_values(&[reason]).inc();
@@ -1794,14 +1833,16 @@ where
 				if let Some(metrics) = self.metrics.as_ref() {
 					#[allow(deprecated)]
 					let reason = match error {
-						ListenError::Denied { cause } =>
+						ListenError::Denied { cause } => {
 							if cause.downcast::<Exceeded>().is_ok() {
 								Some("limit-reached")
 							} else {
 								None
-							},
-						ListenError::WrongPeerId { .. } | ListenError::LocalPeerId { .. } =>
-							Some("invalid-peer-id"),
+							}
+						},
+						ListenError::WrongPeerId { .. } | ListenError::LocalPeerId { .. } => {
+							Some("invalid-peer-id")
+						},
 						ListenError::Transport(_) => Some("transport-error"),
 						ListenError::Aborted => None, // ignore it
 					};

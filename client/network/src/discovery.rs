@@ -487,6 +487,23 @@ impl DiscoveryBehaviour {
 		}
 	}
 
+	/// Initiates Kademlia bootstrap process.
+	///
+	/// Bootstrap performs a systematic discovery of the DHT by:
+	/// 1. Connecting to known bootstrap nodes
+	/// 2. Performing iterative FIND_NODE queries for our own peer ID
+	/// 3. Populating the routing table with discovered peers
+	///
+	/// This is crucial for new nodes to discover the network beyond just the bootstrap nodes.
+	/// Returns the QueryId of the bootstrap operation if successful.
+	pub fn bootstrap(&mut self) -> Result<QueryId, String> {
+		if let Some(k) = self.kademlia.as_mut() {
+			k.bootstrap().map_err(|e| format!("Kademlia bootstrap failed: {:?}", e))
+		} else {
+			Err("Kademlia is not enabled".to_string())
+		}
+	}
+
 	/// Returns the number of nodes in each Kademlia kbucket for each Kademlia instance.
 	///
 	/// Identifies Kademlia instances by their [`ProtocolId`] and kbuckets by the base 2 logarithm
