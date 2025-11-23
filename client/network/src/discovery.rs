@@ -230,10 +230,15 @@ impl DiscoveryConfig {
 			config.set_record_filtering(libp2p::kad::StoreInserts::FilterBoth);
 			config.set_query_timeout(KAD_QUERY_TIMEOUT);
 
+			// Increase maximum packet size to handle large peer lists in FIND_NODE responses.
+			// Default 16KB is insufficient for bootnodes with 80+ peers in routing table,
+			// causing responses to be rejected with "message exceeds maximum" errors.
+			// Setting to 2MB to accommodate peer lists with full multiaddresses.
+			config.set_max_packet_size(2 * 1024 * 1024); // 2MB
+
 			// Changed from Manual to OnConnected to allow Kademlia to automatically maintain
-			// a full routing table. With Manual mode, kbuckets were filling up (20 node limit)
-			// and preventing bootnodes from advertising most of their peers to the network.
-			// OnConnected automatically manages bucket overflow by replacing older/less reliable peers.
+			// a full routing table. OnConnected automatically manages bucket overflow by
+			// replacing older/less reliable peers when buckets fill up (k=20 limit).
 			config.set_kbucket_inserts(BucketInserts::OnConnected);
 			config.disjoint_query_paths(kademlia_disjoint_query_paths);
 			let store = MemoryStore::new(local_peer_id);
