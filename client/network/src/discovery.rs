@@ -58,7 +58,7 @@ use libp2p::{
 	kad::{
 		self,
 		store::{MemoryStore, RecordStore},
-		Behaviour as Kademlia, BucketInserts, Config as KademliaConfig, Event as KademliaEvent,
+		Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent,
 		GetClosestPeersError, GetRecordOk, PeerRecord, QueryId, QueryResult, Quorum, Record,
 		RecordKey,
 	},
@@ -235,11 +235,6 @@ impl DiscoveryConfig {
 			// causing responses to be rejected with "message exceeds maximum" errors.
 			// Setting to 2MB to accommodate peer lists with full multiaddresses.
 			config.set_max_packet_size(2 * 1024 * 1024); // 2MB
-
-			// Changed from Manual to OnConnected to allow Kademlia to automatically maintain
-			// a full routing table. OnConnected automatically manages bucket overflow by
-			// replacing older/less reliable peers when buckets fill up (k=20 limit).
-			config.set_kbucket_inserts(BucketInserts::OnConnected);
 			config.disjoint_query_paths(kademlia_disjoint_query_paths);
 			let store = MemoryStore::new(local_peer_id);
 			let mut kad = Kademlia::with_config(local_peer_id, store, config);
@@ -489,23 +484,6 @@ impl DiscoveryBehaviour {
 					err
 				);
 			}
-		}
-	}
-
-	/// Initiates Kademlia bootstrap process.
-	///
-	/// Bootstrap performs a systematic discovery of the DHT by:
-	/// 1. Connecting to known bootstrap nodes
-	/// 2. Performing iterative FIND_NODE queries for our own peer ID
-	/// 3. Populating the routing table with discovered peers
-	///
-	/// This is crucial for new nodes to discover the network beyond just the bootstrap nodes.
-	/// Returns the QueryId of the bootstrap operation if successful.
-	pub fn bootstrap(&mut self) -> Result<QueryId, String> {
-		if let Some(k) = self.kademlia.as_mut() {
-			k.bootstrap().map_err(|e| format!("Kademlia bootstrap failed: {:?}", e))
-		} else {
-			Err("Kademlia is not enabled".to_string())
 		}
 	}
 

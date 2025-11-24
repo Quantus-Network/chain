@@ -608,7 +608,6 @@ where
 			reported_invalid_boot_nodes: Default::default(),
 			peer_store_handle: Arc::clone(&peer_store_handle),
 			notif_protocol_handles,
-			bootstrap_initiated: false,
 			_marker: Default::default(),
 			_block: Default::default(),
 		})
@@ -1340,9 +1339,6 @@ where
 	peer_store_handle: Arc<dyn PeerStoreProvider>,
 	/// Notification protocol handles.
 	notif_protocol_handles: Vec<protocol::ProtocolHandle>,
-	/// Tracks whether Kademlia bootstrap has been initiated.
-	/// Bootstrap is delayed until the first peer connection to ensure bootnodes are available.
-	bootstrap_initiated: bool,
 	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
 	/// compatibility.
 	_marker: PhantomData<H>,
@@ -1687,27 +1683,6 @@ where
 
 					if num_established.get() == 1 {
 						metrics.distinct_peers_connections_opened_total.inc();
-					}
-				}
-
-				// Initiate Kademlia bootstrap after the first peer connection.
-				// This ensures bootnodes are connected before attempting DHT discovery.
-				// Bootstrap is performed only once per node lifetime.
-				if !self.bootstrap_initiated && self.num_connected.load(Ordering::Relaxed) > 0 {
-					self.bootstrap_initiated = true;
-					match self.network_service.behaviour_mut().bootstrap() {
-						Ok(query_id) => {
-							info!(
-								target: "sub-libp2p",
-								"Kademlia bootstrap initiated (query_id: {:?})", query_id
-							);
-						},
-						Err(e) => {
-							warn!(
-								target: "sub-libp2p",
-								"Failed to initiate Kademlia bootstrap: {}", e
-							);
-						},
 					}
 				}
 			},

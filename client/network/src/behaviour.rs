@@ -34,7 +34,7 @@ use libp2p::{
 	connection_limits::ConnectionLimits,
 	core::Multiaddr,
 	identify::Info as IdentifyInfo,
-	kad::{QueryId, Record, RecordKey},
+	kad::{Record, RecordKey},
 	swarm::NetworkBehaviour,
 	PeerId, StreamProtocol,
 };
@@ -310,11 +310,6 @@ impl<B: BlockT> Behaviour<B> {
 		expires: Option<Instant>,
 	) {
 		self.discovery.store_record(record_key, record_value, publisher, expires);
-	}
-
-	/// Initiates Kademlia bootstrap process to discover the DHT.
-	pub fn bootstrap(&mut self) -> Result<QueryId, String> {
-		self.discovery.bootstrap()
 	}
 }
 
