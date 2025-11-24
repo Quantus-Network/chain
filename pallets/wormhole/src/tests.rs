@@ -11,12 +11,12 @@ mod wormhole_tests {
 	use qp_wormhole_circuit::{
 		inputs::{CircuitInputs, PrivateCircuitInputs, PublicCircuitInputs},
 		nullifier::Nullifier,
-		storage_proof::ProcessedStorageProof,
 	};
 	use qp_wormhole_prover::WormholeProver;
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::{
 		circuit::{C, F},
+		storage_proof::prepare_proof_for_circuit,
 		utils::{digest_felts_to_bytes, BytesDigest, Digest},
 	};
 	use sp_runtime::{traits::Header, DigestItem};
@@ -28,108 +28,6 @@ mod wormhole_tests {
 		let prover_next = prover.commit(&inputs).expect("proof failed");
 		let proof = prover_next.prove().expect("valid proof");
 		proof
-	}
-
-	/// Helper function to prepare storage proof for circuit consumption
-	fn prepare_proof_for_circuit(
-		proof: Vec<Vec<u8>>,
-		state_root: [u8; 32],
-		leaf_hash: [u8; 32],
-	) -> Result<ProcessedStorageProof, &'static str> {
-		use qp_poseidon_core::{hash_padded_bytes, FIELD_ELEMENT_PREIMAGE_PADDING_LEN};
-
-		fn hash_node_with_poseidon_padded(node_bytes: &[u8]) -> [u8; 32] {
-			hash_padded_bytes::<FIELD_ELEMENT_PREIMAGE_PADDING_LEN>(node_bytes)
-		}
-
-		fn check_leaf(leaf_hash: &[u8; 32], leaf_node: &[u8]) -> (bool, usize) {
-			let hash_suffix = &leaf_hash[8..32];
-			let mut last_idx = 0usize;
-			let mut found = false;
-
-			for i in 0..=leaf_node.len().saturating_sub(hash_suffix.len()) {
-				if &leaf_node[i..i + hash_suffix.len()] == hash_suffix {
-					last_idx = i;
-					found = true;
-					break;
-				}
-			}
-
-			(found, (last_idx * 2).saturating_sub(16))
-		}
-
-		// Create a map of hash -> (index, node_bytes, node_hex)
-		let mut node_map: std::collections::HashMap<String, (usize, Vec<u8>, String)> =
-			std::collections::HashMap::new();
-		for (idx, node) in proof.iter().enumerate() {
-			let hash = hash_node_with_poseidon_padded(node);
-			let hash_hex = hex::encode(hash);
-			let node_hex = hex::encode(node);
-			node_map.insert(hash_hex.clone(), (idx, node.clone(), node_hex));
-		}
-
-		// Find which node hashes to the state root
-		let state_root_hex = hex::encode(state_root);
-		let root_hash = if node_map.contains_key(&state_root_hex) {
-			state_root_hex.clone()
-		} else {
-			return Err("No node hashes to state root");
-		};
-
-		let root_entry = node_map.get(&root_hash).ok_or("Failed to get root entry from map")?;
-
-		let mut ordered_nodes = vec![root_entry.1.clone()];
-		let mut current_node_hex = root_entry.2.clone();
-
-		// Build the path from root to leaf by finding which child hash appears in current node
-		// Child hashes are stored with an 8-byte length prefix:
-		// [8-byte length (0x20 = 32 in little-endian)] + [32-byte hash]
-		const HASH_LENGTH_PREFIX: &str = "2000000000000000";
-
-		loop {
-			let mut found_child = None;
-			for (child_hash, (_, child_bytes, _)) in &node_map {
-				let hash_with_prefix = format!("{}{}", HASH_LENGTH_PREFIX, child_hash);
-				if current_node_hex.contains(&hash_with_prefix) {
-					if !ordered_nodes.iter().any(|n| n == child_bytes) {
-						found_child = Some(child_bytes.clone());
-						break;
-					}
-				}
-			}
-
-			if let Some(child_bytes) = found_child {
-				ordered_nodes.push(child_bytes.clone());
-				current_node_hex = hex::encode(ordered_nodes.last().unwrap());
-			} else {
-				break;
-			}
-		}
-
-		// Compute indices - where child hashes appear within parent nodes
-		let mut indices = Vec::<usize>::new();
-
-		for i in 0..ordered_nodes.len() - 1 {
-			let current_hex = hex::encode(&ordered_nodes[i]);
-			let next_node = &ordered_nodes[i + 1];
-			let next_hash = hex::encode(hash_node_with_poseidon_padded(next_node));
-
-			if let Some(hex_idx) = current_hex.find(&next_hash) {
-				indices.push(hex_idx);
-			} else {
-				return Err("Could not find child hash in ordered node");
-			}
-		}
-
-		let (found, last_idx) = check_leaf(&leaf_hash, ordered_nodes.last().unwrap());
-		if !found {
-			return Err("Leaf hash suffix not found in leaf node");
-		}
-
-		indices.push(last_idx);
-
-		ProcessedStorageProof::new(ordered_nodes, indices)
-			.map_err(|_| "Failed to create ProcessedStorageProof")
 	}
 
 	#[test]
@@ -213,12 +111,9 @@ mod wormhole_tests {
 		let proof_nodes_vec: Vec<Vec<u8>> = proof.iter_nodes().map(|n| n.to_vec()).collect();
 
 		// Prepare the storage proof for the circuit
-		let processed_storage_proof = prepare_proof_for_circuit(
-			proof_nodes_vec,
-			state_root.as_ref().try_into().expect("state root is 32 bytes"),
-			leaf_hash,
-		)
-		.expect("failed to prepare proof for circuit");
+		let processed_storage_proof =
+			prepare_proof_for_circuit(proof_nodes_vec, hex::encode(&state_root), leaf_hash)
+				.expect("failed to prepare proof for circuit");
 
 		// Build the header components
 		let parent_hash = *header.parent_hash();
