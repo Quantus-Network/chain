@@ -249,6 +249,11 @@ impl DiscoveryConfig {
 			None
 		};
 
+		info!(
+			target: "sub-libp2p",
+			"🔧 Ghost peer cleanup enabled - will run every 5 minutes (CODE_VERSION: 2025-11-25-v2)"
+		);
+
 		DiscoveryBehaviour {
 			permanent_addresses,
 			ephemeral_addresses: HashMap::new(),
@@ -260,7 +265,8 @@ impl DiscoveryConfig {
 			},
 			duration_to_next_kad: Duration::from_secs(1),
 			// Run ghost cleanup every 5 minutes to remove peers with no addresses
-			next_ghost_cleanup: Delay::new(Duration::from_secs(300)),
+			// Start immediately (Duration::new(0, 0)) for faster initial cleanup
+			next_ghost_cleanup: Delay::new(Duration::new(0, 0)),
 			pending_events: VecDeque::new(),
 			local_peer_id,
 			num_connections: 0,
