@@ -844,11 +844,18 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 		// Poll the stream that fires when we need to clean ghost peers from routing table.
 		if let Some(kademlia) = self.kademlia.as_mut() {
 			while self.next_ghost_cleanup.poll_unpin(cx).is_ready() {
+				debug!(
+					target: "sub-libp2p",
+					"Ghost cleanup timer triggered, scanning routing table..."
+				);
+
 				let mut ghost_peers = Vec::new();
+				let mut total_peers = 0;
 
 				// Iterate through all kbuckets and find peers with no addresses
 				for bucket in kademlia.kbuckets() {
 					for entry in bucket.iter() {
+						total_peers += 1;
 						let peer_id = entry.node.key.preimage();
 						// Skip permanent addresses (bootnodes, reserved nodes)
 						if self.permanent_addresses.iter().any(|(p, _)| p == peer_id) {
@@ -856,11 +863,24 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 						}
 						// Check if peer has any addresses in Kademlia
 						// Addresses is an iterator, so we check if it has any elements
-						if entry.node.value.iter().next().is_none() {
+						let has_addresses = entry.node.value.iter().next().is_some();
+						if !has_addresses {
 							ghost_peers.push(*peer_id);
+							debug!(
+								target: "sub-libp2p",
+								"Found ghost peer (no addresses): {:?}",
+								peer_id
+							);
 						}
 					}
 				}
+
+				debug!(
+					target: "sub-libp2p",
+					"Ghost cleanup scan: {} total peers in routing table, {} ghost peers found",
+					total_peers,
+					ghost_peers.len()
+				);
 
 				if !ghost_peers.is_empty() {
 					info!(
@@ -877,6 +897,11 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 							peer_id
 						);
 					}
+				} else {
+					debug!(
+						target: "sub-libp2p",
+						"Ghost cleanup scan completed: no ghost peers found (routing table is healthy)"
+					);
 				}
 
 				// Schedule next cleanup in 5 minutes
