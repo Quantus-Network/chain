@@ -259,6 +259,8 @@ impl DiscoveryConfig {
 				None
 			},
 			duration_to_next_kad: Duration::from_secs(1),
+			// Run ghost cleanup every 5 minutes to remove peers with no addresses
+			next_ghost_cleanup: Delay::new(Duration::from_secs(300)),
 			pending_events: VecDeque::new(),
 			local_peer_id,
 			num_connections: 0,
@@ -304,6 +306,8 @@ pub struct DiscoveryBehaviour {
 	next_kad_random_query: Option<Delay>,
 	/// After `next_kad_random_query` triggers, the next one triggers after this duration.
 	duration_to_next_kad: Duration,
+	/// Stream that fires when we need to clean ghost peers from routing table.
+	next_ghost_cleanup: Delay,
 	/// Events to return in priority when polled.
 	pending_events: VecDeque<DiscoveryOut>,
 	/// Identity of our local node.
@@ -834,6 +838,49 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 						return Poll::Ready(ToSwarm::GenerateEvent(ev));
 					}
 				}
+			}
+		}
+
+		// Poll the stream that fires when we need to clean ghost peers from routing table.
+		if let Some(kademlia) = self.kademlia.as_mut() {
+			while self.next_ghost_cleanup.poll_unpin(cx).is_ready() {
+				let mut ghost_peers = Vec::new();
+
+				// Iterate through all kbuckets and find peers with no addresses
+				for bucket in kademlia.kbuckets() {
+					for entry in bucket.iter() {
+						let peer_id = entry.node.key.preimage();
+						// Skip permanent addresses (bootnodes, reserved nodes)
+						if self.permanent_addresses.iter().any(|(p, _)| p == peer_id) {
+							continue;
+						}
+						// Check if peer has any addresses in Kademlia
+						// Addresses is an iterator, so we check if it has any elements
+						if entry.node.value.iter().next().is_none() {
+							ghost_peers.push(*peer_id);
+						}
+					}
+				}
+
+				if !ghost_peers.is_empty() {
+					info!(
+						target: "sub-libp2p",
+						"Cleaning {} ghost peers (peers with no addresses) from routing table",
+						ghost_peers.len()
+					);
+
+					for peer_id in &ghost_peers {
+						kademlia.remove_peer(peer_id);
+						debug!(
+							target: "sub-libp2p",
+							"Removed ghost peer {:?} from routing table",
+							peer_id
+						);
+					}
+				}
+
+				// Schedule next cleanup in 5 minutes
+				self.next_ghost_cleanup = Delay::new(Duration::from_secs(300));
 			}
 		}
 
