@@ -9137,7 +9137,7 @@ version = "0.1.0"
 [[package]]
 name = "qp-wormhole-circuit"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#853c7e8535a13bb16a734bc304e1cbd23e79fa0f"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git#7964c85f1d5888f414318b67e483ffa3826afd1e"
 dependencies = [
  "anyhow",
  "hex",
@@ -9149,7 +9149,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#853c7e8535a13bb16a734bc304e1cbd23e79fa0f"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git#7964c85f1d5888f414318b67e483ffa3826afd1e"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9160,7 +9160,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-prover"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#853c7e8535a13bb16a734bc304e1cbd23e79fa0f"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git#7964c85f1d5888f414318b67e483ffa3826afd1e"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9171,7 +9171,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#853c7e8535a13bb16a734bc304e1cbd23e79fa0f"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git#7964c85f1d5888f414318b67e483ffa3826afd1e"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9182,7 +9182,7 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "0.1.2"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=feat%2Fblock-header-proof#853c7e8535a13bb16a734bc304e1cbd23e79fa0f"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git#7964c85f1d5888f414318b67e483ffa3826afd1e"
 dependencies = [
  "anyhow",
  "hex",
