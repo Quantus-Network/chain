@@ -857,35 +857,59 @@ impl NetworkBehaviour for DiscoveryBehaviour {
 
 				let mut ghost_peers = Vec::new();
 				let mut total_peers = 0;
+				let mut peers_with_addresses = 0;
+				let mut peers_no_addresses = 0;
+				let mut peers_disconnected = 0;
 
 				// Iterate through all kbuckets and find peers with no addresses
 				for bucket in kademlia.kbuckets() {
 					for entry in bucket.iter() {
 						total_peers += 1;
 						let peer_id = entry.node.key.preimage();
+
 						// Skip permanent addresses (bootnodes, reserved nodes)
 						if self.permanent_addresses.iter().any(|(p, _)| p == peer_id) {
 							continue;
 						}
-						// Check if peer has any addresses in Kademlia
-						// Addresses is an iterator, so we check if it has any elements
-						let has_addresses = entry.node.value.iter().next().is_some();
-						if !has_addresses {
+
+						// Count addresses
+						let address_count = entry.node.value.iter().count();
+
+						// Check connection status (NodeStatus enum: Connected or Disconnected)
+						let status_str = format!("{:?}", entry.status);
+						let is_disconnected = status_str.contains("Disconnected");
+
+						if address_count == 0 {
+							peers_no_addresses += 1;
 							ghost_peers.push(*peer_id);
 							debug!(
 								target: "sub-libp2p",
-								"Found ghost peer (no addresses): {:?}",
-								peer_id
+								"Found ghost peer (no addresses): {:?}, status={:?}",
+								peer_id, entry.status
 							);
+						} else {
+							peers_with_addresses += 1;
+
+							// Check if peer is disconnected despite having addresses
+							if is_disconnected {
+								peers_disconnected += 1;
+								debug!(
+									target: "sub-libp2p",
+									"Peer has {} addresses but is DISCONNECTED: {:?}",
+									address_count, peer_id
+								);
+							}
 						}
 					}
 				}
 
 				debug!(
 					target: "sub-libp2p",
-					"Ghost cleanup scan: {} total peers in routing table, {} ghost peers found",
+					"Ghost cleanup scan: {} total peers, {} with addresses, {} no addresses, {} disconnected (despite having addresses)",
 					total_peers,
-					ghost_peers.len()
+					peers_with_addresses,
+					peers_no_addresses,
+					peers_disconnected
 				);
 
 				if !ghost_peers.is_empty() {
