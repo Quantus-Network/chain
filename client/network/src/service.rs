@@ -523,9 +523,8 @@ where
 
 				match result {
 					Ok(b) => b,
-					Err(crate::request_responses::RegisterError::DuplicateProtocol(proto)) => {
-						return Err(Error::DuplicateRequestResponseProtocol { protocol: proto })
-					},
+					Err(crate::request_responses::RegisterError::DuplicateProtocol(proto)) =>
+						return Err(Error::DuplicateRequestResponseProtocol { protocol: proto }),
 				}
 			};
 
@@ -1308,6 +1307,109 @@ enum ServiceToWorkerMsg {
 	DisconnectPeer(PeerId, ProtocolName),
 }
 
+/// Filters peer addresses accepting only ports in the allowed blockchain p2p range
+/// and rejecting ephemeral ports, private IPs, and link-local addresses.
+///
+/// Uses two-tier filtering:
+/// - TIER 1 (strict): Only public IPs + ports 30333-30433
+/// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
+fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
+	use multiaddr::Protocol;
+
+	const MIN_ALLOWED_PORT: u16 = 30333;
+	const MAX_ALLOWED_PORT: u16 = 30433;
+
+	let original_count = addrs.len();
+
+	// TIER 1: Strict filter (preferred ports + public IPs only)
+	let strict_filtered: Vec<_> = addrs
+		.iter()
+		.filter(|addr| {
+			let mut has_valid_port = false;
+			let mut is_public = true;
+
+			for proto in addr.iter() {
+				match proto {
+					Protocol::Tcp(port) => {
+						has_valid_port = port >= MIN_ALLOWED_PORT && port <= MAX_ALLOWED_PORT;
+					},
+					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+						is_public = false; // Link-local IPv6
+					},
+					Protocol::Ip4(ip) if ip.is_loopback() || ip.is_private() => {
+						is_public = false; // Localhost or private IPv4
+					},
+					_ => {},
+				}
+			}
+
+			has_valid_port && is_public
+		})
+		.cloned()
+		.collect();
+
+	// ✅ If strict filter returned results - use them!
+	if !strict_filtered.is_empty() {
+		if strict_filtered.len() < original_count {
+			info!(
+				target: "sub-libp2p",
+				"Filtered {} addresses from peer {:?} ({} -> {} addresses, strict mode)",
+				original_count - strict_filtered.len(), peer_id,
+				original_count, strict_filtered.len()
+			);
+		}
+		return strict_filtered;
+	}
+
+	// ❌ Strict filter excluded EVERYTHING!
+	// TIER 2: Relaxed filter - accept private IPs but still filter ports
+	warn!(
+		target: "sub-libp2p",
+		"Peer {:?} has no public addresses in valid port range ({}-{}), falling back to relaxed filtering",
+		peer_id, MIN_ALLOWED_PORT, MAX_ALLOWED_PORT
+	);
+
+	let relaxed_filtered: Vec<_> = addrs
+		.into_iter()
+		.filter(|addr| {
+			let mut has_valid_port = false;
+			let mut is_link_local = false;
+
+			for proto in addr.iter() {
+				match proto {
+					Protocol::Tcp(port) => {
+						has_valid_port = port >= MIN_ALLOWED_PORT && port <= MAX_ALLOWED_PORT;
+					},
+					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+						is_link_local = true; // Still reject link-local even in relaxed mode
+					},
+					_ => {},
+				}
+			}
+
+			// Accept if has valid port and is not link-local
+			has_valid_port && !is_link_local
+		})
+		.collect();
+
+	if relaxed_filtered.is_empty() {
+		warn!(
+			target: "sub-libp2p",
+			"Peer {:?} has NO valid addresses even after relaxed filtering! All {} addresses rejected",
+			peer_id, original_count
+		);
+	} else if relaxed_filtered.len() < original_count {
+		info!(
+			target: "sub-libp2p",
+			"Filtered {} addresses from peer {:?} ({} -> {} addresses, relaxed mode)",
+			original_count - relaxed_filtered.len(), peer_id,
+			original_count, relaxed_filtered.len()
+		);
+	}
+
+	relaxed_filtered
+}
+
 /// Main network worker. Must be polled in order for the network to advance.
 ///
 /// You are encouraged to poll this in a separate background thread or task.
@@ -1410,12 +1512,10 @@ where
 	/// Process the next message coming from the `NetworkService`.
 	fn handle_worker_message(&mut self, msg: ServiceToWorkerMsg) {
 		match msg {
-			ServiceToWorkerMsg::GetValue(key) => {
-				self.network_service.behaviour_mut().get_value(key.into())
-			},
-			ServiceToWorkerMsg::PutValue(key, value) => {
-				self.network_service.behaviour_mut().put_value(key.into(), value)
-			},
+			ServiceToWorkerMsg::GetValue(key) =>
+				self.network_service.behaviour_mut().get_value(key.into()),
+			ServiceToWorkerMsg::PutValue(key, value) =>
+				self.network_service.behaviour_mut().put_value(key.into(), value),
 			ServiceToWorkerMsg::PutRecordTo { record, peers, update_local_storage } => self
 				.network_service
 				.behaviour_mut()
@@ -1424,9 +1524,8 @@ where
 				.network_service
 				.behaviour_mut()
 				.store_record(key.into(), value, publisher, expires),
-			ServiceToWorkerMsg::AddKnownAddress(peer_id, addr) => {
-				self.network_service.behaviour_mut().add_known_address(peer_id, addr)
-			},
+			ServiceToWorkerMsg::AddKnownAddress(peer_id, addr) =>
+				self.network_service.behaviour_mut().add_known_address(peer_id, addr),
 			ServiceToWorkerMsg::EventStream(sender) => self.event_streams.push(sender),
 			ServiceToWorkerMsg::Request {
 				target,
@@ -1473,23 +1572,18 @@ where
 						},
 						Err(err) => {
 							let reason = match err {
-								ResponseFailure::Network(InboundFailure::Timeout) => {
-									Some("timeout")
-								},
+								ResponseFailure::Network(InboundFailure::Timeout) =>
+									Some("timeout"),
 								ResponseFailure::Network(InboundFailure::UnsupportedProtocols) =>
 								// `UnsupportedProtocols` is reported for every single
 								// inbound request whenever a request with an unsupported
 								// protocol is received. This is not reported in order to
 								// avoid confusions.
-								{
-									None
-								},
-								ResponseFailure::Network(InboundFailure::ResponseOmission) => {
-									Some("busy-omitted")
-								},
-								ResponseFailure::Network(InboundFailure::ConnectionClosed) => {
-									Some("connection-closed")
-								},
+									None,
+								ResponseFailure::Network(InboundFailure::ResponseOmission) =>
+									Some("busy-omitted"),
+								ResponseFailure::Network(InboundFailure::ConnectionClosed) =>
+									Some("connection-closed"),
 								ResponseFailure::Network(InboundFailure::Io(_)) => Some("io"),
 							};
 
@@ -1508,7 +1602,7 @@ where
 				duration,
 				result,
 				..
-			}) => {
+			}) =>
 				if let Some(metrics) = self.metrics.as_ref() {
 					match result {
 						Ok(_) => {
@@ -1523,16 +1617,13 @@ where
 								RequestFailure::UnknownProtocol => "unknown-protocol",
 								RequestFailure::Refused => "refused",
 								RequestFailure::Obsolete => "obsolete",
-								RequestFailure::Network(OutboundFailure::DialFailure) => {
-									"dial-failure"
-								},
+								RequestFailure::Network(OutboundFailure::DialFailure) =>
+									"dial-failure",
 								RequestFailure::Network(OutboundFailure::Timeout) => "timeout",
-								RequestFailure::Network(OutboundFailure::ConnectionClosed) => {
-									"connection-closed"
-								},
-								RequestFailure::Network(OutboundFailure::UnsupportedProtocols) => {
-									"unsupported"
-								},
+								RequestFailure::Network(OutboundFailure::ConnectionClosed) =>
+									"connection-closed",
+								RequestFailure::Network(OutboundFailure::UnsupportedProtocols) =>
+									"unsupported",
 								RequestFailure::Network(OutboundFailure::Io(_)) => "io",
 							};
 
@@ -1542,8 +1633,7 @@ where
 								.inc();
 						},
 					}
-				}
-			},
+				},
 			SwarmEvent::Behaviour(BehaviourOut::ReputationChanges { peer, changes }) => {
 				for change in changes {
 					self.peer_store_handle.report_peer(peer.into(), change);
@@ -1556,14 +1646,27 @@ where
 						protocol_version, agent_version, mut listen_addrs, protocols, ..
 					},
 			}) => {
+				// DEFENSE: Filter ephemeral ports and unreachable addresses BEFORE truncate
+				let original_count = listen_addrs.len();
+				listen_addrs = filter_peer_addresses(listen_addrs, &peer_id);
+
+				if original_count > 30 {
+					debug!(
+						target: "sub-libp2p",
+						"Node {:?} has reported {} addresses (>30 limit); it is identified by {:?} and {:?}. After filtering: {} addresses",
+						peer_id, original_count, protocol_version, agent_version, listen_addrs.len()
+					);
+				}
+
 				if listen_addrs.len() > 30 {
 					debug!(
 						target: "sub-libp2p",
-						"Node {:?} has reported {} addresses (>30 limit); it is identified by {:?} and {:?}. Addresses: {:?}",
-						peer_id, listen_addrs.len(), protocol_version, agent_version, listen_addrs
+						"Node {:?} still has {} addresses after filtering, truncating to 30. Addresses: {:?}",
+						peer_id, listen_addrs.len(), listen_addrs
 					);
 					listen_addrs.truncate(30);
 				}
+
 				for addr in listen_addrs {
 					self.network_service.behaviour_mut().add_self_reported_address_to_dht(
 						&peer_id,
@@ -1767,19 +1870,18 @@ where
 				if let Some(metrics) = self.metrics.as_ref() {
 					#[allow(deprecated)]
 					let reason = match error {
-						DialError::Denied { cause } => {
+						DialError::Denied { cause } =>
 							if cause.downcast::<Exceeded>().is_ok() {
 								Some("limit-reached")
 							} else {
 								None
-							}
-						},
+							},
 						DialError::LocalPeerId { .. } => Some("local-peer-id"),
 						DialError::WrongPeerId { .. } => Some("invalid-peer-id"),
 						DialError::Transport(_) => Some("transport-error"),
-						DialError::NoAddresses
-						| DialError::DialPeerConditionFalse(_)
-						| DialError::Aborted => None, // ignore them
+						DialError::NoAddresses |
+						DialError::DialPeerConditionFalse(_) |
+						DialError::Aborted => None, // ignore them
 					};
 					if let Some(reason) = reason {
 						metrics.pending_connections_errors_total.with_label_values(&[reason]).inc();
@@ -1808,16 +1910,14 @@ where
 				if let Some(metrics) = self.metrics.as_ref() {
 					#[allow(deprecated)]
 					let reason = match error {
-						ListenError::Denied { cause } => {
+						ListenError::Denied { cause } =>
 							if cause.downcast::<Exceeded>().is_ok() {
 								Some("limit-reached")
 							} else {
 								None
-							}
-						},
-						ListenError::WrongPeerId { .. } | ListenError::LocalPeerId { .. } => {
-							Some("invalid-peer-id")
-						},
+							},
+						ListenError::WrongPeerId { .. } | ListenError::LocalPeerId { .. } =>
+							Some("invalid-peer-id"),
 						ListenError::Transport(_) => Some("transport-error"),
 						ListenError::Aborted => None, // ignore it
 					};
