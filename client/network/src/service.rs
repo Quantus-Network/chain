@@ -1559,8 +1559,8 @@ where
 				if listen_addrs.len() > 30 {
 					debug!(
 						target: "sub-libp2p",
-						"Node {:?} has reported more than 30 addresses; it is identified by {:?} and {:?}",
-						peer_id, protocol_version, agent_version
+						"Node {:?} has reported {} addresses (>30 limit); it is identified by {:?} and {:?}. Addresses: {:?}",
+						peer_id, listen_addrs.len(), protocol_version, agent_version, listen_addrs
 					);
 					listen_addrs.truncate(30);
 				}
