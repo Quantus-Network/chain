@@ -7,6 +7,7 @@ use sc_consensus_qpow::ChainManagement;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
+use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
 use crate::{external_miner_client, prometheus::ResonanceBusinessMetrics};
@@ -101,35 +102,6 @@ pub type Service = sc_service::PartialComponents<
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
 	(LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
 >;
-//TODO Question - for what is this method?
-#[allow(clippy::result_large_err)]
-pub fn build_inherent_data_providers() -> Result<
-	Box<
-		dyn sp_inherents::CreateInherentDataProviders<
-			Block,
-			(),
-			InherentDataProviders = sp_timestamp::InherentDataProvider,
-		>,
-	>,
-	ServiceError,
-> {
-	struct Provider;
-	#[async_trait::async_trait]
-	impl sp_inherents::CreateInherentDataProviders<Block, ()> for Provider {
-		type InherentDataProviders = sp_timestamp::InherentDataProvider;
-
-		async fn create_inherent_data_providers(
-			&self,
-			_parent: <Block as BlockT>::Hash,
-			_extra: (),
-		) -> Result<Self::InherentDataProviders, Box<dyn std::error::Error + Send + Sync>> {
-			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-			Ok(timestamp)
-		}
-	}
-
-	Ok(Box::new(Provider))
-}
 
 #[allow(clippy::result_large_err)]
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
@@ -179,7 +151,17 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		.build(),
 	);
 
-	let inherent_data_providers = build_inherent_data_providers()?;
+	let inherent_data_providers = Box::new(move |_, _| async move {
+		let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+		Ok(timestamp)
+	})
+		as Box<
+			dyn CreateInherentDataProviders<
+				Block,
+				(),
+				InherentDataProviders = sp_timestamp::InherentDataProvider,
+			>,
+		>;
 
 	let pow_block_import = sc_consensus_qpow::PowBlockImport::new(
 		Arc::clone(&client),
@@ -320,7 +302,17 @@ pub fn new_full<
 			None, // lets worry about telemetry later! TODO
 		);
 
-		let inherent_data_providers = build_inherent_data_providers()?;
+		let inherent_data_providers = Box::new(move |_, _| async move {
+			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+			Ok(timestamp)
+		})
+			as Box<
+				dyn CreateInherentDataProviders<
+					Block,
+					(),
+					InherentDataProviders = sp_timestamp::InherentDataProvider,
+				>,
+			>;
 
 		let encoded_miner = if let Some(addr_str) = rewards_address {
 			match addr_str.parse::<AccountId32>() {
