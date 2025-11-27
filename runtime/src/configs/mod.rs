@@ -132,7 +132,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type Currency = Balances;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MinerBlockReward = ConstU128<{ 10 * UNIT }>; // 10 tokens
-	type TreasuryBlockReward = ConstU128<UNIT>; // 1 token
+	type TreasuryBlockReward = ConstU128<0>; // 0 tokens
 	type TreasuryPalletId = TreasuryPalletId;
 	type MintingAccount = MintingAccount;
 }
