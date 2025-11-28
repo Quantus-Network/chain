@@ -1,0 +1,38 @@
+[package]
+description = "Substrate transaction protocol"
+name = "sc-network-transactions"
+version = "0.50.0"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/sc-network-transactions"
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+array-bytes = { workspace = true, default-features = true }
+codec = { features = ["derive"], workspace = true, default-features = true }
+futures = { workspace = true }
+log = { workspace = true, default-features = true }
+prometheus-endpoint.default-features = true
+prometheus-endpoint.workspace = true
+sc-network-common.default-features = true
+sc-network-common.workspace = true
+sc-network-sync.default-features = true
+sc-network-sync.workspace = true
+sc-network-types.default-features = true
+sc-network-types.workspace = true
+sc-network.default-features = true
+sc-network.workspace = true
+sc-utils.default-features = true
+sc-utils.workspace = true
+sp-consensus.default-features = true
+sp-consensus.workspace = true
+sp-runtime.default-features = true
+sp-runtime.workspace = true
