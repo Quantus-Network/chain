@@ -11,20 +11,21 @@ use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
 use crate::{external_miner_client, prometheus::ResonanceBusinessMetrics};
-use async_trait::async_trait;
 use codec::Encode;
 use jsonrpsee::tokio;
 use qpow_math::mine_range;
 use reqwest::Client;
 use sc_cli::TransactionPoolType;
-use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
 use sc_transaction_pool::TransactionPoolOptions;
-use sp_api::{ProvideRuntimeApi, __private::BlockT};
+use sp_api::ProvideRuntimeApi;
+use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
-use sp_core::{crypto::AccountId32, RuntimeDebug, U512};
-use sp_runtime::traits::{Header, Zero};
+use sp_core::{crypto::AccountId32, U512};
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
+
+/// Frequency of block import logging. Every 1000 blocks.
+const LOG_FREQUENCY: u64 = 1000;
 
 pub(crate) type FullClient = sc_service::TFullClient<
 	Block,
@@ -45,54 +46,8 @@ pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 			InherentDataProviders = sp_timestamp::InherentDataProvider,
 		>,
 	>,
+	LOG_FREQUENCY,
 >;
-use sp_consensus::SyncOracle;
-
-#[derive(PartialEq, Eq, Clone, RuntimeDebug)]
-pub struct LoggingBlockImport<B: BlockT, I> {
-	inner: I,
-	_phantom: std::marker::PhantomData<B>,
-}
-
-impl<B: BlockT, I> LoggingBlockImport<B, I> {
-	fn new(inner: I) -> Self {
-		Self { inner, _phantom: std::marker::PhantomData }
-	}
-}
-
-#[async_trait]
-impl<B: BlockT, I: BlockImport<B> + Sync> BlockImport<B> for LoggingBlockImport<B, I> {
-	type Error = I::Error;
-
-	async fn check_block(&self, block: BlockCheckParams<B>) -> Result<ImportResult, Self::Error> {
-		self.inner.check_block(block).await
-	}
-
-	async fn import_block(&self, block: BlockImportParams<B>) -> Result<ImportResult, Self::Error> {
-		let block_number = *block.header.number();
-		let freq = 1000u32.into();
-		if block_number % freq == Zero::zero() {
-			log::info!(
-				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block_number - freq,
-				block_number,
-				block.header.hash(),
-				block.header.extrinsics_root(),
-				block.header.state_root()
-			);
-		} else {
-			log::debug!(
-				target: "qpow",
-				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block_number,
-				block.header.hash(),
-				block.header.extrinsics_root(),
-				block.header.state_root()
-			);
-		}
-		self.inner.import_block(block).await
-	}
-}
 
 pub type Service = sc_service::PartialComponents<
 	FullClient,
@@ -100,7 +55,7 @@ pub type Service = sc_service::PartialComponents<
 	FullSelectChain,
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-	(LoggingBlockImport<Block, PowBlockImport>, Option<Telemetry>),
+	(PowBlockImport, Option<Telemetry>),
 >;
 
 #[allow(clippy::result_large_err)]
@@ -171,10 +126,8 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		inherent_data_providers,
 	);
 
-	let logging_block_import = LoggingBlockImport::new(pow_block_import);
-
 	let import_queue = sc_consensus_qpow::import_queue::<Block, FullClient>(
-		Box::new(logging_block_import.clone()),
+		Box::new(pow_block_import.clone()),
 		None,
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
@@ -188,7 +141,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		keystore_container,
 		select_chain,
 		transaction_pool,
-		other: (logging_block_import, telemetry),
+		other: (pow_block_import, telemetry),
 	})
 }
 

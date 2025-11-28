@@ -18,8 +18,6 @@ use sp_runtime::{
 	traits::{IdentifyAccount, Verify},
 	MultiAddress,
 };
-#[cfg(feature = "std")]
-use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
 pub use frame_system::Call as SystemCall;
@@ -32,9 +30,8 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 pub mod genesis_config_presets;
-pub mod transaction_extensions;
-
 pub mod governance;
+pub mod transaction_extensions;
 
 use crate::governance::pallet_custom_origins;
 use qp_poseidon::PoseidonHasher;
@@ -109,12 +106,6 @@ pub const MICRO_UNIT: Balance = 1_000_000;
 /// Existential deposit.
 pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
 
-/// The version information used to identify this runtime when compiled natively.
-#[cfg(feature = "std")]
-pub fn native_version() -> NativeVersion {
-	NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
-}
-
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 // pub type Signature = MultiSignature;
 pub type Signature = DilithiumSignatureScheme;
@@ -177,12 +168,6 @@ pub type UncheckedExtrinsic =
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 
-/// All migrations of the runtime, aside from the ones declared in the pallets.
-///
-/// This can be a tuple of types, each implementing `OnRuntimeUpgrade`.
-#[allow(unused_parens)]
-type Migrations = ();
-
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
 	Runtime,
@@ -190,7 +175,7 @@ pub type Executive = frame_executive::Executive<
 	frame_system::ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
-	Migrations,
+	(),
 >;
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
