@@ -10577,6 +10577,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-network-0-51-1"
+version = "0.51.1"
+dependencies = [
+ "array-bytes 6.2.3",
+ "assert_matches",
+ "async-channel 1.9.0",
+ "async-trait",
+ "asynchronous-codec 0.6.2",
+ "bytes 1.10.1",
+ "cid 0.9.0",
+ "criterion",
+ "either",
+ "fnv",
+ "futures 0.3.31",
+ "futures-timer",
+ "ip_network",
+ "libp2p",
+ "linked_hash_set",
+ "log",
+ "mockall",
+ "multistream-select",
+ "parity-scale-codec",
+ "parking_lot 0.12.4",
+ "partial_sort",
+ "pin-project",
+ "prost 0.12.6",
+ "prost-build",
+ "rand 0.8.5",
+ "sc-client-api",
+ "sc-network-common",
+ "sc-network-types",
+ "sc-utils",
+ "schnellru",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "sp-arithmetic",
+ "sp-blockchain",
+ "sp-core",
+ "sp-runtime",
+ "substrate-prometheus-endpoint",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio 1.47.1",
+ "tokio-stream",
+ "tokio-util",
+ "unsigned-varint 0.7.2",
+ "void",
+ "wasm-timer",
+ "zeroize",
+]
+
+[[package]]
 name = "sc-network-common"
 version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
