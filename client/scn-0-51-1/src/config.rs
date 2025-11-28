@@ -293,18 +293,18 @@ impl NonReservedPeerMode {
 /// the evaluation of the node key configuration.
 #[derive(Clone, Debug)]
 pub enum NodeKeyConfig {
-	/// A Ed25519 secret key configuration.
-	Ed25519(Secret<ed25519::SecretKey>),
+	/// A Dilithium (Post-Quantum) secret key configuration.
+	Dilithium(Secret<Vec<u8>>),
 }
 
 impl Default for NodeKeyConfig {
 	fn default() -> NodeKeyConfig {
-		Self::Ed25519(Secret::New)
+		Self::Dilithium(Secret::New)
 	}
 }
 
-/// The options for obtaining a Ed25519 secret key.
-pub type Ed25519Secret = Secret<ed25519::SecretKey>;
+/// The options for obtaining a Dilithium secret key.
+pub type DilithiumSecret = Secret<Vec<u8>>;
 
 /// The configuration options for obtaining a secret key `K`.
 #[derive(Clone)]
@@ -331,7 +331,23 @@ impl<K> fmt::Debug for Secret<K> {
 	}
 }
 
+/// Helper function to check if data is hex-encoded.
+fn is_hex_data(data: &[u8]) -> bool {
+	// Check if all bytes are valid hex characters (0-9, a-f, A-F) or whitespace
+	data.iter().all(|&b| b.is_ascii_hexdigit() || b.is_ascii_whitespace())
+}
+
 impl NodeKeyConfig {
+	/// Create a new Dilithium (Post-Quantum) node key configuration.
+	pub fn dilithium(secret: DilithiumSecret) -> Self {
+		NodeKeyConfig::Dilithium(secret)
+	}
+
+	/// Create a new random Dilithium (Post-Quantum) keypair.
+	pub fn new_dilithium() -> Self {
+		NodeKeyConfig::Dilithium(Secret::New)
+	}
+
 	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair`:
 	///
 	///  * If the secret is configured as input, the corresponding keypair is returned.
@@ -342,29 +358,40 @@ impl NodeKeyConfig {
 	///
 	///  * If the secret is configured to be new, it is generated and the corresponding keypair is
 	///    returned.
-	pub fn into_keypair(self) -> io::Result<ed25519::Keypair> {
+	pub fn into_keypair(self) -> io::Result<libp2p_identity::Keypair> {
 		use NodeKeyConfig::*;
 		match self {
-			Ed25519(Secret::New) => Ok(ed25519::Keypair::generate()),
+			Dilithium(Secret::New) => Ok(libp2p_identity::Keypair::generate_dilithium()),
 
-			Ed25519(Secret::Input(k)) => Ok(ed25519::Keypair::from(k).into()),
+			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(&k)
+				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
 
-			Ed25519(Secret::File(f)) => get_secret(
-				f,
-				|mut b| match String::from_utf8(b.to_vec()).ok().and_then(|s| {
-					if s.len() == 64 {
-						array_bytes::hex2bytes(&s).ok()
-					} else {
-						None
-					}
-				}) {
-					Some(s) => ed25519::SecretKey::try_from_bytes(s),
-					_ => ed25519::SecretKey::try_from_bytes(&mut b),
-				},
-				ed25519::SecretKey::generate,
-				|b| b.as_ref().to_vec(),
-			)
-			.map(ed25519::Keypair::from),
+			Dilithium(Secret::File(f)) => {
+				let secret = get_secret(
+					f,
+					|b| {
+						let mut bytes;
+						if is_hex_data(b) {
+							// Convert hex to Vec<u8>, handle the Result, and convert to mutable
+							// slice
+							let vec = array_bytes::hex2bytes(b).map_err(|_| {
+								io::Error::new(
+									io::ErrorKind::InvalidData,
+									"Failed to decode hex data",
+								)
+							})?;
+							bytes = vec;
+						} else {
+							bytes = b.to_vec(); // Convert &mut [u8] to Vec<u8> for binary data
+						}
+						libp2p_identity::Keypair::dilithium_from_bytes(&mut bytes)
+							.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+					},
+					|| libp2p_identity::Keypair::generate_dilithium(),
+					|kp| kp.dilithium_to_bytes(),
+				);
+				secret
+			},
 		}
 	}
 }
