@@ -288,8 +288,8 @@ impl PeerInfoBehaviour {
 				}
 			},
 			None => {
-				let oldest = (self.address_confirmations.len()
-					>= self.address_confirmations.limiter().max_length() as usize)
+				let oldest = (self.address_confirmations.len() >=
+					self.address_confirmations.limiter().max_length() as usize)
 					.then(|| {
 						self.address_confirmations.pop_oldest().map(|(address, peers)| {
 							if peers.len() >= MIN_ADDRESS_CONFIRMATIONS {
@@ -599,12 +599,10 @@ impl NetworkBehaviour for PeerInfoBehaviour {
 		event: THandlerOutEvent<Self>,
 	) {
 		match event {
-			Either::Left(event) => {
-				self.ping.on_connection_handler_event(peer_id, connection_id, event)
-			},
-			Either::Right(event) => {
-				self.identify.on_connection_handler_event(peer_id, connection_id, event)
-			},
+			Either::Left(event) =>
+				self.ping.on_connection_handler_event(peer_id, connection_id, event),
+			Either::Right(event) =>
+				self.identify.on_connection_handler_event(peer_id, connection_id, event),
 		}
 	}
 
