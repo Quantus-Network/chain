@@ -2,11 +2,11 @@ use futures::StreamExt;
 use primitive_types::{H256, U512};
 use sc_client_api::{AuxStore, BlockBackend, BlockchainEvents, Finalizer};
 use sc_service::TaskManager;
-use sp_api::{ProvideRuntimeApi, __private::BlockT};
+use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{Backend, HeaderBackend};
 use sp_consensus::SelectChain;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::traits::{Header, One, Zero};
+use sp_runtime::traits::{Block as BlockT, Header, One, Zero};
 use std::{marker::PhantomData, sync::Arc};
 
 const IGNORED_CHAINS_PREFIX: &[u8] = b"QPow:IgnoredChains:";

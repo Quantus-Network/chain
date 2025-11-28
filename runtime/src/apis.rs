@@ -126,7 +126,6 @@ impl_runtime_apis! {
 	}
 
 	impl sp_consensus_qpow::QPoWApi<Block> for Runtime {
-
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool {
 			pallet_qpow::Pallet::<Self>::verify_nonce_on_import_block(block_hash, nonce)
 		}

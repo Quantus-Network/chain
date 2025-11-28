@@ -158,7 +158,6 @@ use alloc::vec::Vec;
 use codec::{Codec, Decode, Encode, MaxEncodedLen};
 use core::{cmp, fmt::Debug, marker::PhantomData, mem, result};
 use frame_support::{
-	__private::metadata_ir::StorageHasherIR,
 	ensure,
 	pallet_prelude::DispatchResult,
 	traits::{
@@ -178,6 +177,7 @@ pub use impl_currency::{NegativeImbalance, PositiveImbalance};
 pub use pallet::*;
 use qp_poseidon::PoseidonHasher as PoseidonCore;
 use scale_info::TypeInfo;
+use sp_metadata_ir::StorageHasherIR;
 use sp_runtime::{
 	traits::{
 		AtLeast32BitUnsigned, CheckedAdd, CheckedSub, MaybeSerializeDeserialize, Saturating,

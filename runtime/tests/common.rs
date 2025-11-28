@@ -1,5 +1,4 @@
 use frame_support::{
-	__private::sp_io,
 	traits::{Currency, OnFinalize, OnInitialize},
 	PalletId,
 };
