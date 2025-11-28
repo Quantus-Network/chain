@@ -46,7 +46,6 @@ pallet-utility.workspace = true
 pallet-vesting.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
-qp-header = { workspace = true, features = ["serde"] }
 qp-poseidon = { workspace = true, features = ["serde"] }
 qp-scheduler.workspace = true
 scale-info = { features = ["derive", "serde"], workspace = true }
@@ -112,9 +111,9 @@ std = [
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
 	"qp-dilithium-crypto/std",
-	"qp-header/std",
 	"qp-poseidon/std",
 	"qp-scheduler/std",
+	"scale-info/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",

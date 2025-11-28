@@ -35,6 +35,7 @@ pub mod transaction_extensions;
 
 use crate::governance::pallet_custom_origins;
 use qp_poseidon::PoseidonHasher;
+
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
@@ -51,7 +52,7 @@ pub mod opaque {
 	// However, some internal checks in dev build expect extrinsics_root to be computed with same
 	// Hash function, so we change the configs/mod.rs Hashing type as well
 	// Opaque block header type.
-	pub type Header = qp_header::Header<BlockNumber, PoseidonHasher>;
+	pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 
 	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -133,7 +134,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = qp_header::Header<BlockNumber, PoseidonHasher>;
+pub type Header = generic::Header<BlockNumber, PoseidonHasher>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;

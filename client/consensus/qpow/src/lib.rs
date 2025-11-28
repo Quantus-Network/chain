@@ -359,7 +359,7 @@ pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
 	mut env: E,
 	sync_oracle: SO,
 	justification_sync_link: L,
-	pre_runtime: Vec<u8>,
+	rewards_address: AccountId32,
 	create_inherent_data_providers: CIDP,
 	timeout: Duration,
 	build_time: Duration,
@@ -461,9 +461,8 @@ where
 			};
 
 			let mut inherent_digest = Digest::default();
-			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, pre_runtime.to_vec()));
-
-			let pre_runtime = pre_runtime.clone();
+			let rewards_address_bytes = rewards_address.clone().as_slice().to_vec();
+			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, rewards_address_bytes));
 
 			let proposer = match env.init(&best_header).await {
 				Ok(x) => x,
@@ -496,7 +495,7 @@ where
 				metadata: MiningMetadata {
 					best_hash,
 					pre_hash: proposal.block.header().hash(),
-					pre_runtime,
+					rewards_address: rewards_address.clone(),
 					difficulty,
 				},
 				proposal,
