@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1
+
+# Stage 1: Builder
+FROM rust:bookworm AS builder
+
+# Install dependencies needed for building
+RUN apt-get update && \
+    apt-get install -y cmake clang libclang-dev protobuf-compiler
+
+# Add wasm target for runtime compilation
+RUN rustup target add wasm32-unknown-unknown
+
+WORKDIR /app
+
+# Copy the entire project
+COPY . .
+
+# Build the release binary
+# We use --locked to respect the Cargo.lock file
+RUN cargo build --release -p quantus-node
+
+# Stage 2: Runtime
+FROM ubuntu:24.04
+
+# Install runtime dependencies
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libterm-readline-perl-perl \
+    net-tools \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/target/release/quantus-node /usr/local/bin/
+
+# Expose P2P and public WS/RPC ports
+EXPOSE 30333 9944
+
+# Run as unprivileged user
+RUN useradd --system --uid 10001 quantus \
+    && mkdir -p /var/lib/quantus \
+    && chown -R quantus:quantus /var/lib/quantus
+
+USER 10001:10001
+
+# Start the node
+ENTRYPOINT ["quantus-node"]
+
