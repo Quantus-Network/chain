@@ -18,6 +18,7 @@
 
 #![warn(unused_extern_crates)]
 #![warn(missing_docs)]
+#![allow(clippy::all)]
 
 //! Substrate-specific P2P networking.
 //!
@@ -238,9 +239,9 @@
 //! dispatching a background task with the [`NetworkWorker`].
 //! - Calling `on_block_import` whenever a block is added to the client.
 //! - Calling `on_block_finalized` whenever a block is finalized.
-//! - Calling `trigger_repropagate` when a transaction is added to the pool.
-//!
-//! More precise usage details are still being worked on and will likely change in the future.
+// - Calling `trigger_repropagate` when a transaction is added to the pool.
+//
+// More precise usage details are still being worked on and will likely change in the future.
 
 mod behaviour;
 mod bitswap;
