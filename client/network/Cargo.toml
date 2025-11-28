@@ -1,25 +1,25 @@
 [package]
-description = "Substrate network protocol"
-name = "sc-network"
-version = "0.51.1"
-license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 authors.workspace = true
+description = "Substrate network protocol"
+documentation = "https://docs.rs/sc-network"
 edition.workspace = true
 homepage.workspace = true
-repository.workspace = true
-documentation = "https://docs.rs/sc-network"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-network"
 readme = "README.md"
+repository.workspace = true
+version = "0.51.1"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [[bench]]
-name = "notifications_protocol"
 harness = false
+name = "notifications_protocol"
 
 [[bench]]
-name = "request_response_protocol"
 harness = false
+name = "request_response_protocol"
 
 [dependencies]
 array-bytes = { workspace = true, default-features = true }
