@@ -7,7 +7,7 @@ use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+use sp_runtime::{generic::BlockId, traits::Block as BlockT, AccountId32};
 use std::{sync::Arc, time::Duration};
 
 use crate::worker::UntilImportedOrTimeout;
@@ -24,6 +24,7 @@ use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
 use sp_consensus_pow::POW_ENGINE_ID;
+use sp_core::ByteArray;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
