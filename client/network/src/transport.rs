@@ -25,10 +25,11 @@ use libp2p::{
 		transport::{Boxed, OptionalTransport},
 		upgrade,
 	},
-	dns, noise, tcp, websocket, PeerId, Transport, TransportExt,
+	dns, identity, noise, tcp, websocket, PeerId, Transport, TransportExt,
 };
 use std::{sync::Arc, time::Duration};
 
+// TODO: Create a wrapper similar to upstream `BandwidthTransport` that tracks sent/received bytes
 #[allow(deprecated)]
 pub use libp2p::bandwidth::BandwidthSinks;
 
@@ -37,19 +38,11 @@ pub use libp2p::bandwidth::BandwidthSinks;
 /// If `memory_only` is true, then only communication within the same process are allowed. Only
 /// addresses with the format `/memory/...` are allowed.
 ///
-/// `yamux_window_size` is the maximum size of the Yamux receive windows. `None` to leave the
-/// default (256kiB).
-///
-/// `yamux_maximum_buffer_size` is the maximum allowed size of the Yamux buffer. This should be
-/// set either to the maximum of all the maximum allowed sizes of messages frames of all
-/// high-level protocols combined, or to some generously high value if you are sure that a maximum
-/// size is enforced on all high-level protocols.
-///
 /// Returns a `BandwidthSinks` object that allows querying the average bandwidth produced by all
 /// the connections spawned with this transport.
 #[allow(deprecated)]
 pub fn build_transport(
-	keypair: libp2p_identity::Keypair,
+	keypair: identity::Keypair,
 	memory_only: bool,
 ) -> (Boxed<(PeerId, StreamMuxerBox)>, Arc<BandwidthSinks>) {
 	// Build the base layer of the transport.
