@@ -687,7 +687,7 @@ impl NetworkConfiguration {
 			kademlia_replication_factor: NonZeroUsize::new(DEFAULT_KADEMLIA_REPLICATION_FACTOR)
 				.expect("value is a constant; constant is non-zero; qed."),
 			ipfs_server: false,
-			network_backend: NetworkBackendType::Litep2p,
+			network_backend: NetworkBackendType::Libp2p,
 		}
 	}
 
@@ -915,18 +915,8 @@ impl<B: BlockT + 'static, H: ExHashT, N: NetworkBackend<B, H>> FullNetworkConfig
 /// Network backend type.
 #[derive(Debug, Clone, Default, Copy)]
 pub enum NetworkBackendType {
-	/// Use litep2p for P2P networking.
-	///
-	/// This is the preferred option for Substrate-based chains.
-	#[default]
-	Litep2p,
-
 	/// Use libp2p for P2P networking.
-	///
-	/// The libp2p is still used for compatibility reasons until the
-	/// ecosystem switches entirely to litep2p. The backend will enter
-	/// a "best-effort" maintenance mode, where only critical issues will
-	/// get fixed. If you are unsure, please use `NetworkBackendType::Litep2p`.
+	#[default]
 	Libp2p,
 }
 

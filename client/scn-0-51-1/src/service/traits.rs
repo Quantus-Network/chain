@@ -787,15 +787,6 @@ pub enum Direction {
 	Outbound,
 }
 
-impl From<litep2p::protocol::notification::Direction> for Direction {
-	fn from(direction: litep2p::protocol::notification::Direction) -> Self {
-		match direction {
-			litep2p::protocol::notification::Direction::Inbound => Direction::Inbound,
-			litep2p::protocol::notification::Direction::Outbound => Direction::Outbound,
-		}
-	}
-}
-
 impl Direction {
 	/// Is the direction inbound.
 	pub fn is_inbound(&self) -> bool {

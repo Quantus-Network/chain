@@ -244,7 +244,6 @@
 
 mod behaviour;
 mod bitswap;
-mod litep2p;
 mod protocol;
 
 #[cfg(test)]
@@ -264,7 +263,6 @@ pub mod transport;
 pub mod types;
 pub mod utils;
 
-pub use crate::litep2p::Litep2pNetworkBackend;
 pub use event::{DhtEvent, Event};
 #[doc(inline)]
 pub use request_responses::{Config, IfDisconnected, RequestFailure};
