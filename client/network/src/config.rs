@@ -956,8 +956,8 @@ mod tests {
 		tempfile::Builder::new().prefix(prefix).tempdir().unwrap()
 	}
 
-	fn secret_bytes(kp: ed25519::Keypair) -> Vec<u8> {
-		kp.secret().to_bytes().into()
+	fn secret_bytes(kp: libp2p_identity::Keypair) -> Vec<u8> {
+		kp.dilithium_to_bytes()
 	}
 
 	#[test]
@@ -965,23 +965,23 @@ mod tests {
 		let tmp = tempdir_with_prefix("x");
 		std::fs::remove_dir(tmp.path()).unwrap(); // should be recreated
 		let file = tmp.path().join("x").to_path_buf();
-		let kp1 = NodeKeyConfig::Ed25519(Secret::File(file.clone())).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Ed25519(Secret::File(file.clone())).into_keypair().unwrap();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		assert!(file.is_file() && secret_bytes(kp1) == secret_bytes(kp2))
 	}
 
 	#[test]
 	fn test_secret_input() {
-		let sk = ed25519::SecretKey::generate();
-		let kp1 = NodeKeyConfig::Ed25519(Secret::Input(sk.clone())).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Ed25519(Secret::Input(sk)).into_keypair().unwrap();
+		let sk = libp2p_identity::Keypair::generate_dilithium().dilithium_to_bytes();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.clone())).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk)).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) == secret_bytes(kp2));
 	}
 
 	#[test]
 	fn test_secret_new() {
-		let kp1 = NodeKeyConfig::Ed25519(Secret::New).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Ed25519(Secret::New).into_keypair().unwrap();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) != secret_bytes(kp2));
 	}
 }
