@@ -44,6 +44,7 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
 pallet-utility.workspace = true
 pallet-vesting.workspace = true
+pallet-wormhole.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
@@ -112,6 +113,7 @@ std = [
 	"pallet-treasury/std",
 	"pallet-utility/std",
 	"pallet-vesting/std",
+	"pallet-wormhole/std",
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
 	"qp-dilithium-crypto/std",
@@ -162,6 +164,7 @@ runtime-benchmarks = [
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
+	"pallet-wormhole/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
@@ -181,6 +184,7 @@ try-runtime = [
 	"pallet-transaction-payment/try-runtime",
 	"pallet-treasury/try-runtime",
 	"pallet-vesting/try-runtime",
+	"pallet-wormhole/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

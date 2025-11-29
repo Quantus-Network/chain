@@ -401,6 +401,13 @@ pub mod pallet {
 		Thawed { who: T::AccountId, amount: T::Balance },
 		/// The `TotalIssuance` was forcefully changed.
 		TotalIssuanceForced { old: T::Balance, new: T::Balance },
+		/// Transfer proof was stored.
+		TransferProofStored {
+			transfer_count: u64,
+			source: T::AccountId,
+			dest: T::AccountId,
+			funding_amount: T::Balance,
+		},
 	}
 
 	#[pallet::error]
@@ -874,9 +881,15 @@ pub mod pallet {
 		) {
 			if from != to {
 				let current_count = Self::transfer_count();
+				TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
 				TransferCount::<T, I>::put(current_count.saturating_add(One::one()));
 
-				TransferProof::<T, I>::insert((current_count, from.clone(), to.clone(), value), ());
+				Self::deposit_event(Event::TransferProofStored {
+					transfer_count: current_count,
+					source: from.clone(),
+					dest: to.clone(),
+					funding_amount: value,
+				});
 			}
 		}
 
