@@ -31,6 +31,14 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+# Deny unwrap and panic in production code (runtime & pallets)
+# Test code can opt-out using: #![allow(clippy::unwrap_used, clippy::panic)]
+panic = "deny"
+unwrap_used = "deny"
+# Also deny expect_used for consistency
+expect_used = "deny"
+
 [workspace.dependencies]
 # Miscellaneous
 ahash = { version = "0.8.2" }
