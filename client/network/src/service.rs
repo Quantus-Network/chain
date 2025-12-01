@@ -542,7 +542,9 @@ where
 					// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
 					// necessary. See <https://github.com/paritytech/substrate/pull/6080>
 					.with_per_connection_event_buffer_size(24)
-					.with_max_negotiating_inbound_streams(2048)
+					// Increased from 2048 to handle many peers simultaneously opening substreams
+					// for DHT queries, sync requests, etc. on bootnodes.
+					.with_max_negotiating_inbound_streams(16384)
 					.with_idle_connection_timeout(Duration::from_secs(10));
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
@@ -1299,6 +1301,109 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 	}
 }
 
+/// Filters peer addresses accepting only ports in the allowed blockchain p2p range
+/// and rejecting ephemeral ports, private IPs, and link-local addresses.
+///
+/// Uses two-tier filtering:
+/// - TIER 1 (strict): Only public IPs + ports 30333-30433
+/// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
+fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
+	use multiaddr::Protocol;
+
+	const MIN_ALLOWED_PORT: u16 = 30333;
+	const MAX_ALLOWED_PORT: u16 = 30433;
+
+	let original_count = addrs.len();
+
+	// TIER 1: Strict filter (preferred ports + public IPs only)
+	let strict_filtered: Vec<_> = addrs
+		.iter()
+		.filter(|addr| {
+			let mut has_valid_port = false;
+			let mut is_public = true;
+
+			for proto in addr.iter() {
+				match proto {
+					Protocol::Tcp(port) => {
+						has_valid_port = port >= MIN_ALLOWED_PORT && port <= MAX_ALLOWED_PORT;
+					},
+					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+						is_public = false; // Link-local IPv6
+					},
+					Protocol::Ip4(ip) if ip.is_loopback() || ip.is_private() => {
+						is_public = false; // Localhost or private IPv4
+					},
+					_ => {},
+				}
+			}
+
+			has_valid_port && is_public
+		})
+		.cloned()
+		.collect();
+
+	// ✅ If strict filter returned results - use them!
+	if !strict_filtered.is_empty() {
+		if strict_filtered.len() < original_count {
+			info!(
+				target: LOG_TARGET,
+				"Filtered {} addresses from peer {:?} ({} -> {} addresses, strict mode)",
+				original_count - strict_filtered.len(), peer_id,
+				original_count, strict_filtered.len()
+			);
+		}
+		return strict_filtered;
+	}
+
+	// ❌ Strict filter excluded EVERYTHING!
+	// TIER 2: Relaxed filter - accept private IPs but still filter ports
+	warn!(
+		target: LOG_TARGET,
+		"Peer {:?} has no public addresses in valid port range ({}-{}), falling back to relaxed filtering",
+		peer_id, MIN_ALLOWED_PORT, MAX_ALLOWED_PORT
+	);
+
+	let relaxed_filtered: Vec<_> = addrs
+		.into_iter()
+		.filter(|addr| {
+			let mut has_valid_port = false;
+			let mut is_link_local = false;
+
+			for proto in addr.iter() {
+				match proto {
+					Protocol::Tcp(port) => {
+						has_valid_port = port >= MIN_ALLOWED_PORT && port <= MAX_ALLOWED_PORT;
+					},
+					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+						is_link_local = true; // Still reject link-local even in relaxed mode
+					},
+					_ => {},
+				}
+			}
+
+			// Accept if has valid port and is not link-local
+			has_valid_port && !is_link_local
+		})
+		.collect();
+
+	if relaxed_filtered.is_empty() {
+		warn!(
+			target: LOG_TARGET,
+			"Peer {:?} has NO valid addresses even after relaxed filtering! All {} addresses rejected",
+			peer_id, original_count
+		);
+	} else if relaxed_filtered.len() < original_count {
+		info!(
+			target: LOG_TARGET,
+			"Filtered {} addresses from peer {:?} ({} -> {} addresses, relaxed mode)",
+			original_count - relaxed_filtered.len(), peer_id,
+			original_count, relaxed_filtered.len()
+		);
+	}
+
+	relaxed_filtered
+}
+
 /// Messages sent from the `NetworkService` to the `NetworkWorker`.
 ///
 /// Each entry corresponds to a method of `NetworkService`.
@@ -1578,14 +1683,27 @@ where
 						protocol_version, agent_version, mut listen_addrs, protocols, ..
 					},
 			}) => {
+				// DEFENSE: Filter ephemeral ports and unreachable addresses BEFORE truncate
+				let original_count = listen_addrs.len();
+				listen_addrs = filter_peer_addresses(listen_addrs, &peer_id);
+
+				if original_count > 30 {
+					debug!(
+						target: LOG_TARGET,
+						"Node {:?} has reported {} addresses (>30 limit); it is identified by {:?} and {:?}. After filtering: {} addresses",
+						peer_id, original_count, protocol_version, agent_version, listen_addrs.len()
+					);
+				}
+
 				if listen_addrs.len() > 30 {
 					debug!(
 						target: LOG_TARGET,
-						"Node {:?} has reported more than 30 addresses; it is identified by {:?} and {:?}",
-						peer_id, protocol_version, agent_version
+						"Node {:?} still has {} addresses after filtering, truncating to 30. Addresses: {:?}",
+						peer_id, listen_addrs.len(), listen_addrs
 					);
 					listen_addrs.truncate(30);
 				}
+
 				for addr in listen_addrs {
 					self.network_service.behaviour_mut().add_self_reported_address_to_dht(
 						&peer_id,
