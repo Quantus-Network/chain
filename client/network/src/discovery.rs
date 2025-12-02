@@ -103,6 +103,10 @@ const GET_RECORD_REDUNDANCY_FACTOR: u32 = 4;
 /// to not timeout most of the time.
 const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Maximum packet size for Kademlia messages.
+/// Increased to 2MB to handle large peer lists in FIND_NODE responses from bootnodes.
+const KAD_MAX_PACKET_SIZE: usize = 2 * 1024 * 1024;
+
 /// `DiscoveryBehaviour` configuration.
 ///
 ///
@@ -233,6 +237,8 @@ impl DiscoveryConfig {
 			config.set_record_filtering(libp2p::kad::StoreInserts::FilterBoth);
 
 			config.set_query_timeout(KAD_QUERY_TIMEOUT);
+
+			config.set_max_packet_size(KAD_MAX_PACKET_SIZE);
 
 			// By default Kademlia attempts to insert all peers into its routing table once a
 			// dialing attempt succeeds. In order to control which peer is added, disable the
