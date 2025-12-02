@@ -26,14 +26,17 @@ use sc_network::{
 		NotificationHandshake, Params, ProtocolId, Role, SetConfig,
 	},
 	service::traits::{NetworkService, NotificationEvent},
-	Litep2pNetworkBackend, NetworkBackend, NetworkWorker, NotificationMetrics, NotificationService,
-	PeerId, Roles,
+	NetworkBackend, NetworkWorker, NotificationMetrics, NotificationService, PeerId, Roles,
 };
 use sc_network_common::{sync::message::BlockAnnouncesHandshake, ExHashT};
 use sp_core::H256;
-use sp_runtime::traits::{Block as BlockT, Zero};
+use sp_runtime::{
+	testing::{Block as TestBlockGeneric, TestXt},
+	traits::{Block as BlockT, Zero},
+};
+
+type TestBlock = TestBlockGeneric<TestXt<(), ()>>;
 use std::{sync::Arc, time::Duration};
-use substrate_test_runtime_client::runtime;
 use tokio::{sync::Mutex, task::JoinHandle};
 
 const NUMBER_OF_NOTIFICATIONS: usize = 100;
@@ -59,12 +62,12 @@ where
 	let role = Role::Full;
 	let net_conf = NetworkConfiguration::new_local();
 	let network_config = FullNetworkConfiguration::<B, H, N>::new(&net_conf, None);
-	let genesis_hash = runtime::Hash::zero();
+	let genesis_hash = H256::zero();
 	let (block_announce_config, notification_service) = N::notification_config(
 		"/block-announces/1".into(),
 		vec!["/bench-notifications-protocol/block-announces/1".into()],
 		MAX_SIZE,
-		Some(NotificationHandshake::new(BlockAnnouncesHandshake::<runtime::Block>::build(
+		Some(NotificationHandshake::new(BlockAnnouncesHandshake::<TestBlock>::build(
 			Roles::from(&role),
 			Zero::zero(),
 			genesis_hash,
@@ -266,7 +269,7 @@ fn run_benchmark(c: &mut Criterion) {
 	group.plot_config(plot_config);
 	group.sample_size(10);
 
-	let libp2p_setup = setup_workers::<runtime::Block, runtime::Hash, NetworkWorker<_, _>>(&rt);
+	let libp2p_setup = setup_workers::<TestBlock, H256, NetworkWorker<_, _>>(&rt);
 	for &(exponent, label) in PAYLOAD.iter() {
 		let size = 2usize.pow(exponent);
 		group.throughput(Throughput::Bytes(NUMBER_OF_NOTIFICATIONS as u64 * size as u64));
@@ -285,26 +288,6 @@ fn run_benchmark(c: &mut Criterion) {
 		);
 	}
 	drop(libp2p_setup);
-
-	let litep2p_setup = setup_workers::<runtime::Block, runtime::Hash, Litep2pNetworkBackend>(&rt);
-	for &(exponent, label) in PAYLOAD.iter() {
-		let size = 2usize.pow(exponent);
-		group.throughput(Throughput::Bytes(NUMBER_OF_NOTIFICATIONS as u64 * size as u64));
-		group.bench_with_input(BenchmarkId::new("litep2p/serially", label), &size, |b, &size| {
-			b.to_async(&rt)
-				.iter(|| run_serially(Arc::clone(&litep2p_setup), size, NUMBER_OF_NOTIFICATIONS));
-		});
-		group.bench_with_input(
-			BenchmarkId::new("litep2p/with_backpressure", label),
-			&size,
-			|b, &size| {
-				b.to_async(&rt).iter(|| {
-					run_with_backpressure(Arc::clone(&litep2p_setup), size, NUMBER_OF_NOTIFICATIONS)
-				});
-			},
-		);
-	}
-	drop(litep2p_setup);
 }
 
 criterion_group!(benches, run_benchmark);

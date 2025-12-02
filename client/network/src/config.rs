@@ -957,7 +957,7 @@ mod tests {
 	}
 
 	fn secret_bytes(kp: libp2p_identity::Keypair) -> Vec<u8> {
-		kp.dilithium_to_bytes()
+		kp.secret().unwrap()
 	}
 
 	#[test]
@@ -983,5 +983,16 @@ mod tests {
 		let kp1 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) != secret_bytes(kp2));
+	}
+
+	#[test]
+	fn test_dilithium_keypair_generation() {
+		let kp1 = NodeKeyConfig::new_dilithium().into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::new_dilithium().into_keypair().unwrap();
+		// Dilithium keypairs should be different
+		assert!(kp1.to_protobuf_encoding().unwrap() != kp2.to_protobuf_encoding().unwrap());
+		// Both should be Dilithium type
+		assert_eq!(kp1.key_type(), libp2p_identity::KeyType::Dilithium);
+		assert_eq!(kp2.key_type(), libp2p_identity::KeyType::Dilithium);
 	}
 }
