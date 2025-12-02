@@ -51,11 +51,6 @@ pub enum Keypair {
 }
 
 impl Keypair {
-	/// Generate ed25519 keypair.
-	pub fn generate_ed25519() -> Self {
-		Keypair::Libp2p(libp2p::identity::Keypair::generate_ed25519())
-	}
-
 	/// Get [`Keypair`]'s public key.
 	pub fn public(&self) -> PublicKey {
 		match self {
