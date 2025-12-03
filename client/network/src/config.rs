@@ -35,7 +35,7 @@ pub use crate::{
 	types::ProtocolName,
 };
 
-pub use sc_network_types::build_multiaddr;
+pub use sc_network_types::{build_multiaddr, ed25519};
 use sc_network_types::{
 	multiaddr::{self, Multiaddr},
 	PeerId,
@@ -292,7 +292,6 @@ impl NonReservedPeerMode {
 /// and how it is obtained. A node's identity keypair is the result of
 /// the evaluation of the node key configuration.
 #[derive(Clone, Debug)]
-/// Node key configuration.
 pub enum NodeKeyConfig {
 	/// A Dilithium (Post-Quantum) secret key configuration.
 	Dilithium(Secret<Vec<u8>>),
@@ -332,6 +331,7 @@ impl<K> fmt::Debug for Secret<K> {
 	}
 }
 
+/// Helper function to check if data is hex-encoded.
 fn is_hex_data(data: &[u8]) -> bool {
 	// Check if all bytes are valid hex characters (0-9, a-f, A-F) or whitespace
 	data.iter().all(|&b| b.is_ascii_hexdigit() || b.is_ascii_whitespace())
@@ -706,6 +706,7 @@ impl NetworkConfiguration {
 			transport: TransportConfig::Normal { enable_mdns: false, allow_private_ip: true },
 			max_parallel_downloads: 5,
 			max_blocks_per_request: 64,
+			min_peers_to_start_warp_sync: None,
 			sync_mode: SyncMode::Full,
 			enable_dht_random_walk: true,
 			allow_non_globals_in_dht: false,
@@ -714,7 +715,6 @@ impl NetworkConfiguration {
 				.expect("value is a constant; constant is non-zero; qed."),
 			ipfs_server: false,
 			network_backend: NetworkBackendType::Libp2p,
-			min_peers_to_start_warp_sync: None,
 		}
 	}
 
@@ -846,7 +846,7 @@ impl<B: BlockT + 'static, H: ExHashT, N: NetworkBackend<B, H>> FullNetworkConfig
 	/// `PeerStore` is created when `FullNetworkConfig` is initialized so that `PeerStoreHandle`s
 	/// can be passed onto notification protocols. `PeerStore` itself should be started only once
 	/// and since technically it's not a libp2p task, it should be started with `SpawnHandle` in
-	/// `builder.rs` instead of using the libp2p executor in the networking backend. This
+	/// `builder.rs` instead of using the libp2p/litep2p executor in the networking backend. This
 	/// function consumes `PeerStore` and starts its event loop in the appropriate place.
 	pub fn take_peer_store(&mut self) -> N::PeerStore {
 		self.peer_store
@@ -945,21 +945,18 @@ pub enum NetworkBackendType {
 	/// Use libp2p for P2P networking.
 	#[default]
 	Libp2p,
-	/// Not supported, but we leave it here to prevent having to change sc-cli
-	Litep2p,
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use libp2p::identity::Keypair;
 	use tempfile::TempDir;
 
 	fn tempdir_with_prefix(prefix: &str) -> TempDir {
 		tempfile::Builder::new().prefix(prefix).tempdir().unwrap()
 	}
 
-	fn secret_bytes(kp: Keypair) -> Vec<u8> {
+	fn secret_bytes(kp: libp2p_identity::Keypair) -> Vec<u8> {
 		kp.secret().unwrap()
 	}
 
@@ -975,13 +972,9 @@ mod tests {
 
 	#[test]
 	fn test_secret_input() {
-		let sk = Keypair::generate_dilithium();
-		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.dilithium_to_bytes()))
-			.into_keypair()
-			.unwrap();
-		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk.dilithium_to_bytes()))
-			.into_keypair()
-			.unwrap();
+		let sk = libp2p_identity::Keypair::generate_dilithium().dilithium_to_bytes();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.clone())).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk)).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) == secret_bytes(kp2));
 	}
 
