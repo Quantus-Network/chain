@@ -1698,8 +1698,8 @@ where
 				if listen_addrs.len() > 30 {
 					debug!(
 						target: LOG_TARGET,
-						"Node {:?} still has {} addresses after filtering, truncating to 30. Addresses: {:?}",
-						peer_id, listen_addrs.len(), listen_addrs
+						"Node {:?} has reported more than 30 addresses; it is identified by {:?} and {:?}",
+						peer_id, protocol_version, agent_version
 					);
 					listen_addrs.truncate(30);
 				}
