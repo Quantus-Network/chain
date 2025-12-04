@@ -112,6 +112,28 @@ pub mod traits;
 /// Logging target for the file.
 const LOG_TARGET: &str = "sub-libp2p";
 
+/// Notify handler buffer size for Swarm configuration.
+const NOTIFY_HANDLER_BUFFER_SIZE: usize = 32;
+
+/// Per-connection event buffer size for Swarm configuration.
+/// NOTE: 24 is somewhat arbitrary and should be tuned in the future if necessary.
+/// See <https://github.com/paritytech/substrate/pull/6080>
+const PER_CONNECTION_EVENT_BUFFER_SIZE: usize = 24;
+
+/// Maximum number of negotiating inbound streams.
+/// Increased from 2048 to handle many peers simultaneously opening substreams
+/// for DHT queries, sync requests, etc. on bootnodes.
+const MAX_NEGOTIATING_INBOUND_STREAMS: usize = 16384;
+
+/// Idle connection timeout in seconds.
+const IDLE_CONNECTION_TIMEOUT_SECS: u64 = 10;
+
+/// Minimum allowed port for blockchain p2p connections.
+const MIN_P2P_PORT: u16 = 30333;
+
+/// Maximum allowed port for blockchain p2p connections.
+const MAX_P2P_PORT: u16 = 30533;
+
 struct Libp2pBandwidthSink {
 	#[allow(deprecated)]
 	sink: Arc<transport::BandwidthSinks>,
@@ -538,14 +560,15 @@ where
 
 				let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
 					.with_substream_upgrade_protocol_override(upgrade::Version::V1)
-					.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-					// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
-					// necessary. See <https://github.com/paritytech/substrate/pull/6080>
-					.with_per_connection_event_buffer_size(24)
-					// Increased from 2048 to handle many peers simultaneously opening substreams
-					// for DHT queries, sync requests, etc. on bootnodes.
-					.with_max_negotiating_inbound_streams(16384)
-					.with_idle_connection_timeout(Duration::from_secs(10));
+					.with_notify_handler_buffer_size(
+						NonZeroUsize::new(NOTIFY_HANDLER_BUFFER_SIZE)
+							.expect("NOTIFY_HANDLER_BUFFER_SIZE != 0; qed"),
+					)
+					.with_per_connection_event_buffer_size(PER_CONNECTION_EVENT_BUFFER_SIZE)
+					.with_max_negotiating_inbound_streams(MAX_NEGOTIATING_INBOUND_STREAMS)
+					.with_idle_connection_timeout(Duration::from_secs(
+						IDLE_CONNECTION_TIMEOUT_SECS,
+					));
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};
@@ -1305,13 +1328,10 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 /// and rejecting ephemeral ports, private IPs, and link-local addresses.
 ///
 /// Uses two-tier filtering:
-/// - TIER 1 (strict): Only public IPs + ports 30333-30433
+/// - TIER 1 (strict): Only public IPs + ports 30333-30533
 /// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
 fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
 	use multiaddr::Protocol;
-
-	const MIN_ALLOWED_PORT: u16 = 30333;
-	const MAX_ALLOWED_PORT: u16 = 30433;
 
 	let original_count = addrs.len();
 
@@ -1325,7 +1345,7 @@ fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiad
 			for proto in addr.iter() {
 				match proto {
 					Protocol::Tcp(port) => {
-						has_valid_port = port >= MIN_ALLOWED_PORT && port <= MAX_ALLOWED_PORT;
+						has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
 					},
 					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
 						is_public = false; // Link-local IPv6
@@ -1360,7 +1380,7 @@ fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiad
 	warn!(
 		target: LOG_TARGET,
 		"Peer {:?} has no public addresses in valid port range ({}-{}), falling back to relaxed filtering",
-		peer_id, MIN_ALLOWED_PORT, MAX_ALLOWED_PORT
+		peer_id, MIN_P2P_PORT, MAX_P2P_PORT
 	);
 
 	let relaxed_filtered: Vec<_> = addrs
@@ -1372,7 +1392,7 @@ fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiad
 			for proto in addr.iter() {
 				match proto {
 					Protocol::Tcp(port) => {
-						has_valid_port = port >= MIN_ALLOWED_PORT && port <= MAX_ALLOWED_PORT;
+						has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
 					},
 					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
 						is_link_local = true; // Still reject link-local even in relaxed mode
