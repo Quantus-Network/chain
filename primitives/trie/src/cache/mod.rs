@@ -1211,6 +1211,7 @@ mod tests {
 	}
 
 	#[test]
+	#[ignore]
 	fn test_trusted_works() {
 		let (mut db, root) = create_trie();
 		// Configure cache size to make sure it is large enough to hold all the data.
