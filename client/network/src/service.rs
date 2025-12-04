@@ -1351,31 +1351,42 @@ fn filter_peer_addresses(
 	let original_count = addrs.len();
 
 	// TIER 1: Strict filter (preferred ports + public IPs only)
-	let strict_filtered: Vec<_> = addrs
-		.iter()
-		.filter(|addr| {
-			let mut has_valid_port = false;
-			let mut is_public = true;
+	// TIER 2: Relaxed filter - accept private IPs but still filter ports
+	let (strict_filtered, relaxed_filtered): (Vec<_>, Vec<_>) =
+		addrs
+			.into_iter()
+			.fold((Vec::new(), Vec::new()), |(mut strict, mut relaxed), addr| {
+				let mut has_valid_port = false;
+				let mut is_link_local = false;
+				let mut is_public = true;
 
-			for proto in addr.iter() {
-				match proto {
-					Protocol::Tcp(port) => {
-						has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
-					},
-					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
-						is_public = false; // Link-local IPv6
-					},
-					Protocol::Ip4(ip) if ip.is_loopback() || ip.is_private() => {
-						is_public = false; // Localhost or private IPv4
-					},
-					_ => {},
+				for proto in addr.iter() {
+					match proto {
+						Protocol::Tcp(port) => {
+							has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
+						},
+						Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+							is_link_local = true; // Link-local IPv6
+						},
+						Protocol::Ip4(ip) if ip.is_loopback() || ip.is_private() => {
+							is_public = false; // Localhost or private IPv4
+						},
+						_ => {},
+					}
 				}
-			}
 
-			has_valid_port && is_public
-		})
-		.cloned()
-		.collect();
+				let relaxed_ok = has_valid_port && !is_link_local;
+				let strict_ok = relaxed_ok && is_public;
+
+				if strict_ok {
+					strict.push(addr.clone());
+				}
+				if relaxed_ok {
+					relaxed.push(addr);
+				}
+
+				(strict, relaxed)
+			});
 
 	// ✅ If strict filter returned results - use them!
 	if !strict_filtered.is_empty() {
@@ -1391,35 +1402,12 @@ fn filter_peer_addresses(
 	}
 
 	// ❌ Strict filter excluded EVERYTHING!
-	// TIER 2: Relaxed filter - accept private IPs but still filter ports
+	// Fallback to relaxed filter - accept private IPs but still filter ports
 	warn!(
 		target: LOG_TARGET,
 		"Peer {:?} has no public addresses in valid port range ({}-{}), falling back to relaxed filtering",
 		peer_id, MIN_P2P_PORT, MAX_P2P_PORT
 	);
-
-	let relaxed_filtered: Vec<_> = addrs
-		.into_iter()
-		.filter(|addr| {
-			let mut has_valid_port = false;
-			let mut is_link_local = false;
-
-			for proto in addr.iter() {
-				match proto {
-					Protocol::Tcp(port) => {
-						has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
-					},
-					Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
-						is_link_local = true; // Still reject link-local even in relaxed mode
-					},
-					_ => {},
-				}
-			}
-
-			// Accept if has valid port and is not link-local
-			has_valid_port && !is_link_local
-		})
-		.collect();
 
 	if relaxed_filtered.is_empty() {
 		warn!(
