@@ -343,6 +343,9 @@ where
 
 		let (to_worker, from_service) = tracing_unbounded("mpsc_network_worker", 100_000);
 
+		// Store the disable_peer_address_filtering flag before network_config is moved
+		let disable_peer_address_filtering = network_config.disable_peer_address_filtering;
+
 		if let Some(path) = &network_config.net_config_path {
 			fs::create_dir_all(path)?;
 		}
@@ -630,6 +633,7 @@ where
 			reported_invalid_boot_nodes: Default::default(),
 			peer_store_handle: Arc::clone(&peer_store_handle),
 			notif_protocol_handles,
+			disable_peer_address_filtering,
 			_marker: Default::default(),
 			_block: Default::default(),
 		})
@@ -1330,8 +1334,19 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 /// Uses two-tier filtering:
 /// - TIER 1 (strict): Only public IPs + ports 30333-30533
 /// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
-fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
+///
+/// If `disable_filtering` is true, all addresses are returned without filtering.
+fn filter_peer_addresses(
+	addrs: Vec<Multiaddr>,
+	peer_id: &PeerId,
+	disable_filtering: bool,
+) -> Vec<Multiaddr> {
 	use multiaddr::Protocol;
+
+	// If filtering is disabled, return all addresses
+	if disable_filtering {
+		return addrs;
+	}
 
 	let original_count = addrs.len();
 
@@ -1490,6 +1505,8 @@ where
 	peer_store_handle: Arc<dyn PeerStoreProvider>,
 	/// Notification protocol handles.
 	notif_protocol_handles: Vec<protocol::ProtocolHandle>,
+	/// Disable filtering of peer addresses for ephemeral ports and private IPs.
+	disable_peer_address_filtering: bool,
 	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
 	/// compatibility.
 	_marker: PhantomData<H>,
@@ -1705,7 +1722,11 @@ where
 			}) => {
 				// DEFENSE: Filter ephemeral ports and unreachable addresses BEFORE truncate
 				let original_count = listen_addrs.len();
-				listen_addrs = filter_peer_addresses(listen_addrs, &peer_id);
+				listen_addrs = filter_peer_addresses(
+					listen_addrs,
+					&peer_id,
+					self.disable_peer_address_filtering,
+				);
 
 				if original_count > 30 {
 					debug!(
