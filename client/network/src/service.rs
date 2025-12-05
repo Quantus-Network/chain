@@ -1336,17 +1336,8 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 /// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
 ///
 /// If `disable_filtering` is true, all addresses are returned without filtering.
-fn filter_peer_addresses(
-	addrs: Vec<Multiaddr>,
-	peer_id: &PeerId,
-	disable_filtering: bool,
-) -> Vec<Multiaddr> {
+fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
 	use multiaddr::Protocol;
-
-	// If filtering is disabled, return all addresses
-	if disable_filtering {
-		return addrs;
-	}
 
 	let original_count = addrs.len();
 
@@ -1710,11 +1701,12 @@ where
 			}) => {
 				// DEFENSE: Filter ephemeral ports and unreachable addresses BEFORE truncate
 				let original_count = listen_addrs.len();
-				listen_addrs = filter_peer_addresses(
-					listen_addrs,
-					&peer_id,
-					self.disable_peer_address_filtering,
-				);
+
+				listen_addrs = if !self.disable_peer_address_filtering {
+					filter_peer_addresses(listen_addrs, &peer_id)
+				} else {
+					listen_addrs
+				};
 
 				if original_count > 30 {
 					debug!(
