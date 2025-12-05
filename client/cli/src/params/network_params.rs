@@ -187,6 +187,16 @@ pub struct NetworkParams {
 		verbatim_doc_comment
 	)]
 	pub network_backend: NetworkBackendType,
+
+	/// Disable filtering of peer addresses for ephemeral ports and private IPs.
+	///
+	/// By default, the node filters incoming peer addresses to only accept blockchain
+	/// P2P ports (30333-30533) and rejects ephemeral ports and unreachable addresses.
+	/// This flag disables the filtering, accepting all peer addresses without restrictions.
+	///
+	/// WARNING: Disabling this may increase memory usage and slow down peer broadcasting.
+	#[arg(long)]
+	pub disable_peer_address_filtering: bool,
 }
 
 impl NetworkParams {
@@ -283,6 +293,7 @@ impl NetworkParams {
 			ipfs_server: self.ipfs_server,
 			sync_mode: self.sync.into(),
 			network_backend: self.network_backend.into(),
+			disable_peer_address_filtering: self.disable_peer_address_filtering,
 		}
 	}
 }
