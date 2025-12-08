@@ -26,7 +26,7 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole::TransferProofs;
+	use qp_wormhole::TransferProofRecorder;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{
 		generic::DigestItem,
@@ -48,9 +48,18 @@ pub mod pallet {
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 
-		/// Currency type that also stores zk proofs
-		type Currency: Mutate<Self::AccountId>
-			+ qp_wormhole::TransferProofs<BalanceOf<Self>, Self::AccountId>;
+		/// Currency type for minting rewards
+		type Currency: Mutate<Self::AccountId>;
+
+		/// Asset ID type for the proof recorder
+		type AssetId: Default;
+
+		/// Proof recorder for storing wormhole transfer proofs
+		type ProofRecorder: qp_wormhole::TransferProofRecorder<
+			Self::AccountId,
+			Self::AssetId,
+			BalanceOf<Self>,
+		>;
 
 		/// The base block reward given to miners
 		#[pallet::constant]
@@ -165,7 +174,12 @@ pub mod pallet {
 				Some(miner) => {
 					let _ = T::Currency::mint_into(&miner, reward).defensive();
 
-					T::Currency::store_transfer_proof(&mint_account, &miner, reward);
+					let _ = T::ProofRecorder::record_transfer_proof(
+						None,
+						mint_account.clone(),
+						miner.clone(),
+						reward,
+					);
 
 					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
 
@@ -180,7 +194,12 @@ pub mod pallet {
 					let treasury = T::TreasuryPalletId::get().into_account_truncating();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
-					T::Currency::store_transfer_proof(&mint_account, &treasury, reward);
+					let _ = T::ProofRecorder::record_transfer_proof(
+						None,
+						mint_account.clone(),
+						treasury.clone(),
+						reward,
+					);
 
 					Self::deposit_event(Event::TreasuryRewarded { reward });
 

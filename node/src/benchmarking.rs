@@ -127,6 +127,9 @@ pub fn create_benchmark_extrinsic(
 			quantus_runtime::transaction_extensions::ReversibleTransactionExtension::<
 				runtime::Runtime,
 			>::new(),
+			quantus_runtime::transaction_extensions::WormholeProofRecorderExtension::<
+				runtime::Runtime,
+			>::new(),
 		);
 
 	let raw_payload = runtime::SignedPayload::from_raw(
@@ -142,6 +145,7 @@ pub fn create_benchmark_extrinsic(
 			(),
 			(),
 			None,
+			(),
 			(),
 		),
 	);

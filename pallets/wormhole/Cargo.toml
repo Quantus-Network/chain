@@ -31,6 +31,7 @@ sp-runtime.workspace = true
 
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }
+pallet-assets = { workspace = true, features = ["std"] }
 qp-dilithium-crypto = { workspace = true, features = ["std"] }
 qp-plonky2 = { workspace = true, default-features = false }
 qp-poseidon-core.workspace = true

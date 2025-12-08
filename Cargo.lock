@@ -7105,26 +7105,6 @@ dependencies = [
 
 [[package]]
 name = "pallet-balances"
-version = "40.0.1"
-dependencies = [
- "docify",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-transaction-payment",
- "parity-scale-codec",
- "paste",
- "qp-poseidon",
- "qp-wormhole",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-balances"
 version = "42.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a4d7dbabb4976ebd37e386ed3abba847f4599a026602439f289a8a93b8c9bd5"
@@ -7185,7 +7165,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "pallet-vesting",
  "parity-scale-codec",
  "scale-info",
@@ -7223,7 +7203,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "parity-scale-codec",
  "qp-wormhole",
  "scale-info",
@@ -7344,7 +7324,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-assets-holder",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "pallet-preimage",
  "pallet-recovery",
  "pallet-scheduler",
@@ -7603,7 +7583,7 @@ dependencies = [
  "frame-system",
  "impl-trait-for-tuples",
  "log",
- "pallet-balances 42.0.0",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -7652,7 +7632,8 @@ dependencies = [
  "hex",
  "lazy_static",
  "log",
- "pallet-balances 40.0.1",
+ "pallet-assets",
+ "pallet-balances",
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-header",
@@ -8250,7 +8231,7 @@ dependencies = [
  "pallet-authority-discovery",
  "pallet-authorship",
  "pallet-babe",
- "pallet-balances 42.0.0",
+ "pallet-balances",
  "pallet-broker",
  "pallet-message-queue",
  "pallet-mmr",
@@ -9288,7 +9269,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-assets-holder",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "pallet-conviction-voting",
  "pallet-merkle-airdrop",
  "pallet-mining-rewards",
@@ -9313,6 +9294,7 @@ dependencies = [
  "qp-header",
  "qp-poseidon",
  "qp-scheduler",
+ "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-verifier",
  "qp-zk-circuits-common",

@@ -12,7 +12,6 @@ members = [
 	"client/network",
 	"miner-api",
 	"node",
-	"pallets/balances",
 	"pallets/merkle-airdrop",
 	"pallets/mining-rewards",
 	"pallets/qpow",
@@ -121,7 +120,7 @@ wasm-timer = { version = "0.2.5" }
 zeroize = { version = "1.7.0", default-features = false }
 
 # Own dependencies
-pallet-balances = { path = "./pallets/balances", default-features = false }
+pallet-balances = { version = "42.0.0", default-features = false }
 pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
