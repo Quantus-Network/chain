@@ -31,6 +31,14 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+# Deny unwrap and panic in production code (runtime & pallets)
+# Test code can opt-out using: #![allow(clippy::unwrap_used, clippy::panic)]
+panic = "deny"
+unwrap_used = "deny"
+# Also deny expect_used for consistency
+expect_used = "deny"
+
 [workspace.dependencies]
 # Miscellaneous
 ahash = { version = "0.8.2" }
@@ -224,7 +232,7 @@ substrate-wasm-builder = { version = "27.0.0", default-features = false }
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_0" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }
-sc-network = { path = "./client/network" }
+sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 

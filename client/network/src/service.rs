@@ -86,7 +86,7 @@ use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnbound
 use sp_runtime::traits::Block as BlockT;
 
 pub use behaviour::{InboundFailure, OutboundFailure, ResponseFailure};
-pub use libp2p_identity::{DecodingError, Keypair, PublicKey};
+pub use libp2p::identity::{DecodingError, Keypair, PublicKey};
 pub use metrics::NotificationMetrics;
 pub use protocol::NotificationsSink;
 use std::{
@@ -108,6 +108,31 @@ pub(crate) mod out_events;
 
 pub mod signature;
 pub mod traits;
+
+/// Logging target for the file.
+const LOG_TARGET: &str = "sub-libp2p";
+
+/// Notify handler buffer size for Swarm configuration.
+const NOTIFY_HANDLER_BUFFER_SIZE: usize = 32;
+
+/// Per-connection event buffer size for Swarm configuration.
+/// NOTE: 24 is somewhat arbitrary and should be tuned in the future if necessary.
+/// See <https://github.com/paritytech/substrate/pull/6080>
+const PER_CONNECTION_EVENT_BUFFER_SIZE: usize = 24;
+
+/// Maximum number of negotiating inbound streams.
+/// Increased from 2048 to handle many peers simultaneously opening substreams
+/// for DHT queries, sync requests, etc. on bootnodes.
+const MAX_NEGOTIATING_INBOUND_STREAMS: usize = 16384;
+
+/// Idle connection timeout in seconds.
+const IDLE_CONNECTION_TIMEOUT_SECS: u64 = 10;
+
+/// Minimum allowed port for blockchain p2p connections.
+const MIN_P2P_PORT: u16 = 30333;
+
+/// Maximum allowed port for blockchain p2p connections.
+const MAX_P2P_PORT: u16 = 30533;
 
 struct Libp2pBandwidthSink {
 	#[allow(deprecated)]
@@ -269,10 +294,6 @@ where
 		let local_public = local_identity.public();
 		let local_peer_id = local_public.to_peer_id();
 
-		// Convert to libp2p types.
-		let local_public: PublicKey = local_public.into();
-		let local_peer_id: PeerId = local_peer_id.into();
-
 		network_config.boot_nodes = network_config
 			.boot_nodes
 			.into_iter()
@@ -285,7 +306,7 @@ where
 			.filter(|reserved_node| {
 				if reserved_node.peer_id == local_peer_id.into() {
 					warn!(
-						target: "sub-libp2p",
+						target: LOG_TARGET,
 						"Local peer ID used in reserved node, ignoring: {}",
 						reserved_node,
 					);
@@ -322,16 +343,19 @@ where
 
 		let (to_worker, from_service) = tracing_unbounded("mpsc_network_worker", 100_000);
 
+		// Store the disable_peer_address_filtering flag before network_config is moved
+		let disable_peer_address_filtering = network_config.disable_peer_address_filtering;
+
 		if let Some(path) = &network_config.net_config_path {
 			fs::create_dir_all(path)?;
 		}
 
 		info!(
-			target: "sub-libp2p",
+			target: LOG_TARGET,
 			"🏷  Local node identity is: {}",
 			local_peer_id.to_base58(),
 		);
-		log::info!(target: "sub-libp2p", "Running libp2p network backend");
+		info!(target: LOG_TARGET, "Running libp2p network backend");
 
 		let (transport, bandwidth) = {
 			let config_mem = match network_config.transport {
@@ -514,6 +538,7 @@ where
 					request_response_protocols,
 					Arc::clone(&peer_store_handle),
 					external_addresses.clone(),
+					network_config.public_addresses.iter().cloned().map(Into::into).collect(),
 					ConnectionLimits::default()
 						.with_max_established_per_peer(Some(crate::MAX_CONNECTIONS_PER_PEER as u32))
 						.with_max_established_incoming(Some(
@@ -538,12 +563,15 @@ where
 
 				let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
 					.with_substream_upgrade_protocol_override(upgrade::Version::V1)
-					.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-					// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
-					// necessary. See <https://github.com/paritytech/substrate/pull/6080>
-					.with_per_connection_event_buffer_size(24)
-					.with_max_negotiating_inbound_streams(2048)
-					.with_idle_connection_timeout(Duration::from_secs(10));
+					.with_notify_handler_buffer_size(
+						NonZeroUsize::new(NOTIFY_HANDLER_BUFFER_SIZE)
+							.expect("NOTIFY_HANDLER_BUFFER_SIZE != 0; qed"),
+					)
+					.with_per_connection_event_buffer_size(PER_CONNECTION_EVENT_BUFFER_SIZE)
+					.with_max_negotiating_inbound_streams(MAX_NEGOTIATING_INBOUND_STREAMS)
+					.with_idle_connection_timeout(Duration::from_secs(
+						IDLE_CONNECTION_TIMEOUT_SECS,
+					));
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};
@@ -566,7 +594,7 @@ where
 		// Listen on multiaddresses.
 		for addr in &network_config.listen_addresses {
 			if let Err(err) = Swarm::<Behaviour<B>>::listen_on(&mut swarm, addr.clone().into()) {
-				warn!(target: "sub-libp2p", "Can't listen on {} because: {:?}", addr, err)
+				warn!(target: LOG_TARGET, "Can't listen on {} because: {:?}", addr, err)
 			}
 		}
 
@@ -605,6 +633,7 @@ where
 			reported_invalid_boot_nodes: Default::default(),
 			peer_store_handle: Arc::clone(&peer_store_handle),
 			notif_protocol_handles,
+			disable_peer_address_filtering,
 			_marker: Default::default(),
 			_block: Default::default(),
 		})
@@ -678,8 +707,8 @@ where
 						) {
 						addrs.into_iter().collect()
 					} else {
-						error!(target: "sub-libp2p", "Was not able to get known addresses for {:?}", peer_id);
-						return None
+						error!(target: LOG_TARGET, "Was not able to get known addresses for {:?}", peer_id);
+						return None;
 					};
 
 					let endpoint = if let Some(e) =
@@ -687,9 +716,9 @@ where
 					{
 						e.clone().into()
 					} else {
-						error!(target: "sub-libp2p", "Found state inconsistency between custom protocol \
+						error!(target: LOG_TARGET, "Found state inconsistency between custom protocol \
 						and debug information about {:?}", peer_id);
-						return None
+						return None;
 					};
 
 					Some((
@@ -729,7 +758,7 @@ where
 						) {
 						addrs.into_iter().collect()
 					} else {
-						error!(target: "sub-libp2p", "Was not able to get known addresses for {:?}", peer_id);
+						error!(target: LOG_TARGET, "Was not able to get known addresses for {:?}", peer_id);
 						Default::default()
 					};
 
@@ -859,7 +888,10 @@ where
 		let public_key = self.local_identity.public();
 		let bytes = self.local_identity.sign(msg.as_ref())?;
 
-		Ok(Signature { public_key: crate::service::signature::PublicKey::new(public_key), bytes })
+		Ok(Signature {
+			public_key: crate::service::signature::PublicKey::Libp2p(public_key),
+			bytes,
+		})
 	}
 
 	fn verify(
@@ -883,6 +915,16 @@ where
 	B: BlockT + 'static,
 	H: ExHashT,
 {
+	/// Start finding closest peerst to the target peer ID in the DHT.
+	///
+	/// This will generate either a `ClosestPeersFound` or a `ClosestPeersNotFound` event and pass
+	/// it as an item on the [`NetworkWorker`] stream.
+	fn find_closest_peers(&self, target: sc_network_types::PeerId) {
+		let _ = self
+			.to_worker
+			.unbounded_send(ServiceToWorkerMsg::FindClosestPeers(target.into()));
+	}
+
 	/// Start getting a value from the DHT.
 	///
 	/// This will generate either a `ValueFound` or a `ValueNotFound` event and pass it as an
@@ -925,6 +967,18 @@ where
 			publisher.map(Into::into),
 			expires,
 		));
+	}
+
+	fn start_providing(&self, key: KademliaKey) {
+		let _ = self.to_worker.unbounded_send(ServiceToWorkerMsg::StartProviding(key));
+	}
+
+	fn stop_providing(&self, key: KademliaKey) {
+		let _ = self.to_worker.unbounded_send(ServiceToWorkerMsg::StopProviding(key));
+	}
+
+	fn get_providers(&self, key: KademliaKey) {
+		let _ = self.to_worker.unbounded_send(ServiceToWorkerMsg::GetProviders(key));
 	}
 }
 
@@ -1127,7 +1181,7 @@ where
 		match Roles::decode_all(&mut &handshake[..]) {
 			Ok(role) => Some(role.into()),
 			Err(_) => {
-				log::debug!(target: "sub-libp2p", "handshake doesn't contain peer role: {handshake:?}");
+				log::debug!(target: LOG_TARGET, "handshake doesn't contain peer role: {handshake:?}");
 				self.peer_store_handle.peer_role(&(peer_id.into()))
 			},
 		}
@@ -1260,11 +1314,11 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 		}
 
 		trace!(
-			target: "sub-libp2p",
+			target: LOG_TARGET,
 			"External API => Notification({:?}, {}, {} bytes)",
 			self.peer_id, self.protocol_name, notification.len(),
 		);
-		trace!(target: "sub-libp2p", "Handler({:?}) <= Async notification", self.peer_id);
+		trace!(target: LOG_TARGET, "Handler({:?}) <= Async notification", self.peer_id);
 
 		self.ready
 			.take()
@@ -1274,10 +1328,101 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 	}
 }
 
+/// Filters peer addresses accepting only ports in the allowed blockchain p2p range
+/// and rejecting ephemeral ports, private IPs, and link-local addresses.
+///
+/// Uses two-tier filtering:
+/// - TIER 1 (strict): Only public IPs + ports 30333-30533
+/// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
+///
+/// If `disable_filtering` is true, all addresses are returned without filtering.
+fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
+	use multiaddr::Protocol;
+
+	let original_count = addrs.len();
+
+	// TIER 1: Strict filter (preferred ports + public IPs only)
+	// TIER 2: Relaxed filter - accept private IPs but still filter ports
+	let (strict_filtered, relaxed_filtered): (Vec<_>, Vec<_>) =
+		addrs
+			.into_iter()
+			.fold((Vec::new(), Vec::new()), |(mut strict, mut relaxed), addr| {
+				let mut has_valid_port = false;
+				let mut is_link_local = false;
+				let mut is_public = true;
+
+				for proto in addr.iter() {
+					match proto {
+						Protocol::Tcp(port) => {
+							has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
+						},
+						Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+							is_link_local = true; // Link-local IPv6
+						},
+						Protocol::Ip4(ip) if ip.is_loopback() || ip.is_private() => {
+							is_public = false; // Localhost or private IPv4
+						},
+						_ => {},
+					}
+				}
+
+				let relaxed_ok = has_valid_port && !is_link_local;
+				let strict_ok = relaxed_ok && is_public;
+
+				if strict_ok {
+					strict.push(addr.clone());
+				}
+				if relaxed_ok {
+					relaxed.push(addr);
+				}
+
+				(strict, relaxed)
+			});
+
+	// ✅ If strict filter returned results - use them!
+	if !strict_filtered.is_empty() {
+		if strict_filtered.len() < original_count {
+			info!(
+				target: LOG_TARGET,
+				"Filtered {} addresses from peer {:?} ({} -> {} addresses, strict mode)",
+				original_count - strict_filtered.len(), peer_id,
+				original_count, strict_filtered.len()
+			);
+		}
+		return strict_filtered;
+	}
+
+	// ❌ Strict filter excluded EVERYTHING!
+	// Fallback to relaxed filter - accept private IPs but still filter ports
+	warn!(
+		target: LOG_TARGET,
+		"Peer {:?} has no public addresses in valid port range ({}-{}), falling back to relaxed filtering",
+		peer_id, MIN_P2P_PORT, MAX_P2P_PORT
+	);
+
+	if relaxed_filtered.is_empty() {
+		warn!(
+			target: LOG_TARGET,
+			"Peer {:?} has NO valid addresses even after relaxed filtering! All {} addresses rejected",
+			peer_id, original_count
+		);
+	} else if relaxed_filtered.len() < original_count {
+		info!(
+			target: LOG_TARGET,
+			"Filtered {} addresses from peer {:?} ({} -> {} addresses, relaxed mode)",
+			original_count - relaxed_filtered.len(), peer_id,
+			original_count, relaxed_filtered.len()
+		);
+	}
+
+	relaxed_filtered
+}
+
 /// Messages sent from the `NetworkService` to the `NetworkWorker`.
 ///
 /// Each entry corresponds to a method of `NetworkService`.
 enum ServiceToWorkerMsg {
+	FindClosestPeers(PeerId),
 	GetValue(KademliaKey),
 	PutValue(KademliaKey, Vec<u8>),
 	PutRecordTo {
@@ -1286,6 +1431,9 @@ enum ServiceToWorkerMsg {
 		update_local_storage: bool,
 	},
 	StoreRecord(KademliaKey, Vec<u8>, Option<PeerId>, Option<Instant>),
+	StartProviding(KademliaKey),
+	StopProviding(KademliaKey),
+	GetProviders(KademliaKey),
 	AddKnownAddress(PeerId, Multiaddr),
 	EventStream(out_events::Sender),
 	Request {
@@ -1336,6 +1484,8 @@ where
 	peer_store_handle: Arc<dyn PeerStoreProvider>,
 	/// Notification protocol handles.
 	notif_protocol_handles: Vec<protocol::ProtocolHandle>,
+	/// Disable filtering of peer addresses for ephemeral ports and private IPs.
+	disable_peer_address_filtering: bool,
 	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
 	/// compatibility.
 	_marker: PhantomData<H>,
@@ -1407,6 +1557,8 @@ where
 	/// Process the next message coming from the `NetworkService`.
 	fn handle_worker_message(&mut self, msg: ServiceToWorkerMsg) {
 		match msg {
+			ServiceToWorkerMsg::FindClosestPeers(target) =>
+				self.network_service.behaviour_mut().find_closest_peers(target),
 			ServiceToWorkerMsg::GetValue(key) =>
 				self.network_service.behaviour_mut().get_value(key.into()),
 			ServiceToWorkerMsg::PutValue(key, value) =>
@@ -1419,6 +1571,12 @@ where
 				.network_service
 				.behaviour_mut()
 				.store_record(key.into(), value, publisher, expires),
+			ServiceToWorkerMsg::StartProviding(key) =>
+				self.network_service.behaviour_mut().start_providing(key.into()),
+			ServiceToWorkerMsg::StopProviding(key) =>
+				self.network_service.behaviour_mut().stop_providing(&key.into()),
+			ServiceToWorkerMsg::GetProviders(key) =>
+				self.network_service.behaviour_mut().get_providers(key.into()),
 			ServiceToWorkerMsg::AddKnownAddress(peer_id, addr) =>
 				self.network_service.behaviour_mut().add_known_address(peer_id, addr),
 			ServiceToWorkerMsg::EventStream(sender) => self.event_streams.push(sender),
@@ -1541,14 +1699,32 @@ where
 						protocol_version, agent_version, mut listen_addrs, protocols, ..
 					},
 			}) => {
+				// DEFENSE: Filter ephemeral ports and unreachable addresses BEFORE truncate
+				let original_count = listen_addrs.len();
+
+				listen_addrs = if !self.disable_peer_address_filtering {
+					filter_peer_addresses(listen_addrs, &peer_id)
+				} else {
+					listen_addrs
+				};
+
+				if original_count > 30 {
+					debug!(
+						target: LOG_TARGET,
+						"Node {:?} has reported {} addresses (>30 limit); it is identified by {:?} and {:?}. After filtering: {} addresses",
+						peer_id, original_count, protocol_version, agent_version, listen_addrs.len()
+					);
+				}
+
 				if listen_addrs.len() > 30 {
 					debug!(
-						target: "sub-libp2p",
+						target: LOG_TARGET,
 						"Node {:?} has reported more than 30 addresses; it is identified by {:?} and {:?}",
 						peer_id, protocol_version, agent_version
 					);
 					listen_addrs.truncate(30);
 				}
+
 				for addr in listen_addrs {
 					self.network_service.behaviour_mut().add_self_reported_address_to_dht(
 						&peer_id,
@@ -1627,11 +1803,18 @@ where
 				match (self.metrics.as_ref(), duration) {
 					(Some(metrics), Some(duration)) => {
 						let query_type = match event {
+							DhtEvent::ClosestPeersFound(_, _) => "peers-found",
+							DhtEvent::ClosestPeersNotFound(_) => "peers-not-found",
 							DhtEvent::ValueFound(_) => "value-found",
 							DhtEvent::ValueNotFound(_) => "value-not-found",
 							DhtEvent::ValuePut(_) => "value-put",
 							DhtEvent::ValuePutFailed(_) => "value-put-failed",
 							DhtEvent::PutRecordRequest(_, _, _, _) => "put-record-request",
+							DhtEvent::StartedProviding(_) => "started-providing",
+							DhtEvent::StartProvidingFailed(_) => "start-providing-failed",
+							DhtEvent::ProvidersFound(_, _) => "providers-found",
+							DhtEvent::NoMoreProviders(_) => "no-more-providers",
+							DhtEvent::ProvidersNotFound(_) => "providers-not-found",
 						};
 						metrics
 							.kademlia_query_duration
@@ -1654,9 +1837,9 @@ where
 				..
 			} => {
 				if let Some(errors) = concurrent_dial_errors {
-					debug!(target: "sub-libp2p", "Libp2p => Connected({:?}) with errors: {:?}", peer_id, errors);
+					debug!(target: LOG_TARGET, "Libp2p => Connected({:?}) with errors: {:?}", peer_id, errors);
 				} else {
-					debug!(target: "sub-libp2p", "Libp2p => Connected({:?})", peer_id);
+					debug!(target: LOG_TARGET, "Libp2p => Connected({:?})", peer_id);
 				}
 
 				if let Some(metrics) = self.metrics.as_ref() {
@@ -1678,7 +1861,7 @@ where
 				endpoint,
 				num_established,
 			} => {
-				debug!(target: "sub-libp2p", "Libp2p => Disconnected({peer_id:?} via {connection_id:?}, {cause:?})");
+				debug!(target: LOG_TARGET, "Libp2p => Disconnected({peer_id:?} via {connection_id:?}, {cause:?})");
 				if let Some(metrics) = self.metrics.as_ref() {
 					let direction = match endpoint {
 						ConnectedPoint::Dialer { .. } => "out",
@@ -1698,14 +1881,14 @@ where
 				}
 			},
 			SwarmEvent::NewListenAddr { address, .. } => {
-				trace!(target: "sub-libp2p", "Libp2p => NewListenAddr({})", address);
+				trace!(target: LOG_TARGET, "Libp2p => NewListenAddr({})", address);
 				if let Some(metrics) = self.metrics.as_ref() {
 					metrics.listeners_local_addresses.inc();
 				}
 				self.listen_addresses.lock().insert(address.clone());
 			},
 			SwarmEvent::ExpiredListenAddr { address, .. } => {
-				info!(target: "sub-libp2p", "📪 No longer listening on {}", address);
+				info!(target: LOG_TARGET, "📪 No longer listening on {}", address);
 				if let Some(metrics) = self.metrics.as_ref() {
 					metrics.listeners_local_addresses.dec();
 				}
@@ -1714,7 +1897,7 @@ where
 			SwarmEvent::OutgoingConnectionError { connection_id, peer_id, error } => {
 				if let Some(peer_id) = peer_id {
 					trace!(
-						target: "sub-libp2p",
+						target: LOG_TARGET,
 						"Libp2p => Failed to reach {peer_id:?} via {connection_id:?}: {error}",
 					);
 
@@ -1750,7 +1933,6 @@ where
 				}
 
 				if let Some(metrics) = self.metrics.as_ref() {
-					#[allow(deprecated)]
 					let reason = match error {
 						DialError::Denied { cause } =>
 							if cause.downcast::<Exceeded>().is_ok() {
@@ -1771,10 +1953,10 @@ where
 				}
 			},
 			SwarmEvent::Dialing { connection_id, peer_id } => {
-				trace!(target: "sub-libp2p", "Libp2p => Dialing({peer_id:?}) via {connection_id:?}")
+				trace!(target: LOG_TARGET, "Libp2p => Dialing({peer_id:?}) via {connection_id:?}")
 			},
 			SwarmEvent::IncomingConnection { connection_id, local_addr, send_back_addr } => {
-				trace!(target: "sub-libp2p", "Libp2p => IncomingConnection({local_addr},{send_back_addr} via {connection_id:?}))");
+				trace!(target: LOG_TARGET, "Libp2p => IncomingConnection({local_addr},{send_back_addr} via {connection_id:?}))");
 				if let Some(metrics) = self.metrics.as_ref() {
 					metrics.incoming_connections_total.inc();
 				}
@@ -1786,11 +1968,10 @@ where
 				error,
 			} => {
 				debug!(
-					target: "sub-libp2p",
+					target: LOG_TARGET,
 					"Libp2p => IncomingConnectionError({local_addr},{send_back_addr} via {connection_id:?}): {error}"
 				);
 				if let Some(metrics) = self.metrics.as_ref() {
-					#[allow(deprecated)]
 					let reason = match error {
 						ListenError::Denied { cause } =>
 							if cause.downcast::<Exceeded>().is_ok() {
@@ -1826,37 +2007,37 @@ where
 					addresses.into_iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ");
 				match reason {
 					Ok(()) => error!(
-						target: "sub-libp2p",
+						target: LOG_TARGET,
 						"📪 Libp2p listener ({}) closed gracefully",
 						addrs
 					),
 					Err(e) => error!(
-						target: "sub-libp2p",
+						target: LOG_TARGET,
 						"📪 Libp2p listener ({}) closed: {}",
 						addrs, e
 					),
 				}
 			},
 			SwarmEvent::ListenerError { error, .. } => {
-				debug!(target: "sub-libp2p", "Libp2p => ListenerError: {}", error);
+				debug!(target: LOG_TARGET, "Libp2p => ListenerError: {}", error);
 				if let Some(metrics) = self.metrics.as_ref() {
 					metrics.listeners_errors_total.inc();
 				}
 			},
 			SwarmEvent::NewExternalAddrCandidate { address } => {
-				trace!(target: "sub-libp2p", "Libp2p => NewExternalAddrCandidate: {address:?}");
+				trace!(target: LOG_TARGET, "Libp2p => NewExternalAddrCandidate: {address:?}");
 			},
 			SwarmEvent::ExternalAddrConfirmed { address } => {
-				trace!(target: "sub-libp2p", "Libp2p => ExternalAddrConfirmed: {address:?}");
+				trace!(target: LOG_TARGET, "Libp2p => ExternalAddrConfirmed: {address:?}");
 			},
 			SwarmEvent::ExternalAddrExpired { address } => {
-				trace!(target: "sub-libp2p", "Libp2p => ExternalAddrExpired: {address:?}");
+				trace!(target: LOG_TARGET, "Libp2p => ExternalAddrExpired: {address:?}");
 			},
 			SwarmEvent::NewExternalAddrOfPeer { peer_id, address } => {
-				trace!(target: "sub-libp2p", "Libp2p => NewExternalAddrOfPeer({peer_id:?}): {address:?}")
+				trace!(target: LOG_TARGET, "Libp2p => NewExternalAddrOfPeer({peer_id:?}): {address:?}")
 			},
 			event => {
-				warn!(target: "sub-libp2p", "New unknown SwarmEvent libp2p event: {event:?}");
+				warn!(target: LOG_TARGET, "New unknown SwarmEvent libp2p event: {event:?}");
 			},
 		}
 	}

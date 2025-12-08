@@ -20,45 +20,42 @@
 
 //! Signature-related code
 
-pub use libp2p_identity::SigningError;
+pub use libp2p::identity::SigningError;
 
 /// Public key.
-pub struct PublicKey(libp2p_identity::PublicKey);
+pub enum PublicKey {
+	/// Libp2p public key.
+	Libp2p(libp2p::identity::PublicKey),
+}
 
 impl PublicKey {
-	/// Create new [`PublicKey`].
-	pub fn new(public_key: libp2p_identity::PublicKey) -> Self {
-		Self(public_key)
-	}
-
 	/// Protobuf-encode [`PublicKey`].
 	pub fn encode_protobuf(&self) -> Vec<u8> {
-		self.0.encode_protobuf()
+		match self {
+			Self::Libp2p(public) => public.encode_protobuf(),
+		}
 	}
 
 	/// Get `PeerId` of the [`PublicKey`].
 	pub fn to_peer_id(&self) -> sc_network_types::PeerId {
-		self.0.to_peer_id().into()
+		match self {
+			Self::Libp2p(public) => public.to_peer_id().into(),
+		}
 	}
 }
 
 /// Keypair.
-pub struct Keypair(libp2p_identity::Keypair);
+pub enum Keypair {
+	/// Libp2p keypair.
+	Libp2p(libp2p::identity::Keypair),
+}
 
 impl Keypair {
-	/// Create new [`Keypair`].
-	pub fn new(keypair: libp2p_identity::Keypair) -> Self {
-		Self(keypair)
-	}
-
-	/// Generate Dilithium (Post-Quantum) keypair.
-	pub fn generate_dilithium() -> Self {
-		Keypair(libp2p_identity::Keypair::generate_dilithium())
-	}
-
 	/// Get [`Keypair`]'s public key.
 	pub fn public(&self) -> PublicKey {
-		PublicKey::new(self.0.public())
+		match self {
+			Keypair::Libp2p(keypair) => PublicKey::Libp2p(keypair.public()),
+		}
 	}
 }
 
@@ -84,9 +81,13 @@ impl Signature {
 		message: impl AsRef<[u8]>,
 		keypair: &Keypair,
 	) -> Result<Self, SigningError> {
-		let public_key = keypair.0.public();
-		let bytes = keypair.0.sign(message.as_ref())?;
+		match keypair {
+			Keypair::Libp2p(keypair) => {
+				let public_key = keypair.public();
+				let bytes = keypair.sign(message.as_ref())?;
 
-		Ok(Signature { public_key: PublicKey::new(public_key), bytes })
+				Ok(Signature { public_key: PublicKey::Libp2p(public_key), bytes })
+			},
+		}
 	}
 }
