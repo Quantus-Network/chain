@@ -682,6 +682,11 @@ pub struct NetworkConfiguration {
 
 	/// Networking backend used for P2P communication.
 	pub network_backend: NetworkBackendType,
+
+	/// Disable filtering of peer addresses for ephemeral ports and private IPs.
+	/// When enabled, all peer addresses are accepted without filtering.
+	/// Default: false (filtering is enabled)
+	pub disable_peer_address_filtering: bool,
 }
 
 impl NetworkConfiguration {
@@ -715,6 +720,7 @@ impl NetworkConfiguration {
 				.expect("value is a constant; constant is non-zero; qed."),
 			ipfs_server: false,
 			network_backend: NetworkBackendType::Libp2p,
+			disable_peer_address_filtering: false,
 		}
 	}
 

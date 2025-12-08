@@ -112,6 +112,28 @@ pub mod traits;
 /// Logging target for the file.
 const LOG_TARGET: &str = "sub-libp2p";
 
+/// Notify handler buffer size for Swarm configuration.
+const NOTIFY_HANDLER_BUFFER_SIZE: usize = 32;
+
+/// Per-connection event buffer size for Swarm configuration.
+/// NOTE: 24 is somewhat arbitrary and should be tuned in the future if necessary.
+/// See <https://github.com/paritytech/substrate/pull/6080>
+const PER_CONNECTION_EVENT_BUFFER_SIZE: usize = 24;
+
+/// Maximum number of negotiating inbound streams.
+/// Increased from 2048 to handle many peers simultaneously opening substreams
+/// for DHT queries, sync requests, etc. on bootnodes.
+const MAX_NEGOTIATING_INBOUND_STREAMS: usize = 16384;
+
+/// Idle connection timeout in seconds.
+const IDLE_CONNECTION_TIMEOUT_SECS: u64 = 10;
+
+/// Minimum allowed port for blockchain p2p connections.
+const MIN_P2P_PORT: u16 = 30333;
+
+/// Maximum allowed port for blockchain p2p connections.
+const MAX_P2P_PORT: u16 = 30533;
+
 struct Libp2pBandwidthSink {
 	#[allow(deprecated)]
 	sink: Arc<transport::BandwidthSinks>,
@@ -320,6 +342,9 @@ where
 		)?;
 
 		let (to_worker, from_service) = tracing_unbounded("mpsc_network_worker", 100_000);
+
+		// Store the disable_peer_address_filtering flag before network_config is moved
+		let disable_peer_address_filtering = network_config.disable_peer_address_filtering;
 
 		if let Some(path) = &network_config.net_config_path {
 			fs::create_dir_all(path)?;
@@ -538,12 +563,15 @@ where
 
 				let config = SwarmConfig::with_executor(SpawnImpl(params.executor))
 					.with_substream_upgrade_protocol_override(upgrade::Version::V1)
-					.with_notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-					// NOTE: 24 is somewhat arbitrary and should be tuned in the future if
-					// necessary. See <https://github.com/paritytech/substrate/pull/6080>
-					.with_per_connection_event_buffer_size(24)
-					.with_max_negotiating_inbound_streams(2048)
-					.with_idle_connection_timeout(Duration::from_secs(10));
+					.with_notify_handler_buffer_size(
+						NonZeroUsize::new(NOTIFY_HANDLER_BUFFER_SIZE)
+							.expect("NOTIFY_HANDLER_BUFFER_SIZE != 0; qed"),
+					)
+					.with_per_connection_event_buffer_size(PER_CONNECTION_EVENT_BUFFER_SIZE)
+					.with_max_negotiating_inbound_streams(MAX_NEGOTIATING_INBOUND_STREAMS)
+					.with_idle_connection_timeout(Duration::from_secs(
+						IDLE_CONNECTION_TIMEOUT_SECS,
+					));
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};
@@ -605,6 +633,7 @@ where
 			reported_invalid_boot_nodes: Default::default(),
 			peer_store_handle: Arc::clone(&peer_store_handle),
 			notif_protocol_handles,
+			disable_peer_address_filtering,
 			_marker: Default::default(),
 			_block: Default::default(),
 		})
@@ -1299,6 +1328,96 @@ impl<'a> NotificationSenderReadyT for NotificationSenderReady<'a> {
 	}
 }
 
+/// Filters peer addresses accepting only ports in the allowed blockchain p2p range
+/// and rejecting ephemeral ports, private IPs, and link-local addresses.
+///
+/// Uses two-tier filtering:
+/// - TIER 1 (strict): Only public IPs + ports 30333-30533
+/// - TIER 2 (relaxed): If TIER 1 returns 0 addresses, accepts private IPs but still filters ports
+///
+/// If `disable_filtering` is true, all addresses are returned without filtering.
+fn filter_peer_addresses(addrs: Vec<Multiaddr>, peer_id: &PeerId) -> Vec<Multiaddr> {
+	use multiaddr::Protocol;
+
+	let original_count = addrs.len();
+
+	// TIER 1: Strict filter (preferred ports + public IPs only)
+	// TIER 2: Relaxed filter - accept private IPs but still filter ports
+	let (strict_filtered, relaxed_filtered): (Vec<_>, Vec<_>) =
+		addrs
+			.into_iter()
+			.fold((Vec::new(), Vec::new()), |(mut strict, mut relaxed), addr| {
+				let mut has_valid_port = false;
+				let mut is_link_local = false;
+				let mut is_public = true;
+
+				for proto in addr.iter() {
+					match proto {
+						Protocol::Tcp(port) => {
+							has_valid_port = port >= MIN_P2P_PORT && port <= MAX_P2P_PORT;
+						},
+						Protocol::Ip6(ip) if ip.segments()[0] == 0xfe80 => {
+							is_link_local = true; // Link-local IPv6
+						},
+						Protocol::Ip4(ip) if ip.is_loopback() || ip.is_private() => {
+							is_public = false; // Localhost or private IPv4
+						},
+						_ => {},
+					}
+				}
+
+				let relaxed_ok = has_valid_port && !is_link_local;
+				let strict_ok = relaxed_ok && is_public;
+
+				if strict_ok {
+					strict.push(addr.clone());
+				}
+				if relaxed_ok {
+					relaxed.push(addr);
+				}
+
+				(strict, relaxed)
+			});
+
+	// ✅ If strict filter returned results - use them!
+	if !strict_filtered.is_empty() {
+		if strict_filtered.len() < original_count {
+			info!(
+				target: LOG_TARGET,
+				"Filtered {} addresses from peer {:?} ({} -> {} addresses, strict mode)",
+				original_count - strict_filtered.len(), peer_id,
+				original_count, strict_filtered.len()
+			);
+		}
+		return strict_filtered;
+	}
+
+	// ❌ Strict filter excluded EVERYTHING!
+	// Fallback to relaxed filter - accept private IPs but still filter ports
+	warn!(
+		target: LOG_TARGET,
+		"Peer {:?} has no public addresses in valid port range ({}-{}), falling back to relaxed filtering",
+		peer_id, MIN_P2P_PORT, MAX_P2P_PORT
+	);
+
+	if relaxed_filtered.is_empty() {
+		warn!(
+			target: LOG_TARGET,
+			"Peer {:?} has NO valid addresses even after relaxed filtering! All {} addresses rejected",
+			peer_id, original_count
+		);
+	} else if relaxed_filtered.len() < original_count {
+		info!(
+			target: LOG_TARGET,
+			"Filtered {} addresses from peer {:?} ({} -> {} addresses, relaxed mode)",
+			original_count - relaxed_filtered.len(), peer_id,
+			original_count, relaxed_filtered.len()
+		);
+	}
+
+	relaxed_filtered
+}
+
 /// Messages sent from the `NetworkService` to the `NetworkWorker`.
 ///
 /// Each entry corresponds to a method of `NetworkService`.
@@ -1365,6 +1484,8 @@ where
 	peer_store_handle: Arc<dyn PeerStoreProvider>,
 	/// Notification protocol handles.
 	notif_protocol_handles: Vec<protocol::ProtocolHandle>,
+	/// Disable filtering of peer addresses for ephemeral ports and private IPs.
+	disable_peer_address_filtering: bool,
 	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
 	/// compatibility.
 	_marker: PhantomData<H>,
@@ -1578,6 +1699,23 @@ where
 						protocol_version, agent_version, mut listen_addrs, protocols, ..
 					},
 			}) => {
+				// DEFENSE: Filter ephemeral ports and unreachable addresses BEFORE truncate
+				let original_count = listen_addrs.len();
+
+				listen_addrs = if !self.disable_peer_address_filtering {
+					filter_peer_addresses(listen_addrs, &peer_id)
+				} else {
+					listen_addrs
+				};
+
+				if original_count > 30 {
+					debug!(
+						target: LOG_TARGET,
+						"Node {:?} has reported {} addresses (>30 limit); it is identified by {:?} and {:?}. After filtering: {} addresses",
+						peer_id, original_count, protocol_version, agent_version, listen_addrs.len()
+					);
+				}
+
 				if listen_addrs.len() > 30 {
 					debug!(
 						target: LOG_TARGET,
@@ -1586,6 +1724,7 @@ where
 					);
 					listen_addrs.truncate(30);
 				}
+
 				for addr in listen_addrs {
 					self.network_service.behaviour_mut().add_self_reported_address_to_dht(
 						&peer_id,
