@@ -8,7 +8,6 @@ use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
 use sp_runtime::{traits::IdentityLookup, BuildStorage};
-// --- MOCK RUNTIME ---
 
 construct_runtime!(
 	pub enum Test {
@@ -32,8 +31,6 @@ pub fn account_id(id: u64) -> AccountId {
 	bytes[0..8].copy_from_slice(&id.to_le_bytes());
 	AccountId::new(bytes)
 }
-
-// --- FRAME SYSTEM ---
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -72,8 +69,6 @@ impl frame_system::Config for Test {
 	type PostTransactions = ();
 }
 
-// --- PALLET BALANCES ---
-
 parameter_types! {
 	pub const ExistentialDeposit: Balance = 1;
 }
@@ -94,8 +89,6 @@ impl pallet_balances::Config for Test {
 	type DoneSlashHandler = ();
 	type RuntimeEvent = RuntimeEvent;
 }
-
-// --- PALLET ASSETS ---
 
 impl pallet_assets::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
@@ -119,8 +112,6 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = ();
 	type Holder = ();
 }
-
-// --- PALLET WORMHOLE ---
 
 parameter_types! {
 	pub const MintingAccount: AccountId = AccountId::new([
