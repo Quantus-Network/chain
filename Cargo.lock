@@ -7062,6 +7062,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-io",
+ "sp-metadata-ir",
  "sp-runtime",
 ]
 
@@ -9099,7 +9100,6 @@ dependencies = [
 name = "quantus-node"
 version = "0.4.2"
 dependencies = [
- "async-trait",
  "clap",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
@@ -9111,7 +9111,6 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
- "primitive-types 0.13.1",
  "prometheus",
  "qp-dilithium-crypto",
  "qp-rusty-crystals-dilithium",
@@ -9151,7 +9150,6 @@ dependencies = [
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
- "tempfile",
  "tokio-util",
  "uuid",
 ]
@@ -9196,9 +9194,6 @@ dependencies = [
  "qp-dilithium-crypto",
  "qp-poseidon",
  "qp-scheduler",
- "qp-wormhole-circuit",
- "qp-wormhole-verifier",
- "qp-zk-circuits-common",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -10535,9 +10530,7 @@ dependencies = [
  "sp-arithmetic",
  "sp-blockchain",
  "sp-core",
- "sp-inherents",
  "sp-runtime",
- "sp-std",
  "substrate-prometheus-endpoint",
  "tempfile",
  "thiserror 1.0.69",

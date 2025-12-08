@@ -106,6 +106,7 @@ schnellru = { version = "0.2.3" }
 serde = { version = "1.0.214", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.132", default-features = false }
 sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
 smallvec = { version = "1.11.0", default-features = false }
 sp-keystore = { version = "0.43.0", default-features = true }
 tempfile = { version = "3.8.1" }
@@ -210,11 +211,11 @@ sp-genesis-builder = { version = "0.18.0", default-features = false }
 sp-inherents = { version = "37.0.0", default-features = false }
 sp-io = { version = "41.0.1", default-features = false }
 sp-keyring = { version = "42.0.0", default-features = false }
+sp-metadata-ir = { version = "0.11.0", default-features = false }
 sp-offchain = { version = "37.0.0", default-features = false }
 sp-panic-handler = { version = "13.0.2", default-features = true }
 sp-runtime = { version = "42.0.0", default-features = false }
 sp-session = { version = "39.0.0", default-features = false }
-sp-std = { version = "14.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-timestamp = { version = "37.0.0", default-features = false }
 sp-tracing = { version = "17.1.0", default-features = false }

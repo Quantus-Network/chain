@@ -65,10 +65,8 @@ sp-blockchain.default-features = true
 sp-blockchain.workspace = true
 sp-core.default-features = true
 sp-core.workspace = true
-sp-inherents = { workspace = true, default-features = true }
 sp-runtime.default-features = true
 sp-runtime.workspace = true
-sp-std = { workspace = true, default-features = true }
 thiserror = { workspace = true }
 tokio = { features = ["macros", "sync"], workspace = true, default-features = true }
 tokio-stream = { workspace = true }
@@ -88,6 +86,3 @@ criterion = { workspace = true, default-features = true, features = ["async_toki
 
 [build-dependencies]
 prost-build = { workspace = true }
-
-[features]
-default = []

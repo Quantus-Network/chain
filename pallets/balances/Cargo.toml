@@ -22,6 +22,7 @@ log.workspace = true
 qp-poseidon = { workspace = true, features = ["serde"] }
 qp-wormhole = { workspace = true }
 scale-info = { features = ["derive"], workspace = true }
+sp-metadata-ir = { workspace = true }
 sp-runtime.workspace = true
 
 [dev-dependencies]
@@ -46,6 +47,7 @@ std = [
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
+	"sp-metadata-ir/std",
 	"sp-runtime/std",
 ]
 # Enable support for setting the existential deposit to zero.
