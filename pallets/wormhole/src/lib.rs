@@ -38,7 +38,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Mutate, Unbalanced},
-			fungibles::{self, Inspect as FungiblesInspect},
+			fungibles::{self, Inspect as FungiblesInspect, Mutate as FungiblesMutate},
 			tokens::Preservation,
 			Currency, ExistenceRequirement, WithdrawReasons,
 		},
@@ -69,7 +69,7 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config
 	where
-		AssetIdOf<Self>: Default,
+		AssetIdOf<Self>: Default + From<u32> + Clone,
 		BalanceOf<Self>: Default,
 		AssetBalanceOf<Self>: Into<BalanceOf<Self>> + From<BalanceOf<Self>>,
 	{
@@ -225,6 +225,10 @@ pub mod pallet {
 			let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
 				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
+			// Extract asset_id from public inputs
+			let asset_id_u32 = public_inputs.asset_id;
+			let asset_id: AssetIdOf<T> = asset_id_u32.into();
+
 			// Calculate fees first
 			let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
 			let weight_fee = T::WeightToFee::weight_to_fee(&weight);
@@ -232,30 +236,49 @@ pub mod pallet {
 			let volume_fee = volume_fee_perbill * exit_balance;
 			let total_fee = weight_fee.saturating_add(volume_fee);
 
-			// Mint tokens to the exit account
-			// This does not affect total issuance and does not create an imbalance
-			<T::Currency as Unbalanced<_>>::increase_balance(
-				&exit_account,
-				exit_balance,
-				frame_support::traits::tokens::Precision::Exact,
-			)?;
-
-			// Withdraw fee from exit account if fees are non-zero
-			// This creates a negative imbalance that will be handled by the transaction payment
-			// pallet
-			if !total_fee.is_zero() {
-				let _fee_imbalance = T::Currency::withdraw(
+			// Handle native (asset_id = 0) or asset transfers
+			if asset_id == AssetIdOf::<T>::default() {
+				// Native token transfer
+				// Mint tokens to the exit account
+				// This does not affect total issuance and does not create an imbalance
+				<T::Currency as Unbalanced<_>>::increase_balance(
 					&exit_account,
-					total_fee,
-					WithdrawReasons::TRANSACTION_PAYMENT,
-					ExistenceRequirement::KeepAlive,
+					exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
 				)?;
+
+				// Withdraw fee from exit account if fees are non-zero
+				// This creates a negative imbalance that will be handled by the transaction payment
+				// pallet
+				if !total_fee.is_zero() {
+					let _fee_imbalance = T::Currency::withdraw(
+						&exit_account,
+						total_fee,
+						WithdrawReasons::TRANSACTION_PAYMENT,
+						ExistenceRequirement::KeepAlive,
+					)?;
+				}
+			} else {
+				// Asset transfer
+				let asset_balance: AssetBalanceOf<T> = exit_balance.into();
+				<T::Assets as FungiblesMutate<_>>::mint_into(asset_id.clone(), &exit_account, asset_balance)?;
+
+				// For assets, we still need to charge fees in native currency
+				// The exit account must have enough native balance to pay fees
+				if !total_fee.is_zero() {
+					let _fee_imbalance = T::Currency::withdraw(
+						&exit_account,
+						total_fee,
+						WithdrawReasons::TRANSACTION_PAYMENT,
+						ExistenceRequirement::AllowDeath,
+					)?;
+				}
 			}
 
 			// Create a transfer proof for the minted tokens
 			let mint_account = T::MintingAccount::get();
 			Self::record_transfer(
-				AssetIdOf::<T>::default(),
+				asset_id,
 				mint_account,
 				exit_account,
 				exit_balance,

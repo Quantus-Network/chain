@@ -122,10 +122,10 @@ mod wormhole_tests {
 		let circuit_inputs = CircuitInputs {
 			private: PrivateCircuitInputs {
 				secret,
+				storage_proof: processed_storage_proof,
 				transfer_count: event_transfer_count,
 				funding_account: BytesDigest::try_from(alice.as_ref() as &[u8])
 					.expect("account is 32 bytes"),
-				storage_proof: processed_storage_proof,
 				unspendable_account: Digest::from(unspendable_account).into(),
 				state_root: BytesDigest::try_from(state_root.as_ref())
 					.expect("state root is 32 bytes"),
@@ -134,6 +134,7 @@ mod wormhole_tests {
 				digest: digest_array,
 			},
 			public: PublicCircuitInputs {
+				asset_id: 0u32,
 				funding_amount,
 				nullifier: Nullifier::from_preimage(secret, event_transfer_count).hash.into(),
 				exit_account: BytesDigest::try_from(exit_account_id.as_ref() as &[u8])
