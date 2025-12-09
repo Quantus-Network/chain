@@ -2,8 +2,13 @@
 
 extern crate alloc;
 
+use core::marker::PhantomData;
+
+use codec::{Decode, Encode, MaxEncodedLen};
+use frame_support::StorageHasher;
 use lazy_static::lazy_static;
 pub use pallet::*;
+use qp_poseidon::PoseidonHasher as PoseidonCore;
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
@@ -29,6 +34,24 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
 }
 
+pub struct PoseidonStorageHasher<T>(PhantomData<T>);
+
+impl<AccountId: Decode + Encode + MaxEncodedLen + 'static> StorageHasher
+	for PoseidonStorageHasher<AccountId>
+{
+	// We are lying here, but maybe it's ok because it's just metadata
+	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
+	type Output = [u8; 32];
+
+	fn hash(x: &[u8]) -> Self::Output {
+		PoseidonCore::hash_storage::<AccountId>(x)
+	}
+
+	fn max_len<K: MaxEncodedLen>() -> usize {
+		32
+	}
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::WeightInfo;
@@ -45,6 +68,7 @@ pub mod pallet {
 		weights::WeightToFee,
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
@@ -111,7 +135,7 @@ pub mod pallet {
 	#[pallet::getter(fn transfer_proof)]
 	pub type TransferProof<T: Config> = StorageMap<
 		_,
-		Blake2_128Concat,
+		PoseidonStorageHasher<T::AccountId>,
 		(AssetIdOf<T>, T::TransferCount, T::AccountId, T::AccountId, BalanceOf<T>), /* (asset_id, tx_count, from, to, amount) */
 		(),
 		OptionQuery,
@@ -261,7 +285,11 @@ pub mod pallet {
 			} else {
 				// Asset transfer
 				let asset_balance: AssetBalanceOf<T> = exit_balance.into();
-				<T::Assets as FungiblesMutate<_>>::mint_into(asset_id.clone(), &exit_account, asset_balance)?;
+				<T::Assets as FungiblesMutate<_>>::mint_into(
+					asset_id.clone(),
+					&exit_account,
+					asset_balance,
+				)?;
 
 				// For assets, we still need to charge fees in native currency
 				// The exit account must have enough native balance to pay fees
@@ -277,12 +305,7 @@ pub mod pallet {
 
 			// Create a transfer proof for the minted tokens
 			let mint_account = T::MintingAccount::get();
-			Self::record_transfer(
-				asset_id,
-				mint_account,
-				exit_account,
-				exit_balance,
-			)?;
+			Self::record_transfer(asset_id, mint_account, exit_account, exit_balance)?;
 
 			// Emit event
 			Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
