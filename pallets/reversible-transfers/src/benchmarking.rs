@@ -1,7 +1,5 @@
 //! Benchmarking setup for pallet-reversible-transfers
 
-#![cfg(feature = "runtime-benchmarks")]
-
 use super::*;
 
 use crate::Pallet as ReversibleTransfers; // Alias the pallet
@@ -43,9 +41,9 @@ fn setup_high_security_account<T: Config>(
 }
 
 // Helper to fund an account (requires Balances pallet in mock runtime)
-fn fund_account<T: Config>(account: &T::AccountId, amount: BalanceOf<T>)
+fn fund_account<T>(account: &T::AccountId, amount: BalanceOf<T>)
 where
-	T: pallet_balances::Config, // Add bounds for Balances
+	T: Config + pallet_balances::Config,
 {
 	let _ = <pallet_balances::Pallet<T> as Mutate<T::AccountId>>::mint_into(
         account,
