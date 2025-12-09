@@ -176,7 +176,12 @@ mod benchmarks {
 		let owner: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&owner, BalanceOf::<T>::from(10000u128)); // Fund owner
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
-		fund_account::<T>(&recipient, BalanceOf::<T>::from(1000u128)); // Fund recipient
+		// Fund recipient with minimum_balance * 100 to match assertion expectation
+		let initial_balance = <pallet_balances::Pallet<T> as frame_support::traits::Currency<
+			T::AccountId,
+		>>::minimum_balance() *
+			100_u128.into();
+		fund_account::<T>(&recipient, initial_balance);
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
 		let transfer_amount = 100u128;
 

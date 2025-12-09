@@ -111,25 +111,14 @@ jobs:
         run: |
           echo "📎 Running clippy for ${{ steps.crate-info.outputs.name }}"
           # Use --package instead of cd to avoid different dependency resolution
-          # Note: pallet-reversible-transfers uses --all-targets without --all-features
-          # due to upstream bug in pallet-revive 0.7.0 (stable2506)
-          if [[ "${{ steps.crate-info.outputs.name }}" == "pallet-reversible-transfers" ]]; then
-            SKIP_WASM_BUILD=1 cargo clippy --locked --package ${{ steps.crate-info.outputs.name }} --all-targets -- -D warnings
-          else
           SKIP_WASM_BUILD=1 cargo clippy --locked --package ${{ steps.crate-info.outputs.name }} --all-targets --all-features -- -D warnings
-          fi
 
       - name: Documentation check
         if: steps.should-run.outputs.run == 'true'
         run: |
           echo "📚 Building documentation for ${{ steps.crate-info.outputs.name }}"
           cd ${{ matrix.crate }}
-          # Note: pallet-reversible-transfers without --all-features due to pallet-revive 0.7.0 bug
-          if [[ "${{ steps.crate-info.outputs.name }}" == "pallet-reversible-transfers" ]]; then
-            SKIP_WASM_BUILD=1 cargo doc --locked --no-deps
-          else
-            SKIP_WASM_BUILD=1 cargo doc --locked --no-deps --all-features
-          fi
+          SKIP_WASM_BUILD=1 cargo doc --locked --no-deps --all-features
 
       - name: Build check
         if: steps.should-run.outputs.run == 'true'
@@ -142,12 +131,7 @@ jobs:
         run: |
           echo "🧪 Testing ${{ steps.crate-info.outputs.name }}"
           cd ${{ matrix.crate }}
-          # Note: pallet-reversible-transfers without --all-features due to pallet-revive 0.7.0 bug
-          if [[ "${{ steps.crate-info.outputs.name }}" == "pallet-reversible-transfers" ]]; then
-            SKIP_WASM_BUILD=1 cargo test --locked
-          else
-            SKIP_WASM_BUILD=1 cargo test --locked --all-features
-          fi
+          SKIP_WASM_BUILD=1 cargo test --locked --all-features
         continue-on-error: true  # Some crates might not have tests or might have test issues
 
   summary:
