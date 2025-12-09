@@ -124,7 +124,12 @@ jobs:
         run: |
           echo "📚 Building documentation for ${{ steps.crate-info.outputs.name }}"
           cd ${{ matrix.crate }}
-          SKIP_WASM_BUILD=1 cargo doc --locked --no-deps --all-features
+          # Note: pallet-reversible-transfers without --all-features due to pallet-revive 0.7.0 bug
+          if [[ "${{ steps.crate-info.outputs.name }}" == "pallet-reversible-transfers" ]]; then
+            SKIP_WASM_BUILD=1 cargo doc --locked --no-deps
+          else
+            SKIP_WASM_BUILD=1 cargo doc --locked --no-deps --all-features
+          fi
 
       - name: Build check
         if: steps.should-run.outputs.run == 'true'
@@ -137,7 +142,12 @@ jobs:
         run: |
           echo "🧪 Testing ${{ steps.crate-info.outputs.name }}"
           cd ${{ matrix.crate }}
-          SKIP_WASM_BUILD=1 cargo test --locked --all-features
+          # Note: pallet-reversible-transfers without --all-features due to pallet-revive 0.7.0 bug
+          if [[ "${{ steps.crate-info.outputs.name }}" == "pallet-reversible-transfers" ]]; then
+            SKIP_WASM_BUILD=1 cargo test --locked
+          else
+            SKIP_WASM_BUILD=1 cargo test --locked --all-features
+          fi
         continue-on-error: true  # Some crates might not have tests or might have test issues
 
   summary:
