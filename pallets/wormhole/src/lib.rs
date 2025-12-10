@@ -16,6 +16,7 @@ mod mock;
 #[cfg(test)]
 mod tests;
 pub mod weights;
+use sp_metadata_ir::StorageHasherIR;
 pub use weights::*;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -54,7 +55,7 @@ impl<AccountId: Decode + Encode + MaxEncodedLen + 'static> StorageHasher
 
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::WeightInfo;
+	use crate::{PoseidonStorageHasher, WeightInfo};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
@@ -68,7 +69,6 @@ pub mod pallet {
 		weights::WeightToFee,
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
