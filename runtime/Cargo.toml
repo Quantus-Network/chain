@@ -9,6 +9,9 @@ publish = false
 repository.workspace = true
 version = "0.4.0-misty-mountains"
 
+[lints]
+workspace = true
+
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
@@ -121,10 +124,6 @@ std = [
 	"qp-header/std",
 	"qp-poseidon/std",
 	"qp-scheduler/std",
-	"qp-wormhole-circuit/std",
-	"qp-wormhole-verifier/std",
-	"qp-wormhole/std",
-	"qp-zk-circuits-common/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",

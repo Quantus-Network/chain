@@ -64,6 +64,9 @@ use std::{
 
 pub use libp2p::request_response::{Config, InboundRequestId, OutboundRequestId};
 
+/// Logging target for the file.
+const LOG_TARGET: &str = "sub-libp2p::request-response";
+
 /// Periodically check if requests are taking too long.
 const PERIODIC_REQUEST_CHECK: Duration = Duration::from_secs(2);
 
@@ -145,9 +148,7 @@ pub enum RequestFailure {
 	NotConnected,
 	#[error("Given protocol hasn't been registered.")]
 	UnknownProtocol,
-	#[error(
-		"Remote has closed the substream before answering, thereby signaling that it considers the request as valid, but refused to answer it."
-	)]
+	#[error("Remote has closed the substream before answering, thereby signaling that it considers the request as valid, but refused to answer it.")]
 	Refused,
 	#[error("The remote replied, but the local node is no longer interested in the response.")]
 	Obsolete,
@@ -463,7 +464,7 @@ impl RequestResponsesBehaviour {
 		pending_response: oneshot::Sender<Result<(Vec<u8>, ProtocolName), RequestFailure>>,
 		connect: IfDisconnected,
 	) {
-		log::trace!(target: "sub-libp2p", "send request to {target} ({protocol_name:?}), {} bytes", request.len());
+		log::trace!(target: LOG_TARGET, "send request to {target} ({protocol_name:?}), {} bytes", request.len());
 
 		if let Some(ProtocolDetails { behaviour, .. }) =
 			self.protocols.get_mut(protocol_name.deref())
@@ -480,7 +481,7 @@ impl RequestResponsesBehaviour {
 			)
 		} else if pending_response.send(Err(RequestFailure::UnknownProtocol)).is_err() {
 			log::debug!(
-				target: "sub-libp2p",
+				target: LOG_TARGET,
 				"Unknown protocol {:?}. At the same time local \
 				 node is no longer interested in the result.",
 				protocol_name,
@@ -511,7 +512,7 @@ impl RequestResponsesBehaviour {
 			debug_assert!(prev_req_id.is_none(), "Expect request id to be unique.");
 		} else if pending_response.send(Err(RequestFailure::NotConnected)).is_err() {
 			log::debug!(
-				target: "sub-libp2p",
+				target: LOG_TARGET,
 				"Not connected to peer {:?}. At the same time local \
 				 node is no longer interested in the result.",
 				target,
@@ -601,8 +602,8 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 	}
 
 	fn on_swarm_event(&mut self, event: FromSwarm) {
-		for protocol in self.protocols.values_mut() {
-			protocol.behaviour.on_swarm_event(event);
+		for ProtocolDetails { behaviour, .. } in self.protocols.values_mut() {
+			behaviour.on_swarm_event(event);
 		}
 	}
 
@@ -614,10 +615,10 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 	) {
 		let p_name = event.0;
 		if let Some(ProtocolDetails { behaviour, .. }) = self.protocols.get_mut(p_name.as_str()) {
-			return behaviour.on_connection_handler_event(peer_id, connection_id, event.1);
+			return behaviour.on_connection_handler_event(peer_id, connection_id, event.1)
 		} else {
 			log::warn!(
-				target: "sub-libp2p",
+				target: LOG_TARGET,
 				"on_connection_handler_event: no request-response instance registered for protocol {:?}",
 				p_name
 			);
@@ -633,14 +634,14 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 						self.protocols.get(&id.protocol)
 					else {
 						log::warn!(
-							target: "sub-libp2p",
+							target: LOG_TARGET,
 							"Request {id:?} has no protocol registered.",
 						);
 
 						if let Some(response_tx) = req.response_tx.take() {
 							if response_tx.send(Err(RequestFailure::UnknownProtocol)).is_err() {
 								log::debug!(
-									target: "sub-libp2p",
+									target: LOG_TARGET,
 									"Request {id:?} has no protocol registered. At the same time local node is no longer interested in the result.",
 								);
 							}
@@ -651,14 +652,14 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 					let elapsed = req.started_at.elapsed();
 					if elapsed > *request_timeout {
 						log::debug!(
-							target: "sub-libp2p",
+							target: LOG_TARGET,
 							"Request {id:?} force detected as timeout.",
 						);
 
 						if let Some(response_tx) = req.response_tx.take() {
 							if response_tx.send(Err(RequestFailure::Network(OutboundFailure::Timeout))).is_err() {
 								log::debug!(
-									target: "sub-libp2p",
+									target: LOG_TARGET,
 									"Request {id:?} force detected as timeout. At the same time local node is no longer interested in the result.",
 								);
 							}
@@ -690,13 +691,13 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 					if let Some(ProtocolDetails { behaviour, .. }) =
 						self.protocols.get_mut(&*protocol_name)
 					{
-						log::trace!(target: "sub-libp2p", "send response to {peer} ({protocol_name:?}), {} bytes", payload.len());
+						log::trace!(target: LOG_TARGET, "send response to {peer} ({protocol_name:?}), {} bytes", payload.len());
 
 						if behaviour.send_response(inner_channel, Ok(payload)).is_err() {
 							// Note: Failure is handled further below when receiving
 							// `InboundFailure` event from request-response [`Behaviour`].
 							log::debug!(
-								target: "sub-libp2p",
+								target: LOG_TARGET,
 								"Failed to send response for {:?} on protocol {:?} due to a \
 								 timeout or due to the connection to the peer being closed. \
 								 Dropping response",
@@ -713,7 +714,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 					return Poll::Ready(ToSwarm::GenerateEvent(Event::ReputationChanges {
 						peer,
 						changes: reputation_changes,
-					}));
+					}))
 				}
 			}
 
@@ -732,11 +733,11 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 						ToSwarm::Dial { opts } => {
 							if opts.get_peer_id().is_none() {
 								log::error!(
-									target: "sub-libp2p",
+									target: LOG_TARGET,
 									"The request-response isn't supposed to start dialing addresses"
 								);
 							}
-							return Poll::Ready(ToSwarm::Dial { opts });
+							return Poll::Ready(ToSwarm::Dial { opts })
 						},
 						event => {
 							return Poll::Ready(
@@ -764,12 +765,12 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 
 							if reputation < BANNED_THRESHOLD {
 								log::debug!(
-									target: "sub-libp2p",
+									target: LOG_TARGET,
 									"Cannot handle requests from a node with a low reputation {}: {}",
 									peer,
 									reputation,
 								);
-								continue 'poll_protocol;
+								continue 'poll_protocol
 							}
 
 							let (tx, rx) = oneshot::channel();
@@ -811,7 +812,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 
 							// This `continue` makes sure that `pending_responses` gets polled
 							// after we have added the new element.
-							continue 'poll_all;
+							continue 'poll_all
 						},
 
 						// Received a response from a remote to one of our requests.
@@ -830,7 +831,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 									..
 								}) => {
 									log::trace!(
-										target: "sub-libp2p",
+										target: LOG_TARGET,
 										"received response from {peer} ({protocol:?}), {} bytes",
 										response.as_ref().map_or(0usize, |response| response.len()),
 									);
@@ -846,12 +847,12 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 								},
 								_ => {
 									log::debug!(
-										target: "sub-libp2p",
+										target: LOG_TARGET,
 										"Received `RequestResponseEvent::Message` with unexpected request id {:?} from {:?}",
 										request_id,
 										peer,
 									);
-									continue;
+									continue
 								},
 							};
 
@@ -862,7 +863,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 								result: delivered,
 							};
 
-							return Poll::Ready(ToSwarm::GenerateEvent(out));
+							return Poll::Ready(ToSwarm::GenerateEvent(out))
 						},
 
 						// One of our requests has failed.
@@ -873,7 +874,6 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 							..
 						} => {
 							let error = OutboundFailure::from(error);
-
 							let started = match self
 								.pending_requests
 								.remove(&(protocol.clone(), request_id).into())
@@ -890,7 +890,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 											fallback_request
 										{
 											log::trace!(
-												target: "sub-libp2p",
+												target: LOG_TARGET,
 												"Request with id {:?} failed. Trying the fallback protocol. {}",
 												request_id,
 												fallback_protocol.deref()
@@ -901,7 +901,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 												fallback_request,
 												response_tx,
 											));
-											continue;
+											continue
 										}
 									}
 
@@ -910,7 +910,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 										.is_err()
 									{
 										log::debug!(
-											target: "sub-libp2p",
+											target: LOG_TARGET,
 											"Request with id {:?} failed. At the same time local \
 											 node is no longer interested in the result.",
 											request_id,
@@ -920,13 +920,13 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 								},
 								_ => {
 									log::debug!(
-										target: "sub-libp2p",
+										target: LOG_TARGET,
 										"Received `RequestResponseEvent::OutboundFailure` with unexpected request id {:?} error {:?} from {:?}",
 										request_id,
 										error,
 										peer
 									);
-									continue;
+									continue
 								},
 							};
 
@@ -937,7 +937,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 								result: Err(RequestFailure::Network(error)),
 							};
 
-							return Poll::Ready(ToSwarm::GenerateEvent(out));
+							return Poll::Ready(ToSwarm::GenerateEvent(out))
 						},
 
 						// An inbound request failed, either while reading the request or due to
@@ -953,7 +953,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 								protocol: protocol.clone(),
 								result: Err(ResponseFailure::Network(error.into())),
 							};
-							return Poll::Ready(ToSwarm::GenerateEvent(out));
+							return Poll::Ready(ToSwarm::GenerateEvent(out))
 						},
 
 						// A response to an inbound request has been sent.
@@ -982,7 +982,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 								result: Ok(arrival_time),
 							};
 
-							return Poll::Ready(ToSwarm::GenerateEvent(out));
+							return Poll::Ready(ToSwarm::GenerateEvent(out))
 						},
 					};
 				}
@@ -1007,7 +1007,7 @@ impl NetworkBehaviour for RequestResponsesBehaviour {
 				}
 			}
 
-			break Poll::Pending;
+			break Poll::Pending
 		}
 	}
 }
@@ -1059,7 +1059,7 @@ impl Codec for GenericCodec {
 			return Err(io::Error::new(
 				io::ErrorKind::InvalidInput,
 				format!("Request size exceeds limit: {} > {}", length, self.max_request_size),
-			));
+			))
 		}
 
 		// Read the payload.
@@ -1094,7 +1094,7 @@ impl Codec for GenericCodec {
 			return Err(io::Error::new(
 				io::ErrorKind::InvalidInput,
 				format!("Response size exceeds limit: {} > {}", length, self.max_response_size),
-			));
+			))
 		}
 
 		// Read the payload.
@@ -1285,7 +1285,7 @@ mod tests {
 				},
 				SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
 					result.unwrap();
-					break;
+					break
 				},
 				_ => {},
 			}
@@ -1297,103 +1297,105 @@ mod tests {
 		);
 	}
 
-	// #[tokio::test]
-	// async fn max_response_size_exceeded() {
-	//     let protocol_name = ProtocolName::from("/test/req-resp/1");
+	#[tokio::test]
+	async fn max_response_size_exceeded() {
+		let protocol_name = ProtocolName::from("/test/req-resp/1");
 
-	//     // Build swarms whose behaviour is [`RequestResponsesBehaviour`].
-	//     let mut swarms = (0..2)
-	//         .map(|_| {
-	//             let (tx, mut rx) = async_channel::bounded::<IncomingRequest>(64);
+		// Build swarms whose behaviour is [`RequestResponsesBehaviour`].
+		let mut swarms = (0..2)
+			.map(|_| {
+				let (tx, mut rx) = async_channel::bounded::<IncomingRequest>(64);
 
-	//             tokio::spawn(async move {
-	//                 while let Some(rq) = rx.next().await {
-	//                     assert_eq!(rq.payload, b"this is a request");
-	//                     let _ = rq.pending_response.send(super::OutgoingResponse {
-	//                         result: Ok(b"this response exceeds the limit".to_vec()),
-	//                         reputation_changes: Vec::new(),
-	//                         sent_feedback: None,
-	//                     });
-	//                 }
-	//             });
+				tokio::spawn(async move {
+					while let Some(rq) = rx.next().await {
+						assert_eq!(rq.payload, b"this is a request");
+						let _ = rq.pending_response.send(super::OutgoingResponse {
+							result: Ok(b"this response exceeds the limit".to_vec()),
+							reputation_changes: Vec::new(),
+							sent_feedback: None,
+						});
+					}
+				});
 
-	//             let protocol_config = ProtocolConfig {
-	//                 name: protocol_name.clone(),
-	//                 fallback_names: Vec::new(),
-	//                 max_request_size: 1024,
-	//                 max_response_size: 8, // <-- important for the test
-	//                 request_timeout: Duration::from_secs(30),
-	//                 inbound_queue: Some(tx),
-	//             };
+				let protocol_config = ProtocolConfig {
+					name: protocol_name.clone(),
+					fallback_names: Vec::new(),
+					max_request_size: 1024,
+					max_response_size: 8, // <-- important for the test
+					request_timeout: Duration::from_secs(30),
+					inbound_queue: Some(tx),
+				};
 
-	//             build_swarm(iter::once(protocol_config))
-	//         })
-	//         .collect::<Vec<_>>();
+				build_swarm(iter::once(protocol_config))
+			})
+			.collect::<Vec<_>>();
 
-	//     // Ask `swarm[0]` to dial `swarm[1]`. There isn't any discovery mechanism in place in
-	//     // this test, so they wouldn't connect to each other.
-	//     {
-	//         let dial_addr = swarms[1].1.clone();
-	//         Swarm::dial(&mut swarms[0].0, dial_addr).unwrap();
-	//     }
+		// Ask `swarm[0]` to dial `swarm[1]`. There isn't any discovery mechanism in place in
+		// this test, so they wouldn't connect to each other.
+		{
+			let dial_addr = swarms[1].1.clone();
+			Swarm::dial(&mut swarms[0].0, dial_addr).unwrap();
+		}
 
-	//     // Running `swarm[0]` in the background until a `InboundRequest` event happens,
-	//     // which is a hint about the test having ended.
-	//     let (mut swarm, _) = swarms.remove(0);
-	//     tokio::spawn(async move {
-	//         loop {
-	//             match swarm.select_next_some().await {
-	//                 SwarmEvent::Behaviour(Event::InboundRequest { result, .. }) => {
-	//                     assert!(result.is_ok());
-	//                     break;
-	//                 }
-	//                 _ => {}
-	//             }
-	//         }
-	//     });
+		// Running `swarm[0]` in the background until a `InboundRequest` event happens,
+		// which is a hint about the test having ended.
+		let (mut swarm, _) = swarms.remove(0);
+		tokio::spawn(async move {
+			loop {
+				match swarm.select_next_some().await {
+					SwarmEvent::Behaviour(Event::InboundRequest { result, .. }) => {
+						assert!(result.is_ok());
+					},
+					SwarmEvent::ConnectionClosed { .. } => {
+						break;
+					},
+					_ => {},
+				}
+			}
+		});
 
-	//     // Remove and run the remaining swarm.
-	//     let (mut swarm, _) = swarms.remove(0);
+		// Remove and run the remaining swarm.
+		let (mut swarm, _) = swarms.remove(0);
 
-	//     let mut response_receiver = None;
+		let mut response_receiver = None;
 
-	//     loop {
-	//         match swarm.select_next_some().await {
-	//             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-	//                 let (sender, receiver) = oneshot::channel();
-	//                 swarm.behaviour_mut().send_request(
-	//                     &peer_id,
-	//                     protocol_name.clone(),
-	//                     b"this is a request".to_vec(),
-	//                     None,
-	//                     sender,
-	//                     IfDisconnected::ImmediateError,
-	//                 );
-	//                 assert!(response_receiver.is_none());
-	//                 response_receiver = Some(receiver);
-	//             }
-	//             SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
-	//                 assert!(result.is_err());
-	//                 break;
-	//             }
-	//             _ => {}
-	//         }
-	//     }
+		loop {
+			match swarm.select_next_some().await {
+				SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+					let (sender, receiver) = oneshot::channel();
+					swarm.behaviour_mut().send_request(
+						&peer_id,
+						protocol_name.clone(),
+						b"this is a request".to_vec(),
+						None,
+						sender,
+						IfDisconnected::ImmediateError,
+					);
+					assert!(response_receiver.is_none());
+					response_receiver = Some(receiver);
+				},
+				SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
+					assert!(result.is_err());
+					break
+				},
+				_ => {},
+			}
+		}
 
-	//     match response_receiver.unwrap().await.unwrap().unwrap_err() {
-	//         RequestFailure::Network(OutboundFailure::ConnectionClosed) => {}
-	//         request_failure => panic!("Unexpected failure: {request_failure:?}"),
-	//     }
-	// }
+		match response_receiver.unwrap().await.unwrap().unwrap_err() {
+			RequestFailure::Network(OutboundFailure::Io(_)) => {},
+			request_failure => panic!("Unexpected failure: {request_failure:?}"),
+		}
+	}
 
-	/// A [`RequestId`] is a unique identifier among either all inbound or all outbound requests for
+	/// A `RequestId` is a unique identifier among either all inbound or all outbound requests for
 	/// a single [`RequestResponsesBehaviour`] behaviour. It is not guaranteed to be unique across
-	/// multiple [`RequestResponsesBehaviour`] behaviours. Thus when handling [`RequestId`] in the
+	/// multiple [`RequestResponsesBehaviour`] behaviours. Thus, when handling `RequestId` in the
 	/// context of multiple [`RequestResponsesBehaviour`] behaviours, one needs to couple the
-	/// protocol name with the [`RequestId`] to get a unique request identifier.
+	/// protocol name with the `RequestId` to get a unique request identifier.
 	///
 	/// This test ensures that two requests on different protocols can be handled concurrently
-	/// without a [`RequestId`] collision.
+	/// without a `RequestId` collision.
 	///
 	/// See [`ProtocolRequestId`] for additional information.
 	#[tokio::test]
@@ -1529,7 +1531,7 @@ mod tests {
 					num_responses += 1;
 					result.unwrap();
 					if num_responses == 2 {
-						break;
+						break
 					}
 				},
 				_ => {},
@@ -1665,7 +1667,7 @@ mod tests {
 				},
 				SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
 					result.unwrap();
-					break;
+					break
 				},
 				_ => {},
 			}
@@ -1694,7 +1696,7 @@ mod tests {
 			match swarm.select_next_some().await {
 				SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
 					result.unwrap();
-					break;
+					break
 				},
 				_ => {},
 			}
@@ -1723,7 +1725,7 @@ mod tests {
 						result.unwrap_err(),
 						RequestFailure::Network(OutboundFailure::UnsupportedProtocols)
 					);
-					break;
+					break
 				},
 				_ => {},
 			}
@@ -1743,7 +1745,7 @@ mod tests {
 			match swarm.select_next_some().await {
 				SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
 					result.unwrap();
-					break;
+					break
 				},
 				_ => {},
 			}
@@ -1886,7 +1888,7 @@ mod tests {
 				},
 				SwarmEvent::Behaviour(Event::RequestFinished { result, .. }) => {
 					assert!(result.is_err());
-					break;
+					break
 				},
 				_ => {},
 			}

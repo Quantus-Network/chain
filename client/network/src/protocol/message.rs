@@ -33,9 +33,9 @@ pub struct RemoteCallResponse {
 	pub proof: StorageProof,
 }
 
+/// Remote read response.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 #[allow(dead_code)]
-/// Remote read response.
 pub struct RemoteReadResponse {
 	/// Id of a request this response was made for.
 	pub id: RequestId,
@@ -138,9 +138,9 @@ pub mod generic {
 		}
 	}
 
+	/// Remote call request.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote call request.
 	pub struct RemoteCallRequest<H> {
 		/// Unique request id.
 		pub id: RequestId,
@@ -152,9 +152,9 @@ pub mod generic {
 		pub data: Vec<u8>,
 	}
 
+	/// Remote storage read request.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote storage read request.
 	pub struct RemoteReadRequest<H> {
 		/// Unique request id.
 		pub id: RequestId,
@@ -164,9 +164,9 @@ pub mod generic {
 		pub keys: Vec<Vec<u8>>,
 	}
 
+	/// Remote storage read child request.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote storage read child request.
 	pub struct RemoteReadChildRequest<H> {
 		/// Unique request id.
 		pub id: RequestId,
@@ -178,9 +178,9 @@ pub mod generic {
 		pub keys: Vec<Vec<u8>>,
 	}
 
+	/// Remote header request.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote header request.
 	pub struct RemoteHeaderRequest<N> {
 		/// Unique request id.
 		pub id: RequestId,
@@ -188,9 +188,9 @@ pub mod generic {
 		pub block: N,
 	}
 
+	/// Remote header response.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote header response.
 	pub struct RemoteHeaderResponse<Header> {
 		/// Id of a request this response was made for.
 		pub id: RequestId,
@@ -200,9 +200,9 @@ pub mod generic {
 		pub proof: StorageProof,
 	}
 
+	/// Remote changes request.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote changes request.
 	pub struct RemoteChangesRequest<H> {
 		/// Unique request id.
 		pub id: RequestId,
@@ -221,9 +221,9 @@ pub mod generic {
 		pub key: Vec<u8>,
 	}
 
+	/// Remote changes response.
 	#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
 	#[allow(dead_code)]
-	/// Remote changes response.
 	pub struct RemoteChangesResponse<N, H> {
 		/// Id of a request this response was made for.
 		pub id: RequestId,

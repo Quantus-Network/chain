@@ -1,7 +1,6 @@
 use crate as pallet_mining_rewards;
 use codec::Encode;
 use frame_support::{
-	__private::sp_io,
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 	PalletId,
