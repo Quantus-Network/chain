@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::tests::mock::*; // Import mock runtime and types
 use crate::*; // Import items from parent module (lib.rs)
 use frame_support::{
@@ -1029,11 +1027,10 @@ fn full_flow_cancel_prevents_execution() {
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance + amount);
 
 		// No events were emitted
-		let expected_event_pattern = |e: &RuntimeEvent| match e {
-			RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
-				tx_id: tid, ..
-			}) if *tid == tx_id => true,
-			_ => false,
+		let expected_event_pattern = |e: &RuntimeEvent| {
+			matches!(e, RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
+			tx_id: tid, ..
+		}) if *tid == tx_id)
 		};
 		assert!(
 			!System::events().iter().any(|rec| expected_event_pattern(&rec.event)),
@@ -1107,11 +1104,10 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 		let interceptor_balance = Balances::free_balance(interceptor_255());
 		assert_eq!(interceptor_balance, amount); // interceptor started with 0, now has the cancelled amount
 
-		let expected_event_pattern = |e: &RuntimeEvent| match e {
-			RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
-				tx_id: tid, ..
-			}) if *tid == tx_id => true,
-			_ => false,
+		let expected_event_pattern = |e: &RuntimeEvent| {
+			matches!(e, RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
+			tx_id: tid, ..
+		}) if *tid == tx_id)
 		};
 		assert!(
 			!System::events().iter().any(|rec| expected_event_pattern(&rec.event)),

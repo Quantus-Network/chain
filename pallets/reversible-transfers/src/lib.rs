@@ -27,7 +27,10 @@ pub use weights::WeightInfo;
 use alloc::vec::Vec;
 use frame_support::{
 	pallet_prelude::*,
-	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+	traits::{
+		tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
+		Bounded,
+	},
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
@@ -80,6 +83,12 @@ type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldRea
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
 
+type PendingTransferOf<T> = PendingTransfer<
+	<T as frame_system::Config>::AccountId,
+	BalanceOf<T>,
+	Bounded<RuntimeCallOf<T>, <T as frame_system::Config>::Hashing>,
+>;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -87,7 +96,7 @@ pub mod pallet {
 	use frame_support::{
 		dispatch::PostDispatchInfo,
 		traits::{
-			fungible::MutateHold, schedule::v3::TaskName, tokens::Precision, Bounded, CallerTrait,
+			fungible::MutateHold, schedule::v3::TaskName, tokens::Precision, CallerTrait,
 			QueryPreimage, StorePreimage, Time,
 		},
 		PalletId,
@@ -204,13 +213,8 @@ pub mod pallet {
 	/// Keyed by the unique transaction ID.
 	#[pallet::storage]
 	#[pallet::getter(fn pending_dispatches)]
-	pub type PendingTransfers<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::Hash,
-		PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<RuntimeCallOf<T>, T::Hashing>>,
-		OptionQuery,
-	>;
+	pub type PendingTransfers<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::Hash, PendingTransferOf<T>, OptionQuery>;
 
 	/// Indexes pending transaction IDs per account for efficient lookup and cancellation.
 	/// Also enforces the maximum pending transactions limit per account.
@@ -328,11 +332,7 @@ pub mod pallet {
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T>
-	where
-		T: pallet_balances::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>
-			+ pallet_assets_holder::Config<RuntimeHoldReason = <T as Config>::RuntimeHoldReason>,
-	{
+	impl<T: Config> Pallet<T> {
 		/// Enable high-security for the calling account with a specified
 		/// reversibility delay.
 		///
@@ -408,6 +408,7 @@ pub mod pallet {
 		/// - `tx_id`: The unique id of the transaction to finalize and dispatch.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::execute_transfer())]
+		#[allow(clippy::useless_conversion)]
 		pub fn execute_transfer(
 			origin: OriginFor<T>,
 			tx_id: T::Hash,
@@ -544,11 +545,7 @@ pub mod pallet {
 		}
 
 		/// Get full details of a pending transfer by its ID
-		pub fn get_pending_transfer_details(
-			tx_id: &T::Hash,
-		) -> Option<
-			PendingTransfer<T::AccountId, BalanceOf<T>, Bounded<RuntimeCallOf<T>, T::Hashing>>,
-		> {
+		pub fn get_pending_transfer_details(tx_id: &T::Hash) -> Option<PendingTransferOf<T>> {
 			PendingTransfers::<T>::get(tx_id)
 		}
 
@@ -577,29 +574,26 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
 			// If this is an assets transfer, release the held amount before dispatch
-			if let Ok(assets_call) = call.clone().try_into() {
-				if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-					let reason = Self::asset_hold_reason();
-					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
-						id.into(),
-						&reason,
-						&pending.from,
-						pending.amount,
-						Precision::Exact,
-					);
-				}
+			if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) = call.clone().try_into()
+			{
+				let reason = Self::asset_hold_reason();
+				let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
+					id.into(),
+					&reason,
+					&pending.from,
+					pending.amount,
+					Precision::Exact,
+				);
 			}
 
 			// Release the funds only for native balances holds
-			if let Ok(balance_call) = call.clone().try_into() {
-				if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
-					pallet_balances::Pallet::<T>::release(
-						&HoldReason::ScheduledTransfer.into(),
-						&pending.from,
-						pending.amount,
-						Precision::Exact,
-					)?;
-				}
+			if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) = call.clone().try_into() {
+				pallet_balances::Pallet::<T>::release(
+					&HoldReason::ScheduledTransfer.into(),
+					&pending.from,
+					pending.amount,
+					Precision::Exact,
+				)?;
 			}
 
 			// Remove transfer from all storage (handles indexes, account count, etc.)
@@ -627,11 +621,7 @@ pub mod pallet {
 			sender: &T::AccountId,
 			recipient: &T::AccountId,
 			tx_id: T::Hash,
-			pending_transfer: PendingTransfer<
-				T::AccountId,
-				BalanceOf<T>,
-				Bounded<RuntimeCallOf<T>, T::Hashing>,
-			>,
+			pending_transfer: PendingTransferOf<T>,
 		) -> DispatchResult {
 			// Store the pending transfer
 			PendingTransfers::<T>::insert(tx_id, pending_transfer);
@@ -658,11 +648,7 @@ pub mod pallet {
 		fn transfer_removed(
 			sender: &T::AccountId,
 			tx_id: T::Hash,
-			pending_transfer: &PendingTransfer<
-				T::AccountId,
-				BalanceOf<T>,
-				Bounded<RuntimeCallOf<T>, T::Hashing>,
-			>,
+			pending_transfer: &PendingTransferOf<T>,
 		) {
 			// Update account pending count (always decrement for each removed instance)
 			AccountPendingIndex::<T>::mutate(sender, |count| {
@@ -853,62 +839,60 @@ pub mod pallet {
 			// For native balances, transfer held funds to treasury (fee) and interceptor
 			// (remaining)
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
-				if let Ok(assets_call) = call.clone().try_into() {
-					if let pallet_assets::Call::transfer_keep_alive { id, .. } = assets_call {
-						let reason = Self::asset_hold_reason();
-						let asset_id = id.into();
+				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
+					call.clone().try_into()
+				{
+					let reason = Self::asset_hold_reason();
+					let asset_id = id.into();
 
-						// Transfer fee to treasury if fee_amount > 0
-						let _ =
-							<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-								asset_id.clone(),
-								&reason,
-								&pending.from,
-								&treasury_account,
-								fee_amount,
-								Precision::Exact,
-								Restriction::Free,
-								Fortitude::Polite,
-							)?;
+					// Transfer fee to treasury if fee_amount > 0
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+						asset_id.clone(),
+						&reason,
+						&pending.from,
+						&treasury_account,
+						fee_amount,
+						Precision::Exact,
+						Restriction::Free,
+						Fortitude::Polite,
+					)?;
 
-						// Transfer remaining amount to interceptor
-						let _ =
-							<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-								asset_id,
-								&reason,
-								&pending.from,
-								&interceptor,
-								remaining_amount,
-								Precision::Exact,
-								Restriction::Free,
-								Fortitude::Polite,
-							)?;
-					}
+					// Transfer remaining amount to interceptor
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+						asset_id,
+						&reason,
+						&pending.from,
+						&interceptor,
+						remaining_amount,
+						Precision::Exact,
+						Restriction::Free,
+						Fortitude::Polite,
+					)?;
 				}
-				if let Ok(balance_call) = call.clone().try_into() {
-					if let pallet_balances::Call::transfer_keep_alive { .. } = balance_call {
-						// Transfer fee to treasury
-						pallet_balances::Pallet::<T>::transfer_on_hold(
-							&HoldReason::ScheduledTransfer.into(),
-							&pending.from,
-							&treasury_account,
-							fee_amount,
-							Precision::Exact,
-							Restriction::Free,
-							Fortitude::Polite,
-						)?;
+				if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
+					call.clone().try_into()
+				{
+					// Transfer fee to treasury
+					pallet_balances::Pallet::<T>::transfer_on_hold(
+						&HoldReason::ScheduledTransfer.into(),
+						&pending.from,
+						&treasury_account,
+						fee_amount,
+						Precision::Exact,
+						Restriction::Free,
+						Fortitude::Polite,
+					)?;
 
-						// Transfer remaining amount to interceptor
-						pallet_balances::Pallet::<T>::transfer_on_hold(
-							&HoldReason::ScheduledTransfer.into(),
-							&pending.from,
-							&interceptor,
-							remaining_amount,
-							Precision::Exact,
-							Restriction::Free,
-							Fortitude::Polite,
-						)?;
-					}
+					// Transfer remaining amount to interceptor
+					pallet_balances::Pallet::<T>::transfer_on_hold(
+						&HoldReason::ScheduledTransfer.into(),
+						&pending.from,
+						&interceptor,
+						remaining_amount,
+						Precision::Exact,
+						Restriction::Free,
+						Fortitude::Polite,
+					)?;
 				}
 			}
 

@@ -1,7 +1,5 @@
 //! Benchmarking setup for pallet-reversible-transfers
 
-#![cfg(feature = "runtime-benchmarks")]
-
 use super::*;
 
 use crate::Pallet as ReversibleTransfers; // Alias the pallet
@@ -43,9 +41,9 @@ fn setup_high_security_account<T: Config>(
 }
 
 // Helper to fund an account (requires Balances pallet in mock runtime)
-fn fund_account<T: Config>(account: &T::AccountId, amount: BalanceOf<T>)
+fn fund_account<T>(account: &T::AccountId, amount: BalanceOf<T>)
 where
-	T: pallet_balances::Config, // Add bounds for Balances
+	T: Config + pallet_balances::Config,
 {
 	let _ = <pallet_balances::Pallet<T> as Mutate<T::AccountId>>::mint_into(
         account,
@@ -77,7 +75,7 @@ mod benchmarks {
 	#[benchmark]
 	fn set_high_security() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
+		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
 		let interceptor: T::AccountId = benchmark_account("interceptor", 0, SEED);
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
@@ -95,7 +93,7 @@ mod benchmarks {
 	#[benchmark]
 	fn schedule_transfer() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
+		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
 		let transfer_amount = 100u128;
@@ -131,8 +129,8 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
 
-		fund_account::<T>(&caller, BalanceOf::<T>::from(1000u128));
-		fund_account::<T>(&interceptor, BalanceOf::<T>::from(1000u128));
+		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
+		fund_account::<T>(&interceptor, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 		let transfer_amount = 100u128;
 
@@ -174,9 +172,14 @@ mod benchmarks {
 	#[benchmark]
 	fn execute_transfer() -> Result<(), BenchmarkError> {
 		let owner: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&owner, BalanceOf::<T>::from(200u128)); // Fund owner
+		fund_account::<T>(&owner, BalanceOf::<T>::from(10000u128)); // Fund owner
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
-		fund_account::<T>(&recipient, BalanceOf::<T>::from(100u128)); // Fund recipient
+		// Fund recipient with minimum_balance * 100 to match assertion expectation
+		let initial_balance = <pallet_balances::Pallet<T> as frame_support::traits::Currency<
+			T::AccountId,
+		>>::minimum_balance() *
+			100_u128.into();
+		fund_account::<T>(&recipient, initial_balance);
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
 		let transfer_amount = 100u128;
 
