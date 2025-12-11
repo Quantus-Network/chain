@@ -85,6 +85,9 @@ pub fn dirac_chain_spec() -> Result<ChainSpec, String> {
 		"/dns/a2-p2p-dirac.quantus.cat/tcp/30333/p2p/QmV2q5givrE3Dxhu7Fv21MkZ5T3CdFWnmxt8ktweRYJ9AE"
 			.parse()
 			.unwrap(),
+		"/ip4/72.61.118.55/tcp/30333/p2p/QmXkZyXejhpJ6FG9sPG2CYtpyvtpgADKLY5k24jY8DQYwh"
+			.parse()
+			.unwrap(),
 	];
 
 	Ok(ChainSpec::builder(WASM_BINARY.ok_or_else(|| "Dirac wasm not available".to_string())?, None)

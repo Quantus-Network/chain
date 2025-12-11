@@ -4,7 +4,8 @@
   "chainType": "Live",
   "bootNodes": [
     "/dns/a1-p2p-dirac.quantus.cat/tcp/30333/p2p/QmUpQe7KmRW9WiKamEJm1ocJjx38x5TECTtgcvvhAovebA",
-    "/dns/a2-p2p-dirac.quantus.cat/tcp/30333/p2p/QmV2q5givrE3Dxhu7Fv21MkZ5T3CdFWnmxt8ktweRYJ9AE"
+    "/dns/a2-p2p-dirac.quantus.cat/tcp/30333/p2p/QmV2q5givrE3Dxhu7Fv21MkZ5T3CdFWnmxt8ktweRYJ9AE",
+    "/ip4/72.61.118.55/tcp/30333/p2p/QmXkZyXejhpJ6FG9sPG2CYtpyvtpgADKLY5k24jY8DQYwh"
   ],
   "telemetryEndpoints": [
     [
