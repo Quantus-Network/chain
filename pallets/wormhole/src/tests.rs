@@ -30,7 +30,6 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	#[ignore = "Circuit needs to be updated to support asset_id in storage format (92 bytes vs 88 bytes)"]
 	fn test_wormhole_transfer_proof_generation() {
 		let alice = account_id(1);
 		let secret: BytesDigest = [1u8; 32].try_into().expect("valid secret");
