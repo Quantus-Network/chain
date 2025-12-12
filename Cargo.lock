@@ -957,28 +957,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-stream"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
-dependencies = [
- "async-stream-impl",
- "futures-core",
- "pin-project-lite 0.2.16",
-]
-
-[[package]]
-name = "async-stream-impl"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.110",
-]
-
-[[package]]
 name = "async-task"
 version = "4.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7120,6 +7098,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-io",
+ "sp-metadata-ir",
  "sp-runtime",
 ]
 
@@ -9212,9 +9191,8 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
- "async-trait",
  "clap",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
@@ -9226,7 +9204,6 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
- "primitive-types 0.13.1",
  "prometheus",
  "qp-dilithium-crypto",
  "qp-rusty-crystals-dilithium",
@@ -9266,14 +9243,13 @@ dependencies = [
  "sp-timestamp",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
- "tempfile",
  "tokio-util",
  "uuid",
 ]
 
 [[package]]
 name = "quantus-runtime"
-version = "0.4.0-misty-mountains"
+version = "0.4.3-teletubbies-hill"
 dependencies = [
  "env_logger 0.11.8",
  "frame-benchmarking",
@@ -9313,9 +9289,6 @@ dependencies = [
  "qp-header",
  "qp-poseidon",
  "qp-scheduler",
- "qp-wormhole-circuit",
- "qp-wormhole-verifier",
- "qp-zk-circuits-common",
  "scale-info",
  "serde_json",
  "sp-api",
@@ -10627,7 +10600,6 @@ dependencies = [
  "prost 0.12.6",
  "prost-build",
  "rand 0.8.5",
- "sc-block-builder",
  "sc-client-api",
  "sc-network-common",
  "sc-network-types",
@@ -10638,18 +10610,13 @@ dependencies = [
  "smallvec",
  "sp-arithmetic",
  "sp-blockchain",
- "sp-consensus",
  "sp-core",
- "sp-crypto-hashing",
- "sp-inherents",
  "sp-runtime",
- "sp-std",
  "substrate-prometheus-endpoint",
  "tempfile",
  "thiserror 1.0.69",
  "tokio 1.48.0",
  "tokio-stream",
- "tokio-test",
  "tokio-util",
  "unsigned-varint 0.7.2",
  "void",
@@ -13702,19 +13669,6 @@ dependencies = [
  "pin-project-lite 0.2.16",
  "tokio 1.48.0",
  "tokio-util",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
-dependencies = [
- "async-stream",
- "bytes 1.11.0",
- "futures-core",
- "tokio 1.48.0",
- "tokio-stream",
 ]
 
 [[package]]

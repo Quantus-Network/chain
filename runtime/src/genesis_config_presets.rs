@@ -15,6 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// this module is used by the client, so it's ok to panic/unwrap here
+#![allow(clippy::expect_used)]
+
 use crate::{
 	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
 };

@@ -4,11 +4,10 @@ mod worker;
 pub use chain_management::{ChainManagement, HeaviestChain};
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
-use sp_api::{ProvideRuntimeApi, __private::BlockT};
+use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
-use sp_core::ByteArray;
-use sp_runtime::{generic::BlockId, AccountId32};
+use sp_runtime::{generic::BlockId, traits::Block as BlockT, AccountId32};
 use std::{sync::Arc, time::Duration};
 
 use crate::worker::UntilImportedOrTimeout;
@@ -25,6 +24,7 @@ use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
 use sp_consensus_pow::POW_ENGINE_ID;
+use sp_core::ByteArray;
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
@@ -93,7 +93,7 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 }
 
 /// A block importer for PoW.
-pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP> {
+pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP, const LOGGING_FREQUENCY: u64> {
 	inner: I,
 	select_chain: S,
 	client: Arc<C>,
@@ -101,8 +101,14 @@ pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP> {
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
 }
 
-impl<B: BlockT<Hash = H256>, I: Clone, C: ProvideRuntimeApi<B>, S: Clone, CIDP> Clone
-	for PowBlockImport<B, I, C, S, CIDP>
+impl<
+		B: BlockT<Hash = H256>,
+		I: Clone,
+		C: ProvideRuntimeApi<B>,
+		S: Clone,
+		CIDP,
+		const LOGGING_FREQUENCY: u64,
+	> Clone for PowBlockImport<B, I, C, S, CIDP, LOGGING_FREQUENCY>
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -115,7 +121,8 @@ impl<B: BlockT<Hash = H256>, I: Clone, C: ProvideRuntimeApi<B>, S: Clone, CIDP> 
 	}
 }
 
-impl<B, I, C, S, CIDP> PowBlockImport<B, I, C, S, CIDP>
+impl<B, I, C, S, CIDP, const LOGGING_FREQUENCY: u64>
+	PowBlockImport<B, I, C, S, CIDP, LOGGING_FREQUENCY>
 where
 	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
@@ -184,7 +191,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<B, I, C, S, CIDP> BlockImport<B> for PowBlockImport<B, I, C, S, CIDP>
+impl<B, I, C, S, CIDP, const LOGGING_FREQUENCY: u64> BlockImport<B>
+	for PowBlockImport<B, I, C, S, CIDP, LOGGING_FREQUENCY>
 where
 	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
@@ -248,6 +256,29 @@ where
 		// Use default fork choice if not provided; avoid aux total difficulty bookkeeping
 		if block.fork_choice.is_none() {
 			block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
+		}
+
+		// Log block import progress every LOGGING_FREQUENCY blocks
+		let block_number = block.header.number();
+		let block_number_u64: u64 = (*block_number).try_into().unwrap_or(0);
+		if block_number_u64 % LOGGING_FREQUENCY == 0 {
+			log::info!(
+				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number_u64.saturating_sub(LOGGING_FREQUENCY),
+				block_number,
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		} else {
+			log::debug!(
+				target: "qpow",
+				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number,
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
 		}
 
 		self.inner.import_block(block).await.map_err(Into::into)

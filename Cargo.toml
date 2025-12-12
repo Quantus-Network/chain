@@ -32,6 +32,14 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+# Deny unwrap and panic in production code (runtime & pallets)
+# Test code can opt-out using: #![allow(clippy::unwrap_used, clippy::panic)]
+panic = "deny"
+unwrap_used = "deny"
+# Also deny expect_used for consistency
+expect_used = "deny"
+
 [workspace.dependencies]
 # Miscellaneous
 ahash = { version = "0.8.2" }
@@ -101,6 +109,7 @@ schnellru = { version = "0.2.3" }
 serde = { version = "1.0.214", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.132", default-features = false }
 sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
 smallvec = { version = "1.11.0", default-features = false }
 sp-keystore = { version = "0.43.0", default-features = true }
 tempfile = { version = "3.8.1" }
@@ -210,11 +219,11 @@ sp-genesis-builder = { version = "0.18.0", default-features = false }
 sp-inherents = { version = "37.0.0", default-features = false }
 sp-io = { version = "41.0.1", default-features = false }
 sp-keyring = { version = "42.0.0", default-features = false }
+sp-metadata-ir = { version = "0.11.0", default-features = false }
 sp-offchain = { version = "37.0.0", default-features = false }
 sp-panic-handler = { version = "13.0.2", default-features = true }
 sp-runtime = { version = "42.0.0", default-features = false }
 sp-session = { version = "39.0.0", default-features = false }
-sp-std = { version = "14.0.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-timestamp = { version = "37.0.0", default-features = false }
 sp-tracing = { version = "17.1.0", default-features = false }
@@ -231,7 +240,7 @@ substrate-wasm-builder = { version = "27.0.0", default-features = false }
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_0" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }
-sc-network = { path = "./client/network" }
+sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 

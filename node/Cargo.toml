@@ -9,13 +9,12 @@ license = "Apache-2.0"
 name = "quantus-node"
 publish = false
 repository.workspace = true
-version = "0.4.2"
+version = "0.4.4"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-async-trait.workspace = true
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
 frame-benchmarking-cli.default-features = true
@@ -32,7 +31,6 @@ pallet-transaction-payment.default-features = true
 pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
-primitive-types = { workspace = true, default-features = false }
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
 qp-rusty-crystals-dilithium.workspace = true
@@ -103,16 +101,12 @@ qp-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
 
-[dev-dependencies]
-tempfile = "3.0"
-
 [features]
 default = ["std"]
 std = [
 	"codec/std",
 	"hex/std",
 	"log/std",
-	"primitive-types/std",
 	"qp-dilithium-crypto/std",
 	"qp-wormhole-verifier/std",
 	"quantus-runtime/std",
