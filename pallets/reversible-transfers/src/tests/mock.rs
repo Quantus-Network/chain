@@ -349,6 +349,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			// Treasury account for fee collection tests (must meet existential deposit)
 			(account_id(99), 1),
 		],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

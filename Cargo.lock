@@ -7083,27 +7083,6 @@ dependencies = [
 
 [[package]]
 name = "pallet-balances"
-version = "40.0.1"
-dependencies = [
- "docify",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-transaction-payment",
- "parity-scale-codec",
- "paste",
- "qp-poseidon",
- "qp-wormhole",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-metadata-ir",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-balances"
 version = "42.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a4d7dbabb4976ebd37e386ed3abba847f4599a026602439f289a8a93b8c9bd5"
@@ -7164,7 +7143,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "pallet-vesting",
  "parity-scale-codec",
  "scale-info",
@@ -7202,7 +7181,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "parity-scale-codec",
  "qp-wormhole",
  "scale-info",
@@ -7255,7 +7234,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
@@ -7323,7 +7302,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-assets-holder",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "pallet-preimage",
  "pallet-recovery",
  "pallet-scheduler",
@@ -7582,7 +7561,7 @@ dependencies = [
  "frame-system",
  "impl-trait-for-tuples",
  "log",
- "pallet-balances 42.0.0",
+ "pallet-balances",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -7631,13 +7610,14 @@ dependencies = [
  "hex",
  "lazy_static",
  "log",
- "pallet-balances 40.0.1",
+ "pallet-assets",
+ "pallet-balances",
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-header",
  "qp-plonky2",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
@@ -7647,6 +7627,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-io",
+ "sp-metadata-ir",
  "sp-runtime",
  "sp-state-machine",
  "sp-trie",
@@ -8229,7 +8210,7 @@ dependencies = [
  "pallet-authority-discovery",
  "pallet-authorship",
  "pallet-babe",
- "pallet-balances 42.0.0",
+ "pallet-balances",
  "pallet-broker",
  "pallet-message-queue",
  "pallet-mmr",
@@ -8861,7 +8842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -8894,7 +8875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -8946,7 +8927,7 @@ dependencies = [
  "p3-goldilocks",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
  "scale-info",
  "serde",
  "serde_json",
@@ -8975,7 +8956,7 @@ dependencies = [
  "plonky2_maybe_rayon",
  "plonky2_util",
  "qp-plonky2-field",
- "qp-poseidon-constants",
+ "qp-poseidon-constants 1.0.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde",
@@ -9003,15 +8984,14 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ebc5e9fe1f91f5006aa2b45650d0049887d41d80c669ef5a78a45086895054d"
+version = "1.0.2"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ftransfer-proof-asset-id#9ae96dea18464d6ea43de5c78a066f9d1f17b801"
 dependencies = [
  "log",
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
  "scale-info",
  "serde",
  "sp-core",
@@ -9034,6 +9014,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-poseidon-constants"
+version = "1.0.2"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ftransfer-proof-asset-id#9ae96dea18464d6ea43de5c78a066f9d1f17b801"
+dependencies = [
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
+]
+
+[[package]]
+name = "qp-poseidon-core"
+version = "1.0.2"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ftransfer-proof-asset-id#9ae96dea18464d6ea43de5c78a066f9d1f17b801"
+dependencies = [
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "qp-plonky2",
+ "qp-poseidon-constants 1.0.2",
+ "rand_chacha 0.9.0",
+]
+
+[[package]]
 name = "qp-poseidon-core"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9043,8 +9049,7 @@ dependencies = [
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
- "qp-plonky2",
- "qp-poseidon-constants",
+ "qp-poseidon-constants 1.0.1",
  "rand_chacha 0.9.0",
 ]
 
@@ -9070,7 +9075,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "nam-tiny-hderive",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.3",
  "qp-rusty-crystals-dilithium",
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -9096,21 +9101,19 @@ version = "0.1.0"
 [[package]]
 name = "qp-wormhole-circuit"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10b7357bec091287185850a6f7b67eb45f899a655b2a86825eae7e39b3bc6c3c"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7faed51eaa66ba71526955b74aac2fdba9849905a405f74d5f4f26564a9eaa98"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9121,8 +9124,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-prover"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8a56d84dd9bf64944b88cb0ec971f179a569d3bdf148132ab01bfe2d56c069d"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9133,8 +9135,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40387c4c43fe47419cba58eb4f13c2a3c32ac0e381c98c3d77293ebf53298de7"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9145,13 +9146,12 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "366557f4c727379e2fd9c18b6667ae53c99bb241b973427df09a6b09584a11d4"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
  "serde",
 ]
 
@@ -9164,7 +9164,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "primitive-types 0.13.1",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.2",
 ]
 
 [[package]]
@@ -9264,7 +9264,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-assets-holder",
- "pallet-balances 40.0.1",
+ "pallet-balances",
  "pallet-conviction-voting",
  "pallet-merkle-airdrop",
  "pallet-mining-rewards",
@@ -9289,6 +9289,10 @@ dependencies = [
  "qp-header",
  "qp-poseidon",
  "qp-scheduler",
+ "qp-wormhole",
+ "qp-wormhole-circuit",
+ "qp-wormhole-verifier",
+ "qp-zk-circuits-common",
  "scale-info",
  "serde_json",
  "sp-api",

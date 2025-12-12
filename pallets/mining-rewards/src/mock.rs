@@ -67,6 +67,7 @@ impl frame_system::Config for Test {
 }
 
 impl pallet_balances::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = ();
 	type RuntimeFreezeReason = ();
 	type WeightInfo = ();
@@ -87,8 +88,27 @@ parameter_types! {
 	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
 }
 
+// Mock proof recorder that does nothing
+pub struct MockProofRecorder;
+impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
+	for MockProofRecorder
+{
+	type Error = ();
+
+	fn record_transfer_proof(
+		_asset_id: Option<u32>,
+		_from: sp_core::crypto::AccountId32,
+		_to: sp_core::crypto::AccountId32,
+		_amount: u128,
+	) -> Result<(), Self::Error> {
+		Ok(())
+	}
+}
+
 impl pallet_mining_rewards::Config for Test {
 	type Currency = Balances;
+	type AssetId = u32;
+	type ProofRecorder = MockProofRecorder;
 	type WeightInfo = ();
 	type MinerBlockReward = BlockReward;
 	type TreasuryBlockReward = TreasuryBlockReward;
@@ -115,6 +135,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
