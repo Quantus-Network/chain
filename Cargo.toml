@@ -153,15 +153,15 @@ qp-poseidon = { git = "https://github.com/Quantus-Network/qp-poseidon", branch =
 qp-poseidon-core = { git = "https://github.com/Quantus-Network/qp-poseidon", branch = "feat/transfer-proof-asset-id", default-features = false, features = ["p2", "p3"] }
 qp-rusty-crystals-dilithium = { version = "2.0.0", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "1.0.0" }
-qp-wormhole-circuit = { path = "../zk-circuits/wormhole/circuit", default-features = false }
-qp-wormhole-circuit-builder = { path = "../zk-circuits/wormhole/circuit-builder", default-features = false }
-qp-wormhole-prover = { path = "../zk-circuits/wormhole/prover", default-features = false, features = [
+qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "feat/asset-id-wormhole", default-features = false }
+qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "feat/asset-id-wormhole", default-features = false }
+qp-wormhole-prover = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "feat/asset-id-wormhole", default-features = false, features = [
 	"no_random",
 ] }
-qp-wormhole-verifier = { path = "../zk-circuits/wormhole/verifier", default-features = false, features = [
+qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "feat/asset-id-wormhole", default-features = false, features = [
 	"no_random",
 ] }
-qp-zk-circuits-common = { path = "../zk-circuits/common", default-features = false, features = [
+qp-zk-circuits-common = { git = "https://github.com/Quantus-Network/zk-circuits", branch = "feat/asset-id-wormhole", default-features = false, features = [
 	"no_random",
 ] }
 
@@ -242,7 +242,6 @@ sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
-
 
 [profile.release]
 opt-level = 3

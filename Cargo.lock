@@ -8842,7 +8842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -8875,7 +8875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -9049,7 +9049,6 @@ dependencies = [
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
- "qp-plonky2",
  "qp-poseidon-constants 1.0.1",
  "rand_chacha 0.9.0",
 ]
@@ -9102,17 +9101,19 @@ version = "0.1.0"
 [[package]]
 name = "qp-wormhole-circuit"
 version = "0.1.4"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core 1.0.3",
+ "qp-poseidon-core 1.0.2",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "0.1.4"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9123,6 +9124,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-prover"
 version = "0.1.4"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9133,6 +9135,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "0.1.4"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9143,11 +9146,12 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "0.1.4"
+source = "git+https://github.com/Quantus-Network/zk-circuits?branch=feat%2Fasset-id-wormhole#27fec229513e541237ec39497c6fd8bec69358cb"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core 1.0.3",
+ "qp-poseidon-core 1.0.2",
  "serde",
 ]
 
