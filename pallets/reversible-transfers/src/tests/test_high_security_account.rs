@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::tests::{
 	mock::*,
 	test_reversible_transfers::{calculate_tx_id, transfer_call},
