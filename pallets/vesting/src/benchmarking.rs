@@ -119,5 +119,59 @@ mod benchmarks {
 		assert!(VestingSchedules::<T>::get(schedule_id).is_none());
 	}
 
+	#[benchmark]
+	fn create_vesting_schedule_with_cliff() {
+		let caller: T::AccountId = benchmark_account("caller", 0, SEED);
+		let beneficiary: T::AccountId = benchmark_account("beneficiary", 0, SEED);
+
+		// Fund the caller
+		let amount: T::Balance = 1_000_000_000_000u128.into();
+		fund_account::<T>(&caller, amount * 2u128.into());
+
+		let cliff: T::Moment = 50000u64.into();
+		let end: T::Moment = 100000u64.into();
+
+		#[extrinsic_call]
+		create_vesting_schedule_with_cliff(
+			RawOrigin::Signed(caller.clone()),
+			beneficiary.clone(),
+			amount,
+			cliff,
+			end,
+		);
+
+		// Verify schedule was created
+		assert_eq!(ScheduleCounter::<T>::get(), 1);
+		assert!(VestingSchedules::<T>::get(1).is_some());
+	}
+
+	#[benchmark]
+	fn create_stepped_vesting_schedule() {
+		let caller: T::AccountId = benchmark_account("caller", 0, SEED);
+		let beneficiary: T::AccountId = benchmark_account("beneficiary", 0, SEED);
+
+		// Fund the caller
+		let amount: T::Balance = 1_000_000_000_000u128.into();
+		fund_account::<T>(&caller, amount * 2u128.into());
+
+		let start: T::Moment = 1000u64.into();
+		let end: T::Moment = 100000u64.into();
+		let step_duration: T::Moment = 10000u64.into();
+
+		#[extrinsic_call]
+		create_stepped_vesting_schedule(
+			RawOrigin::Signed(caller.clone()),
+			beneficiary.clone(),
+			amount,
+			start,
+			end,
+			step_duration,
+		);
+
+		// Verify schedule was created
+		assert_eq!(ScheduleCounter::<T>::get(), 1);
+		assert!(VestingSchedules::<T>::get(1).is_some());
+	}
+
 	impl_benchmark_test_suite!(Vesting, crate::mock::new_test_ext(), crate::mock::Test);
 }

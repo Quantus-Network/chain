@@ -35,14 +35,25 @@ pub mod pallet {
 	};
 
 	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	pub enum VestingType<Moment> {
+		/// Linear vesting - tokens unlock proportionally over time
+		Linear,
+		/// Linear vesting with cliff - nothing unlocks until cliff, then linear
+		LinearWithCliff { cliff: Moment },
+		/// Stepped vesting - tokens unlock in equal portions at regular intervals
+		Stepped { step_duration: Moment },
+	}
+
+	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	pub struct VestingSchedule<AccountId, Balance, Moment> {
-		pub id: u64,                // Unique id
-		pub creator: AccountId,     // Who created the scehdule
-		pub beneficiary: AccountId, // Who gets the tokens
-		pub amount: Balance,        // Total tokens to vest
-		pub start: Moment,          // When vesting begins
-		pub end: Moment,            // When vesting fully unlocks
-		pub claimed: Balance,       // Tokens already claimed
+		pub id: u64,                           // Unique id
+		pub creator: AccountId,                // Who created the scehdule
+		pub beneficiary: AccountId,            // Who gets the tokens
+		pub amount: Balance,                   // Total tokens to vest
+		pub start: Moment,                     // When vesting begins
+		pub end: Moment,                       // When vesting fully unlocks
+		pub vesting_type: VestingType<Moment>, // Type of vesting
+		pub claimed: Balance,                  // Tokens already claimed
 	}
 
 	#[pallet::storage]
@@ -118,6 +129,7 @@ pub mod pallet {
 				amount,
 				start,
 				end,
+				vesting_type: VestingType::Linear,
 				claimed: T::Balance::zero(),
 				id: schedule_id,
 			};
@@ -193,6 +205,101 @@ pub mod pallet {
 			Self::deposit_event(Event::VestingScheduleCancelled(who, schedule_id));
 			Ok(())
 		}
+
+		// Create a vesting schedule with cliff
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as Config>::WeightInfo::create_vesting_schedule_with_cliff())]
+		pub fn create_vesting_schedule_with_cliff(
+			origin: OriginFor<T>,
+			beneficiary: T::AccountId,
+			amount: T::Balance,
+			cliff: T::Moment,
+			end: T::Moment,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			ensure!(cliff < end, Error::<T>::InvalidSchedule);
+			ensure!(amount > T::Balance::zero(), Error::<T>::InvalidSchedule);
+
+			// Transfer tokens from caller to pallet and lock them
+			pallet_balances::Pallet::<T>::transfer(&who, &Self::account_id(), amount, KeepAlive)?;
+
+			// Generate unique ID
+			let schedule_id = ScheduleCounter::<T>::get().wrapping_add(1);
+			ScheduleCounter::<T>::put(schedule_id);
+
+			// Add the schedule to storage
+			let schedule = VestingSchedule {
+				creator: who,
+				beneficiary: beneficiary.clone(),
+				amount,
+				start: cliff, // Start is set to cliff for calculations
+				end,
+				vesting_type: VestingType::LinearWithCliff { cliff },
+				claimed: T::Balance::zero(),
+				id: schedule_id,
+			};
+			VestingSchedules::<T>::insert(schedule_id, schedule);
+
+			Self::deposit_event(Event::VestingScheduleCreated(
+				beneficiary,
+				amount,
+				cliff,
+				end,
+				schedule_id,
+			));
+			Ok(())
+		}
+
+		// Create a stepped vesting schedule
+		#[pallet::call_index(4)]
+		#[pallet::weight(<T as Config>::WeightInfo::create_stepped_vesting_schedule())]
+		pub fn create_stepped_vesting_schedule(
+			origin: OriginFor<T>,
+			beneficiary: T::AccountId,
+			amount: T::Balance,
+			start: T::Moment,
+			end: T::Moment,
+			step_duration: T::Moment,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			ensure!(start < end, Error::<T>::InvalidSchedule);
+			ensure!(amount > T::Balance::zero(), Error::<T>::InvalidSchedule);
+			ensure!(step_duration > T::Moment::zero(), Error::<T>::InvalidSchedule);
+
+			let duration = end.saturating_sub(start);
+			ensure!(duration >= step_duration, Error::<T>::InvalidSchedule);
+
+			// Transfer tokens from caller to pallet and lock them
+			pallet_balances::Pallet::<T>::transfer(&who, &Self::account_id(), amount, KeepAlive)?;
+
+			// Generate unique ID
+			let schedule_id = ScheduleCounter::<T>::get().wrapping_add(1);
+			ScheduleCounter::<T>::put(schedule_id);
+
+			// Add the schedule to storage
+			let schedule = VestingSchedule {
+				creator: who,
+				beneficiary: beneficiary.clone(),
+				amount,
+				start,
+				end,
+				vesting_type: VestingType::Stepped { step_duration },
+				claimed: T::Balance::zero(),
+				id: schedule_id,
+			};
+			VestingSchedules::<T>::insert(schedule_id, schedule);
+
+			Self::deposit_event(Event::VestingScheduleCreated(
+				beneficiary,
+				amount,
+				start,
+				end,
+				schedule_id,
+			));
+			Ok(())
+		}
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -201,41 +308,117 @@ pub mod pallet {
 			schedule: &VestingSchedule<T::AccountId, T::Balance, T::Moment>,
 		) -> Result<T::Balance, DispatchError> {
 			let now = <pallet_timestamp::Pallet<T>>::get();
-			// No need to convert now/start/end to u64 explicitly if T::Moment is u64-like
-			if now < schedule.start {
-				Ok(T::Balance::zero())
-			} else if now >= schedule.end {
-				Ok(schedule.amount)
-			} else {
-				let elapsed = now.saturating_sub(schedule.start);
-				let duration = schedule.end.saturating_sub(schedule.start);
 
-				// Convert amount to u64 for intermediate calculation
-				let amount_u64: u64 = schedule
-					.amount
-					.try_into()
-					.map_err(|_| DispatchError::Other("Balance to u64 conversion failed"))?;
-
-				// Perform calculation in u64 (T::Moment-like)
-				let elapsed_u64: u64 = elapsed
-					.try_into()
-					.map_err(|_| DispatchError::Other("Moment to u64 conversion failed"))?;
-				let duration_u64: u64 = duration
-					.try_into()
-					.map_err(|_| DispatchError::Other("Moment to u64 conversion failed"))?;
-				let duration_safe: u64 = duration_u64.max(1);
-
-				let vested_u64: u64 = amount_u64
-					.saturating_mul(elapsed_u64)
-					.checked_div(duration_safe)
-					.ok_or(DispatchError::Arithmetic(ArithmeticError::Underflow))?;
-
-				// Convert back to T::Balance
-				let vested = T::Balance::try_from(vested_u64)
-					.map_err(|_| DispatchError::Other("u64 to Balance conversion failed"))?;
-
-				Ok(vested)
+			match &schedule.vesting_type {
+				VestingType::Linear => Self::calculate_linear_vested(
+					now,
+					schedule.start,
+					schedule.end,
+					schedule.amount,
+				),
+				VestingType::LinearWithCliff { cliff } => {
+					if now < *cliff {
+						Ok(T::Balance::zero())
+					} else if now >= schedule.end {
+						Ok(schedule.amount)
+					} else {
+						// Linear vesting from cliff to end
+						Self::calculate_linear_vested(now, *cliff, schedule.end, schedule.amount)
+					}
+				},
+				VestingType::Stepped { step_duration } => Self::calculate_stepped_vested(
+					now,
+					schedule.start,
+					schedule.end,
+					schedule.amount,
+					*step_duration,
+				),
 			}
+		}
+
+		// Calculate linear vesting
+		fn calculate_linear_vested(
+			now: T::Moment,
+			start: T::Moment,
+			end: T::Moment,
+			amount: T::Balance,
+		) -> Result<T::Balance, DispatchError> {
+			if now < start {
+				return Ok(T::Balance::zero());
+			}
+			if now >= end {
+				return Ok(amount);
+			}
+
+			let elapsed = now.saturating_sub(start);
+			let duration = end.saturating_sub(start);
+
+			// Convert to u64 for calculation
+			let amount_u64: u64 = amount
+				.try_into()
+				.map_err(|_| DispatchError::Other("Balance conversion failed"))?;
+			let elapsed_u64: u64 = elapsed
+				.try_into()
+				.map_err(|_| DispatchError::Other("Moment conversion failed"))?;
+			let duration_u64: u64 = duration
+				.try_into()
+				.map_err(|_| DispatchError::Other("Moment conversion failed"))?;
+			let duration_safe: u64 = duration_u64.max(1);
+
+			let vested_u64: u64 = amount_u64
+				.saturating_mul(elapsed_u64)
+				.checked_div(duration_safe)
+				.ok_or(DispatchError::Arithmetic(ArithmeticError::Underflow))?;
+
+			let vested = T::Balance::try_from(vested_u64)
+				.map_err(|_| DispatchError::Other("Balance conversion failed"))?;
+
+			Ok(vested)
+		}
+
+		// Calculate stepped vesting
+		fn calculate_stepped_vested(
+			now: T::Moment,
+			start: T::Moment,
+			end: T::Moment,
+			amount: T::Balance,
+			step_duration: T::Moment,
+		) -> Result<T::Balance, DispatchError> {
+			if now < start {
+				return Ok(T::Balance::zero());
+			}
+			if now >= end {
+				return Ok(amount);
+			}
+
+			let elapsed = now.saturating_sub(start);
+			let total_duration = end.saturating_sub(start);
+
+			// Convert to u64 for calculation
+			let elapsed_u64: u64 = elapsed
+				.try_into()
+				.map_err(|_| DispatchError::Other("Moment conversion failed"))?;
+			let step_duration_u64: u64 = step_duration
+				.try_into()
+				.map_err(|_| DispatchError::Other("Moment conversion failed"))?;
+			let total_duration_u64: u64 = total_duration
+				.try_into()
+				.map_err(|_| DispatchError::Other("Moment conversion failed"))?;
+			let amount_u64: u64 = amount
+				.try_into()
+				.map_err(|_| DispatchError::Other("Balance conversion failed"))?;
+
+			// Calculate number of completed steps
+			let steps_passed = elapsed_u64 / step_duration_u64;
+			let total_steps = total_duration_u64.div_ceil(step_duration_u64);
+
+			// Calculate vested amount based on completed steps
+			let vested_u64 = amount_u64.saturating_mul(steps_passed) / total_steps.max(1);
+
+			let vested = T::Balance::try_from(vested_u64)
+				.map_err(|_| DispatchError::Other("Balance conversion failed"))?;
+
+			Ok(vested)
 		}
 
 		// Pallet account to "hold" tokens
@@ -311,6 +494,7 @@ pub mod pallet {
 				amount,
 				start: T::Moment::from(start_ms),
 				end: T::Moment::from(end_ms),
+				vesting_type: VestingType::Linear,
 				claimed: T::Balance::zero(),
 				id: schedule_id,
 			};
@@ -404,6 +588,7 @@ pub mod pallet {
 				amount: locked,
 				start: T::Moment::from(start_ms),
 				end: T::Moment::from(end_ms),
+				vesting_type: VestingType::Linear,
 				claimed: T::Balance::zero(),
 				id: schedule_id,
 			};

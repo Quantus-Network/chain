@@ -1,5 +1,5 @@
 use super::*;
-use crate::{mock::*, VestingSchedule};
+use crate::{mock::*, VestingSchedule, VestingType};
 use frame_support::{
 	assert_noop, assert_ok,
 	traits::{Currency, ExistenceRequirement, ExistenceRequirement::AllowDeath},
@@ -17,6 +17,7 @@ fn create_vesting_schedule<Moment: From<u64>>(
 		beneficiary: 2,
 		start: start.into(),
 		end: end.into(),
+		vesting_type: VestingType::Linear,
 		amount,
 		claimed: 0,
 		id: 1,
@@ -98,7 +99,16 @@ fn create_vesting_schedule_works() {
 		assert_eq!(num_vesting_schedules, 1);
 		assert_eq!(
 			schedule,
-			VestingSchedule { creator: 1, beneficiary: 2, amount, start, end, claimed: 0, id: 1 }
+			VestingSchedule {
+				creator: 1,
+				beneficiary: 2,
+				amount,
+				start,
+				end,
+				vesting_type: VestingType::Linear,
+				claimed: 0,
+				id: 1
+			}
 		);
 
 		// Check balances
@@ -504,5 +514,341 @@ fn creator_can_cancel_after_end() {
 		assert_eq!(Balances::free_balance(1), 99500); // 100000 - 500
 		assert_eq!(Balances::free_balance(2), 2500); // 2000 + 250 claimed
 		assert_eq!(Balances::free_balance(Vesting::account_id()), 0);
+	});
+}
+
+// ========== Cliff Vesting Tests ==========
+
+#[test]
+fn cliff_vesting_before_cliff_returns_zero() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let cliff = 1000; // Cliff at timestamp 1000
+		let end = 2000;
+
+		assert_ok!(Vesting::create_vesting_schedule_with_cliff(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			cliff,
+			end
+		));
+
+		// Set timestamp before cliff
+		Timestamp::set_timestamp(500);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		// Nothing is vested before cliff
+		assert_eq!(vested, 0);
+	});
+}
+
+#[test]
+fn cliff_vesting_at_cliff_starts_linear() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let cliff = 1000; // Cliff at timestamp 1000
+		let end = 2000;
+
+		assert_ok!(Vesting::create_vesting_schedule_with_cliff(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			cliff,
+			end
+		));
+
+		// Set timestamp at cliff
+		Timestamp::set_timestamp(1000);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		// At cliff, 0% of vesting period has elapsed (cliff to end)
+		assert_eq!(vested, 0);
+
+		// Halfway between cliff and end
+		Timestamp::set_timestamp(1500);
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+		assert_eq!(vested, 500); // 50% of amount
+	});
+}
+
+#[test]
+fn cliff_vesting_after_end_returns_full_amount() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let cliff = 1000;
+		let end = 2000;
+
+		assert_ok!(Vesting::create_vesting_schedule_with_cliff(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			cliff,
+			end
+		));
+
+		// Set timestamp after end
+		Timestamp::set_timestamp(2500);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		assert_eq!(vested, amount);
+	});
+}
+
+#[test]
+fn cliff_vesting_claim_works() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let cliff = 1000;
+		let end = 2000;
+
+		assert_ok!(Vesting::create_vesting_schedule_with_cliff(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			cliff,
+			end
+		));
+
+		// Before cliff - cannot claim
+		Timestamp::set_timestamp(500);
+		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_eq!(Balances::free_balance(2), 2000); // No change
+
+		// After cliff, halfway to end
+		Timestamp::set_timestamp(1500);
+		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_eq!(Balances::free_balance(2), 2500); // 2000 + 500 (50% vested)
+	});
+}
+
+// ========== Stepped Vesting Tests ==========
+
+#[test]
+fn stepped_vesting_before_first_step() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let start = 1000;
+		let end = 5000; // 4000ms duration
+		let step_duration = 1000; // 4 steps
+
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			start,
+			end,
+			step_duration
+		));
+
+		// Before first step
+		Timestamp::set_timestamp(1500);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		// 0 complete steps = 0 vested
+		assert_eq!(vested, 0);
+	});
+}
+
+#[test]
+fn stepped_vesting_after_first_step() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let start = 1000;
+		let end = 5000; // 4000ms duration
+		let step_duration = 1000; // 4 steps
+
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			start,
+			end,
+			step_duration
+		));
+
+		// After first step (1000ms elapsed)
+		Timestamp::set_timestamp(2000);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		// 1 step out of 4 = 25%
+		assert_eq!(vested, 250);
+	});
+}
+
+#[test]
+fn stepped_vesting_after_two_steps() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let start = 1000;
+		let end = 5000; // 4000ms duration
+		let step_duration = 1000; // 4 steps
+
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			start,
+			end,
+			step_duration
+		));
+
+		// After two steps (2000ms elapsed)
+		Timestamp::set_timestamp(3000);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		// 2 steps out of 4 = 50%
+		assert_eq!(vested, 500);
+	});
+}
+
+#[test]
+fn stepped_vesting_after_all_steps() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let start = 1000;
+		let end = 5000;
+		let step_duration = 1000;
+
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			start,
+			end,
+			step_duration
+		));
+
+		// After end
+		Timestamp::set_timestamp(5000);
+
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+
+		// All vested
+		assert_eq!(vested, amount);
+	});
+}
+
+#[test]
+fn stepped_vesting_claim_works() {
+	new_test_ext().execute_with(|| {
+		let amount = 1000;
+		let start = 1000;
+		let end = 5000;
+		let step_duration = 1000; // 4 steps
+
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			start,
+			end,
+			step_duration
+		));
+
+		// Before first step - nothing to claim
+		Timestamp::set_timestamp(1500);
+		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_eq!(Balances::free_balance(2), 2000); // No change
+
+		// After two steps
+		Timestamp::set_timestamp(3000);
+		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_eq!(Balances::free_balance(2), 2500); // 2000 + 500 (50% vested)
+
+		// After all steps
+		Timestamp::set_timestamp(5000);
+		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_eq!(Balances::free_balance(2), 3000); // 2000 + 1000 (100% vested)
+	});
+}
+
+#[test]
+fn stepped_vesting_yearly_example() {
+	new_test_ext().execute_with(|| {
+		let amount = 4000;
+		let start = 0;
+		let year_ms = 365 * 24 * 3600 * 1000; // 1 year in milliseconds
+		let end = 4 * year_ms; // 4 years
+		let step_duration = year_ms; // Annual steps
+
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			amount,
+			start,
+			end,
+			step_duration
+		));
+
+		// After 364 days - still 0
+		Timestamp::set_timestamp(364 * 24 * 3600 * 1000);
+		let schedule = VestingSchedules::<Test>::get(1).unwrap();
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+		assert_eq!(vested, 0);
+
+		// After 1 year - 25%
+		Timestamp::set_timestamp(year_ms);
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+		assert_eq!(vested, 1000); // 25%
+
+		// After 2 years - 50%
+		Timestamp::set_timestamp(2 * year_ms);
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+		assert_eq!(vested, 2000); // 50%
+
+		// After 3 years - 75%
+		Timestamp::set_timestamp(3 * year_ms);
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+		assert_eq!(vested, 3000); // 75%
+
+		// After 4 years - 100%
+		Timestamp::set_timestamp(4 * year_ms);
+		let vested = Vesting::vested_amount(&schedule).unwrap();
+		assert_eq!(vested, 4000); // 100%
+	});
+}
+
+#[test]
+fn stepped_vesting_invalid_step_duration_fails() {
+	new_test_ext().execute_with(|| {
+		// step_duration = 0 should fail
+		assert_noop!(
+			Vesting::create_stepped_vesting_schedule(
+				RuntimeOrigin::signed(1),
+				2,
+				1000,
+				1000,
+				2000,
+				0 // Invalid: zero step duration
+			),
+			Error::<Test>::InvalidSchedule
+		);
+
+		// step_duration > total duration should fail
+		assert_noop!(
+			Vesting::create_stepped_vesting_schedule(
+				RuntimeOrigin::signed(1),
+				2,
+				1000,
+				1000,
+				2000,
+				2000 // Invalid: step longer than total duration
+			),
+			Error::<Test>::InvalidSchedule
+		);
 	});
 }
