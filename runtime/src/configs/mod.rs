@@ -39,7 +39,7 @@ use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
 		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
-		VariantCountOf, WithdrawReasons,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -426,22 +426,12 @@ impl pallet_sudo::Config for Runtime {
 }
 
 parameter_types! {
-	pub const MinVestedTransfer: Balance = UNIT;
-	/// Unvested funds can be transferred and reserved for any other means (reserves overlap)
-	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
-	WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+	pub const VestingPalletId: PalletId = PalletId(*b"vestingp");
 }
 
 impl pallet_vesting::Config for Runtime {
-	type Currency = Balances;
-	type RuntimeEvent = RuntimeEvent;
+	type PalletId = VestingPalletId;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
-	type MinVestedTransfer = MinVestedTransfer;
-	type BlockNumberToBalance = ConvertInto;
-	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-	type BlockNumberProvider = System;
-
-	const MAX_VESTING_SCHEDULES: u32 = 28;
 }
 
 impl pallet_utility::Config for Runtime {

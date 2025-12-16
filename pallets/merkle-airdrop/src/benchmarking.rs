@@ -36,7 +36,7 @@ fn calculate_expected_root_for_benchmark(
 #[benchmarks(
     where
     T: Send + Sync,
-    T: Config + pallet_vesting::Config<Currency = CurrencyOf<T>>,
+    T: Config + pallet_vesting::Config,
 )]
 mod benchmarks {
 	use super::*;
@@ -71,7 +71,7 @@ mod benchmarks {
 
 		NextAirdropId::<T>::put(airdrop_id + 1);
 
-		let amount: BalanceOf<T> = <T as pallet_vesting::Config>::MinVestedTransfer::get();
+		let amount: BalanceOf<T> = 100u32.into();
 
 		// Get ED and ensure caller has sufficient balance
 		let ed = CurrencyOf::<T>::minimum_balance();
@@ -90,7 +90,7 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		let recipient: T::AccountId = account("recipient", 0, 0);
 
-		let amount: BalanceOf<T> = <T as pallet_vesting::Config>::MinVestedTransfer::get();
+		let amount: BalanceOf<T> = 100u32.into();
 
 		// 1. Calculate the initial leaf hash
 		let leaf_hash = MerkleAirdrop::<T>::calculate_leaf_hash_blake2(&recipient, amount);
