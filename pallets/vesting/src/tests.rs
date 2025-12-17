@@ -862,7 +862,7 @@ fn schedule_count_increments_on_create() {
 		let beneficiary = 2;
 
 		// Initial count should be 0
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 0);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 0);
 
 		// Create first schedule
 		assert_ok!(Vesting::create_vesting_schedule(
@@ -873,7 +873,7 @@ fn schedule_count_increments_on_create() {
 			2000
 		));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 1);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 1);
 
 		// Create second schedule
 		assert_ok!(Vesting::create_vesting_schedule(
@@ -884,7 +884,7 @@ fn schedule_count_increments_on_create() {
 			2000
 		));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 2);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 2);
 	});
 }
 
@@ -910,17 +910,17 @@ fn schedule_count_decrements_on_cancel() {
 			2000
 		));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 2);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 2);
 
 		// Cancel first schedule
 		assert_ok!(Vesting::cancel_vesting_schedule(RuntimeOrigin::signed(creator), 1));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 1);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 1);
 
 		// Cancel second schedule
 		assert_ok!(Vesting::cancel_vesting_schedule(RuntimeOrigin::signed(creator), 2));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 0);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 0);
 	});
 }
 
@@ -942,7 +942,7 @@ fn cannot_exceed_max_schedules_per_beneficiary() {
 			));
 		}
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 50);
 
 		// Try to create 51st schedule (should fail)
 		assert_noop!(
@@ -976,7 +976,7 @@ fn limit_applies_per_beneficiary() {
 			));
 		}
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary1), 50);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary1), 50);
 
 		// beneficiary1 is at limit
 		assert_noop!(
@@ -999,7 +999,7 @@ fn limit_applies_per_beneficiary() {
 			2000
 		));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary2), 1);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary2), 1);
 	});
 }
 
@@ -1039,7 +1039,7 @@ fn limit_applies_to_all_vesting_types() {
 			100
 		));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 50);
 
 		// Any type should now fail
 		assert_noop!(
@@ -1095,7 +1095,7 @@ fn can_create_more_after_cancelling() {
 			));
 		}
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 50);
 
 		// Cannot create more
 		assert_noop!(
@@ -1112,7 +1112,7 @@ fn can_create_more_after_cancelling() {
 		// Cancel one schedule
 		assert_ok!(Vesting::cancel_vesting_schedule(RuntimeOrigin::signed(creator), 1));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 49);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 49);
 
 		// Now can create one more
 		assert_ok!(Vesting::create_vesting_schedule(
@@ -1123,6 +1123,6 @@ fn can_create_more_after_cancelling() {
 			2000
 		));
 
-		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 50);
 	});
 }
