@@ -47,7 +47,7 @@ pub mod pallet {
 	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	pub struct VestingSchedule<AccountId, Balance, Moment> {
 		pub id: u64,                           // Unique id
-		pub creator: AccountId,                // Who created the scehdule
+		pub creator: AccountId,                // Who created the schedule
 		pub beneficiary: AccountId,            // Who gets the tokens
 		pub amount: Balance,                   // Total tokens to vest
 		pub start: Moment,                     // When vesting begins
@@ -68,6 +68,16 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type ScheduleCounter<T: Config> = StorageValue<_, u64, ValueQuery>;
 
+	/// Number of vesting schedules per beneficiary
+	#[pallet::storage]
+	pub type BeneficiaryScheduleCount<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId, // beneficiary
+		u32,          // count of active schedules
+		ValueQuery,
+	>;
+
 	#[pallet::config]
 	pub trait Config:
 		frame_system::Config<RuntimeEvent: From<Event<Self>>>
@@ -76,6 +86,10 @@ pub mod pallet {
 	{
 		type PalletId: Get<PalletId>;
 		type WeightInfo: WeightInfo;
+
+		/// Maximum number of vesting schedules per beneficiary
+		#[pallet::constant]
+		type MaxSchedulesPerBeneficiary: Get<u32>;
 	}
 
 	#[pallet::event]
@@ -115,6 +129,13 @@ pub mod pallet {
 			ensure!(start < end, Error::<T>::InvalidSchedule);
 			ensure!(amount > T::Balance::zero(), Error::<T>::InvalidSchedule);
 
+			// Check if beneficiary has reached the maximum number of schedules
+			let current_count = BeneficiaryScheduleCount::<T>::get(&beneficiary);
+			ensure!(
+				current_count < T::MaxSchedulesPerBeneficiary::get(),
+				Error::<T>::TooManySchedules
+			);
+
 			// Transfer tokens from caller to pallet and lock them
 			pallet_balances::Pallet::<T>::transfer(&who, &Self::account_id(), amount, KeepAlive)?;
 
@@ -134,6 +155,11 @@ pub mod pallet {
 				id: schedule_id,
 			};
 			VestingSchedules::<T>::insert(schedule_id, schedule);
+
+			// Increment beneficiary schedule count
+			BeneficiaryScheduleCount::<T>::mutate(&beneficiary, |count| {
+				*count = count.saturating_add(1);
+			});
 
 			Self::deposit_event(Event::VestingScheduleCreated(
 				beneficiary,
@@ -199,7 +225,15 @@ pub mod pallet {
 				)?;
 			}
 
+			// Store beneficiary before removing schedule
+			let beneficiary = schedule.beneficiary.clone();
+
 			VestingSchedules::<T>::remove(schedule_id);
+
+			// Decrement beneficiary schedule count
+			BeneficiaryScheduleCount::<T>::mutate(&beneficiary, |count| {
+				*count = count.saturating_sub(1);
+			});
 
 			// Emit event
 			Self::deposit_event(Event::VestingScheduleCancelled(who, schedule_id));
@@ -221,6 +255,13 @@ pub mod pallet {
 			ensure!(cliff < end, Error::<T>::InvalidSchedule);
 			ensure!(amount > T::Balance::zero(), Error::<T>::InvalidSchedule);
 
+			// Check if beneficiary has reached the maximum number of schedules
+			let current_count = BeneficiaryScheduleCount::<T>::get(&beneficiary);
+			ensure!(
+				current_count < T::MaxSchedulesPerBeneficiary::get(),
+				Error::<T>::TooManySchedules
+			);
+
 			// Transfer tokens from caller to pallet and lock them
 			pallet_balances::Pallet::<T>::transfer(&who, &Self::account_id(), amount, KeepAlive)?;
 
@@ -240,6 +281,11 @@ pub mod pallet {
 				id: schedule_id,
 			};
 			VestingSchedules::<T>::insert(schedule_id, schedule);
+
+			// Increment beneficiary schedule count
+			BeneficiaryScheduleCount::<T>::mutate(&beneficiary, |count| {
+				*count = count.saturating_add(1);
+			});
 
 			Self::deposit_event(Event::VestingScheduleCreated(
 				beneficiary,
@@ -271,6 +317,13 @@ pub mod pallet {
 			let duration = end.saturating_sub(start);
 			ensure!(duration >= step_duration, Error::<T>::InvalidSchedule);
 
+			// Check if beneficiary has reached the maximum number of schedules
+			let current_count = BeneficiaryScheduleCount::<T>::get(&beneficiary);
+			ensure!(
+				current_count < T::MaxSchedulesPerBeneficiary::get(),
+				Error::<T>::TooManySchedules
+			);
+
 			// Transfer tokens from caller to pallet and lock them
 			pallet_balances::Pallet::<T>::transfer(&who, &Self::account_id(), amount, KeepAlive)?;
 
@@ -290,6 +343,11 @@ pub mod pallet {
 				id: schedule_id,
 			};
 			VestingSchedules::<T>::insert(schedule_id, schedule);
+
+			// Increment beneficiary schedule count
+			BeneficiaryScheduleCount::<T>::mutate(&beneficiary, |count| {
+				*count = count.saturating_add(1);
+			});
 
 			Self::deposit_event(Event::VestingScheduleCreated(
 				beneficiary,

@@ -852,3 +852,277 @@ fn stepped_vesting_invalid_step_duration_fails() {
 		);
 	});
 }
+
+// ========== Schedule Limit Tests ==========
+
+#[test]
+fn schedule_count_increments_on_create() {
+	new_test_ext().execute_with(|| {
+		let creator = 1;
+		let beneficiary = 2;
+
+		// Initial count should be 0
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 0);
+
+		// Create first schedule
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1000,
+			2000
+		));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 1);
+
+		// Create second schedule
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1000,
+			2000
+		));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 2);
+	});
+}
+
+#[test]
+fn schedule_count_decrements_on_cancel() {
+	new_test_ext().execute_with(|| {
+		let creator = 1;
+		let beneficiary = 2;
+
+		// Create two schedules
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1000,
+			2000
+		));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1000,
+			2000
+		));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 2);
+
+		// Cancel first schedule
+		assert_ok!(Vesting::cancel_vesting_schedule(RuntimeOrigin::signed(creator), 1));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 1);
+
+		// Cancel second schedule
+		assert_ok!(Vesting::cancel_vesting_schedule(RuntimeOrigin::signed(creator), 2));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 0);
+	});
+}
+
+#[test]
+fn cannot_exceed_max_schedules_per_beneficiary() {
+	new_test_ext().execute_with(|| {
+		let creator = 1;
+		let beneficiary = 2;
+
+		// MaxSchedulesPerBeneficiary is 50 in mock
+		// Create 50 schedules (should succeed)
+		for i in 0..50 {
+			assert_ok!(Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000 + i as u64,
+				2000 + i as u64
+			));
+		}
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+
+		// Try to create 51st schedule (should fail)
+		assert_noop!(
+			Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000,
+				2000
+			),
+			Error::<Test>::TooManySchedules
+		);
+	});
+}
+
+#[test]
+fn limit_applies_per_beneficiary() {
+	new_test_ext().execute_with(|| {
+		let creator = 1;
+		let beneficiary1 = 2;
+		let beneficiary2 = 3;
+
+		// Create 50 schedules for beneficiary1
+		for _ in 0..50 {
+			assert_ok!(Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary1,
+				1000,
+				1000,
+				2000
+			));
+		}
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary1), 50);
+
+		// beneficiary1 is at limit
+		assert_noop!(
+			Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary1,
+				1000,
+				1000,
+				2000
+			),
+			Error::<Test>::TooManySchedules
+		);
+
+		// But beneficiary2 should still be able to create schedules
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary2,
+			1000,
+			1000,
+			2000
+		));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary2), 1);
+	});
+}
+
+#[test]
+fn limit_applies_to_all_vesting_types() {
+	new_test_ext().execute_with(|| {
+		let creator = 1;
+		let beneficiary = 2;
+
+		// Create 48 linear schedules
+		for _ in 0..48 {
+			assert_ok!(Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000,
+				2000
+			));
+		}
+
+		// Create 1 cliff schedule
+		assert_ok!(Vesting::create_vesting_schedule_with_cliff(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1500,
+			2000
+		));
+
+		// Create 1 stepped schedule (total = 50)
+		assert_ok!(Vesting::create_stepped_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1000,
+			2000,
+			100
+		));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+
+		// Any type should now fail
+		assert_noop!(
+			Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000,
+				2000
+			),
+			Error::<Test>::TooManySchedules
+		);
+
+		assert_noop!(
+			Vesting::create_vesting_schedule_with_cliff(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1500,
+				2000
+			),
+			Error::<Test>::TooManySchedules
+		);
+
+		assert_noop!(
+			Vesting::create_stepped_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000,
+				2000,
+				100
+			),
+			Error::<Test>::TooManySchedules
+		);
+	});
+}
+
+#[test]
+fn can_create_more_after_cancelling() {
+	new_test_ext().execute_with(|| {
+		let creator = 1;
+		let beneficiary = 2;
+
+		// Create 50 schedules (at limit)
+		for _ in 0..50 {
+			assert_ok!(Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000,
+				2000
+			));
+		}
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+
+		// Cannot create more
+		assert_noop!(
+			Vesting::create_vesting_schedule(
+				RuntimeOrigin::signed(creator),
+				beneficiary,
+				1000,
+				1000,
+				2000
+			),
+			Error::<Test>::TooManySchedules
+		);
+
+		// Cancel one schedule
+		assert_ok!(Vesting::cancel_vesting_schedule(RuntimeOrigin::signed(creator), 1));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 49);
+
+		// Now can create one more
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(creator),
+			beneficiary,
+			1000,
+			1000,
+			2000
+		));
+
+		assert_eq!(BeneficiaryScheduleCount::<Test>::get(&beneficiary), 50);
+	});
+}

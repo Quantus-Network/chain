@@ -105,12 +105,13 @@ impl pallet_timestamp::Config for Test {
 // Vesting config
 parameter_types! {
 	pub const VestingPalletId: PalletId = PalletId(*b"vestpal_");
-	pub const MaxSchedules: u32 = 100;
+	pub const MaxSchedulesPerBeneficiary: u32 = 50;
 }
 
 impl pallet_vesting::Config for Test {
 	type PalletId = VestingPalletId;
 	type WeightInfo = ();
+	type MaxSchedulesPerBeneficiary = MaxSchedulesPerBeneficiary;
 }
 
 // Helper to build genesis storage

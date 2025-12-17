@@ -1,7 +1,7 @@
 use crate as pallet_merkle_airdrop;
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, Everything, WithdrawReasons},
+	traits::{ConstU32, Everything},
 	PalletId,
 };
 use frame_system::{self as system};
@@ -96,11 +96,13 @@ impl pallet_timestamp::Config for Test {
 
 parameter_types! {
 	pub const VestingPalletId: PalletId = PalletId(*b"vestpal_");
+	pub const MaxSchedulesPerBeneficiary: u32 = 50;
 }
 
 impl pallet_vesting::Config for Test {
 	type PalletId = VestingPalletId;
 	type WeightInfo = ();
+	type MaxSchedulesPerBeneficiary = MaxSchedulesPerBeneficiary;
 }
 
 parameter_types! {

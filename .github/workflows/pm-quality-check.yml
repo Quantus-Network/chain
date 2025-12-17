@@ -43,6 +43,7 @@ jobs:
           - "pallets/qpow"
           - "pallets/reversible-transfers"
           - "pallets/scheduler"
+          - "pallets/vesting"
           - "pallets/wormhole"
           - "primitives/consensus/qpow"
           - "primitives/dilithium-crypto"

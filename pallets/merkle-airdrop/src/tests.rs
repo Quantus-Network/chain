@@ -2,11 +2,7 @@
 
 use crate::{mock::*, Error, Event};
 use codec::Encode;
-use frame_support::{
-	assert_noop, assert_ok,
-	traits::{InspectLockableCurrency, LockIdentifier},
-	BoundedVec,
-};
+use frame_support::{assert_noop, assert_ok, BoundedVec};
 use sp_core::blake2_256;
 use sp_runtime::TokenError;
 
@@ -33,8 +29,6 @@ fn calculate_parent_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
 
 	blake2_256(&combined)
 }
-
-const VESTING_ID: LockIdentifier = *b"vesting ";
 
 #[test]
 fn create_airdrop_works() {
@@ -137,9 +131,10 @@ fn claim_works() {
 		System::assert_last_event(Event::Claimed { airdrop_id: 0, account: 2, amount: 500 }.into());
 
 		assert_eq!(MerkleAirdrop::is_claimed(0, 2), ());
-		assert_eq!(Balances::balance_locked(VESTING_ID, &2), 500); // Unlocked
+		// Note: Custom vesting holds tokens in pallet account, not locked on user account
 
-		assert_eq!(Balances::free_balance(2), 500);
+		// User doesn't get tokens immediately - they're in vesting schedule
+		assert_eq!(Balances::free_balance(2), 0);
 		assert_eq!(Balances::free_balance(MerkleAirdrop::account_id()), 501); // 1 (initial) + 1000
 		                                                                // (funded) - 500 (claimed)
 	});
@@ -391,7 +386,9 @@ fn claim_updates_balances_correctly() {
 			bounded_proof(vec![leaf2])
 		));
 
-		assert_eq!(Balances::free_balance(2), initial_account_balance + 500);
+		// User doesn't get tokens immediately - they're in vesting schedule
+		assert_eq!(Balances::free_balance(2), initial_account_balance);
+		// Tokens are transferred from airdrop to vesting pallet
 		assert_eq!(
 			Balances::free_balance(MerkleAirdrop::account_id()),
 			initial_pallet_balance - 500
@@ -429,20 +426,18 @@ fn multiple_users_can_claim() {
 		// User 1 claims
 		let proof1 = bounded_proof(vec![leaf2, leaf3]);
 		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 2, 5000, proof1));
-		assert_eq!(Balances::free_balance(2), 5000); // free balance but it's locked for vesting
-		assert_eq!(Balances::balance_locked(VESTING_ID, &2), 5000);
+		// Tokens are in vesting schedule, not user account
+		assert_eq!(Balances::free_balance(2), 0);
 
 		// User 2 claims
 		let proof2 = bounded_proof(vec![leaf1, leaf3]);
 		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 3, 3000, proof2));
-		assert_eq!(Balances::free_balance(3), 3000);
-		assert_eq!(Balances::balance_locked(VESTING_ID, &3), 3000);
+		assert_eq!(Balances::free_balance(3), 0);
 
 		// User 3 claims
 		let proof3 = bounded_proof(vec![parent1]);
 		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, 4, 2000, proof3));
-		assert_eq!(Balances::free_balance(4), 2000);
-		assert_eq!(Balances::balance_locked(VESTING_ID, &4), 2000);
+		assert_eq!(Balances::free_balance(4), 0);
 
 		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 1);
 
@@ -587,5 +582,382 @@ fn delete_airdrop_after_claims_works() {
 			Balances::free_balance(creator),
 			initial_creator_balance - total_fund + (total_fund - amount1)
 		);
+	});
+}
+
+#[test]
+fn cannot_use_proof_from_different_airdrop() {
+	// SECURITY: Prevents proof replay attacks across different airdrops
+	// Attack scenario: Attacker sees valid claim in airdrop A,
+	// tries to reuse same proof in airdrop B
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let amount1: u64 = 1000;
+
+		// Create two different airdrops with different merkle roots
+		let leaf1 = calculate_leaf_hash(&account1, amount1);
+		let leaf2 = calculate_leaf_hash(&3, 500);
+		let merkle_root_a = calculate_parent_hash(&leaf1, &leaf2);
+		let merkle_root_b = [0xff; 32]; // Completely different root
+
+		// Airdrop A
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root_a,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 2000));
+
+		// Airdrop B
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root_b,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 1, 2000));
+
+		// Valid proof for airdrop A
+		let proof_a = bounded_proof(vec![leaf2]);
+
+		// Claim from A should work
+		assert_ok!(MerkleAirdrop::claim(
+			RuntimeOrigin::none(),
+			0,
+			account1,
+			amount1,
+			proof_a.clone()
+		));
+
+		// SECURITY: Try to reuse same proof in airdrop B - should FAIL
+		assert_noop!(
+			MerkleAirdrop::claim(
+				RuntimeOrigin::none(),
+				1, // Different airdrop!
+				account1,
+				amount1,
+				proof_a
+			),
+			Error::<Test>::InvalidProof
+		);
+	});
+}
+
+#[test]
+fn cannot_modify_amount_with_valid_proof() {
+	// SECURITY: Attacker tries to claim more by modifying amount
+	// but keeping the same proof - should fail
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let correct_amount: u64 = 1000;
+		let inflated_amount: u64 = 10000; // 10x more!
+
+		let leaf1 = calculate_leaf_hash(&account1, correct_amount);
+		let leaf2 = calculate_leaf_hash(&3, 500);
+		let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 20000));
+
+		let proof = bounded_proof(vec![leaf2]);
+
+		// Try to claim with inflated amount but same proof
+		assert_noop!(
+			MerkleAirdrop::claim(
+				RuntimeOrigin::none(),
+				0,
+				account1,
+				inflated_amount, // Wrong amount!
+				proof
+			),
+			Error::<Test>::InvalidProof
+		);
+	});
+}
+
+#[test]
+fn cannot_claim_with_siblings_proof() {
+	// SECURITY: Attacker tries to use someone else's proof
+	// to claim their allocation - should fail
+	new_test_ext().execute_with(|| {
+		let alice: u64 = 2;
+		let bob: u64 = 3;
+		let alice_amount: u64 = 1000;
+		let bob_amount: u64 = 500;
+
+		let leaf_alice = calculate_leaf_hash(&alice, alice_amount);
+		let leaf_bob = calculate_leaf_hash(&bob, bob_amount);
+		let merkle_root = calculate_parent_hash(&leaf_alice, &leaf_bob);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 2000));
+
+		// Bob's proof
+		let bob_proof = bounded_proof(vec![leaf_alice]);
+
+		// Alice tries to use Bob's proof - should FAIL
+		assert_noop!(
+			MerkleAirdrop::claim(
+				RuntimeOrigin::none(),
+				0,
+				alice,      // Alice trying...
+				bob_amount, // ...with Bob's amount...
+				bob_proof   // ...and Bob's proof
+			),
+			Error::<Test>::InvalidProof
+		);
+	});
+}
+
+#[test]
+fn sum_of_claims_never_exceeds_airdrop_balance() {
+	// INVARIANT: Total claimed ≤ Total funded
+	// This is critical for solvency
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let account2: u64 = 3;
+		let account3: u64 = 4;
+		let amount_each: u64 = 1000;
+
+		// Create 3-user merkle tree
+		let leaf1 = calculate_leaf_hash(&account1, amount_each);
+		let leaf2 = calculate_leaf_hash(&account2, amount_each);
+		let leaf3 = calculate_leaf_hash(&account3, amount_each);
+		let parent1 = calculate_parent_hash(&leaf1, &leaf2);
+		let merkle_root = calculate_parent_hash(&parent1, &leaf3);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+
+		// Fund LESS than total allocations (only 2500 instead of 3000)
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 2500));
+
+		let initial_balance = MerkleAirdrop::airdrop_info(0).unwrap().balance;
+
+		// First claim - should work
+		let proof1 = bounded_proof(vec![leaf2, leaf3]);
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account1, amount_each, proof1));
+
+		let balance_after_1 = MerkleAirdrop::airdrop_info(0).unwrap().balance;
+		assert_eq!(balance_after_1, initial_balance - amount_each);
+
+		// Second claim - should work
+		let proof2 = bounded_proof(vec![leaf1, leaf3]);
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account2, amount_each, proof2));
+
+		let balance_after_2 = MerkleAirdrop::airdrop_info(0).unwrap().balance;
+		assert_eq!(balance_after_2, initial_balance - 2 * amount_each);
+
+		// Third claim - should FAIL (insufficient balance)
+		let proof3 = bounded_proof(vec![parent1]);
+		assert_noop!(
+			MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account3, amount_each, proof3),
+			Error::<Test>::InsufficientAirdropBalance
+		);
+
+		// Invariant: balance remains consistent (500 left from 2500 - 2*1000)
+		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 500);
+	});
+}
+
+#[test]
+fn single_leaf_merkle_tree_works() {
+	// EDGE CASE: Airdrop with only 1 recipient (no siblings)
+	// Proof should be empty array
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let amount: u64 = 1000;
+
+		// Single leaf = leaf hash is also the root
+		let merkle_root = calculate_leaf_hash(&account1, amount);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 1000));
+
+		// Empty proof for single leaf tree
+		let proof = bounded_proof(vec![]);
+
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account1, amount, proof));
+
+		// Verify claim was successful
+		assert_eq!(MerkleAirdrop::is_claimed(0, account1), ());
+		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 0);
+	});
+}
+
+#[test]
+fn maximum_depth_merkle_tree_works() {
+	// EDGE CASE: Deep merkle tree with many proof elements
+	// Tests gas limits and storage constraints
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let amount: u64 = 1000;
+
+		let leaf = calculate_leaf_hash(&account1, amount);
+
+		// Build proof with multiple levels (testing with 10 levels)
+		let mut proof_elements = Vec::new();
+		let mut current_hash = leaf;
+
+		for i in 0..10 {
+			let sibling = [i as u8; 32]; // Fake siblings for testing
+			proof_elements.push(sibling);
+			current_hash = calculate_parent_hash(&current_hash, &sibling);
+		}
+
+		let merkle_root = current_hash;
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 1000));
+
+		let proof = bounded_proof(proof_elements);
+
+		// Should handle deep tree without issues
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account1, amount, proof));
+
+		assert_eq!(MerkleAirdrop::is_claimed(0, account1), ());
+	});
+}
+
+#[test]
+fn claim_with_zero_amount_should_be_rejected() {
+	// EDGE CASE: Attempting to claim 0 tokens
+	// Even with valid proof, this should be rejected or create invalid vesting
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let zero_amount: u64 = 0;
+
+		let leaf1 = calculate_leaf_hash(&account1, zero_amount);
+		let leaf2 = calculate_leaf_hash(&3, 1000);
+		let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 1000));
+
+		let proof = bounded_proof(vec![leaf2]);
+
+		// Zero amount claim will either:
+		// 1. Fail at vesting creation (expected)
+		// 2. Fail at proof verification (if amount affects hash)
+		// 3. Succeed but create meaningless vesting (edge case)
+		let result = MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account1, zero_amount, proof);
+
+		// We expect this to fail somehow (either InvalidProof or vesting error)
+		assert!(result.is_err(), "Zero amount claim should not succeed");
+	});
+}
+
+#[test]
+fn last_claim_exactly_zeroes_balance() {
+	// EDGE CASE: Last user claims exactly remaining balance
+	// No dust should remain
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let account2: u64 = 3;
+		let amount1: u64 = 700;
+		let amount2: u64 = 300;
+
+		let leaf1 = calculate_leaf_hash(&account1, amount1);
+		let leaf2 = calculate_leaf_hash(&account2, amount2);
+		let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+
+		// Fund exactly the sum of allocations
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, amount1 + amount2));
+
+		// First claim
+		let proof1 = bounded_proof(vec![leaf2]);
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account1, amount1, proof1));
+
+		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, amount2);
+
+		// Last claim should zero the balance
+		let proof2 = bounded_proof(vec![leaf1]);
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account2, amount2, proof2));
+
+		// Balance should be EXACTLY zero (no dust)
+		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 0);
+	});
+}
+
+#[test]
+fn can_fund_after_partial_claims() {
+	// SCENARIO: Airdrop is partially claimed, then more funds added
+	// New claims should work with updated balance
+	new_test_ext().execute_with(|| {
+		let account1: u64 = 2;
+		let account2: u64 = 3;
+		let amount_each: u64 = 1000;
+
+		let leaf1 = calculate_leaf_hash(&account1, amount_each);
+		let leaf2 = calculate_leaf_hash(&account2, amount_each);
+		let merkle_root = calculate_parent_hash(&leaf1, &leaf2);
+
+		assert_ok!(MerkleAirdrop::create_airdrop(
+			RuntimeOrigin::signed(1),
+			merkle_root,
+			None,
+			None
+		));
+
+		// Initial funding (only 1000)
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 1000));
+
+		// First claim - succeeds
+		let proof1 = bounded_proof(vec![leaf2]);
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account1, amount_each, proof1));
+
+		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 0);
+
+		// Second claim would fail due to insufficient balance
+		let proof2 = bounded_proof(vec![leaf1]);
+		assert_noop!(
+			MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account2, amount_each, proof2.clone()),
+			Error::<Test>::InsufficientAirdropBalance
+		);
+
+		// Top up the airdrop
+		assert_ok!(MerkleAirdrop::fund_airdrop(RuntimeOrigin::signed(1), 0, 1000));
+
+		// Now second claim should succeed
+		assert_ok!(MerkleAirdrop::claim(RuntimeOrigin::none(), 0, account2, amount_each, proof2));
+
+		assert_eq!(MerkleAirdrop::airdrop_info(0).unwrap().balance, 0);
 	});
 }

@@ -90,7 +90,10 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		let recipient: T::AccountId = account("recipient", 0, 0);
 
-		let amount: BalanceOf<T> = 100u32.into();
+		// Use large amount to cover existential deposit requirements
+		// 10 billion = 10 * 1_000_000_000
+		let amount: BalanceOf<T> = 1000u32.into();
+		let amount = amount.saturating_mul(10_000_000u32.into());
 
 		// 1. Calculate the initial leaf hash
 		let leaf_hash = MerkleAirdrop::<T>::calculate_leaf_hash_blake2(&recipient, amount);

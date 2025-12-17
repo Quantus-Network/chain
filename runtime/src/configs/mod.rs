@@ -427,11 +427,13 @@ impl pallet_sudo::Config for Runtime {
 
 parameter_types! {
 	pub const VestingPalletId: PalletId = PalletId(*b"vestingp");
+	pub const MaxSchedulesPerBeneficiary: u32 = 50;
 }
 
 impl pallet_vesting::Config for Runtime {
 	type PalletId = VestingPalletId;
 	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
+	type MaxSchedulesPerBeneficiary = MaxSchedulesPerBeneficiary;
 }
 
 impl pallet_utility::Config for Runtime {
