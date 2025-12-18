@@ -17,7 +17,7 @@ pub use weights::*;
 pub mod pallet {
 	use super::*;
 	use codec::Decode;
-	use core::marker::PhantomData;
+	use core::{convert::TryInto, marker::PhantomData};
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
@@ -52,13 +52,17 @@ pub mod pallet {
 		type Currency: Mutate<Self::AccountId>
 			+ qp_wormhole::TransferProofs<BalanceOf<Self>, Self::AccountId>;
 
-		/// The base block reward given to miners
+		/// The maximum total supply of tokens
 		#[pallet::constant]
-		type MinerBlockReward: Get<BalanceOf<Self>>;
+		type MaxSupply: Get<BalanceOf<Self>>;
 
-		/// The base block reward given to treasury
+		/// The divisor used to calculate block rewards from remaining supply
 		#[pallet::constant]
-		type TreasuryBlockReward: Get<BalanceOf<Self>>;
+		type EmissionDivisor: Get<BalanceOf<Self>>;
+
+		/// The portion of rewards that goes to treasury (out of 100)
+		#[pallet::constant]
+		type TreasuryPortion: Get<u8>;
 
 		/// The treasury pallet ID
 		#[pallet::constant]
@@ -101,24 +105,54 @@ pub mod pallet {
 		}
 
 		fn on_finalize(_block_number: BlockNumberFor<T>) {
-			// Get the block rewards
-			let miner_reward = T::MinerBlockReward::get();
-			let treasury_reward = T::TreasuryBlockReward::get();
+			// Calculate dynamic block reward based on remaining supply
+			let max_supply = T::MaxSupply::get();
+			let current_supply = T::Currency::total_issuance();
+			let emission_divisor = T::EmissionDivisor::get();
+
+			let remaining_supply = max_supply.saturating_sub(current_supply);
+			let total_reward = remaining_supply
+				.checked_div(&emission_divisor)
+				.unwrap_or_else(|| BalanceOf::<T>::zero());
+
+			// Split the reward between treasury and miner
+			let treasury_portion = T::TreasuryPortion::get();
+			let treasury_reward =
+				total_reward.saturating_mul(treasury_portion.into()) / 100u32.into();
+			let miner_reward = total_reward.saturating_sub(treasury_reward);
+
 			let tx_fees = <CollectedFees<T>>::take();
 
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
 
-			log::debug!(target: "mining-rewards", "💰 Base reward: {:?}", miner_reward);
-			log::debug!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
+			// Log readable amounts (convert to tokens by dividing by 1e12)
+			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees)) = (
+				TryInto::<u128>::try_into(total_reward),
+				TryInto::<u128>::try_into(treasury_reward),
+				TryInto::<u128>::try_into(miner_reward),
+				TryInto::<u128>::try_into(current_supply),
+				TryInto::<u128>::try_into(tx_fees),
+			) {
+				let unit = 1_000_000_000_000u128;
+				let remaining: u128 =
+					TryInto::<u128>::try_into(max_supply.saturating_sub(current_supply))
+						.unwrap_or(0);
+				log::debug!(target: "mining-rewards", "💰 Total reward: {:.6}", total as f64 / unit as f64);
+				log::debug!(target: "mining-rewards", "💰 Treasury reward: {:.6}", treasury as f64 / unit as f64);
+				log::debug!(target: "mining-rewards", "💰 Miner reward: {:.6}", miner_amt as f64 / unit as f64);
+				log::debug!(target: "mining-rewards", "💰 Current supply: {:.2}", current as f64 / unit as f64);
+				log::debug!(target: "mining-rewards", "💰 Remaining supply: {:.2}", remaining as f64 / unit as f64);
+				log::debug!(target: "mining-rewards", "💰 Transaction fees: {:.6}", fees as f64 / unit as f64);
+			}
 
 			// Send fees to miner if any
 			Self::mint_reward(miner.clone(), tx_fees);
 
-			// Send rewards separately for accounting
+			// Send block rewards to miner
 			Self::mint_reward(miner, miner_reward);
 
-			// Send treasury reward
+			// Send treasury portion to treasury
 			Self::mint_reward(None, treasury_reward);
 		}
 	}
@@ -168,13 +202,6 @@ pub mod pallet {
 					T::Currency::store_transfer_proof(&mint_account, &miner, reward);
 
 					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
-
-					log::debug!(
-						target: "mining-rewards",
-						"💰 Rewards sent to miner: {:?} {:?}",
-						reward,
-						miner
-					);
 				},
 				None => {
 					let treasury = T::TreasuryPalletId::get().into_account_truncating();
@@ -183,12 +210,6 @@ pub mod pallet {
 					T::Currency::store_transfer_proof(&mint_account, &treasury, reward);
 
 					Self::deposit_event(Event::TreasuryRewarded { reward });
-
-					log::debug!(
-						target: "mining-rewards",
-						"💰 Rewards sent to Treasury: {:?}",
-						reward
-					);
 				},
 			};
 		}
