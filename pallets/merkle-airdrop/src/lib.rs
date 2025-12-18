@@ -467,6 +467,7 @@ pub mod pallet {
 			);
 
 			ensure!(airdrop_metadata.balance >= amount, Error::<T>::InsufficientAirdropBalance);
+			ensure!(!amount.is_zero(), Error::<T>::InsufficientAirdropBalance);
 
 			// Mark as claimed before performing the transfer
 			Claimed::<T>::insert(airdrop_id, &recipient, ());
@@ -477,25 +478,33 @@ pub mod pallet {
 				}
 			});
 
-			let per_block = if let Some(vesting_period) = airdrop_metadata.vesting_period {
-				amount
+			// If there's no vesting period, do a direct transfer
+			// Otherwise, use vested_transfer for gradual unlocking
+			if let Some(vesting_period) = airdrop_metadata.vesting_period {
+				let per_block = amount
 					.checked_div(&T::BlockNumberToBalance::convert(vesting_period))
-					.ok_or(Error::<T>::InsufficientAirdropBalance)?
+					.ok_or(Error::<T>::InsufficientAirdropBalance)?;
+
+				let current_block = T::BlockNumberProvider::current_block_number();
+				let vesting_start = current_block
+					.saturating_add(airdrop_metadata.vesting_delay.unwrap_or_default());
+
+				T::Vesting::vested_transfer(
+					&Self::account_id(),
+					&recipient,
+					amount,
+					per_block,
+					vesting_start,
+				)?;
 			} else {
-				amount
-			};
-
-			let current_block = T::BlockNumberProvider::current_block_number();
-			let vesting_start =
-				current_block.saturating_add(airdrop_metadata.vesting_delay.unwrap_or_default());
-
-			T::Vesting::vested_transfer(
-				&Self::account_id(),
-				&recipient,
-				amount,
-				per_block,
-				vesting_start,
-			)?;
+				// No vesting - direct transfer from airdrop pallet account to recipient
+				CurrencyOf::<T>::transfer(
+					&Self::account_id(),
+					&recipient,
+					amount,
+					frame_support::traits::ExistenceRequirement::AllowDeath,
+				)?;
+			}
 
 			Self::deposit_event(Event::Claimed { airdrop_id, account: recipient, amount });
 
