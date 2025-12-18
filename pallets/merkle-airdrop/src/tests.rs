@@ -11,12 +11,10 @@ fn bounded_proof(proof: Vec<[u8; 32]>) -> BoundedVec<[u8; 32], MaxProofs> {
 }
 
 // Helper function to calculate a leaf hash for testing
+// Uses tuple encode to match pallet implementation
 fn calculate_leaf_hash(account: &u64, amount: u64) -> [u8; 32] {
-	let account_bytes = account.encode();
-	let amount_bytes = amount.encode();
-	let leaf_data = [&account_bytes[..], &amount_bytes[..]].concat();
-
-	blake2_256(&leaf_data)
+	let bytes = (account, amount).encode(); // Tuple encode - matches pallet!
+	blake2_256(&bytes)
 }
 
 // Helper function to calculate a parent hash for testing
