@@ -60,9 +60,9 @@ fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value 
 		.map(|k| (k, 100_000 * UNIT))
 		.collect::<Vec<_>>();
 
-	const INITIAL_TREASURY: u128 = 21_000_000 * 30 / 100; // 30% tokens go to investors
+	const INITIAL_TREASURY: u128 = 21_000_000 * 30 * UNIT / 100; // 30% tokens go to investors
 	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, INITIAL_TREASURY * UNIT));
+	balances.push((treasury_account, INITIAL_TREASURY));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },

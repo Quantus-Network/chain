@@ -33,6 +33,8 @@ pub mod pallet {
 		traits::{AccountIdConversion, Saturating},
 	};
 
+	const UNIT: u128 = 1_000_000_000_000u128;
+
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -134,16 +136,15 @@ pub mod pallet {
 				TryInto::<u128>::try_into(current_supply),
 				TryInto::<u128>::try_into(tx_fees),
 			) {
-				let unit = 1_000_000_000_000u128;
 				let remaining: u128 =
 					TryInto::<u128>::try_into(max_supply.saturating_sub(current_supply))
 						.unwrap_or(0);
-				log::debug!(target: "mining-rewards", "💰 Total reward: {:.6}", total as f64 / unit as f64);
-				log::debug!(target: "mining-rewards", "💰 Treasury reward: {:.6}", treasury as f64 / unit as f64);
-				log::debug!(target: "mining-rewards", "💰 Miner reward: {:.6}", miner_amt as f64 / unit as f64);
-				log::debug!(target: "mining-rewards", "💰 Current supply: {:.2}", current as f64 / unit as f64);
-				log::debug!(target: "mining-rewards", "💰 Remaining supply: {:.2}", remaining as f64 / unit as f64);
-				log::debug!(target: "mining-rewards", "💰 Transaction fees: {:.6}", fees as f64 / unit as f64);
+				log::debug!(target: "mining-rewards", "💰 Total reward: {:.6}", total as f64 / UNIT as f64);
+				log::debug!(target: "mining-rewards", "💰 Treasury reward: {:.6}", treasury as f64 / UNIT as f64);
+				log::debug!(target: "mining-rewards", "💰 Miner reward: {:.6}", miner_amt as f64 / UNIT as f64);
+				log::debug!(target: "mining-rewards", "💰 Current supply: {:.2}", current as f64 / UNIT as f64);
+				log::debug!(target: "mining-rewards", "💰 Remaining supply: {:.2}", remaining as f64 / UNIT as f64);
+				log::debug!(target: "mining-rewards", "💰 Transaction fees: {:.6}", fees as f64 / UNIT as f64);
 			}
 
 			// Send fees to miner if any
