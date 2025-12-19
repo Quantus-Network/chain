@@ -113,6 +113,14 @@ pub mod pallet {
 			let emission_divisor = T::EmissionDivisor::get();
 
 			let remaining_supply = max_supply.saturating_sub(current_supply);
+
+			if remaining_supply == BalanceOf::<T>::zero() {
+				log::warn!(
+					"💰 Emission completed: current supply has reached the configured maximum, \
+					 no further block rewards will be minted."
+				);
+			}
+
 			let total_reward = remaining_supply
 				.checked_div(&emission_divisor)
 				.unwrap_or_else(|| BalanceOf::<T>::zero());
