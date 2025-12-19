@@ -75,7 +75,7 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Test {
-	type RuntimeHoldReason = ();
+	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = ();
 	type WeightInfo = ();
 	type Balance = Balance;

@@ -17,7 +17,9 @@ impl TestCommons {
 
 	// Create a test externality
 	pub fn new_test_ext() -> sp_io::TestExternalities {
-		let t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
+		let t = frame_system::GenesisConfig::<Runtime>::default()
+			.build_storage()
+			.expect("Failed to build test storage");
 
 		let mut ext = sp_io::TestExternalities::new(t);
 
@@ -37,8 +39,10 @@ impl TestCommons {
 	}
 
 	/// Create a test externality with governance track timing based on feature flags
+	///
 	/// - Without `production-governance-tests`: Uses fast 2-block periods for all governance tracks
 	/// - With `production-governance-tests`: Uses production timing (hours/days)
+	///
 	/// This allows CI to test both fast (for speed) and slow (for correctness) governance
 	pub fn new_fast_governance_test_ext() -> sp_io::TestExternalities {
 		#[cfg(feature = "production-governance-tests")]

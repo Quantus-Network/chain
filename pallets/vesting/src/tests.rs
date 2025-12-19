@@ -1,10 +1,14 @@
 use super::*;
-use crate::{mock::*, VestingSchedule, VestingType};
+use crate::{mock::*, HoldReason, VestingSchedule, VestingType};
 use frame_support::{
 	assert_noop, assert_ok,
-	traits::{Currency, ExistenceRequirement, ExistenceRequirement::AllowDeath},
+	traits::{
+		fungible::{InspectHold, MutateHold},
+		Currency, ExistenceRequirement,
+		ExistenceRequirement::AllowDeath,
+	},
 };
-use sp_runtime::{DispatchError, TokenError};
+use sp_runtime::DispatchError;
 
 #[cfg(test)]
 fn create_vesting_schedule<Moment: From<u64>>(
@@ -21,6 +25,7 @@ fn create_vesting_schedule<Moment: From<u64>>(
 		amount,
 		claimed: 0,
 		id: 1,
+		funding_account: 1,
 	}
 }
 
@@ -90,7 +95,8 @@ fn create_vesting_schedule_works() {
 			2, // Beneficiary
 			amount,
 			start,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Check storage
@@ -107,13 +113,24 @@ fn create_vesting_schedule_works() {
 				end,
 				vesting_type: VestingType::Linear,
 				claimed: 0,
-				id: 1
+				id: 1,
+				funding_account: 1
 			}
 		);
 
-		// Check balances
-		assert_eq!(Balances::free_balance(1), 100000 - amount); // Sender loses tokens
-		assert_eq!(Balances::free_balance(Vesting::account_id()), amount); // Pallet holds tokens
+		// Check balances - with lazy funding and auto-freeze:
+		// - Account 1's tokens are automatically frozen by on_initialize
+		// - free_balance is reduced by frozen amount
+		// - Pallet account has 0 tokens
+		assert_eq!(Balances::free_balance(1), 100000 - amount); // free = total - frozen
+		assert_eq!(Balances::free_balance(Vesting::account_id()), 0); // Pallet has nothing
+
+		// Check that tokens are frozen for vesting obligations
+		let frozen = <Balances as InspectHold<u64>>::balance_on_hold(
+			&RuntimeHoldReason::Vesting(HoldReason::VestingObligation),
+			&1,
+		);
+		assert_eq!(frozen, amount); // 500 tokens frozen on account 1
 	});
 }
 
@@ -130,7 +147,8 @@ fn claim_vested_tokens_works() {
 			2,
 			amount,
 			start,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Set timestamp to halfway through vesting (50% vested)
@@ -143,7 +161,10 @@ fn claim_vested_tokens_works() {
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
 		assert_eq!(schedule.claimed, 250);
 		assert_eq!(Balances::free_balance(2), 2250); // 2000 initial + 250 claimed
-		assert_eq!(Balances::free_balance(Vesting::account_id()), 250); // Remaining in pallet
+											   // With lazy funding: 250 transferred out, 250 still held
+											   // free_balance = (100000 - 250 transferred) - 250 held = 99500
+		assert_eq!(Balances::free_balance(1), 99500);
+		assert_eq!(Balances::free_balance(Vesting::account_id()), 0); // Pallet has nothing
 
 		// Claim again at end
 		run_to_block(6, 2000);
@@ -153,7 +174,9 @@ fn claim_vested_tokens_works() {
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
 		assert_eq!(schedule.claimed, 500);
 		assert_eq!(Balances::free_balance(2), 2500); // All 500 claimed
-		assert_eq!(Balances::free_balance(Vesting::account_id()), 0); // Pallet empty
+											   // All 500 transferred, nothing held anymore
+		assert_eq!(Balances::free_balance(1), 100000 - 500); // Account 1 paid all 500
+		assert_eq!(Balances::free_balance(Vesting::account_id()), 0); // Pallet still has nothing
 	});
 }
 
@@ -170,11 +193,12 @@ fn claim_before_vesting_fails() {
 			2,
 			amount,
 			start,
-			end
+			end,
+			1 // funding_account
 		));
 
-		// Try to claim (should not do anything)
-		assert_ok!(Vesting::claim(RuntimeOrigin::signed(2), 1));
+		// Try to claim (should fail with NothingToClaim because no tokens vested yet)
+		assert_noop!(Vesting::claim(RuntimeOrigin::signed(2), 1), Error::<Test>::NothingToClaim);
 
 		// Check no changes
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
@@ -199,7 +223,8 @@ fn non_beneficiary_cannot_claim() {
 			2, // Beneficiary is account 2
 			amount,
 			start,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Advance to halfway through vesting (50% vested)
@@ -212,13 +237,16 @@ fn non_beneficiary_cannot_claim() {
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
 		assert_eq!(schedule.claimed, 0);
 		assert_eq!(Balances::free_balance(2), 2000); // No change for beneficiary
-		assert_eq!(Balances::free_balance(Vesting::account_id()), 500); // Tokens still in pallet
+											   // 500 is held for vesting
+		assert_eq!(Balances::free_balance(1), 100000 - 500); // Funding account has 500 held
 
 		// Beneficiary (account 2) can claim
 		assert_ok!(Vesting::claim(RuntimeOrigin::signed(2), 1));
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
 		assert_eq!(schedule.claimed, 250); // 50% vested
 		assert_eq!(Balances::free_balance(2), 2250);
+		// 250 transferred, 250 still held
+		assert_eq!(Balances::free_balance(1), 99500); // 100000 - 250 - 250
 	});
 }
 
@@ -238,7 +266,8 @@ fn multiple_beneficiaries_claim_own_schedules() {
 			2,
 			amount,
 			start,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Account 1 creates a vesting schedule for account 3
@@ -247,7 +276,8 @@ fn multiple_beneficiaries_claim_own_schedules() {
 			3,
 			amount,
 			start,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Advance to halfway through vesting (50% vested)
@@ -265,12 +295,15 @@ fn multiple_beneficiaries_claim_own_schedules() {
 		assert_eq!(schedule3.claimed, 250); // 50% of 500
 		assert_eq!(Balances::free_balance(3), 250); // 0 initial + 250 claimed
 
-		// Ensure account 2’s schedule is unaffected by account 3’s claim
+		// Ensure account 2's schedule is unaffected by account 3's claim
 		let schedule2 = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
 		assert_eq!(schedule2.claimed, 250); // Still only 250 claimed
 
-		// Total in pallet account should reflect both claims
-		assert_eq!(Balances::free_balance(Vesting::account_id()), 500); // 1000 - 250 - 250
+		// With lazy funding: funding account paid both claims (500 total)
+		// 1000 initially held, 500 claimed (released+transferred), 500 still held
+		// free_balance = (100000 - 500 transferred) - 500 held = 99000
+		assert_eq!(Balances::free_balance(1), 99000);
+		assert_eq!(Balances::free_balance(Vesting::account_id()), 0); // Pallet has nothing
 	});
 }
 
@@ -285,7 +318,8 @@ fn zero_amount_schedule_fails() {
 				2,
 				0, // Zero amount
 				1000,
-				2000
+				2000,
+				1
 			),
 			Error::<Test>::InvalidSchedule
 		);
@@ -297,26 +331,52 @@ fn claim_with_empty_pallet_fails() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, 500);
 
-		assert_ok!(Vesting::create_vesting_schedule(RuntimeOrigin::signed(1), 2, 500, 1000, 2000));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			500,
+			1000,
+			2000,
+			1
+		));
 
-		// Drain the pallet account (simulate external interference)
+		// With lazy funding: first unfreeze all held funds, then drain the funding account
+		// This simulates a scenario where funding account has no funds (neither free nor held)
+		let held = <Balances as InspectHold<u64>>::balance_on_hold(
+			&RuntimeHoldReason::Vesting(HoldReason::VestingObligation),
+			&1,
+		);
+
+		// Manually release all held funds (simulating governance or manual intervention)
+		if held > 0 {
+			assert_ok!(Balances::release(
+				&RuntimeHoldReason::Vesting(HoldReason::VestingObligation),
+				&1,
+				held,
+				frame_support::traits::tokens::Precision::Exact
+			));
+			FrozenBalance::<Test>::mutate(1, |bal| *bal = 0);
+		}
+
+		// Now drain all free balance
+		let funding_balance = Balances::free_balance(1);
 		assert_ok!(Balances::transfer(
-			&Vesting::account_id(),
+			&1,
 			&3,
-			Balances::free_balance(Vesting::account_id()),
-			ExistenceRequirement::AllowDeath
+			funding_balance - 1, // Leave just 1 for ED
+			ExistenceRequirement::KeepAlive
 		));
 
 		run_to_block(2, 1500);
 
-		// Claim should fail due to insufficient funds in pallet
-		assert_noop!(
-			Vesting::claim(RuntimeOrigin::signed(2), 1),
-			DispatchError::Token(TokenError::FundsUnavailable)
-		);
+		// Claim succeeds but only transfers 1 token (partial claim)
+		// Because funding account only has 1 token left
+		assert_ok!(Vesting::claim(RuntimeOrigin::signed(2), 1));
 
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
-		assert_eq!(schedule.claimed, 0); // No tokens claimed
+		assert_eq!(schedule.claimed, 1); // Only 1 token claimed (partial)
+		assert_eq!(Balances::free_balance(2), 2001); // 2000 + 1
+		assert_eq!(Balances::free_balance(1), 0); // Funding account drained completely
 	});
 }
 
@@ -326,10 +386,24 @@ fn multiple_schedules_same_beneficiary() {
 		run_to_block(1, 500);
 
 		// Schedule 1: 500 tokens, 1000-2000
-		assert_ok!(Vesting::create_vesting_schedule(RuntimeOrigin::signed(1), 2, 500, 1000, 2000));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			500,
+			1000,
+			2000,
+			1
+		));
 
 		// Schedule 2: 300 tokens, 1200-1800
-		assert_ok!(Vesting::create_vesting_schedule(RuntimeOrigin::signed(1), 2, 300, 1200, 1800));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			300,
+			1200,
+			1800,
+			1
+		));
 
 		// At 1500: Schedule 1 is 50% (250), Schedule 2 is 50% (150)
 		run_to_block(2, 1500);
@@ -367,11 +441,13 @@ fn small_time_window_vesting() {
 			2,
 			500,
 			1000,
-			1001 // 1ms duration
+			1001, // 1ms duration
+			1     // funding_account
 		));
 
 		run_to_block(2, 1000);
-		assert_ok!(Vesting::claim(RuntimeOrigin::signed(2), 1));
+		// Try to claim at start - should fail with NothingToClaim
+		assert_noop!(Vesting::claim(RuntimeOrigin::signed(2), 1), Error::<Test>::NothingToClaim);
 		let schedule = VestingSchedules::<Test>::get(1).expect("Schedule should exist");
 		assert_eq!(schedule.claimed, 0); // Not yet vested
 
@@ -393,7 +469,8 @@ fn vesting_near_max_timestamp() {
 			2,
 			500,
 			max - 500,
-			max
+			max,
+			1 // funding_account
 		));
 
 		run_to_block(2, max - 250); // Halfway
@@ -426,25 +503,29 @@ fn creator_insufficient_funds_fails() {
 
 		run_to_block(1, 500);
 
-		// Account 4 tries to create a vesting schedule with insufficient funds
-		assert_noop!(
-			Vesting::create_vesting_schedule(
-				RuntimeOrigin::signed(4),
-				2,
-				10, // Amount greater than 4’s balance minus ED
-				1000,
-				2000
-			),
-			DispatchError::Token(TokenError::FundsUnavailable)
-		);
+		// With lazy funding: creation succeeds even with low balance
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(4),
+			2,
+			100, // More than account 4 has
+			1000,
+			2000,
+			4 // Account 4 is funding_account
+		));
 
-		// Ensure no schedule was created
+		// Schedule was created
 		let schedule = VestingSchedules::<Test>::get(1);
-		assert_eq!(schedule, None);
+		assert!(schedule.is_some());
 
-		// Check balances
-		assert_eq!(Balances::free_balance(4), 5); // No change
-		assert_eq!(Balances::free_balance(Vesting::account_id()), 0); // Nothing transferred
+		// Fast forward to vesting time
+		run_to_block(2, 1500);
+
+		// Try to claim - should fail because funding account has insufficient funds
+		// Transfer will fail with FundsUnavailable
+		assert_noop!(
+			Vesting::claim(RuntimeOrigin::signed(2), 1),
+			DispatchError::Token(sp_runtime::TokenError::FundsUnavailable)
+		);
 	});
 }
 
@@ -453,7 +534,14 @@ fn creator_can_cancel_schedule() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, 500);
 
-		assert_ok!(Vesting::create_vesting_schedule(RuntimeOrigin::signed(1), 2, 500, 1000, 2000));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			500,
+			1000,
+			2000,
+			1
+		));
 
 		run_to_block(2, 1500);
 
@@ -477,7 +565,14 @@ fn non_creator_cannot_cancel() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, 500);
 
-		assert_ok!(Vesting::create_vesting_schedule(RuntimeOrigin::signed(1), 2, 500, 1000, 2000));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			500,
+			1000,
+			2000,
+			1
+		));
 
 		// Account 3 tries to cancel (not the creator)
 		assert_noop!(
@@ -498,7 +593,14 @@ fn creator_can_cancel_after_end() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, 500);
 
-		assert_ok!(Vesting::create_vesting_schedule(RuntimeOrigin::signed(1), 2, 500, 1000, 2000));
+		assert_ok!(Vesting::create_vesting_schedule(
+			RuntimeOrigin::signed(1),
+			2,
+			500,
+			1000,
+			2000,
+			1
+		));
 
 		run_to_block(2, 2500);
 
@@ -531,7 +633,8 @@ fn cliff_vesting_before_cliff_returns_zero() {
 			2,
 			amount,
 			cliff,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Set timestamp before cliff
@@ -557,7 +660,8 @@ fn cliff_vesting_at_cliff_starts_linear() {
 			2,
 			amount,
 			cliff,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Set timestamp at cliff
@@ -588,7 +692,8 @@ fn cliff_vesting_after_end_returns_full_amount() {
 			2,
 			amount,
 			cliff,
-			end
+			end,
+			1 // funding_account
 		));
 
 		// Set timestamp after end
@@ -613,18 +718,21 @@ fn cliff_vesting_claim_works() {
 			2,
 			amount,
 			cliff,
-			end
+			end,
+			1 // funding_account
 		));
 
-		// Before cliff - cannot claim
+		// Before cliff - cannot claim (NothingToClaim error)
 		Timestamp::set_timestamp(500);
-		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_noop!(Vesting::claim(RuntimeOrigin::none(), 1), Error::<Test>::NothingToClaim);
 		assert_eq!(Balances::free_balance(2), 2000); // No change
 
 		// After cliff, halfway to end
 		Timestamp::set_timestamp(1500);
 		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
 		assert_eq!(Balances::free_balance(2), 2500); // 2000 + 500 (50% vested)
+											   // 500 transferred, 500 still held
+		assert_eq!(Balances::free_balance(1), 99000); // 100000 - 500 - 500
 	});
 }
 
@@ -644,7 +752,8 @@ fn stepped_vesting_before_first_step() {
 			amount,
 			start,
 			end,
-			step_duration
+			step_duration,
+			1 // funding_account
 		));
 
 		// Before first step
@@ -672,7 +781,8 @@ fn stepped_vesting_after_first_step() {
 			amount,
 			start,
 			end,
-			step_duration
+			step_duration,
+			1 // funding_account
 		));
 
 		// After first step (1000ms elapsed)
@@ -700,7 +810,8 @@ fn stepped_vesting_after_two_steps() {
 			amount,
 			start,
 			end,
-			step_duration
+			step_duration,
+			1 // funding_account
 		));
 
 		// After two steps (2000ms elapsed)
@@ -728,7 +839,8 @@ fn stepped_vesting_after_all_steps() {
 			amount,
 			start,
 			end,
-			step_duration
+			step_duration,
+			1 // funding_account
 		));
 
 		// After end
@@ -756,23 +868,28 @@ fn stepped_vesting_claim_works() {
 			amount,
 			start,
 			end,
-			step_duration
+			step_duration,
+			1 // funding_account
 		));
 
-		// Before first step - nothing to claim
+		// Before first step - nothing to claim (NothingToClaim error)
 		Timestamp::set_timestamp(1500);
-		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
+		assert_noop!(Vesting::claim(RuntimeOrigin::none(), 1), Error::<Test>::NothingToClaim);
 		assert_eq!(Balances::free_balance(2), 2000); // No change
 
 		// After two steps
 		Timestamp::set_timestamp(3000);
 		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
 		assert_eq!(Balances::free_balance(2), 2500); // 2000 + 500 (50% vested)
+											   // 500 transferred, 500 still held
+		assert_eq!(Balances::free_balance(1), 99000); // 100000 - 500 - 500
 
 		// After all steps
 		Timestamp::set_timestamp(5000);
 		assert_ok!(Vesting::claim(RuntimeOrigin::none(), 1));
 		assert_eq!(Balances::free_balance(2), 3000); // 2000 + 1000 (100% vested)
+											   // All 1000 transferred, nothing held
+		assert_eq!(Balances::free_balance(1), 100000 - 1000); // Funding account paid all
 	});
 }
 
@@ -791,7 +908,8 @@ fn stepped_vesting_yearly_example() {
 			amount,
 			start,
 			end,
-			step_duration
+			step_duration,
+			1 // funding_account
 		));
 
 		// After 364 days - still 0
@@ -833,9 +951,10 @@ fn stepped_vesting_invalid_step_duration_fails() {
 				1000,
 				1000,
 				2000,
-				0 // Invalid: zero step duration
+				0, // Invalid: zero step duration
+				1
 			),
-			Error::<Test>::InvalidSchedule
+			Error::<Test>::InvalidStepDuration
 		);
 
 		// step_duration > total duration should fail
@@ -846,7 +965,8 @@ fn stepped_vesting_invalid_step_duration_fails() {
 				1000,
 				1000,
 				2000,
-				2000 // Invalid: step longer than total duration
+				2000, // Invalid: step longer than total duration
+				1
 			),
 			Error::<Test>::InvalidSchedule
 		);
@@ -870,7 +990,8 @@ fn schedule_count_increments_on_create() {
 			beneficiary,
 			1000,
 			1000,
-			2000
+			2000,
+			1 // funding_account
 		));
 
 		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 1);
@@ -881,7 +1002,8 @@ fn schedule_count_increments_on_create() {
 			beneficiary,
 			1000,
 			1000,
-			2000
+			2000,
+			1 // funding_account
 		));
 
 		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 2);
@@ -900,14 +1022,16 @@ fn schedule_count_decrements_on_cancel() {
 			beneficiary,
 			1000,
 			1000,
-			2000
+			2000,
+			1 // funding_account
 		));
 		assert_ok!(Vesting::create_vesting_schedule(
 			RuntimeOrigin::signed(creator),
 			beneficiary,
 			1000,
 			1000,
-			2000
+			2000,
+			1 // funding_account
 		));
 
 		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 2);
@@ -938,7 +1062,8 @@ fn cannot_exceed_max_schedules_per_beneficiary() {
 				beneficiary,
 				1000,
 				1000 + i as u64,
-				2000 + i as u64
+				2000 + i as u64,
+				1 // funding_account
 			));
 		}
 
@@ -951,7 +1076,8 @@ fn cannot_exceed_max_schedules_per_beneficiary() {
 				beneficiary,
 				1000,
 				1000,
-				2000
+				2000,
+				creator
 			),
 			Error::<Test>::TooManySchedules
 		);
@@ -972,7 +1098,8 @@ fn limit_applies_per_beneficiary() {
 				beneficiary1,
 				1000,
 				1000,
-				2000
+				2000,
+				1 // funding_account
 			));
 		}
 
@@ -985,7 +1112,8 @@ fn limit_applies_per_beneficiary() {
 				beneficiary1,
 				1000,
 				1000,
-				2000
+				2000,
+				creator
 			),
 			Error::<Test>::TooManySchedules
 		);
@@ -996,7 +1124,8 @@ fn limit_applies_per_beneficiary() {
 			beneficiary2,
 			1000,
 			1000,
-			2000
+			2000,
+			1 // funding_account
 		));
 
 		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary2), 1);
@@ -1016,7 +1145,8 @@ fn limit_applies_to_all_vesting_types() {
 				beneficiary,
 				1000,
 				1000,
-				2000
+				2000,
+				1 // funding_account
 			));
 		}
 
@@ -1026,7 +1156,8 @@ fn limit_applies_to_all_vesting_types() {
 			beneficiary,
 			1000,
 			1500,
-			2000
+			2000,
+			1 // funding_account
 		));
 
 		// Create 1 stepped schedule (total = 50)
@@ -1036,7 +1167,8 @@ fn limit_applies_to_all_vesting_types() {
 			1000,
 			1000,
 			2000,
-			100
+			100,
+			1 // funding_account
 		));
 
 		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 50);
@@ -1048,7 +1180,8 @@ fn limit_applies_to_all_vesting_types() {
 				beneficiary,
 				1000,
 				1000,
-				2000
+				2000,
+				creator
 			),
 			Error::<Test>::TooManySchedules
 		);
@@ -1059,7 +1192,8 @@ fn limit_applies_to_all_vesting_types() {
 				beneficiary,
 				1000,
 				1500,
-				2000
+				2000,
+				creator
 			),
 			Error::<Test>::TooManySchedules
 		);
@@ -1071,7 +1205,8 @@ fn limit_applies_to_all_vesting_types() {
 				1000,
 				1000,
 				2000,
-				100
+				100,
+				creator
 			),
 			Error::<Test>::TooManySchedules
 		);
@@ -1091,7 +1226,8 @@ fn can_create_more_after_cancelling() {
 				beneficiary,
 				1000,
 				1000,
-				2000
+				2000,
+				1 // funding_account
 			));
 		}
 
@@ -1104,7 +1240,8 @@ fn can_create_more_after_cancelling() {
 				beneficiary,
 				1000,
 				1000,
-				2000
+				2000,
+				creator
 			),
 			Error::<Test>::TooManySchedules
 		);
@@ -1120,7 +1257,8 @@ fn can_create_more_after_cancelling() {
 			beneficiary,
 			1000,
 			1000,
-			2000
+			2000,
+			1 // funding_account
 		));
 
 		assert_eq!(BeneficiaryScheduleCount::<Test>::get(beneficiary), 50);

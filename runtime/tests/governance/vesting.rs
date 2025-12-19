@@ -123,6 +123,7 @@ mod tests {
 				grant_amount,
 				start_time,
 				end_time,
+				proposer.clone(), // funding_account
 			));
 
 			println!("Vesting schedule created successfully");
@@ -156,6 +157,7 @@ mod tests {
 					amount: milestone1_amount,
 					start: now,
 					end: now + 30 * DAY_MS,
+					funding_account: grantor.clone(),
 				}),
 				// Milestone 2: Longer vesting (60 days)
 				RuntimeCall::Vesting(pallet_vesting::Call::create_vesting_schedule {
@@ -163,6 +165,7 @@ mod tests {
 					amount: milestone2_amount,
 					start: now + 31 * DAY_MS,
 					end: now + 91 * DAY_MS,
+					funding_account: grantor.clone(),
 				}),
 				// Milestone 3: Immediate payment
 				RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
@@ -210,6 +213,7 @@ mod tests {
 				amount,
 				now,
 				now + vesting_duration,
+				treasury.clone(), // funding_account
 			));
 
 			println!("Treasury + vesting integration successful");
@@ -239,6 +243,7 @@ mod tests {
 				total_amount,
 				now,
 				now + vesting_duration,
+				grantor.clone(), // funding_account
 			));
 
 			println!("Vesting schedule created");
@@ -375,6 +380,7 @@ mod tests {
 				milestone1_amount,
 				now,
 				now + 60 * DAY_MS,
+				treasury_account.clone(), // funding_account
 			));
 
 			println!("✅ Tech Collective approved milestone 1 with 60-day vesting");
@@ -389,6 +395,7 @@ mod tests {
 				milestone2_amount,
 				now + 20 * DAY_MS,
 				now + 50 * DAY_MS,
+				treasury_account.clone(), // funding_account
 			));
 
 			println!("✅ Tech Collective approved milestone 2 with reduced 30-day vesting");
