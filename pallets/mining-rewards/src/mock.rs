@@ -24,11 +24,13 @@ frame_support::construct_runtime!(
 
 pub type Balance = u128;
 pub type Block = frame_system::mocking::MockBlock<Test>;
+const UNIT: u128 = 1_000_000_000_000u128;
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
 	pub const SS58Prefix: u8 = 189;
-	pub const BlockReward: u128 = 50;
+	pub const MaxSupply: u128 = 21_000_000 * UNIT;
+	pub const EmissionDivisor: u128 = 26_280_000;
 	pub const ExistentialDeposit: Balance = 1;
 	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
 }
@@ -83,15 +85,16 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const TreasuryBlockReward: u128 = 50;
+	pub const TreasuryPortion: u8 = 50; // 50% goes to treasury in tests (matching runtime)
 	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
 }
 
 impl pallet_mining_rewards::Config for Test {
 	type Currency = Balances;
 	type WeightInfo = ();
-	type MinerBlockReward = BlockReward;
-	type TreasuryBlockReward = TreasuryBlockReward;
+	type MaxSupply = MaxSupply;
+	type EmissionDivisor = EmissionDivisor;
+	type TreasuryPortion = TreasuryPortion;
 	type TreasuryPalletId = TreasuryPalletId;
 	type MintingAccount = MintingAccount;
 }
