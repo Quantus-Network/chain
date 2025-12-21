@@ -2,8 +2,18 @@
 
 extern crate alloc;
 
+<<<<<<< Updated upstream
 use lazy_static::lazy_static;
 pub use pallet::*;
+=======
+use core::marker::PhantomData;
+
+use codec::{Decode, MaxEncodedLen};
+use frame_support::StorageHasher;
+use lazy_static::lazy_static;
+pub use pallet::*;
+pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
+>>>>>>> Stashed changes
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
@@ -29,9 +39,26 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
 }
 
+// We use a generic struct so we can pass the specific Key type to the hasher
+pub struct PoseidonStorageHasher<Key>(PhantomData<Key>);
+
+impl<Key: Decode + ToFelts + 'static> StorageHasher for PoseidonStorageHasher<Key> {
+	// We are lying here, but maybe it's ok because it's just metadata
+	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
+	type Output = [u8; 32];
+
+	fn hash(x: &[u8]) -> Self::Output {
+		PoseidonCore::hash_storage::<Key>(x)
+	}
+
+	fn max_len<K: MaxEncodedLen>() -> usize {
+		32
+	}
+}
+
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::WeightInfo;
+	use crate::{PoseidonStorageHasher, ToFelts, WeightInfo};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
@@ -55,16 +82,44 @@ pub mod pallet {
 	pub type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
+	pub type TransferProofKey<T> = (
+		AssetIdOf<T>,
+		<T as Config>::TransferCount,
+		<T as frame_system::Config>::AccountId,
+		<T as frame_system::Config>::AccountId,
+		BalanceOf<T>,
+	);
+
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
-		/// Currency type used for minting tokens and handling wormhole transfers
+	pub trait Config: frame_system::Config
+	where
+		AssetIdOf<Self>: Default + From<u32> + Clone + ToFelts,
+		BalanceOf<Self>: Default + ToFelts,
+		AssetBalanceOf<Self>: Into<BalanceOf<Self>> + From<BalanceOf<Self>>,
+		<Self as frame_system::Config>::AccountId: ToFelts,
+	{
+		/// Currency type used for native token transfers and minting
 		type Currency: Mutate<Self::AccountId, Balance = BalanceOf<Self>>
 			+ TransferProofs<BalanceOf<Self>, Self::AccountId>
 			+ Unbalanced<Self::AccountId>
 			+ Currency<Self::AccountId>;
+
+		/// Assets type used for managing fungible assets
+		type Assets: fungibles::Inspect<Self::AccountId>
+			+ fungibles::Mutate<Self::AccountId>
+			+ fungibles::Create<Self::AccountId>;
+
+		/// Transfer count type used in storage
+		type TransferCount: Parameter
+			+ MaxEncodedLen
+			+ Default
+			+ Saturating
+			+ Copy
+			+ sp_runtime::traits::One
+			+ ToFelts;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -81,10 +136,44 @@ pub mod pallet {
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
+	/// Transfer proofs for wormhole transfers (both native and assets)
+	#[pallet::storage]
+	#[pallet::getter(fn transfer_proof)]
+	pub type TransferProof<T: Config> = StorageMap<
+		_,
+		PoseidonStorageHasher<TransferProofKey<T>>,
+		TransferProofKey<T>,
+		(),
+		OptionQuery,
+	>;
+
+	/// Transfer count for all wormhole transfers
+	#[pallet::storage]
+	#[pallet::getter(fn transfer_count)]
+	pub type TransferCount<T: Config> = StorageValue<_, T::TransferCount, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
-		ProofVerified { exit_amount: BalanceOf<T> },
+	pub enum Event<T: Config>
+	where
+		T::AccountId: ToFelts,
+	{
+		ProofVerified {
+			exit_amount: BalanceOf<T>,
+		},
+		NativeTransferred {
+			from: T::AccountId,
+			to: T::AccountId,
+			amount: BalanceOf<T>,
+			transfer_count: T::TransferCount,
+		},
+		AssetTransferred {
+			asset_id: AssetIdOf<T>,
+			from: T::AccountId,
+			to: T::AccountId,
+			amount: AssetBalanceOf<T>,
+			transfer_count: T::TransferCount,
+		},
 	}
 
 	#[pallet::error]
@@ -102,7 +191,10 @@ pub mod pallet {
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: ToFelts,
+	{
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
 		pub fn verify_wormhole_proof(
@@ -227,6 +319,108 @@ pub mod pallet {
 			Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
 
 			Ok(())
+		}
+
+		/// Transfer native tokens and store proof for wormhole
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::DbWeight::get().reads_writes(1, 2))]
+		pub fn transfer_native(
+			origin: OriginFor<T>,
+			dest: AccountIdLookupOf<T>,
+			#[pallet::compact] amount: BalanceOf<T>,
+		) -> DispatchResult {
+			let source = ensure_signed(origin)?;
+			let dest = T::Lookup::lookup(dest)?;
+
+			// Prevent self-transfers
+			ensure!(source != dest, Error::<T>::SelfTransfer);
+
+			// Perform the transfer
+			<T::Currency as Mutate<_>>::transfer(&source, &dest, amount, Preservation::Expendable)?;
+
+			// Store proof with asset_id = Default (0 for native)
+			Self::record_transfer(AssetIdOf::<T>::default(), source, dest, amount)?;
+
+			Ok(())
+		}
+
+		/// Transfer asset tokens and store proof for wormhole
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+		pub fn transfer_asset(
+			origin: OriginFor<T>,
+			asset_id: AssetIdOf<T>,
+			dest: AccountIdLookupOf<T>,
+			#[pallet::compact] amount: AssetBalanceOf<T>,
+		) -> DispatchResult {
+			let source = ensure_signed(origin)?;
+			let dest = T::Lookup::lookup(dest)?;
+
+			// Prevent self-transfers
+			ensure!(source != dest, Error::<T>::SelfTransfer);
+
+			// Check if asset exists
+			ensure!(
+				<T::Assets as FungiblesInspect<_>>::asset_exists(asset_id.clone()),
+				Error::<T>::AssetNotFound
+			);
+
+			// Perform the transfer
+			<T::Assets as fungibles::Mutate<_>>::transfer(
+				asset_id.clone(),
+				&source,
+				&dest,
+				amount,
+				Preservation::Expendable,
+			)?;
+
+			// Store proof
+			Self::record_transfer(asset_id, source, dest, amount.into())?;
+
+			Ok(())
+		}
+	}
+
+	// Helper functions for recording transfer proofs
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: ToFelts,
+	{
+		/// Record a transfer proof
+		/// This should be called by transaction extensions or other runtime components
+		pub fn record_transfer(
+			asset_id: AssetIdOf<T>,
+			from: T::AccountId,
+			to: T::AccountId,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			let current_count = TransferCount::<T>::get();
+			TransferProof::<T>::insert(
+				(asset_id, current_count, from.clone(), to.clone(), amount),
+				(),
+			);
+			TransferCount::<T>::put(current_count.saturating_add(T::TransferCount::one()));
+
+			Ok(())
+		}
+	}
+
+	// Implement the TransferProofRecorder trait for other pallets to use
+	impl<T: Config> qp_wormhole::TransferProofRecorder<T::AccountId, AssetIdOf<T>, BalanceOf<T>>
+		for Pallet<T>
+	where
+		T::AccountId: ToFelts,
+	{
+		type Error = DispatchError;
+
+		fn record_transfer_proof(
+			asset_id: Option<AssetIdOf<T>>,
+			from: T::AccountId,
+			to: T::AccountId,
+			amount: BalanceOf<T>,
+		) -> Result<(), Self::Error> {
+			let asset_id_value = asset_id.unwrap_or_default();
+			Self::record_transfer(asset_id_value, from, to, amount)
 		}
 	}
 }

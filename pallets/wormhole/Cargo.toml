@@ -16,6 +16,8 @@ hex = { workspace = true, features = ["alloc"], optional = true }
 lazy_static.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
+qp-header = { workspace = true, features = ["serde"] }
+qp-poseidon = { path = "../../../qp-poseidon/substrate", default-features = false }
 qp-wormhole.workspace = true
 qp-wormhole-circuit = { workspace = true, default-features = false }
 qp-wormhole-verifier = { workspace = true, default-features = false }

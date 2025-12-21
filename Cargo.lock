@@ -8872,7 +8872,7 @@ dependencies = [
  "env_logger 0.11.8",
  "log",
  "parity-scale-codec",
- "qp-poseidon",
+ "qp-poseidon 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "scale-info",

@@ -1,8 +1,18 @@
 #[cfg(test)]
 mod wormhole_tests {
-	use crate::{get_wormhole_verifier, mock::*, weights, Config, Error, WeightInfo};
-	use frame_support::{assert_noop, assert_ok, weights::WeightToFee};
-	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+	use crate::{get_wormhole_verifier, mock::*, TransferProofKey};
+	use codec::Encode;
+	use frame_support::{
+		assert_ok,
+		traits::fungible::{Inspect, Mutate},
+	};
+	use plonky2::plonk::circuit_data::CircuitConfig;
+	use qp_poseidon::PoseidonHasher;
+	use qp_wormhole_circuit::{
+		inputs::{CircuitInputs, PrivateCircuitInputs, PublicCircuitInputs},
+		nullifier::Nullifier,
+	};
+	use qp_wormhole_prover::WormholeProver;
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use sp_runtime::Perbill;
 
@@ -13,7 +23,138 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	fn test_verifier_availability() {
+	fn test_wormhole_transfer_proof_generation() {
+		let alice = account_id(1);
+		let secret: BytesDigest = [1u8; 32].try_into().expect("valid secret");
+		let unspendable_account =
+			qp_wormhole_circuit::unspendable_account::UnspendableAccount::from_secret(secret)
+				.account_id;
+		let unspendable_account_bytes_digest = digest_felts_to_bytes(unspendable_account);
+		let unspendable_account_bytes: [u8; 32] = unspendable_account_bytes_digest
+			.as_ref()
+			.try_into()
+			.expect("BytesDigest is always 32 bytes");
+		let unspendable_account_id = AccountId::new(unspendable_account_bytes);
+		let exit_account_id = AccountId::new([42u8; 32]);
+		let funding_amount = 1_000_000_000_001u128;
+
+		let mut ext = new_test_ext();
+
+		let (storage_key, state_root, leaf_hash, event_transfer_count, header) =
+			ext.execute_with(|| {
+				System::set_block_number(1);
+
+				let pre_runtime_data = vec![
+					233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21,
+					45, 180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
+				];
+				let seal_data = vec![
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 77, 142,
+				];
+
+				System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
+				System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
+
+				assert_ok!(Balances::mint_into(&alice, funding_amount));
+				assert_ok!(Wormhole::transfer_native(
+					frame_system::RawOrigin::Signed(alice.clone()).into(),
+					unspendable_account_id.clone(),
+					funding_amount,
+				));
+
+				let event_transfer_count = 0u64;
+
+				let leaf_hash = PoseidonHasher::hash_storage::<TransferProofKey<Test>>(
+					&(
+						0u32,
+						event_transfer_count,
+						alice.clone(),
+						unspendable_account_id.clone(),
+						funding_amount,
+					)
+						.encode(),
+				);
+
+				let proof_address = crate::pallet::TransferProof::<Test>::hashed_key_for(&(
+					0u32,
+					event_transfer_count,
+					alice.clone(),
+					unspendable_account_id.clone(),
+					funding_amount,
+				));
+				let mut storage_key = proof_address;
+				storage_key.extend_from_slice(&leaf_hash);
+
+				let header = System::finalize();
+				let state_root = *header.state_root();
+
+				(storage_key, state_root, leaf_hash, event_transfer_count, header)
+			});
+
+		use sp_state_machine::prove_read;
+		let proof = prove_read(ext.as_backend(), &[&storage_key])
+			.expect("failed to generate storage proof");
+
+		let proof_nodes_vec: Vec<Vec<u8>> = proof.iter_nodes().map(|n| n.to_vec()).collect();
+
+		let processed_storage_proof =
+			prepare_proof_for_circuit(proof_nodes_vec, hex::encode(&state_root), leaf_hash)
+				.expect("failed to prepare proof for circuit");
+
+		let parent_hash = *header.parent_hash();
+		let extrinsics_root = *header.extrinsics_root();
+		let digest = header.digest().encode();
+		let digest_array: [u8; 110] = digest.try_into().expect("digest should be 110 bytes");
+		let block_number: u32 = (*header.number()).try_into().expect("block number fits in u32");
+
+		let block_hash = header.hash();
+
+		let circuit_inputs = CircuitInputs {
+			private: PrivateCircuitInputs {
+				secret,
+				storage_proof: processed_storage_proof,
+				transfer_count: event_transfer_count,
+				funding_account: BytesDigest::try_from(alice.as_ref() as &[u8])
+					.expect("account is 32 bytes"),
+				unspendable_account: Digest::from(unspendable_account).into(),
+				state_root: BytesDigest::try_from(state_root.as_ref())
+					.expect("state root is 32 bytes"),
+				extrinsics_root: BytesDigest::try_from(extrinsics_root.as_ref())
+					.expect("extrinsics root is 32 bytes"),
+				digest: digest_array,
+			},
+			public: PublicCircuitInputs {
+				asset_id: 0u32,
+				funding_amount,
+				nullifier: Nullifier::from_preimage(secret, event_transfer_count).hash.into(),
+				exit_account: BytesDigest::try_from(exit_account_id.as_ref() as &[u8])
+					.expect("account is 32 bytes"),
+				block_hash: BytesDigest::try_from(block_hash.as_ref())
+					.expect("block hash is 32 bytes"),
+				parent_hash: BytesDigest::try_from(parent_hash.as_ref())
+					.expect("parent hash is 32 bytes"),
+				block_number,
+			},
+		};
+
+		let proof = generate_proof(circuit_inputs);
+
+		let public_inputs =
+			PublicCircuitInputs::try_from(&proof).expect("failed to parse public inputs");
+
+		assert_eq!(public_inputs.funding_amount, funding_amount);
+		assert_eq!(
+			public_inputs.exit_account,
+			BytesDigest::try_from(exit_account_id.as_ref() as &[u8]).unwrap()
+		);
+
+		let verifier = get_wormhole_verifier().expect("verifier should be available");
+		verifier.verify(proof.clone()).expect("proof should verify");
+
+		let proof_bytes = proof.to_bytes();
+
 		new_test_ext().execute_with(|| {
 			let verifier = get_wormhole_verifier();
 			assert!(verifier.is_ok(), "Verifier should be available in tests");
