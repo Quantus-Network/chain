@@ -4,11 +4,11 @@ extern crate alloc;
 
 use core::marker::PhantomData;
 
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, MaxEncodedLen};
 use frame_support::StorageHasher;
 use lazy_static::lazy_static;
 pub use pallet::*;
-use qp_poseidon::PoseidonHasher as PoseidonCore;
+pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
@@ -35,17 +35,16 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
 }
 
-pub struct PoseidonStorageHasher<T>(PhantomData<T>);
+// We use a generic struct so we can pass the specific Key type to the hasher
+pub struct PoseidonStorageHasher<Key>(PhantomData<Key>);
 
-impl<AccountId: Decode + Encode + MaxEncodedLen + 'static> StorageHasher
-	for PoseidonStorageHasher<AccountId>
-{
+impl<Key: Decode + ToFelts + 'static> StorageHasher for PoseidonStorageHasher<Key> {
 	// We are lying here, but maybe it's ok because it's just metadata
 	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
 	type Output = [u8; 32];
 
 	fn hash(x: &[u8]) -> Self::Output {
-		PoseidonCore::hash_storage::<AccountId>(x)
+		PoseidonCore::hash_storage::<Key>(x)
 	}
 
 	fn max_len<K: MaxEncodedLen>() -> usize {
@@ -55,7 +54,7 @@ impl<AccountId: Decode + Encode + MaxEncodedLen + 'static> StorageHasher
 
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::{PoseidonStorageHasher, WeightInfo};
+	use crate::{PoseidonStorageHasher, ToFelts, WeightInfo};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
@@ -87,15 +86,24 @@ pub mod pallet {
 	>>::Balance;
 	pub type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
+	pub type TransferProofKey<T> = (
+		AssetIdOf<T>,
+		<T as Config>::TransferCount,
+		<T as frame_system::Config>::AccountId,
+		<T as frame_system::Config>::AccountId,
+		BalanceOf<T>,
+	);
+
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config
 	where
-		AssetIdOf<Self>: Default + From<u32> + Clone,
-		BalanceOf<Self>: Default,
+		AssetIdOf<Self>: Default + From<u32> + Clone + ToFelts,
+		BalanceOf<Self>: Default + ToFelts,
 		AssetBalanceOf<Self>: Into<BalanceOf<Self>> + From<BalanceOf<Self>>,
+		<Self as frame_system::Config>::AccountId: ToFelts,
 	{
 		/// Currency type used for native token transfers and minting
 		type Currency: Mutate<Self::AccountId, Balance = BalanceOf<Self>>
@@ -113,7 +121,8 @@ pub mod pallet {
 			+ Default
 			+ Saturating
 			+ Copy
-			+ sp_runtime::traits::One;
+			+ sp_runtime::traits::One
+			+ ToFelts;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -135,8 +144,8 @@ pub mod pallet {
 	#[pallet::getter(fn transfer_proof)]
 	pub type TransferProof<T: Config> = StorageMap<
 		_,
-		PoseidonStorageHasher<T::AccountId>,
-		(AssetIdOf<T>, T::TransferCount, T::AccountId, T::AccountId, BalanceOf<T>), /* (asset_id, tx_count, from, to, amount) */
+		PoseidonStorageHasher<TransferProofKey<T>>,
+		TransferProofKey<T>,
 		(),
 		OptionQuery,
 	>;
@@ -148,7 +157,10 @@ pub mod pallet {
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
+	pub enum Event<T: Config>
+	where
+		T::AccountId: ToFelts,
+	{
 		ProofVerified {
 			exit_amount: BalanceOf<T>,
 		},
@@ -184,7 +196,10 @@ pub mod pallet {
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: ToFelts,
+	{
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
 		pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
@@ -374,7 +389,10 @@ pub mod pallet {
 	}
 
 	// Helper functions for recording transfer proofs
-	impl<T: Config> Pallet<T> {
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: ToFelts,
+	{
 		/// Record a transfer proof
 		/// This should be called by transaction extensions or other runtime components
 		pub fn record_transfer(
@@ -397,6 +415,8 @@ pub mod pallet {
 	// Implement the TransferProofRecorder trait for other pallets to use
 	impl<T: Config> qp_wormhole::TransferProofRecorder<T::AccountId, AssetIdOf<T>, BalanceOf<T>>
 		for Pallet<T>
+	where
+		T::AccountId: ToFelts,
 	{
 		type Error = DispatchError;
 
