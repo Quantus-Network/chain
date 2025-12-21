@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod wormhole_tests {
-	use crate::{get_wormhole_verifier, mock::*};
+	use crate::{get_wormhole_verifier, mock::*, TransferProofKey};
 	use codec::Encode;
 	use frame_support::{
 		assert_ok,
@@ -73,7 +73,7 @@ mod wormhole_tests {
 
 				let event_transfer_count = 0u64;
 
-				let leaf_hash = PoseidonHasher::hash_storage::<AccountId>(
+				let leaf_hash = PoseidonHasher::hash_storage::<TransferProofKey<Test>>(
 					&(
 						0u32,
 						event_transfer_count,
