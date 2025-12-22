@@ -61,12 +61,12 @@ Minimal command - see --help for many more options
     --validator \
     --chain dirac \
     --node-key-file ~/.quantus/node_key.p2p \
-    --rewards-address <YOUR_PREIMAGE_FROM_STEP_3> \
+    --rewards-preimage <YOUR_PREIMAGE_FROM_STEP_3> \
     --max-blocks-per-request 64 \
     --sync full
 ```
 
-**Note:** Use the `inner_hash` from step 3 as your `--rewards-address`. The node will derive your wormhole address and log it on startup.
+**Note:** Use the `inner_hash` from step 3 as your `--rewards-preimage`. The node will derive your wormhole address and log it on startup.
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:
@@ -128,7 +128,7 @@ docker run -d \
   --base-path /var/lib/quantus \
   --chain dirac \
   --node-key-file /var/lib/quantus/node_key.p2p \
-  --rewards-address <YOUR_PREIMAGE>
+  --rewards-preimage <YOUR_PREIMAGE>
 ```
 
 *Note for Apple Silicon (M1/M2/M3) users:* As mentioned above, if you are using an `amd64` based Docker image on an ARM-based Mac, you will likely need to add the `--platform linux/amd64` flag to your `docker run` commands.
@@ -238,7 +238,7 @@ For high-performance mining, you can offload the QPoW mining process to a separa
     --validator \
     --chain dirac \
     --external-miner-url http://127.0.0.1:9833 \
-    --rewards-address <YOUR_PREIMAGE>
+    --rewards-preimage <YOUR_PREIMAGE>
    ```
 
 ## Configuration Options
@@ -248,7 +248,7 @@ For high-performance mining, you can offload the QPoW mining process to a separa
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
-| `--rewards-address` | Wormhole preimage (inner_hash from key generation) | Required |
+| `--rewards-preimage` | Wormhole preimage (inner_hash from key generation) | Required |
 | `--chain` | Chain specification | `dirac` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
