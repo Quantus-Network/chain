@@ -1,10 +1,11 @@
 use crate as pallet_mining_rewards;
-use codec::Encode;
+
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 	PalletId,
 };
+use qp_poseidon::PoseidonHasher;
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
@@ -99,17 +100,32 @@ impl pallet_mining_rewards::Config for Test {
 	type MintingAccount = MintingAccount;
 }
 
-/// Helper function to convert a u8 to an AccountId32
-pub fn account_id(id: u8) -> sp_core::crypto::AccountId32 {
-	sp_core::crypto::AccountId32::from([id; 32])
+/// Helper function to convert a u8 to a preimage
+pub fn miner_preimage(id: u8) -> [u8; 32] {
+	[id; 32]
 }
 
-// Configure a default miner account for tests
-pub fn miner() -> sp_core::crypto::AccountId32 {
-	account_id(1)
+/// Helper function to derive wormhole address from preimage
+pub fn wormhole_address_from_preimage(preimage: [u8; 32]) -> sp_core::crypto::AccountId32 {
+	let hash = PoseidonHasher::hash_padded(&preimage);
+	sp_core::crypto::AccountId32::from(hash)
 }
+
+// Configure default miner preimages and addresses for tests
+pub fn miner_preimage_1() -> [u8; 32] {
+	miner_preimage(1)
+}
+
+pub fn miner_preimage_2() -> [u8; 32] {
+	miner_preimage(2)
+}
+
+pub fn miner() -> sp_core::crypto::AccountId32 {
+	wormhole_address_from_preimage(miner_preimage_1())
+}
+
 pub fn miner2() -> sp_core::crypto::AccountId32 {
-	account_id(2)
+	wormhole_address_from_preimage(miner_preimage_2())
 }
 
 // Build genesis storage according to the mock runtime.
@@ -127,10 +143,26 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	ext
 }
 
-// Helper function to create a block digest with a miner pre-runtime digest
-pub fn set_miner_digest(miner: sp_core::crypto::AccountId32) {
-	let miner_bytes = miner.encode();
-	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, miner_bytes);
+// Helper function to create a block digest with a miner preimage
+pub fn set_miner_digest(miner_account: sp_core::crypto::AccountId32) {
+	// Find the preimage that corresponds to this miner address
+	let preimage = if miner_account == miner() {
+		miner_preimage_1()
+	} else if miner_account == miner2() {
+		miner_preimage_2()
+	} else {
+		// For other miners, use their raw bytes as preimage for testing
+		let mut preimage = [0u8; 32];
+		preimage.copy_from_slice(miner_account.as_ref());
+		preimage
+	};
+
+	set_miner_preimage_digest(preimage);
+}
+
+// Helper function to create a block digest with a specific preimage
+pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
+	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, preimage.to_vec());
 	let digest = Digest { logs: vec![pre_digest] };
 
 	// Set the digest in the system

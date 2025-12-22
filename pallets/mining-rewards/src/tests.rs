@@ -320,10 +320,11 @@ fn rewards_go_to_treasury_when_no_miner() {
 #[test]
 fn test_fees_and_rewards_to_miner() {
 	new_test_ext().execute_with(|| {
-		// Set up initial balances
-		let miner = account_id(1);
-		let _ = Balances::deposit_creating(&miner, 0); // Create account, balance might become ExistentialDeposit
-		let actual_initial_balance_after_creation = Balances::free_balance(&miner);
+		// Use a test preimage and derive the wormhole address
+		let test_preimage = [42u8; 32]; // Use a distinct preimage for this test
+		let miner_wormhole_address = wormhole_address_from_preimage(test_preimage);
+		let _ = Balances::deposit_creating(&miner_wormhole_address, 0); // Create account
+		let actual_initial_balance_after_creation = Balances::free_balance(&miner_wormhole_address);
 
 		// Set transaction fees
 		let tx_fees = 100;
@@ -335,15 +336,15 @@ fn test_fees_and_rewards_to_miner() {
 		let treasury_reward = total_block_reward * TreasuryPortion::get() as u128 / 100;
 		let miner_block_reward = total_block_reward - treasury_reward;
 
-		// Create a block with a miner
+		// Create a block with the preimage
 		System::set_block_number(1);
-		set_miner_digest(miner.clone());
+		set_miner_preimage_digest(test_preimage);
 
 		// Run on_finalize
 		MiningRewards::on_finalize(System::block_number());
 
 		// Get actual values from the system AFTER on_finalize
-		let miner_balance_after_finalize = Balances::free_balance(&miner);
+		let miner_balance_after_finalize = Balances::free_balance(&miner_wormhole_address);
 
 		// Check miner balance - should get miner portion of block reward + all fees
 		assert_eq!(
@@ -355,13 +356,16 @@ fn test_fees_and_rewards_to_miner() {
 		// Verify events
 		System::assert_has_event(
 			Event::MinerRewarded {
-				miner: miner.clone(),
+				miner: miner_wormhole_address.clone(),
 				reward: 100, // all fees go to miner
 			}
 			.into(),
 		);
 
-		System::assert_has_event(Event::MinerRewarded { miner, reward: miner_block_reward }.into());
+		System::assert_has_event(
+			Event::MinerRewarded { miner: miner_wormhole_address, reward: miner_block_reward }
+				.into(),
+		);
 
 		System::assert_has_event(Event::TreasuryRewarded { reward: treasury_reward }.into());
 	});
