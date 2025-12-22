@@ -1,19 +1,19 @@
 use crate as pallet_wormhole;
 use frame_support::{
 	construct_runtime, parameter_types,
-	traits::{ConstU32, Everything},
+	traits::{ConstU128, ConstU32, Everything},
 	weights::IdentityFee,
 };
 use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
 use sp_runtime::{traits::IdentityLookup, BuildStorage};
-// --- MOCK RUNTIME ---
 
 construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		Balances: pallet_balances,
+		Assets: pallet_assets,
 		Wormhole: pallet_wormhole,
 	}
 );
@@ -31,8 +31,6 @@ pub fn account_id(id: u64) -> AccountId {
 	bytes[0..8].copy_from_slice(&id.to_le_bytes());
 	AccountId::new(bytes)
 }
-
-// --- FRAME SYSTEM ---
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -71,8 +69,6 @@ impl frame_system::Config for Test {
 	type PostTransactions = ();
 }
 
-// --- PALLET BALANCES ---
-
 parameter_types! {
 	pub const ExistentialDeposit: Balance = 1;
 }
@@ -91,9 +87,31 @@ impl pallet_balances::Config for Test {
 	type MaxReserves = ();
 	type MaxFreezes = ();
 	type DoneSlashHandler = ();
+	type RuntimeEvent = RuntimeEvent;
 }
 
-// --- PALLET WORMHOLE ---
+impl pallet_assets::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Balance = Balance;
+	type AssetId = u32;
+	type AssetIdParameter = u32;
+	type Currency = Balances;
+	type CreateOrigin =
+		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type AssetDeposit = ConstU128<1>;
+	type AssetAccountDeposit = ConstU128<1>;
+	type MetadataDepositBase = ConstU128<1>;
+	type MetadataDepositPerByte = ConstU128<1>;
+	type ApprovalDeposit = ConstU128<1>;
+	type StringLimit = ConstU32<50>;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = ();
+	type RemoveItemsLimit = ConstU32<1000>;
+	type CallbackHandle = ();
+	type Holder = ();
+}
 
 parameter_types! {
 	pub const MintingAccount: AccountId = AccountId::new([
@@ -106,19 +124,13 @@ impl pallet_wormhole::Config for Test {
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 	type WeightToFee = IdentityFee<Balance>;
 	type Currency = Balances;
+	type Assets = Assets;
+	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
 }
 
 // Helper function to build a genesis configuration
 pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
-	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-
-	let endowment = 1e18 as Balance;
-	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(account_id(1), endowment), (account_id(2), endowment)],
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
-
+	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	t.into()
 }

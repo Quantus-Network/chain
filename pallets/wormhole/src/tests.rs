@@ -21,7 +21,6 @@ mod wormhole_tests {
 	};
 	use sp_runtime::{traits::Header, DigestItem};
 
-	// Helper function to generate proof and inputs for
 	fn generate_proof(inputs: CircuitInputs) -> ProofWithPublicInputs<F, C, 2> {
 		let config = CircuitConfig::standard_recursion_config();
 		let prover = WormholeProver::new(config);
@@ -32,7 +31,6 @@ mod wormhole_tests {
 
 	#[test]
 	fn test_wormhole_transfer_proof_generation() {
-		// Setup accounts
 		let alice = account_id(1);
 		let secret: BytesDigest = [1u8; 32].try_into().expect("valid secret");
 		let unspendable_account =
@@ -49,12 +47,10 @@ mod wormhole_tests {
 
 		let mut ext = new_test_ext();
 
-		// Execute the transfer and get the header
 		let (storage_key, state_root, leaf_hash, event_transfer_count, header) =
 			ext.execute_with(|| {
 				System::set_block_number(1);
 
-				// Add dummy digest items to match expected format
 				let pre_runtime_data = vec![
 					233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21,
 					45, 180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
@@ -68,18 +64,18 @@ mod wormhole_tests {
 				System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
 				System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
 
-				assert_ok!(Balances::mint_into(&unspendable_account_id, funding_amount));
-				assert_ok!(Balances::transfer_keep_alive(
+				assert_ok!(Balances::mint_into(&alice, funding_amount));
+				assert_ok!(Wormhole::transfer_native(
 					frame_system::RawOrigin::Signed(alice.clone()).into(),
 					unspendable_account_id.clone(),
 					funding_amount,
 				));
 
-				let transfer_count = pallet_balances::TransferCount::<Test>::get();
-				let event_transfer_count = transfer_count - 1;
+				let event_transfer_count = 0u64;
 
 				let leaf_hash = PoseidonHasher::hash_storage::<AccountId>(
 					&(
+						0u32,
 						event_transfer_count,
 						alice.clone(),
 						unspendable_account_id.clone(),
@@ -88,7 +84,8 @@ mod wormhole_tests {
 						.encode(),
 				);
 
-				let proof_address = pallet_balances::TransferProof::<Test>::hashed_key_for(&(
+				let proof_address = crate::pallet::TransferProof::<Test>::hashed_key_for(&(
+					0u32,
 					event_transfer_count,
 					alice.clone(),
 					unspendable_account_id.clone(),
@@ -103,36 +100,31 @@ mod wormhole_tests {
 				(storage_key, state_root, leaf_hash, event_transfer_count, header)
 			});
 
-		// Generate a storage proof for the specific storage key
 		use sp_state_machine::prove_read;
 		let proof = prove_read(ext.as_backend(), &[&storage_key])
 			.expect("failed to generate storage proof");
 
 		let proof_nodes_vec: Vec<Vec<u8>> = proof.iter_nodes().map(|n| n.to_vec()).collect();
 
-		// Prepare the storage proof for the circuit
 		let processed_storage_proof =
 			prepare_proof_for_circuit(proof_nodes_vec, hex::encode(&state_root), leaf_hash)
 				.expect("failed to prepare proof for circuit");
 
-		// Build the header components
 		let parent_hash = *header.parent_hash();
 		let extrinsics_root = *header.extrinsics_root();
 		let digest = header.digest().encode();
 		let digest_array: [u8; 110] = digest.try_into().expect("digest should be 110 bytes");
 		let block_number: u32 = (*header.number()).try_into().expect("block number fits in u32");
 
-		// Compute block hash
 		let block_hash = header.hash();
 
-		// Assemble circuit inputs
 		let circuit_inputs = CircuitInputs {
 			private: PrivateCircuitInputs {
 				secret,
+				storage_proof: processed_storage_proof,
 				transfer_count: event_transfer_count,
 				funding_account: BytesDigest::try_from(alice.as_ref() as &[u8])
 					.expect("account is 32 bytes"),
-				storage_proof: processed_storage_proof,
 				unspendable_account: Digest::from(unspendable_account).into(),
 				state_root: BytesDigest::try_from(state_root.as_ref())
 					.expect("state root is 32 bytes"),
@@ -141,6 +133,7 @@ mod wormhole_tests {
 				digest: digest_array,
 			},
 			public: PublicCircuitInputs {
+				asset_id: 0u32,
 				funding_amount,
 				nullifier: Nullifier::from_preimage(secret, event_transfer_count).hash.into(),
 				exit_account: BytesDigest::try_from(exit_account_id.as_ref() as &[u8])
@@ -153,33 +146,25 @@ mod wormhole_tests {
 			},
 		};
 
-		// Generate the ZK proof
 		let proof = generate_proof(circuit_inputs);
 
-		// Verify the proof can be parsed
 		let public_inputs =
 			PublicCircuitInputs::try_from(&proof).expect("failed to parse public inputs");
 
-		// Verify that the public inputs match what we expect
 		assert_eq!(public_inputs.funding_amount, funding_amount);
 		assert_eq!(
 			public_inputs.exit_account,
 			BytesDigest::try_from(exit_account_id.as_ref() as &[u8]).unwrap()
 		);
 
-		// Verify the proof using the verifier
 		let verifier = get_wormhole_verifier().expect("verifier should be available");
 		verifier.verify(proof.clone()).expect("proof should verify");
 
-		// Serialize the proof to bytes for extrinsic testing
 		let proof_bytes = proof.to_bytes();
 
-		// Now test the extrinsic in a new environment
 		new_test_ext().execute_with(|| {
-			// Set up the blockchain state to have block 1
 			System::set_block_number(1);
 
-			// Add the same digest items
 			let pre_runtime_data = vec![
 				233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86, 30, 208, 176, 70, 21, 45,
 				180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225,
@@ -193,36 +178,28 @@ mod wormhole_tests {
 			System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
 			System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
 
-			// Execute the same transfer to recreate the exact state
-			assert_ok!(Balances::mint_into(&unspendable_account_id, funding_amount));
-			assert_ok!(Balances::transfer_keep_alive(
+			assert_ok!(Balances::mint_into(&alice, funding_amount));
+			assert_ok!(Wormhole::transfer_native(
 				frame_system::RawOrigin::Signed(alice.clone()).into(),
 				unspendable_account_id.clone(),
 				funding_amount,
 			));
 
-			// Finalize the block to get the same header and store the block hash
 			let block_1_header = System::finalize();
 
-			// Initialize block 2 to store block 1's hash
 			System::reset_events();
 			System::initialize(&2, &block_1_header.hash(), block_1_header.digest());
 
-			// Check exit account balance before verification
 			let balance_before = Balances::balance(&exit_account_id);
 			assert_eq!(balance_before, 0);
 
-			// Call the verify_wormhole_proof extrinsic
 			assert_ok!(Wormhole::verify_wormhole_proof(
 				frame_system::RawOrigin::None.into(),
 				proof_bytes.clone()
 			));
 
-			// Check that the exit account received the funds (minus fees)
 			let balance_after = Balances::balance(&exit_account_id);
 
-			// The balance should be funding_amount minus fees
-			// Weight fee + 0.1% volume fee
 			assert!(balance_after > 0, "Exit account should have received funds");
 			assert!(
 				balance_after < funding_amount,
@@ -230,33 +207,160 @@ mod wormhole_tests {
 			);
 		});
 
-		// Test that proof fails when state doesn't match
 		new_test_ext().execute_with(|| {
-			// Set up block 1 but DON'T recreate the exact same state
 			System::set_block_number(1);
 
-			// Add different digest items with same 110-byte format but different content
-			let pre_runtime_data = vec![1u8; 32]; // Different data
-			let seal_data = vec![2u8; 64]; // Different data
+			let pre_runtime_data = vec![1u8; 32];
+			let seal_data = vec![2u8; 64];
 
 			System::deposit_log(DigestItem::PreRuntime(*b"pow_", pre_runtime_data));
 			System::deposit_log(DigestItem::Seal(*b"pow_", seal_data));
 
-			// Finalize block 1 with different state
 			let different_header = System::finalize();
 
-			// Initialize block 2
 			System::reset_events();
 			System::initialize(&2, &different_header.hash(), different_header.digest());
 
-			// Try to use the proof with the original header (which has different block hash)
 			let result = Wormhole::verify_wormhole_proof(
 				frame_system::RawOrigin::None.into(),
 				proof_bytes.clone(),
 			);
 
-			// This should fail because the block hash in the proof doesn't match
 			assert!(result.is_err(), "Proof verification should fail with mismatched state");
+		});
+	}
+
+	#[test]
+	fn transfer_native_works() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let bob = account_id(2);
+			let amount = 1000u128;
+
+			assert_ok!(Balances::mint_into(&alice, amount * 2));
+
+			let count_before = Wormhole::transfer_count();
+			assert_ok!(Wormhole::transfer_native(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				bob.clone(),
+				amount,
+			));
+
+			assert_eq!(Balances::balance(&alice), amount);
+			assert_eq!(Balances::balance(&bob), amount);
+			assert_eq!(Wormhole::transfer_count(), count_before + 1);
+			assert!(Wormhole::transfer_proof((0u32, count_before, alice, bob, amount)).is_some());
+		});
+	}
+
+	#[test]
+	fn transfer_native_fails_on_self_transfer() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let amount = 1000u128;
+
+			assert_ok!(Balances::mint_into(&alice, amount));
+
+			let result = Wormhole::transfer_native(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				alice.clone(),
+				amount,
+			);
+
+			assert!(result.is_err());
+		});
+	}
+
+	#[test]
+	fn transfer_asset_works() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let bob = account_id(2);
+			let asset_id = 1u32;
+			let amount = 1000u128;
+
+			assert_ok!(Balances::mint_into(&alice, 1000));
+			assert_ok!(Balances::mint_into(&bob, 1000));
+
+			assert_ok!(Assets::create(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id.into(),
+				alice.clone(),
+				1,
+			));
+			assert_ok!(Assets::mint(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id.into(),
+				alice.clone(),
+				amount * 2,
+			));
+
+			let count_before = Wormhole::transfer_count();
+			assert_ok!(Wormhole::transfer_asset(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id,
+				bob.clone(),
+				amount,
+			));
+
+			assert_eq!(Assets::balance(asset_id, &alice), amount);
+			assert_eq!(Assets::balance(asset_id, &bob), amount);
+			assert_eq!(Wormhole::transfer_count(), count_before + 1);
+			assert!(
+				Wormhole::transfer_proof((asset_id, count_before, alice, bob, amount)).is_some()
+			);
+		});
+	}
+
+	#[test]
+	fn transfer_asset_fails_on_nonexistent_asset() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let bob = account_id(2);
+			let asset_id = 999u32;
+			let amount = 1000u128;
+
+			let result = Wormhole::transfer_asset(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id,
+				bob.clone(),
+				amount,
+			);
+
+			assert!(result.is_err());
+		});
+	}
+
+	#[test]
+	fn transfer_asset_fails_on_self_transfer() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let asset_id = 1u32;
+			let amount = 1000u128;
+
+			assert_ok!(Balances::mint_into(&alice, 1000));
+
+			assert_ok!(Assets::create(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id.into(),
+				alice.clone(),
+				1,
+			));
+			assert_ok!(Assets::mint(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id.into(),
+				alice.clone(),
+				amount,
+			));
+
+			let result = Wormhole::transfer_asset(
+				frame_system::RawOrigin::Signed(alice.clone()).into(),
+				asset_id,
+				alice.clone(),
+				amount,
+			);
+
+			assert!(result.is_err());
 		});
 	}
 }
