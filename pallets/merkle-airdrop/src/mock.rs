@@ -80,6 +80,7 @@ impl pallet_balances::Config for Test {
 	type MaxFreezes = ();
 	type RuntimeFreezeReason = ();
 	type DoneSlashHandler = ();
+	type RuntimeEvent = RuntimeEvent;
 }
 
 parameter_types! {
@@ -121,6 +122,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![(1, 10_000_000), (MerkleAirdrop::account_id(), 1)],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
