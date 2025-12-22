@@ -57,17 +57,9 @@ bip39 wordlist.
 
 Seed must be a 64-character hex string
 
----
+## Mining
 
-### Rewards address
-
-By providing the optional `--rewards-address` parameter, the node will start sending mining and transaction rewards
-after each block confirmation by the runtime.
-If this address is not specified, rewards will not be minted.
-
-```shell
-./quantus-node --chain local --validator --rewards-address <NODE_OPERATOR_ADDRESS>
-```
+For complete mining setup instructions, including wormhole address requirements and external miner configuration, see [MINING.md](MINING.md).
 
 ## Local dev run
 
@@ -80,44 +72,6 @@ If this address is not specified, rewards will not be minted.
 ```sh
 ./target/release/quantus-node --dev
 ```
-
-## Run with External Miner
-
----
-
-This node supports offloading the QPoW mining process to a separate service, freeing up node resources.
-
-Any service that adheres to the API spec below can be used as miner by the node. We provide a sample implementation in
-the 'miner' crate.
-
-API classes are defined in the 'resonance-miner-api' crate.
-
-**API Spec:
-** [openapi.yaml](https://gitlab.com/resonance-network/backbone/-/blob/b37c4fcdb749ddddc747915b79149e29f537e92f/external-miner/api/openapi.yaml)
-
-1. **Build Node & Miner:**
-   ```bash
-   # From workspace root
-   cargo build --release -p quantus-node
-   ```
-
-2. **Run External Miner:** (In a separate terminal)
-   ```bash
-   git clone https://github.com/Quantus-Network/quantus-miner
-   cd quantus-miner
-   cargo build --release
-   RUST_LOG=info ./target/release/quantus-miner
-   ```
-   *(Listens on `http://127.0.0.1:9833` by default)*
-
-3. **Run Node:** (In another terminal)
-   ```bash
-   # From workspace root (replace <YOUR_REWARDS_ADDRESS>)
-   RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
-    --dev \
-    --external-miner-url http://127.0.0.1:9833 \
-    --rewards-address <YOUR_REWARDS_ADDRESS>
-   ```
 
 ## Multinode local run
 
