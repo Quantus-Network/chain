@@ -151,7 +151,7 @@ pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
 	config: Configuration,
-	rewards_address: AccountId32,
+	rewards_preimage: [u8; 32],
 	external_miner_url: Option<String>,
 	enable_peer_sharing: bool,
 ) -> Result<TaskManager, ServiceError> {
@@ -267,6 +267,13 @@ pub fn new_full<
 				>,
 			>;
 
+		// Derive wormhole address from preimage using Poseidon2 for internal use/logging
+		use qp_poseidon::PoseidonHasher;
+		let rewards_address_bytes = PoseidonHasher::hash_padded(&rewards_preimage);
+		let rewards_address = AccountId32::from(rewards_address_bytes);
+
+		log::info!("⛏️ Mining rewards will be sent to wormhole address: {}", rewards_address);
+
 		let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
 			Box::new(pow_block_import),
 			client.clone(),
@@ -274,7 +281,7 @@ pub fn new_full<
 			proposer,
 			sync_service.clone(),
 			sync_service.clone(),
-			rewards_address,
+			rewards_preimage,
 			inherent_data_providers,
 			Duration::from_secs(10),
 			Duration::from_secs(10),

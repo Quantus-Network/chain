@@ -26,6 +26,7 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole::TransferProofs;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{
@@ -167,7 +168,7 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Extract miner account ID from the pre-runtime digest
+		/// Extract miner wormhole address by hashing the preimage from pre-runtime digest
 		fn extract_miner_from_digest() -> Option<T::AccountId> {
 			// Get the digest from the current block
 			let digest = <frame_system::Pallet<T>>::digest();
@@ -176,10 +177,22 @@ pub mod pallet {
 			for log in digest.logs.iter() {
 				if let DigestItem::PreRuntime(engine_id, data) = log {
 					if engine_id == &POW_ENGINE_ID {
-						// Try to decode the accountId
-						// TODO: to enforce miner wormholes, decode inner hash here
-						if let Ok(miner) = T::AccountId::decode(&mut &data[..]) {
-							return Some(miner);
+						// The data is a 32-byte preimage from the incoming block
+						if data.len() == 32 {
+							let preimage: [u8; 32] = match data.as_slice().try_into() {
+								Ok(arr) => arr,
+								Err(_) => continue,
+							};
+
+							// Hash the preimage with Poseidon2 to derive the wormhole address
+							let wormhole_address_bytes = PoseidonHasher::hash_padded(&preimage);
+
+							// Convert to AccountId
+							if let Ok(miner) =
+								T::AccountId::decode(&mut &wormhole_address_bytes[..])
+							{
+								return Some(miner);
+							}
 						}
 					}
 				}
