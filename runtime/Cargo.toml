@@ -117,7 +117,6 @@ std = [
 	"qp-poseidon/std",
 	"qp-scheduler/std",
 	"scale-info/std",
-	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
