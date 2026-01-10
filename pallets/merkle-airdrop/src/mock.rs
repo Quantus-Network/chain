@@ -1,7 +1,7 @@
 use crate as pallet_merkle_airdrop;
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, Everything, WithdrawReasons},
+	traits::{ConstU32, Everything},
 	PalletId,
 };
 use frame_system::{self as system};
@@ -17,6 +17,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
 	pub enum Test {
 		System: frame_system,
+		Timestamp: pallet_timestamp,
 		Vesting: pallet_vesting,
 		Balances: pallet_balances,
 		MerkleAirdrop: pallet_merkle_airdrop,
@@ -83,21 +84,25 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const MinVestedTransfer: u64 = 1;
-	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
-	WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+	pub const MinimumPeriod: u64 = 1;
+}
+
+impl pallet_timestamp::Config for Test {
+	type Moment = u64;
+	type OnTimestampSet = ();
+	type MinimumPeriod = MinimumPeriod;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	pub const VestingPalletId: PalletId = PalletId(*b"vestpal_");
+	pub const MaxSchedulesPerBeneficiary: u32 = 50;
 }
 
 impl pallet_vesting::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
+	type PalletId = VestingPalletId;
 	type WeightInfo = ();
-	type BlockNumberProvider = System;
-	type MinVestedTransfer = MinVestedTransfer;
-	type BlockNumberToBalance = ConvertInto;
-	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-
-	const MAX_VESTING_SCHEDULES: u32 = 3;
+	type MaxSchedulesPerBeneficiary = MaxSchedulesPerBeneficiary;
 }
 
 parameter_types! {

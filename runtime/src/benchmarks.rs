@@ -29,6 +29,7 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_balances, Balances]
 	[pallet_timestamp, Timestamp]
 	[pallet_sudo, Sudo]
+	[pallet_vesting, Vesting]
 	[pallet_reversible_transfers, ReversibleTransfers]
 	[pallet_merkle_airdrop, MerkleAirdrop]
 	[pallet_mining_rewards, MiningRewards]
