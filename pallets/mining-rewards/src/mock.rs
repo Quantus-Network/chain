@@ -10,7 +10,7 @@ use sp_runtime::{
 	app_crypto::sp_core,
 	testing::H256,
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage, Digest, DigestItem,
+	BuildStorage, DigestItem,
 };
 
 // Configure a mock runtime to test the pallet
@@ -69,6 +69,7 @@ impl frame_system::Config for Test {
 }
 
 impl pallet_balances::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = ();
 	type RuntimeFreezeReason = ();
 	type WeightInfo = ();
@@ -89,8 +90,27 @@ parameter_types! {
 	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
 }
 
+// Mock proof recorder that does nothing
+pub struct MockProofRecorder;
+impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
+	for MockProofRecorder
+{
+	type Error = ();
+
+	fn record_transfer_proof(
+		_asset_id: Option<u32>,
+		_from: sp_core::crypto::AccountId32,
+		_to: sp_core::crypto::AccountId32,
+		_amount: u128,
+	) -> Result<(), Self::Error> {
+		Ok(())
+	}
+}
+
 impl pallet_mining_rewards::Config for Test {
 	type Currency = Balances;
+	type AssetId = u32;
+	type ProofRecorder = MockProofRecorder;
 	type WeightInfo = ();
 	type MaxSupply = MaxSupply;
 	type EmissionDivisor = EmissionDivisor;
@@ -118,6 +138,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
@@ -129,13 +150,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 // Helper function to create a block digest with a miner pre-runtime digest
 pub fn set_miner_digest(miner: sp_core::crypto::AccountId32) {
+	// reset logs
 	let miner_bytes = miner.encode();
 	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, miner_bytes);
-	let digest = Digest { logs: vec![pre_digest] };
 
-	// Set the digest in the system
-	System::reset_events();
-	System::initialize(&1, &sp_core::H256::default(), &digest);
+	System::deposit_log(pre_digest);
 }
 
 // Helper function to run a block
