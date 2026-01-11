@@ -72,11 +72,11 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			match call {
 				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::schedule_transfer { .. },
-				) |
-				RuntimeCall::ReversibleTransfers(
+				)
+				| RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::schedule_asset_transfer { .. },
-				) |
-				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				)
+				| RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					..
 				}) => {
 					return Ok((ValidTransaction::default(), (), origin));
@@ -193,10 +193,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		// Account for proof recording in post_dispatch
 		match call {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => {
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
+			| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => {
 				// 2 writes: TransferProof insert + TransferCount update
 				// 1 read: TransferCount get
 				T::DbWeight::get().reads_writes(1, 2)

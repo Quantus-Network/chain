@@ -57,7 +57,7 @@ use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{AccountIdConversion, ConvertInto, One},
-	FixedU128, Perbill, Permill,
+	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -635,5 +635,6 @@ impl pallet_wormhole::Config for Runtime {
 	type Currency = Balances;
 	type Assets = Assets;
 	type TransferCount = u64;
+	type AccountId = AccountId32;
 	type WeightToFee = IdentityFee<Balance>;
 }
