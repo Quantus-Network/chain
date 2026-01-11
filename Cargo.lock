@@ -8984,9 +8984,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5029d1c8223c0312a0247ebc745c5b09622dcbebe104f0fdb9de358b87ef032a"
+checksum = "fef3bb816fc51b4ffc4524fa03376037d2531b17e2349ef6489a417cef029b3a"
 dependencies = [
  "log",
  "p3-field",
@@ -9016,9 +9016,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-core"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71dd1bf5d2997abf70247fcd23c8f04d7093b1faf33b775a42fb00c07e0a0e05"
+checksum = "e33b3fb9032ac9b197265da8fc8bdedd21ba76592ceefbf4a591286d47baec2d"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
