@@ -215,9 +215,6 @@ mod runtime {
 	#[runtime::pallet_index(7)]
 	pub type MiningRewards = pallet_mining_rewards;
 
-	#[runtime::pallet_index(8)]
-	pub type Vesting = pallet_vesting;
-
 	#[runtime::pallet_index(9)]
 	pub type Preimage = pallet_preimage;
 

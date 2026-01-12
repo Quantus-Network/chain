@@ -184,7 +184,6 @@ pallet-transaction-payment-rpc = { version = "44.0.0", default-features = false 
 pallet-transaction-payment-rpc-runtime-api = { version = "41.0.0", default-features = false }
 pallet-treasury = { version = "40.0.0", default-features = false }
 pallet-utility = { version = "41.0.0", default-features = false }
-pallet-vesting = { version = "41.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.2", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.50.0", default-features = false }
 sc-block-builder = { version = "0.45.0", default-features = true }

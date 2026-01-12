@@ -7552,21 +7552,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-vesting"
-version = "41.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "305b437f4832bb563b660afa6549c0f0d446b668b4f098edc48d04e803badb9f"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-wormhole"
 version = "0.1.0"
 dependencies = [
@@ -9186,7 +9171,6 @@ dependencies = [
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-treasury",
  "pallet-utility",
- "pallet-vesting",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
