@@ -567,6 +567,39 @@ impl pallet_assets_holder::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
+// =============================================================================
+// MULTISIG CONFIGURATION
+// =============================================================================
+parameter_types! {
+	pub const DepositBase: Balance = 100 * MILLI_UNIT;
+	pub const DepositFactor: Balance = 10 * MILLI_UNIT;
+	pub const MaxSignatories: u32 = 100;
+}
+
+impl pallet_multisig::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type Currency = Balances;
+	type DepositBase = DepositBase;
+	type DepositFactor = DepositFactor;
+	type MaxSignatories = MaxSignatories;
+	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+	type BlockNumberProvider = System;
+}
+
+// =============================================================================
+// TREASURY CONFIG (MULTISIG-BASED)
+// =============================================================================
+// This pallet stores the treasury multisig configuration in storage.
+// It allows different networks (heisenberg/dirac/dev) to have different
+// treasury addresses from genesis, while still being the same runtime build.
+// =============================================================================
+
+impl pallet_treasury_config::Config for Runtime {
+	type MaxSignatories = MaxSignatories;
+	type WeightInfo = pallet_treasury_config::weights::SubstrateWeight<Runtime>;
+}
+
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {

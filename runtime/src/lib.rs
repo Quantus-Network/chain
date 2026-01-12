@@ -253,4 +253,10 @@ mod runtime {
 
 	#[runtime::pallet_index(22)]
 	pub type AssetsHolder = pallet_assets_holder;
+
+	#[runtime::pallet_index(23)]
+	pub type Multisig = pallet_multisig;
+
+	#[runtime::pallet_index(24)]
+	pub type TreasuryConfig = pallet_treasury_config;
 }

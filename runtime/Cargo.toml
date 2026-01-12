@@ -32,6 +32,7 @@ pallet-assets-holder = { workspace = true, default-features = false }
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
 pallet-mining-rewards.workspace = true
+pallet-multisig.workspace = true
 pallet-preimage.workspace = true
 pallet-qpow.workspace = true
 pallet-ranked-collective.workspace = true
@@ -44,6 +45,7 @@ pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
+pallet-treasury-config.workspace = true
 pallet-utility.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
@@ -95,6 +97,7 @@ std = [
 	"pallet-balances/std",
 	"pallet-conviction-voting/std",
 	"pallet-mining-rewards/std",
+	"pallet-multisig/std",
 	"pallet-preimage/std",
 	"pallet-qpow/std",
 	"pallet-ranked-collective/std",
@@ -107,6 +110,7 @@ std = [
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
 	"pallet-treasury/std",
+	"pallet-treasury-config/std",
 	"pallet-utility/std",
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
@@ -142,6 +146,7 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
+	"pallet-multisig/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-qpow/runtime-benchmarks",
 	"pallet-ranked-collective/runtime-benchmarks",
@@ -153,6 +158,7 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
+	"pallet-treasury-config/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
@@ -171,6 +177,7 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"pallet-treasury/try-runtime",
+	"pallet-treasury-config/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

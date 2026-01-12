@@ -19,7 +19,8 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
+	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig,
+	TreasuryConfigConfig, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
@@ -45,6 +46,30 @@ fn dirac_faucet_account() -> AccountId {
 	account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr")
 }
 
+// Treasury multisig signatories for development/heisenberg (5 signatories)
+fn dev_treasury_signatories() -> Vec<AccountId> {
+	vec![
+		crystal_alice().into_account(),
+		dilithium_bob().into_account(),
+		crystal_charlie().into_account(),
+		// Additional signatories for 5-member multisig
+		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"), // Dave placeholder
+		account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr"), // Eve placeholder
+	]
+}
+
+// Treasury multisig signatories for dirac (mainnet) (5 signatories)
+fn dirac_treasury_signatories() -> Vec<AccountId> {
+	vec![
+		// TODO: Replace with actual mainnet signatories
+		dirac_root_account(),
+		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"),
+		account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr"),
+		dirac_faucet_account(),
+		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"), // TODO: 5th signatory
+	]
+}
+
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
@@ -53,17 +78,27 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 	]
 }
 // Returns the genesis config presets populated with given parameters.
-fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
+fn genesis_template(
+	endowed_accounts: Vec<AccountId>,
+	root: AccountId,
+	treasury_signatories: Vec<AccountId>,
+	treasury_threshold: u16,
+) -> Value {
 	let mut balances =
 		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
 
 	const ONE_BILLION: u128 = 1_000_000_000;
+	// Still use old treasury for initial funding
 	let treasury_account = TreasuryPalletId::get().into_account_truncating();
 	balances.push((treasury_account, ONE_BILLION * UNIT));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		treasury_config: TreasuryConfigConfig {
+			signatories: treasury_signatories,
+			threshold: treasury_threshold,
+		},
 		..Default::default()
 	};
 
@@ -80,7 +115,12 @@ pub fn development_config_genesis() -> Value {
 		log::info!("🍆 Endowed account raw: {:?}", account);
 	}
 
-	genesis_template(endowed_accounts, crystal_alice().into_account())
+	genesis_template(
+		endowed_accounts,
+		crystal_alice().into_account(),
+		dev_treasury_signatories(),
+		3, // 3-of-5 multisig for dev
+	)
 }
 
 pub fn heisenberg_config_genesis() -> Value {
@@ -90,7 +130,12 @@ pub fn heisenberg_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	genesis_template(endowed_accounts, heisenberg_root_account())
+	genesis_template(
+		endowed_accounts,
+		heisenberg_root_account(),
+		dev_treasury_signatories(),
+		3, // 3-of-5 multisig for heisenberg testnet
+	)
 }
 
 pub fn dirac_config_genesis() -> Value {
@@ -100,7 +145,12 @@ pub fn dirac_config_genesis() -> Value {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 
-	genesis_template(endowed_accounts, dirac_root_account())
+	genesis_template(
+		endowed_accounts,
+		dirac_root_account(),
+		dirac_treasury_signatories(),
+		3, // 3-of-5 multisig for dirac mainnet
+	)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.

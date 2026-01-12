@@ -17,6 +17,7 @@ members = [
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
+	"pallets/treasury-config",
 	"pallets/wormhole",
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
@@ -134,6 +135,7 @@ pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = 
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
+pallet-treasury-config = { path = "./pallets/treasury-config", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.2.0", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }
@@ -173,6 +175,7 @@ frame-try-runtime = { version = "0.47.0", default-features = false }
 pallet-assets = { version = "43.0.0", default-features = false }
 pallet-assets-holder = { version = "0.3.0", default-features = false }
 pallet-conviction-voting = { version = "41.0.0", default-features = false }
+pallet-multisig = { version = "41.0.0", default-features = false }
 pallet-preimage = { version = "41.0.0", default-features = false }
 pallet-ranked-collective = { version = "41.0.0", default-features = false }
 pallet-recovery = { version = "41.0.0", default-features = false }

@@ -7171,6 +7171,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-multisig"
+version = "41.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4356e277b778c6f307c8d39b40f870f39e0a7a0fd1f4eae20c64b99e8839b3a"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-preimage"
 version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7533,6 +7545,21 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-treasury-config"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-weights",
 ]
 
 [[package]]
@@ -9158,6 +9185,7 @@ dependencies = [
  "pallet-balances 40.0.1",
  "pallet-conviction-voting",
  "pallet-mining-rewards",
+ "pallet-multisig",
  "pallet-preimage",
  "pallet-qpow",
  "pallet-ranked-collective",
@@ -9170,6 +9198,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-treasury",
+ "pallet-treasury-config",
  "pallet-utility",
  "parity-scale-codec",
  "primitive-types 0.13.1",
