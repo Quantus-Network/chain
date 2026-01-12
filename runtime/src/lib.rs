@@ -22,7 +22,6 @@ use sp_version::RuntimeVersion;
 
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
-pub use pallet_merkle_airdrop;
 pub use pallet_reversible_transfers as ReversibleTransfersCall;
 pub use pallet_timestamp::Call as TimestampCall;
 
@@ -242,9 +241,6 @@ mod runtime {
 
 	#[runtime::pallet_index(16)]
 	pub type TechReferenda = pallet_referenda::Pallet<Runtime, Instance1>;
-
-	#[runtime::pallet_index(17)]
-	pub type MerkleAirdrop = pallet_merkle_airdrop;
 
 	#[runtime::pallet_index(18)]
 	pub type TreasuryPallet = pallet_treasury;

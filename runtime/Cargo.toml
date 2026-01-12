@@ -31,7 +31,6 @@ pallet-assets.workspace = true
 pallet-assets-holder = { workspace = true, default-features = false }
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
-pallet-merkle-airdrop.workspace = true
 pallet-mining-rewards.workspace = true
 pallet-preimage.workspace = true
 pallet-qpow.workspace = true
@@ -96,7 +95,6 @@ std = [
 	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-conviction-voting/std",
-	"pallet-merkle-airdrop/std",
 	"pallet-mining-rewards/std",
 	"pallet-preimage/std",
 	"pallet-qpow/std",
@@ -145,7 +143,6 @@ runtime-benchmarks = [
 	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
-	"pallet-merkle-airdrop/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-qpow/runtime-benchmarks",

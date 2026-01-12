@@ -85,8 +85,6 @@ parameter_types! {
 	// To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
 	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 189;
-	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-	pub const UnsignedClaimPriority: u32 = 100;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -503,20 +501,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
 	type TreasuryAccountId = TreasuryAccountId;
-}
-
-parameter_types! {
-	pub const MaxProofs: u32 = 4096;
-}
-
-impl pallet_merkle_airdrop::Config for Runtime {
-	type Vesting = Vesting;
-	type MaxProofs = MaxProofs;
-	type PalletId = MerkleAirdropPalletId;
-	type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
-	type UnsignedClaimPriority = UnsignedClaimPriority;
-	type BlockNumberProvider = System;
-	type BlockNumberToBalance = ConvertInto;
 }
 
 parameter_types! {
