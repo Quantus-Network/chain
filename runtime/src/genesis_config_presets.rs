@@ -21,7 +21,7 @@
 use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TreasuryMultisigConfig};
 use alloc::{vec, vec::Vec};
 use qp_dilithium_crypto::pair::{
-	crystal_alice, crystal_charlie, crystal_eve, dilithium_bob, dilithium_dave,
+	crystal_alice, crystal_charlie, crystal_dave, crystal_eve, dilithium_bob,
 };
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
@@ -54,7 +54,7 @@ fn dev_treasury_signatories() -> Vec<AccountId> {
 		crystal_alice().into_account(),
 		dilithium_bob().into_account(),
 		crystal_charlie().into_account(),
-		dilithium_dave().into_account(),
+		crystal_dave().into_account(),
 		crystal_eve().into_account(),
 	]
 }
@@ -88,7 +88,7 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 		crystal_alice().into_account(),
 		dilithium_bob().into_account(),
 		crystal_charlie().into_account(),
-		dilithium_dave().into_account(),
+		crystal_dave().into_account(),
 		crystal_eve().into_account(),
 	]
 }
