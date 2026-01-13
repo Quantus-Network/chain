@@ -90,8 +90,8 @@ pub mod pallet {
 	pub type TransferProofKey<T> = (
 		AssetIdOf<T>,
 		<T as Config>::TransferCount,
-		<T as Config>::AccountId,
-		<T as Config>::AccountId,
+		<T as Config>::WormholeAccountId,
+		<T as Config>::WormholeAccountId,
 		BalanceOf<T>,
 	);
 
@@ -134,7 +134,7 @@ pub mod pallet {
 		type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
 
 		/// Override system AccountId to make it felts encodable
-		type AccountId: Parameter
+		type WormholeAccountId: Parameter
 			+ Member
 			+ MaybeSerializeDeserialize
 			+ core::fmt::Debug
@@ -406,8 +406,8 @@ pub mod pallet {
 		/// This should be called by transaction extensions or other runtime components
 		pub fn record_transfer(
 			asset_id: AssetIdOf<T>,
-			from: <T as Config>::AccountId,
-			to: <T as Config>::AccountId,
+			from: <T as Config>::WormholeAccountId,
+			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
 			let current_count = TransferCount::<T>::get();
@@ -440,15 +440,18 @@ pub mod pallet {
 
 	// Implement the TransferProofRecorder trait for other pallets to use
 	impl<T: Config>
-		qp_wormhole::TransferProofRecorder<<T as Config>::AccountId, AssetIdOf<T>, BalanceOf<T>>
-		for Pallet<T>
+		qp_wormhole::TransferProofRecorder<
+			<T as Config>::WormholeAccountId,
+			AssetIdOf<T>,
+			BalanceOf<T>,
+		> for Pallet<T>
 	{
 		type Error = DispatchError;
 
 		fn record_transfer_proof(
 			asset_id: Option<AssetIdOf<T>>,
-			from: <T as Config>::AccountId,
-			to: <T as Config>::AccountId,
+			from: <T as Config>::WormholeAccountId,
+			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) -> Result<(), Self::Error> {
 			let asset_id_value = asset_id.unwrap_or_default();

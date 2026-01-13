@@ -635,6 +635,6 @@ impl pallet_wormhole::Config for Runtime {
 	type Currency = Balances;
 	type Assets = Assets;
 	type TransferCount = u64;
-	type AccountId = AccountId32;
+	type WormholeAccountId = AccountId32;
 	type WeightToFee = IdentityFee<Balance>;
 }
