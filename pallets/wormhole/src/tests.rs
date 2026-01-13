@@ -91,7 +91,8 @@ mod wormhole_tests {
 					unspendable_account_id.clone(),
 					funding_amount,
 				));
-				let storage_key = proof_address;
+				let mut storage_key = proof_address;
+				storage_key.extend_from_slice(&leaf_hash);
 
 				let header = System::finalize();
 				let state_root = *header.state_root();
