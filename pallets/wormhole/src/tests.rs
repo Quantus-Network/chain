@@ -75,7 +75,7 @@ mod wormhole_tests {
 
 				let leaf_hash = PoseidonHasher::hash_storage::<crate::TransferProofKey<Test>>(
 					&(
-						0u32, // AssetId (native)
+						0u32,
 						event_transfer_count,
 						alice.clone(),
 						unspendable_account_id.clone(),
