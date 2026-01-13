@@ -33,6 +33,6 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_mining_rewards, MiningRewards]
 	[pallet_scheduler, Scheduler]
 	[pallet_qpow, QPoW]
-	[pallet_treasury_config, TreasuryConfig]
+	[pallet_treasury_multisig, TreasuryMultisig]
 	[pallet_multisig, Multisig]
 );

@@ -28,10 +28,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole::TransferProofs;
 	use sp_consensus_pow::POW_ENGINE_ID;
-	use sp_runtime::{
-		generic::DigestItem,
-		traits::Saturating,
-	};
+	use sp_runtime::{generic::DigestItem, traits::Saturating};
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;

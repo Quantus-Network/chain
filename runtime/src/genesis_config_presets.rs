@@ -18,7 +18,7 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TreasuryConfigConfig};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TreasuryMultisigConfig};
 use alloc::{vec, vec::Vec};
 use qp_dilithium_crypto::pair::{
 	crystal_alice, crystal_charlie, crystal_eve, dilithium_bob, dilithium_dave,
@@ -67,7 +67,7 @@ fn dirac_treasury_signatories() -> Vec<AccountId> {
 		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"),
 		account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr"),
 		dirac_faucet_account(),
-		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"), // TODO: 5th signatory
+		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"), /* TODO: 5th signatory */
 	]
 }
 
@@ -107,7 +107,7 @@ fn genesis_template(
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
 		sudo: SudoConfig { key: Some(root.clone()) },
-		treasury_config: TreasuryConfigConfig {
+		treasury_multisig: TreasuryMultisigConfig {
 			signatories: treasury_signatories,
 			threshold: treasury_threshold,
 		},

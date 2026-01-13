@@ -44,7 +44,7 @@ pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
-pallet-treasury-config.workspace = true
+pallet-treasury-multisig.workspace = true
 pallet-utility.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
@@ -108,7 +108,7 @@ std = [
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
-	"pallet-treasury-config/std",
+	"pallet-treasury-multisig/std",
 	"pallet-utility/std",
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
@@ -155,7 +155,7 @@ runtime-benchmarks = [
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
-	"pallet-treasury-config/runtime-benchmarks",
+	"pallet-treasury-multisig/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
@@ -173,7 +173,7 @@ try-runtime = [
 	"pallet-sudo/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"pallet-treasury-config/try-runtime",
+	"pallet-treasury-multisig/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

@@ -3,7 +3,6 @@ use codec::Encode;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
-	PalletId,
 };
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{

@@ -255,5 +255,5 @@ mod runtime {
 	pub type Multisig = pallet_multisig;
 
 	#[runtime::pallet_index(24)]
-	pub type TreasuryConfig = pallet_treasury_config;
+	pub type TreasuryMultisig = pallet_treasury_multisig;
 }

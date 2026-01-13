@@ -7528,7 +7528,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-treasury-config"
+name = "pallet-treasury-multisig"
 version = "0.1.0"
 dependencies = [
  "frame-benchmarking",
@@ -9177,7 +9177,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
- "pallet-treasury-config",
+ "pallet-treasury-multisig",
  "pallet-utility",
  "parity-scale-codec",
  "primitive-types 0.13.1",

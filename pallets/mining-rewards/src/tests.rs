@@ -1,6 +1,5 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
-use sp_runtime::traits::AccountIdConversion;
 
 const UNIT: u128 = 1_000_000_000_000;
 

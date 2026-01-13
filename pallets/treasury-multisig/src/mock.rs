@@ -1,4 +1,4 @@
-use crate as pallet_treasury_config;
+use crate as pallet_treasury_multisig;
 use frame_support::{derive_impl, parameter_types};
 use sp_runtime::{traits::IdentityLookup, BuildStorage};
 
@@ -8,7 +8,7 @@ frame_support::construct_runtime!(
 	pub enum Test
 	{
 		System: frame_system,
-		TreasuryConfig: pallet_treasury_config,
+		TreasuryMultisig: pallet_treasury_multisig,
 	}
 );
 
@@ -23,16 +23,23 @@ parameter_types! {
 	pub const MaxSignatories: u32 = 100;
 }
 
-impl pallet_treasury_config::Config for Test {
+impl crate::Config for Test {
 	type MaxSignatories = MaxSignatories;
 	type WeightInfo = ();
+}
+
+// Mock implementation of WeightInfo for tests
+impl crate::weights::WeightInfo for () {
+	fn set_treasury_signatories(_s: u32) -> frame_support::weights::Weight {
+		frame_support::weights::Weight::zero()
+	}
 }
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
-	pallet_treasury_config::GenesisConfig::<Test> {
+	pallet_treasury_multisig::GenesisConfig::<Test> {
 		signatories: vec![1, 2, 3, 4, 5],
 		threshold: 3,
 	}

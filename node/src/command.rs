@@ -10,7 +10,7 @@ use qp_rusty_crystals_hdwallet::{
 	generate_mnemonic, wormhole::WormholePair, HDLattice, QUANTUS_DILITHIUM_CHAIN_ID,
 };
 use quantus_runtime::{
-	genesis_config_presets::get_treasury_config_for_chain, Block, TreasuryConfig,
+	genesis_config_presets::get_treasury_config_for_chain, Block, TreasuryMultisig,
 	EXISTENTIAL_DEPOSIT,
 };
 use rand::Rng;
@@ -207,12 +207,15 @@ impl SubstrateCli for Cli {
 
 /// Get treasury account from genesis config for a given chain ID.
 /// This ensures the rewards address matches what will be in runtime storage after genesis.
-fn get_treasury_account_for_chain(chain_id: &str) -> Result<AccountId32, sc_cli::Error> {
+fn get_treasury_account_for_chain(chain_id: &str) -> Result<AccountId32, Box<sc_cli::Error>> {
 	let (signatories, threshold) = get_treasury_config_for_chain(chain_id).ok_or_else(|| {
-		sc_cli::Error::Input(format!("Unknown chain ID for treasury config: {}", chain_id))
+		Box::new(sc_cli::Error::Input(format!(
+			"Unknown chain ID for treasury config: {}",
+			chain_id
+		)))
 	})?;
 
-	Ok(TreasuryConfig::calculate_treasury_account(&signatories, threshold))
+	Ok(TreasuryMultisig::calculate_treasury_account(&signatories, threshold))
 }
 
 /// Parse and run command line arguments
@@ -478,7 +481,8 @@ pub fn run() -> sc_cli::Result<()> {
 						// Automatically set rewards_address to Treasury for dev environments
 						if cli.run.shared_params.is_dev() {
 							let chain_id = config.chain_spec.id();
-							let treasury_account = get_treasury_account_for_chain(chain_id)?;
+							let treasury_account =
+								get_treasury_account_for_chain(chain_id).map_err(|e| *e)?;
 							log::info!(
 								"⛏️ DEV MODE: Auto-configured mining rewards to genesis treasury address"
 							);

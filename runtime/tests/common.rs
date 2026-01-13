@@ -1,10 +1,7 @@
-use frame_support::{
-	traits::{Currency, OnFinalize, OnInitialize},
-	PalletId,
-};
+use frame_support::traits::{Currency, OnFinalize, OnInitialize};
 use quantus_runtime::{Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
-use sp_runtime::{traits::AccountIdConversion, BuildStorage};
+use sp_runtime::BuildStorage;
 
 pub struct TestCommons;
 
@@ -28,7 +25,7 @@ impl TestCommons {
 			Balances::make_free_balance_be(&Self::account_id(3), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(4), 1000 * UNIT);
 			// Set up treasury multisig account for volume fee collection
-			let treasury_account = quantus_runtime::TreasuryConfig::get_treasury_account();
+			let treasury_account = quantus_runtime::TreasuryMultisig::get_treasury_account();
 			Balances::make_free_balance_be(&treasury_account, 1000 * UNIT);
 		});
 

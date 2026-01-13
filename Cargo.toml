@@ -17,7 +17,7 @@ members = [
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
-	"pallets/treasury-config",
+	"pallets/treasury-multisig",
 	"pallets/wormhole",
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
@@ -135,7 +135,7 @@ pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = 
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
-pallet-treasury-config = { path = "./pallets/treasury-config", default-features = false }
+pallet-treasury-multisig = { path = "./pallets/treasury-multisig", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.2.0", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }

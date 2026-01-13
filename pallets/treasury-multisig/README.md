@@ -1,4 +1,4 @@
-# Treasury Config Pallet
+# Treasury Multisig Pallet
 
 A pallet for managing treasury multisig configuration in a Substrate-based blockchain.
 
@@ -34,7 +34,7 @@ Emitted when treasury configuration changes, showing both the old and new multis
 ### Genesis Configuration
 
 ```rust
-TreasuryConfigConfig {
+TreasuryMultisigConfig {
     signatories: vec![alice, bob, charlie, dave, eve],
     threshold: 3, // 3-of-5 multisig
 }
@@ -43,7 +43,7 @@ TreasuryConfigConfig {
 ### Updating via Governance
 
 ```rust
-TreasuryConfig::set_treasury_signatories(
+TreasuryMultisig::set_treasury_signatories(
     RuntimeOrigin::root(),
     vec![account1, account2, account3, account4, account5],
     3 // new threshold
@@ -53,7 +53,7 @@ TreasuryConfig::set_treasury_signatories(
 ### Getting Treasury Address
 
 ```rust
-let treasury_address = TreasuryConfig::get_treasury_account();
+let treasury_address = TreasuryMultisig::get_treasury_account();
 ```
 
 The address is deterministically derived from signatories and threshold using the same algorithm as `pallet-multisig`.

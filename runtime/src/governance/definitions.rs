@@ -1,6 +1,6 @@
 use crate::{
 	governance::pallet_custom_origins, AccountId, Balance, Balances, BlockNumber, Runtime,
-	RuntimeOrigin, TreasuryConfig, DAYS, HOURS, MICRO_UNIT, UNIT,
+	RuntimeOrigin, TreasuryMultisig, DAYS, HOURS, MICRO_UNIT, UNIT,
 };
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
@@ -482,13 +482,12 @@ where
 		let pallets_origin = o.into_caller();
 
 		match pallets_origin {
-			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) => {
+			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) =>
 				if pallet_ranked_collective::Members::<Runtime, I>::contains_key(&who) {
 					Ok(0)
 				} else {
 					Err(original_o_for_error)
-				}
-			},
+				},
 			_ => Err(original_o_for_error),
 		}
 	}
@@ -532,13 +531,12 @@ where
 		let pallets_origin = o.into_caller();
 
 		match pallets_origin {
-			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) => {
+			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) =>
 				if pallet_ranked_collective::Members::<Runtime, I>::contains_key(&who) {
 					Ok(who)
 				} else {
 					Err(original_o_for_error)
-				}
-			},
+				},
 			_ => Err(original_o_for_error),
 		}
 	}
@@ -584,7 +582,7 @@ impl Pay for RuntimeNativePaymaster {
 		_asset_kind: Self::AssetKind,
 		amount: Self::Balance,
 	) -> Result<Self::Id, sp_runtime::DispatchError> {
-		let treasury_account = TreasuryConfig::get_treasury_account();
+		let treasury_account = TreasuryMultisig::get_treasury_account();
 		<crate::Balances as CurrencyTrait<crate::AccountId>>::transfer(
 			&treasury_account,
 			who,
@@ -608,7 +606,7 @@ impl Pay for RuntimeNativePaymaster {
 		_asset_kind: Self::AssetKind,
 		amount: Self::Balance,
 	) {
-		let treasury_account = TreasuryConfig::get_treasury_account();
+		let treasury_account = TreasuryMultisig::get_treasury_account();
 		let current_balance = crate::Balances::free_balance(&treasury_account);
 		if current_balance < amount {
 			let missing = amount - current_balance;

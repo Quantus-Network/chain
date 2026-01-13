@@ -28,7 +28,8 @@ use crate::{
 	governance::{
 		definitions::{
 			CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
+			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
+			TechCollectiveTracksInfo,
 		},
 		pallet_custom_origins, Spender,
 	},
@@ -54,10 +55,7 @@ use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::{
-	traits::One,
-	FixedU128, Perbill, Permill,
-};
+use sp_runtime::{traits::One, FixedU128, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
@@ -130,7 +128,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MinerBlockReward = ConstU128<{ 10 * UNIT }>; // 10 tokens
 	type TreasuryBlockReward = ConstU128<0>; // 0 tokens
-	type TreasuryAccountId = pallet_treasury_config::TreasuryAccount<Runtime>;
+	type TreasuryAccountId = pallet_treasury_multisig::TreasuryAccount<Runtime>;
 	type MintingAccount = MintingAccount;
 }
 
@@ -478,7 +476,7 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-	type TreasuryAccountId = pallet_treasury_config::TreasuryAccount<Runtime>;
+	type TreasuryAccountId = pallet_treasury_multisig::TreasuryAccount<Runtime>;
 }
 
 parameter_types! {
@@ -558,9 +556,9 @@ impl pallet_multisig::Config for Runtime {
 // treasury addresses from genesis, while still being the same runtime build.
 // =============================================================================
 
-impl pallet_treasury_config::Config for Runtime {
+impl pallet_treasury_multisig::Config for Runtime {
 	type MaxSignatories = MaxSignatories;
-	type WeightInfo = pallet_treasury_config::weights::SubstrateWeight<Runtime>;
+	type WeightInfo = pallet_treasury_multisig::weights::SubstrateWeight<Runtime>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {

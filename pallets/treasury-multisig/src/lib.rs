@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![doc = "# Treasury Config Pallet"]
+#![doc = "# Treasury Multisig Pallet"]
 #![doc = ""]
 #![doc = "This pallet manages the treasury multisig configuration."]
 #![doc = "It stores the signatories and threshold for the treasury multisig account,"]
@@ -8,7 +8,7 @@
 extern crate alloc;
 
 pub use pallet::*;
-pub use weights::WeightInfo;
+pub use weights::*;
 
 #[cfg(test)]
 mod mock;
@@ -24,7 +24,7 @@ pub mod weights;
 #[allow(clippy::expect_used)]
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::WeightInfo;
+	use crate::weights::WeightInfo;
 	use alloc::vec::Vec;
 	use frame_support::{pallet_prelude::*, traits::Get};
 	use frame_system::pallet_prelude::*;
@@ -212,9 +212,9 @@ pub mod pallet {
 			Self::multi_account_id(&signatories.into_inner(), threshold)
 		}
 
-		/// Calculate treasury account from given signatories and threshold WITHOUT accessing storage.
-		/// This can be used outside of runtime context (e.g., during node initialization).
-		/// NOTE: This must match the algorithm used by pallet-multisig.
+		/// Calculate treasury account from given signatories and threshold WITHOUT accessing
+		/// storage. This can be used outside of runtime context (e.g., during node
+		/// initialization). NOTE: This must match the algorithm used by pallet-multisig.
 		pub fn calculate_treasury_account(
 			signatories: &[T::AccountId],
 			threshold: u16,

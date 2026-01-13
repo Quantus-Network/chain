@@ -8,14 +8,11 @@ mod tests {
 	use quantus_runtime::configs::TechReferendaInstance;
 
 	use quantus_runtime::{
-		Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
-		TechCollective, TechReferenda, UNIT,
+		Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, TechCollective,
+		TechReferenda, UNIT,
 	};
 
-	use sp_runtime::{
-		traits::{AccountIdConversion, Hash, StaticLookup},
-		MultiAddress,
-	};
+	use sp_runtime::{traits::Hash, MultiAddress};
 
 	const TRACK_ID: u16 = 0;
 
@@ -799,10 +796,10 @@ mod tests {
 
 			// Run to the end of voting
 			TestCommons::run_to_block(
-				track_info.prepare_period +
-					track_info.decision_period +
-					track_info.confirm_period +
-					5,
+				track_info.prepare_period
+					+ track_info.decision_period
+					+ track_info.confirm_period
+					+ 5,
 			);
 
 			// Check referendum state - if votes are equal, it should be rejected as the default
@@ -902,10 +899,10 @@ mod tests {
 			// Wait until the end of the confirm phase for the second referendum
 			// Use relative advancement to avoid overflow
 			let current_block_for_second_confirm = frame_system::Pallet::<Runtime>::block_number();
-			let blocks_to_advance_for_second = track_info.decision_period +
-				track_info.confirm_period +
-				track_info.min_enactment_period +
-				5;
+			let blocks_to_advance_for_second = track_info.decision_period
+				+ track_info.confirm_period
+				+ track_info.min_enactment_period
+				+ 5;
 			TestCommons::run_to_block(
 				current_block_for_second_confirm + blocks_to_advance_for_second,
 			);
@@ -1138,10 +1135,10 @@ mod tests {
 			// Wait for the confirmation period for the fourth referendum to complete
 			// Use relative advancement to avoid overflow with fast governance timing
 			let current_block = frame_system::Pallet::<Runtime>::block_number();
-			let blocks_to_advance = track_info.prepare_period +
-				track_info.decision_period +
-				track_info.confirm_period +
-				5;
+			let blocks_to_advance = track_info.prepare_period
+				+ track_info.decision_period
+				+ track_info.confirm_period
+				+ 5;
 			TestCommons::run_to_block(current_block + blocks_to_advance);
 
 			// Check fourth referendum outcome
@@ -1289,5 +1286,4 @@ mod tests {
 	// Treasury spend tests have been removed
 	// pallet-treasury has been replaced with pallet-treasury-config
 	// which only manages multisig configuration, not spend proposals
-
 }
