@@ -30,7 +30,7 @@ pub mod pallet {
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{
 		generic::DigestItem,
-		traits::{AccountIdConversion, Saturating},
+		traits::Saturating,
 	};
 
 	pub(crate) type BalanceOf<T> =
@@ -60,9 +60,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type TreasuryBlockReward: Get<BalanceOf<Self>>;
 
-		/// The treasury pallet ID
+		/// The treasury account ID
 		#[pallet::constant]
-		type TreasuryPalletId: Get<frame_support::PalletId>;
+		type TreasuryAccountId: Get<Self::AccountId>;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -177,7 +177,7 @@ pub mod pallet {
 					);
 				},
 				None => {
-					let treasury = T::TreasuryPalletId::get().into_account_truncating();
+					let treasury = T::TreasuryAccountId::get();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
 					T::Currency::store_transfer_proof(&mint_account, &treasury, reward);

@@ -123,7 +123,7 @@ where
 	// We override the default hashing function to use
 	// a felt aligned pre-image for poseidon hashing.
 	fn hash(&self) -> Self::Hash {
-		Header::hash(&self)
+		Header::hash(self)
 	}
 }
 

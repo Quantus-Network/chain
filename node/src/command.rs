@@ -9,7 +9,10 @@ use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
 	generate_mnemonic, wormhole::WormholePair, HDLattice, QUANTUS_DILITHIUM_CHAIN_ID,
 };
-use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use quantus_runtime::{
+	genesis_config_presets::get_treasury_config_for_chain, Block, TreasuryConfig,
+	EXISTENTIAL_DEPOSIT,
+};
 use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
@@ -19,7 +22,7 @@ use sp_core::{
 	H256,
 };
 use sp_keyring::Sr25519Keyring;
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use sp_runtime::traits::IdentifyAccount;
 
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
@@ -179,23 +182,37 @@ impl SubstrateCli for Cli {
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
 		Ok(match id {
-			"dev" =>
-				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"dirac_live_spec" =>
-				Box::new(chain_spec::dirac_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"dev" => {
+				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
+			"dirac_live_spec" => {
+				Box::new(chain_spec::dirac_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"dirac" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/dirac.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			"heisenberg_live_spec" =>
-				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"heisenberg_live_spec" => {
+				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			path =>
+			path => {
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
-					as Box<dyn sc_service::ChainSpec>,
+					as Box<dyn sc_service::ChainSpec>
+			},
 		})
 	}
+}
+
+/// Get treasury account from genesis config for a given chain ID.
+/// This ensures the rewards address matches what will be in runtime storage after genesis.
+fn get_treasury_account_for_chain(chain_id: &str) -> Result<AccountId32, sc_cli::Error> {
+	let (signatories, threshold) = get_treasury_config_for_chain(chain_id).ok_or_else(|| {
+		sc_cli::Error::Input(format!("Unknown chain ID for treasury config: {}", chain_id))
+	})?;
+
+	Ok(TreasuryConfig::calculate_treasury_account(&signatories, threshold))
 }
 
 /// Parse and run command line arguments
@@ -409,8 +426,9 @@ pub fn run() -> sc_cli::Result<()> {
 
 						cmd.run(client, inherent_benchmark_data()?, Vec::new(), &ext_factory)
 					},
-					BenchmarkCmd::Machine(cmd) =>
-						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
+					BenchmarkCmd::Machine(cmd) => {
+						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())
+					},
 				}
 			})
 		},
@@ -453,24 +471,32 @@ pub fn run() -> sc_cli::Result<()> {
 						let account = address.parse::<AccountId32>().map_err(|_| {
 							sc_cli::Error::Input("Invalid rewards address format".into())
 						})?;
-						log::info!("⛏️ Using address for rewards: {:?}", account);
+						log::info!("⛏️ Using explicit rewards address: {:?}", account);
 						account
 					},
 					None => {
-						// Automatically set rewards_address to Treasury when --dev is used
+						// Automatically set rewards_address to Treasury for dev environments
 						if cli.run.shared_params.is_dev() {
-							let treasury_account =
-								quantus_runtime::configs::TreasuryPalletId::get()
-									.into_account_truncating();
+							let chain_id = config.chain_spec.id();
+							let treasury_account = get_treasury_account_for_chain(chain_id)?;
 							log::info!(
-								"⛏️ Using treasury address for rewards: {:?}",
+								"⛏️ DEV MODE: Auto-configured mining rewards to genesis treasury address"
+							);
+							log::info!(
+								"⛏️ Chain: '{}', Treasury: {:?}",
+								chain_id,
 								treasury_account
+							);
+							log::info!(
+								"⛏️ Note: Treasury block rewards (if any) are read dynamically from runtime storage"
 							);
 
 							treasury_account
 						} else {
-							// Should never happen
-							return Err(sc_cli::Error::Input("No rewards address provided".into()));
+							// Production mode requires explicit rewards address
+							return Err(sc_cli::Error::Input(
+								"Mining rewards address is required. Use --rewards-address <ADDRESS>".into()
+							));
 						}
 					},
 				};

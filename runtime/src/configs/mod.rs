@@ -28,8 +28,7 @@ use crate::{
 	governance::{
 		definitions::{
 			CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
-			RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
+			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin, TechCollectiveTracksInfo,
 		},
 		pallet_custom_origins, Spender,
 	},
@@ -56,7 +55,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, One},
+	traits::One,
 	FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -131,7 +130,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MinerBlockReward = ConstU128<{ 10 * UNIT }>; // 10 tokens
 	type TreasuryBlockReward = ConstU128<0>; // 0 tokens
-	type TreasuryPalletId = TreasuryPalletId;
+	type TreasuryAccountId = pallet_treasury_config::TreasuryAccount<Runtime>;
 	type MintingAccount = MintingAccount;
 }
 
@@ -461,8 +460,6 @@ parameter_types! {
 	pub const MaxInterceptorAccounts: u32 = 32;
 	/// Volume fee for reversed transactions from high-security accounts only, in basis points (10 = 0.1%)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
-	/// Treasury account ID
-	pub TreasuryAccountId: AccountId = TreasuryPalletId::get().into_account_truncating();
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
@@ -481,41 +478,7 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-	type TreasuryAccountId = TreasuryAccountId;
-}
-
-parameter_types! {
-	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
-	pub const ProposalBond: Permill = Permill::from_percent(5);
-	pub const ProposalBondMinimum: Balance = UNIT;
-	pub const ProposalBondMaximum: Option<Balance> = None;
-	pub const SpendPeriod: BlockNumber = 2 * DAYS;
-	pub const Burn: Permill = Permill::from_percent(0);
-	pub const MaxApprovals: u32 = 100;
-	pub const TreasuryPayoutPeriod: BlockNumber = 14 * DAYS; // Added for PayoutPeriod
-}
-
-impl pallet_treasury::Config for Runtime {
-	type PalletId = TreasuryPalletId;
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type RejectOrigin = EnsureRoot<AccountId>;
-	type SpendPeriod = SpendPeriod;
-	type Burn = Burn;
-	type BurnDestination = (); // Treasury funds will be burnt without a specific destination
-	type SpendFunds = (); // No external pallets spending treasury funds directly through this hook
-	type MaxApprovals = MaxApprovals; // For deprecated spend_local flow
-	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
-	type SpendOrigin = TreasurySpender; // Changed to use the custom EnsureOrigin
-	type AssetKind = (); // Using () to represent native currency for simplicity
-	type Beneficiary = AccountId; // Spends are paid to AccountId
-	type BeneficiaryLookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>; // Standard lookup for AccountId
-	type Paymaster = RuntimeNativePaymaster; // Custom paymaster for native currency
-	type BalanceConverter = RuntimeNativeBalanceConverter; // Custom converter for native currency
-	type PayoutPeriod = TreasuryPayoutPeriod; // How long a spend is valid for claiming
-	type BlockNumberProvider = System;
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = (); // System pallet provides block number
+	type TreasuryAccountId = pallet_treasury_config::TreasuryAccount<Runtime>;
 }
 
 parameter_types! {

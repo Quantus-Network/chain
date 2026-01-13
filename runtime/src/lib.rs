@@ -239,9 +239,6 @@ mod runtime {
 	#[runtime::pallet_index(16)]
 	pub type TechReferenda = pallet_referenda::Pallet<Runtime, Instance1>;
 
-	#[runtime::pallet_index(18)]
-	pub type TreasuryPallet = pallet_treasury;
-
 	#[runtime::pallet_index(19)]
 	pub type Origins = pallet_custom_origins;
 

@@ -27,6 +27,14 @@ pub fn crystal_charlie() -> DilithiumPair {
 	let seed = [2u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
+pub fn dilithium_dave() -> DilithiumPair {
+	let seed = [3u8; 32];
+	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+}
+pub fn crystal_eve() -> DilithiumPair {
+	let seed = [4u8; 32];
+	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+}
 
 impl IdentifyAccount for DilithiumPair {
 	type AccountId = AccountId32;

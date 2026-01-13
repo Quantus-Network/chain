@@ -259,7 +259,7 @@ fn test_run_to_block_helper() {
 fn rewards_go_to_treasury_when_no_miner() {
 	new_test_ext().execute_with(|| {
 		// Get Treasury account
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = <Test as crate::Config>::TreasuryAccountId::get();
 		let initial_treasury_balance = Balances::free_balance(&treasury_account);
 
 		// Fund Treasury
@@ -314,8 +314,7 @@ fn test_fees_split_between_treasury_and_miner() {
 		MiningRewards::on_finalize(System::block_number());
 
 		// Get Treasury account
-		let treasury_account: sp_core::crypto::AccountId32 =
-			TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = <Test as crate::Config>::TreasuryAccountId::get();
 
 		// Get actual values from the system AFTER on_finalize
 		let treasury_balance_after_finalize = Balances::free_balance(&treasury_account);

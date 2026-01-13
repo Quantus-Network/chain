@@ -84,6 +84,17 @@ pub mod pallet {
 				return;
 			}
 
+			// Check for duplicate signatories
+			let mut sorted_signatories = self.signatories.clone();
+			sorted_signatories.sort();
+			for i in 1..sorted_signatories.len() {
+				if sorted_signatories[i - 1] == sorted_signatories[i] {
+					#[cfg(feature = "std")]
+					eprintln!("ERROR: Duplicate signatories detected in genesis config");
+					return;
+				}
+			}
+
 			// Convert to bounded vec
 			let bounded_signatories = match BoundedVec::try_from(self.signatories.clone()) {
 				Ok(bounded) => bounded,
@@ -135,6 +146,16 @@ pub mod pallet {
 				Error::<T>::InvalidThreshold
 			);
 
+			// Check for duplicate signatories
+			let mut sorted_signatories = signatories.clone();
+			sorted_signatories.sort();
+			for i in 1..sorted_signatories.len() {
+				ensure!(
+					sorted_signatories[i - 1] != sorted_signatories[i],
+					Error::<T>::DuplicateSignatories
+				);
+			}
+
 			// Store old address for event
 			let old_account = Self::get_treasury_account();
 
@@ -163,6 +184,8 @@ pub mod pallet {
 		InvalidThreshold,
 		/// Too many signatories provided.
 		TooManySignatories,
+		/// Duplicate signatories detected - each signatory must be unique.
+		DuplicateSignatories,
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -187,6 +210,25 @@ pub mod pallet {
 			}
 
 			Self::multi_account_id(&signatories.into_inner(), threshold)
+		}
+
+		/// Calculate treasury account from given signatories and threshold WITHOUT accessing storage.
+		/// This can be used outside of runtime context (e.g., during node initialization).
+		/// NOTE: This must match the algorithm used by pallet-multisig.
+		pub fn calculate_treasury_account(
+			signatories: &[T::AccountId],
+			threshold: u16,
+		) -> T::AccountId {
+			if signatories.is_empty() || threshold == 0 {
+				return match T::AccountId::decode(
+					&mut sp_runtime::traits::TrailingZeroInput::zeroes(),
+				) {
+					Ok(account) => account,
+					Err(_) => Self::multi_account_id(&[], 0),
+				};
+			}
+
+			Self::multi_account_id(signatories, threshold)
 		}
 
 		/// Generate multisig account ID from signatories and threshold.

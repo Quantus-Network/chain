@@ -27,9 +27,8 @@ impl TestCommons {
 			Balances::make_free_balance_be(&Self::account_id(2), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(3), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(4), 1000 * UNIT);
-			// Set up treasury account for volume fee collection
-			let treasury_pallet_id = PalletId(*b"py/trsry");
-			let treasury_account = treasury_pallet_id.into_account_truncating();
+			// Set up treasury multisig account for volume fee collection
+			let treasury_account = quantus_runtime::TreasuryConfig::get_treasury_account();
 			Balances::make_free_balance_be(&treasury_account, 1000 * UNIT);
 		});
 

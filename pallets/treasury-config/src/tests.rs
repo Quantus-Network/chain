@@ -87,6 +87,30 @@ fn set_treasury_signatories_validates_threshold() {
 }
 
 #[test]
+fn set_treasury_signatories_rejects_duplicates() {
+	new_test_ext().execute_with(|| {
+		// Same signatory 5 times should fail
+		assert_noop!(
+			TreasuryConfig::set_treasury_signatories(RuntimeOrigin::root(), vec![1, 1, 1, 1, 1], 3),
+			Error::<Test>::DuplicateSignatories
+		);
+
+		// Partial duplicates should also fail
+		assert_noop!(
+			TreasuryConfig::set_treasury_signatories(RuntimeOrigin::root(), vec![1, 2, 3, 2, 4], 3),
+			Error::<Test>::DuplicateSignatories
+		);
+
+		// No duplicates should succeed
+		assert_ok!(TreasuryConfig::set_treasury_signatories(
+			RuntimeOrigin::root(),
+			vec![1, 2, 3, 4, 5],
+			3
+		));
+	});
+}
+
+#[test]
 fn set_treasury_signatories_validates_max() {
 	new_test_ext().execute_with(|| {
 		// Create more than MaxSignatories (100)

@@ -18,16 +18,15 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig,
-	TreasuryConfigConfig, UNIT,
-};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TreasuryConfigConfig};
 use alloc::{vec, vec::Vec};
-use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
+use qp_dilithium_crypto::pair::{
+	crystal_alice, crystal_charlie, crystal_eve, dilithium_bob, dilithium_dave,
+};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use sp_runtime::traits::IdentifyAccount;
 
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
@@ -46,15 +45,17 @@ fn dirac_faucet_account() -> AccountId {
 	account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr")
 }
 
+/// Treasury threshold used across all networks (3-of-5 multisig)
+pub const TREASURY_THRESHOLD: u16 = 3;
+
 // Treasury multisig signatories for development/heisenberg (5 signatories)
 fn dev_treasury_signatories() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
 		dilithium_bob().into_account(),
 		crystal_charlie().into_account(),
-		// Additional signatories for 5-member multisig
-		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"), // Dave placeholder
-		account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr"), // Eve placeholder
+		dilithium_dave().into_account(),
+		crystal_eve().into_account(),
 	]
 }
 
@@ -70,11 +71,25 @@ fn dirac_treasury_signatories() -> Vec<AccountId> {
 	]
 }
 
+/// Public API: Get treasury signatories and threshold for a given chain ID.
+/// This matches the genesis config for that chain.
+/// Returns (signatories, threshold) tuple.
+pub fn get_treasury_config_for_chain(chain_id: &str) -> Option<(Vec<AccountId>, u16)> {
+	match chain_id {
+		"dev" => Some((dev_treasury_signatories(), TREASURY_THRESHOLD)),
+		"heisenberg" => Some((dev_treasury_signatories(), TREASURY_THRESHOLD)),
+		"dirac" => Some((dirac_treasury_signatories(), TREASURY_THRESHOLD)),
+		_ => None,
+	}
+}
+
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
 		dilithium_bob().into_account(),
 		crystal_charlie().into_account(),
+		dilithium_dave().into_account(),
+		crystal_eve().into_account(),
 	]
 }
 // Returns the genesis config presets populated with given parameters.
@@ -84,13 +99,10 @@ fn genesis_template(
 	treasury_signatories: Vec<AccountId>,
 	treasury_threshold: u16,
 ) -> Value {
-	let mut balances =
-		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
+	let balances = endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
 
-	const ONE_BILLION: u128 = 1_000_000_000;
-	// Still use old treasury for initial funding
-	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, ONE_BILLION * UNIT));
+	// Note: Treasury multisig address will be computed from signatories in genesis
+	// We don't pre-fund it here - funds can be transferred to it after chain initialization
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
@@ -119,7 +131,7 @@ pub fn development_config_genesis() -> Value {
 		endowed_accounts,
 		crystal_alice().into_account(),
 		dev_treasury_signatories(),
-		3, // 3-of-5 multisig for dev
+		TREASURY_THRESHOLD,
 	)
 }
 
@@ -134,7 +146,7 @@ pub fn heisenberg_config_genesis() -> Value {
 		endowed_accounts,
 		heisenberg_root_account(),
 		dev_treasury_signatories(),
-		3, // 3-of-5 multisig for heisenberg testnet
+		TREASURY_THRESHOLD,
 	)
 }
 
@@ -149,7 +161,7 @@ pub fn dirac_config_genesis() -> Value {
 		endowed_accounts,
 		dirac_root_account(),
 		dirac_treasury_signatories(),
-		3, // 3-of-5 multisig for dirac mainnet
+		TREASURY_THRESHOLD,
 	)
 }
 
