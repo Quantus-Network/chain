@@ -127,6 +127,7 @@ impl pallet_wormhole::Config for Test {
 	type Assets = Assets;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
+	type AccountId = AccountId;
 }
 
 // Helper function to build a genesis configuration

@@ -73,9 +73,9 @@ mod wormhole_tests {
 
 				let event_transfer_count = 0u64;
 
-				let leaf_hash = PoseidonHasher::hash_storage::<AccountId>(
+				let leaf_hash = PoseidonHasher::hash_storage::<crate::TransferProofKey<Test>>(
 					&(
-						0u32,
+						0u32, // AssetId (native)
 						event_transfer_count,
 						alice.clone(),
 						unspendable_account_id.clone(),
@@ -91,8 +91,7 @@ mod wormhole_tests {
 					unspendable_account_id.clone(),
 					funding_amount,
 				));
-				let mut storage_key = proof_address;
-				storage_key.extend_from_slice(&leaf_hash);
+				let storage_key = proof_address;
 
 				let header = System::finalize();
 				let state_root = *header.state_root();

@@ -58,6 +58,7 @@ pub mod pallet {
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
+		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
 			fungible::{Mutate, Unbalanced},
@@ -169,7 +170,22 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		ProofVerified { exit_amount: BalanceOf<T> },
+		NativeTransferred {
+			from: <T as frame_system::Config>::AccountId,
+			to: <T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+			transfer_count: T::TransferCount,
+		},
+		AssetTransferred {
+			asset_id: AssetIdOf<T>,
+			from: <T as frame_system::Config>::AccountId,
+			to: <T as frame_system::Config>::AccountId,
+			amount: AssetBalanceOf<T>,
+			transfer_count: T::TransferCount,
+		},
+		ProofVerified {
+			exit_amount: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::error]
@@ -396,10 +412,27 @@ pub mod pallet {
 		) -> DispatchResult {
 			let current_count = TransferCount::<T>::get();
 			TransferProof::<T>::insert(
-				(asset_id, current_count, from.clone(), to.clone(), amount),
+				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
 				(),
 			);
 			TransferCount::<T>::put(current_count.saturating_add(T::TransferCount::one()));
+
+			if asset_id == AssetIdOf::<T>::default() {
+				Self::deposit_event(Event::<T>::NativeTransferred {
+					from: from.into(),
+					to: to.into(),
+					amount,
+					transfer_count: current_count,
+				});
+			} else {
+				Self::deposit_event(Event::<T>::AssetTransferred {
+					from: from.into(),
+					to: to.into(),
+					asset_id,
+					amount: amount.into(),
+					transfer_count: current_count,
+				});
+			}
 
 			Ok(())
 		}
