@@ -19,7 +19,7 @@ pub fn crystal_alice() -> DilithiumPair {
 	let seed = [0u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
-pub fn dilithium_bob() -> DilithiumPair {
+pub fn crystal_bob() -> DilithiumPair {
 	let seed = [1u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }

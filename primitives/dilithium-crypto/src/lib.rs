@@ -13,7 +13,7 @@ pub const SECRET_KEY_BYTES: usize = ml_dsa_87::SECRETKEYBYTES;
 pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
 
 pub use pair::{
-	create_keypair, crystal_alice, crystal_charlie, crystal_dave, crystal_eve, dilithium_bob,
+	create_keypair, crystal_alice, crystal_bob, crystal_charlie, crystal_dave, crystal_eve,
 	generate,
 };
 pub use traits::verify;

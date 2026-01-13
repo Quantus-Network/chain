@@ -12,7 +12,7 @@ use sp_core::{Encode, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
 use sp_runtime::{traits::IdentifyAccount, OpaqueExtrinsic, SaturatedConversion};
 
-use qp_dilithium_crypto::{self, dilithium_bob};
+use qp_dilithium_crypto::{self, crystal_bob};
 
 use std::{sync::Arc, time::Duration};
 
@@ -40,7 +40,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
 	}
 
 	fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-		let acc = dilithium_bob();
+		let acc = crystal_bob();
 		let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
 			self.client.as_ref(),
 			acc,
@@ -79,7 +79,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 	}
 
 	fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-		let acc = dilithium_bob();
+		let acc = crystal_bob();
 		let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
 			self.client.as_ref(),
 			acc,
