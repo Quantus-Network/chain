@@ -73,7 +73,7 @@ mod wormhole_tests {
 
 				let event_transfer_count = 0u64;
 
-				let leaf_hash = PoseidonHasher::hash_storage::<AccountId>(
+				let leaf_hash = PoseidonHasher::hash_storage::<crate::TransferProofKey<Test>>(
 					&(
 						0u32,
 						event_transfer_count,
