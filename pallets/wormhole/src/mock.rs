@@ -1,27 +1,29 @@
 use crate as pallet_wormhole;
 use frame_support::{
 	construct_runtime, parameter_types,
-	traits::{ConstU32, Everything},
+	traits::{ConstU128, ConstU32, Everything},
 	weights::IdentityFee,
 };
+use frame_system::mocking::MockUncheckedExtrinsic;
+use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
-use sp_runtime::{
-	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage,
-};
-// --- MOCK RUNTIME ---
+use sp_runtime::{traits::IdentityLookup, BuildStorage};
 
 construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		Balances: pallet_balances,
+		Assets: pallet_assets,
 		Wormhole: pallet_wormhole,
 	}
 );
 
 pub type Balance = u128;
 pub type AccountId = sp_core::crypto::AccountId32;
-pub type Block = frame_system::mocking::MockBlock<Test>;
+pub type Block<T> = sp_runtime::generic::Block<
+	qp_header::Header<u64, PoseidonHasher>,
+	MockUncheckedExtrinsic<T, qp_dilithium_crypto::DilithiumSignatureScheme>,
+>;
 
 /// Helper function to convert a u64 to an AccountId32
 pub fn account_id(id: u64) -> AccountId {
@@ -29,8 +31,6 @@ pub fn account_id(id: u64) -> AccountId {
 	bytes[0..8].copy_from_slice(&id.to_le_bytes());
 	AccountId::new(bytes)
 }
-
-// --- FRAME SYSTEM ---
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -46,10 +46,10 @@ impl frame_system::Config for Test {
 	type RuntimeTask = ();
 	type Nonce = u64;
 	type Hash = H256;
-	type Hashing = BlakeTwo256;
+	type Hashing = PoseidonHasher;
 	type AccountId = AccountId;
 	type Lookup = IdentityLookup<Self::AccountId>;
-	type Block = Block;
+	type Block = Block<Self>;
 	type BlockHashCount = BlockHashCount;
 	type DbWeight = ();
 	type Version = ();
@@ -69,8 +69,6 @@ impl frame_system::Config for Test {
 	type PostTransactions = ();
 }
 
-// --- PALLET BALANCES ---
-
 parameter_types! {
 	pub const ExistentialDeposit: Balance = 1;
 }
@@ -89,9 +87,31 @@ impl pallet_balances::Config for Test {
 	type MaxReserves = ();
 	type MaxFreezes = ();
 	type DoneSlashHandler = ();
+	type RuntimeEvent = RuntimeEvent;
 }
 
-// --- PALLET WORMHOLE ---
+impl pallet_assets::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Balance = Balance;
+	type AssetId = u32;
+	type AssetIdParameter = u32;
+	type Currency = Balances;
+	type CreateOrigin =
+		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type AssetDeposit = ConstU128<1>;
+	type AssetAccountDeposit = ConstU128<1>;
+	type MetadataDepositBase = ConstU128<1>;
+	type MetadataDepositPerByte = ConstU128<1>;
+	type ApprovalDeposit = ConstU128<1>;
+	type StringLimit = ConstU32<50>;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = ();
+	type RemoveItemsLimit = ConstU32<1000>;
+	type CallbackHandle = ();
+	type Holder = ();
+}
 
 parameter_types! {
 	pub const MintingAccount: AccountId = AccountId::new([
@@ -104,16 +124,14 @@ impl pallet_wormhole::Config for Test {
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 	type WeightToFee = IdentityFee<Balance>;
 	type Currency = Balances;
+	type Assets = Assets;
+	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
+	type WormholeAccountId = AccountId;
 }
 
 // Helper function to build a genesis configuration
-pub fn new_test_ext() -> sp_io::TestExternalities {
-	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-
-	pallet_balances::GenesisConfig::<Test> { balances: vec![] }
-		.assimilate_storage(&mut t)
-		.unwrap();
-
+pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
+	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	t.into()
 }
