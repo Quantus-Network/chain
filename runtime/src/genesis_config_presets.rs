@@ -18,15 +18,15 @@
 // this module is used by the client, so it's ok to panic/unwrap here
 #![allow(clippy::expect_used)]
 
-use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
-};
+use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, TreasuryMultisigConfig};
 use alloc::{vec, vec::Vec};
-use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
+use qp_dilithium_crypto::pair::{
+	crystal_alice, crystal_bob, crystal_charlie, crystal_dave, crystal_eve,
+};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use sp_runtime::traits::IdentifyAccount;
 
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
@@ -45,25 +45,72 @@ fn dirac_faucet_account() -> AccountId {
 	account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr")
 }
 
+/// Treasury threshold used across all networks (3-of-5 multisig)
+pub const TREASURY_THRESHOLD: u16 = 3;
+
+// Treasury multisig signatories for development/heisenberg (5 signatories)
+fn dev_treasury_signatories() -> Vec<AccountId> {
+	vec![
+		crystal_alice().into_account(),
+		crystal_bob().into_account(),
+		crystal_charlie().into_account(),
+		crystal_dave().into_account(),
+		crystal_eve().into_account(),
+	]
+}
+
+// Treasury multisig signatories for dirac (mainnet) (5 signatories)
+fn dirac_treasury_signatories() -> Vec<AccountId> {
+	vec![
+		// TODO: Replace with actual mainnet signatories
+		dirac_root_account(),
+		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"),
+		account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr"),
+		dirac_faucet_account(),
+		account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB"), /* TODO: 5th signatory */
+	]
+}
+
+/// Public API: Get treasury signatories and threshold for a given chain ID.
+/// This matches the genesis config for that chain.
+/// Returns (signatories, threshold) tuple.
+pub fn get_treasury_config_for_chain(chain_id: &str) -> Option<(Vec<AccountId>, u16)> {
+	match chain_id {
+		"dev" => Some((dev_treasury_signatories(), TREASURY_THRESHOLD)),
+		"heisenberg" => Some((dev_treasury_signatories(), TREASURY_THRESHOLD)),
+		"dirac" => Some((dirac_treasury_signatories(), TREASURY_THRESHOLD)),
+		_ => None,
+	}
+}
+
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
-		dilithium_bob().into_account(),
+		crystal_bob().into_account(),
 		crystal_charlie().into_account(),
+		crystal_dave().into_account(),
+		crystal_eve().into_account(),
 	]
 }
 // Returns the genesis config presets populated with given parameters.
-fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
-	let mut balances =
-		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
+fn genesis_template(
+	endowed_accounts: Vec<AccountId>,
+	root: AccountId,
+	treasury_signatories: Vec<AccountId>,
+	treasury_threshold: u16,
+) -> Value {
+	let balances = endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
 
-	const ONE_BILLION: u128 = 1_000_000_000;
-	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, ONE_BILLION * UNIT));
+	// Note: Treasury multisig address will be computed from signatories in genesis
+	// We don't pre-fund it here - funds can be transferred to it after chain initialization
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		treasury_multisig: TreasuryMultisigConfig {
+			signatories: treasury_signatories,
+			threshold: treasury_threshold,
+		},
 		..Default::default()
 	};
 
@@ -80,7 +127,12 @@ pub fn development_config_genesis() -> Value {
 		log::info!("🍆 Endowed account raw: {:?}", account);
 	}
 
-	genesis_template(endowed_accounts, crystal_alice().into_account())
+	genesis_template(
+		endowed_accounts,
+		crystal_alice().into_account(),
+		dev_treasury_signatories(),
+		TREASURY_THRESHOLD,
+	)
 }
 
 pub fn heisenberg_config_genesis() -> Value {
@@ -90,7 +142,12 @@ pub fn heisenberg_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	genesis_template(endowed_accounts, heisenberg_root_account())
+	genesis_template(
+		endowed_accounts,
+		heisenberg_root_account(),
+		dev_treasury_signatories(),
+		TREASURY_THRESHOLD,
+	)
 }
 
 pub fn dirac_config_genesis() -> Value {
@@ -100,7 +157,12 @@ pub fn dirac_config_genesis() -> Value {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 
-	genesis_template(endowed_accounts, dirac_root_account())
+	genesis_template(
+		endowed_accounts,
+		dirac_root_account(),
+		dirac_treasury_signatories(),
+		TREASURY_THRESHOLD,
+	)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.

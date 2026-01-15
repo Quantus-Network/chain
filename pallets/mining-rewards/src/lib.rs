@@ -28,10 +28,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole::TransferProofs;
 	use sp_consensus_pow::POW_ENGINE_ID;
-	use sp_runtime::{
-		generic::DigestItem,
-		traits::{AccountIdConversion, Saturating},
-	};
+	use sp_runtime::{generic::DigestItem, traits::Saturating};
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -60,9 +57,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type TreasuryBlockReward: Get<BalanceOf<Self>>;
 
-		/// The treasury pallet ID
+		/// The treasury account ID
 		#[pallet::constant]
-		type TreasuryPalletId: Get<frame_support::PalletId>;
+		type TreasuryAccountId: Get<Self::AccountId>;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -177,7 +174,7 @@ pub mod pallet {
 					);
 				},
 				None => {
-					let treasury = T::TreasuryPalletId::get().into_account_truncating();
+					let treasury = T::TreasuryAccountId::get();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
 					T::Currency::store_transfer_proof(&mint_account, &treasury, reward);

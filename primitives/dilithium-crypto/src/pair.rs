@@ -19,12 +19,20 @@ pub fn crystal_alice() -> DilithiumPair {
 	let seed = [0u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
-pub fn dilithium_bob() -> DilithiumPair {
+pub fn crystal_bob() -> DilithiumPair {
 	let seed = [1u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
 pub fn crystal_charlie() -> DilithiumPair {
 	let seed = [2u8; 32];
+	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+}
+pub fn crystal_dave() -> DilithiumPair {
+	let seed = [3u8; 32];
+	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
+}
+pub fn crystal_eve() -> DilithiumPair {
+	let seed = [4u8; 32];
 	DilithiumPair::from_seed_slice(&seed).expect("Always succeeds")
 }
 

@@ -8,10 +8,7 @@ use frame_benchmarking::{account, v2::*, BenchmarkError};
 use frame_support::traits::fungible::{Inspect, Mutate};
 use frame_system::{pallet_prelude::BlockNumberFor, Pallet as SystemPallet};
 use sp_consensus_pow::POW_ENGINE_ID;
-use sp_runtime::{
-	generic::{Digest, DigestItem},
-	traits::AccountIdConversion,
-};
+use sp_runtime::generic::{Digest, DigestItem};
 
 #[benchmarks]
 mod benchmarks {
@@ -37,7 +34,7 @@ mod benchmarks {
 		);
 
 		// Pre-fund Treasury account to ensure it exists
-		let treasury_account = T::TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = T::TreasuryAccountId::get();
 		let ed = T::Currency::minimum_balance();
 		let _ = T::Currency::mint_into(&treasury_account, ed.saturating_mul(1000u32.into()));
 		let _ = T::Currency::mint_into(&miner, ed.saturating_mul(1000u32.into()));

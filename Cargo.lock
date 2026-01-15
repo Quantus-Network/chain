@@ -7120,25 +7120,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-merkle-airdrop"
-version = "0.1.0"
-dependencies = [
- "binary-merkle-tree",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-balances 40.0.1",
- "pallet-vesting",
- "parity-scale-codec",
- "scale-info",
- "sha2 0.10.9",
- "sp-core",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-message-queue"
 version = "44.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7187,6 +7168,18 @@ dependencies = [
  "polkadot-sdk-frame",
  "scale-info",
  "sp-mmr-primitives",
+]
+
+[[package]]
+name = "pallet-multisig"
+version = "41.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4356e277b778c6f307c8d39b40f870f39e0a7a0fd1f4eae20c64b99e8839b3a"
+dependencies = [
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
 ]
 
 [[package]]
@@ -7535,23 +7528,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-treasury"
-version = "40.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77efcc0e81cf6025128d463fa56d024f1abb6ff26e190fc091da3bafd3882d2a"
+name = "pallet-treasury-multisig"
+version = "0.1.0"
 dependencies = [
- "docify",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "impl-trait-for-tuples",
- "log",
- "pallet-balances 42.0.0",
  "parity-scale-codec",
  "scale-info",
- "serde",
+ "sp-api",
  "sp-core",
+ "sp-io",
  "sp-runtime",
+ "sp-weights",
 ]
 
 [[package]]
@@ -7567,21 +7556,6 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-io",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-vesting"
-version = "41.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "305b437f4832bb563b660afa6549c0f0d446b668b4f098edc48d04e803badb9f"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "parity-scale-codec",
- "scale-info",
  "sp-runtime",
 ]
 
@@ -9191,8 +9165,8 @@ dependencies = [
  "pallet-assets-holder",
  "pallet-balances 40.0.1",
  "pallet-conviction-voting",
- "pallet-merkle-airdrop",
  "pallet-mining-rewards",
+ "pallet-multisig",
  "pallet-preimage",
  "pallet-qpow",
  "pallet-ranked-collective",
@@ -9204,9 +9178,8 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
- "pallet-treasury",
+ "pallet-treasury-multisig",
  "pallet-utility",
- "pallet-vesting",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",

@@ -1,6 +1,6 @@
 use crate::{
-	configs::TreasuryPalletId, governance::pallet_custom_origins, AccountId, Balance, Balances,
-	BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT,
+	governance::pallet_custom_origins, AccountId, Balance, Balances, BlockNumber, Runtime,
+	RuntimeOrigin, TreasuryMultisig, DAYS, HOURS, MICRO_UNIT, UNIT,
 };
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
@@ -21,7 +21,7 @@ use pallet_referenda::Track;
 use sp_core::crypto::AccountId32;
 use sp_runtime::{
 	str_array,
-	traits::{AccountIdConversion, Convert, MaybeConvert},
+	traits::{Convert, MaybeConvert},
 	DispatchError, Perbill,
 };
 ///Preimage pallet fee model
@@ -582,7 +582,7 @@ impl Pay for RuntimeNativePaymaster {
 		_asset_kind: Self::AssetKind,
 		amount: Self::Balance,
 	) -> Result<Self::Id, sp_runtime::DispatchError> {
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = TreasuryMultisig::get_treasury_account();
 		<crate::Balances as CurrencyTrait<crate::AccountId>>::transfer(
 			&treasury_account,
 			who,
@@ -606,7 +606,7 @@ impl Pay for RuntimeNativePaymaster {
 		_asset_kind: Self::AssetKind,
 		amount: Self::Balance,
 	) {
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = TreasuryMultisig::get_treasury_account();
 		let current_balance = crate::Balances::free_balance(&treasury_account);
 		if current_balance < amount {
 			let missing = amount - current_balance;

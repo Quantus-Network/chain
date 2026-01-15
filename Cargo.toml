@@ -13,11 +13,11 @@ members = [
 	"miner-api",
 	"node",
 	"pallets/balances",
-	"pallets/merkle-airdrop",
 	"pallets/mining-rewards",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
+	"pallets/treasury-multisig",
 	"pallets/wormhole",
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
@@ -131,11 +131,11 @@ zeroize = { version = "1.7.0", default-features = false }
 
 # Own dependencies
 pallet-balances = { path = "./pallets/balances", default-features = false }
-pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
+pallet-treasury-multisig = { path = "./pallets/treasury-multisig", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.2.0", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }
@@ -175,6 +175,7 @@ frame-try-runtime = { version = "0.47.0", default-features = false }
 pallet-assets = { version = "43.0.0", default-features = false }
 pallet-assets-holder = { version = "0.3.0", default-features = false }
 pallet-conviction-voting = { version = "41.0.0", default-features = false }
+pallet-multisig = { version = "41.0.0", default-features = false }
 pallet-preimage = { version = "41.0.0", default-features = false }
 pallet-ranked-collective = { version = "41.0.0", default-features = false }
 pallet-recovery = { version = "41.0.0", default-features = false }
@@ -184,9 +185,7 @@ pallet-timestamp = { version = "40.0.0", default-features = false }
 pallet-transaction-payment = { version = "41.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "44.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "41.0.0", default-features = false }
-pallet-treasury = { version = "40.0.0", default-features = false }
 pallet-utility = { version = "41.0.0", default-features = false }
-pallet-vesting = { version = "41.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.2", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.50.0", default-features = false }
 sc-block-builder = { version = "0.45.0", default-features = true }

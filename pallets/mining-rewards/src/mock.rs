@@ -3,7 +3,6 @@ use codec::Encode;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
-	PalletId,
 };
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{
@@ -30,7 +29,7 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 189;
 	pub const BlockReward: u128 = 50;
 	pub const ExistentialDeposit: Balance = 1;
-	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+	pub const TreasuryAccountId: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([111u8; 32]);
 }
 
 impl frame_system::Config for Test {
@@ -92,7 +91,7 @@ impl pallet_mining_rewards::Config for Test {
 	type WeightInfo = ();
 	type MinerBlockReward = BlockReward;
 	type TreasuryBlockReward = TreasuryBlockReward;
-	type TreasuryPalletId = TreasuryPalletId;
+	type TreasuryAccountId = TreasuryAccountId;
 	type MintingAccount = MintingAccount;
 }
 

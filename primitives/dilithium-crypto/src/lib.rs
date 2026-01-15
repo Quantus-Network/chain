@@ -12,7 +12,10 @@ pub const PUB_KEY_BYTES: usize = ml_dsa_87::PUBLICKEYBYTES;
 pub const SECRET_KEY_BYTES: usize = ml_dsa_87::SECRETKEYBYTES;
 pub const SIGNATURE_BYTES: usize = ml_dsa_87::SIGNBYTES;
 
-pub use pair::{create_keypair, crystal_alice, crystal_charlie, dilithium_bob, generate};
+pub use pair::{
+	create_keypair, crystal_alice, crystal_bob, crystal_charlie, crystal_dave, crystal_eve,
+	generate,
+};
 pub use traits::verify;
 pub use types::{
 	DilithiumPair, DilithiumPublic, DilithiumSignature, DilithiumSignatureScheme,

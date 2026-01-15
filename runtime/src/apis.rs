@@ -41,7 +41,7 @@ use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
 	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime, RuntimeCall,
-	RuntimeGenesisConfig, System, TransactionPayment, VERSION,
+	RuntimeGenesisConfig, System, TransactionPayment, TreasuryMultisig, VERSION,
 };
 
 impl_runtime_apis! {
@@ -303,6 +303,20 @@ impl_runtime_apis! {
 
 		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
 			crate::genesis_config_presets::preset_names()
+		}
+	}
+
+	impl pallet_treasury_multisig::TreasuryMultisigApi<Block, AccountId> for Runtime {
+		fn get_treasury_account() -> AccountId {
+			TreasuryMultisig::get_treasury_account()
+		}
+
+		fn get_signatories() -> Vec<AccountId> {
+			TreasuryMultisig::signatories().into_inner()
+		}
+
+		fn get_threshold() -> u16 {
+			TreasuryMultisig::threshold()
 		}
 	}
 }
