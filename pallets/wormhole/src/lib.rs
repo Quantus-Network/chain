@@ -74,6 +74,10 @@ pub mod pallet {
 	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
 		traits::{MaybeDisplay, Saturating, StaticLookup, Zero},
+		transaction_validity::{
+			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
+			ValidTransaction,
+		},
 		Perbill,
 	};
 
@@ -397,6 +401,46 @@ pub mod pallet {
 			Self::record_transfer(asset_id, source.into(), dest.into(), amount.into())?;
 
 			Ok(())
+		}
+	}
+
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T>
+	where
+		AssetIdOf<T>: Default + From<u32> + Clone + ToFelts,
+		BalanceOf<T>: Default + ToFelts,
+		AssetBalanceOf<T>: Into<BalanceOf<T>> + From<BalanceOf<T>>,
+	{
+		type Call = Call<T>;
+
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			match call {
+				Call::verify_wormhole_proof { proof_bytes } => {
+					// Basic validation: check proof bytes are not empty
+					if proof_bytes.is_empty() {
+						return InvalidTransaction::Custom(1).into();
+					}
+					ValidTransaction::with_tag_prefix("WormholeVerify")
+						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.priority(TransactionPriority::MAX)
+						.longevity(5)
+						.propagate(true)
+						.build()
+				},
+				Call::verify_aggregated_proof { proof_bytes } => {
+					// Basic validation: check proof bytes are not empty
+					if proof_bytes.is_empty() {
+						return InvalidTransaction::Custom(2).into();
+					}
+					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
+						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.priority(TransactionPriority::MAX)
+						.longevity(5)
+						.propagate(true)
+						.build()
+				},
+				_ => InvalidTransaction::Call.into(),
+			}
 		}
 	}
 
