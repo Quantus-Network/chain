@@ -39,7 +39,7 @@ use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
 		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
-		VariantCountOf, WithdrawReasons,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -56,7 +56,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, ConvertInto, One},
+	traits::{AccountIdConversion, One},
 	FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -65,7 +65,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
 	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
@@ -85,8 +85,6 @@ parameter_types! {
 	// To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
 	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 189;
-	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-	pub const UnsignedClaimPriority: u32 = 100;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -425,25 +423,6 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
-parameter_types! {
-	pub const MinVestedTransfer: Balance = UNIT;
-	/// Unvested funds can be transferred and reserved for any other means (reserves overlap)
-	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
-	WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
-}
-
-impl pallet_vesting::Config for Runtime {
-	type Currency = Balances;
-	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
-	type MinVestedTransfer = MinVestedTransfer;
-	type BlockNumberToBalance = ConvertInto;
-	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-	type BlockNumberProvider = System;
-
-	const MAX_VESTING_SCHEDULES: u32 = 28;
-}
-
 impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
@@ -503,20 +482,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
 	type TreasuryAccountId = TreasuryAccountId;
-}
-
-parameter_types! {
-	pub const MaxProofs: u32 = 4096;
-}
-
-impl pallet_merkle_airdrop::Config for Runtime {
-	type Vesting = Vesting;
-	type MaxProofs = MaxProofs;
-	type PalletId = MerkleAirdropPalletId;
-	type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
-	type UnsignedClaimPriority = UnsignedClaimPriority;
-	type BlockNumberProvider = System;
-	type BlockNumberToBalance = ConvertInto;
 }
 
 parameter_types! {
@@ -600,6 +565,34 @@ impl pallet_assets::Config for Runtime {
 impl pallet_assets_holder::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
+}
+
+// Multisig configuration
+parameter_types! {
+	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
+	pub const MaxSigners: u32 = 100;
+	pub const MaxActiveProposals: u32 = 100; // Max active proposals per multisig
+	pub const MaxCallSize: u32 = 10240; // 10KB
+	pub const MultisigDeposit: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (refundable)
+	pub const MultisigFee: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (non-refundable)
+	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (refundable)
+	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
+	pub const ProposalGracePeriod: BlockNumber = 28800; // ~2 days (6s blocks)
+}
+
+impl pallet_multisig::Config for Runtime {
+	type RuntimeCall = RuntimeCall;
+	type Currency = Balances;
+	type MaxSigners = MaxSigners;
+	type MaxActiveProposals = MaxActiveProposals;
+	type MaxCallSize = MaxCallSize;
+	type MultisigDeposit = MultisigDeposit;
+	type MultisigFee = MultisigFee;
+	type ProposalDeposit = ProposalDeposit;
+	type ProposalFee = ProposalFee;
+	type GracePeriod = ProposalGracePeriod;
+	type PalletId = MultisigPalletId;
+	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {

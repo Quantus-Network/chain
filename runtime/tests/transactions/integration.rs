@@ -106,11 +106,11 @@ mod tests {
 			// Extract components into individual variables for debugging
 			let decoded_address: Address = address;
 			let decoded_signature: DilithiumSignatureScheme = signature;
-			let decoded_extra: SignedExtra = extra;
+			let _: SignedExtra = extra;
 
 			// Debug output for each component
 			println!("Decoded Address: {:?}", decoded_address);
-			println!("Decoded Extra: {:?}", decoded_extra);
+			println!("Decoded Extra: ()");
 
 			let DilithiumSignatureScheme::Dilithium(sig_public) = decoded_signature.clone();
 			let sig = sig_public.signature();
