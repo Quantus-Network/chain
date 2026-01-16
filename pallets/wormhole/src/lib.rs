@@ -247,8 +247,7 @@ pub mod pallet {
 			);
 
 			// Extract the block number from public inputs
-			let block_number = BlockNumberFor::<T>::try_from(public_inputs.block_number)
-				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+			let block_number = BlockNumberFor::<T>::from(public_inputs.block_number);
 
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
