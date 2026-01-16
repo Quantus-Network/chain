@@ -145,10 +145,8 @@ mod benchmarks {
 			deposit: 10u32.into(),
 		};
 
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&(
-			multisig_address.clone(),
-			encoded_call,
-		));
+		// Match pallet hashing: hash_of(bounded_call)
+		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
 		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
 
 		#[extrinsic_call]
@@ -211,10 +209,8 @@ mod benchmarks {
 			deposit: 10u32.into(),
 		};
 
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&(
-			multisig_address.clone(),
-			encoded_call,
-		));
+		// Match pallet hashing: hash_of(bounded_call)
+		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
 		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
 
 		#[extrinsic_call]
@@ -273,10 +269,8 @@ mod benchmarks {
 			deposit: 10u32.into(),
 		};
 
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&(
-			multisig_address.clone(),
-			encoded_call,
-		));
+		// Match pallet hashing: hash_of(bounded_call)
+		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
 		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
 
 		#[extrinsic_call]
@@ -335,10 +329,8 @@ mod benchmarks {
 			deposit: 10u32.into(),
 		};
 
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&(
-			multisig_address.clone(),
-			encoded_call,
-		));
+		// Match pallet hashing: hash_of(bounded_call)
+		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
 		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
 
 		// Move past expiry + grace period
@@ -403,10 +395,8 @@ mod benchmarks {
 				deposit: 10u32.into(),
 			};
 
-			let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&(
-				multisig_address.clone(),
-				encoded_call,
-			));
+			// Match pallet hashing: hash_of(bounded_call)
+			let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
 			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
 		}
 

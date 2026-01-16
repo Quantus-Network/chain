@@ -74,8 +74,8 @@ Executes a proposal once threshold is met.
 
 **Validation:**
 - Proposal must exist
+- Proposal must not be expired (current_block ≤ expiry)
 - Number of approvals must be ≥ threshold
-- No expiry check (can execute even after expiry if threshold was met before)
 
 **Economic Effects:**
 - ProposalDeposit returned to proposer

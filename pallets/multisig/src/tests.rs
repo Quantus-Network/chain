@@ -571,6 +571,51 @@ fn execute_works() {
 }
 
 #[test]
+fn execute_fails_if_expired_even_if_threshold_met() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		let expiry = 10;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			call.clone(),
+			expiry
+		));
+
+		// Match pallet hashing: hash_of(bounded_call)
+		let get_hash = |call: Vec<u8>| {
+			use frame_support::BoundedVec;
+			let bounded: BoundedVec<u8, <Test as crate::Config>::MaxCallSize> =
+				call.try_into().unwrap();
+			<Test as frame_system::Config>::Hashing::hash_of(&bounded)
+		};
+		let proposal_hash = get_hash(call);
+
+		// Reach threshold before expiry (bob auto-approves in propose)
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address,
+			proposal_hash
+		));
+
+		// Move past expiry and attempt to execute
+		System::set_block_number(expiry + 1);
+		assert_noop!(
+			Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, proposal_hash),
+			Error::<Test>::ProposalExpired
+		);
+	});
+}
+
+#[test]
 fn execute_fails_without_threshold() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);

@@ -98,14 +98,15 @@ pub mod pallet {
 	use super::*;
 	use codec::Encode;
 	use frame_support::{
-		dispatch::{DispatchResult, GetDispatchInfo, PostDispatchInfo},
+		dispatch::{DispatchClass, DispatchResult, GetDispatchInfo, Pays, PostDispatchInfo},
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
+		weights::Weight,
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
 	use sp_arithmetic::traits::Saturating;
-	use sp_runtime::traits::{AccountIdConversion, Dispatchable, Hash};
+	use sp_runtime::traits::{Dispatchable, Hash, TrailingZeroInput};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -580,7 +581,11 @@ pub mod pallet {
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_hash`: Hash of the proposal to execute
 		#[pallet::call_index(3)]
-		#[pallet::weight(<T as Config>::WeightInfo::execute())]
+		#[pallet::weight((
+			Pallet::<T>::execute_weight(multisig_address, proposal_hash),
+			DispatchClass::Normal,
+			Pays::Yes
+		))]
 		pub fn execute(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -595,6 +600,10 @@ pub mod pallet {
 			// Get proposal
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
 				.ok_or(Error::<T>::ProposalNotFound)?;
+
+			// Check if not expired
+			let current_block = frame_system::Pallet::<T>::block_number();
+			ensure!(current_block <= proposal.expiry, Error::<T>::ProposalExpired);
 
 			// Check if threshold met
 			ensure!(
@@ -686,7 +695,7 @@ pub mod pallet {
 		///
 		/// This ensures storage cleanup while giving proposers time to act.
 		#[pallet::call_index(5)]
-		#[pallet::weight(<T as Config>::WeightInfo::cancel())]
+		#[pallet::weight(<T as Config>::WeightInfo::remove_expired())]
 		pub fn remove_expired(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -750,7 +759,7 @@ pub mod pallet {
 		///
 		/// Use this after grace period to recover all your deposits at once.
 		#[pallet::call_index(6)]
-		#[pallet::weight(<T as Config>::WeightInfo::cancel().saturating_mul(10u64))]
+		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits())]
 		pub fn claim_deposits(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -845,19 +854,44 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Weight for `execute` is base multisig cost + dispatched call weight.
+		///
+		/// This prevents underpaying (DoS economics) by ensuring the extrinsic weight
+		/// covers the worst-case weight of the stored call.
+		pub fn execute_weight(multisig_address: &T::AccountId, proposal_hash: &T::Hash) -> Weight {
+			let base = <T as Config>::WeightInfo::execute();
+
+			// Best-effort: if proposal/call decoding fails, fall back to base weight.
+			let Some(proposal) = Proposals::<T>::get(multisig_address, proposal_hash) else {
+				return base;
+			};
+
+			let Ok(call) = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..]) else {
+				return base;
+			};
+
+			base.saturating_add(call.get_dispatch_info().call_weight)
+		}
+
 		/// Derive a multisig address from signers and nonce
 		pub fn derive_multisig_address(signers: &[T::AccountId], nonce: u64) -> T::AccountId {
-			// Create a unique identifier from pallet id + signers + nonce
+			// Create a unique identifier from pallet id + signers + nonce.
+			//
+			// IMPORTANT:
+			// - Do NOT `Decode` directly from a finite byte-slice and then "fallback" to a constant
+			//   address on error: that can cause address collisions / DoS.
+			// - Using `TrailingZeroInput` makes decoding deterministic and infallible by providing
+			//   an infinite stream (hash bytes padded with zeros).
 			let pallet_id = T::PalletId::get();
 			let mut data = Vec::new();
 			data.extend_from_slice(&pallet_id.0);
 			data.extend_from_slice(&signers.encode());
 			data.extend_from_slice(&nonce.encode());
 
-			// Hash the data and decode as AccountId
+			// Hash the data and map it deterministically into an AccountId.
 			let hash = T::Hashing::hash(&data);
-			T::AccountId::decode(&mut &hash.as_ref()[..])
-				.unwrap_or_else(|_| pallet_id.into_account_truncating())
+			T::AccountId::decode(&mut TrailingZeroInput::new(hash.as_ref()))
+				.expect("TrailingZeroInput provides sufficient bytes; qed")
 		}
 
 		/// Check if an account is a signer for a given multisig
