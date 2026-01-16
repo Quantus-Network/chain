@@ -567,6 +567,34 @@ impl pallet_assets_holder::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
+// Multisig configuration
+parameter_types! {
+	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
+	pub const MaxSigners: u32 = 100;
+	pub const MaxActiveProposals: u32 = 100; // Max active proposals per multisig
+	pub const MaxCallSize: u32 = 10240; // 10KB
+	pub const MultisigDeposit: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (refundable)
+	pub const MultisigFee: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (non-refundable)
+	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (refundable)
+	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
+	pub const ProposalGracePeriod: BlockNumber = 28800; // ~2 days (6s blocks)
+}
+
+impl pallet_multisig::Config for Runtime {
+	type RuntimeCall = RuntimeCall;
+	type Currency = Balances;
+	type MaxSigners = MaxSigners;
+	type MaxActiveProposals = MaxActiveProposals;
+	type MaxCallSize = MaxCallSize;
+	type MultisigDeposit = MultisigDeposit;
+	type MultisigFee = MultisigFee;
+	type ProposalDeposit = ProposalDeposit;
+	type ProposalFee = ProposalFee;
+	type GracePeriod = ProposalGracePeriod;
+	type PalletId = MultisigPalletId;
+	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+}
+
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {

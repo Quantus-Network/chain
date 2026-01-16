@@ -14,6 +14,7 @@ members = [
 	"node",
 	"pallets/balances",
 	"pallets/mining-rewards",
+	"pallets/multisig",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
@@ -131,6 +132,7 @@ zeroize = { version = "1.7.0", default-features = false }
 # Own dependencies
 pallet-balances = { path = "./pallets/balances", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
+pallet-multisig = { path = "./pallets/multisig", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
