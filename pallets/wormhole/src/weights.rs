@@ -53,6 +53,7 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_wormhole`.
 pub trait WeightInfo {
 	fn verify_wormhole_proof() -> Weight;
+	fn verify_aggregated_proof() -> Weight;
 }
 
 /// Weights for `pallet_wormhole` using the Substrate node and recommended hardware.
@@ -77,6 +78,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
+
+	/// Weight for verifying an aggregated proof.
+	/// This is a placeholder - proper benchmarking should be done.
+	/// Aggregated proofs verify multiple transfers at once, so the weight
+	/// should be higher than single proof verification.
+	fn verify_aggregated_proof() -> Weight {
+		// Placeholder: use 8x the single proof weight as a conservative estimate
+		// for the default tree configuration (branching_factor=2, depth=3 = 8 proofs)
+		Weight::from_parts(115_744_000_000, 28744)
+			.saturating_add(T::DbWeight::get().reads(32_u64))
+			.saturating_add(T::DbWeight::get().writes(32_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -99,5 +112,14 @@ impl WeightInfo for () {
 		Weight::from_parts(14_468_000_000, 3593)
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
+	}
+
+	/// Weight for verifying an aggregated proof.
+	/// This is a placeholder - proper benchmarking should be done.
+	fn verify_aggregated_proof() -> Weight {
+		// Placeholder: use 8x the single proof weight as a conservative estimate
+		Weight::from_parts(115_744_000_000, 28744)
+			.saturating_add(RocksDbWeight::get().reads(32_u64))
+			.saturating_add(RocksDbWeight::get().writes(32_u64))
 	}
 }
