@@ -210,6 +210,9 @@ pub mod pallet {
 		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
 		pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
 			ensure_none(origin)?;
+			// Note: The funding_amount in public inputs is expected to be quantized (i.e., scaled down from 12 to 2 decimals points of precision)
+			// so we need to scale it back up here to get the actual amount the chain expects with 12 decimal places of precision.
+			const SCALE_DOWN_FACTOR: u128 = 10_000_000_000; // 10^10;
 
 			let verifier =
 				crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
@@ -259,7 +262,7 @@ pub mod pallet {
 			// Mark nullifier as used
 			UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
-			let exit_balance_u128 = public_inputs.funding_amount;
+			let exit_balance_u128 = (public_inputs.funding_amount as u128).saturating_mul(SCALE_DOWN_FACTOR);
 
 			// Convert to Balance type
 			let exit_balance: BalanceOf<T> =
