@@ -20,6 +20,7 @@ mod wormhole_tests {
 		utils::{digest_felts_to_bytes, BytesDigest, Digest},
 	};
 	use sp_runtime::{traits::Header, DigestItem};
+	const SCALE_DOWN_FACTOR: u128 = 10_000_000_000; // 10^10;
 
 	fn generate_proof(inputs: CircuitInputs) -> ProofWithPublicInputs<F, C, 2> {
 		let config = CircuitConfig::standard_recursion_config();
@@ -118,6 +119,10 @@ mod wormhole_tests {
 
 		let block_hash = header.hash();
 
+		let funding_amount_quantized: u32 = (funding_amount / SCALE_DOWN_FACTOR as u128)
+			.try_into()
+			.expect("funding amount fits in u32 after scaling down");
+
 		let circuit_inputs = CircuitInputs {
 			private: PrivateCircuitInputs {
 				secret,
@@ -134,7 +139,7 @@ mod wormhole_tests {
 			},
 			public: PublicCircuitInputs {
 				asset_id: 0u32,
-				funding_amount,
+				funding_amount: funding_amount_quantized,
 				nullifier: Nullifier::from_preimage(secret, event_transfer_count).hash.into(),
 				exit_account: BytesDigest::try_from(exit_account_id.as_ref() as &[u8])
 					.expect("account is 32 bytes"),
@@ -151,7 +156,7 @@ mod wormhole_tests {
 		let public_inputs =
 			PublicCircuitInputs::try_from(&proof).expect("failed to parse public inputs");
 
-		assert_eq!(public_inputs.funding_amount, funding_amount);
+		assert_eq!(public_inputs.funding_amount, funding_amount_quantized);
 		assert_eq!(
 			public_inputs.exit_account,
 			BytesDigest::try_from(exit_account_id.as_ref() as &[u8]).unwrap()
