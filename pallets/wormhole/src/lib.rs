@@ -28,11 +28,21 @@ lazy_static! {
 		let common_bytes = include_bytes!("../common.bin");
 		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
 	};
+	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
+		let verifier_bytes = include_bytes!("../aggregated_verifier.bin");
+		let common_bytes = include_bytes!("../aggregated_common.bin");
+		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+	};
 }
 
 // Add a safe getter function
 pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str> {
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
+}
+
+// Getter for aggregated verifier
+pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
 }
 
 // We use a generic struct so we can pass the specific Key type to the hasher
@@ -69,7 +79,7 @@ pub mod pallet {
 		weights::WeightToFee,
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+	use qp_wormhole_circuit::inputs::{AggregatedPublicCircuitInputs, PublicCircuitInputs};
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
@@ -206,6 +216,10 @@ pub mod pallet {
 		InvalidBlockNumber,
 		AssetNotFound,
 		SelfTransfer,
+		AggregatedVerifierNotAvailable,
+		AggregatedProofDeserializationFailed,
+		AggregatedVerificationFailed,
+		InvalidAggregatedPublicInputs,
 	}
 
 	#[pallet::call]
@@ -237,8 +251,7 @@ pub mod pallet {
 			);
 
 			// Extract the block number from public inputs
-			let block_number = BlockNumberFor::<T>::try_from(public_inputs.block_number)
-				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+			let block_number = BlockNumberFor::<T>::from(public_inputs.block_number);
 
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
@@ -399,6 +412,128 @@ pub mod pallet {
 
 			// Store proof
 			Self::record_transfer(asset_id, source.into(), dest.into(), amount.into())?;
+
+			Ok(())
+		}
+
+		/// Verify an aggregated wormhole proof and process all transfers in the batch
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
+		pub fn verify_aggregated_proof(
+			origin: OriginFor<T>,
+			proof_bytes: Vec<u8>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes,
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
+
+			// Parse aggregated public inputs
+			let aggregated_inputs =
+				AggregatedPublicCircuitInputs::try_from_slice(&proof.public_inputs)
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+			// Verify all nullifiers haven't been used
+			for nullifier in &aggregated_inputs.nullifiers {
+				let nullifier_bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
+			}
+
+			// Note: We don't verify individual block hashes on-chain because:
+			// 1. Aggregated proofs span multiple blocks
+			// 2. The ZK circuit cryptographically guarantees block chain connectivity through
+			//    parent_hash linkage verification
+			// 3. Old block hashes may not be available on-chain (BlockHashCount limit)
+			// The proof verification itself is sufficient to guarantee validity.
+
+			// Verify the aggregated proof
+			verifier
+				.verify(proof.clone())
+				.map_err(|_| Error::<T>::AggregatedVerificationFailed)?;
+
+			// Mark all nullifiers as used
+			for nullifier in &aggregated_inputs.nullifiers {
+				let nullifier_bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				UsedNullifiers::<T>::insert(nullifier_bytes, true);
+			}
+
+			// For now, aggregated proofs only support native token (asset_id = 0)
+			// TODO: Add asset_id support when the circuit is updated
+			let asset_id = AssetIdOf::<T>::default();
+
+			// Get the minting account for recording transfer proofs
+			let mint_account = T::MintingAccount::get();
+
+			// Process each exit account
+			for account_data in &aggregated_inputs.account_data {
+				// Convert funding amount to Balance type
+				let exit_balance: BalanceOf<T> = account_data
+					.summed_funding_amount
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				// Decode exit account from public inputs
+				let exit_account_bytes: [u8; 32] = (*account_data.exit_account)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				let exit_account =
+					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
+						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				// Calculate fees
+				let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
+				let weight_fee = T::WeightToFee::weight_to_fee(&weight);
+				let volume_fee_perbill = Perbill::from_rational(1u32, 1000u32);
+				let volume_fee = volume_fee_perbill * exit_balance;
+				let total_fee = weight_fee.saturating_add(volume_fee);
+
+				// Native token transfer - mint tokens to the exit account
+				// Note: Aggregated proofs currently only support native tokens (asset_id = 0)
+				// TODO: Add asset support when the circuit includes asset_id in
+				// AggregatedPublicCircuitInputs
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					&exit_account,
+					exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
+				)?;
+
+				// Withdraw fee from exit account if fees are non-zero
+				if !total_fee.is_zero() {
+					let _fee_imbalance = T::Currency::withdraw(
+						&exit_account,
+						total_fee,
+						WithdrawReasons::TRANSACTION_PAYMENT,
+						ExistenceRequirement::KeepAlive,
+					)?;
+				}
+
+				// Record transfer proof for the minted tokens
+				Self::record_transfer(
+					asset_id.clone(),
+					mint_account.clone().into(),
+					exit_account.into(),
+					exit_balance,
+				)?;
+
+				// Emit event for each exit account
+				Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
+			}
 
 			Ok(())
 		}
