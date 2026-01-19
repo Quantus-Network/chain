@@ -20,8 +20,12 @@ qp-header = { workspace = true, features = ["serde"] }
 qp-poseidon.workspace = true
 qp-wormhole.workspace = true
 qp-wormhole-circuit = { workspace = true, default-features = false }
-qp-wormhole-verifier = { workspace = true, default-features = false }
-qp-zk-circuits-common = { workspace = true, default-features = false }
+qp-wormhole-verifier = { workspace = true, default-features = false, features = [
+	"no_random",
+] }
+qp-zk-circuits-common = { workspace = true, default-features = false, features = [
+	"no_random",
+] }
 scale-info = { workspace = true, default-features = false, features = [
 	"derive",
 ] }
@@ -39,7 +43,8 @@ qp-poseidon-core.workspace = true
 qp-wormhole-circuit.workspace = true
 qp-wormhole-circuit-builder = { workspace = true, default-features = false }
 qp-wormhole-prover.workspace = true
-qp-zk-circuits-common.workspace = true
+qp-wormhole-verifier = { workspace = true, default-features = false }
+qp-zk-circuits-common = { workspace = true, default-features = false }
 sp-state-machine = { path = "../../primitives/state-machine" }
 sp-trie.workspace = true
 
