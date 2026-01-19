@@ -93,7 +93,6 @@ parameter_types! {
 	pub const MultisigFeeParam: Balance = 50; // Non-refundable fee
 	pub const ProposalDepositParam: Balance = 10;
 	pub const ProposalFeeParam: Balance = 5; // Non-refundable fee
-	pub const GracePeriodParam: u64 = 100; // 100 blocks for testing
 }
 
 impl pallet_multisig::Config for Test {
@@ -105,7 +104,6 @@ impl pallet_multisig::Config for Test {
 	type MultisigFee = MultisigFeeParam;
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
-	type GracePeriod = GracePeriodParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 }

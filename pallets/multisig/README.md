@@ -122,12 +122,12 @@ Removes expired proposals from storage (cleanup mechanism).
 
 **Validation:**
 - Proposal must exist
-- Proposal must be expired (current_block > expiry)
-- Within grace period (expiry < current_block ≤ expiry + GracePeriod): only proposer can remove
-- After grace period (current_block > expiry + GracePeriod): anyone can remove
+- For Active proposals: must be expired (current_block > expiry)
+- For Executed/Cancelled proposals: can be removed anytime
+- Anyone can call this function
 
 **Economic Effects:**
-- ProposalDeposit returned to proposer (even if removed by someone else)
+- ProposalDeposit returned to proposer
 - Proposal removed from storage
 
 **Economic Costs:** None (deposit always returned to proposer)
@@ -140,12 +140,11 @@ Batch cleanup operation to recover all eligible deposits.
 
 **Validation:**
 - Only cleans proposals where caller is proposer
-- Only processes proposals past grace period (current_block > expiry + GracePeriod)
-- Only removes multisig if inactive (current_block > last_activity + GracePeriod) and no active proposals
+- For Active proposals: must be expired (current_block > expiry)
+- For Executed/Cancelled proposals: can always be removed
 
 **Economic Effects:**
 - Returns all eligible proposal deposits to caller
-- If multisig is inactive: returns MultisigDeposit to creator and removes multisig
 - Removes all eligible proposals from storage
 
 **Economic Costs:** None (only returns deposits)
@@ -159,14 +158,7 @@ Burned immediately upon payment, never returned:
 
 ### Deposits (Refundable)
 Reserved and returned under specific conditions:
-- **MultisigDeposit**: 100 MILLI_UNIT - returned after grace period when multisig inactive
-- **ProposalDeposit**: 1000 MILLI_UNIT - returned on execute/cancel/remove_expired
-
-### Grace Period
-- **GracePeriod**: 28,800 blocks (~2 days with 6s blocks)
-- Applies to proposals: after expiry + grace, anyone can cleanup
-- Applies to multisigs: after last_activity + grace, deposit can be claimed
-- Ensures proposers have time to cleanup before public cleanup
+- **ProposalDeposit**: 1000 MILLI_UNIT - returned when proposal is removed (via remove_expired or claim_deposits)
 
 ### Storage Limits
 - **MaxSigners**: 10 - Maximum signers per multisig
@@ -225,10 +217,10 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 
 - `MultisigCreated { creator, multisig_address, signers, threshold, nonce }`
 - `TransactionProposed { multisig_address, proposer, proposal_hash }`
-- `TransactionApproved { multisig_address, approver, proposal_hash, approvals_count }`
-- `TransactionExecuted { multisig_address, proposal_hash, result }`
-- `TransactionCancelled { multisig_address, proposer, proposal_hash }`
-- `ProposalRemoved { multisig_address, proposal_hash, proposer, removed_by, in_grace_period }`
+- `ProposalApproved { multisig_address, approver, proposal_hash, approvals_count }`
+- `ProposalExecuted { multisig_address, proposal_hash, proposer, call, approvers, result }`
+- `ProposalCancelled { multisig_address, proposer, proposal_hash }`
+- `ProposalRemoved { multisig_address, proposal_hash, proposer, removed_by }`
 - `DepositsClaimed { multisig_address, claimer, total_returned, proposals_removed, multisig_removed }`
 
 ## Errors
@@ -251,7 +243,7 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyActiveProposals` - Multisig has MaxActiveProposals open proposals
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
-- `GracePeriodNotElapsed` - Grace period not yet passed
+- `ProposalNotActive` - Proposal is not active (already executed or cancelled)
 
 ## Important Behavior
 
@@ -353,7 +345,6 @@ impl pallet_multisig::Config for Runtime {
     type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>;
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;
-    type GracePeriod = ConstU32<28800>;  // ~2 days
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }

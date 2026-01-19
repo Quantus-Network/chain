@@ -96,8 +96,6 @@ pub struct ProposalData<AccountId, Balance, BlockNumber, BoundedCall, BoundedApp
 	pub deposit: Balance,
 	/// Current status of the proposal
 	pub status: ProposalStatus,
-	/// Block number when status changed (for grace period calculation)
-	pub status_changed_at: BlockNumber,
 }
 
 /// Balance type
@@ -157,11 +155,6 @@ pub mod pallet {
 		/// Fee charged for creating a proposal (non-refundable, paid always)
 		#[pallet::constant]
 		type ProposalFee: Get<BalanceOf<Self>>;
-
-		/// Grace period after expiry when proposer can still recover deposit
-		/// After this period, anyone can remove the proposal and deposit is returned to proposer
-		#[pallet::constant]
-		type GracePeriod: Get<BlockNumberFor<Self>>;
 
 		/// Pallet ID for generating multisig addresses
 		#[pallet::constant]
@@ -268,7 +261,6 @@ pub mod pallet {
 			proposal_hash: T::Hash,
 			proposer: T::AccountId,
 			removed_by: T::AccountId,
-			in_grace_period: bool,
 		},
 		/// Batch deposits claimed
 		DepositsClaimed {
@@ -320,8 +312,6 @@ pub mod pallet {
 		ProposalHasDeposit,
 		/// Proposal has not expired yet
 		ProposalNotExpired,
-		/// Grace period has not elapsed yet
-		GracePeriodNotElapsed,
 		/// Proposal is not active (already executed or cancelled)
 		ProposalNotActive,
 	}
@@ -492,8 +482,6 @@ pub mod pallet {
 			let mut approvals = BoundedApprovalsOf::<T>::default();
 			let _ = approvals.try_push(proposer.clone());
 
-			let current_block = frame_system::Pallet::<T>::block_number();
-
 			let proposal = ProposalData {
 				proposer: proposer.clone(),
 				call: bounded_call,
@@ -501,7 +489,6 @@ pub mod pallet {
 				approvals,
 				deposit,
 				status: ProposalStatus::Active,
-				status_changed_at: current_block,
 			};
 
 			// Store proposal
@@ -618,7 +605,6 @@ pub mod pallet {
 
 			// Mark as cancelled (deposit stays locked until removal)
 			proposal.status = ProposalStatus::Cancelled;
-			proposal.status_changed_at = frame_system::Pallet::<T>::block_number();
 
 			// Update proposal in storage
 			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());
@@ -674,29 +660,12 @@ pub mod pallet {
 					current_block > proposal.expiry
 				},
 				ProposalStatus::Executed | ProposalStatus::Cancelled => {
-					// Executed/Cancelled proposals can always be removed (after grace period)
+					// Executed/Cancelled proposals can always be removed
 					true
 				},
 			};
 
 			ensure!(can_remove, Error::<T>::ProposalNotExpired);
-
-			// Calculate grace period end
-			// For Active proposals: from expiry
-			// For Executed/Cancelled: from when status changed
-			let grace_period_start = match proposal.status {
-				ProposalStatus::Active => proposal.expiry,
-				ProposalStatus::Executed | ProposalStatus::Cancelled => proposal.status_changed_at,
-			};
-			let grace_period_end = grace_period_start.saturating_add(T::GracePeriod::get());
-			let is_in_grace = current_block <= grace_period_end;
-			let is_proposer = caller == proposal.proposer;
-
-			// Within grace period: only proposer can remove
-			if is_in_grace {
-				ensure!(is_proposer, Error::<T>::GracePeriodNotElapsed);
-			}
-			// After grace period: anyone can remove
 
 			// Return deposit to proposer
 			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
@@ -719,7 +688,6 @@ pub mod pallet {
 				proposal_hash,
 				proposer: proposal.proposer.clone(),
 				removed_by: caller,
-				in_grace_period: is_in_grace,
 			});
 
 			Ok(())
@@ -743,7 +711,6 @@ pub mod pallet {
 			let caller = ensure_signed(origin)?;
 
 			let current_block = frame_system::Pallet::<T>::block_number();
-			let grace_period = T::GracePeriod::get();
 
 			let mut total_returned = BalanceOf::<T>::zero();
 			let mut removed_count = 0u32;
@@ -758,32 +725,16 @@ pub mod pallet {
 						}
 
 						// Check if proposal can be removed
-						let can_remove = match proposal.status {
+						match proposal.status {
 							ProposalStatus::Active => {
 								// Active proposals need to be expired
 								current_block > proposal.expiry
 							},
 							ProposalStatus::Executed | ProposalStatus::Cancelled => {
-								// Executed/Cancelled can always be removed after grace period
+								// Executed/Cancelled can always be removed
 								true
 							},
-						};
-
-						if !can_remove {
-							return false;
 						}
-
-						// Calculate grace period end
-						// For Active: from expiry, For Executed/Cancelled: from status change
-						let grace_period_start = match proposal.status {
-							ProposalStatus::Active => proposal.expiry,
-							ProposalStatus::Executed | ProposalStatus::Cancelled =>
-								proposal.status_changed_at,
-						};
-						let grace_period_end = grace_period_start.saturating_add(grace_period);
-
-						// Only process if grace period has elapsed
-						current_block > grace_period_end
 					})
 					.collect();
 
@@ -812,7 +763,6 @@ pub mod pallet {
 					proposal_hash: hash,
 					proposer: caller.clone(),
 					removed_by: caller.clone(),
-					in_grace_period: false,
 				});
 			}
 
@@ -883,7 +833,6 @@ pub mod pallet {
 
 			// Mark as executed (deposit stays locked until removal)
 			proposal.status = ProposalStatus::Executed;
-			proposal.status_changed_at = frame_system::Pallet::<T>::block_number();
 
 			// Update proposal in storage
 			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());

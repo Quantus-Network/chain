@@ -482,50 +482,6 @@ fn remove_expired_works_for_executed_proposal_after_grace_period() {
 }
 
 #[test]
-fn remove_expired_within_grace_period_only_by_proposer() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-
-		let creator = alice();
-		let signers = vec![bob(), charlie()];
-		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
-
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
-
-		let call = make_call(vec![1, 2, 3]);
-		let expiry = 100;
-		assert_ok!(Multisig::propose(
-			RuntimeOrigin::signed(bob()),
-			multisig_address,
-			call.clone(),
-			expiry
-		));
-
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
-
-		// Move just past expiry (within grace period)
-		System::set_block_number(expiry + 50);
-
-		// Non-proposer cannot remove yet
-		assert_noop!(
-			Multisig::remove_expired(
-				RuntimeOrigin::signed(dave()),
-				multisig_address,
-				proposal_hash
-			),
-			Error::<Test>::GracePeriodNotElapsed
-		);
-
-		// Proposer can remove
-		assert_ok!(Multisig::remove_expired(
-			RuntimeOrigin::signed(bob()),
-			multisig_address,
-			proposal_hash
-		));
-	});
-}
-
-#[test]
 fn claim_deposits_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);

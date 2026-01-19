@@ -146,7 +146,6 @@ mod benchmarks {
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
 			status: ProposalStatus::Active,
-			status_changed_at: frame_system::Pallet::<T>::block_number(),
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -211,7 +210,6 @@ mod benchmarks {
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
 			status: ProposalStatus::Active,
-			status_changed_at: frame_system::Pallet::<T>::block_number(),
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -274,7 +272,6 @@ mod benchmarks {
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
 			status: ProposalStatus::Active,
-			status_changed_at: frame_system::Pallet::<T>::block_number(),
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -336,7 +333,6 @@ mod benchmarks {
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
 			status: ProposalStatus::Active,
-			status_changed_at: 1u32.into(), // Old timestamp to ensure it's past grace period
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -403,7 +399,6 @@ mod benchmarks {
 				approvals: bounded_approvals,
 				deposit: 10u32.into(),
 				status: ProposalStatus::Active,
-				status_changed_at: 1u32.into(), // Old timestamp to ensure it's past grace period
 			};
 
 			// Match pallet hashing: hash_of(bounded_call)

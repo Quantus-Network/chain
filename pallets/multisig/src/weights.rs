@@ -74,85 +74,88 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `152`
 		//  Estimated: `6767`
-		// Minimum execution time: 178_000_000 picoseconds.
-		Weight::from_parts(180_000_000, 6767)
+		// Minimum execution time: 181_000_000 picoseconds.
+		Weight::from_parts(193_000_000, 6767)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	fn propose() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `461`
-		//  Estimated: `17062`
-		// Minimum execution time: 161_000_000 picoseconds.
-		Weight::from_parts(162_000_000, 17062)
+		//  Estimated: `17058`
+		// Minimum execution time: 162_000_000 picoseconds.
+		Weight::from_parts(168_000_000, 17058)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	fn approve() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `811`
-		//  Estimated: `17062`
-		// Minimum execution time: 14_000_000 picoseconds.
-		Weight::from_parts(14_000_000, 17062)
+		//  Measured:  `807`
+		//  Estimated: `17058`
+		// Minimum execution time: 15_000_000 picoseconds.
+		Weight::from_parts(17_000_000, 17058)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	fn approve_and_execute() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `779`
-		//  Estimated: `17062`
+		//  Measured:  `775`
+		//  Estimated: `17058`
 		// Minimum execution time: 18_000_000 picoseconds.
-		Weight::from_parts(19_000_000, 17062)
+		Weight::from_parts(20_000_000, 17058)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	fn cancel() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `779`
-		//  Estimated: `17062`
+		//  Measured:  `775`
+		//  Estimated: `17058`
 		// Minimum execution time: 12_000_000 picoseconds.
-		Weight::from_parts(13_000_000, 17062)
+		Weight::from_parts(14_000_000, 17058)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	fn remove_expired() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `779`
-		//  Estimated: `17062`
-		// Minimum execution time: 19_000_000 picoseconds.
-		Weight::from_parts(20_000_000, 17062)
+		//  Measured:  `775`
+		//  Estimated: `17058`
+		// Minimum execution time: 20_000_000 picoseconds.
+		Weight::from_parts(21_000_000, 17058)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
-	/// Storage: `Multisig::Proposals` (r:6 w:0)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Storage: `Multisig::Proposals` (r:6 w:5)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
+	/// Storage: `Multisig::Multisigs` (r:1 w:1)
+	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	fn claim_deposits() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1654`
-		//  Estimated: `97422`
-		// Minimum execution time: 22_000_000 picoseconds.
-		Weight::from_parts(22_000_000, 97422)
-			.saturating_add(T::DbWeight::get().reads(6_u64))
+		//  Measured:  `1887`
+		//  Estimated: `97398`
+		// Minimum execution time: 79_000_000 picoseconds.
+		Weight::from_parts(81_000_000, 97398)
+			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 }
 
@@ -166,84 +169,87 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `152`
 		//  Estimated: `6767`
-		// Minimum execution time: 178_000_000 picoseconds.
-		Weight::from_parts(180_000_000, 6767)
+		// Minimum execution time: 181_000_000 picoseconds.
+		Weight::from_parts(193_000_000, 6767)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	fn propose() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `461`
-		//  Estimated: `17062`
-		// Minimum execution time: 161_000_000 picoseconds.
-		Weight::from_parts(162_000_000, 17062)
+		//  Estimated: `17058`
+		// Minimum execution time: 162_000_000 picoseconds.
+		Weight::from_parts(168_000_000, 17058)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	fn approve() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `811`
-		//  Estimated: `17062`
-		// Minimum execution time: 14_000_000 picoseconds.
-		Weight::from_parts(14_000_000, 17062)
+		//  Measured:  `807`
+		//  Estimated: `17058`
+		// Minimum execution time: 15_000_000 picoseconds.
+		Weight::from_parts(17_000_000, 17058)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	fn approve_and_execute() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `779`
-		//  Estimated: `17062`
+		//  Measured:  `775`
+		//  Estimated: `17058`
 		// Minimum execution time: 18_000_000 picoseconds.
-		Weight::from_parts(19_000_000, 17062)
+		Weight::from_parts(20_000_000, 17058)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	fn cancel() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `779`
-		//  Estimated: `17062`
+		//  Measured:  `775`
+		//  Estimated: `17058`
 		// Minimum execution time: 12_000_000 picoseconds.
-		Weight::from_parts(13_000_000, 17062)
+		Weight::from_parts(14_000_000, 17058)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	fn remove_expired() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `779`
-		//  Estimated: `17062`
-		// Minimum execution time: 19_000_000 picoseconds.
-		Weight::from_parts(20_000_000, 17062)
+		//  Measured:  `775`
+		//  Estimated: `17058`
+		// Minimum execution time: 20_000_000 picoseconds.
+		Weight::from_parts(21_000_000, 17058)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
-	/// Storage: `Multisig::Proposals` (r:6 w:0)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13597), added: 16072, mode: `MaxEncodedLen`)
+	/// Storage: `Multisig::Proposals` (r:6 w:5)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13593), added: 16068, mode: `MaxEncodedLen`)
+	/// Storage: `Multisig::Multisigs` (r:1 w:1)
+	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3302), added: 5777, mode: `MaxEncodedLen`)
 	fn claim_deposits() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1654`
-		//  Estimated: `97422`
-		// Minimum execution time: 22_000_000 picoseconds.
-		Weight::from_parts(22_000_000, 97422)
-			.saturating_add(RocksDbWeight::get().reads(6_u64))
+		//  Measured:  `1887`
+		//  Estimated: `97398`
+		// Minimum execution time: 79_000_000 picoseconds.
+		Weight::from_parts(81_000_000, 97398)
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 }

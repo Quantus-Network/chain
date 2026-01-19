@@ -576,7 +576,6 @@ parameter_types! {
 	pub const MultisigFee: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (non-refundable)
 	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
 	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
-	pub const ProposalGracePeriod: BlockNumber = 28800; // ~2 days (6s blocks)
 }
 
 impl pallet_multisig::Config for Runtime {
@@ -588,7 +587,6 @@ impl pallet_multisig::Config for Runtime {
 	type MultisigFee = MultisigFee;
 	type ProposalDeposit = ProposalDeposit;
 	type ProposalFee = ProposalFee;
-	type GracePeriod = ProposalGracePeriod;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }
