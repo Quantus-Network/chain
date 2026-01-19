@@ -239,10 +239,10 @@ fn max_active_proposals_limit_works() {
 			call1.try_into().unwrap();
 		let hash1 = <Test as frame_system::Config>::Hashing::hash_of(&bounded);
 
+		// Approve by charlie - this will auto-execute (threshold 2 reached: bob + charlie)
 		assert_ok!(Multisig::approve(RuntimeOrigin::signed(charlie()), multisig_address, hash1));
-		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, hash1));
 
-		// Check counter decreased
+		// Check counter decreased (proposal auto-executed)
 		let multisig_data = Multisigs::<Test>::get(multisig_address).unwrap();
 		assert_eq!(multisig_data.active_proposals, 9);
 
@@ -460,10 +460,10 @@ fn approve_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
-		// Create multisig
+		// Create multisig with threshold 3 (so approve won't trigger execution)
 		let creator = alice();
 		let signers = vec![bob(), charlie(), dave()];
-		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 3));
 
 		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
 
@@ -478,14 +478,14 @@ fn approve_works() {
 
 		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 
-		// Approve
+		// Approve (now 2/3, not executed yet)
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
 
-		// Check approval was added
+		// Check approval was added (proposal still exists, not executed)
 		let proposal = crate::Proposals::<Test>::get(multisig_address, proposal_hash).unwrap();
 		assert_eq!(proposal.approvals.len(), 2); // bob + charlie
 		assert!(proposal.approvals.contains(&charlie()));
@@ -522,7 +522,7 @@ fn approve_fails_if_already_approved() {
 }
 
 #[test]
-fn execute_works() {
+fn approve_auto_executes_when_threshold_reached() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -547,16 +547,10 @@ fn execute_works() {
 
 		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 
-		// Approve to reach threshold
+		// Approve by charlie to reach threshold (bob auto-approved in propose)
+		// This should automatically execute the transaction
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
-			multisig_address,
-			proposal_hash
-		));
-
-		// Execute
-		assert_ok!(Multisig::execute(
-			RuntimeOrigin::signed(alice()),
 			multisig_address,
 			proposal_hash
 		));
@@ -565,19 +559,19 @@ fn execute_works() {
 		assert_eq!(Balances::reserved_balance(proposer), 0);
 		assert_eq!(Balances::free_balance(proposer), initial_balance - proposal_fee); // Only fee lost
 
-		// Check proposal was removed
+		// Check proposal was removed (auto-executed)
 		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, proposal_hash));
 	});
 }
 
 #[test]
-fn execute_fails_if_expired_even_if_threshold_met() {
+fn approve_fails_if_expired() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
 		let creator = alice();
-		let signers = vec![bob(), charlie()];
-		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+		let signers = vec![bob(), charlie(), dave()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 3)); // Need 3 approvals
 
 		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
 
@@ -599,24 +593,19 @@ fn execute_fails_if_expired_even_if_threshold_met() {
 		};
 		let proposal_hash = get_hash(call);
 
-		// Reach threshold before expiry (bob auto-approves in propose)
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address,
-			proposal_hash
-		));
-
-		// Move past expiry and attempt to execute
+		// Move past expiry
 		System::set_block_number(expiry + 1);
+
+		// Attempt to approve after expiry should fail
 		assert_noop!(
-			Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, proposal_hash),
+			Multisig::approve(RuntimeOrigin::signed(charlie()), multisig_address, proposal_hash),
 			Error::<Test>::ProposalExpired
 		);
 	});
 }
 
 #[test]
-fn execute_fails_without_threshold() {
+fn approve_does_not_execute_without_threshold() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -636,18 +625,25 @@ fn execute_fails_without_threshold() {
 
 		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 
-		// Only 2 approvals (bob + charlie), need 3
+		// Only 2 approvals (bob + charlie), need 3 - should NOT auto-execute
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
 
-		// Try to execute without threshold
-		assert_noop!(
-			Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, proposal_hash),
-			Error::<Test>::NotEnoughApprovals
-		);
+		// Proposal should still exist (not executed yet)
+		assert!(crate::Proposals::<Test>::contains_key(multisig_address, proposal_hash));
+
+		// Now approve by dave to reach threshold - should auto-execute
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(dave()),
+			multisig_address,
+			proposal_hash
+		));
+
+		// Proposal should be removed (auto-executed)
+		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, proposal_hash));
 	});
 }
 
@@ -787,12 +783,11 @@ fn proposal_fee_is_never_returned() {
 			initial_balance - 2 * proposal_deposit - 3 * proposal_fee
 		);
 
-		// Execute another proposal
+		// Approve another proposal (auto-executes when threshold reached)
 		let hash2 = get_hash(call2);
 		assert_ok!(Multisig::approve(RuntimeOrigin::signed(charlie()), multisig_address, hash2));
-		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address, hash2));
 
-		// After execute: 1 deposit reserved + 3 fees still lost
+		// After auto-execute: 1 deposit reserved + 3 fees still lost
 		assert_eq!(Balances::reserved_balance(proposer), proposal_deposit);
 		assert_eq!(
 			Balances::free_balance(proposer),
@@ -800,6 +795,84 @@ fn proposal_fee_is_never_returned() {
 		);
 
 		// Lesson: Fees are NEVER returned, regardless of outcome!
+	});
+}
+
+// ==================== EXECUTED PROPOSALS ARCHIVE TESTS ====================
+
+#[test]
+fn executed_proposals_are_archived() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			call.clone(),
+			1000
+		));
+
+		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+
+		// Approve and auto-execute
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address,
+			proposal_hash
+		));
+
+		// Proposal should be removed from active storage
+		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, proposal_hash));
+
+		// But should exist in archive
+		let archived = Multisig::get_executed_proposal(&multisig_address, &proposal_hash);
+		assert!(archived.is_some());
+
+		let archived_data = archived.unwrap();
+		assert_eq!(archived_data.proposer, bob());
+		assert_eq!(archived_data.call.to_vec(), call);
+		assert_eq!(archived_data.approvers.len(), 2); // bob + charlie
+		assert!(archived_data.approvers.contains(&bob()));
+		assert!(archived_data.approvers.contains(&charlie()));
+		assert_eq!(archived_data.executed_at, 1);
+		assert_eq!(archived_data.execution_succeeded, true);
+	});
+}
+
+#[test]
+fn cancelled_proposals_are_not_archived() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			call.clone(),
+			1000
+		));
+
+		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+
+		// Cancel the proposal
+		assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, proposal_hash));
+
+		// Should NOT be in archive
+		let archived = Multisig::get_executed_proposal(&multisig_address, &proposal_hash);
+		assert!(archived.is_none());
 	});
 }
 
@@ -1274,5 +1347,205 @@ fn claim_deposits_works_for_mixed_proposals() {
 		// call1, call3 removed
 		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, get_hash(call1)));
 		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, get_hash(call3)));
+	});
+}
+
+// ==================== PAGINATION TESTS ====================
+
+#[test]
+fn get_executed_proposals_paginated_works() {
+	new_test_ext().execute_with(|| {
+		let signers = vec![alice(), bob()];
+		let threshold = 2;
+
+		// Create multisig
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			threshold
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let get_hash = |call: Vec<u8>| {
+			use frame_support::BoundedVec;
+			let bounded: BoundedVec<u8, <Test as crate::Config>::MaxCallSize> =
+				call.try_into().unwrap();
+			<Test as frame_system::Config>::Hashing::hash_of(&bounded)
+		};
+
+		// Create and execute 5 proposals
+		let mut proposal_hashes = Vec::new();
+		for i in 0..5 {
+			let call = make_call(vec![i as u8; 32]);
+			assert_ok!(Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				call.clone(),
+				1000
+			));
+			let hash = get_hash(call.clone());
+			proposal_hashes.push(hash);
+
+			// Approve and execute
+			assert_ok!(Multisig::approve(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				hash
+			));
+		}
+
+		// Test: Get first page with limit 2
+		let (first_page, cursor1) =
+			Multisig::get_executed_proposals_paginated(&multisig_address, None, 2);
+		assert_eq!(first_page.len(), 2);
+		assert!(cursor1.is_some());
+
+		// Test: Get second page
+		let (second_page, cursor2) =
+			Multisig::get_executed_proposals_paginated(&multisig_address, cursor1, 2);
+		assert_eq!(second_page.len(), 2);
+		assert!(cursor2.is_some());
+
+		// Test: Get third page (only 1 remaining)
+		let (third_page, cursor3) =
+			Multisig::get_executed_proposals_paginated(&multisig_address, cursor2, 2);
+		assert_eq!(third_page.len(), 1);
+		assert!(cursor3.is_none()); // No more results
+
+		// Verify all proposals are unique
+		let mut all_hashes: Vec<&<Test as frame_system::Config>::Hash> = Vec::new();
+		all_hashes.extend(first_page.iter().map(|(h, _)| h));
+		all_hashes.extend(second_page.iter().map(|(h, _)| h));
+		all_hashes.extend(third_page.iter().map(|(h, _)| h));
+		assert_eq!(all_hashes.len(), 5);
+
+		// Verify all are marked as successfully executed
+		for (_, data) in first_page.iter().chain(second_page.iter()).chain(third_page.iter()) {
+			assert!(data.execution_succeeded);
+		}
+	});
+}
+
+#[test]
+fn get_executed_proposals_paginated_respects_max_limit() {
+	new_test_ext().execute_with(|| {
+		let signers = vec![alice(), bob()];
+		let threshold = 2;
+
+		// Create multisig
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			threshold
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let get_hash = |call: Vec<u8>| {
+			use frame_support::BoundedVec;
+			let bounded: BoundedVec<u8, <Test as crate::Config>::MaxCallSize> =
+				call.try_into().unwrap();
+			<Test as frame_system::Config>::Hashing::hash_of(&bounded)
+		};
+
+		// Create and execute 10 proposals
+		for i in 0..10 {
+			let call = make_call(vec![i as u8; 32]);
+			assert_ok!(Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				call.clone(),
+				1000
+			));
+			let hash = get_hash(call.clone());
+
+			// Approve and execute
+			assert_ok!(Multisig::approve(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				hash
+			));
+		}
+
+		// Test: Request 1000 items, should be capped at MaxExecutedProposalsQuery (100 in mock)
+		let (results, _) =
+			Multisig::get_executed_proposals_paginated(&multisig_address, None, 1000);
+		assert_eq!(results.len(), 10); // We only have 10, but limit should be enforced
+
+		// Test: Request exact limit
+		let (results, cursor) =
+			Multisig::get_executed_proposals_paginated(&multisig_address, None, 100);
+		assert_eq!(results.len(), 10);
+		assert!(cursor.is_none()); // No more results
+	});
+}
+
+#[test]
+fn get_executed_proposals_paginated_empty_multisig() {
+	new_test_ext().execute_with(|| {
+		let signers = vec![alice(), bob()];
+		let threshold = 2;
+
+		// Create multisig but don't execute anything
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			threshold
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		// Test: Query empty multisig
+		let (results, cursor) =
+			Multisig::get_executed_proposals_paginated(&multisig_address, None, 100);
+		assert_eq!(results.len(), 0);
+		assert!(cursor.is_none());
+	});
+}
+
+#[test]
+fn get_executed_proposal_single_item_works() {
+	new_test_ext().execute_with(|| {
+		let signers = vec![alice(), bob()];
+		let threshold = 2;
+
+		// Create multisig
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			threshold
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let get_hash = |call: Vec<u8>| {
+			use frame_support::BoundedVec;
+			let bounded: BoundedVec<u8, <Test as crate::Config>::MaxCallSize> =
+				call.try_into().unwrap();
+			<Test as frame_system::Config>::Hashing::hash_of(&bounded)
+		};
+
+		// Create and execute proposal
+		let call = make_call(vec![1; 32]);
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call.clone(),
+			1000
+		));
+		let hash = get_hash(call.clone());
+
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), hash));
+
+		// Test: Get single proposal by hash
+		let proposal = Multisig::get_executed_proposal(&multisig_address, &hash);
+		assert!(proposal.is_some());
+		let proposal_data = proposal.unwrap();
+		assert_eq!(proposal_data.proposer, alice());
+		assert!(proposal_data.execution_succeeded);
+		assert_eq!(proposal_data.approvers.len(), 2);
+
+		// Test: Query non-existent proposal
+		let fake_call = make_call(vec![99; 32]);
+		let fake_hash = get_hash(fake_call);
+		let result = Multisig::get_executed_proposal(&multisig_address, &fake_hash);
+		assert!(result.is_none());
 	});
 }

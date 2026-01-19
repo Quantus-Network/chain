@@ -88,6 +88,21 @@ pub struct ProposalData<AccountId, Balance, BlockNumber, BoundedCall, BoundedApp
 	pub deposit: Balance,
 }
 
+/// Executed proposal archive (only successfully executed proposals)
+#[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
+pub struct ExecutedProposalData<AccountId, BlockNumber, BoundedCall, BoundedApprovals> {
+	/// Account that proposed this transaction
+	pub proposer: AccountId,
+	/// The encoded call that was executed
+	pub call: BoundedCall,
+	/// List of accounts that approved this proposal
+	pub approvers: BoundedApprovals,
+	/// Block number when it was executed
+	pub executed_at: BlockNumber,
+	/// Whether the execution succeeded
+	pub execution_succeeded: bool,
+}
+
 /// Balance type
 type BalanceOf<T> = <<T as Config>::Currency as frame_support::traits::Currency<
 	<T as frame_system::Config>::AccountId,
@@ -98,10 +113,9 @@ pub mod pallet {
 	use super::*;
 	use codec::Encode;
 	use frame_support::{
-		dispatch::{DispatchClass, DispatchResult, GetDispatchInfo, Pays, PostDispatchInfo},
+		dispatch::{DispatchResult, GetDispatchInfo, PostDispatchInfo},
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
-		weights::Weight,
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
@@ -156,6 +170,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type GracePeriod: Get<BlockNumberFor<Self>>;
 
+		/// Maximum number of executed proposals to return in a single query
+		/// This prevents DoS attacks via large RPC queries
+		#[pallet::constant]
+		type MaxExecutedProposalsQuery: Get<u32>;
+
 		/// Pallet ID for generating multisig addresses
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
@@ -192,6 +211,20 @@ pub mod pallet {
 		BoundedApprovalsOf<T>,
 	>;
 
+	/// Type alias for paginated query results
+	pub type PaginatedProposalsOf<T> = (
+		Vec<(<T as frame_system::Config>::Hash, ExecutedProposalDataOf<T>)>,
+		Option<<T as frame_system::Config>::Hash>,
+	);
+
+	/// Type alias for ExecutedProposalData with proper bounds
+	pub type ExecutedProposalDataOf<T> = ExecutedProposalData<
+		<T as frame_system::Config>::AccountId,
+		BlockNumberFor<T>,
+		BoundedCallOf<T>,
+		BoundedApprovalsOf<T>,
+	>;
+
 	/// Global nonce for generating unique multisig addresses
 	#[pallet::storage]
 	pub type GlobalNonce<T: Config> = StorageValue<_, u64, ValueQuery>;
@@ -212,6 +245,22 @@ pub mod pallet {
 		Blake2_128Concat,
 		T::Hash,
 		ProposalDataOf<T>,
+		OptionQuery,
+	>;
+
+	/// Archive of successfully executed proposals
+	/// Only proposals that were executed successfully are stored here
+	/// Cancelled or expired proposals are NOT archived
+	///
+	/// Use `get_executed_proposals_paginated()` to query with pagination
+	#[pallet::storage]
+	pub type ExecutedProposals<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		Blake2_128Concat,
+		T::Hash,
+		ExecutedProposalDataOf<T>,
 		OptionQuery,
 	>;
 
@@ -518,6 +567,9 @@ pub mod pallet {
 
 		/// Approve a proposed transaction
 		///
+		/// If this approval brings the total approvals to or above the threshold,
+		/// the transaction will be automatically executed.
+		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_hash`: Hash of the proposal to approve
@@ -554,91 +606,29 @@ pub mod pallet {
 
 			let approvals_count = proposal.approvals.len() as u32;
 
-			// Update proposal
-			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal);
-
-			// Update multisig last_activity
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.last_activity = frame_system::Pallet::<T>::block_number();
-				}
-			});
-
-			// Emit event
+			// Emit approval event
 			Self::deposit_event(Event::TransactionApproved {
-				multisig_address,
+				multisig_address: multisig_address.clone(),
 				approver,
 				proposal_hash,
 				approvals_count,
 			});
 
-			Ok(())
-		}
+			// Check if threshold is reached - if so, execute immediately
+			if approvals_count >= multisig_data.threshold {
+				// Execute the transaction
+				Self::do_execute(multisig_address, proposal_hash, proposal)?;
+			} else {
+				// Not ready yet, just save the proposal
+				Proposals::<T>::insert(&multisig_address, proposal_hash, proposal);
 
-		/// Execute a transaction once threshold is met
-		///
-		/// Parameters:
-		/// - `multisig_address`: The multisig account
-		/// - `proposal_hash`: Hash of the proposal to execute
-		#[pallet::call_index(3)]
-		#[pallet::weight((
-			Pallet::<T>::execute_weight(multisig_address, proposal_hash),
-			DispatchClass::Normal,
-			Pays::Yes
-		))]
-		pub fn execute(
-			origin: OriginFor<T>,
-			multisig_address: T::AccountId,
-			proposal_hash: T::Hash,
-		) -> DispatchResult {
-			let _ = ensure_signed(origin)?;
-
-			// Get multisig data
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-
-			// Get proposal
-			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
-				.ok_or(Error::<T>::ProposalNotFound)?;
-
-			// Check if not expired
-			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(current_block <= proposal.expiry, Error::<T>::ProposalExpired);
-
-			// Check if threshold met
-			ensure!(
-				proposal.approvals.len() as u32 >= multisig_data.threshold,
-				Error::<T>::NotEnoughApprovals
-			);
-
-			// Decode the call before modifying storage
-			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| Error::<T>::InvalidCall)?;
-
-			// Return deposit to proposer
-			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
-
-			// Remove proposal
-			Proposals::<T>::remove(&multisig_address, proposal_hash);
-
-			// Update multisig: decrement counter and last_activity
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.last_activity = frame_system::Pallet::<T>::block_number();
-					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-				}
-			});
-
-			// Execute the call as the multisig account
-			let result =
-				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
-
-			// Emit event with execution result
-			Self::deposit_event(Event::TransactionExecuted {
-				multisig_address,
-				proposal_hash,
-				result: result.map(|_| ()).map_err(|e| e.error),
-			});
+				// Update multisig last_activity
+				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+					if let Some(multisig) = maybe_multisig {
+						multisig.last_activity = frame_system::Pallet::<T>::block_number();
+					}
+				});
+			}
 
 			Ok(())
 		}
@@ -648,7 +638,7 @@ pub mod pallet {
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_hash`: Hash of the proposal to cancel
-		#[pallet::call_index(4)]
+		#[pallet::call_index(3)]
 		#[pallet::weight(<T as Config>::WeightInfo::cancel())]
 		pub fn cancel(
 			origin: OriginFor<T>,
@@ -694,7 +684,7 @@ pub mod pallet {
 		/// - After grace period: anyone can remove, deposit returned to proposer
 		///
 		/// This ensures storage cleanup while giving proposers time to act.
-		#[pallet::call_index(5)]
+		#[pallet::call_index(4)]
 		#[pallet::weight(<T as Config>::WeightInfo::remove_expired())]
 		pub fn remove_expired(
 			origin: OriginFor<T>,
@@ -758,7 +748,7 @@ pub mod pallet {
 		/// - Single transaction to clean up all user's old deposits
 		///
 		/// Use this after grace period to recover all your deposits at once.
-		#[pallet::call_index(6)]
+		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits())]
 		pub fn claim_deposits(
 			origin: OriginFor<T>,
@@ -854,25 +844,6 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Weight for `execute` is base multisig cost + dispatched call weight.
-		///
-		/// This prevents underpaying (DoS economics) by ensuring the extrinsic weight
-		/// covers the worst-case weight of the stored call.
-		pub fn execute_weight(multisig_address: &T::AccountId, proposal_hash: &T::Hash) -> Weight {
-			let base = <T as Config>::WeightInfo::execute();
-
-			// Best-effort: if proposal/call decoding fails, fall back to base weight.
-			let Some(proposal) = Proposals::<T>::get(multisig_address, proposal_hash) else {
-				return base;
-			};
-
-			let Ok(call) = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..]) else {
-				return base;
-			};
-
-			base.saturating_add(call.get_dispatch_info().call_weight)
-		}
-
 		/// Derive a multisig address from signers and nonce
 		pub fn derive_multisig_address(signers: &[T::AccountId], nonce: u64) -> T::AccountId {
 			// Create a unique identifier from pallet id + signers + nonce.
@@ -901,6 +872,131 @@ pub mod pallet {
 			} else {
 				false
 			}
+		}
+
+		/// Get a single executed proposal from archive
+		/// Returns None if proposal was never executed or was cancelled/expired
+		pub fn get_executed_proposal(
+			multisig_address: &T::AccountId,
+			proposal_hash: &T::Hash,
+		) -> Option<ExecutedProposalDataOf<T>> {
+			ExecutedProposals::<T>::get(multisig_address, proposal_hash)
+		}
+
+		/// Get executed proposals for a multisig with pagination
+		///
+		/// # Arguments
+		/// * `multisig_address` - The multisig account to query
+		/// * `start_after` - Optional hash to start after (for pagination)
+		/// * `limit` - Maximum number of results to return (capped at MaxExecutedProposalsQuery)
+		///
+		/// # Returns
+		/// * `Vec<(T::Hash, ExecutedProposalDataOf<T>)>` - List of (proposal_hash, data) pairs
+		/// * `Option<T::Hash>` - Next cursor for pagination (Some if more results exist, None if
+		///   end)
+		///
+		/// # Example
+		/// ```ignore
+		/// // First page
+		/// let (proposals, next_cursor) = Multisig::get_executed_proposals_paginated(&multisig, None, 100);
+		///
+		/// // Next page (if next_cursor is Some)
+		/// if let Some(cursor) = next_cursor {
+		///     let (more_proposals, next_cursor) = Multisig::get_executed_proposals_paginated(&multisig, Some(cursor), 100);
+		/// }
+		/// ```
+		pub fn get_executed_proposals_paginated(
+			multisig_address: &T::AccountId,
+			start_after: Option<T::Hash>,
+			limit: u32,
+		) -> PaginatedProposalsOf<T> {
+			// Cap limit at configured maximum
+			let max_limit = T::MaxExecutedProposalsQuery::get().min(limit);
+
+			let iter = ExecutedProposals::<T>::iter_prefix(multisig_address);
+
+			let mut results = Vec::new();
+			let mut next_cursor = None;
+
+			// If start_after is provided, we need to skip until we find it
+			let mut found_start = start_after.is_none(); // If no start_after, we're already "found"
+
+			for (hash, data) in iter {
+				// Skip until we pass start_after
+				if !found_start {
+					if Some(&hash) == start_after.as_ref() {
+						found_start = true; // Mark as found
+					}
+					continue; // Skip this element (including start_after itself)
+				}
+
+				// Now we're past start_after (or there was no start_after)
+				// Collect results up to max_limit
+				if results.len() < max_limit as usize {
+					results.push((hash, data));
+				} else {
+					// We have one more result beyond the limit, so there's a next page
+					// Use the last element we collected as the cursor for next page
+					next_cursor = Some(results.last().unwrap().0);
+					break;
+				}
+			}
+
+			(results, next_cursor)
+		}
+
+		/// Internal function to execute a proposal
+		/// Called automatically from `approve()` when threshold is reached
+		///
+		/// This function is private and cannot be called from outside the pallet
+		fn do_execute(
+			multisig_address: T::AccountId,
+			proposal_hash: T::Hash,
+			proposal: ProposalDataOf<T>,
+		) -> DispatchResult {
+			// Decode the call before modifying storage
+			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
+				.map_err(|_| Error::<T>::InvalidCall)?;
+
+			// Return deposit to proposer
+			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
+
+			// Execute the call as the multisig account
+			let result =
+				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
+
+			let execution_succeeded = result.is_ok();
+
+			// Archive the executed proposal (for successful executions only in terms of storage,
+			// but we store all executed proposals with their result)
+			let executed_proposal = ExecutedProposalDataOf::<T> {
+				proposer: proposal.proposer.clone(),
+				call: proposal.call.clone(),
+				approvers: proposal.approvals.clone(),
+				executed_at: frame_system::Pallet::<T>::block_number(),
+				execution_succeeded,
+			};
+			ExecutedProposals::<T>::insert(&multisig_address, proposal_hash, executed_proposal);
+
+			// Remove proposal from active storage
+			Proposals::<T>::remove(&multisig_address, proposal_hash);
+
+			// Update multisig: decrement counter and update last_activity
+			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+				if let Some(multisig) = maybe_multisig {
+					multisig.last_activity = frame_system::Pallet::<T>::block_number();
+					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+				}
+			});
+
+			// Emit event with execution result
+			Self::deposit_event(Event::TransactionExecuted {
+				multisig_address,
+				proposal_hash,
+				result: result.map(|_| ()).map_err(|e| e.error),
+			});
+
+			Ok(())
 		}
 	}
 }

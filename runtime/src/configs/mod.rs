@@ -578,6 +578,7 @@ parameter_types! {
 	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (refundable)
 	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
 	pub const ProposalGracePeriod: BlockNumber = 28800; // ~2 days (6s blocks)
+	pub const MaxExecutedProposalsQuery: u32 = 1000; // Max results per query (DoS protection)
 }
 
 impl pallet_multisig::Config for Runtime {
@@ -591,6 +592,7 @@ impl pallet_multisig::Config for Runtime {
 	type ProposalDeposit = ProposalDeposit;
 	type ProposalFee = ProposalFee;
 	type GracePeriod = ProposalGracePeriod;
+	type MaxExecutedProposalsQuery = MaxExecutedProposalsQuery;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }

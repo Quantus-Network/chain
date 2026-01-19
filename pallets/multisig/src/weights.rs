@@ -50,7 +50,7 @@ pub trait WeightInfo {
 	fn create_multisig() -> Weight;
 	fn propose() -> Weight;
 	fn approve() -> Weight;
-	fn execute() -> Weight;
+	fn approve_and_execute() -> Weight;
 	fn cancel() -> Weight;
 	fn remove_expired() -> Weight;
 	fn claim_deposits() -> Weight;
@@ -102,7 +102,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3318), added: 5793, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
 	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13592), added: 16067, mode: `MaxEncodedLen`)
-	fn execute() -> Weight {
+	fn approve_and_execute() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `822`
 		//  Estimated: `17057`
@@ -196,7 +196,7 @@ impl WeightInfo for () {
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3318), added: 5793, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Proposals` (r:1 w:1)
 	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13592), added: 16067, mode: `MaxEncodedLen`)
-	fn execute() -> Weight {
+	fn approve_and_execute() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `822`
 		//  Estimated: `17057`

@@ -95,6 +95,7 @@ parameter_types! {
 	pub const ProposalDepositParam: Balance = 10;
 	pub const ProposalFeeParam: Balance = 5; // Non-refundable fee
 	pub const GracePeriodParam: u64 = 100; // 100 blocks for testing
+	pub const MaxExecutedProposalsQueryParam: u32 = 100; // Max results per query
 }
 
 impl pallet_multisig::Config for Test {
@@ -108,6 +109,7 @@ impl pallet_multisig::Config for Test {
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
 	type GracePeriod = GracePeriodParam;
+	type MaxExecutedProposalsQuery = MaxExecutedProposalsQueryParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 }

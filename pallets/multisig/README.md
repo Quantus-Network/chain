@@ -6,6 +6,27 @@ A multisignature wallet pallet for the Quantus blockchain with an economic secur
 
 This pallet provides functionality for creating and managing multisig accounts that require multiple approvals before executing transactions. It implements a dual fee+deposit system for spam prevention and storage cleanup mechanisms with grace periods.
 
+## Quick Start
+
+Basic workflow for using a multisig:
+
+```rust
+// 1. Create a 2-of-3 multisig (Alice creates, Bob/Charlie/Dave are signers)
+Multisig::create_multisig(Origin::signed(alice), vec![bob, charlie, dave], 2);
+let multisig_addr = Multisig::derive_multisig_address(&[bob, charlie, dave], 0);
+
+// 2. Bob proposes a transaction
+let call = RuntimeCall::Balances(pallet_balances::Call::transfer { dest: eve, value: 100 });
+Multisig::propose(Origin::signed(bob), multisig_addr, call.encode(), expiry_block);
+
+// 3. Charlie approves - transaction executes automatically (2/2 threshold reached)
+Multisig::approve(Origin::signed(charlie), multisig_addr, proposal_hash);
+// ✅ Transaction executed! No separate call needed.
+```
+
+**Key Point:** Once the threshold is reached, the transaction is **automatically executed**. 
+There is no separate `execute()` call exposed to users.
+
 ## Core Functionality
 
 ### 1. Create Multisig
@@ -51,7 +72,8 @@ Creates a new proposal for multisig execution.
 **Important:** Fee is ALWAYS paid, even if proposal expires or is cancelled. Only deposit is refundable.
 
 ### 3. Approve Transaction
-Adds caller's approval to an existing proposal.
+Adds caller's approval to an existing proposal. **If this approval brings the total approvals 
+to or above the threshold, the transaction will be automatically executed.**
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -63,28 +85,16 @@ Adds caller's approval to an existing proposal.
 - Proposal must not be expired (current_block ≤ expiry)
 - Caller must not have already approved
 
-**Economic Costs:** None (only transaction fees)
-
-### 4. Execute Transaction
-Executes a proposal once threshold is met.
-
-**Required Parameters:**
-- `multisig_address: AccountId` - Target multisig (REQUIRED)
-- `proposal_hash: Hash` - Hash of proposal to execute (REQUIRED)
-
-**Validation:**
-- Proposal must exist
-- Proposal must not be expired (current_block ≤ expiry)
-- Number of approvals must be ≥ threshold
-
-**Economic Effects:**
+**Auto-Execution:**
+When approval count reaches the threshold:
+- Encoded call is executed as multisig_address origin
 - ProposalDeposit returned to proposer
 - Proposal removed from storage
-- Encoded call executed as multisig_address origin
+- TransactionExecuted event emitted with execution result
 
-**Economic Costs:** None (deposit returned)
+**Economic Costs:** None (only transaction fees, deposit returned on execution)
 
-### 5. Cancel Transaction
+### 4. Cancel Transaction
 Cancels a proposal (proposer only).
 
 **Required Parameters:**
@@ -103,7 +113,7 @@ Cancels a proposal (proposer only).
 
 **Note:** ProposalFee is NOT refunded - it was burned at proposal creation.
 
-### 6. Remove Expired
+### 5. Remove Expired
 Removes expired proposals from storage (cleanup mechanism).
 
 **Required Parameters:**
@@ -122,7 +132,7 @@ Removes expired proposals from storage (cleanup mechanism).
 
 **Economic Costs:** None (deposit always returned to proposer)
 
-### 7. Claim Deposits
+### 6. Claim Deposits
 Batch cleanup operation to recover all eligible deposits.
 
 **Required Parameters:**
@@ -191,6 +201,23 @@ ProposalData {
 }
 ```
 
+### ExecutedProposals: DoubleMap<AccountId, Hash, ExecutedProposalData>
+**Archive of successfully executed proposals.** Only proposals that were executed are stored here.
+Cancelled or expired proposals are NOT archived (only available in events).
+
+```rust
+ExecutedProposalData {
+    proposer: AccountId,                // Who proposed
+    call: BoundedVec<u8>,               // The call that was executed
+    approvers: BoundedVec<AccountId>,   // Full list of who approved
+    executed_at: BlockNumber,           // When it was executed
+    execution_succeeded: bool,          // Whether the call succeeded
+}
+```
+
+**Purpose:** Provides permanent on-chain history of all executed multisig transactions.
+Can be queried using `Multisig::get_executed_proposal(multisig_address, proposal_hash)`.
+
 ### GlobalNonce: u64
 Internal counter for generating unique multisig addresses. Not exposed via API.
 
@@ -217,10 +244,10 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `ProposalNotFound` - Proposal does not exist
 - `NotProposer` - Caller is not the proposer (for cancel)
 - `AlreadyApproved` - Signer already approved this proposal
-- `NotEnoughApprovals` - Threshold not met (for execute)
+- `NotEnoughApprovals` - Threshold not met (internal error, should not occur)
 - `ProposalExpired` - Proposal deadline passed (for approve)
 - `CallTooLarge` - Encoded call exceeds MaxCallSize
-- `InvalidCall` - Call decoding failed (for execute)
+- `InvalidCall` - Call decoding failed during execution
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyActiveProposals` - Multisig has MaxActiveProposals open proposals
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
@@ -243,6 +270,90 @@ create_multisig([charlie, bob, alice], 2) // → multisig_addr_1 (SAME! nonce wo
 
 // To create another multisig with same signers:
 create_multisig([alice, bob, charlie], 2) // → multisig_addr_2 (nonce=1, different address)
+```
+
+## Querying Executed Proposals
+
+The pallet maintains a permanent archive of successfully executed proposals in the `ExecutedProposals` storage. This archive includes:
+- Proposer account
+- Encoded call that was executed
+- List of approvers
+- Execution timestamp (block number)
+- Execution result (success/failure)
+
+### Query Methods
+
+#### 1. Get Single Proposal
+```rust
+// Query by multisig address and proposal hash
+let proposal = Multisig::get_executed_proposal(&multisig_address, &proposal_hash);
+if let Some(data) = proposal {
+    println!("Proposer: {:?}", data.proposer);
+    println!("Executed at block: {:?}", data.executed_at);
+    println!("Success: {}", data.execution_succeeded);
+    println!("Approvers: {:?}", data.approvers);
+}
+```
+
+#### 2. Get Multiple Proposals with Pagination
+```rust
+// Get first page (up to 100 results)
+let (proposals, next_cursor) = Multisig::get_executed_proposals_paginated(
+    &multisig_address,
+    None,        // start_after: None for first page
+    100          // limit: max results per query
+);
+
+// Process first page
+for (hash, data) in proposals {
+    println!("Proposal {:?}: executed={}", hash, data.execution_succeeded);
+}
+
+// Get next page if more results exist
+if let Some(cursor) = next_cursor {
+    let (more_proposals, next_cursor) = Multisig::get_executed_proposals_paginated(
+        &multisig_address,
+        Some(cursor),  // Continue from where we left off
+        100
+    );
+    // Process next page...
+}
+```
+
+### DoS Protection
+
+To prevent denial-of-service attacks via large RPC queries:
+- `MaxExecutedProposalsQuery` limits results per query (default: 1000)
+- Client-requested limits are capped at this maximum
+- Pagination allows iterating through unlimited history safely
+- Each multisig's storage is isolated (one large history doesn't affect others)
+
+### Storage Considerations
+
+- **No automatic cleanup**: Executed proposals remain in storage indefinitely
+- **Cost model**: Proposers pay deposits which cover storage costs
+- **Future migration**: If needed, old history can be pruned via runtime upgrade
+- **Cancelled/expired proposals**: NOT archived (only events remain)
+
+**Example: Iterate all executed proposals**
+```rust
+let mut cursor = None;
+let mut all_proposals = Vec::new();
+
+loop {
+    let (proposals, next) = Multisig::get_executed_proposals_paginated(
+        &multisig_address,
+        cursor,
+        1000  // Max per query
+    );
+    
+    all_proposals.extend(proposals);
+    
+    if next.is_none() {
+        break;  // No more results
+    }
+    cursor = next;
+}
 ```
 
 ## Security Considerations
@@ -283,6 +394,7 @@ impl pallet_multisig::Config for Runtime {
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>;
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;
     type GracePeriod = ConstU32<28800>;  // ~2 days
+    type MaxExecutedProposalsQuery = ConstU32<1000>;  // Max results per query
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }

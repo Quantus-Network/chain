@@ -101,16 +101,19 @@ mod benchmarks {
 	#[benchmark]
 	fn approve() -> Result<(), BenchmarkError> {
 		// Setup: Create multisig and proposal directly in storage
+		// Threshold is 3, so adding one more approval won't trigger execution
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
 
 		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
 		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer3: T::AccountId = benchmark_account("signer3", 2, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(10000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&signer3, BalanceOf2::<T>::from(10000u128));
 
-		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
-		let threshold = 2u32;
+		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone(), signer3.clone()];
+		let threshold = 3u32; // Need 3 approvals
 
 		// Sort signers to match create_multisig behavior
 		signers.sort();
@@ -129,7 +132,7 @@ mod benchmarks {
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Directly insert proposal into storage
+		// Directly insert proposal into storage with 1 approval
 		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; 32] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
@@ -152,16 +155,17 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Signed(signer1.clone()), multisig_address.clone(), proposal_hash);
 
-		// Verify approval was added
+		// Verify approval was added (now 2/3, not executed yet)
 		let proposal = Proposals::<T>::get(&multisig_address, proposal_hash).unwrap();
 		assert!(proposal.approvals.contains(&signer1));
+		assert_eq!(proposal.approvals.len(), 2);
 
 		Ok(())
 	}
 
 	#[benchmark]
-	fn execute() -> Result<(), BenchmarkError> {
-		// Setup: Create multisig and proposal with enough approvals directly in storage
+	fn approve_and_execute() -> Result<(), BenchmarkError> {
+		// Benchmarks approve() when it triggers auto-execution (threshold reached)
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
 
@@ -190,16 +194,15 @@ mod benchmarks {
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Directly insert proposal with threshold approvals
-		// Use RuntimeCall instead of just frame_system::Call
+		// Directly insert proposal with 1 approval (caller already approved)
+		// signer2 will approve and trigger execution
 		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; 32] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 		let bounded_call: BoundedCallOf<T> = encoded_call.clone().try_into().unwrap();
-		// Already has 2 approvals (threshold met)
-		let bounded_approvals: BoundedApprovalsOf<T> =
-			vec![caller.clone(), signer1.clone()].try_into().unwrap();
+		// Only 1 approval so far
+		let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
 
 		let proposal_data = ProposalDataOf::<T> {
 			proposer: caller.clone(),
@@ -213,8 +216,9 @@ mod benchmarks {
 		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
 		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
 
+		// signer2 approves, reaching threshold (2/2), triggering auto-execution
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), proposal_hash);
+		approve(RawOrigin::Signed(signer2.clone()), multisig_address.clone(), proposal_hash);
 
 		// Verify proposal was executed and removed
 		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_hash));
