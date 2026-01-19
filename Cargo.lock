@@ -7234,7 +7234,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
@@ -7617,7 +7617,7 @@ dependencies = [
  "qp-header",
  "qp-plonky2",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
@@ -8842,7 +8842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -8875,7 +8875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -8927,7 +8927,7 @@ dependencies = [
  "p3-goldilocks",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
  "scale-info",
  "serde",
  "serde_json",
@@ -8985,14 +8985,13 @@ dependencies = [
 [[package]]
 name = "qp-poseidon"
 version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fef3bb816fc51b4ffc4524fa03376037d2531b17e2349ef6489a417cef029b3a"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization#acd1eec5bf54abc1d07c7046c90a4bae339eeb84"
 dependencies = [
  "log",
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
  "scale-info",
  "serde",
  "sp-core",
@@ -9030,6 +9029,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-poseidon-core"
+version = "1.0.6"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization#acd1eec5bf54abc1d07c7046c90a4bae339eeb84"
+dependencies = [
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "qp-plonky2",
+ "qp-poseidon-constants",
+ "rand_chacha 0.9.0",
+]
+
+[[package]]
 name = "qp-rusty-crystals-dilithium"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9051,7 +9064,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "nam-tiny-hderive",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "qp-rusty-crystals-dilithium",
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -9077,21 +9090,18 @@ version = "0.1.0"
 [[package]]
 name = "qp-wormhole-circuit"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcbccee20e314a1c52f36d8e78b1fa8205da46050c18da60d4964f41875bd4f6"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aec473c32d69e2e0941d192ab8cf8712761ee2e84d3829fc211087f53be15bf3"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9102,8 +9112,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-prover"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fd377a2fa936e6edb069ffecbf41afe10803b342e5cda8ff3aab199f77fde5d"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9114,8 +9123,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08e114bc7ad7a7589c502960abc570685b726993ccce05443577a9ddd8dc4ee1"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9126,13 +9134,12 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "445cc21c39959d1b553c4d8ea94d058ceab84cd70e5d47ec82b11535494cec46"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
 ]
 
@@ -9145,7 +9152,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "primitive-types 0.13.1",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
 ]
 
 [[package]]
