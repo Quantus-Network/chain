@@ -815,35 +815,40 @@ pub mod pallet {
 		///
 		/// Marks the proposal as executed. The proposal remains in storage and
 		/// the deposit is NOT returned immediately. Use `remove_expired()` or
-		/// `claim_deposits()` after grace period to remove the proposal and recover deposit.
+		/// `claim_deposits()` to remove the proposal and recover deposit.
 		///
 		/// This function is private and cannot be called from outside the pallet
+		///
+		/// SECURITY: Uses Checks-Effects-Interactions pattern to prevent reentrancy attacks.
+		/// Storage is updated BEFORE dispatching the call.
 		fn do_execute(
 			multisig_address: T::AccountId,
 			proposal_hash: T::Hash,
 			mut proposal: ProposalDataOf<T>,
 		) -> DispatchResult {
-			// Decode the call before modifying storage
+			// CHECKS: Decode the call (validation)
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Error::<T>::InvalidCall)?;
 
-			// Execute the call as the multisig account
-			let result =
-				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
-
-			// Mark as executed (deposit stays locked until removal)
+			// EFFECTS: Mark as executed (deposit stays locked until removal)
+			// This MUST happen before call.dispatch() to prevent reentrancy
 			proposal.status = ProposalStatus::Executed;
 
-			// Update proposal in storage
+			// EFFECTS: Update proposal in storage BEFORE external interaction
 			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());
 
-			// Update multisig: decrement counter and update last_activity
+			// EFFECTS: Update multisig counters BEFORE external interaction
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
 					multisig.last_activity = frame_system::Pallet::<T>::block_number();
 					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
 				}
 			});
+
+			// INTERACTIONS: NOW execute the call as the multisig account
+			// Even if this call tries to re-enter, the proposal is already marked as Executed
+			let result =
+				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
 
 			// Emit event with all execution details for SubSquid indexing
 			Self::deposit_event(Event::ProposalExecuted {
