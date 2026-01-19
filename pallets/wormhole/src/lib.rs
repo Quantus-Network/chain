@@ -434,12 +434,17 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
 
+			// Verify the aggregated proof
+			verifier
+				.verify(proof.clone())
+				.map_err(|_| Error::<T>::AggregatedVerificationFailed)?;
+
 			// Parse aggregated public inputs
 			let aggregated_inputs =
 				AggregatedPublicCircuitInputs::try_from_slice(&proof.public_inputs)
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
-			// Verify all nullifiers haven't been used
+			// Verify all nullifiers haven't been used and then mark them as used
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
 					.as_ref()
@@ -449,28 +454,31 @@ pub mod pallet {
 					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
 					Error::<T>::NullifierAlreadyUsed
 				);
-			}
-
-			// Note: We don't verify individual block hashes on-chain because:
-			// 1. Aggregated proofs span multiple blocks
-			// 2. The ZK circuit cryptographically guarantees block chain connectivity through
-			//    parent_hash linkage verification
-			// 3. Old block hashes may not be available on-chain (BlockHashCount limit)
-			// The proof verification itself is sufficient to guarantee validity.
-
-			// Verify the aggregated proof
-			verifier
-				.verify(proof.clone())
-				.map_err(|_| Error::<T>::AggregatedVerificationFailed)?;
-
-			// Mark all nullifiers as used
-			for nullifier in &aggregated_inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 			}
+
+			// Convert block number from u32 to BlockNumberFor<T>
+			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
+
+			// Check if block number is not in the future
+			let current_block = frame_system::Pallet::<T>::block_number();
+			// TODO: is this check necessary?
+			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
+
+			// Get the block hash for the specified block number
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+
+			// Validate that the block exists by checking if it's not the default hash
+			// The default hash (all zeros) indicates the block doesn't exist
+			// TODO: is this check necessary?
+			let default_hash = T::Hash::default();
+			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
+
+			// Ensure that the block hash from storage matches the one in public inputs
+			ensure!(
+				block_hash.as_ref() == aggregated_inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
 
 			// For now, aggregated proofs only support native token (asset_id = 0)
 			// TODO: Add asset_id support when the circuit is updated
