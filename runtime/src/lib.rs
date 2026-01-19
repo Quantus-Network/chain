@@ -159,6 +159,7 @@ pub type TxExtension = (
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 	transaction_extensions::ReversibleTransactionExtension<Runtime>,
+	transaction_extensions::WormholeProofRecorderExtension<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -260,4 +261,7 @@ mod runtime {
 
 	#[runtime::pallet_index(22)]
 	pub type AssetsHolder = pallet_assets_holder;
+
+	#[runtime::pallet_index(23)]
+	pub type Wormhole = pallet_wormhole;
 }

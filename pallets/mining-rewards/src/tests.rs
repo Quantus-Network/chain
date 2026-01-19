@@ -1,6 +1,6 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
-use sp_runtime::traits::AccountIdConversion;
+use sp_runtime::{testing::Digest, traits::AccountIdConversion};
 
 #[test]
 fn miner_reward_works() {
@@ -172,7 +172,9 @@ fn different_miners_get_different_rewards() {
 		assert_eq!(Balances::free_balance(miner()), balance_after_block_1);
 
 		// Block 2 - Second miner
-		System::set_block_number(2);
+		let block_1 = System::finalize();
+		// reset logs and go to block 2
+		System::initialize(&2, &block_1.hash(), &Digest { logs: vec![] });
 		set_miner_digest(miner2());
 		MiningRewards::collect_transaction_fees(20);
 
@@ -183,6 +185,8 @@ fn different_miners_get_different_rewards() {
 			total_block2_reward - TreasuryPortion::get().mul_floor(total_block2_reward);
 
 		MiningRewards::on_finalize(2);
+
+		println!("Balnce {}", Balances::free_balance(miner()));
 
 		// Check second miner balance
 		assert_eq!(

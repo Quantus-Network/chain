@@ -19,14 +19,15 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
+	configs::TreasuryPalletId, AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig,
+	SudoConfig, EXISTENTIAL_DEPOSIT, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Zero};
 
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
@@ -65,8 +66,16 @@ fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value 
 	balances.push((treasury_account, INITIAL_TREASURY));
 
 	let config = RuntimeGenesisConfig {
-		balances: BalancesConfig { balances },
+		balances: BalancesConfig { balances, dev_accounts: None },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		assets: AssetsConfig {
+			// We need to initialize and reserve the first asset id for the native token transfers
+			// with wormhole.
+			assets: vec![(Zero::zero(), root.clone(), false, EXISTENTIAL_DEPOSIT)], /* (asset_id,
+			                                                                         * owner, is_sufficient,
+			                                                                         * min_balance) */
+			..Default::default()
+		},
 		..Default::default()
 	};
 

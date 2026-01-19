@@ -12,7 +12,6 @@ members = [
 	"client/network",
 	"miner-api",
 	"node",
-	"pallets/balances",
 	"pallets/merkle-airdrop",
 	"pallets/mining-rewards",
 	"pallets/qpow",
@@ -130,7 +129,7 @@ wasm-timer = { version = "0.2.5" }
 zeroize = { version = "1.7.0", default-features = false }
 
 # Own dependencies
-pallet-balances = { path = "./pallets/balances", default-features = false }
+pallet-balances = { version = "42.0.0", default-features = false }
 pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
@@ -149,18 +148,19 @@ sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = fal
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-qp-poseidon = { version = "1.0.1", default-features = false }
-qp-poseidon-core = { version = "1.0.1", default-features = false, features = ["p3"] }
+qp-plonky2 = { version = "1.1.3", default-features = false }
+qp-poseidon = { git = "https://github.com/Quantus-Network/qp-poseidon", branch = "feat/funding_amount_quantization", default-features = false }
+qp-poseidon-core = { git = "https://github.com/Quantus-Network/qp-poseidon", package = "qp-poseidon-core", branch = "feat/funding_amount_quantization", default-features = false, features = [
+	"p2",
+	"p3",
+] }
 qp-rusty-crystals-dilithium = { version = "2.0.0", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "1.0.0" }
-qp-wormhole-circuit = { version = "0.1.2", default-features = false }
-qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
-qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
-	"no_random",
-] }
-qp-zk-circuits-common = { version = "0.1.2", default-features = false, features = [
-	"no_random",
-] }
+qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-circuit", branch = "feat/u32_funding_amount", default-features = false }
+qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-circuit-builder", branch = "feat/u32_funding_amount", default-features = false }
+qp-wormhole-prover = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-prover", branch = "feat/u32_funding_amount", default-features = false }
+qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-verifier", branch = "feat/u32_funding_amount", default-features = false }
+qp-zk-circuits-common = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-zk-circuits-common", branch = "feat/u32_funding_amount", default-features = false }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "41.0.0", default-features = false }
@@ -239,7 +239,6 @@ sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
-
 
 [profile.release]
 opt-level = 3

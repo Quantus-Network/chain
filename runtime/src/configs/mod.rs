@@ -57,16 +57,16 @@ use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{AccountIdConversion, ConvertInto, One},
-	FixedU128, Perbill, Permill,
+	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
-	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
-	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
+	PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, Wormhole,
+	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -135,6 +135,8 @@ parameter_types! {
 
 impl pallet_mining_rewards::Config for Runtime {
 	type Currency = Balances;
+	type AssetId = AssetId;
+	type ProofRecorder = Wormhole;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
 	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
@@ -188,6 +190,7 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
@@ -627,4 +630,18 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 			_ => Err(()),
 		}
 	}
+}
+
+parameter_types! {
+	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
+}
+
+impl pallet_wormhole::Config for Runtime {
+	type MintingAccount = WormholeMintingAccount;
+	type WeightInfo = ();
+	type Currency = Balances;
+	type Assets = Assets;
+	type TransferCount = u64;
+	type WormholeAccountId = AccountId32;
+	type WeightToFee = IdentityFee<Balance>;
 }
