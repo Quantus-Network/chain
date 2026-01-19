@@ -128,14 +128,20 @@ parameter_types! {
 	pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
+parameter_types! {
+	pub const TreasuryPortion: Permill = Permill::from_percent(50);
+	pub const MiningUnit: Balance = UNIT;
+}
+
 impl pallet_mining_rewards::Config for Runtime {
 	type Currency = Balances;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
 	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
-	type TreasuryPortion = ConstU8<50>; // % of rewards go to treasury
+	type TreasuryPortion = TreasuryPortion;
 	type TreasuryPalletId = TreasuryPalletId;
 	type MintingAccount = MintingAccount;
+	type Unit = MiningUnit;
 }
 
 parameter_types! {

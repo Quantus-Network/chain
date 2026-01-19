@@ -32,9 +32,8 @@ pub mod pallet {
 	use sp_runtime::{
 		generic::DigestItem,
 		traits::{AccountIdConversion, Saturating},
+		Permill,
 	};
-
-	const UNIT: u128 = 1_000_000_000_000u128;
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -63,9 +62,13 @@ pub mod pallet {
 		#[pallet::constant]
 		type EmissionDivisor: Get<BalanceOf<Self>>;
 
-		/// The portion of rewards that goes to treasury (out of 100)
+		/// The portion of rewards that goes to treasury
 		#[pallet::constant]
-		type TreasuryPortion: Get<u8>;
+		type TreasuryPortion: Get<Permill>;
+
+		/// The base unit for token amounts (e.g., 1e12 for 12 decimals)
+		#[pallet::constant]
+		type Unit: Get<BalanceOf<Self>>;
 
 		/// The treasury pallet ID
 		#[pallet::constant]
@@ -127,9 +130,7 @@ pub mod pallet {
 				.unwrap_or_else(|| BalanceOf::<T>::zero());
 
 			// Split the reward between treasury and miner
-			let treasury_portion = T::TreasuryPortion::get();
-			let treasury_reward =
-				total_reward.saturating_mul(treasury_portion.into()) / 100u32.into();
+			let treasury_reward = T::TreasuryPortion::get().mul_floor(total_reward);
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
 
 			let tx_fees = <CollectedFees<T>>::take();
@@ -137,23 +138,29 @@ pub mod pallet {
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
 
-			// Log readable amounts (convert to tokens by dividing by 1e12)
-			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees)) = (
+			// Log readable amounts (convert to tokens by dividing by unit)
+			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees), Ok(unit)) = (
 				TryInto::<u128>::try_into(total_reward),
 				TryInto::<u128>::try_into(treasury_reward),
 				TryInto::<u128>::try_into(miner_reward),
 				TryInto::<u128>::try_into(current_supply),
 				TryInto::<u128>::try_into(tx_fees),
+				TryInto::<u128>::try_into(T::Unit::get()),
 			) {
 				let remaining: u128 =
 					TryInto::<u128>::try_into(max_supply.saturating_sub(current_supply))
 						.unwrap_or(0);
-				log::debug!(target: "mining-rewards", "💰 Total reward: {:.6}", total as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Treasury reward: {:.6}", treasury as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Miner reward: {:.6}", miner_amt as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Current supply: {:.2}", current as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Remaining supply: {:.2}", remaining as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Transaction fees: {:.6}", fees as f64 / UNIT as f64);
+				let unit_f64 = unit as f64;
+				log::debug!(
+					target: "mining-rewards",
+					"💰 Rewards: total={:.6}, treasury={:.6}, miner={:.6}, fees={:.6}, supply={:.2}, remaining={:.2}",
+					total as f64 / unit_f64,
+					treasury as f64 / unit_f64,
+					miner_amt as f64 / unit_f64,
+					fees as f64 / unit_f64,
+					current as f64 / unit_f64,
+					remaining as f64 / unit_f64
+				);
 			}
 
 			// Send fees to miner if any

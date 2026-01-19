@@ -11,7 +11,7 @@ use sp_runtime::{
 	app_crypto::sp_core,
 	testing::H256,
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage, Digest, DigestItem,
+	BuildStorage, Digest, DigestItem, Permill,
 };
 
 // Configure a mock runtime to test the pallet
@@ -86,8 +86,9 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const TreasuryPortion: u8 = 50; // 50% goes to treasury in tests (matching runtime)
+	pub const TreasuryPortion: Permill = Permill::from_percent(50); // 50% goes to treasury in tests (matching runtime)
 	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
+	pub const Unit: u128 = UNIT;
 }
 
 impl pallet_mining_rewards::Config for Test {
@@ -98,6 +99,7 @@ impl pallet_mining_rewards::Config for Test {
 	type TreasuryPortion = TreasuryPortion;
 	type TreasuryPalletId = TreasuryPalletId;
 	type MintingAccount = MintingAccount;
+	type Unit = Unit;
 }
 
 /// Helper function to convert a u8 to a preimage
