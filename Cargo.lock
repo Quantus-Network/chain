@@ -7234,7 +7234,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
+ "qp-poseidon-core",
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
@@ -7617,7 +7617,7 @@ dependencies = [
  "qp-header",
  "qp-plonky2",
  "qp-poseidon",
- "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
+ "qp-poseidon-core",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
@@ -8842,7 +8842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -8875,7 +8875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -8927,7 +8927,7 @@ dependencies = [
  "p3-goldilocks",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
+ "qp-poseidon-core",
  "scale-info",
  "serde",
  "serde_json",
@@ -8984,14 +8984,15 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "1.0.6"
-source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization#acd1eec5bf54abc1d07c7046c90a4bae339eeb84"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4214ec389bff0c21c6ef815cf0ff00656586344dbe20f6441d23a1a6a7f56e84"
 dependencies = [
  "log",
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
- "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
+ "qp-poseidon-core",
  "scale-info",
  "serde",
  "sp-core",
@@ -9015,23 +9016,9 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon-core"
-version = "1.0.6"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e33b3fb9032ac9b197265da8fc8bdedd21ba76592ceefbf4a591286d47baec2d"
-dependencies = [
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "qp-plonky2",
- "qp-poseidon-constants",
- "rand_chacha 0.9.0",
-]
-
-[[package]]
-name = "qp-poseidon-core"
-version = "1.0.6"
-source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization#acd1eec5bf54abc1d07c7046c90a4bae339eeb84"
+checksum = "0f65766d6de64eff741c7f402002a3322f5e563d53e0e9040aeab4921ff24f2b"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -9064,7 +9051,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "nam-tiny-hderive",
- "qp-poseidon-core 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "qp-poseidon-core",
  "qp-rusty-crystals-dilithium",
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
@@ -9139,7 +9126,7 @@ dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
- "qp-poseidon-core 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "qp-poseidon-core",
  "serde",
 ]
 
@@ -9152,7 +9139,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "primitive-types 0.13.1",
- "qp-poseidon-core 1.0.6 (git+https://github.com/Quantus-Network/qp-poseidon?branch=feat%2Ffunding_amount_quantization)",
+ "qp-poseidon-core",
 ]
 
 [[package]]

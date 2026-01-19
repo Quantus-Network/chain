@@ -149,8 +149,8 @@ sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = f
 
 # Quantus network dependencies
 qp-plonky2 = { version = "1.1.3", default-features = false }
-qp-poseidon = { git = "https://github.com/Quantus-Network/qp-poseidon", branch = "feat/funding_amount_quantization", default-features = false }
-qp-poseidon-core = { git = "https://github.com/Quantus-Network/qp-poseidon", package = "qp-poseidon-core", branch = "feat/funding_amount_quantization", default-features = false, features = [
+qp-poseidon = { version = "1.0.7", default-features = false }
+qp-poseidon-core = { version = "1.0.7", package = "qp-poseidon-core", default-features = false, features = [
 	"p2",
 	"p3",
 ] }
