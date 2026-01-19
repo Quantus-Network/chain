@@ -55,12 +55,15 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 }
 // Returns the genesis config presets populated with given parameters.
 fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
-	let mut balances =
-		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
+	let mut balances = endowed_accounts
+		.iter()
+		.cloned()
+		.map(|k| (k, 100_000 * UNIT))
+		.collect::<Vec<_>>();
 
-	const ONE_BILLION: u128 = 1_000_000_000;
+	const INITIAL_TREASURY: u128 = 21_000_000 * 30 * UNIT / 100; // 30% tokens go to investors
 	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, ONE_BILLION * UNIT));
+	balances.push((treasury_account, INITIAL_TREASURY));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances, dev_accounts: None },

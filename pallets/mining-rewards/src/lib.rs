@@ -17,7 +17,7 @@ pub use weights::*;
 pub mod pallet {
 	use super::*;
 	use codec::Decode;
-	use core::marker::PhantomData;
+	use core::{convert::TryInto, marker::PhantomData};
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
@@ -26,11 +26,14 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_poseidon::PoseidonHasher;
+	use qp_wormhole::TransferProofs;
 	use qp_wormhole::TransferProofRecorder;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{
 		generic::DigestItem,
 		traits::{AccountIdConversion, Saturating},
+		Permill,
 	};
 
 	pub(crate) type BalanceOf<T> =
@@ -61,13 +64,21 @@ pub mod pallet {
 			BalanceOf<Self>,
 		>;
 
-		/// The base block reward given to miners
+		/// The maximum total supply of tokens
 		#[pallet::constant]
-		type MinerBlockReward: Get<BalanceOf<Self>>;
+		type MaxSupply: Get<BalanceOf<Self>>;
 
-		/// The base block reward given to treasury
+		/// The divisor used to calculate block rewards from remaining supply
 		#[pallet::constant]
-		type TreasuryBlockReward: Get<BalanceOf<Self>>;
+		type EmissionDivisor: Get<BalanceOf<Self>>;
+
+		/// The portion of rewards that goes to treasury
+		#[pallet::constant]
+		type TreasuryPortion: Get<Permill>;
+
+		/// The base unit for token amounts (e.g., 1e12 for 12 decimals)
+		#[pallet::constant]
+		type Unit: Get<BalanceOf<Self>>;
 
 		/// The treasury pallet ID
 		#[pallet::constant]
@@ -110,30 +121,71 @@ pub mod pallet {
 		}
 
 		fn on_finalize(_block_number: BlockNumberFor<T>) {
-			// Get the block rewards
-			let miner_reward = T::MinerBlockReward::get();
-			let treasury_reward = T::TreasuryBlockReward::get();
+			// Calculate dynamic block reward based on remaining supply
+			let max_supply = T::MaxSupply::get();
+			let current_supply = T::Currency::total_issuance();
+			let emission_divisor = T::EmissionDivisor::get();
+
+			let remaining_supply = max_supply.saturating_sub(current_supply);
+
+			if remaining_supply == BalanceOf::<T>::zero() {
+				log::warn!(
+					"💰 Emission completed: current supply has reached the configured maximum, \
+					 no further block rewards will be minted."
+				);
+			}
+
+			let total_reward = remaining_supply
+				.checked_div(&emission_divisor)
+				.unwrap_or_else(|| BalanceOf::<T>::zero());
+
+			// Split the reward between treasury and miner
+			let treasury_reward = T::TreasuryPortion::get().mul_floor(total_reward);
+			let miner_reward = total_reward.saturating_sub(treasury_reward);
+
 			let tx_fees = <CollectedFees<T>>::take();
 
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
 
-			log::debug!(target: "mining-rewards", "💰 Base reward: {:?}", miner_reward);
-			log::debug!(target: "mining-rewards", "💰 Original Tx_fees: {:?}", tx_fees);
+			// Log readable amounts (convert to tokens by dividing by unit)
+			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees), Ok(unit)) = (
+				TryInto::<u128>::try_into(total_reward),
+				TryInto::<u128>::try_into(treasury_reward),
+				TryInto::<u128>::try_into(miner_reward),
+				TryInto::<u128>::try_into(current_supply),
+				TryInto::<u128>::try_into(tx_fees),
+				TryInto::<u128>::try_into(T::Unit::get()),
+			) {
+				let remaining: u128 =
+					TryInto::<u128>::try_into(max_supply.saturating_sub(current_supply))
+						.unwrap_or(0);
+				let unit_f64 = unit as f64;
+				log::debug!(
+					target: "mining-rewards",
+					"💰 Rewards: total={:.6}, treasury={:.6}, miner={:.6}, fees={:.6}, supply={:.2}, remaining={:.2}",
+					total as f64 / unit_f64,
+					treasury as f64 / unit_f64,
+					miner_amt as f64 / unit_f64,
+					fees as f64 / unit_f64,
+					current as f64 / unit_f64,
+					remaining as f64 / unit_f64
+				);
+			}
 
 			// Send fees to miner if any
 			Self::mint_reward(miner.clone(), tx_fees);
 
-			// Send rewards separately for accounting
+			// Send block rewards to miner
 			Self::mint_reward(miner, miner_reward);
 
-			// Send treasury reward
+			// Send treasury portion to treasury
 			Self::mint_reward(None, treasury_reward);
 		}
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Extract miner account ID from the pre-runtime digest
+		/// Extract miner wormhole address by hashing the preimage from pre-runtime digest
 		fn extract_miner_from_digest() -> Option<T::AccountId> {
 			// Get the digest from the current block
 			let digest = <frame_system::Pallet<T>>::digest();
@@ -142,10 +194,22 @@ pub mod pallet {
 			for log in digest.logs.iter() {
 				if let DigestItem::PreRuntime(engine_id, data) = log {
 					if engine_id == &POW_ENGINE_ID {
-						// Try to decode the accountId
-						// TODO: to enforce miner wormholes, decode inner hash here
-						if let Ok(miner) = T::AccountId::decode(&mut &data[..]) {
-							return Some(miner);
+						// The data is a 32-byte preimage from the incoming block
+						if data.len() == 32 {
+							let preimage: [u8; 32] = match data.as_slice().try_into() {
+								Ok(arr) => arr,
+								Err(_) => continue,
+							};
+
+							// Hash the preimage with Poseidon2 to derive the wormhole address
+							let wormhole_address_bytes = PoseidonHasher::hash_padded(&preimage);
+
+							// Convert to AccountId
+							if let Ok(miner) =
+								T::AccountId::decode(&mut &wormhole_address_bytes[..])
+							{
+								return Some(miner);
+							}
 						}
 					}
 				}
@@ -182,13 +246,6 @@ pub mod pallet {
 					);
 
 					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
-
-					log::debug!(
-						target: "mining-rewards",
-						"💰 Rewards sent to miner: {:?} {:?}",
-						reward,
-						miner
-					);
 				},
 				None => {
 					let treasury = T::TreasuryPalletId::get().into_account_truncating();
@@ -202,12 +259,6 @@ pub mod pallet {
 					);
 
 					Self::deposit_event(Event::TreasuryRewarded { reward });
-
-					log::debug!(
-						target: "mining-rewards",
-						"💰 Rewards sent to Treasury: {:?}",
-						reward
-					);
 				},
 			};
 		}
