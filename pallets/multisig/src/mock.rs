@@ -90,7 +90,6 @@ parameter_types! {
 	pub const MaxSignersParam: u32 = 10;
 	pub const MaxActiveProposalsParam: u32 = 10; // For testing
 	pub const MaxCallSizeParam: u32 = 1024;
-	pub const MultisigDepositParam: Balance = 100;
 	pub const MultisigFeeParam: Balance = 50; // Non-refundable fee
 	pub const ProposalDepositParam: Balance = 10;
 	pub const ProposalFeeParam: Balance = 5; // Non-refundable fee
@@ -103,7 +102,6 @@ impl pallet_multisig::Config for Test {
 	type MaxSigners = MaxSignersParam;
 	type MaxActiveProposals = MaxActiveProposalsParam;
 	type MaxCallSize = MaxCallSizeParam;
-	type MultisigDeposit = MultisigDepositParam;
 	type MultisigFee = MultisigFeeParam;
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;

@@ -125,7 +125,6 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			deposit: 100u32.into(),
 			creator: caller.clone(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
@@ -146,6 +145,8 @@ mod benchmarks {
 			expiry,
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
+			status: ProposalStatus::Active,
+			status_changed_at: frame_system::Pallet::<T>::block_number(),
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -187,7 +188,6 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			deposit: 100u32.into(),
 			creator: caller.clone(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
@@ -210,6 +210,8 @@ mod benchmarks {
 			expiry,
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
+			status: ProposalStatus::Active,
+			status_changed_at: frame_system::Pallet::<T>::block_number(),
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -220,8 +222,9 @@ mod benchmarks {
 		#[extrinsic_call]
 		approve(RawOrigin::Signed(signer2.clone()), multisig_address.clone(), proposal_hash);
 
-		// Verify proposal was executed and removed
-		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_hash));
+		// Verify proposal status was changed to Executed
+		let executed_proposal = Proposals::<T>::get(&multisig_address, proposal_hash).unwrap();
+		assert_eq!(executed_proposal.status, ProposalStatus::Executed);
 
 		Ok(())
 	}
@@ -250,7 +253,6 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			deposit: 100u32.into(),
 			creator: caller.clone(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
@@ -271,6 +273,8 @@ mod benchmarks {
 			expiry,
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
+			status: ProposalStatus::Active,
+			status_changed_at: frame_system::Pallet::<T>::block_number(),
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -280,8 +284,9 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), proposal_hash);
 
-		// Verify proposal was cancelled and removed
-		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_hash));
+		// Verify proposal status was changed to Cancelled
+		let cancelled_proposal = Proposals::<T>::get(&multisig_address, proposal_hash).unwrap();
+		assert_eq!(cancelled_proposal.status, ProposalStatus::Cancelled);
 
 		Ok(())
 	}
@@ -310,7 +315,6 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			deposit: 100u32.into(),
 			creator: caller.clone(),
 			last_activity: 1u32.into(),
 			active_proposals: 1,
@@ -331,6 +335,8 @@ mod benchmarks {
 			expiry,
 			approvals: bounded_approvals,
 			deposit: 10u32.into(),
+			status: ProposalStatus::Active,
+			status_changed_at: 1u32.into(), // Old timestamp to ensure it's past grace period
 		};
 
 		// Match pallet hashing: hash_of(bounded_call)
@@ -374,7 +380,6 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			deposit: 100u32.into(),
 			creator: caller.clone(),
 			last_activity: 1u32.into(),
 			active_proposals: 5,
@@ -397,6 +402,8 @@ mod benchmarks {
 				expiry,
 				approvals: bounded_approvals,
 				deposit: 10u32.into(),
+				status: ProposalStatus::Active,
+				status_changed_at: 1u32.into(), // Old timestamp to ensure it's past grace period
 			};
 
 			// Match pallet hashing: hash_of(bounded_call)

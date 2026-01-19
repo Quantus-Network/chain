@@ -40,37 +40,45 @@ use sp_runtime::RuntimeDebug;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct MultisigData<Balance, BlockNumber, AccountId, BoundedSigners> {
+pub struct MultisigData<BlockNumber, AccountId, BoundedSigners> {
 	/// List of signers who can approve transactions
 	pub signers: BoundedSigners,
 	/// Number of approvals required to execute a transaction
 	pub threshold: u32,
 	/// Global unique identifier for this multisig
 	pub nonce: u64,
-	/// Deposit required for storage (refundable after grace period)
-	pub deposit: Balance,
-	/// Account that created this multisig (receives deposit back)
+	/// Account that created this multisig
 	pub creator: AccountId,
-	/// Last block when this multisig was used (for grace period calculation)
+	/// Last block when this multisig was used
 	pub last_activity: BlockNumber,
 	/// Number of currently active (non-executed/non-cancelled) proposals
 	pub active_proposals: u32,
 }
 
-impl<Balance: Default, BlockNumber: Default, AccountId: Default, BoundedSigners: Default> Default
-	for MultisigData<Balance, BlockNumber, AccountId, BoundedSigners>
+impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default> Default
+	for MultisigData<BlockNumber, AccountId, BoundedSigners>
 {
 	fn default() -> Self {
 		Self {
 			signers: Default::default(),
 			threshold: 1,
 			nonce: 0,
-			deposit: Default::default(),
 			creator: Default::default(),
 			last_activity: Default::default(),
 			active_proposals: 0,
 		}
 	}
+}
+
+/// Proposal status
+#[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
+pub enum ProposalStatus {
+	/// Proposal is active and awaiting approvals
+	Active,
+	/// Proposal was executed successfully
+	Executed,
+	/// Proposal was cancelled by proposer
+	Cancelled,
 }
 
 /// Proposal data
@@ -84,8 +92,12 @@ pub struct ProposalData<AccountId, Balance, BlockNumber, BoundedCall, BoundedApp
 	pub expiry: BlockNumber,
 	/// List of accounts that have approved this proposal
 	pub approvals: BoundedApprovals,
-	/// Deposit held for this proposal (returned on execute or cancel)
+	/// Deposit held for this proposal (returned only when proposal is removed)
 	pub deposit: Balance,
+	/// Current status of the proposal
+	pub status: ProposalStatus,
+	/// Block number when status changed (for grace period calculation)
+	pub status_changed_at: BlockNumber,
 }
 
 /// Balance type
@@ -134,11 +146,7 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxCallSize: Get<u32>;
 
-		/// Deposit required per multisig account (refundable after grace period)
-		#[pallet::constant]
-		type MultisigDeposit: Get<BalanceOf<Self>>;
-
-		/// Fee charged for creating a multisig (non-refundable, paid always)
+		/// Fee charged for creating a multisig (non-refundable, burned)
 		#[pallet::constant]
 		type MultisigFee: Get<BalanceOf<Self>>;
 
@@ -176,7 +184,6 @@ pub mod pallet {
 
 	/// Type alias for MultisigData with proper bounds
 	pub type MultisigDataOf<T> = MultisigData<
-		BalanceOf<T>,
 		BlockNumberFor<T>,
 		<T as frame_system::Config>::AccountId,
 		BoundedSignersOf<T>,
@@ -226,24 +233,22 @@ pub mod pallet {
 			threshold: u32,
 			nonce: u64,
 		},
-		/// A transaction has been proposed
-		/// [multisig_address, proposer, proposal_hash]
-		TransactionProposed {
+		/// A proposal has been created
+		ProposalCreated {
 			multisig_address: T::AccountId,
 			proposer: T::AccountId,
 			proposal_hash: T::Hash,
 		},
-		/// A transaction has been approved
-		/// [multisig_address, approver, proposal_hash, approvals_count]
-		TransactionApproved {
+		/// A proposal has been approved by a signer
+		ProposalApproved {
 			multisig_address: T::AccountId,
 			approver: T::AccountId,
 			proposal_hash: T::Hash,
 			approvals_count: u32,
 		},
-		/// A transaction has been executed
+		/// A proposal has been executed
 		/// Contains all data needed for indexing by SubSquid
-		TransactionExecuted {
+		ProposalExecuted {
 			multisig_address: T::AccountId,
 			proposal_hash: T::Hash,
 			proposer: T::AccountId,
@@ -251,9 +256,8 @@ pub mod pallet {
 			approvers: Vec<T::AccountId>,
 			result: DispatchResult,
 		},
-		/// A transaction has been cancelled
-		/// [multisig_address, proposer, proposal_hash]
-		TransactionCancelled {
+		/// A proposal has been cancelled by the proposer
+		ProposalCancelled {
 			multisig_address: T::AccountId,
 			proposer: T::AccountId,
 			proposal_hash: T::Hash,
@@ -318,6 +322,8 @@ pub mod pallet {
 		ProposalNotExpired,
 		/// Grace period has not elapsed yet
 		GracePeriodNotElapsed,
+		/// Proposal is not active (already executed or cancelled)
+		ProposalNotActive,
 	}
 
 	#[pallet::call]
@@ -329,9 +335,7 @@ pub mod pallet {
 		/// - `threshold`: Number of approvals required to execute transactions
 		///
 		/// The multisig address is derived from a hash of all signers + global nonce.
-		/// The creator must pay:
-		/// - A fee (non-refundable, burned)
-		/// - A deposit (refundable after grace period of inactivity)
+		/// The creator must pay a non-refundable fee (burned).
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::create_multisig())]
 		pub fn create_multisig(
@@ -380,10 +384,6 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Reserve deposit from creator (will be returned after grace period)
-			let deposit = T::MultisigDeposit::get();
-			T::Currency::reserve(&creator, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
-
 			// Convert sorted signers to bounded vec
 			let bounded_signers: BoundedSignersOf<T> =
 				sorted_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
@@ -398,7 +398,6 @@ pub mod pallet {
 					signers: bounded_signers.clone(),
 					threshold,
 					nonce,
-					deposit,
 					creator: creator.clone(),
 					last_activity: current_block,
 					active_proposals: 0,
@@ -425,8 +424,11 @@ pub mod pallet {
 		/// - `expiry`: Block number when this proposal expires
 		///
 		/// The proposer must be a signer and must pay:
-		/// - A deposit (returned on execute or cancel)
+		/// - A deposit (locked until proposal is removed after grace period)
 		/// - A fee (non-refundable, burned immediately)
+		///
+		/// The proposal remains in storage even after execution/cancellation.
+		/// Use `remove_expired()` or `claim_deposits()` after grace period to recover the deposit.
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as Config>::WeightInfo::propose())]
 		pub fn propose(
@@ -490,12 +492,16 @@ pub mod pallet {
 			let mut approvals = BoundedApprovalsOf::<T>::default();
 			let _ = approvals.try_push(proposer.clone());
 
+			let current_block = frame_system::Pallet::<T>::block_number();
+
 			let proposal = ProposalData {
 				proposer: proposer.clone(),
 				call: bounded_call,
 				expiry,
 				approvals,
 				deposit,
+				status: ProposalStatus::Active,
+				status_changed_at: current_block,
 			};
 
 			// Store proposal
@@ -509,7 +515,7 @@ pub mod pallet {
 			});
 
 			// Emit event
-			Self::deposit_event(Event::TransactionProposed {
+			Self::deposit_event(Event::ProposalCreated {
 				multisig_address,
 				proposer,
 				proposal_hash,
@@ -560,7 +566,7 @@ pub mod pallet {
 			let approvals_count = proposal.approvals.len() as u32;
 
 			// Emit approval event
-			Self::deposit_event(Event::TransactionApproved {
+			Self::deposit_event(Event::ProposalApproved {
 				multisig_address: multisig_address.clone(),
 				approver,
 				proposal_hash,
@@ -601,17 +607,21 @@ pub mod pallet {
 			let canceller = ensure_signed(origin)?;
 
 			// Get proposal
-			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
+			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
 			// Check if caller is the proposer
 			ensure!(canceller == proposal.proposer, Error::<T>::NotProposer);
 
-			// Return deposit to proposer
-			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
+			// Check if proposal is still active
+			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
 
-			// Remove proposal
-			Proposals::<T>::remove(&multisig_address, proposal_hash);
+			// Mark as cancelled (deposit stays locked until removal)
+			proposal.status = ProposalStatus::Cancelled;
+			proposal.status_changed_at = frame_system::Pallet::<T>::block_number();
+
+			// Update proposal in storage
+			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());
 
 			// Decrement active proposals counter
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
@@ -621,7 +631,7 @@ pub mod pallet {
 			});
 
 			// Emit event
-			Self::deposit_event(Event::TransactionCancelled {
+			Self::deposit_event(Event::ProposalCancelled {
 				multisig_address,
 				proposer: canceller,
 				proposal_hash,
@@ -630,13 +640,18 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Remove an expired proposal and return deposit to proposer
+		/// Remove a proposal and return deposit to proposer
 		///
-		/// Can be called by anyone after the proposal has expired.
-		/// - Within grace period: only proposer can remove, deposit returned
-		/// - After grace period: anyone can remove, deposit returned to proposer
+		/// Can be called to clean up proposals that are:
+		/// - Active and expired (past expiry block)
+		/// - Executed (status changed to Executed)
+		/// - Cancelled (status changed to Cancelled)
 		///
-		/// This ensures storage cleanup while giving proposers time to act.
+		/// Grace period protection:
+		/// - Within grace period: only proposer can remove
+		/// - After grace period: anyone can remove (deposit still returned to proposer)
+		///
+		/// This enforces storage cleanup - users must remove old proposals to recover deposits.
 		#[pallet::call_index(4)]
 		#[pallet::weight(<T as Config>::WeightInfo::remove_expired())]
 		pub fn remove_expired(
@@ -650,18 +665,36 @@ pub mod pallet {
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
-			// Check if expired
 			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(current_block > proposal.expiry, Error::<T>::ProposalNotExpired);
+
+			// Determine if proposal can be removed
+			let can_remove = match proposal.status {
+				ProposalStatus::Active => {
+					// Active proposals can be removed only if expired
+					current_block > proposal.expiry
+				},
+				ProposalStatus::Executed | ProposalStatus::Cancelled => {
+					// Executed/Cancelled proposals can always be removed (after grace period)
+					true
+				},
+			};
+
+			ensure!(can_remove, Error::<T>::ProposalNotExpired);
 
 			// Calculate grace period end
-			let grace_period_end = proposal.expiry.saturating_add(T::GracePeriod::get());
+			// For Active proposals: from expiry
+			// For Executed/Cancelled: from when status changed
+			let grace_period_start = match proposal.status {
+				ProposalStatus::Active => proposal.expiry,
+				ProposalStatus::Executed | ProposalStatus::Cancelled => proposal.status_changed_at,
+			};
+			let grace_period_end = grace_period_start.saturating_add(T::GracePeriod::get());
 			let is_in_grace = current_block <= grace_period_end;
 			let is_proposer = caller == proposal.proposer;
 
 			// Within grace period: only proposer can remove
 			if is_in_grace {
-				ensure!(is_proposer, Error::<T>::NotProposer);
+				ensure!(is_proposer, Error::<T>::GracePeriodNotElapsed);
 			}
 			// After grace period: anyone can remove
 
@@ -671,12 +704,14 @@ pub mod pallet {
 			// Remove proposal from storage
 			Proposals::<T>::remove(&multisig_address, proposal_hash);
 
-			// Decrement active proposals counter
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-				}
-			});
+			// Decrement active proposals counter ONLY if it was still active
+			if proposal.status == ProposalStatus::Active {
+				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+					if let Some(multisig) = maybe_multisig {
+						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+					}
+				});
+			}
 
 			// Emit event
 			Self::deposit_event(Event::ProposalRemoved {
@@ -690,17 +725,15 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Claim all deposits from cancelled and expired proposals, and inactive multisigs
+		/// Claim all deposits from cancelled, executed, and expired proposals
 		///
-		/// This is a batch operation that:
-		/// - Returns all proposal deposits where caller is proposer
-		/// - Returns multisig deposit if caller is creator and grace period elapsed
-		/// - Only works after grace period has elapsed
-		/// - Removes all cancelled and expired proposals from storage
-		/// - Removes multisig if inactive past grace period
-		/// - Single transaction to clean up all user's old deposits
+		/// This is a batch operation that removes all proposals where:
+		/// - Caller is the proposer
+		/// - Proposal is Executed, Cancelled, or Active+Expired
+		/// - Grace period has elapsed since status changed
 		///
-		/// Use this after grace period to recover all your deposits at once.
+		/// Returns all proposal deposits to the proposer in a single transaction.
+		/// This enforces storage cleanup - users must actively clean up to recover deposits.
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits())]
 		pub fn claim_deposits(
@@ -724,8 +757,30 @@ pub mod pallet {
 							return false;
 						}
 
+						// Check if proposal can be removed
+						let can_remove = match proposal.status {
+							ProposalStatus::Active => {
+								// Active proposals need to be expired
+								current_block > proposal.expiry
+							},
+							ProposalStatus::Executed | ProposalStatus::Cancelled => {
+								// Executed/Cancelled can always be removed after grace period
+								true
+							},
+						};
+
+						if !can_remove {
+							return false;
+						}
+
 						// Calculate grace period end
-						let grace_period_end = proposal.expiry.saturating_add(grace_period);
+						// For Active: from expiry, For Executed/Cancelled: from status change
+						let grace_period_start = match proposal.status {
+							ProposalStatus::Active => proposal.expiry,
+							ProposalStatus::Executed | ProposalStatus::Cancelled =>
+								proposal.status_changed_at,
+						};
+						let grace_period_end = grace_period_start.saturating_add(grace_period);
 
 						// Only process if grace period has elapsed
 						current_block > grace_period_end
@@ -742,12 +797,14 @@ pub mod pallet {
 				Proposals::<T>::remove(&multisig_address, hash);
 				removed_count = removed_count.saturating_add(1);
 
-				// Decrement active proposals counter
-				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-					if let Some(multisig) = maybe_multisig {
-						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-					}
-				});
+				// Decrement active proposals counter ONLY if still active
+				if proposal.status == ProposalStatus::Active {
+					Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+						if let Some(multisig) = maybe_multisig {
+							multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+						}
+					});
+				}
 
 				// Emit event for each removed proposal
 				Self::deposit_event(Event::ProposalRemoved {
@@ -759,37 +816,13 @@ pub mod pallet {
 				});
 			}
 
-			// Check if multisig itself can be removed
-			let mut multisig_removed = false;
-			if let Some(multisig_data) = Multisigs::<T>::get(&multisig_address) {
-				// Calculate grace period end for multisig
-				let grace_period_end = multisig_data.last_activity.saturating_add(grace_period);
-
-				// Check if grace period elapsed and no more proposals
-				let has_proposals = Proposals::<T>::iter_prefix(&multisig_address).next().is_some();
-
-				if current_block > grace_period_end && !has_proposals {
-					// Check if caller is creator
-					if caller == multisig_data.creator {
-						// Return multisig deposit to creator
-						T::Currency::unreserve(&multisig_data.creator, multisig_data.deposit);
-						total_returned = total_returned.saturating_add(multisig_data.deposit);
-
-						// Remove multisig from storage
-						Multisigs::<T>::remove(&multisig_address);
-
-						multisig_removed = true;
-					}
-				}
-			}
-
 			// Emit summary event
 			Self::deposit_event(Event::DepositsClaimed {
 				multisig_address: multisig_address.clone(),
 				claimer: caller,
 				total_returned,
 				proposals_removed: removed_count,
-				multisig_removed,
+				multisig_removed: false, // Multisig is never auto-removed now
 			});
 
 			Ok(())
@@ -830,25 +863,30 @@ pub mod pallet {
 		/// Internal function to execute a proposal
 		/// Called automatically from `approve()` when threshold is reached
 		///
+		/// Marks the proposal as executed. The proposal remains in storage and
+		/// the deposit is NOT returned immediately. Use `remove_expired()` or
+		/// `claim_deposits()` after grace period to remove the proposal and recover deposit.
+		///
 		/// This function is private and cannot be called from outside the pallet
 		fn do_execute(
 			multisig_address: T::AccountId,
 			proposal_hash: T::Hash,
-			proposal: ProposalDataOf<T>,
+			mut proposal: ProposalDataOf<T>,
 		) -> DispatchResult {
 			// Decode the call before modifying storage
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Error::<T>::InvalidCall)?;
 
-			// Return deposit to proposer
-			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
-
 			// Execute the call as the multisig account
 			let result =
 				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
 
-			// Remove proposal from active storage
-			Proposals::<T>::remove(&multisig_address, proposal_hash);
+			// Mark as executed (deposit stays locked until removal)
+			proposal.status = ProposalStatus::Executed;
+			proposal.status_changed_at = frame_system::Pallet::<T>::block_number();
+
+			// Update proposal in storage
+			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());
 
 			// Update multisig: decrement counter and update last_activity
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
@@ -859,7 +897,7 @@ pub mod pallet {
 			});
 
 			// Emit event with all execution details for SubSquid indexing
-			Self::deposit_event(Event::TransactionExecuted {
+			Self::deposit_event(Event::ProposalExecuted {
 				multisig_address,
 				proposal_hash,
 				proposer: proposal.proposer,

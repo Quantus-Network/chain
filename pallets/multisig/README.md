@@ -276,12 +276,12 @@ create_multisig([alice, bob, charlie], 2) // → multisig_addr_2 (nonce=1, diffe
 
 The pallet does **not** maintain on-chain storage of executed proposal history. Instead, all historical data is available through **blockchain events**, which are designed to be efficiently indexed by off-chain indexers like **SubSquid**.
 
-### TransactionExecuted Event
+### ProposalExecuted Event
 
-When a proposal is successfully executed, the pallet emits a comprehensive `TransactionExecuted` event containing all relevant data:
+When a proposal is successfully executed, the pallet emits a comprehensive `ProposalExecuted` event containing all relevant data:
 
 ```rust
-Event::TransactionExecuted {
+Event::ProposalExecuted {
     multisig_address: T::AccountId,   // The multisig that executed
     proposal_hash: T::Hash,            // Hash of the proposal
     proposer: T::AccountId,            // Who originally proposed it
@@ -299,12 +299,14 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - **Execution result**: Both successful and failed executions are recorded
 - **No storage bloat**: Events don't consume on-chain storage long-term
 
-**Other events** for complete history:
+**All events** for complete history:
 - `MultisigCreated` - When a multisig is created
-- `TransactionProposed` - When a proposal is submitted
-- `TransactionApproved` - Each time someone approves (includes current approval count)
-- `TransactionCancelled` - When a proposal is cancelled
-- `ProposalExpired` - When a proposal expires
+- `ProposalCreated` - When a proposal is submitted
+- `ProposalApproved` - Each time someone approves (includes current approval count)
+- `ProposalExecuted` - When a proposal is executed (includes full execution details)
+- `ProposalCancelled` - When a proposal is cancelled by proposer
+- `ProposalRemoved` - When a proposal is removed from storage (deposits returned)
+- `DepositsClaimed` - Batch removal of multiple proposals
 
 ### Benefits of Event-Based History
 
