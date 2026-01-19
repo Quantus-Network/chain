@@ -88,21 +88,6 @@ pub struct ProposalData<AccountId, Balance, BlockNumber, BoundedCall, BoundedApp
 	pub deposit: Balance,
 }
 
-/// Executed proposal archive (only successfully executed proposals)
-#[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct ExecutedProposalData<AccountId, BlockNumber, BoundedCall, BoundedApprovals> {
-	/// Account that proposed this transaction
-	pub proposer: AccountId,
-	/// The encoded call that was executed
-	pub call: BoundedCall,
-	/// List of accounts that approved this proposal
-	pub approvers: BoundedApprovals,
-	/// Block number when it was executed
-	pub executed_at: BlockNumber,
-	/// Whether the execution succeeded
-	pub execution_succeeded: bool,
-}
-
 /// Balance type
 type BalanceOf<T> = <<T as Config>::Currency as frame_support::traits::Currency<
 	<T as frame_system::Config>::AccountId,
@@ -170,11 +155,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type GracePeriod: Get<BlockNumberFor<Self>>;
 
-		/// Maximum number of executed proposals to return in a single query
-		/// This prevents DoS attacks via large RPC queries
-		#[pallet::constant]
-		type MaxExecutedProposalsQuery: Get<u32>;
-
 		/// Pallet ID for generating multisig addresses
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
@@ -211,20 +191,6 @@ pub mod pallet {
 		BoundedApprovalsOf<T>,
 	>;
 
-	/// Type alias for paginated query results
-	pub type PaginatedProposalsOf<T> = (
-		Vec<(<T as frame_system::Config>::Hash, ExecutedProposalDataOf<T>)>,
-		Option<<T as frame_system::Config>::Hash>,
-	);
-
-	/// Type alias for ExecutedProposalData with proper bounds
-	pub type ExecutedProposalDataOf<T> = ExecutedProposalData<
-		<T as frame_system::Config>::AccountId,
-		BlockNumberFor<T>,
-		BoundedCallOf<T>,
-		BoundedApprovalsOf<T>,
-	>;
-
 	/// Global nonce for generating unique multisig addresses
 	#[pallet::storage]
 	pub type GlobalNonce<T: Config> = StorageValue<_, u64, ValueQuery>;
@@ -245,22 +211,6 @@ pub mod pallet {
 		Blake2_128Concat,
 		T::Hash,
 		ProposalDataOf<T>,
-		OptionQuery,
-	>;
-
-	/// Archive of successfully executed proposals
-	/// Only proposals that were executed successfully are stored here
-	/// Cancelled or expired proposals are NOT archived
-	///
-	/// Use `get_executed_proposals_paginated()` to query with pagination
-	#[pallet::storage]
-	pub type ExecutedProposals<T: Config> = StorageDoubleMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		Blake2_128Concat,
-		T::Hash,
-		ExecutedProposalDataOf<T>,
 		OptionQuery,
 	>;
 
@@ -292,10 +242,13 @@ pub mod pallet {
 			approvals_count: u32,
 		},
 		/// A transaction has been executed
-		/// [multisig_address, proposal_hash, result]
+		/// Contains all data needed for indexing by SubSquid
 		TransactionExecuted {
 			multisig_address: T::AccountId,
 			proposal_hash: T::Hash,
+			proposer: T::AccountId,
+			call: Vec<u8>,
+			approvers: Vec<T::AccountId>,
 			result: DispatchResult,
 		},
 		/// A transaction has been cancelled
@@ -874,77 +827,6 @@ pub mod pallet {
 			}
 		}
 
-		/// Get a single executed proposal from archive
-		/// Returns None if proposal was never executed or was cancelled/expired
-		pub fn get_executed_proposal(
-			multisig_address: &T::AccountId,
-			proposal_hash: &T::Hash,
-		) -> Option<ExecutedProposalDataOf<T>> {
-			ExecutedProposals::<T>::get(multisig_address, proposal_hash)
-		}
-
-		/// Get executed proposals for a multisig with pagination
-		///
-		/// # Arguments
-		/// * `multisig_address` - The multisig account to query
-		/// * `start_after` - Optional hash to start after (for pagination)
-		/// * `limit` - Maximum number of results to return (capped at MaxExecutedProposalsQuery)
-		///
-		/// # Returns
-		/// * `Vec<(T::Hash, ExecutedProposalDataOf<T>)>` - List of (proposal_hash, data) pairs
-		/// * `Option<T::Hash>` - Next cursor for pagination (Some if more results exist, None if
-		///   end)
-		///
-		/// # Example
-		/// ```ignore
-		/// // First page
-		/// let (proposals, next_cursor) = Multisig::get_executed_proposals_paginated(&multisig, None, 100);
-		///
-		/// // Next page (if next_cursor is Some)
-		/// if let Some(cursor) = next_cursor {
-		///     let (more_proposals, next_cursor) = Multisig::get_executed_proposals_paginated(&multisig, Some(cursor), 100);
-		/// }
-		/// ```
-		pub fn get_executed_proposals_paginated(
-			multisig_address: &T::AccountId,
-			start_after: Option<T::Hash>,
-			limit: u32,
-		) -> PaginatedProposalsOf<T> {
-			// Cap limit at configured maximum
-			let max_limit = T::MaxExecutedProposalsQuery::get().min(limit);
-
-			let iter = ExecutedProposals::<T>::iter_prefix(multisig_address);
-
-			let mut results = Vec::new();
-			let mut next_cursor = None;
-
-			// If start_after is provided, we need to skip until we find it
-			let mut found_start = start_after.is_none(); // If no start_after, we're already "found"
-
-			for (hash, data) in iter {
-				// Skip until we pass start_after
-				if !found_start {
-					if Some(&hash) == start_after.as_ref() {
-						found_start = true; // Mark as found
-					}
-					continue; // Skip this element (including start_after itself)
-				}
-
-				// Now we're past start_after (or there was no start_after)
-				// Collect results up to max_limit
-				if results.len() < max_limit as usize {
-					results.push((hash, data));
-				} else {
-					// We have one more result beyond the limit, so there's a next page
-					// Use the last element we collected as the cursor for next page
-					next_cursor = Some(results.last().unwrap().0);
-					break;
-				}
-			}
-
-			(results, next_cursor)
-		}
-
 		/// Internal function to execute a proposal
 		/// Called automatically from `approve()` when threshold is reached
 		///
@@ -965,19 +847,6 @@ pub mod pallet {
 			let result =
 				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
 
-			let execution_succeeded = result.is_ok();
-
-			// Archive the executed proposal (for successful executions only in terms of storage,
-			// but we store all executed proposals with their result)
-			let executed_proposal = ExecutedProposalDataOf::<T> {
-				proposer: proposal.proposer.clone(),
-				call: proposal.call.clone(),
-				approvers: proposal.approvals.clone(),
-				executed_at: frame_system::Pallet::<T>::block_number(),
-				execution_succeeded,
-			};
-			ExecutedProposals::<T>::insert(&multisig_address, proposal_hash, executed_proposal);
-
 			// Remove proposal from active storage
 			Proposals::<T>::remove(&multisig_address, proposal_hash);
 
@@ -989,10 +858,13 @@ pub mod pallet {
 				}
 			});
 
-			// Emit event with execution result
+			// Emit event with all execution details for SubSquid indexing
 			Self::deposit_event(Event::TransactionExecuted {
 				multisig_address,
 				proposal_hash,
+				proposer: proposal.proposer,
+				call: proposal.call.to_vec(),
+				approvers: proposal.approvals.to_vec(),
 				result: result.map(|_| ()).map_err(|e| e.error),
 			});
 

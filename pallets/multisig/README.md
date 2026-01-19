@@ -272,89 +272,47 @@ create_multisig([charlie, bob, alice], 2) // → multisig_addr_1 (SAME! nonce wo
 create_multisig([alice, bob, charlie], 2) // → multisig_addr_2 (nonce=1, different address)
 ```
 
-## Querying Executed Proposals
+## Historical Data and Event Indexing
 
-The pallet maintains a permanent archive of successfully executed proposals in the `ExecutedProposals` storage. This archive includes:
-- Proposer account
-- Encoded call that was executed
-- List of approvers
-- Execution timestamp (block number)
-- Execution result (success/failure)
+The pallet does **not** maintain on-chain storage of executed proposal history. Instead, all historical data is available through **blockchain events**, which are designed to be efficiently indexed by off-chain indexers like **SubSquid**.
 
-### Query Methods
+### TransactionExecuted Event
 
-#### 1. Get Single Proposal
+When a proposal is successfully executed, the pallet emits a comprehensive `TransactionExecuted` event containing all relevant data:
+
 ```rust
-// Query by multisig address and proposal hash
-let proposal = Multisig::get_executed_proposal(&multisig_address, &proposal_hash);
-if let Some(data) = proposal {
-    println!("Proposer: {:?}", data.proposer);
-    println!("Executed at block: {:?}", data.executed_at);
-    println!("Success: {}", data.execution_succeeded);
-    println!("Approvers: {:?}", data.approvers);
+Event::TransactionExecuted {
+    multisig_address: T::AccountId,   // The multisig that executed
+    proposal_hash: T::Hash,            // Hash of the proposal
+    proposer: T::AccountId,            // Who originally proposed it
+    call: Vec<u8>,                     // The encoded call that was executed
+    approvers: Vec<T::AccountId>,      // All accounts that approved
+    result: DispatchResult,            // Whether execution succeeded or failed
 }
 ```
 
-#### 2. Get Multiple Proposals with Pagination
-```rust
-// Get first page (up to 100 results)
-let (proposals, next_cursor) = Multisig::get_executed_proposals_paginated(
-    &multisig_address,
-    None,        // start_after: None for first page
-    100          // limit: max results per query
-);
+### Indexing with SubSquid
 
-// Process first page
-for (hash, data) in proposals {
-    println!("Proposal {:?}: executed={}", hash, data.execution_succeeded);
-}
+This event structure is optimized for indexing by SubSquid and similar indexers:
+- **Complete data**: All information needed to reconstruct the full proposal history
+- **Queryable**: Indexers can efficiently query by multisig address, proposer, approvers, etc.
+- **Execution result**: Both successful and failed executions are recorded
+- **No storage bloat**: Events don't consume on-chain storage long-term
 
-// Get next page if more results exist
-if let Some(cursor) = next_cursor {
-    let (more_proposals, next_cursor) = Multisig::get_executed_proposals_paginated(
-        &multisig_address,
-        Some(cursor),  // Continue from where we left off
-        100
-    );
-    // Process next page...
-}
-```
+**Other events** for complete history:
+- `MultisigCreated` - When a multisig is created
+- `TransactionProposed` - When a proposal is submitted
+- `TransactionApproved` - Each time someone approves (includes current approval count)
+- `TransactionCancelled` - When a proposal is cancelled
+- `ProposalExpired` - When a proposal expires
 
-### DoS Protection
+### Benefits of Event-Based History
 
-To prevent denial-of-service attacks via large RPC queries:
-- `MaxExecutedProposalsQuery` limits results per query (default: 1000)
-- Client-requested limits are capped at this maximum
-- Pagination allows iterating through unlimited history safely
-- Each multisig's storage is isolated (one large history doesn't affect others)
-
-### Storage Considerations
-
-- **No automatic cleanup**: Executed proposals remain in storage indefinitely
-- **Cost model**: Proposers pay deposits which cover storage costs
-- **Future migration**: If needed, old history can be pruned via runtime upgrade
-- **Cancelled/expired proposals**: NOT archived (only events remain)
-
-**Example: Iterate all executed proposals**
-```rust
-let mut cursor = None;
-let mut all_proposals = Vec::new();
-
-loop {
-    let (proposals, next) = Multisig::get_executed_proposals_paginated(
-        &multisig_address,
-        cursor,
-        1000  // Max per query
-    );
-    
-    all_proposals.extend(proposals);
-    
-    if next.is_none() {
-        break;  // No more results
-    }
-    cursor = next;
-}
-```
+- ✅ **No storage costs**: Events don't occupy chain storage after archival
+- ✅ **Complete history**: All actions are recorded permanently in events
+- ✅ **Efficient querying**: Off-chain indexers provide fast, flexible queries
+- ✅ **No DoS risk**: No on-chain iteration over unbounded storage
+- ✅ **Standard practice**: Follows Substrate best practices for historical data
 
 ## Security Considerations
 
@@ -394,7 +352,6 @@ impl pallet_multisig::Config for Runtime {
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>;
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;
     type GracePeriod = ConstU32<28800>;  // ~2 days
-    type MaxExecutedProposalsQuery = ConstU32<1000>;  // Max results per query
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }
