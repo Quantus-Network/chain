@@ -30,9 +30,7 @@ mod wormhole_tests {
 		proof
 	}
 
-	// Ignoring for now, will fix once the no_random feature issue is resolved for test dependencies
 	#[test]
-	#[ignore]
 	fn test_wormhole_transfer_proof_generation() {
 		let alice = account_id(1);
 		let secret: BytesDigest = [1u8; 32].try_into().expect("valid secret");
