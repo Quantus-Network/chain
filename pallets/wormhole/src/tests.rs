@@ -29,7 +29,7 @@ mod wormhole_tests {
 		let proof = prover_next.prove().expect("valid proof");
 		proof
 	}
-	
+
 	// Ignoring for now, will fix once the no_random feature issue is resolved for test dependencies
 	#[test]
 	#[ignore]
