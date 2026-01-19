@@ -9,9 +9,9 @@ pub struct Cli {
 	#[clap(flatten)]
 	pub run: RunCmd,
 
-	/// Specify a rewards address for the miner
-	#[arg(long, value_name = "REWARDS_ADDRESS")]
-	pub rewards_address: Option<String>,
+	/// Specify a rewards preimage for the miner (32-byte hex from wormhole key generation)
+	#[arg(long, value_name = "REWARDS_PREIMAGE")]
+	pub rewards_preimage: Option<String>,
 
 	/// Specify the URL of an external QPoW miner service
 	#[arg(long, value_name = "EXTERNAL_MINER_URL")]
