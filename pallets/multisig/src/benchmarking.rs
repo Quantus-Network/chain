@@ -59,7 +59,9 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn propose() -> Result<(), BenchmarkError> {
+	fn propose(
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+	) -> Result<(), BenchmarkError> {
 		// Setup: Create a multisig first
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
@@ -83,8 +85,9 @@ mod benchmarks {
 		sorted_signers.sort();
 		let multisig_address = Multisig::<T>::derive_multisig_address(&sorted_signers, 0);
 
-		// Create a simple call
-		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; 32] };
+		// Create a remark call where the remark itself is c bytes
+		// We limit c to MaxCallSize - 100 to account for encoding overhead
+		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
@@ -99,7 +102,9 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn approve() -> Result<(), BenchmarkError> {
+	fn approve(
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+	) -> Result<(), BenchmarkError> {
 		// Setup: Create multisig and proposal directly in storage
 		// Threshold is 3, so adding one more approval won't trigger execution
 		let caller: T::AccountId = whitelisted_caller();
@@ -133,7 +138,8 @@ mod benchmarks {
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
 		// Directly insert proposal into storage with 1 approval
-		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; 32] };
+		// Create a remark call where the remark itself is c bytes
+		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
@@ -165,7 +171,9 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn approve_and_execute() -> Result<(), BenchmarkError> {
+	fn approve_and_execute(
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+	) -> Result<(), BenchmarkError> {
 		// Benchmarks approve() when it triggers auto-execution (threshold reached)
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
@@ -197,7 +205,8 @@ mod benchmarks {
 
 		// Directly insert proposal with 1 approval (caller already approved)
 		// signer2 will approve and trigger execution
-		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; 32] };
+		// Create a remark call where the remark itself is c bytes
+		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
@@ -230,7 +239,9 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn cancel() -> Result<(), BenchmarkError> {
+	fn cancel(
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+	) -> Result<(), BenchmarkError> {
 		// Setup: Create multisig and proposal directly in storage
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
@@ -261,7 +272,8 @@ mod benchmarks {
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
 		// Directly insert proposal into storage
-		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; 32] };
+		// Create a remark call where the remark itself is c bytes
+		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();

@@ -3,8 +3,6 @@
 use crate::{mock::*, Error, Event, GlobalNonce, Multisigs, ProposalStatus};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok};
-use sp_runtime::traits::Hash;
-
 /// Helper function to get Alice's account ID
 fn alice() -> u64 {
 	1

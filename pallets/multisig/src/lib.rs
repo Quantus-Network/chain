@@ -433,7 +433,7 @@ pub mod pallet {
 		/// The proposal remains in storage even after execution/cancellation.
 		/// Use `remove_expired()` or `claim_deposits()` after grace period to recover the deposit.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose())]
+		#[pallet::weight(<T as Config>::WeightInfo::propose(call.len() as u32))]
 		pub fn propose(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -558,7 +558,7 @@ pub mod pallet {
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_hash`: Hash of the proposal to approve
 		#[pallet::call_index(2)]
-		#[pallet::weight(<T as Config>::WeightInfo::approve())]
+		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get()))]
 		pub fn approve(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -623,7 +623,7 @@ pub mod pallet {
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_hash`: Hash of the proposal to cancel
 		#[pallet::call_index(3)]
-		#[pallet::weight(<T as Config>::WeightInfo::cancel())]
+		#[pallet::weight(<T as Config>::WeightInfo::cancel(T::MaxCallSize::get()))]
 		pub fn cancel(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
