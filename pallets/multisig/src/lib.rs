@@ -118,7 +118,10 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use sp_arithmetic::traits::Saturating;
-	use sp_runtime::traits::{Dispatchable, Hash, TrailingZeroInput};
+	use sp_runtime::{
+		traits::{Dispatchable, Hash, TrailingZeroInput},
+		Permill,
+	};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -163,6 +166,13 @@ pub mod pallet {
 		/// Fee charged for creating a proposal (non-refundable, paid always)
 		#[pallet::constant]
 		type ProposalFee: Get<BalanceOf<Self>>;
+
+		/// Percentage increase in ProposalFee for each signer in the multisig.
+		///
+		/// Formula: `FinalFee = ProposalFee + (ProposalFee * SignerCount * SignerStepFactor)`
+		/// Example: If Fee=100, Signers=5, Factor=1%, then Extra = 100 * 5 * 0.01 = 5. Total = 105.
+		#[pallet::constant]
+		type SignerStepFactor: Get<Permill>;
 
 		/// Pallet ID for generating multisig addresses
 		#[pallet::constant]
@@ -469,8 +479,19 @@ pub mod pallet {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
 
+			// Calculate dynamic fee based on number of signers
+			// Fee = Base + (Base * SignerCount * StepFactor)
+			let base_fee = T::ProposalFee::get();
+			let signers_count = multisig_data.signers.len() as u32;
+			let step_factor = T::SignerStepFactor::get();
+
+			// Calculate extra fee: (Base * Factor) * Count
+			// mul_floor returns the part of the fee corresponding to the percentage
+			let fee_increase_per_signer = step_factor.mul_floor(base_fee);
+			let total_increase = fee_increase_per_signer.saturating_mul(signers_count.into());
+			let fee = base_fee.saturating_add(total_increase);
+
 			// Charge non-refundable fee (burned immediately)
-			let fee = T::ProposalFee::get();
 			let _ = T::Currency::withdraw(
 				&proposer,
 				fee,

@@ -9,7 +9,7 @@ use frame_support::{
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage,
+	BuildStorage, Permill,
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -91,9 +91,10 @@ parameter_types! {
 	pub const MaxActiveProposalsParam: u32 = 10; // For testing
 	pub const MaxTotalProposalsInStorageParam: u32 = 20; // 2x MaxActiveProposals
 	pub const MaxCallSizeParam: u32 = 1024;
-	pub const MultisigFeeParam: Balance = 50; // Non-refundable fee
-	pub const ProposalDepositParam: Balance = 10;
-	pub const ProposalFeeParam: Balance = 5; // Non-refundable fee
+	pub const MultisigFeeParam: Balance = 1000; // Non-refundable fee
+	pub const ProposalDepositParam: Balance = 100;
+	pub const ProposalFeeParam: Balance = 1000; // Non-refundable fee
+	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000); // 1%
 }
 
 impl pallet_multisig::Config for Test {
@@ -106,6 +107,7 @@ impl pallet_multisig::Config for Test {
 	type MultisigFee = MultisigFeeParam;
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
+	type SignerStepFactor = SignerStepFactorParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 }
@@ -116,11 +118,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
-			(1, 1000), // Alice
-			(2, 2000), // Bob
-			(3, 3000), // Charlie
-			(4, 4000), // Dave
-			(5, 5000), // Eve
+			(1, 100000), // Alice
+			(2, 200000), // Bob
+			(3, 300000), // Charlie
+			(4, 400000), // Dave
+			(5, 500000), // Eve
 		],
 	}
 	.assimilate_storage(&mut t)

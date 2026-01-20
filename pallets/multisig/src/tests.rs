@@ -65,7 +65,7 @@ fn create_multisig_works() {
 
 		// Get initial balance
 		let initial_balance = Balances::free_balance(creator);
-		let fee = 50; // MultisigFeeParam
+		let fee = 1000; // MultisigFeeParam
 
 		// Create multisig
 		assert_ok!(Multisig::create_multisig(
@@ -195,8 +195,9 @@ fn propose_works() {
 		let expiry = 1000;
 
 		let initial_balance = Balances::free_balance(proposer);
-		let proposal_deposit = 10; // ProposalDepositParam
-		let proposal_fee = 5; // ProposalFeeParam
+		let proposal_deposit = 100; // ProposalDepositParam (Changed in mock)
+							  // Fee calculation: Base(1000) + (Base(1000) * 1% * 2 signers) = 1000 + 20 = 1020
+		let proposal_fee = 1020;
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(proposer),
@@ -317,7 +318,7 @@ fn approve_auto_executes_when_threshold_reached() {
 		assert_eq!(proposal.status, ProposalStatus::Executed);
 
 		// Deposit is still locked (not returned yet)
-		assert_eq!(Balances::reserved_balance(bob()), 10); // Still reserved
+		assert_eq!(Balances::reserved_balance(bob()), 100); // Still reserved
 
 		// Check event was emitted
 		System::assert_has_event(
@@ -370,7 +371,7 @@ fn cancel_works() {
 		assert_eq!(proposal.status, ProposalStatus::Cancelled);
 
 		// Deposit is still locked (not returned yet)
-		assert_eq!(Balances::reserved_balance(proposer), 10);
+		assert_eq!(Balances::reserved_balance(proposer), 100);
 
 		// Check event
 		System::assert_last_event(
@@ -523,7 +524,7 @@ fn claim_deposits_works() {
 		}
 
 		// All reserved
-		assert_eq!(Balances::reserved_balance(bob()), 30); // 3 * 10
+		assert_eq!(Balances::reserved_balance(bob()), 300); // 3 * 100
 
 		// Move past expiry + grace period
 		System::set_block_number(201);
@@ -539,7 +540,7 @@ fn claim_deposits_works() {
 			Event::DepositsClaimed {
 				multisig_address,
 				claimer: bob(),
-				total_returned: 30,
+				total_returned: 300,
 				proposals_removed: 3,
 				multisig_removed: false,
 			}
@@ -916,5 +917,39 @@ fn propose_fails_with_expiry_in_past() {
 
 		// Valid: expiry in the future
 		assert_ok!(Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call, 101));
+	});
+}
+
+#[test]
+fn propose_charges_correct_fee_with_signer_factor() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		// 3 Signers: Bob, Charlie, Dave
+		let signers = vec![bob(), charlie(), dave()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let proposer = bob();
+		let call = make_call(vec![1, 2, 3]);
+		let initial_balance = Balances::free_balance(proposer);
+
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(proposer),
+			multisig_address,
+			call,
+			1000
+		));
+
+		// ProposalFeeParam = 1000
+		// SignerStepFactor = 1%
+		// Signers = 3
+		// Calculation: 1000 + (1000 * 1% * 3) = 1000 + 30 = 1030
+		let expected_fee = 1030;
+		let deposit = 100; // ProposalDepositParam
+
+		assert_eq!(Balances::free_balance(proposer), initial_balance - deposit - expected_fee);
 	});
 }
