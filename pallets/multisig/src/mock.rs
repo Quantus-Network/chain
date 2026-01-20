@@ -89,6 +89,7 @@ parameter_types! {
 	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
 	pub const MaxSignersParam: u32 = 10;
 	pub const MaxActiveProposalsParam: u32 = 10; // For testing
+	pub const MaxTotalProposalsInStorageParam: u32 = 20; // 2x MaxActiveProposals
 	pub const MaxCallSizeParam: u32 = 1024;
 	pub const MultisigFeeParam: Balance = 50; // Non-refundable fee
 	pub const ProposalDepositParam: Balance = 10;
@@ -100,6 +101,7 @@ impl pallet_multisig::Config for Test {
 	type Currency = Balances;
 	type MaxSigners = MaxSignersParam;
 	type MaxActiveProposals = MaxActiveProposalsParam;
+	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorageParam;
 	type MaxCallSize = MaxCallSizeParam;
 	type MultisigFee = MultisigFeeParam;
 	type ProposalDeposit = ProposalDepositParam;

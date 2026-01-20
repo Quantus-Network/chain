@@ -140,6 +140,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxActiveProposals: Get<u32>;
 
+		/// Maximum total number of proposals in storage per multisig (Active + Executed + Cancelled)
+		/// This prevents unbounded storage growth and incentivizes cleanup
+		#[pallet::constant]
+		type MaxTotalProposalsInStorage: Get<u32>;
+
 		/// Maximum size of an encoded call
 		#[pallet::constant]
 		type MaxCallSize: Get<u32>;
@@ -306,6 +311,8 @@ pub mod pallet {
 		InvalidCall,
 		/// Too many active proposals for this multisig
 		TooManyActiveProposals,
+		/// Too many total proposals in storage for this multisig (cleanup required)
+		TooManyProposalsInStorage,
 		/// Insufficient balance for deposit
 		InsufficientBalance,
 		/// Proposal has active deposit
@@ -438,6 +445,15 @@ pub mod pallet {
 			ensure!(
 				multisig_data.active_proposals < T::MaxActiveProposals::get(),
 				Error::<T>::TooManyActiveProposals
+			);
+
+			// Check total proposals in storage limit (Active + Executed + Cancelled)
+			// This incentivizes cleanup and prevents unbounded storage growth
+			let total_proposals_in_storage =
+				Proposals::<T>::iter_prefix(&multisig_address).count() as u32;
+			ensure!(
+				total_proposals_in_storage < T::MaxTotalProposalsInStorage::get(),
+				Error::<T>::TooManyProposalsInStorage
 			);
 
 			// Check call size

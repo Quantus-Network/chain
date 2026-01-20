@@ -572,6 +572,7 @@ parameter_types! {
 	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
 	pub const MaxSigners: u32 = 100;
 	pub const MaxActiveProposals: u32 = 100; // Max active proposals per multisig
+	pub const MaxTotalProposalsInStorage: u32 = 200; // Max total in storage (Active + Executed + Cancelled)
 	pub const MaxCallSize: u32 = 10240; // 10KB
 	pub const MultisigFee: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (non-refundable)
 	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
@@ -583,6 +584,7 @@ impl pallet_multisig::Config for Runtime {
 	type Currency = Balances;
 	type MaxSigners = MaxSigners;
 	type MaxActiveProposals = MaxActiveProposals;
+	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorage;
 	type MaxCallSize = MaxCallSize;
 	type MultisigFee = MultisigFee;
 	type ProposalDeposit = ProposalDeposit;

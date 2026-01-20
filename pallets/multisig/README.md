@@ -162,7 +162,8 @@ Reserved and returned under specific conditions:
 
 ### Storage Limits
 - **MaxSigners**: 10 - Maximum signers per multisig
-- **MaxActiveProposals**: 100 - Maximum open proposals per multisig at once
+- **MaxActiveProposals**: 100 - Maximum active (open) proposals per multisig at once
+- **MaxTotalProposalsInStorage**: 200 - Maximum total proposals in storage (Active + Executed + Cancelled). This prevents unbounded storage growth and incentivizes cleanup
 - **MaxCallSize**: 1024 bytes - Maximum encoded call size
 
 ## Storage
@@ -242,6 +243,7 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `InvalidCall` - Call decoding failed during execution
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyActiveProposals` - Multisig has MaxActiveProposals open proposals
+- `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
 - `ProposalNotActive` - Proposal is not active (already executed or cancelled)
 
@@ -338,10 +340,10 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 impl pallet_multisig::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
-    type MaxSigners = ConstU32<10>;
+    type MaxSigners = ConstU32<100>;
     type MaxActiveProposals = ConstU32<100>;
-    type MaxCallSize = ConstU32<1024>;
-    type MultisigDeposit = ConstU128<{ 100 * MILLI_UNIT }>;
+    type MaxTotalProposalsInStorage = ConstU32<200>;
+    type MaxCallSize = ConstU32<10240>;
     type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>;
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;
