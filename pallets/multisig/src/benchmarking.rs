@@ -132,6 +132,7 @@ mod benchmarks {
 			nonce: 0,
 			proposal_nonce: 0,
 			creator: caller.clone(),
+			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
 		};
@@ -198,6 +199,7 @@ mod benchmarks {
 			nonce: 0,
 			proposal_nonce: 0,
 			creator: caller.clone(),
+			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
 		};
@@ -266,6 +268,7 @@ mod benchmarks {
 			nonce: 0,
 			proposal_nonce: 0,
 			creator: caller.clone(),
+			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
 		};
@@ -329,6 +332,7 @@ mod benchmarks {
 			nonce: 0,
 			proposal_nonce: 0,
 			creator: caller.clone(),
+			deposit: T::MultisigDeposit::get(),
 			last_activity: 1u32.into(),
 			active_proposals: 1,
 		};
@@ -394,6 +398,7 @@ mod benchmarks {
 			nonce: 0,
 			proposal_nonce: 0,
 			creator: caller.clone(),
+			deposit: T::MultisigDeposit::get(),
 			last_activity: 1u32.into(),
 			active_proposals: 5,
 		};

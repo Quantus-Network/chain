@@ -40,7 +40,7 @@ use sp_runtime::RuntimeDebug;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct MultisigData<BlockNumber, AccountId, BoundedSigners> {
+pub struct MultisigData<BlockNumber, AccountId, BoundedSigners, Balance> {
 	/// List of signers who can approve transactions
 	pub signers: BoundedSigners,
 	/// Number of approvals required to execute a transaction
@@ -51,14 +51,16 @@ pub struct MultisigData<BlockNumber, AccountId, BoundedSigners> {
 	pub proposal_nonce: u32,
 	/// Account that created this multisig
 	pub creator: AccountId,
+	/// Deposit reserved by the creator
+	pub deposit: Balance,
 	/// Last block when this multisig was used
 	pub last_activity: BlockNumber,
 	/// Number of currently active (non-executed/non-cancelled) proposals
 	pub active_proposals: u32,
 }
 
-impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default> Default
-	for MultisigData<BlockNumber, AccountId, BoundedSigners>
+impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default, Balance: Default> Default
+	for MultisigData<BlockNumber, AccountId, BoundedSigners, Balance>
 {
 	fn default() -> Self {
 		Self {
@@ -67,6 +69,7 @@ impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default> Default
 			nonce: 0,
 			proposal_nonce: 0,
 			creator: Default::default(),
+			deposit: Default::default(),
 			last_activity: Default::default(),
 			active_proposals: 0,
 		}
@@ -159,6 +162,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type MultisigFee: Get<BalanceOf<Self>>;
 
+		/// Deposit reserved for creating a multisig (returned when dissolved).
+		/// Keeps the state clean by incentivizing removal of unused multisigs.
+		#[pallet::constant]
+		type MultisigDeposit: Get<BalanceOf<Self>>;
+
 		/// Deposit required per proposal (returned on execute or cancel)
 		#[pallet::constant]
 		type ProposalDeposit: Get<BalanceOf<Self>>;
@@ -177,6 +185,15 @@ pub mod pallet {
 		/// Pallet ID for generating multisig addresses
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
+
+		/// Maximum duration (in blocks) that a proposal can be set to expire in the future.
+		/// This prevents proposals from being created with extremely far expiry dates
+		/// that would lock deposits and bloat storage for extended periods.
+		///
+		/// Example: If set to 100_000 blocks (~2 weeks at 12s blocks),
+		/// a proposal created at block 1000 cannot have expiry > 101_000.
+		#[pallet::constant]
+		type MaxExpiryDuration: Get<BlockNumberFor<Self>>;
 
 		/// Weight information for extrinsics
 		type WeightInfo: WeightInfo;
@@ -198,6 +215,7 @@ pub mod pallet {
 		BlockNumberFor<T>,
 		<T as frame_system::Config>::AccountId,
 		BoundedSignersOf<T>,
+		BalanceOf<T>,
 	>;
 
 	/// Type alias for ProposalData with proper bounds
@@ -288,6 +306,12 @@ pub mod pallet {
 			proposals_removed: u32,
 			multisig_removed: bool,
 		},
+		/// A multisig account was dissolved and deposit returned
+		MultisigDissolved {
+			multisig_address: T::AccountId,
+			caller: T::AccountId,
+			deposit_returned: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::error]
@@ -318,6 +342,8 @@ pub mod pallet {
 		NotEnoughApprovals,
 		/// Proposal expiry is in the past
 		ExpiryInPast,
+		/// Proposal expiry is too far in the future (exceeds MaxExpiryDuration)
+		ExpiryTooFar,
 		/// Proposal has expired
 		ProposalExpired,
 		/// Call data too large
@@ -336,6 +362,10 @@ pub mod pallet {
 		ProposalNotExpired,
 		/// Proposal is not active (already executed or cancelled)
 		ProposalNotActive,
+		/// Cannot dissolve multisig with existing proposals (clear them first)
+		ProposalsExist,
+		/// Multisig account must have zero balance before dissolution
+		MultisigAccountNotZero,
 	}
 
 	#[pallet::call]
@@ -396,6 +426,10 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;
 
+			// Reserve deposit from creator (will be returned on dissolve)
+			let deposit = T::MultisigDeposit::get();
+			T::Currency::reserve(&creator, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
+
 			// Convert sorted signers to bounded vec
 			let bounded_signers: BoundedSignersOf<T> =
 				sorted_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
@@ -412,6 +446,7 @@ pub mod pallet {
 					nonce,
 					proposal_nonce: 0,
 					creator: creator.clone(),
+					deposit,
 					last_activity: current_block,
 					active_proposals: 0,
 				},
@@ -478,6 +513,10 @@ pub mod pallet {
 			// Validate expiry is in the future
 			let current_block = frame_system::Pallet::<T>::block_number();
 			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
+
+			// Validate expiry is not too far in the future
+			let max_expiry = current_block.saturating_add(T::MaxExpiryDuration::get());
+			ensure!(expiry <= max_expiry, Error::<T>::ExpiryTooFar);
 
 			// Calculate dynamic fee based on number of signers
 			// Fee = Base + (Base * SignerCount * StepFactor)
@@ -832,6 +871,57 @@ pub mod pallet {
 				total_returned,
 				proposals_removed: removed_count,
 				multisig_removed: false, // Multisig is never auto-removed now
+			});
+
+			Ok(())
+		}
+
+		/// Dissolve (remove) a multisig and recover the creation deposit.
+		///
+		/// Requirements:
+		/// - No proposals exist (active, executed, or cancelled) - must be fully cleaned up.
+		/// - Multisig account balance must be zero.
+		/// - Can be called by the creator OR any signer.
+		///
+		/// The deposit is ALWAYS returned to the original `creator` stored in `MultisigData`.
+		#[pallet::call_index(6)]
+		#[pallet::weight(<T as Config>::WeightInfo::dissolve_multisig())]
+		pub fn dissolve_multisig(
+			origin: OriginFor<T>,
+			multisig_address: T::AccountId,
+		) -> DispatchResult {
+			let caller = ensure_signed(origin)?;
+
+			// 1. Get multisig data
+			let multisig_data =
+				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+
+			// 2. Check permissions: Creator OR Any Signer
+			let is_signer = multisig_data.signers.contains(&caller);
+			let is_creator = multisig_data.creator == caller;
+			ensure!(is_signer || is_creator, Error::<T>::NotASigner);
+
+			// 3. Check if account is clean (no proposals at all)
+			// iter_prefix is efficient enough here as we just need to check if ANY exist
+			if Proposals::<T>::iter_prefix(&multisig_address).next().is_some() {
+				return Err(Error::<T>::ProposalsExist.into());
+			}
+
+			// 4. Check if account balance is zero
+			let balance = T::Currency::total_balance(&multisig_address);
+			ensure!(balance.is_zero(), Error::<T>::MultisigAccountNotZero);
+
+			// 5. Return deposit to creator
+			T::Currency::unreserve(&multisig_data.creator, multisig_data.deposit);
+
+			// 6. Remove multisig from storage
+			Multisigs::<T>::remove(&multisig_address);
+
+			// 7. Emit event
+			Self::deposit_event(Event::MultisigDissolved {
+				multisig_address,
+				caller,
+				deposit_returned: multisig_data.deposit,
 			});
 
 			Ok(())

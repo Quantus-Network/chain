@@ -66,6 +66,7 @@ fn create_multisig_works() {
 		// Get initial balance
 		let initial_balance = Balances::free_balance(creator);
 		let fee = 1000; // MultisigFeeParam
+		let deposit = 500; // MultisigDepositParam
 
 		// Create multisig
 		assert_ok!(Multisig::create_multisig(
@@ -74,9 +75,10 @@ fn create_multisig_works() {
 			threshold,
 		));
 
-		// Check that fee was burned (no deposit anymore)
-		assert_eq!(Balances::reserved_balance(creator), 0); // No multisig deposit
-		assert_eq!(Balances::free_balance(creator), initial_balance - fee);
+		// Check balances
+		// Deposit is reserved, fee is burned
+		assert_eq!(Balances::reserved_balance(creator), deposit);
+		assert_eq!(Balances::free_balance(creator), initial_balance - fee - deposit);
 
 		// Check that multisig was created
 		let global_nonce = GlobalNonce::<Test>::get();
@@ -92,6 +94,7 @@ fn create_multisig_works() {
 		assert_eq!(multisig_data.signers.to_vec(), signers);
 		assert_eq!(multisig_data.active_proposals, 0);
 		assert_eq!(multisig_data.creator, creator);
+		assert_eq!(multisig_data.deposit, deposit);
 
 		// Check that event was emitted
 		System::assert_last_event(
@@ -921,6 +924,50 @@ fn propose_fails_with_expiry_in_past() {
 }
 
 #[test]
+fn propose_fails_with_expiry_too_far() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(100);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+
+		// MaxExpiryDurationParam = 10000 blocks (from mock.rs)
+		// Current block = 100
+		// Max allowed expiry = 100 + 10000 = 10100
+
+		// Try to create proposal with expiry too far in the future
+		assert_noop!(
+			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call.clone(), 10101),
+			Error::<Test>::ExpiryTooFar
+		);
+
+		// Try with expiry way beyond the limit
+		assert_noop!(
+			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call.clone(), 20000),
+			Error::<Test>::ExpiryTooFar
+		);
+
+		// Valid: expiry exactly at max allowed
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			call.clone(),
+			10100
+		));
+
+		// Move to next block and try again
+		System::set_block_number(101);
+		// Now max allowed = 101 + 10000 = 10101
+		assert_ok!(Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call, 10101));
+	});
+}
+
+#[test]
 fn propose_charges_correct_fee_with_signer_factor() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
@@ -951,5 +998,53 @@ fn propose_charges_correct_fee_with_signer_factor() {
 		let deposit = 100; // ProposalDepositParam
 
 		assert_eq!(Balances::free_balance(proposer), initial_balance - deposit - expected_fee);
+	});
+}
+
+#[test]
+fn dissolve_multisig_works() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		let deposit = 500;
+		let fee = 1000;
+		let initial_balance = Balances::free_balance(creator);
+
+		// Create
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+		assert_eq!(Balances::reserved_balance(creator), deposit);
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		// Try to dissolve immediately (success)
+		assert_ok!(Multisig::dissolve_multisig(RuntimeOrigin::signed(creator), multisig_address));
+
+		// Check cleanup
+		assert!(!Multisigs::<Test>::contains_key(multisig_address));
+		assert_eq!(Balances::reserved_balance(creator), 0);
+		// Balance returned (minus burned fee)
+		assert_eq!(Balances::free_balance(creator), initial_balance - fee);
+	});
+}
+
+#[test]
+fn dissolve_multisig_fails_with_proposals() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		// Create proposal
+		let call = make_call(vec![1]);
+		assert_ok!(Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call, 100));
+
+		// Try to dissolve
+		assert_noop!(
+			Multisig::dissolve_multisig(RuntimeOrigin::signed(creator), multisig_address),
+			Error::<Test>::ProposalsExist
+		);
 	});
 }

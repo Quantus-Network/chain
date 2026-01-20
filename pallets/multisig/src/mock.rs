@@ -92,9 +92,11 @@ parameter_types! {
 	pub const MaxTotalProposalsInStorageParam: u32 = 20; // 2x MaxActiveProposals
 	pub const MaxCallSizeParam: u32 = 1024;
 	pub const MultisigFeeParam: Balance = 1000; // Non-refundable fee
+	pub const MultisigDepositParam: Balance = 500; // Refundable deposit
 	pub const ProposalDepositParam: Balance = 100;
 	pub const ProposalFeeParam: Balance = 1000; // Non-refundable fee
 	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000); // 1%
+	pub const MaxExpiryDurationParam: u64 = 10000; // 10000 blocks for testing (enough for all test scenarios)
 }
 
 impl pallet_multisig::Config for Test {
@@ -105,9 +107,11 @@ impl pallet_multisig::Config for Test {
 	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorageParam;
 	type MaxCallSize = MaxCallSizeParam;
 	type MultisigFee = MultisigFeeParam;
+	type MultisigDeposit = MultisigDepositParam;
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
 	type SignerStepFactor = SignerStepFactorParam;
+	type MaxExpiryDuration = MaxExpiryDurationParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 }

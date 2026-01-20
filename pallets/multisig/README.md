@@ -65,6 +65,7 @@ Creates a new proposal for multisig execution.
 - Multisig cannot have MaxActiveProposals or more open proposals
 - Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
 - Expiry must be in the future (expiry > current_block)
+- Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
 **Economic Costs:**
 - **ProposalFee**: 1000 MILLI_UNIT (non-refundable, burned immediately)
@@ -166,6 +167,7 @@ Reserved and returned under specific conditions:
 - **MaxActiveProposals**: 100 - Maximum active (open) proposals per multisig at once
 - **MaxTotalProposalsInStorage**: 200 - Maximum total proposals in storage (Active + Executed + Cancelled). This prevents unbounded storage growth and incentivizes cleanup
 - **MaxCallSize**: 1024 bytes - Maximum encoded call size
+- **MaxExpiryDuration**: Maximum blocks in the future that a proposal can expire (e.g., 100,000 blocks ≈ 2 weeks at 12s blocks). Prevents locking deposits for extremely long periods
 
 ## Storage
 
@@ -240,6 +242,7 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `AlreadyApproved` - Signer already approved this proposal
 - `NotEnoughApprovals` - Threshold not met (internal error, should not occur)
 - `ExpiryInPast` - Proposal expiry is not in the future (for propose)
+- `ExpiryTooFar` - Proposal expiry exceeds MaxExpiryDuration (for propose)
 - `ProposalExpired` - Proposal deadline passed (for approve)
 - `CallTooLarge` - Encoded call exceeds MaxCallSize
 - `InvalidCall` - Call decoding failed during execution
@@ -349,6 +352,8 @@ impl pallet_multisig::Config for Runtime {
     type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>;
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;
+    type SignerStepFactor = Permill::from_percent(1);
+    type MaxExpiryDuration = ConstU32<100_800>; // ~2 weeks at 12s blocks
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }
