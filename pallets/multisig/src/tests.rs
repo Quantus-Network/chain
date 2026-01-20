@@ -865,3 +865,33 @@ fn cleanup_allows_new_proposals() {
 		);
 	});
 }
+
+#[test]
+fn propose_fails_with_expiry_in_past() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(100);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+
+		// Try to create proposal with expiry in the past (< current_block)
+		assert_noop!(
+			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call.clone(), 50),
+			Error::<Test>::ExpiryInPast
+		);
+
+		// Try with expiry equal to current block (not > current_block)
+		assert_noop!(
+			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call.clone(), 100),
+			Error::<Test>::ExpiryInPast
+		);
+
+		// Valid: expiry in the future
+		assert_ok!(Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call, 101));
+	});
+}

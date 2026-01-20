@@ -62,8 +62,9 @@ Creates a new proposal for multisig execution.
 **Validation:**
 - Caller must be a signer
 - Call size must be ≤ MaxCallSize
-- Multisig cannot have more than MaxActiveProposals open proposals
-- Expiry must be in the future (current_block < expiry)
+- Multisig cannot have MaxActiveProposals or more open proposals
+- Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
+- Expiry must be in the future (expiry > current_block)
 
 **Economic Costs:**
 - **ProposalFee**: 1000 MILLI_UNIT (non-refundable, burned immediately)
@@ -238,6 +239,7 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `NotProposer` - Caller is not the proposer (for cancel)
 - `AlreadyApproved` - Signer already approved this proposal
 - `NotEnoughApprovals` - Threshold not met (internal error, should not occur)
+- `ExpiryInPast` - Proposal expiry is not in the future (for propose)
 - `ProposalExpired` - Proposal deadline passed (for approve)
 - `CallTooLarge` - Encoded call exceeds MaxCallSize
 - `InvalidCall` - Call decoding failed during execution

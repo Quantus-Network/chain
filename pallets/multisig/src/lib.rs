@@ -140,8 +140,8 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxActiveProposals: Get<u32>;
 
-		/// Maximum total number of proposals in storage per multisig (Active + Executed + Cancelled)
-		/// This prevents unbounded storage growth and incentivizes cleanup
+		/// Maximum total number of proposals in storage per multisig (Active + Executed +
+		/// Cancelled) This prevents unbounded storage growth and incentivizes cleanup
 		#[pallet::constant]
 		type MaxTotalProposalsInStorage: Get<u32>;
 
@@ -303,6 +303,8 @@ pub mod pallet {
 		AlreadyApproved,
 		/// Not enough approvals to execute
 		NotEnoughApprovals,
+		/// Proposal expiry is in the past
+		ExpiryInPast,
 		/// Proposal has expired
 		ProposalExpired,
 		/// Call data too large
@@ -459,6 +461,10 @@ pub mod pallet {
 			// Check call size
 			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
 
+			// Validate expiry is in the future
+			let current_block = frame_system::Pallet::<T>::block_number();
+			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
+
 			// Charge non-refundable fee (burned immediately)
 			let fee = T::ProposalFee::get();
 			let _ = T::Currency::withdraw(
@@ -477,7 +483,7 @@ pub mod pallet {
 			// Update multisig last_activity
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
-					multisig.last_activity = frame_system::Pallet::<T>::block_number();
+					multisig.last_activity = current_block;
 				}
 			});
 
