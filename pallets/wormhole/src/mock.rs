@@ -1,8 +1,7 @@
-use crate as pallet_wormhole;
+use crate::{self as pallet_wormhole, SCALE_DOWN_FACTOR};
 use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{ConstU128, ConstU32, Everything},
-	weights::IdentityFee,
 };
 use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
@@ -118,15 +117,20 @@ parameter_types! {
 		231, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	]);
+	/// Minimum transfer amount: 1 token (100 quantized units × SCALE_DOWN_FACTOR)
+	pub const MinimumTransferAmount: Balance = 100 * SCALE_DOWN_FACTOR;
+	/// Volume fee rate in basis points (10 bps = 0.1%)
+	pub const VolumeFeeRateBps: u32 = 10;
 }
 
 impl pallet_wormhole::Config for Test {
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
-	type WeightToFee = IdentityFee<Balance>;
 	type Currency = Balances;
 	type Assets = Assets;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
+	type MinimumTransferAmount = MinimumTransferAmount;
+	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type WormholeAccountId = AccountId;
 }
 

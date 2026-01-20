@@ -634,14 +634,19 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 
 parameter_types! {
 	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
+	/// Minimum transfer amount: 1 token (100 quantized units × SCALE_DOWN_FACTOR)
+	pub const MinimumTransferAmount: Balance = 100 * pallet_wormhole::SCALE_DOWN_FACTOR;
+	/// Volume fee rate in basis points (10 bps = 0.1%)
+	pub const VolumeFeeRateBps: u32 = 10;
 }
 
 impl pallet_wormhole::Config for Runtime {
 	type MintingAccount = WormholeMintingAccount;
+	type MinimumTransferAmount = MinimumTransferAmount;
+	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type WeightInfo = ();
 	type Currency = Balances;
 	type Assets = Assets;
 	type TransferCount = u64;
 	type WormholeAccountId = AccountId32;
-	type WeightToFee = IdentityFee<Balance>;
 }

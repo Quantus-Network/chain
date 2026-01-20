@@ -45,6 +45,12 @@ pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static s
 	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
 }
 
+/// Scale factor for quantizing amounts from 12 to 2 decimal places (10^10).
+/// Amounts in the circuit are stored as u32 with 2 decimal places of precision.
+/// On-chain amounts use 12 decimal places, so we multiply by this factor when
+/// converting from circuit amounts to on-chain amounts.
+pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
+
 // We use a generic struct so we can pass the specific Key type to the hasher
 pub struct PoseidonStorageHasher<Key>(PhantomData<Key>);
 
@@ -74,9 +80,8 @@ pub mod pallet {
 			fungible::{Mutate, Unbalanced},
 			fungibles::{self, Inspect as FungiblesInspect, Mutate as FungiblesMutate},
 			tokens::Preservation,
-			Currency, ExistenceRequirement, WithdrawReasons,
+			Currency,
 		},
-		weights::WeightToFee,
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole_circuit::inputs::{AggregatedPublicCircuitInputs, PublicCircuitInputs};
@@ -88,7 +93,6 @@ pub mod pallet {
 			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 			ValidTransaction,
 		},
-		Perbill,
 	};
 
 	pub type BalanceOf<T> =
@@ -142,10 +146,17 @@ pub mod pallet {
 		#[pallet::constant]
 		type MintingAccount: Get<<Self as frame_system::Config>::AccountId>;
 
+		/// Minimum transfer amount required for proof verification
+		#[pallet::constant]
+		type MinimumTransferAmount: Get<BalanceOf<Self>>;
+
+		/// Volume fee rate in basis points (1 basis point = 0.01%).
+		/// This must match the fee rate used in proof generation.
+		#[pallet::constant]
+		type VolumeFeeRateBps: Get<u32>;
+
 		/// Weight information for pallet operations.
 		type WeightInfo: WeightInfo;
-
-		type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
 
 		/// Override system AccountId to make it felts encodable
 		type WormholeAccountId: Parameter
@@ -221,6 +232,9 @@ pub mod pallet {
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
 		InvalidAggregatedPublicInputs,
+		TransferAmountBelowMinimum,
+		/// The volume fee rate in the proof doesn't match the configured rate
+		InvalidVolumeFeeRate,
 	}
 
 	#[pallet::call]
@@ -229,10 +243,6 @@ pub mod pallet {
 		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
 		pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
 			ensure_none(origin)?;
-			// Note: The funding_amount in public inputs is expected to be quantized (i.e., scaled
-			// down from 12 to 2 decimals points of precision) so we need to scale it back up
-			// here to get the actual amount the chain expects with 12 decimal places of precision.
-			const SCALE_DOWN_FACTOR: u128 = 10_000_000_000; // 10^10;
 
 			let verifier =
 				crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
@@ -281,8 +291,15 @@ pub mod pallet {
 			// Mark nullifier as used
 			UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
+			// Verify the volume fee rate matches our configured rate
+			ensure!(
+				public_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
+
+			// The output_amount is what the user receives after fee deduction (already enforced by circuit)
 			let exit_balance_u128 =
-				(public_inputs.funding_amount as u128).saturating_mul(SCALE_DOWN_FACTOR);
+				(public_inputs.output_amount as u128).saturating_mul(crate::SCALE_DOWN_FACTOR);
 
 			// Convert to Balance type
 			let exit_balance: BalanceOf<T> =
@@ -298,12 +315,21 @@ pub mod pallet {
 			let asset_id_u32 = public_inputs.asset_id;
 			let asset_id: AssetIdOf<T> = asset_id_u32.into();
 
-			// Calculate fees first
-			let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
-			let weight_fee = T::WeightToFee::weight_to_fee(&weight);
-			let volume_fee_perbill = Perbill::from_rational(1u32, 1000u32);
-			let volume_fee = volume_fee_perbill * exit_balance;
-			let total_fee = weight_fee.saturating_add(volume_fee);
+			// Ensure transfer amount meets minimum requirement
+			ensure!(
+				exit_balance >= T::MinimumTransferAmount::get(),
+				Error::<T>::TransferAmountBelowMinimum
+			);
+
+			// Compute the fee to mint to the block author
+			// fee = output_amount * volume_fee_bps / (10000 - volume_fee_bps)
+			let fee_bps = T::VolumeFeeRateBps::get() as u128;
+			let fee_u128 = exit_balance_u128
+				.saturating_mul(fee_bps)
+				.checked_div(10000u128.saturating_sub(fee_bps))
+				.unwrap_or(0);
+			let total_fee: BalanceOf<T> =
+				fee_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
 			// Handle native (asset_id = 0) or asset transfers
 			if asset_id == AssetIdOf::<T>::default() {
@@ -316,16 +342,21 @@ pub mod pallet {
 					frame_support::traits::tokens::Precision::Exact,
 				)?;
 
-				// Withdraw fee from exit account if fees are non-zero
-				// This creates a negative imbalance that will be handled by the transaction payment
-				// pallet
+				// Mint volume fee to block author
 				if !total_fee.is_zero() {
-					let _fee_imbalance = T::Currency::withdraw(
-						&exit_account,
-						total_fee,
-						WithdrawReasons::TRANSACTION_PAYMENT,
-						ExistenceRequirement::KeepAlive,
-					)?;
+					if let Some(author) = frame_system::Pallet::<T>::digest()
+						.logs
+						.iter()
+						.find_map(|item| item.as_pre_runtime())
+						.and_then(|(_, data)| {
+							<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
+						}) {
+						<T::Currency as Unbalanced<_>>::increase_balance(
+							&author,
+							total_fee,
+							frame_support::traits::tokens::Precision::Exact,
+						)?;
+					}
 				}
 			} else {
 				// Asset transfer
@@ -336,15 +367,21 @@ pub mod pallet {
 					asset_balance,
 				)?;
 
-				// For assets, we still need to charge fees in native currency
-				// The exit account must have enough native balance to pay fees
+				// Mint volume fee to block author (fee is in native currency)
 				if !total_fee.is_zero() {
-					let _fee_imbalance = T::Currency::withdraw(
-						&exit_account,
-						total_fee,
-						WithdrawReasons::TRANSACTION_PAYMENT,
-						ExistenceRequirement::AllowDeath,
-					)?;
+					if let Some(author) = frame_system::Pallet::<T>::digest()
+						.logs
+						.iter()
+						.find_map(|item| item.as_pre_runtime())
+						.and_then(|(_, data)| {
+							<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
+						}) {
+						<T::Currency as Unbalanced<_>>::increase_balance(
+							&author,
+							total_fee,
+							frame_support::traits::tokens::Precision::Exact,
+						)?;
+					}
 				}
 			}
 
@@ -486,18 +523,30 @@ pub mod pallet {
 				Error::<T>::InvalidPublicInputs
 			);
 
-			// For now, aggregated proofs only support native token (asset_id = 0)
-			// TODO: Add asset_id support when the circuit is updated
-			let asset_id = AssetIdOf::<T>::default();
+			// Extract asset_id from aggregated public inputs
+			let asset_id: AssetIdOf<T> = aggregated_inputs.asset_id.into();
+
+			// Verify the volume fee rate matches our configured rate
+			ensure!(
+				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
 
-			// Process each exit account
+			// First pass: compute total exit amount and prepare account data
+			let mut total_exit_amount: BalanceOf<T> = Zero::zero();
+			let mut processed_accounts: Vec<(
+				<T as frame_system::Config>::AccountId,
+				BalanceOf<T>,
+			)> = Vec::with_capacity(aggregated_inputs.account_data.len());
+
 			for account_data in &aggregated_inputs.account_data {
-				// Convert funding amount to Balance type
-				let exit_balance: BalanceOf<T> = account_data
-					.summed_funding_amount
+				// Convert output amount to Balance type (scale up from quantized value)
+				let exit_balance_u128 = (account_data.summed_output_amount as u128)
+					.saturating_mul(crate::SCALE_DOWN_FACTOR);
+				let exit_balance: BalanceOf<T> = exit_balance_u128
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
@@ -510,30 +559,47 @@ pub mod pallet {
 					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
 						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
-				// Calculate fees
-				let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
-				let weight_fee = T::WeightToFee::weight_to_fee(&weight);
-				let volume_fee_perbill = Perbill::from_rational(1u32, 1000u32);
-				let volume_fee = volume_fee_perbill * exit_balance;
-				let total_fee = weight_fee.saturating_add(volume_fee);
+				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
+				processed_accounts.push((exit_account, exit_balance));
+			}
 
-				// Native token transfer - mint tokens to the exit account
-				// Note: Aggregated proofs currently only support native tokens (asset_id = 0)
-				// TODO: Add asset support when the circuit includes asset_id in
-				// AggregatedPublicCircuitInputs
-				<T::Currency as Unbalanced<_>>::increase_balance(
-					&exit_account,
-					exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				)?;
+			// Check minimum against total aggregated amount
+			ensure!(
+				total_exit_amount >= T::MinimumTransferAmount::get(),
+				Error::<T>::TransferAmountBelowMinimum
+			);
 
-				// Withdraw fee from exit account if fees are non-zero
-				if !total_fee.is_zero() {
-					let _fee_imbalance = T::Currency::withdraw(
-						&exit_account,
-						total_fee,
-						WithdrawReasons::TRANSACTION_PAYMENT,
-						ExistenceRequirement::KeepAlive,
+			// Compute the total fee to mint to the block author
+			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
+			let fee_bps = T::VolumeFeeRateBps::get() as u128;
+			let total_exit_u128: u128 = total_exit_amount
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let total_fee_u128 = total_exit_u128
+				.saturating_mul(fee_bps)
+				.checked_div(10000u128.saturating_sub(fee_bps))
+				.unwrap_or(0);
+			let total_fee: BalanceOf<T> = total_fee_u128
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+			// Second pass: process transfers and record proofs
+			for (exit_account, exit_balance) in &processed_accounts {
+				// Handle native (asset_id = 0) or asset transfers
+				if asset_id == AssetIdOf::<T>::default() {
+					// Native token transfer - mint tokens to the exit account
+					<T::Currency as Unbalanced<_>>::increase_balance(
+						exit_account,
+						*exit_balance,
+						frame_support::traits::tokens::Precision::Exact,
+					)?;
+				} else {
+					// Asset transfer
+					let asset_balance: AssetBalanceOf<T> = (*exit_balance).into();
+					<T::Assets as FungiblesMutate<_>>::mint_into(
+						asset_id.clone(),
+						exit_account,
+						asset_balance,
 					)?;
 				}
 
@@ -541,12 +607,29 @@ pub mod pallet {
 				Self::record_transfer(
 					asset_id.clone(),
 					mint_account.clone().into(),
-					exit_account.into(),
-					exit_balance,
+					exit_account.clone().into(),
+					*exit_balance,
 				)?;
 
 				// Emit event for each exit account
-				Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
+				Self::deposit_event(Event::ProofVerified { exit_amount: *exit_balance });
+			}
+
+			// Mint volume fee to block author
+			if !total_fee.is_zero() {
+				if let Some(author) = frame_system::Pallet::<T>::digest()
+					.logs
+					.iter()
+					.find_map(|item| item.as_pre_runtime())
+					.and_then(|(_, data)| {
+						<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
+					}) {
+					<T::Currency as Unbalanced<_>>::increase_balance(
+						&author,
+						total_fee,
+						frame_support::traits::tokens::Precision::Exact,
+					)?;
+				}
 			}
 
 			Ok(())
