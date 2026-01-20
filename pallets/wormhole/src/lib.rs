@@ -179,7 +179,8 @@ pub mod pallet {
 	/// Transfer count for all wormhole transfers
 	#[pallet::storage]
 	#[pallet::getter(fn transfer_count)]
-	pub type TransferCount<T: Config> = StorageValue<_, T::TransferCount, ValueQuery>;
+	pub type TransferCount<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::WormholeAccountId, T::TransferCount, ValueQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -602,12 +603,12 @@ pub mod pallet {
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
-			let current_count = TransferCount::<T>::get();
+			let current_count = TransferCount::<T>::get(&to);
 			TransferProof::<T>::insert(
 				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
 				(),
 			);
-			TransferCount::<T>::put(current_count.saturating_add(T::TransferCount::one()));
+			TransferCount::<T>::insert(&to, current_count.saturating_add(T::TransferCount::one()));
 
 			if asset_id == AssetIdOf::<T>::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {
