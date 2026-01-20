@@ -88,9 +88,12 @@ mod tests {
 		pub fn build(self) -> sp_io::TestExternalities {
 			let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
-			pallet_balances::GenesisConfig::<Runtime> { balances: self.balances }
-				.assimilate_storage(&mut t)
-				.unwrap();
+			pallet_balances::GenesisConfig::<Runtime> {
+				balances: self.balances,
+				dev_accounts: None,
+			}
+			.assimilate_storage(&mut t)
+			.unwrap();
 
 			// Pallet Treasury genesis (optional, as we fund it manually)
 			// If your pallet_treasury::GenesisConfig needs setup, do it here.

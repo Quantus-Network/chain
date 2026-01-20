@@ -19,14 +19,15 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig, UNIT,
+	configs::TreasuryPalletId, AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig,
+	SudoConfig, EXISTENTIAL_DEPOSIT, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Zero};
 
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
@@ -54,16 +55,27 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 }
 // Returns the genesis config presets populated with given parameters.
 fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
-	let mut balances =
-		endowed_accounts.iter().cloned().map(|k| (k, 1u128 << 60)).collect::<Vec<_>>();
+	let mut balances = endowed_accounts
+		.iter()
+		.cloned()
+		.map(|k| (k, 100_000 * UNIT))
+		.collect::<Vec<_>>();
 
-	const ONE_BILLION: u128 = 1_000_000_000;
+	const INITIAL_TREASURY: u128 = 21_000_000 * 30 * UNIT / 100; // 30% tokens go to investors
 	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, ONE_BILLION * UNIT));
+	balances.push((treasury_account, INITIAL_TREASURY));
 
 	let config = RuntimeGenesisConfig {
-		balances: BalancesConfig { balances },
+		balances: BalancesConfig { balances, dev_accounts: None },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		assets: AssetsConfig {
+			// We need to initialize and reserve the first asset id for the native token transfers
+			// with wormhole.
+			assets: vec![(Zero::zero(), root.clone(), false, EXISTENTIAL_DEPOSIT)], /* (asset_id,
+			                                                                         * owner, is_sufficient,
+			                                                                         * min_balance) */
+			..Default::default()
+		},
 		..Default::default()
 	};
 
