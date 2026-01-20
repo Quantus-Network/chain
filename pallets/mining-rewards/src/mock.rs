@@ -11,7 +11,7 @@ use sp_runtime::{
 	app_crypto::sp_core,
 	testing::H256,
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage, DigestItem,
+	BuildStorage, DigestItem, Permill,
 };
 
 // Configure a mock runtime to test the pallet
@@ -186,8 +186,6 @@ pub fn set_miner_digest(miner_account: sp_core::crypto::AccountId32) {
 // Helper function to create a block digest with a specific preimage
 pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
 	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, preimage.to_vec());
-	let digest = Digest { logs: vec![pre_digest] };
-
 	System::deposit_log(pre_digest);
 }
 

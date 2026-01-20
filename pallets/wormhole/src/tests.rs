@@ -246,7 +246,7 @@ mod wormhole_tests {
 
 			assert_ok!(Balances::mint_into(&alice, amount * 2));
 
-			let count_before = Wormhole::transfer_count();
+			let count_before = Wormhole::transfer_count(&bob);
 			assert_ok!(Wormhole::transfer_native(
 				frame_system::RawOrigin::Signed(alice.clone()).into(),
 				bob.clone(),
@@ -255,7 +255,7 @@ mod wormhole_tests {
 
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
-			assert_eq!(Wormhole::transfer_count(), count_before + 1);
+			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
 			assert!(Wormhole::transfer_proof((0u32, count_before, alice, bob, amount)).is_some());
 		});
 	}
@@ -302,7 +302,7 @@ mod wormhole_tests {
 				amount * 2,
 			));
 
-			let count_before = Wormhole::transfer_count();
+			let count_before = Wormhole::transfer_count(&bob);
 			assert_ok!(Wormhole::transfer_asset(
 				frame_system::RawOrigin::Signed(alice.clone()).into(),
 				asset_id,
@@ -312,7 +312,7 @@ mod wormhole_tests {
 
 			assert_eq!(Assets::balance(asset_id, &alice), amount);
 			assert_eq!(Assets::balance(asset_id, &bob), amount);
-			assert_eq!(Wormhole::transfer_count(), count_before + 1);
+			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
 			assert!(
 				Wormhole::transfer_proof((asset_id, count_before, alice, bob, amount)).is_some()
 			);

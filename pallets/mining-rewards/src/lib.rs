@@ -27,7 +27,6 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_poseidon::PoseidonHasher;
-	use qp_wormhole::TransferProofs;
 	use qp_wormhole::TransferProofRecorder;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{
