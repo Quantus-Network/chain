@@ -93,6 +93,7 @@ pub mod pallet {
 			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 			ValidTransaction,
 		},
+		Permill,
 	};
 
 	pub type BalanceOf<T> =
@@ -154,6 +155,11 @@ pub mod pallet {
 		/// This must match the fee rate used in proof generation.
 		#[pallet::constant]
 		type VolumeFeeRateBps: Get<u32>;
+
+		/// Proportion of volume fees to burn (not mint). The remainder goes to the block author.
+		/// Example: Permill::from_percent(50) means 50% burned, 50% to miner.
+		#[pallet::constant]
+		type VolumeFeesBurnRate: Get<Permill>;
 
 		/// Weight information for pallet operations.
 		type WeightInfo: WeightInfo;
@@ -321,15 +327,30 @@ pub mod pallet {
 				Error::<T>::TransferAmountBelowMinimum
 			);
 
-			// Compute the fee to mint to the block author
+			// Compute the total fee that was deducted from input to get output
 			// fee = output_amount * volume_fee_bps / (10000 - volume_fee_bps)
 			let fee_bps = T::VolumeFeeRateBps::get() as u128;
 			let fee_u128 = exit_balance_u128
 				.saturating_mul(fee_bps)
 				.checked_div(10000u128.saturating_sub(fee_bps))
 				.unwrap_or(0);
-			let total_fee: BalanceOf<T> =
-				fee_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
+			// Fee distribution: configurable portion burned, remainder to miner
+			// burn_rate determines what proportion is burned (reduces total issuance)
+			let burn_rate = T::VolumeFeesBurnRate::get();
+			let burn_amount_u128 = burn_rate * fee_u128;
+			let miner_fee_u128 = fee_u128.saturating_sub(burn_amount_u128);
+			let miner_fee: BalanceOf<T> =
+				miner_fee_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
+			let burn_amount: BalanceOf<T> =
+				burn_amount_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
+			// Burn the burned portion by reducing total issuance
+			// This offsets the supply increase from minting exit_balance + miner_fee
+			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
+			if !burn_amount.is_zero() {
+				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
+			}
 
 			// Handle native (asset_id = 0) or asset transfers
 			if asset_id == AssetIdOf::<T>::default() {
@@ -342,8 +363,9 @@ pub mod pallet {
 					frame_support::traits::tokens::Precision::Exact,
 				)?;
 
-				// Mint volume fee to block author
-				if !total_fee.is_zero() {
+				// Mint miner's portion of volume fee to block author
+				// The remaining portion (fee - miner_fee) is not minted, effectively burned
+				if !miner_fee.is_zero() {
 					if let Some(author) = frame_system::Pallet::<T>::digest()
 						.logs
 						.iter()
@@ -353,7 +375,7 @@ pub mod pallet {
 						}) {
 						<T::Currency as Unbalanced<_>>::increase_balance(
 							&author,
-							total_fee,
+							miner_fee,
 							frame_support::traits::tokens::Precision::Exact,
 						)?;
 					}
@@ -367,8 +389,9 @@ pub mod pallet {
 					asset_balance,
 				)?;
 
-				// Mint volume fee to block author (fee is in native currency)
-				if !total_fee.is_zero() {
+				// Mint miner's portion of volume fee to block author (fee is in native currency)
+				// The remaining portion (fee - miner_fee) is not minted, effectively burned
+				if !miner_fee.is_zero() {
 					if let Some(author) = frame_system::Pallet::<T>::digest()
 						.logs
 						.iter()
@@ -378,7 +401,7 @@ pub mod pallet {
 						}) {
 						<T::Currency as Unbalanced<_>>::increase_balance(
 							&author,
-							total_fee,
+							miner_fee,
 							frame_support::traits::tokens::Precision::Exact,
 						)?;
 					}
@@ -569,8 +592,9 @@ pub mod pallet {
 				Error::<T>::TransferAmountBelowMinimum
 			);
 
-			// Compute the total fee to mint to the block author
+			// Compute the total fee from the input amounts
 			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
+			// This is the fee that was deducted from input to get output.
 			let fee_bps = T::VolumeFeeRateBps::get() as u128;
 			let total_exit_u128: u128 = total_exit_amount
 				.try_into()
@@ -582,6 +606,37 @@ pub mod pallet {
 			let total_fee: BalanceOf<T> = total_fee_u128
 				.try_into()
 				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+			// Fee distribution: configurable portion burned, remainder to miner
+			//
+			// Original deposit locked `input_amount` in an unspendable account (tokens still exist).
+			// On exit we mint `output_amount` to user, where: input = output + fee
+			//
+			// Fee split (controlled by VolumeFeesBurnRate):
+			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
+			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
+			//
+			// Supply accounting:
+			//   - Minting exit amounts: increases total issuance by sum(output_amounts)
+			//   - Minting miner fee: increases balance but NOT issuance (increase_balance)
+			//   - Burning: decreases total issuance by burn_amount
+			//   - Net change: +sum(output_amounts) - burn_amount
+			let burn_rate = T::VolumeFeesBurnRate::get();
+			let burn_amount_u128 = burn_rate * total_fee_u128;
+			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+			let miner_fee: BalanceOf<T> = miner_fee_u128
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let burn_amount: BalanceOf<T> = burn_amount_u128
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+			// Burn the burned portion by reducing total issuance
+			// This offsets the supply increase from minting exit amounts + miner_fee
+			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
+			if !burn_amount.is_zero() {
+				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
+			}
 
 			// Second pass: process transfers and record proofs
 			for (exit_account, exit_balance) in &processed_accounts {
@@ -615,8 +670,9 @@ pub mod pallet {
 				Self::deposit_event(Event::ProofVerified { exit_amount: *exit_balance });
 			}
 
-			// Mint volume fee to block author
-			if !total_fee.is_zero() {
+			// Mint miner's portion of volume fee to block author
+			// The remaining portion (fee - miner_fee) is not minted, effectively burned
+			if !miner_fee.is_zero() {
 				if let Some(author) = frame_system::Pallet::<T>::digest()
 					.logs
 					.iter()
@@ -626,7 +682,7 @@ pub mod pallet {
 					}) {
 					<T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
-						total_fee,
+						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
 					)?;
 				}

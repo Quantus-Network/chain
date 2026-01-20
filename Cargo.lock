@@ -9077,8 +9077,8 @@ version = "0.1.0"
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "0.1.7"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
+version = "0.1.8"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#e5cd5d36544afe233dcc22312e65530a310263f7"
 dependencies = [
  "anyhow",
  "hex",
@@ -9088,8 +9088,8 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "0.1.7"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
+version = "0.1.8"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#e5cd5d36544afe233dcc22312e65530a310263f7"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9099,8 +9099,8 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "0.1.7"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
+version = "0.1.8"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#e5cd5d36544afe233dcc22312e65530a310263f7"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9110,8 +9110,8 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "0.1.7"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
+version = "0.1.8"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#e5cd5d36544afe233dcc22312e65530a310263f7"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9121,8 +9121,8 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "0.1.7"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=feat%2Fu32_funding_amount#507d2dcefd5fd7d87d42a57b49b8bd7e40200a0e"
+version = "0.1.8"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#e5cd5d36544afe233dcc22312e65530a310263f7"
 dependencies = [
  "anyhow",
  "hex",

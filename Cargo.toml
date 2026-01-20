@@ -156,11 +156,11 @@ qp-poseidon-core = { version = "1.0.7", package = "qp-poseidon-core", default-fe
 ] }
 qp-rusty-crystals-dilithium = { version = "2.0.0", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "1.0.0" }
-qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-circuit", branch = "feat/u32_funding_amount", default-features = false }
-qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-circuit-builder", branch = "feat/u32_funding_amount", default-features = false }
-qp-wormhole-prover = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-prover", branch = "feat/u32_funding_amount", default-features = false }
-qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-verifier", branch = "feat/u32_funding_amount", default-features = false }
-qp-zk-circuits-common = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-zk-circuits-common", branch = "feat/u32_funding_amount", default-features = false }
+qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "illuzen/agg-fees", default-features = false }
+qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "illuzen/agg-fees", default-features = false }
+qp-wormhole-prover = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "illuzen/agg-fees", default-features = false }
+qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "illuzen/agg-fees", default-features = false }
+qp-zk-circuits-common = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "illuzen/agg-fees", default-features = false }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "41.0.0", default-features = false }

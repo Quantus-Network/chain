@@ -6,6 +6,7 @@ use frame_support::{
 use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
+use sp_runtime::Permill;
 use sp_runtime::{traits::IdentityLookup, BuildStorage};
 
 construct_runtime!(
@@ -121,6 +122,8 @@ parameter_types! {
 	pub const MinimumTransferAmount: Balance = 100 * SCALE_DOWN_FACTOR;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
+	/// Proportion of volume fees to burn (50% burned, 50% to miner)
+	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
 }
 
 impl pallet_wormhole::Config for Test {
@@ -131,6 +134,7 @@ impl pallet_wormhole::Config for Test {
 	type MintingAccount = MintingAccount;
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
+	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;
 }
 

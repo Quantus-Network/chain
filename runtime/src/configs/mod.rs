@@ -638,12 +638,15 @@ parameter_types! {
 	pub const MinimumTransferAmount: Balance = 100 * pallet_wormhole::SCALE_DOWN_FACTOR;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
+	/// Proportion of volume fees to burn (50% burned, 50% to miner)
+	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
 }
 
 impl pallet_wormhole::Config for Runtime {
 	type MintingAccount = WormholeMintingAccount;
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
+	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WeightInfo = ();
 	type Currency = Balances;
 	type Assets = Assets;
