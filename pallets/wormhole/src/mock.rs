@@ -6,8 +6,7 @@ use frame_support::{
 use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
-use sp_runtime::Permill;
-use sp_runtime::{traits::IdentityLookup, BuildStorage};
+use sp_runtime::{traits::IdentityLookup, BuildStorage, Permill};
 
 construct_runtime!(
 	pub enum Test {

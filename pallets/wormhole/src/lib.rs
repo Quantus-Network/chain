@@ -303,7 +303,8 @@ pub mod pallet {
 				Error::<T>::InvalidVolumeFeeRate
 			);
 
-			// The output_amount is what the user receives after fee deduction (already enforced by circuit)
+			// The output_amount is what the user receives after fee deduction (already enforced by
+			// circuit)
 			let exit_balance_u128 =
 				(public_inputs.output_amount as u128).saturating_mul(crate::SCALE_DOWN_FACTOR);
 
@@ -609,8 +610,8 @@ pub mod pallet {
 
 			// Fee distribution: configurable portion burned, remainder to miner
 			//
-			// Original deposit locked `input_amount` in an unspendable account (tokens still exist).
-			// On exit we mint `output_amount` to user, where: input = output + fee
+			// Original deposit locked `input_amount` in an unspendable account (tokens still
+			// exist). On exit we mint `output_amount` to user, where: input = output + fee
 			//
 			// Fee split (controlled by VolumeFeesBurnRate):
 			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
