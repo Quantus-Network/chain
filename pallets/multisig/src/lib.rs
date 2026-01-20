@@ -45,8 +45,10 @@ pub struct MultisigData<BlockNumber, AccountId, BoundedSigners> {
 	pub signers: BoundedSigners,
 	/// Number of approvals required to execute a transaction
 	pub threshold: u32,
-	/// Global unique identifier for this multisig
+	/// Global unique identifier for this multisig (for address derivation)
 	pub nonce: u64,
+	/// Proposal counter for unique proposal hashes
+	pub proposal_nonce: u32,
 	/// Account that created this multisig
 	pub creator: AccountId,
 	/// Last block when this multisig was used
@@ -63,6 +65,7 @@ impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default> Default
 			signers: Default::default(),
 			threshold: 1,
 			nonce: 0,
+			proposal_nonce: 0,
 			creator: Default::default(),
 			last_activity: Default::default(),
 			active_proposals: 0,
@@ -397,6 +400,7 @@ pub mod pallet {
 					signers: bounded_signers.clone(),
 					threshold,
 					nonce,
+					proposal_nonce: 0,
 					creator: creator.clone(),
 					last_activity: current_block,
 					active_proposals: 0,
@@ -491,10 +495,22 @@ pub mod pallet {
 			let bounded_call: BoundedCallOf<T> =
 				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
 
-			// Calculate proposal hash
-			let proposal_hash = T::Hashing::hash_of(&bounded_call);
+			// Get and increment proposal nonce for unique hash
+			let proposal_nonce = Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+				if let Some(multisig) = maybe_multisig {
+					let nonce = multisig.proposal_nonce;
+					multisig.proposal_nonce = multisig.proposal_nonce.saturating_add(1);
+					nonce
+				} else {
+					0 // Should never happen due to earlier check
+				}
+			});
 
-			// Check if proposal already exists
+			// Calculate proposal hash including nonce for uniqueness
+			// This allows multiple proposals with the same call but different nonces
+			let proposal_hash = T::Hashing::hash_of(&(&bounded_call, proposal_nonce));
+
+			// Check if proposal already exists (should be impossible with nonce, but safety check)
 			ensure!(
 				!Proposals::<T>::contains_key(&multisig_address, proposal_hash),
 				Error::<T>::ProposalHasDeposit
@@ -802,6 +818,12 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Calculate proposal hash from call and proposal nonce
+		/// This ensures each proposal has a unique hash even if the call is identical
+		pub fn calculate_proposal_hash(call: &[u8], proposal_nonce: u32) -> T::Hash {
+			T::Hashing::hash_of(&(call, proposal_nonce))
+		}
+
 		/// Derive a multisig address from signers and nonce
 		pub fn derive_multisig_address(signers: &[T::AccountId], nonce: u64) -> T::AccountId {
 			// Create a unique identifier from pallet id + signers + nonce.

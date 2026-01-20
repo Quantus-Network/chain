@@ -31,6 +31,27 @@ fn make_call(remark: Vec<u8>) -> Vec<u8> {
 	call.encode()
 }
 
+/// Helper function to calculate proposal hash for testing
+/// Note: This calculates hash for the LAST proposal (uses current proposal_nonce - 1)
+/// because propose() increments nonce before calculating hash
+fn calculate_last_proposal_hash(
+	multisig_address: u64,
+	call: &[u8],
+) -> <Test as frame_system::Config>::Hash {
+	let multisig = Multisigs::<Test>::get(multisig_address).expect("Multisig should exist");
+	// The last proposal used (proposal_nonce - 1) because propose() increments it
+	let nonce_used = multisig.proposal_nonce.saturating_sub(1);
+	Multisig::calculate_proposal_hash(call, nonce_used)
+}
+
+/// Helper function to calculate proposal hash for a specific nonce
+fn calculate_proposal_hash_with_nonce(
+	call: &[u8],
+	nonce: u32,
+) -> <Test as frame_system::Config>::Hash {
+	Multisig::calculate_proposal_hash(call, nonce)
+}
+
 // ==================== MULTISIG CREATION TESTS ====================
 
 #[test]
@@ -194,7 +215,7 @@ fn propose_works() {
 		);
 
 		// Check event
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 		System::assert_last_event(
 			Event::ProposalCreated { multisig_address, proposer, proposal_hash }.into(),
 		);
@@ -240,7 +261,7 @@ fn approve_works() {
 			1000
 		));
 
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
 		// Charlie approves (now 2/3)
 		assert_ok!(Multisig::approve(
@@ -284,7 +305,7 @@ fn approve_auto_executes_when_threshold_reached() {
 			1000
 		));
 
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
 		// Charlie approves - threshold reached (2/2)
 		assert_ok!(Multisig::approve(
@@ -337,7 +358,7 @@ fn cancel_works() {
 			1000
 		));
 
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
 		// Cancel the proposal
 		assert_ok!(Multisig::cancel(
@@ -379,7 +400,7 @@ fn cancel_fails_if_already_executed() {
 			1000
 		));
 
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
 		// Approve to execute
 		assert_ok!(Multisig::approve(
@@ -418,7 +439,7 @@ fn remove_expired_works_after_grace_period() {
 			expiry
 		));
 
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
 		// Move past expiry + grace period (100 blocks)
 		System::set_block_number(expiry + 101);
@@ -457,7 +478,7 @@ fn remove_expired_works_for_executed_proposal_after_grace_period() {
 			1000
 		));
 
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
 		// Execute
 		assert_ok!(Multisig::approve(
@@ -588,13 +609,14 @@ fn too_many_proposals_in_storage_fails() {
 		// Cycle 1: Create 10, execute all 10 (active=0, total=10 executed)
 		for i in 0..10 {
 			let call = make_call(vec![i as u8]);
-			let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 			assert_ok!(Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
-				call,
+				call.clone(),
 				1000
 			));
+			// Calculate hash after propose (uses incremented nonce)
+			let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 			// Immediately execute to keep active low
 			assert_ok!(Multisig::approve(
 				RuntimeOrigin::signed(charlie()),
@@ -623,7 +645,7 @@ fn too_many_proposals_in_storage_fails() {
 		// Try to create 21st proposal - should fail with TooManyProposalsInStorage
 		// Active check: 10 < 10 = false, but let's execute one first
 		let call = make_call(vec![10]);
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_proposal_hash_with_nonce(&call, 10);
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
@@ -665,7 +687,7 @@ fn total_proposals_counts_executed_and_cancelled() {
 		// Execute 5 of them (they become Executed status, still in storage)
 		for i in 0..5 {
 			let call = make_call(vec![i as u8]);
-			let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+			let proposal_hash = calculate_proposal_hash_with_nonce(&call, i);
 			// Auto-execute by reaching threshold
 			assert_ok!(Multisig::approve(
 				RuntimeOrigin::signed(charlie()),
@@ -677,7 +699,7 @@ fn total_proposals_counts_executed_and_cancelled() {
 		// Cancel 3 more (they become Cancelled status, still in storage)
 		for i in 5..8 {
 			let call = make_call(vec![i as u8]);
-			let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+			let proposal_hash = calculate_proposal_hash_with_nonce(&call, i);
 			assert_ok!(Multisig::cancel(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
@@ -702,7 +724,7 @@ fn total_proposals_counts_executed_and_cancelled() {
 
 		// Execute one to make room for active (now 9 active, 19 total)
 		let call = make_call(vec![8]);
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_proposal_hash_with_nonce(&call, 8);
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
@@ -716,7 +738,7 @@ fn total_proposals_counts_executed_and_cancelled() {
 		// Now: 10 Active (9,20-28) + 6 Executed (0-4,8) + 3 Cancelled (5-7) = 19 total
 		// Execute one more to free up active but keep total at 19
 		let call = make_call(vec![9]);
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_proposal_hash_with_nonce(&call, 9);
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
@@ -731,7 +753,7 @@ fn total_proposals_counts_executed_and_cancelled() {
 		// Now: 10 Active (20-28,31) + 7 Executed + 3 Cancelled = 20 total
 		// Execute one to make room for active check
 		let call = make_call(vec![20]);
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_proposal_hash_with_nonce(&call, 10);
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
@@ -774,7 +796,7 @@ fn cleanup_allows_new_proposals() {
 		// Execute first 5 to make room (no longer active, but still in storage)
 		for i in 0..5 {
 			let call = make_call(vec![i as u8]);
-			let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+			let proposal_hash = calculate_proposal_hash_with_nonce(&call, i);
 			assert_ok!(Multisig::approve(
 				RuntimeOrigin::signed(charlie()),
 				multisig_address,
@@ -789,13 +811,14 @@ fn cleanup_allows_new_proposals() {
 		// Create 10 more proposals (cycling execute to keep active low)
 		for i in 10..20 {
 			let call = make_call(vec![i as u8]);
-			let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 			assert_ok!(Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
-				call,
+				call.clone(),
 				200
 			));
+			// Calculate hash after propose
+			let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 			// Execute immediately if i < 15 to keep active count low
 			if i < 15 {
 				assert_ok!(Multisig::approve(
@@ -808,8 +831,9 @@ fn cleanup_allows_new_proposals() {
 
 		// Now: 5 Active(expired) + 5 Active(fresh) + 10 Executed = 20 total
 		// Active check: 10 < 10 = false, let's execute one
+		// vec![15] was created in for i in 10..20, it was 6th iteration (nonce=15)
 		let call = make_call(vec![15]);
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_proposal_hash_with_nonce(&call, 15);
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
@@ -827,7 +851,7 @@ fn cleanup_allows_new_proposals() {
 		// Cleanup the 5 expired ones
 		for i in 5..10 {
 			let call = make_call(vec![i as u8]);
-			let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+			let proposal_hash = calculate_proposal_hash_with_nonce(&call, i);
 			assert_ok!(Multisig::remove_expired(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
@@ -848,8 +872,9 @@ fn cleanup_allows_new_proposals() {
 
 		// Now: 9 Active + 11 Executed = 20 total (AT LIMIT)
 		// Execute one more to make room for active check
+		// vec![20] was created in for i in 20..25, first iteration (nonce=20)
 		let call = make_call(vec![20]);
-		let proposal_hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let proposal_hash = calculate_proposal_hash_with_nonce(&call, 20);
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
