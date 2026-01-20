@@ -594,6 +594,7 @@ impl pallet_multisig::Config for Runtime {
 	type ProposalDeposit = ProposalDeposit;
 	type ProposalFee = ProposalFee;
 	type SignerStepFactor = SignerStepFactorParam;
+	type TreasuryAccountId = TreasuryAccountId;
 	type MaxExpiryDuration = MaxExpiryDuration;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;

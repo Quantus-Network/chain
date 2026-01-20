@@ -48,8 +48,8 @@ Creates a new multisig account with deterministic address generation.
 - To create multiple multisigs with same signers, the nonce provides uniqueness
 
 **Economic Costs:**
-- **MultisigFee**: 100 MILLI_UNIT (non-refundable, burned immediately)
-- **MultisigDeposit**: 100 MILLI_UNIT (refundable after grace period when multisig becomes inactive)
+- **MultisigFee**: 100 MILLI_UNIT (non-refundable, sent to treasury)
+- **MultisigDeposit**: 100 MILLI_UNIT (refundable when multisig is dissolved)
 
 ### 2. Propose Transaction
 Creates a new proposal for multisig execution.
@@ -68,7 +68,7 @@ Creates a new proposal for multisig execution.
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
 **Economic Costs:**
-- **ProposalFee**: 1000 MILLI_UNIT (non-refundable, burned immediately)
+- **ProposalFee**: 1000 MILLI_UNIT (non-refundable, sent to treasury)
 - **ProposalDeposit**: 1000 MILLI_UNIT (refundable when proposal executed/cancelled/removed)
 
 **Important:** Fee is ALWAYS paid, even if proposal expires or is cancelled. Only deposit is refundable.
@@ -154,7 +154,7 @@ Batch cleanup operation to recover all eligible deposits.
 ## Economic Model
 
 ### Fees (Non-refundable)
-Burned immediately upon payment, never returned:
+Sent to treasury immediately upon payment, never returned:
 - **MultisigFee**: 100 MILLI_UNIT - paid on multisig creation
 - **ProposalFee**: 1000 MILLI_UNIT - paid on proposal creation
 
@@ -318,7 +318,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 ## Security Considerations
 
 ### Spam Prevention
-- Fees (non-refundable) prevent proposal spam
+- Fees (non-refundable, sent to treasury) prevent proposal spam
 - Deposits (refundable) prevent storage bloat
 - MaxActiveProposals limits per-multisig open proposals
 
@@ -328,8 +328,9 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - Batch cleanup via claim_deposits for efficiency
 
 ### Economic Attacks
-- Creating spam multisigs costs 100 MILLI_UNIT (burned)
-- Creating spam proposals costs 1000 MILLI_UNIT (burned) + 1000 MILLI_UNIT (locked)
+- Creating spam multisigs costs 100 MILLI_UNIT (sent to treasury)
+- Creating spam proposals costs 1000 MILLI_UNIT (sent to treasury) + 1000 MILLI_UNIT (locked)
+- Spam attempts generate protocol revenue
 - No limit on number of multisigs per user
 - No global limits - only per-multisig limits
 
