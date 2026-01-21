@@ -452,9 +452,9 @@ fn remove_expired_works_after_grace_period() {
 		// Move past expiry + grace period (100 blocks)
 		System::set_block_number(expiry + 101);
 
-		// Anyone can remove after grace period
+		// Any signer can remove after grace period (charlie is a signer)
 		assert_ok!(Multisig::remove_expired(
-			RuntimeOrigin::signed(dave()),
+			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
@@ -498,15 +498,59 @@ fn remove_expired_works_for_executed_proposal_after_grace_period() {
 		// Move past grace period from execution
 		System::set_block_number(102); // 1 (execution) + 100 (grace) + 1
 
-		// Remove executed proposal
+		// Remove executed proposal (charlie is a signer)
 		assert_ok!(Multisig::remove_expired(
-			RuntimeOrigin::signed(dave()),
+			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
 
 		// Deposit returned
 		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+#[test]
+fn remove_expired_fails_for_non_signer() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		let expiry = 1000;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			call.clone(),
+			expiry
+		));
+
+		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+
+		// Move past expiry
+		System::set_block_number(expiry + 1);
+
+		// Dave is not a signer, should fail
+		assert_noop!(
+			Multisig::remove_expired(
+				RuntimeOrigin::signed(dave()),
+				multisig_address,
+				proposal_hash
+			),
+			Error::<Test>::NotASigner
+		);
+
+		// But charlie (who is a signer) can do it
+		assert_ok!(Multisig::remove_expired(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address,
+			proposal_hash
+		));
 	});
 }
 

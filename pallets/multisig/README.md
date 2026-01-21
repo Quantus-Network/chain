@@ -48,8 +48,8 @@ Creates a new multisig account with deterministic address generation.
 - To create multiple multisigs with same signers, the nonce provides uniqueness
 
 **Economic Costs:**
-- **MultisigFee**: 100 MILLI_UNIT (non-refundable, sent to treasury)
-- **MultisigDeposit**: 100 MILLI_UNIT (refundable when multisig is dissolved)
+- **MultisigFee**: Non-refundable fee (spam prevention) → sent to treasury
+- **MultisigDeposit**: Refundable deposit (storage rent) → returned when multisig dissolved
 
 ### 2. Propose Transaction
 Creates a new proposal for multisig execution.
@@ -68,8 +68,8 @@ Creates a new proposal for multisig execution.
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
 **Economic Costs:**
-- **ProposalFee**: 1000 MILLI_UNIT (non-refundable, sent to treasury)
-- **ProposalDeposit**: 1000 MILLI_UNIT (refundable when proposal executed/cancelled/removed)
+- **ProposalFee**: Non-refundable fee (spam prevention, scaled by signer count) → sent to treasury
+- **ProposalDeposit**: Refundable deposit (storage rent) → returned when proposal removed
 
 **Important:** Fee is ALWAYS paid, even if proposal expires or is cancelled. Only deposit is refundable.
 
@@ -116,23 +116,25 @@ Cancels a proposal (proposer only).
 **Note:** ProposalFee is NOT refunded - it was burned at proposal creation.
 
 ### 5. Remove Expired
-Removes expired proposals from storage (cleanup mechanism).
+Removes expired proposals from storage (cleanup mechanism). Only signers can call this.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
 - `proposal_hash: Hash` - Hash of expired proposal (REQUIRED)
 
 **Validation:**
+- Caller must be a signer of the multisig
 - Proposal must exist
 - For Active proposals: must be expired (current_block > expiry)
 - For Executed/Cancelled proposals: can be removed anytime
-- Anyone can call this function
 
 **Economic Effects:**
-- ProposalDeposit returned to proposer
+- ProposalDeposit returned to **original proposer** (not caller)
 - Proposal removed from storage
 
 **Economic Costs:** None (deposit always returned to proposer)
+
+**Note:** This allows any signer to help cleanup storage, even if the proposer is inactive. The deposit always goes back to the proposer, preventing any incentive for malicious cleanup.
 
 ### 6. Claim Deposits
 Batch cleanup operation to recover all eligible deposits.
@@ -153,21 +155,70 @@ Batch cleanup operation to recover all eligible deposits.
 
 ## Economic Model
 
-### Fees (Non-refundable)
-Sent to treasury immediately upon payment, never returned:
-- **MultisigFee**: 100 MILLI_UNIT - paid on multisig creation
-- **ProposalFee**: 1000 MILLI_UNIT - paid on proposal creation
+### Fees (Non-refundable, sent to treasury)
+**Purpose:** Spam prevention and protocol revenue
 
-### Deposits (Refundable)
-Reserved and returned under specific conditions:
-- **ProposalDeposit**: 1000 MILLI_UNIT - returned when proposal is removed (via remove_expired or claim_deposits)
+- **MultisigFee**:
+  - Charged on multisig creation
+  - Sent immediately to treasury
+  - **Never returned** (even if multisig dissolved)
+  - Creates economic barrier to prevent spam multisig creation
+  
+- **ProposalFee**:
+  - Charged on proposal creation
+  - **Dynamically scaled** by signer count: `BaseFee × (1 + SignerCount × StepFactor)`
+  - Sent immediately to treasury
+  - **Never returned** (even if proposal expires or is cancelled)
+  - Makes spam expensive, scales cost with multisig complexity
+  
+**Why sent to treasury (not burned)?**
+- Provides sustainable protocol revenue
+- Spam attacks fund protocol development
+- Available for governance spending
 
-### Storage Limits
-- **MaxSigners**: 10 - Maximum signers per multisig
-- **MaxActiveProposals**: 100 - Maximum active (open) proposals per multisig at once
-- **MaxTotalProposalsInStorage**: 200 - Maximum total proposals in storage (Active + Executed + Cancelled). This prevents unbounded storage growth and incentivizes cleanup
-- **MaxCallSize**: 1024 bytes - Maximum encoded call size
-- **MaxExpiryDuration**: Maximum blocks in the future that a proposal can expire (e.g., 100,000 blocks ≈ 2 weeks at 12s blocks). Prevents locking deposits for extremely long periods
+### Deposits (Refundable, locked as storage rent)
+**Purpose:** Compensate for on-chain storage, incentivize cleanup
+
+- **MultisigDeposit**:
+  - Reserved on multisig creation
+  - Returned when multisig dissolved (via `dissolve_multisig`)
+  - Locked until no proposals exist and balance is zero
+  - Opportunity cost incentivizes cleanup
+  
+- **ProposalDeposit**:
+  - Reserved on proposal creation
+  - Returned when proposal removed (via `remove_expired` or `claim_deposits`)
+  - **Grace Period:** Not auto-returned on execution to enable:
+    - On-chain queryability for explorers
+    - Indexer processing time
+    - Audit trail availability
+  - Locked capital incentivizes active storage management
+
+### Storage Limits & Configuration
+**Purpose:** Prevent unbounded storage growth and resource exhaustion
+
+- **MaxSigners**: Maximum signers per multisig
+  - Trade-off: Higher → more flexible governance, more computation per approval
+  
+- **MaxActiveProposals**: Maximum concurrent active proposals per multisig
+  - Trade-off: Lower → better spam protection, may limit legitimate use
+  - Prevents flooding attacks
+  
+- **MaxTotalProposalsInStorage**: Maximum total proposals (Active + Executed + Cancelled)
+  - Trade-off: Higher → more flexible, more storage risk
+  - Forces periodic cleanup to continue operating
+  - Recommend: 2× MaxActiveProposals
+  
+- **MaxCallSize**: Maximum encoded call size in bytes
+  - Trade-off: Larger → more flexibility, more storage per proposal
+  - Should accommodate common operations (transfers, staking, governance)
+  
+- **MaxExpiryDuration**: Maximum blocks in the future for proposal expiry
+  - Trade-off: Shorter → faster turnover, may not suit slow decision-making
+  - Prevents infinite-duration deposit locks
+  - Should exceed typical multisig decision timeframes
+
+**Configuration values are runtime-specific.** See runtime config for production values.
 
 ## Storage
 
@@ -328,11 +379,15 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - Batch cleanup via claim_deposits for efficiency
 
 ### Economic Attacks
-- Creating spam multisigs costs 100 MILLI_UNIT (sent to treasury)
-- Creating spam proposals costs 1000 MILLI_UNIT (sent to treasury) + 1000 MILLI_UNIT (locked)
-- Spam attempts generate protocol revenue
-- No limit on number of multisigs per user
-- No global limits - only per-multisig limits
+- **Multisig Spam:** Costs MultisigFee (sent to treasury)
+  - No refund even if never used
+  - Economic barrier to creation spam
+- **Proposal Spam:** Costs ProposalFee (sent to treasury) + ProposalDeposit (locked)
+  - Fee never returned (even if expired/cancelled)
+  - Deposit locked until cleanup
+  - Cost scales with multisig size (dynamic pricing)
+- **Result:** Spam attempts generate protocol revenue
+- **No global limits:** Only per-multisig limits (decentralized resistance)
 
 ### Call Execution
 - Calls execute with multisig_address as origin
@@ -342,24 +397,38 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 
 ## Configuration Example
 
+
 ```rust
 impl pallet_multisig::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
-    type MaxSigners = ConstU32<100>;
-    type MaxActiveProposals = ConstU32<100>;
-    type MaxTotalProposalsInStorage = ConstU32<200>;
-    type MaxCallSize = ConstU32<10240>;
-    type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;
-    type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>;
-    type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;
-    type SignerStepFactor = Permill::from_percent(1);
-    type MaxExpiryDuration = ConstU32<100_800>; // ~2 weeks at 12s blocks
+    type TreasuryAccountId = TreasuryAccountId;  // Where fees are sent
+    
+    // Storage limits (prevent unbounded growth)
+    type MaxSigners = ConstU32<100>;                    // Max complexity
+    type MaxActiveProposals = ConstU32<100>;            // Spam protection
+    type MaxTotalProposalsInStorage = ConstU32<200>;    // Total cap (recommend: 2× active)
+    type MaxCallSize = ConstU32<10240>;                 // Per-proposal storage limit
+    type MaxExpiryDuration = ConstU32<100_800>;         // Max proposal lifetime (~2 weeks @ 12s)
+    
+    // Economic parameters (example values - adjust per runtime)
+    type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;      // Creation barrier
+    type MultisigDeposit = ConstU128<{ 500 * MILLI_UNIT }>;  // Storage rent
+    type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;     // Base proposal cost
+    type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>; // Cleanup incentive
+    type SignerStepFactor = Permill::from_percent(1);        // Dynamic pricing (1% per signer)
+    
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 }
 ```
 
+**Parameter Selection Considerations:**
+- **High-value chains:** Lower fees, higher deposits, tighter limits
+- **Low-value chains:** Higher fees (maintain spam protection), lower deposits
+- **Enterprise use:** Higher MaxSigners, longer MaxExpiryDuration
+- **Public use:** Moderate limits, shorter expiry for faster turnover
+
 ## License
 
-Apache-2.0
+MIT-0

@@ -731,14 +731,15 @@ pub mod pallet {
 
 		/// Remove a proposal and return deposit to proposer
 		///
-		/// Can be called to clean up proposals that are:
+		/// Can only be called by signers of the multisig.
+		///
+		/// Can be used to clean up proposals that are:
 		/// - Active and expired (past expiry block)
 		/// - Executed (status changed to Executed)
 		/// - Cancelled (status changed to Cancelled)
 		///
-		/// Grace period protection:
-		/// - Within grace period: only proposer can remove
-		/// - After grace period: anyone can remove (deposit still returned to proposer)
+		/// The deposit is always returned to the original proposer, not the caller.
+		/// This allows signers to help clean up storage even if proposer is inactive.
 		///
 		/// This enforces storage cleanup - users must remove old proposals to recover deposits.
 		#[pallet::call_index(4)]
@@ -749,6 +750,11 @@ pub mod pallet {
 			proposal_hash: T::Hash,
 		) -> DispatchResult {
 			let caller = ensure_signed(origin)?;
+
+			// Verify caller is a signer
+			let multisig_data =
+				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+			ensure!(multisig_data.signers.contains(&caller), Error::<T>::NotASigner);
 
 			// Get proposal
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
