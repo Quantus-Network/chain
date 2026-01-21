@@ -54,6 +54,7 @@ pub trait WeightInfo {
 	fn cancel(c: u32, ) -> Weight;
 	fn remove_expired() -> Weight;
 	fn claim_deposits() -> Weight;
+	fn dissolve_multisig() -> Weight;
 }
 
 /// Weights for `pallet_multisig` using the Substrate node and recommended hardware.
@@ -166,6 +167,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
+	/// Storage: `Multisig::Multisigs` (r:1 w:1)
+	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3322), added: 5797, mode: `MaxEncodedLen`)
+	fn dissolve_multisig() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `500`
+		//  Estimated: `6787`
+		// Minimum execution time: 15_000_000 picoseconds.
+		Weight::from_parts(18_000_000, 6787)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -276,5 +288,16 @@ impl WeightInfo for () {
 		Weight::from_parts(79_000_000, 97398)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
+	}
+	/// Storage: `Multisig::Multisigs` (r:1 w:1)
+	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(3322), added: 5797, mode: `MaxEncodedLen`)
+	fn dissolve_multisig() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `500`
+		//  Estimated: `6787`
+		// Minimum execution time: 15_000_000 picoseconds.
+		Weight::from_parts(18_000_000, 6787)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 }
