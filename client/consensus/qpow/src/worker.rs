@@ -272,29 +272,25 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 		}
 
 		// Check for block imports first - these always trigger immediately
-		loop {
-			match Stream::poll_next(Pin::new(&mut self.import_notifications), cx) {
-				Poll::Pending => break,
-				Poll::Ready(Some(_)) => {
+		if let Poll::Ready(notification) =
+			Stream::poll_next(Pin::new(&mut self.import_notifications), cx)
+		{
+			match notification {
+				Some(_) => {
 					// Block import resets pending state since we'll build fresh
 					self.has_pending_tx = false;
 					self.rate_limit_delay = None;
 					debug!(target: LOG_TARGET, "Block imported, triggering rebuild");
 					return Poll::Ready(Some(RebuildTrigger::BlockImported));
 				},
-				Poll::Ready(None) => return Poll::Ready(None),
+				None => return Poll::Ready(None),
 			}
 		}
 
 		// Drain all pending transaction notifications
-		loop {
-			match Stream::poll_next(Pin::new(&mut self.tx_notifications), cx) {
-				Poll::Pending => break,
-				Poll::Ready(Some(_)) => {
-					self.has_pending_tx = true;
-				},
-				Poll::Ready(None) => break,
-			}
+		while let Poll::Ready(Some(_)) = Stream::poll_next(Pin::new(&mut self.tx_notifications), cx)
+		{
+			self.has_pending_tx = true;
 		}
 
 		// If we have pending transactions, check rate limit

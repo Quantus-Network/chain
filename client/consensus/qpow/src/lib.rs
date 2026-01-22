@@ -296,12 +296,13 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) =>
+		Some(DigestItem::Seal(id, seal)) => {
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			},
+			}
+		},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -404,15 +405,9 @@ where
 
 	let task = async move {
 		// Main block building loop - runs until trigger stream closes
-		loop {
-			// Wait for a trigger (Initial, BlockImported, or NewTransactions)
-			// break exits the loop entirely, ending this task
-			// continue skips to the next iteration to wait for another trigger
-			let trigger = match trigger_stream.next().await {
-				Some(t) => t,
-				None => break, // Stream closed, shut down the worker
-			};
-
+		// Wait for a trigger (Initial, BlockImported, or NewTransactions)
+		// continue skips to the next iteration to wait for another trigger
+		while let Some(trigger) = trigger_stream.next().await {
 			if sync_oracle.is_major_syncing() {
 				debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
 				worker.on_major_syncing();
@@ -544,8 +539,9 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<R
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) =>
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
+		BlockId::Number(_) => {
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
+		},
 	}
 }
 
