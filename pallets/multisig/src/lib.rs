@@ -510,6 +510,55 @@ pub mod pallet {
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
+			// Auto-cleanup expired proposals before creating new one
+			// This ensures storage is managed proactively during normal operation
+			let current_block = frame_system::Pallet::<T>::block_number();
+			let expired_proposals: Vec<(T::Hash, T::AccountId, BalanceOf<T>)> =
+				Proposals::<T>::iter_prefix(&multisig_address)
+					.filter_map(|(hash, proposal)| {
+						if proposal.status == ProposalStatus::Active &&
+							current_block > proposal.expiry
+						{
+							Some((hash, proposal.proposer, proposal.deposit))
+						} else {
+							None
+						}
+					})
+					.collect();
+
+			// Remove expired proposals and return deposits
+			for (hash, expired_proposer, deposit) in expired_proposals.iter() {
+				Proposals::<T>::remove(&multisig_address, hash);
+				T::Currency::unreserve(expired_proposer, *deposit);
+
+				// Decrement counters
+				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+					if let Some(multisig) = maybe_multisig {
+						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+
+						if let Some(count) = multisig.proposals_per_signer.get_mut(expired_proposer)
+						{
+							*count = count.saturating_sub(1);
+							if *count == 0 {
+								multisig.proposals_per_signer.remove(expired_proposer);
+							}
+						}
+					}
+				});
+
+				// Emit event for each removed proposal
+				Self::deposit_event(Event::ProposalRemoved {
+					multisig_address: multisig_address.clone(),
+					proposal_hash: *hash,
+					proposer: expired_proposer.clone(),
+					removed_by: proposer.clone(),
+				});
+			}
+
+			// Reload multisig data after potential cleanup
+			let multisig_data =
+				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
@@ -544,7 +593,6 @@ pub mod pallet {
 			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
 
 			// Validate expiry is in the future
-			let current_block = frame_system::Pallet::<T>::block_number();
 			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
 
 			// Validate expiry is not too far in the future
@@ -731,7 +779,7 @@ pub mod pallet {
 			let canceller = ensure_signed(origin)?;
 
 			// Get proposal
-			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
+			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
 			// Check if caller is the proposer
@@ -740,16 +788,24 @@ pub mod pallet {
 			// Check if proposal is still active
 			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
 
-			// Mark as cancelled (deposit stays locked until removal)
-			proposal.status = ProposalStatus::Cancelled;
+			// Remove proposal from storage immediately
+			Proposals::<T>::remove(&multisig_address, proposal_hash);
 
-			// Update proposal in storage
-			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());
+			// Return deposit to proposer immediately
+			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
 
-			// Decrement active proposals counter
+			// Decrement counters
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
 					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+
+					// Decrement per-signer counter
+					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
+						*count = count.saturating_sub(1);
+						if *count == 0 {
+							multisig.proposals_per_signer.remove(&proposal.proposer);
+						}
+					}
 				}
 			});
 
@@ -763,19 +819,14 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Remove a proposal and return deposit to proposer
+		/// Remove expired proposals and return deposits to proposers
 		///
 		/// Can only be called by signers of the multisig.
-		///
-		/// Can be used to clean up proposals that are:
-		/// - Active and expired (past expiry block)
-		/// - Executed (status changed to Executed)
-		/// - Cancelled (status changed to Cancelled)
+		/// Only removes Active proposals that have expired (past expiry block).
+		/// Executed and Cancelled proposals are automatically cleaned up immediately.
 		///
 		/// The deposit is always returned to the original proposer, not the caller.
-		/// This allows signers to help clean up storage even if proposer is inactive.
-		///
-		/// This enforces storage cleanup - users must remove old proposals to recover deposits.
+		/// This allows any signer to help clean up storage even if proposer is inactive.
 		#[pallet::call_index(4)]
 		#[pallet::weight(<T as Config>::WeightInfo::remove_expired())]
 		pub fn remove_expired(
@@ -794,21 +845,13 @@ pub mod pallet {
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_hash)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
+			// Only Active proposals can be manually removed (Executed/Cancelled already
+			// auto-removed)
+			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
+
+			// Check if expired
 			let current_block = frame_system::Pallet::<T>::block_number();
-
-			// Determine if proposal can be removed
-			let can_remove = match proposal.status {
-				ProposalStatus::Active => {
-					// Active proposals can be removed only if expired
-					current_block > proposal.expiry
-				},
-				ProposalStatus::Executed | ProposalStatus::Cancelled => {
-					// Executed/Cancelled proposals can always be removed
-					true
-				},
-			};
-
-			ensure!(can_remove, Error::<T>::ProposalNotExpired);
+			ensure!(current_block > proposal.expiry, Error::<T>::ProposalNotExpired);
 
 			// Return deposit to proposer
 			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
@@ -819,15 +862,11 @@ pub mod pallet {
 			// Decrement counters
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
-					// Decrement active proposals counter ONLY if it was still active
-					if proposal.status == ProposalStatus::Active {
-						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-					}
+					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
 
-					// Always decrement per-signer counter (counts all proposals in storage)
+					// Decrement per-signer counter
 					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
 						*count = count.saturating_sub(1);
-						// Remove entry if count reaches zero to save storage
 						if *count == 0 {
 							multisig.proposals_per_signer.remove(&proposal.proposer);
 						}
@@ -846,15 +885,16 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Claim all deposits from cancelled, executed, and expired proposals
+		/// Claim all deposits from expired proposals
 		///
-		/// This is a batch operation that removes all proposals where:
+		/// This is a batch operation that removes all expired proposals where:
 		/// - Caller is the proposer
-		/// - Proposal is Executed, Cancelled, or Active+Expired
-		/// - Grace period has elapsed since status changed
+		/// - Proposal is Active and past expiry block
+		///
+		/// Note: Executed and Cancelled proposals are automatically cleaned up immediately,
+		/// so only Active+Expired proposals need manual cleanup.
 		///
 		/// Returns all proposal deposits to the proposer in a single transaction.
-		/// This enforces storage cleanup - users must actively clean up to recover deposits.
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits())]
 		pub fn claim_deposits(
@@ -869,6 +909,7 @@ pub mod pallet {
 			let mut removed_count = 0u32;
 
 			// Iterate through all proposals for this multisig
+			// Only Active+Expired proposals exist (Executed/Cancelled are auto-removed)
 			let proposals_to_remove: Vec<(T::Hash, ProposalDataOf<T>)> =
 				Proposals::<T>::iter_prefix(&multisig_address)
 					.filter(|(_, proposal)| {
@@ -877,17 +918,9 @@ pub mod pallet {
 							return false;
 						}
 
-						// Check if proposal can be removed
-						match proposal.status {
-							ProposalStatus::Active => {
-								// Active proposals need to be expired
-								current_block > proposal.expiry
-							},
-							ProposalStatus::Executed | ProposalStatus::Cancelled => {
-								// Executed/Cancelled can always be removed
-								true
-							},
-						}
+						// Only Active proposals can exist (Executed/Cancelled auto-removed)
+						// Must be expired to remove
+						proposal.status == ProposalStatus::Active && current_block > proposal.expiry
 					})
 					.collect();
 
@@ -901,20 +934,16 @@ pub mod pallet {
 				Proposals::<T>::remove(&multisig_address, hash);
 				removed_count = removed_count.saturating_add(1);
 
-				// Decrement counters
+				// Decrement counters (all are Active since Executed/Cancelled auto-removed)
 				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 					if let Some(multisig) = maybe_multisig {
-						// Decrement active proposals counter ONLY if still active
-						if proposal.status == ProposalStatus::Active {
-							multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-						}
+						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
 
-						// Always decrement per-signer counter (counts all proposals in storage)
+						// Decrement per-signer counter
 						if let Some(count) =
 							multisig.proposals_per_signer.get_mut(&proposal.proposer)
 						{
 							*count = count.saturating_sub(1);
-							// Remove entry if count reaches zero to save storage
 							if *count == 0 {
 								multisig.proposals_per_signer.remove(&proposal.proposer);
 							}
@@ -1046,29 +1075,37 @@ pub mod pallet {
 		fn do_execute(
 			multisig_address: T::AccountId,
 			proposal_hash: T::Hash,
-			mut proposal: ProposalDataOf<T>,
+			proposal: ProposalDataOf<T>,
 		) -> DispatchResult {
 			// CHECKS: Decode the call (validation)
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Error::<T>::InvalidCall)?;
 
-			// EFFECTS: Mark as executed (deposit stays locked until removal)
-			// This MUST happen before call.dispatch() to prevent reentrancy
-			proposal.status = ProposalStatus::Executed;
+			// EFFECTS: Remove proposal from storage BEFORE external interaction (reentrancy
+			// protection)
+			Proposals::<T>::remove(&multisig_address, proposal_hash);
 
-			// EFFECTS: Update proposal in storage BEFORE external interaction
-			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal.clone());
+			// EFFECTS: Return deposit to proposer BEFORE external interaction
+			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
 
 			// EFFECTS: Update multisig counters BEFORE external interaction
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
 					multisig.last_activity = frame_system::Pallet::<T>::block_number();
 					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+
+					// Decrement per-signer counter
+					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
+						*count = count.saturating_sub(1);
+						if *count == 0 {
+							multisig.proposals_per_signer.remove(&proposal.proposer);
+						}
+					}
 				}
 			});
 
 			// INTERACTIONS: NOW execute the call as the multisig account
-			// Even if this call tries to re-enter, the proposal is already marked as Executed
+			// Proposal already removed, so reentrancy cannot affect storage
 			let result =
 				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
 

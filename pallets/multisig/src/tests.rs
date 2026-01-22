@@ -310,19 +310,18 @@ fn approve_auto_executes_when_threshold_reached() {
 
 		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
-		// Charlie approves - threshold reached (2/2)
+		// Charlie approves - threshold reached (2/2), auto-executes and removes
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
 
-		// Check that proposal was executed (status changed, but still in storage)
-		let proposal = crate::Proposals::<Test>::get(multisig_address, proposal_hash).unwrap();
-		assert_eq!(proposal.status, ProposalStatus::Executed);
+		// Check that proposal was executed and immediately removed from storage
+		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_hash).is_none());
 
-		// Deposit is still locked (not returned yet)
-		assert_eq!(Balances::reserved_balance(bob()), 100); // Still reserved
+		// Deposit should be returned immediately
+		assert_eq!(Balances::reserved_balance(bob()), 0); // No longer reserved
 
 		// Check event was emitted
 		System::assert_has_event(
@@ -363,19 +362,18 @@ fn cancel_works() {
 
 		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
-		// Cancel the proposal
+		// Cancel the proposal - immediately removes and returns deposit
 		assert_ok!(Multisig::cancel(
 			RuntimeOrigin::signed(proposer),
 			multisig_address,
 			proposal_hash
 		));
 
-		// Proposal should still exist but marked as cancelled
-		let proposal = crate::Proposals::<Test>::get(multisig_address, proposal_hash).unwrap();
-		assert_eq!(proposal.status, ProposalStatus::Cancelled);
+		// Proposal should be immediately removed from storage
+		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_hash).is_none());
 
-		// Deposit is still locked (not returned yet)
-		assert_eq!(Balances::reserved_balance(proposer), 100);
+		// Deposit should be returned immediately
+		assert_eq!(Balances::reserved_balance(proposer), 0);
 
 		// Check event
 		System::assert_last_event(
@@ -405,17 +403,17 @@ fn cancel_fails_if_already_executed() {
 
 		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
-		// Approve to execute
+		// Approve to execute (auto-executes and removes proposal)
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
 
-		// Try to cancel executed proposal
+		// Try to cancel executed proposal (already removed, so ProposalNotFound)
 		assert_noop!(
 			Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, proposal_hash),
-			Error::<Test>::ProposalNotActive
+			Error::<Test>::ProposalNotFound
 		);
 	});
 }
@@ -463,7 +461,7 @@ fn remove_expired_works_after_grace_period() {
 }
 
 #[test]
-fn remove_expired_works_for_executed_proposal_after_grace_period() {
+fn executed_proposals_auto_removed() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -483,25 +481,28 @@ fn remove_expired_works_for_executed_proposal_after_grace_period() {
 
 		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
 
-		// Execute
+		// Execute - should auto-remove proposal and return deposit
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
 			proposal_hash
 		));
 
-		// Move past grace period from execution
-		System::set_block_number(102); // 1 (execution) + 100 (grace) + 1
+		// Proposal should be immediately removed
+		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_hash).is_none());
 
-		// Remove executed proposal (charlie is a signer)
-		assert_ok!(Multisig::remove_expired(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address,
-			proposal_hash
-		));
-
-		// Deposit returned
+		// Deposit should be immediately returned
 		assert_eq!(Balances::reserved_balance(bob()), 0);
+
+		// Trying to remove again should fail (already removed)
+		assert_noop!(
+			Multisig::remove_expired(
+				RuntimeOrigin::signed(charlie()),
+				multisig_address,
+				proposal_hash
+			),
+			Error::<Test>::ProposalNotFound
+		);
 	});
 }
 
@@ -649,7 +650,8 @@ fn too_many_proposals_in_storage_fails() {
 		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
 
 		// MaxTotal = 20, 2 signers = 10 each
-		// Create 10 proposals from Bob and execute 5 to free active slots
+		// Executed/Cancelled proposals are auto-removed, so only Active count toward storage
+		// Create 10 active proposals from Bob
 		for i in 0..10 {
 			let call = make_call(vec![i as u8]);
 			assert_ok!(Multisig::propose(
@@ -658,18 +660,10 @@ fn too_many_proposals_in_storage_fails() {
 				call.clone(),
 				1000
 			));
-			if i < 5 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::approve(
-					RuntimeOrigin::signed(charlie()),
-					multisig_address,
-					hash
-				));
-			}
 		}
-		// Now Bob has 10 (5 active, 5 executed)
+		// Bob has 10 active = 10 total (at per-signer limit)
 
-		// Create 10 proposals from Charlie and execute 5
+		// Create 10 active proposals from Charlie
 		for i in 10..20 {
 			let call = make_call(vec![i as u8]);
 			assert_ok!(Multisig::propose(
@@ -678,19 +672,10 @@ fn too_many_proposals_in_storage_fails() {
 				call.clone(),
 				1000
 			));
-			if i < 15 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address, hash));
-			}
 		}
-		// Now: Total = 20 (10 Bob, 10 Charlie), Active = 10
+		// Charlie has 10 active = 10 total (at per-signer limit)
+		// Total: 20 active (AT LIMIT)
 
-		// Execute one to free active slot
-		let call = make_call(vec![5]);
-		let hash = calculate_proposal_hash_with_nonce(&call, 5);
-		assert_ok!(Multisig::approve(RuntimeOrigin::signed(charlie()), multisig_address, hash));
-
-		// Now: Total = 20, Active = 9
 		// Try to add 21st - should fail on total limit
 		let call = make_call(vec![99]);
 		assert_noop!(
@@ -701,7 +686,7 @@ fn too_many_proposals_in_storage_fails() {
 }
 
 #[test]
-fn total_proposals_counts_executed_and_cancelled() {
+fn only_active_proposals_remain_in_storage() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -710,10 +695,9 @@ fn total_proposals_counts_executed_and_cancelled() {
 		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
 		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
 
-		// Test that total storage counts ALL proposals (Active + Executed + Cancelled)
-		// Strategy: Keep active low by executing most, but fill total storage
+		// Test that only Active proposals remain in storage (Executed/Cancelled auto-removed)
 
-		// Bob creates 10 and executes 8, cancels 1 = 10 total, 1 active
+		// Bob creates 10, executes 5, cancels 1 - only 4 active remain
 		for i in 0..10 {
 			let call = make_call(vec![i as u8]);
 			assert_ok!(Multisig::propose(
@@ -723,62 +707,46 @@ fn total_proposals_counts_executed_and_cancelled() {
 				1000
 			));
 
-			if i < 8 {
-				// Execute first 8
+			if i < 5 {
 				let hash = calculate_last_proposal_hash(multisig_address, &call);
 				assert_ok!(Multisig::approve(
 					RuntimeOrigin::signed(charlie()),
 					multisig_address,
 					hash
 				));
-			} else if i == 8 {
-				// Cancel one
+			} else if i == 5 {
 				let hash = calculate_last_proposal_hash(multisig_address, &call);
 				assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, hash));
 			}
 		}
-		// Bob: 1 Active + 8 Executed + 1 Cancelled = 10 total
+		// Bob now has 4 Active in storage (i=6,7,8,9), 5 executed + 1 cancelled were removed
 
-		// Charlie creates 10, executes 8, cancels 1 = 10 total, 1 active
-		for i in 10..20 {
-			let call = make_call(vec![i as u8]);
+		// Bob can create 6 more to reach his per-signer limit (10)
+		for i in 10..16 {
 			assert_ok!(Multisig::propose(
-				RuntimeOrigin::signed(charlie()),
+				RuntimeOrigin::signed(bob()),
 				multisig_address,
-				call.clone(),
-				1000
+				make_call(vec![i]),
+				2000
 			));
-
-			if i < 18 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address, hash));
-			} else if i == 18 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::cancel(
-					RuntimeOrigin::signed(charlie()),
-					multisig_address,
-					hash
-				));
-			}
 		}
-		// Charlie: 1 Active + 8 Executed + 1 Cancelled = 10 total
-		// TOTAL: 2 Active + 16 Executed + 2 Cancelled = 20 (AT LIMIT)
+		// Bob: 10 Active (at per-signer limit)
 
-		// Try to add 21st - should fail with TooManyProposalsInStorage
+		// Bob cannot create 11th
 		assert_noop!(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
 				make_call(vec![99]),
-				2000
+				3000
 			),
-			Error::<Test>::TooManyProposalsInStorage
+			Error::<Test>::TooManyProposalsPerSigner
 		);
 	});
 }
 
 #[test]
-fn cleanup_allows_new_proposals() {
+fn auto_cleanup_allows_new_proposals() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -787,92 +755,42 @@ fn cleanup_allows_new_proposals() {
 		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(creator), signers.clone(), 2));
 		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
 
-		// Create 10 proposals from Bob (execute 8, leave 2 active), all expire at block 100
+		// Bob creates 10 proposals, all expire at block 100 (at per-signer limit)
 		for i in 0..10 {
-			let call = make_call(vec![i as u8]);
 			assert_ok!(Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
-				call.clone(),
+				make_call(vec![i]),
 				100
 			));
-			if i < 8 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::approve(
-					RuntimeOrigin::signed(charlie()),
-					multisig_address,
-					hash
-				));
-			}
 		}
-		// Bob: 2 Active + 8 Executed = 10 total
+		// Bob: 10 Active (at per-signer limit)
 
-		// Create 10 proposals from Charlie (execute 8, leave 2 active)
-		for i in 10..20 {
-			let call = make_call(vec![i as u8]);
-			assert_ok!(Multisig::propose(
-				RuntimeOrigin::signed(charlie()),
-				multisig_address,
-				call.clone(),
-				100
-			));
-			if i < 18 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address, hash));
-			}
-		}
-		// Charlie: 2 Active + 8 Executed = 10 total
-		// TOTAL: 4 Active + 16 Executed = 20 (AT LIMIT)
-
-		// Try to add 21st - should fail
+		// Bob cannot create more (at limit)
 		assert_noop!(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
 				make_call(vec![99]),
-				100
+				200
 			),
-			Error::<Test>::TooManyProposalsInStorage
+			Error::<Test>::TooManyProposalsPerSigner
 		);
 
-		// Move past expiry + grace period
+		// Move past expiry
 		System::set_block_number(101);
 
-		// Remove Bob's 2 expired active proposals (8-9)
-		for i in 8..10 {
-			let call = make_call(vec![i as u8]);
-			let hash = calculate_proposal_hash_with_nonce(&call, i);
-			assert_ok!(Multisig::remove_expired(
-				RuntimeOrigin::signed(bob()),
-				multisig_address,
-				hash
-			));
-		}
-		// Bob: 0 Active + 8 Executed = 8 total
-		// TOTAL: 2 Active + 16 Executed = 18
+		// Now Bob can create new - propose() auto-cleans expired
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address,
+			make_call(vec![99]),
+			200
+		));
 
-		// Now Bob can add 2 more (his per-signer limit is 10)
-		for i in 20..22 {
-			assert_ok!(Multisig::propose(
-				RuntimeOrigin::signed(bob()),
-				multisig_address,
-				make_call(vec![i]),
-				200
-			));
-		}
-		// Bob: 2 Active + 8 Executed = 10 total
-		// TOTAL: 4 Active + 16 Executed = 20 (AT LIMIT again)
-
-		// Try to add 21st - should still fail
-		assert_noop!(
-			Multisig::propose(
-				RuntimeOrigin::signed(charlie()),
-				multisig_address,
-				make_call(vec![98]),
-				200
-			),
-			Error::<Test>::TooManyProposalsInStorage
-		);
+		// Verify old proposals were removed
+		let count = crate::Proposals::<Test>::iter_prefix(multisig_address).count();
+		assert_eq!(count, 1); // Only the new one remains
 	});
 }
 
@@ -1044,43 +962,35 @@ fn per_signer_proposal_limit_enforced() {
 
 		// MaxActiveProposals = 10, MaxTotalProposalsInStorage = 20
 		// With 2 signers, each can have max 20/2 = 10 proposals
+		// Only Active proposals count (Executed/Cancelled auto-removed)
 
-		// Bob creates 10 proposals
+		// Bob creates 10 active proposals (at per-signer limit)
 		for i in 0..10 {
-			let call = make_call(vec![i as u8]);
 			assert_ok!(Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address,
-				call.clone(),
+				make_call(vec![i]),
 				1000
 			));
-
-			// Execute first 5 to stay under active limit
-			if i < 5 {
-				let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::approve(
-					RuntimeOrigin::signed(charlie()),
-					multisig_address,
-					proposal_hash
-				));
-			}
 		}
 
-		// Now: 5 Active + 5 Executed = 10 total for Bob
-		// Bob tries to create 11th - should fail with TooManyProposalsPerSigner
-		let call = make_call(vec![99]);
+		// Bob at limit - tries to create 11th
 		assert_noop!(
-			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address, call, 1000),
+			Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address,
+				make_call(vec![99]),
+				2000
+			),
 			Error::<Test>::TooManyProposalsPerSigner
 		);
 
-		// But Charlie can still create (hasn't hit his limit)
-		let call = make_call(vec![100]);
+		// But Charlie can still create (independent limit)
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			call,
-			1000
+			make_call(vec![100]),
+			2000
 		));
 	});
 }

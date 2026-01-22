@@ -76,7 +76,7 @@ Creates a new proposal for multisig execution.
 
 ### 3. Approve Transaction
 Adds caller's approval to an existing proposal. **If this approval brings the total approvals 
-to or above the threshold, the transaction will be automatically executed.**
+to or above the threshold, the transaction will be automatically executed and immediately removed from storage.**
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -91,14 +91,14 @@ to or above the threshold, the transaction will be automatically executed.**
 **Auto-Execution:**
 When approval count reaches the threshold:
 - Encoded call is executed as multisig_address origin
-- ProposalDeposit returned to proposer
-- Proposal removed from storage
+- Proposal **immediately removed** from storage
+- ProposalDeposit **immediately returned** to proposer
 - TransactionExecuted event emitted with execution result
 
-**Economic Costs:** None (only transaction fees, deposit returned on execution)
+**Economic Costs:** None (deposit immediately returned on execution)
 
 ### 4. Cancel Transaction
-Cancels a proposal (proposer only).
+Cancels a proposal and immediately removes it from storage (proposer only).
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -106,18 +106,21 @@ Cancels a proposal (proposer only).
 
 **Validation:**
 - Caller must be the proposer
-- Proposal must exist
+- Proposal must exist and be Active
 
 **Economic Effects:**
-- ProposalDeposit returned to proposer
-- Proposal removed from storage
+- Proposal **immediately removed** from storage
+- ProposalDeposit **immediately returned** to proposer
+- Counters decremented
 
-**Economic Costs:** None (deposit returned)
+**Economic Costs:** None (deposit immediately returned)
 
 **Note:** ProposalFee is NOT refunded - it was burned at proposal creation.
 
 ### 5. Remove Expired
-Removes expired proposals from storage (cleanup mechanism). Only signers can call this.
+Manually removes expired proposals from storage. Only signers can call this.
+
+**Important:** This is rarely needed because expired proposals are automatically cleaned up when anyone creates a new proposal in the same multisig.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -125,34 +128,41 @@ Removes expired proposals from storage (cleanup mechanism). Only signers can cal
 
 **Validation:**
 - Caller must be a signer of the multisig
-- Proposal must exist
-- For Active proposals: must be expired (current_block > expiry)
-- For Executed/Cancelled proposals: can be removed anytime
+- Proposal must exist and be Active
+- Must be expired (current_block > expiry)
+
+**Note:** Executed/Cancelled proposals are automatically removed immediately, so this only applies to Active+Expired proposals.
 
 **Economic Effects:**
 - ProposalDeposit returned to **original proposer** (not caller)
 - Proposal removed from storage
+- Counters decremented
 
 **Economic Costs:** None (deposit always returned to proposer)
 
-**Note:** This allows any signer to help cleanup storage, even if the proposer is inactive. The deposit always goes back to the proposer, preventing any incentive for malicious cleanup.
+**Auto-Cleanup:** When anyone calls `propose()`, all expired proposals are automatically removed first, making this function often unnecessary.
 
 ### 6. Claim Deposits
-Batch cleanup operation to recover all eligible deposits.
+Batch cleanup operation to recover all expired proposal deposits.
+
+**Important:** This is rarely needed because expired proposals are automatically cleaned up when anyone creates a new proposal in the same multisig.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
 
 **Validation:**
 - Only cleans proposals where caller is proposer
-- For Active proposals: must be expired (current_block > expiry)
-- For Executed/Cancelled proposals: can always be removed
+- Only removes Active+Expired proposals (Executed/Cancelled already auto-removed)
+- Must be expired (current_block > expiry)
 
 **Economic Effects:**
 - Returns all eligible proposal deposits to caller
-- Removes all eligible proposals from storage
+- Removes all expired proposals from storage
+- Counters decremented
 
 **Economic Costs:** None (only returns deposits)
+
+**Auto-Cleanup:** When anyone calls `propose()`, all expired proposals are automatically removed first, making this function often unnecessary.
 
 ## Economic Model
 
@@ -189,12 +199,13 @@ Batch cleanup operation to recover all eligible deposits.
   
 - **ProposalDeposit**:
   - Reserved on proposal creation
-  - Returned when proposal removed (via `remove_expired` or `claim_deposits`)
-  - **Grace Period:** Not auto-returned on execution to enable:
-    - On-chain queryability for explorers
-    - Indexer processing time
-    - Audit trail availability
-  - Locked capital incentivizes active storage management
+  - **Auto-Returned Immediately:**
+    - When proposal executed (threshold reached)
+    - When proposal cancelled (proposer cancels)
+  - **Manual Cleanup Required:**
+    - Expired proposals: Must be manually removed OR auto-cleaned on next `propose()`
+  - **Auto-Cleanup:** When anyone creates new proposal, all expired proposals cleaned automatically
+  - No grace period needed - executed/cancelled proposals auto-removed
 
 ### Storage Limits & Configuration
 **Purpose:** Prevent unbounded storage growth and resource exhaustion
