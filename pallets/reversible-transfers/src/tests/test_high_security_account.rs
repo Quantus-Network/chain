@@ -3,6 +3,7 @@ use crate::tests::{
 	test_reversible_transfers::{calculate_tx_id, transfer_call},
 };
 use frame_support::assert_ok;
+use pallet_balances::TotalIssuance;
 
 // NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
 // external pallets (Recovery/Proxy). They are covered by integration tests in runtime.
@@ -13,12 +14,11 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 		let hs_user = alice(); // reversible from genesis with interceptor=2
 		let guardian = bob();
 		let dest = charlie();
-		let treasury = treasury();
 		let amount = 10_000u128; // Use larger amount so volume fee is visible
 
 		// Record initial balances
 		let initial_guardian_balance = Balances::free_balance(&guardian);
-		let initial_treasury_balance = Balances::free_balance(&treasury);
+		let initial_total_issuance = TotalIssuance::<Test>::get();
 
 		// Compute tx_id BEFORE scheduling (matches pallet logic using current GlobalNonce)
 		let call = transfer_call(dest.clone(), amount);
@@ -36,7 +36,7 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 
 		// Verify volume fee was applied for high-security account
-		// Expected fee: 10,000 * 100 / 10,000 = 100 tokens
+		// Expected fee: 10,000 * 1% = 100 tokens
 		let expected_fee = 100;
 		let expected_remaining = amount - expected_fee;
 
@@ -47,11 +47,11 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 			"Guardian should receive remaining amount after volume fee deduction"
 		);
 
-		// Check that treasury received the fee
+		// Check that fee was burned (total issuance decreased)
 		assert_eq!(
-			Balances::free_balance(&treasury),
-			initial_treasury_balance + expected_fee,
-			"Treasury should receive volume fee from high-security account cancellation"
+			TotalIssuance::<Test>::get(),
+			initial_total_issuance - expected_fee,
+			"Volume fee should be burned from total issuance"
 		);
 	});
 }
