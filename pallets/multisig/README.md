@@ -64,6 +64,7 @@ Creates a new proposal for multisig execution.
 - Call size must be ≤ MaxCallSize
 - Multisig cannot have MaxActiveProposals or more open proposals
 - Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
+- Caller cannot exceed their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - Expiry must be in the future (expiry > current_block)
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
@@ -209,6 +210,10 @@ Batch cleanup operation to recover all eligible deposits.
   - Trade-off: Higher → more flexible, more storage risk
   - Forces periodic cleanup to continue operating
   - Recommend: 2× MaxActiveProposals
+  - **Per-Signer Limit**: Each signer gets `MaxTotalProposalsInStorage / signers_count` quota
+    - Prevents single signer from monopolizing storage (filibuster protection)
+    - Fair allocation ensures all signers can participate
+    - Example: 20 total, 5 signers → 4 proposals max per signer
   
 - **MaxCallSize**: Maximum encoded call size in bytes
   - Trade-off: Larger → more flexibility, more storage per proposal
@@ -227,13 +232,14 @@ Batch cleanup operation to recover all eligible deposits.
 Stores multisig account data:
 ```rust
 MultisigData {
-    signers: BoundedVec<AccountId>,    // List of authorized signers
-    threshold: u32,                     // Required approvals
-    nonce: u64,                         // Unique identifier used in address generation
-    deposit: Balance,                   // Reserved deposit (refundable)
-    creator: AccountId,                 // Who created it (receives deposit back)
-    last_activity: BlockNumber,         // Last action timestamp (for grace period)
-    active_proposals: u32,              // Count of open proposals (for MaxActiveProposals check)
+    signers: BoundedVec<AccountId>,                        // List of authorized signers
+    threshold: u32,                                         // Required approvals
+    nonce: u64,                                             // Unique identifier used in address generation
+    deposit: Balance,                                       // Reserved deposit (refundable)
+    creator: AccountId,                                     // Who created it (receives deposit back)
+    last_activity: BlockNumber,                             // Last action timestamp (for grace period)
+    active_proposals: u32,                                  // Count of open proposals (for MaxActiveProposals check)
+    proposals_per_signer: BoundedBTreeMap<AccountId, u32>,  // Per-signer proposal count (filibuster protection)
 }
 ```
 
@@ -301,6 +307,7 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyActiveProposals` - Multisig has MaxActiveProposals open proposals
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
+- `TooManyProposalsPerSigner` - Caller has reached their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
 - `ProposalNotActive` - Proposal is not active (already executed or cancelled)
 
@@ -373,6 +380,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - Fees (non-refundable, burned) prevent proposal spam
 - Deposits (refundable) prevent storage bloat
 - MaxActiveProposals limits per-multisig open proposals
+- Per-signer limits prevent single signer from monopolizing storage (filibuster protection)
 
 ### Storage Cleanup
 - Grace period allows proposers priority cleanup
@@ -387,7 +395,12 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
   - Fee never returned (even if expired/cancelled)
   - Deposit locked until cleanup
   - Cost scales with multisig size (dynamic pricing)
-- **Result:** Spam attempts generate protocol revenue
+- **Filibuster Attack (Single Signer Monopolization):**
+  - **Attack:** One signer tries to fill entire proposal queue
+  - **Defense:** Per-signer limit caps each at `MaxTotalProposalsInStorage / signers_count`
+  - **Effect:** Other signers retain their fair quota
+  - **Cost:** Attacker still pays fees for their proposals (burned)
+- **Result:** Spam attempts reduce circulating supply
 - **No global limits:** Only per-multisig limits (decentralized resistance)
 
 ### Call Execution

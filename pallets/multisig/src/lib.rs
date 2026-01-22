@@ -34,13 +34,14 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{traits::Get, BoundedVec};
+use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct MultisigData<BlockNumber, AccountId, BoundedSigners, Balance> {
+pub struct MultisigData<BlockNumber, AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
+{
 	/// List of signers who can approve transactions
 	pub signers: BoundedSigners,
 	/// Number of approvals required to execute a transaction
@@ -57,10 +58,18 @@ pub struct MultisigData<BlockNumber, AccountId, BoundedSigners, Balance> {
 	pub last_activity: BlockNumber,
 	/// Number of currently active (non-executed/non-cancelled) proposals
 	pub active_proposals: u32,
+	/// Counter of proposals in storage per signer (for filibuster protection)
+	pub proposals_per_signer: BoundedProposalsPerSigner,
 }
 
-impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default, Balance: Default> Default
-	for MultisigData<BlockNumber, AccountId, BoundedSigners, Balance>
+impl<
+		BlockNumber: Default,
+		AccountId: Default,
+		BoundedSigners: Default,
+		Balance: Default,
+		BoundedProposalsPerSigner: Default,
+	> Default
+	for MultisigData<BlockNumber, AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
 {
 	fn default() -> Self {
 		Self {
@@ -72,6 +81,7 @@ impl<BlockNumber: Default, AccountId: Default, BoundedSigners: Default, Balance:
 			deposit: Default::default(),
 			last_activity: Default::default(),
 			active_proposals: 0,
+			proposals_per_signer: Default::default(),
 		}
 	}
 }
@@ -210,12 +220,17 @@ pub mod pallet {
 	/// Type alias for bounded call data
 	pub type BoundedCallOf<T> = BoundedVec<u8, <T as Config>::MaxCallSize>;
 
+	/// Type alias for bounded proposals per signer map
+	pub type BoundedProposalsPerSignerOf<T> =
+		BoundedBTreeMap<<T as frame_system::Config>::AccountId, u32, <T as Config>::MaxSigners>;
+
 	/// Type alias for MultisigData with proper bounds
 	pub type MultisigDataOf<T> = MultisigData<
 		BlockNumberFor<T>,
 		<T as frame_system::Config>::AccountId,
 		BoundedSignersOf<T>,
 		BalanceOf<T>,
+		BoundedProposalsPerSignerOf<T>,
 	>;
 
 	/// Type alias for ProposalData with proper bounds
@@ -354,6 +369,8 @@ pub mod pallet {
 		TooManyActiveProposals,
 		/// Too many total proposals in storage for this multisig (cleanup required)
 		TooManyProposalsInStorage,
+		/// This signer has too many proposals in storage (filibuster protection)
+		TooManyProposalsPerSigner,
 		/// Insufficient balance for deposit
 		InsufficientBalance,
 		/// Proposal has active deposit
@@ -449,6 +466,7 @@ pub mod pallet {
 					deposit,
 					last_activity: current_block,
 					active_proposals: 0,
+					proposals_per_signer: Default::default(),
 				},
 			);
 
@@ -492,6 +510,9 @@ pub mod pallet {
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
+			// Get signers count (used for multiple checks below)
+			let signers_count = multisig_data.signers.len() as u32;
+
 			// Check active proposals limit
 			ensure!(
 				multisig_data.active_proposals < T::MaxActiveProposals::get(),
@@ -507,6 +528,18 @@ pub mod pallet {
 				Error::<T>::TooManyProposalsInStorage
 			);
 
+			// Check per-signer proposal limit (filibuster protection)
+			// Each signer can have at most (MaxTotal / NumSigners) proposals in storage
+			// This prevents a single signer from monopolizing the proposal queue
+			// Use saturating_div to handle edge cases (division by 0, etc.) and ensure at least 1
+			let max_per_signer = T::MaxTotalProposalsInStorage::get()
+				.checked_div(signers_count)
+				.unwrap_or(1) // If division fails (shouldn't happen), allow at least 1
+				.max(1); // Ensure minimum of 1 proposal per signer
+			let proposer_count =
+				multisig_data.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
+			ensure!(proposer_count < max_per_signer, Error::<T>::TooManyProposalsPerSigner);
+
 			// Check call size
 			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
 
@@ -521,7 +554,6 @@ pub mod pallet {
 			// Calculate dynamic fee based on number of signers
 			// Fee = Base + (Base * SignerCount * StepFactor)
 			let base_fee = T::ProposalFee::get();
-			let signers_count = multisig_data.signers.len() as u32;
 			let step_factor = T::SignerStepFactor::get();
 
 			// Calculate extra fee: (Base * Factor) * Count
@@ -592,10 +624,17 @@ pub mod pallet {
 			// Store proposal
 			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal);
 
-			// Increment active proposals counter
+			// Increment active proposals counter and per-signer counter
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
 					multisig.active_proposals = multisig.active_proposals.saturating_add(1);
+
+					// Update per-signer counter for filibuster protection
+					let current_count =
+						multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
+					let _ = multisig
+						.proposals_per_signer
+						.try_insert(proposer.clone(), current_count.saturating_add(1));
 				}
 			});
 
@@ -777,14 +816,24 @@ pub mod pallet {
 			// Remove proposal from storage
 			Proposals::<T>::remove(&multisig_address, proposal_hash);
 
-			// Decrement active proposals counter ONLY if it was still active
-			if proposal.status == ProposalStatus::Active {
-				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-					if let Some(multisig) = maybe_multisig {
+			// Decrement counters
+			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+				if let Some(multisig) = maybe_multisig {
+					// Decrement active proposals counter ONLY if it was still active
+					if proposal.status == ProposalStatus::Active {
 						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
 					}
-				});
-			}
+
+					// Always decrement per-signer counter (counts all proposals in storage)
+					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
+						*count = count.saturating_sub(1);
+						// Remove entry if count reaches zero to save storage
+						if *count == 0 {
+							multisig.proposals_per_signer.remove(&proposal.proposer);
+						}
+					}
+				}
+			});
 
 			// Emit event
 			Self::deposit_event(Event::ProposalRemoved {
@@ -852,14 +901,26 @@ pub mod pallet {
 				Proposals::<T>::remove(&multisig_address, hash);
 				removed_count = removed_count.saturating_add(1);
 
-				// Decrement active proposals counter ONLY if still active
-				if proposal.status == ProposalStatus::Active {
-					Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-						if let Some(multisig) = maybe_multisig {
+				// Decrement counters
+				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
+					if let Some(multisig) = maybe_multisig {
+						// Decrement active proposals counter ONLY if still active
+						if proposal.status == ProposalStatus::Active {
 							multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
 						}
-					});
-				}
+
+						// Always decrement per-signer counter (counts all proposals in storage)
+						if let Some(count) =
+							multisig.proposals_per_signer.get_mut(&proposal.proposer)
+						{
+							*count = count.saturating_sub(1);
+							// Remove entry if count reaches zero to save storage
+							if *count == 0 {
+								multisig.proposals_per_signer.remove(&proposal.proposer);
+							}
+						}
+					}
+				});
 
 				// Emit event for each removed proposal
 				Self::deposit_event(Event::ProposalRemoved {
