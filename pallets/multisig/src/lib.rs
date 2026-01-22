@@ -186,11 +186,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
 
-		/// Treasury account ID where fees are sent.
-		/// Fees (MultisigFee and ProposalFee) are transferred to this account
-		/// instead of being burned, providing revenue for the protocol.
-		type TreasuryAccountId: Get<Self::AccountId>;
-
 		/// Maximum duration (in blocks) that a proposal can be set to expire in the future.
 		/// This prevents proposals from being created with extremely far expiry dates
 		/// that would lock deposits and bloat storage for extended periods.
@@ -421,12 +416,12 @@ pub mod pallet {
 				Error::<T>::MultisigAlreadyExists
 			);
 
-			// Charge non-refundable fee (sent to treasury)
+			// Charge non-refundable fee (burned)
 			let fee = T::MultisigFee::get();
-			T::Currency::transfer(
+			let _ = T::Currency::withdraw(
 				&creator,
-				&T::TreasuryAccountId::get(),
 				fee,
+				frame_support::traits::WithdrawReasons::FEE,
 				frame_support::traits::ExistenceRequirement::KeepAlive,
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;
@@ -535,11 +530,11 @@ pub mod pallet {
 			let total_increase = fee_increase_per_signer.saturating_mul(signers_count.into());
 			let fee = base_fee.saturating_add(total_increase);
 
-			// Charge non-refundable fee (sent to treasury)
-			T::Currency::transfer(
+			// Charge non-refundable fee (burned)
+			let _ = T::Currency::withdraw(
 				&proposer,
-				&T::TreasuryAccountId::get(),
 				fee,
+				frame_support::traits::WithdrawReasons::FEE,
 				frame_support::traits::ExistenceRequirement::KeepAlive,
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;

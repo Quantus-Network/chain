@@ -76,11 +76,9 @@ fn create_multisig_works() {
 		));
 
 		// Check balances
-		// Deposit is reserved, fee is sent to treasury
+		// Deposit is reserved, fee is burned
 		assert_eq!(Balances::reserved_balance(creator), deposit);
 		assert_eq!(Balances::free_balance(creator), initial_balance - fee - deposit);
-		// Verify fee went to treasury (starts with 1 for ExistentialDeposit)
-		assert_eq!(Balances::free_balance(999), 1 + fee); // 999 is TreasuryAccountParam
 
 		// Check that multisig was created
 		let global_nonce = GlobalNonce::<Test>::get();
@@ -217,10 +215,7 @@ fn propose_works() {
 			Balances::free_balance(proposer),
 			initial_balance - proposal_deposit - proposal_fee
 		);
-		// Verify fee went to treasury
-		// Treasury balance = 1 (ExistentialDeposit) + 1000 (MultisigFee from creation) + 1020
-		// (ProposalFee)
-		assert_eq!(Balances::free_balance(999), 1 + 1000 + proposal_fee); // 999 is TreasuryAccountParam
+		// Fee is burned (reduces total issuance)
 
 		// Check event
 		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
@@ -1032,7 +1027,6 @@ fn propose_charges_correct_fee_with_signer_factor() {
 		let proposer = bob();
 		let call = make_call(vec![1, 2, 3]);
 		let initial_balance = Balances::free_balance(proposer);
-		let treasury_initial = Balances::free_balance(999); // Treasury starts with multisig creation fee
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(proposer),
@@ -1049,8 +1043,7 @@ fn propose_charges_correct_fee_with_signer_factor() {
 		let deposit = 100; // ProposalDepositParam
 
 		assert_eq!(Balances::free_balance(proposer), initial_balance - deposit - expected_fee);
-		// Verify fee went to treasury
-		assert_eq!(Balances::free_balance(999), treasury_initial + expected_fee);
+		// Fee is burned (reduces total issuance)
 	});
 }
 

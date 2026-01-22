@@ -48,7 +48,7 @@ Creates a new multisig account with deterministic address generation.
 - To create multiple multisigs with same signers, the nonce provides uniqueness
 
 **Economic Costs:**
-- **MultisigFee**: Non-refundable fee (spam prevention) → sent to treasury
+- **MultisigFee**: Non-refundable fee (spam prevention) → burned
 - **MultisigDeposit**: Refundable deposit (storage rent) → returned when multisig dissolved
 
 ### 2. Propose Transaction
@@ -68,7 +68,7 @@ Creates a new proposal for multisig execution.
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
 **Economic Costs:**
-- **ProposalFee**: Non-refundable fee (spam prevention, scaled by signer count) → sent to treasury
+- **ProposalFee**: Non-refundable fee (spam prevention, scaled by signer count) → burned
 - **ProposalDeposit**: Refundable deposit (storage rent) → returned when proposal removed
 
 **Important:** Fee is ALWAYS paid, even if proposal expires or is cancelled. Only deposit is refundable.
@@ -155,26 +155,27 @@ Batch cleanup operation to recover all eligible deposits.
 
 ## Economic Model
 
-### Fees (Non-refundable, sent to treasury)
-**Purpose:** Spam prevention and protocol revenue
+### Fees (Non-refundable, burned)
+**Purpose:** Spam prevention and deflationary pressure
 
 - **MultisigFee**:
   - Charged on multisig creation
-  - Sent immediately to treasury
+  - Burned immediately (reduces total supply)
   - **Never returned** (even if multisig dissolved)
   - Creates economic barrier to prevent spam multisig creation
   
 - **ProposalFee**:
   - Charged on proposal creation
   - **Dynamically scaled** by signer count: `BaseFee × (1 + SignerCount × StepFactor)`
-  - Sent immediately to treasury
+  - Burned immediately (reduces total supply)
   - **Never returned** (even if proposal expires or is cancelled)
   - Makes spam expensive, scales cost with multisig complexity
   
-**Why sent to treasury (not burned)?**
-- Provides sustainable protocol revenue
-- Spam attacks fund protocol development
-- Available for governance spending
+**Why burned (not sent to treasury)?**
+- Creates deflationary pressure on token supply
+- Simpler implementation (no treasury dependency)
+- Spam attacks reduce circulating supply
+- Lower transaction costs (withdraw vs transfer)
 
 ### Deposits (Refundable, locked as storage rent)
 **Purpose:** Compensate for on-chain storage, incentivize cleanup
@@ -369,7 +370,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 ## Security Considerations
 
 ### Spam Prevention
-- Fees (non-refundable, sent to treasury) prevent proposal spam
+- Fees (non-refundable, burned) prevent proposal spam
 - Deposits (refundable) prevent storage bloat
 - MaxActiveProposals limits per-multisig open proposals
 
@@ -379,10 +380,10 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - Batch cleanup via claim_deposits for efficiency
 
 ### Economic Attacks
-- **Multisig Spam:** Costs MultisigFee (sent to treasury)
+- **Multisig Spam:** Costs MultisigFee (burned, reduces supply)
   - No refund even if never used
   - Economic barrier to creation spam
-- **Proposal Spam:** Costs ProposalFee (sent to treasury) + ProposalDeposit (locked)
+- **Proposal Spam:** Costs ProposalFee (burned, reduces supply) + ProposalDeposit (locked)
   - Fee never returned (even if expired/cancelled)
   - Deposit locked until cleanup
   - Cost scales with multisig size (dynamic pricing)
@@ -402,7 +403,6 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 impl pallet_multisig::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
-    type TreasuryAccountId = TreasuryAccountId;  // Where fees are sent
     
     // Storage limits (prevent unbounded growth)
     type MaxSigners = ConstU32<100>;                    // Max complexity

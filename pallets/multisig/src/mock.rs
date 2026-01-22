@@ -97,7 +97,6 @@ parameter_types! {
 	pub const ProposalFeeParam: Balance = 1000; // Non-refundable fee
 	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000); // 1%
 	pub const MaxExpiryDurationParam: u64 = 10000; // 10000 blocks for testing (enough for all test scenarios)
-	pub TreasuryAccountParam: u64 = 999; // Treasury account for tests
 }
 
 impl pallet_multisig::Config for Test {
@@ -112,7 +111,6 @@ impl pallet_multisig::Config for Test {
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
 	type SignerStepFactor = SignerStepFactorParam;
-	type TreasuryAccountId = TreasuryAccountParam;
 	type MaxExpiryDuration = MaxExpiryDurationParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
@@ -129,7 +127,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(3, 300000), // Charlie
 			(4, 400000), // Dave
 			(5, 500000), // Eve
-			(999, 1),    // Treasury (fees will be sent here, needs ExistentialDeposit)
 		],
 	}
 	.assimilate_storage(&mut t)
