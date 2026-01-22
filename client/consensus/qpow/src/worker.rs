@@ -225,16 +225,14 @@ pub struct UntilImportedOrTransaction<Block: BlockT, TxHash> {
 	tx_notifications: Pin<Box<dyn Stream<Item = TxHash> + Send>>,
 	/// Minimum interval between transaction-triggered rebuilds.
 	min_rebuild_interval: Duration,
-	/// Last time we triggered a rebuild due to transactions.
-	last_tx_rebuild: Option<Instant>,
-	/// Number of transactions accumulated since last rebuild.
-	pending_tx_count: usize,
-	/// Minimum number of transactions required to trigger a rebuild.
-	min_txs_for_rebuild: usize,
 	/// Rate limit delay - if set, we're waiting before we can fire again.
 	rate_limit_delay: Option<Delay>,
 	/// Whether we've fired the initial trigger yet.
 	initial_fired: bool,
+	/// Number of transactions accumulated since last rebuild.
+	pending_tx_count: usize,
+	/// Minimum number of transactions required to trigger a rebuild.
+	min_txs_for_rebuild: usize,
 }
 
 impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
@@ -261,11 +259,10 @@ impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
 			import_notifications,
 			tx_notifications: Box::pin(tx_notifications),
 			min_rebuild_interval,
-			last_tx_rebuild: None,
-			pending_tx_count: 0,
-			min_txs_for_rebuild,
 			rate_limit_delay: None,
 			initial_fired: false,
+			pending_tx_count: 0,
+			min_txs_for_rebuild,
 		}
 	}
 }
@@ -286,7 +283,7 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 			match Stream::poll_next(Pin::new(&mut self.import_notifications), cx) {
 				Poll::Pending => break,
 				Poll::Ready(Some(_)) => {
-					// Block import resets the transaction counter since we'll build fresh
+					// Block import resets pending state since we'll build fresh
 					self.pending_tx_count = 0;
 					self.rate_limit_delay = None;
 					debug!(target: LOG_TARGET, "Block imported, triggering rebuild");
@@ -303,59 +300,24 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 				Poll::Ready(Some(_)) => {
 					self.pending_tx_count += 1;
 				},
-				Poll::Ready(None) => {
-					// Transaction stream closed, but we can still listen for block imports
-					break;
-				},
+				Poll::Ready(None) => break,
 			}
 		}
 
-		// Check if we have enough transactions and rate limiting allows us to fire
+		// If we have enough pending transactions, check rate limit
 		if self.pending_tx_count >= self.min_txs_for_rebuild {
-			let now = Instant::now();
-			let can_fire = match self.last_tx_rebuild {
+			// Check if rate limit allows firing (no delay or delay expired)
+			let can_fire = match self.rate_limit_delay.as_mut() {
 				None => true,
-				Some(last) => now.duration_since(last) >= self.min_rebuild_interval,
+				Some(delay) => Future::poll(Pin::new(delay), cx).is_ready(),
 			};
 
 			if can_fire {
-				self.last_tx_rebuild = Some(now);
 				let tx_count = self.pending_tx_count;
 				self.pending_tx_count = 0;
-				self.rate_limit_delay = None;
-				debug!(
-					target: LOG_TARGET,
-					"New transactions ({} txs), triggering rebuild",
-					tx_count
-				);
+				self.rate_limit_delay = Some(Delay::new(self.min_rebuild_interval));
+				debug!(target: LOG_TARGET, "New transactions ({} txs), triggering rebuild", tx_count);
 				return Poll::Ready(Some(RebuildTrigger::NewTransactions));
-			} else {
-				// We have enough txs but need to wait for rate limit
-				// Set up a delay to wake us when we can fire
-				let time_since_last = now.duration_since(self.last_tx_rebuild.unwrap());
-				let wait_time = self.min_rebuild_interval.saturating_sub(time_since_last);
-
-				if self.rate_limit_delay.is_none() {
-					self.rate_limit_delay = Some(Delay::new(wait_time));
-				}
-
-				if let Some(ref mut delay) = self.rate_limit_delay {
-					match Future::poll(Pin::new(delay), cx) {
-						Poll::Ready(()) => {
-							self.last_tx_rebuild = Some(Instant::now());
-							let tx_count = self.pending_tx_count;
-							self.pending_tx_count = 0;
-							self.rate_limit_delay = None;
-							debug!(
-								target: LOG_TARGET,
-								"Rate limit expired, triggering rebuild for {} txs",
-								tx_count
-							);
-							return Poll::Ready(Some(RebuildTrigger::NewTransactions));
-						},
-						Poll::Pending => {},
-					}
-				}
 			}
 		}
 
