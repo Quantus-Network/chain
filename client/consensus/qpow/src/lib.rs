@@ -343,10 +343,9 @@ where
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
-/// Configuration for transaction-triggered block rebuilds.
-/// These are hardcoded for now but could be made configurable later.
+/// Maximum transaction-triggered rebuilds per second.
+/// Hardcoded for now but could be made configurable later.
 const MAX_REBUILDS_PER_SEC: u32 = 2;
-const MIN_TXS_FOR_REBUILD: usize = 1;
 
 /// Start the mining worker for QPoW. This function provides the necessary helper functions that can
 /// be used to implement a miner. However, it does not do the CPU-intensive mining itself.
@@ -357,7 +356,7 @@ const MIN_TXS_FOR_REBUILD: usize = 1;
 ///
 /// The worker will rebuild blocks when:
 /// - A new block is imported from the network
-/// - New transactions arrive (rate limited to MAX_REBUILDS_PER_SEC, requiring MIN_TXS_FOR_REBUILD txs)
+/// - New transactions arrive (rate limited to MAX_REBUILDS_PER_SEC)
 ///
 /// This allows transactions to be included faster since we don't wait for the next block import
 /// to rebuild. Mining on a new block vs the old block has the same probability of success per nonce,
@@ -399,16 +398,19 @@ where
 		client.import_notification_stream(),
 		tx_notifications,
 		MAX_REBUILDS_PER_SEC,
-		MIN_TXS_FOR_REBUILD,
 	);
 	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
 	let worker_ret = worker.clone();
 
 	let task = async move {
+		// Main block building loop - runs until trigger stream closes
 		loop {
+			// Wait for a trigger (Initial, BlockImported, or NewTransactions)
+			// break exits the loop entirely, ending this task
+			// continue skips to the next iteration to wait for another trigger
 			let trigger = match trigger_stream.next().await {
 				Some(t) => t,
-				None => break,
+				None => break, // Stream closed, shut down the worker
 			};
 
 			if sync_oracle.is_major_syncing() {
@@ -431,8 +433,8 @@ where
 			};
 			let best_hash = best_header.hash();
 
-			// For block imports (not initial), skip if we're already on the best hash.
-			// For transaction triggers and initial trigger, we always want to rebuild.
+			// Skip redundant block import triggers if we're already building on this hash.
+			// Initial and NewTransactions triggers should proceed to rebuild.
 			if trigger == RebuildTrigger::BlockImported && worker.best_hash() == Some(best_hash) {
 				continue;
 			}

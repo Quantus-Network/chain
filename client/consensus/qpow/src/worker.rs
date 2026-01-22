@@ -35,7 +35,6 @@ use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
 	AccountId32, DigestItem,
 };
-use std::time::Instant;
 use std::{
 	pin::Pin,
 	sync::{
@@ -216,8 +215,7 @@ pub enum RebuildTrigger {
 /// the block being mined when transactions arrive, rather than waiting for the
 /// next block import or timeout.
 ///
-/// Rate limiting prevents excessive rebuilds - we limit to `max_rebuilds_per_sec`
-/// and require at least `min_txs_for_rebuild` transactions before triggering.
+/// Rate limiting prevents excessive rebuilds - we limit to `max_rebuilds_per_sec`.
 pub struct UntilImportedOrTransaction<Block: BlockT, TxHash> {
 	/// Block import notifications stream.
 	import_notifications: ImportNotifications<Block>,
@@ -229,10 +227,8 @@ pub struct UntilImportedOrTransaction<Block: BlockT, TxHash> {
 	rate_limit_delay: Option<Delay>,
 	/// Whether we've fired the initial trigger yet.
 	initial_fired: bool,
-	/// Number of transactions accumulated since last rebuild.
-	pending_tx_count: usize,
-	/// Minimum number of transactions required to trigger a rebuild.
-	min_txs_for_rebuild: usize,
+	/// Whether we have pending transactions waiting to trigger a rebuild.
+	has_pending_tx: bool,
 }
 
 impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
@@ -242,12 +238,10 @@ impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
 	/// * `import_notifications` - Stream of block import notifications
 	/// * `tx_notifications` - Stream of transaction import notifications
 	/// * `max_rebuilds_per_sec` - Maximum transaction-triggered rebuilds per second
-	/// * `min_txs_for_rebuild` - Minimum transactions needed to trigger a rebuild
 	pub fn new(
 		import_notifications: ImportNotifications<Block>,
 		tx_notifications: impl Stream<Item = TxHash> + Send + 'static,
 		max_rebuilds_per_sec: u32,
-		min_txs_for_rebuild: usize,
 	) -> Self {
 		let min_rebuild_interval = if max_rebuilds_per_sec > 0 {
 			Duration::from_millis(1000 / max_rebuilds_per_sec as u64)
@@ -261,8 +255,7 @@ impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
 			min_rebuild_interval,
 			rate_limit_delay: None,
 			initial_fired: false,
-			pending_tx_count: 0,
-			min_txs_for_rebuild,
+			has_pending_tx: false,
 		}
 	}
 }
@@ -284,7 +277,7 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 				Poll::Pending => break,
 				Poll::Ready(Some(_)) => {
 					// Block import resets pending state since we'll build fresh
-					self.pending_tx_count = 0;
+					self.has_pending_tx = false;
 					self.rate_limit_delay = None;
 					debug!(target: LOG_TARGET, "Block imported, triggering rebuild");
 					return Poll::Ready(Some(RebuildTrigger::BlockImported));
@@ -293,19 +286,19 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 			}
 		}
 
-		// Drain all pending transaction notifications and count them
+		// Drain all pending transaction notifications
 		loop {
 			match Stream::poll_next(Pin::new(&mut self.tx_notifications), cx) {
 				Poll::Pending => break,
 				Poll::Ready(Some(_)) => {
-					self.pending_tx_count += 1;
+					self.has_pending_tx = true;
 				},
 				Poll::Ready(None) => break,
 			}
 		}
 
-		// If we have enough pending transactions, check rate limit
-		if self.pending_tx_count >= self.min_txs_for_rebuild {
+		// If we have pending transactions, check rate limit
+		if self.has_pending_tx {
 			// Check if rate limit allows firing (no delay or delay expired)
 			let can_fire = match self.rate_limit_delay.as_mut() {
 				None => true,
@@ -313,10 +306,9 @@ impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash>
 			};
 
 			if can_fire {
-				let tx_count = self.pending_tx_count;
-				self.pending_tx_count = 0;
+				self.has_pending_tx = false;
 				self.rate_limit_delay = Some(Delay::new(self.min_rebuild_interval));
-				debug!(target: LOG_TARGET, "New transactions ({} txs), triggering rebuild", tx_count);
+				debug!(target: LOG_TARGET, "New transaction(s), triggering rebuild");
 				return Poll::Ready(Some(RebuildTrigger::NewTransactions));
 			}
 		}
