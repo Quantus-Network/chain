@@ -10,9 +10,9 @@ use sp_consensus_qpow::QPoWApi;
 use sp_runtime::{generic::BlockId, traits::Block as BlockT, AccountId32};
 use std::{sync::Arc, time::Duration};
 
-use crate::worker::UntilImportedOrTimeout;
-pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata};
-use futures::{Future, StreamExt};
+use crate::worker::UntilImportedOrTransaction;
+pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
+use futures::{Future, Stream, StreamExt};
 use log::*;
 use prometheus_endpoint::Registry;
 use sc_client_api::{self, backend::AuxStore, BlockOf, BlockchainEvents};
@@ -296,12 +296,13 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) =>
+		Some(DigestItem::Seal(id, seal)) => {
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			},
+			}
+		},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -342,6 +343,11 @@ where
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
+/// Configuration for transaction-triggered block rebuilds.
+/// These are hardcoded for now but could be made configurable later.
+const MAX_REBUILDS_PER_SEC: u32 = 2;
+const MIN_TXS_FOR_REBUILD: usize = 1;
+
 /// Start the mining worker for QPoW. This function provides the necessary helper functions that can
 /// be used to implement a miner. However, it does not do the CPU-intensive mining itself.
 ///
@@ -349,11 +355,16 @@ where
 /// mining metadata and submitting mined blocks, and a future, which must be polled to fill in
 /// information in the worker.
 ///
-/// `pre_runtime` is a parameter that allows a custom additional pre-runtime digest to be inserted
-/// for blocks being built. This can encode authorship information, or just be a graffiti.
+/// The worker will rebuild blocks when:
+/// - A new block is imported from the network
+/// - New transactions arrive (rate limited to MAX_REBUILDS_PER_SEC, requiring MIN_TXS_FOR_REBUILD txs)
+///
+/// This allows transactions to be included faster since we don't wait for the next block import
+/// to rebuild. Mining on a new block vs the old block has the same probability of success per nonce,
+/// so the only cost is the overhead of rebuilding (which is minimal compared to mining time).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
+pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP, TxHash, TxStream>(
 	block_import: BoxBlockImport<Block>,
 	client: Arc<C>,
 	select_chain: S,
@@ -362,7 +373,7 @@ pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP>(
 	justification_sync_link: L,
 	rewards_address: AccountId32,
 	create_inherent_data_providers: CIDP,
-	timeout: Duration,
+	tx_notifications: TxStream,
 	build_time: Duration,
 ) -> (MiningHandle<Block, C, L, <E::Proposer as Proposer<Block>>::Proof>, impl Future<Output = ()>)
 where
@@ -381,16 +392,24 @@ where
 	SO: SyncOracle + Clone + Send + Sync + 'static,
 	L: JustificationSyncLink<Block>,
 	CIDP: CreateInherentDataProviders<Block, ()>,
+	TxHash: Send + 'static,
+	TxStream: Stream<Item = TxHash> + Send + Unpin + 'static,
 {
-	let mut timer = UntilImportedOrTimeout::new(client.import_notification_stream(), timeout);
+	let mut trigger_stream = UntilImportedOrTransaction::new(
+		client.import_notification_stream(),
+		tx_notifications,
+		MAX_REBUILDS_PER_SEC,
+		MIN_TXS_FOR_REBUILD,
+	);
 	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
 	let worker_ret = worker.clone();
 
 	let task = async move {
 		loop {
-			if timer.next().await.is_none() {
-				break;
-			}
+			let trigger = match trigger_stream.next().await {
+				Some(t) => t,
+				None => break,
+			};
 
 			if sync_oracle.is_major_syncing() {
 				debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
@@ -412,7 +431,9 @@ where
 			};
 			let best_hash = best_header.hash();
 
-			if worker.best_hash() == Some(best_hash) {
+			// For block imports (not initial), skip if we're already on the best hash.
+			// For transaction triggers and initial trigger, we always want to rebuild.
+			if trigger == RebuildTrigger::BlockImported && worker.best_hash() == Some(best_hash) {
 				continue;
 			}
 
@@ -521,8 +542,9 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<R
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) =>
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
+		BlockId::Number(_) => {
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
+		},
 	}
 }
 

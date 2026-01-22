@@ -35,6 +35,7 @@ use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
 	AccountId32, DigestItem,
 };
+use std::time::Instant;
 use std::{
 	pin::Pin,
 	sync::{
@@ -198,51 +199,166 @@ where
 	}
 }
 
-/// A stream that waits for a block import or timeout.
-pub struct UntilImportedOrTimeout<Block: BlockT> {
-	import_notifications: ImportNotifications<Block>,
-	timeout: Duration,
-	inner_delay: Option<Delay>,
+/// Reason why the stream fired - either a block was imported or enough transactions arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildTrigger {
+	/// Initial trigger to bootstrap mining (fires once on first poll).
+	Initial,
+	/// A new block was imported from the network.
+	BlockImported,
+	/// Enough new transactions arrived to trigger a rebuild.
+	NewTransactions,
 }
 
-impl<Block: BlockT> UntilImportedOrTimeout<Block> {
-	/// Create a new stream using the given import notification and timeout duration.
-	pub fn new(import_notifications: ImportNotifications<Block>, timeout: Duration) -> Self {
-		Self { import_notifications, timeout, inner_delay: None }
+/// A stream that waits for a block import or new transactions (with rate limiting).
+///
+/// This enables block producers to include new transactions faster by rebuilding
+/// the block being mined when transactions arrive, rather than waiting for the
+/// next block import or timeout.
+///
+/// Rate limiting prevents excessive rebuilds - we limit to `max_rebuilds_per_sec`
+/// and require at least `min_txs_for_rebuild` transactions before triggering.
+pub struct UntilImportedOrTransaction<Block: BlockT, TxHash> {
+	/// Block import notifications stream.
+	import_notifications: ImportNotifications<Block>,
+	/// Transaction pool import notifications stream.
+	tx_notifications: Pin<Box<dyn Stream<Item = TxHash> + Send>>,
+	/// Minimum interval between transaction-triggered rebuilds.
+	min_rebuild_interval: Duration,
+	/// Last time we triggered a rebuild due to transactions.
+	last_tx_rebuild: Option<Instant>,
+	/// Number of transactions accumulated since last rebuild.
+	pending_tx_count: usize,
+	/// Minimum number of transactions required to trigger a rebuild.
+	min_txs_for_rebuild: usize,
+	/// Rate limit delay - if set, we're waiting before we can fire again.
+	rate_limit_delay: Option<Delay>,
+	/// Whether we've fired the initial trigger yet.
+	initial_fired: bool,
+}
+
+impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
+	/// Create a new stream.
+	///
+	/// # Arguments
+	/// * `import_notifications` - Stream of block import notifications
+	/// * `tx_notifications` - Stream of transaction import notifications
+	/// * `max_rebuilds_per_sec` - Maximum transaction-triggered rebuilds per second
+	/// * `min_txs_for_rebuild` - Minimum transactions needed to trigger a rebuild
+	pub fn new(
+		import_notifications: ImportNotifications<Block>,
+		tx_notifications: impl Stream<Item = TxHash> + Send + 'static,
+		max_rebuilds_per_sec: u32,
+		min_txs_for_rebuild: usize,
+	) -> Self {
+		let min_rebuild_interval = if max_rebuilds_per_sec > 0 {
+			Duration::from_millis(1000 / max_rebuilds_per_sec as u64)
+		} else {
+			Duration::from_secs(u64::MAX) // Effectively disable tx-triggered rebuilds
+		};
+
+		Self {
+			import_notifications,
+			tx_notifications: Box::pin(tx_notifications),
+			min_rebuild_interval,
+			last_tx_rebuild: None,
+			pending_tx_count: 0,
+			min_txs_for_rebuild,
+			rate_limit_delay: None,
+			initial_fired: false,
+		}
 	}
 }
 
-impl<Block: BlockT> Stream for UntilImportedOrTimeout<Block> {
-	type Item = ();
+impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash> {
+	type Item = RebuildTrigger;
 
-	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<()>> {
-		let mut fire = false;
+	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<RebuildTrigger>> {
+		// Fire immediately on first poll to bootstrap mining at genesis
+		if !self.initial_fired {
+			self.initial_fired = true;
+			debug!(target: LOG_TARGET, "Initial trigger, bootstrapping block production");
+			return Poll::Ready(Some(RebuildTrigger::Initial));
+		}
 
+		// Check for block imports first - these always trigger immediately
 		loop {
 			match Stream::poll_next(Pin::new(&mut self.import_notifications), cx) {
 				Poll::Pending => break,
 				Poll::Ready(Some(_)) => {
-					fire = true;
+					// Block import resets the transaction counter since we'll build fresh
+					self.pending_tx_count = 0;
+					self.rate_limit_delay = None;
+					debug!(target: LOG_TARGET, "Block imported, triggering rebuild");
+					return Poll::Ready(Some(RebuildTrigger::BlockImported));
 				},
 				Poll::Ready(None) => return Poll::Ready(None),
 			}
 		}
 
-		let timeout = self.timeout;
-		let inner_delay = self.inner_delay.get_or_insert_with(|| Delay::new(timeout));
-
-		match Future::poll(Pin::new(inner_delay), cx) {
-			Poll::Pending => (),
-			Poll::Ready(()) => {
-				fire = true;
-			},
+		// Drain all pending transaction notifications and count them
+		loop {
+			match Stream::poll_next(Pin::new(&mut self.tx_notifications), cx) {
+				Poll::Pending => break,
+				Poll::Ready(Some(_)) => {
+					self.pending_tx_count += 1;
+				},
+				Poll::Ready(None) => {
+					// Transaction stream closed, but we can still listen for block imports
+					break;
+				},
+			}
 		}
 
-		if fire {
-			self.inner_delay = None;
-			Poll::Ready(Some(()))
-		} else {
-			Poll::Pending
+		// Check if we have enough transactions and rate limiting allows us to fire
+		if self.pending_tx_count >= self.min_txs_for_rebuild {
+			let now = Instant::now();
+			let can_fire = match self.last_tx_rebuild {
+				None => true,
+				Some(last) => now.duration_since(last) >= self.min_rebuild_interval,
+			};
+
+			if can_fire {
+				self.last_tx_rebuild = Some(now);
+				let tx_count = self.pending_tx_count;
+				self.pending_tx_count = 0;
+				self.rate_limit_delay = None;
+				debug!(
+					target: LOG_TARGET,
+					"New transactions ({} txs), triggering rebuild",
+					tx_count
+				);
+				return Poll::Ready(Some(RebuildTrigger::NewTransactions));
+			} else {
+				// We have enough txs but need to wait for rate limit
+				// Set up a delay to wake us when we can fire
+				let time_since_last = now.duration_since(self.last_tx_rebuild.unwrap());
+				let wait_time = self.min_rebuild_interval.saturating_sub(time_since_last);
+
+				if self.rate_limit_delay.is_none() {
+					self.rate_limit_delay = Some(Delay::new(wait_time));
+				}
+
+				if let Some(ref mut delay) = self.rate_limit_delay {
+					match Future::poll(Pin::new(delay), cx) {
+						Poll::Ready(()) => {
+							self.last_tx_rebuild = Some(Instant::now());
+							let tx_count = self.pending_tx_count;
+							self.pending_tx_count = 0;
+							self.rate_limit_delay = None;
+							debug!(
+								target: LOG_TARGET,
+								"Rate limit expired, triggering rebuild for {} txs",
+								tx_count
+							);
+							return Poll::Ready(Some(RebuildTrigger::NewTransactions));
+						},
+						Poll::Pending => {},
+					}
+				}
+			}
 		}
+
+		Poll::Pending
 	}
 }

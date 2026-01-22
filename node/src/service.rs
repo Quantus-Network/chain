@@ -166,7 +166,8 @@ pub fn new_full<
 		other: (pow_block_import, mut telemetry),
 	} = new_partial(&config)?;
 
-	let mut tx_stream = transaction_pool.clone().import_notification_stream();
+	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
+	let tx_stream_for_logger = transaction_pool.clone().import_notification_stream();
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,
@@ -276,7 +277,7 @@ pub fn new_full<
 			sync_service.clone(),
 			rewards_address,
 			inherent_data_providers,
-			Duration::from_secs(10),
+			tx_stream_for_worker,
 			Duration::from_secs(10),
 		);
 
@@ -357,17 +358,22 @@ pub fn new_full<
 
 				// If external miner URL is provided, use external mining
 				if let Some(miner_url) = &external_miner_url {
-					// Cancel previous job if metadata has changed
-					if let Some(job_id) = &current_job_id {
-						if let Err(e) = external_miner_client::cancel_mining_job(
-							&http_client,
-							miner_url,
-							job_id,
-						)
-						.await
-						{
-							log::warn!("⛏️Failed to cancel previous mining job: {}", e);
-						}
+					// Fire-and-forget cancellation of previous job - don't wait for confirmation
+					// This reduces latency when switching to a new block
+					if let Some(old_job_id) = current_job_id.take() {
+						let cancel_client = http_client.clone();
+						let cancel_url = miner_url.clone();
+						tokio::spawn(async move {
+							if let Err(e) = external_miner_client::cancel_mining_job(
+								&cancel_client,
+								&cancel_url,
+								&old_job_id,
+							)
+							.await
+							{
+								log::debug!("⛏️ Failed to cancel previous mining job {}: {}", old_job_id, e);
+							}
+						});
 					}
 
 					// Get current distance_threshold from runtime
@@ -514,6 +520,7 @@ pub fn new_full<
 		});
 
 		task_manager.spawn_handle().spawn("tx-logger", None, async move {
+			let mut tx_stream = tx_stream_for_logger;
 			while let Some(tx_hash) = tx_stream.next().await {
 				if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
 					log::trace!(target: "miner", "New transaction: Hash = {:?}", tx_hash);
