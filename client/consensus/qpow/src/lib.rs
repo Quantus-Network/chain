@@ -296,13 +296,12 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) => {
+		Some(DigestItem::Seal(id, seal)) =>
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			}
-		},
+			},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -539,9 +538,8 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<R
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) => {
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
-		},
+		BlockId::Number(_) =>
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
 	}
 }
 
