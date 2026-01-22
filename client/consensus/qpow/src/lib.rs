@@ -296,13 +296,12 @@ where
 	let header = &mut block.header;
 	let block_hash = hash;
 	let seal_item = match header.digest_mut().pop() {
-		Some(DigestItem::Seal(id, seal)) => {
+		Some(DigestItem::Seal(id, seal)) =>
 			if id == POW_ENGINE_ID {
 				DigestItem::Seal(id, seal)
 			} else {
 				return Err(Error::<B>::WrongEngine(id).into());
-			}
-		},
+			},
 		_ => return Err(Error::<B>::HeaderUnsealed(block_hash).into()),
 	};
 
@@ -359,8 +358,9 @@ const MAX_REBUILDS_PER_SEC: u32 = 2;
 /// - New transactions arrive (rate limited to MAX_REBUILDS_PER_SEC)
 ///
 /// This allows transactions to be included faster since we don't wait for the next block import
-/// to rebuild. Mining on a new block vs the old block has the same probability of success per nonce,
-/// so the only cost is the overhead of rebuilding (which is minimal compared to mining time).
+/// to rebuild. Mining on a new block vs the old block has the same probability of success per
+/// nonce, so the only cost is the overhead of rebuilding (which is minimal compared to mining
+/// time).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP, TxHash, TxStream>(
@@ -544,9 +544,8 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<R
 pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
 	match parent {
 		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) => {
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into()))
-		},
+		BlockId::Number(_) =>
+			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
 	}
 }
 
