@@ -147,7 +147,8 @@ fn transfer_proof_storage_is_created() {
 			// Perform a transfer
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 5));
 
-			// Check that transfer proof was stored with correct key (using current count as the index)
+			// Check that transfer proof was stored with correct key (using current count as the
+			// index)
 			let key = (current_count, alice(), bob(), 5u128);
 			assert!(TransferProof::<Test>::contains_key(&key));
 		});
