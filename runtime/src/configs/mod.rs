@@ -55,10 +55,7 @@ use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::{
-	traits::{AccountIdConversion,ConvertInto, One},
-	FixedU128, Perbill, Permill,
-};
+use sp_runtime::{traits::One, FixedU128, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
