@@ -30,7 +30,10 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct Header<Number: Copy + Into<U256> + TryFrom<U256>, Hash: HashT> {
+pub struct Header<Number, Hash: HashT>
+where
+	Number: Copy + Into<U256> + TryFrom<U256>,
+{
 	pub parent_hash: Hash::Output,
 	#[cfg_attr(
 		feature = "serde",
@@ -123,7 +126,7 @@ where
 	// We override the default hashing function to use
 	// a felt aligned pre-image for poseidon hashing.
 	fn hash(&self) -> Self::Hash {
-		Header::hash(&self)
+		Header::hash(self)
 	}
 }
 

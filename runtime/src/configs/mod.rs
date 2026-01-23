@@ -39,7 +39,7 @@ use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
 		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
-		VariantCountOf, WithdrawReasons,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -55,17 +55,14 @@ use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::{
-	traits::{ConvertInto, One},
-	FixedU128, Perbill, Permill,
-};
+use sp_runtime::{traits::One, FixedU128, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
 	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
 	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
@@ -85,8 +82,6 @@ parameter_types! {
 	// To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
 	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 189;
-	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-	pub const UnsignedClaimPriority: u32 = 100;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -426,25 +421,6 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
-parameter_types! {
-	pub const MinVestedTransfer: Balance = UNIT;
-	/// Unvested funds can be transferred and reserved for any other means (reserves overlap)
-	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
-	WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
-}
-
-impl pallet_vesting::Config for Runtime {
-	type Currency = Balances;
-	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
-	type MinVestedTransfer = MinVestedTransfer;
-	type BlockNumberToBalance = ConvertInto;
-	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-	type BlockNumberProvider = System;
-
-	const MAX_VESTING_SCHEDULES: u32 = 28;
-}
-
 impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
@@ -501,20 +477,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-}
-
-parameter_types! {
-	pub const MaxProofs: u32 = 4096;
-}
-
-impl pallet_merkle_airdrop::Config for Runtime {
-	type Vesting = Vesting;
-	type MaxProofs = MaxProofs;
-	type PalletId = MerkleAirdropPalletId;
-	type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
-	type UnsignedClaimPriority = UnsignedClaimPriority;
-	type BlockNumberProvider = System;
-	type BlockNumberToBalance = ConvertInto;
 }
 
 parameter_types! {
