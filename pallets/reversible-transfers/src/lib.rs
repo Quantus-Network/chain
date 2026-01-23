@@ -8,8 +8,8 @@
 //! ## Volume Fee for High-Security Accounts
 //!
 //! When high-security accounts reverse transactions, a configurable volume fee
-//! (expressed as a Permill) is deducted from the transaction amount and sent
-//! to the treasury. Regular accounts do not incur any fees when reversing transactions.
+//! (expressed as a Permill) is deducted from the transaction amount and burned.
+//! Regular accounts do not incur any fees when reversing transactions.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -189,12 +189,9 @@ pub mod pallet {
 
 		/// Volume fee taken from reversed transactions for high-security accounts only,
 		/// expressed as a Permill (e.g., Permill::from_percent(1) = 1%). Regular accounts incur no
-		/// fees.
+		/// fees. The fee is burned (removed from total issuance).
 		#[pallet::constant]
 		type VolumeFee: Get<Permill>;
-
-		/// Treasury account ID where volume fees are sent.
-		type TreasuryAccountId: Get<Self::AccountId>;
 	}
 
 	/// Maps accounts to their chosen reversibility delay period (in milliseconds).
@@ -833,11 +830,8 @@ pub mod pallet {
 				// No fee for regular accounts
 				(Zero::zero(), pending.amount)
 			};
-			let treasury_account = T::TreasuryAccountId::get();
-
-			// For assets, transfer held funds to treasury (fee) and interceptor (remaining)
-			// For native balances, transfer held funds to treasury (fee) and interceptor
-			// (remaining)
+			// For assets, burn held funds (fee) and transfer remaining to interceptor
+			// For native balances, burn held funds (fee) and transfer remaining to interceptor
 			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
 					call.clone().try_into()
@@ -845,15 +839,13 @@ pub mod pallet {
 					let reason = Self::asset_hold_reason();
 					let asset_id = id.into();
 
-					// Transfer fee to treasury if fee_amount > 0
-					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+					// Burn fee amount if fee_amount > 0
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::burn_held(
 						asset_id.clone(),
 						&reason,
 						&pending.from,
-						&treasury_account,
 						fee_amount,
 						Precision::Exact,
-						Restriction::Free,
 						Fortitude::Polite,
 					)?;
 
@@ -872,14 +864,12 @@ pub mod pallet {
 				if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
 					call.clone().try_into()
 				{
-					// Transfer fee to treasury
-					pallet_balances::Pallet::<T>::transfer_on_hold(
+					// Burn fee amount
+					pallet_balances::Pallet::<T>::burn_held(
 						&HoldReason::ScheduledTransfer.into(),
 						&pending.from,
-						&treasury_account,
 						fee_amount,
 						Precision::Exact,
-						Restriction::Free,
 						Fortitude::Polite,
 					)?;
 

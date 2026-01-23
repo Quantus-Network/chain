@@ -459,10 +459,8 @@ parameter_types! {
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
 	pub const MaxReversibleTransfers: u32 = 10;
 	pub const MaxInterceptorAccounts: u32 = 32;
-	/// Volume fee for reversed transactions from high-security accounts only, in basis points (10 = 0.1%)
+	/// Volume fee for reversed transactions from high-security accounts only (1% fee is burned)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
-	/// Treasury account ID
-	pub TreasuryAccountId: AccountId = TreasuryPalletId::get().into_account_truncating();
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
@@ -481,7 +479,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-	type TreasuryAccountId = TreasuryAccountId;
 }
 
 parameter_types! {
