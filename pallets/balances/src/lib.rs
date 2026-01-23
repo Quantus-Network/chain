@@ -337,6 +337,13 @@ pub mod pallet {
 			Self::AccountId,
 			Self::Balance,
 		>;
+
+		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
+		/// (e.g., genesis balances, mining rewards). This should be a well-known address that
+		/// represents "minted from nothing".
+		#[pallet::constant]
+		#[pallet::no_default]
+		type MintingAccount: Get<Self::AccountId>;
 	}
 
 	/// The in-code storage version.
@@ -572,10 +579,13 @@ pub mod pallet {
 				"duplicate balances in genesis."
 			);
 
+			let mint_account = T::MintingAccount::get();
 			for &(ref who, free) in self.balances.iter() {
 				frame_system::Pallet::<T>::inc_providers(who);
 				assert!(T::AccountStore::insert(who, AccountData { free, ..Default::default() })
 					.is_ok());
+				// Create transfer proof for genesis balance (from minting account)
+				Pallet::<T, I>::do_store_transfer_proof(&mint_account, who, free);
 			}
 		}
 	}
@@ -599,8 +609,8 @@ pub mod pallet {
 		#[cfg(feature = "try-runtime")]
 		fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
 			Holds::<T, I>::iter_keys().try_for_each(|k| {
-				if Holds::<T, I>::decode_len(k).unwrap_or(0) >
-					T::RuntimeHoldReason::VARIANT_COUNT as usize
+				if Holds::<T, I>::decode_len(k).unwrap_or(0)
+					> T::RuntimeHoldReason::VARIANT_COUNT as usize
 				{
 					Err("Found `Hold` with too many elements")
 				} else {
@@ -1289,16 +1299,18 @@ pub mod pallet {
 					ensure!(!is_new, Error::<T, I>::DeadAccount);
 					Self::try_mutate_account(slashed, |from_account, _| -> DispatchResult {
 						match status {
-							Status::Free =>
+							Status::Free => {
 								to_account.free = to_account
 									.free
 									.checked_add(&actual)
-									.ok_or(ArithmeticError::Overflow)?,
-							Status::Reserved =>
+									.ok_or(ArithmeticError::Overflow)?
+							},
+							Status::Reserved => {
 								to_account.reserved = to_account
 									.reserved
 									.checked_add(&actual)
-									.ok_or(ArithmeticError::Overflow)?,
+									.ok_or(ArithmeticError::Overflow)?
+							},
 						}
 						from_account.reserved.saturating_reduce(actual);
 						Ok(())

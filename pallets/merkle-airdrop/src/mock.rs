@@ -64,6 +64,7 @@ impl system::Config for Test {
 parameter_types! {
 	pub const ExistentialDeposit: u64 = 1;
 	pub const MaxLocks: u32 = 50;
+	pub const MintingAccount: u64 = 1;
 }
 
 impl pallet_balances::Config for Test {
@@ -80,6 +81,7 @@ impl pallet_balances::Config for Test {
 	type MaxFreezes = ();
 	type RuntimeFreezeReason = ();
 	type DoneSlashHandler = ();
+	type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
