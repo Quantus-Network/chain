@@ -20,7 +20,7 @@ let call = RuntimeCall::Balances(pallet_balances::Call::transfer { dest: eve, va
 Multisig::propose(Origin::signed(bob), multisig_addr, call.encode(), expiry_block);
 
 // 3. Charlie approves - transaction executes automatically (2/2 threshold reached)
-Multisig::approve(Origin::signed(charlie), multisig_addr, proposal_hash);
+Multisig::approve(Origin::signed(charlie), multisig_addr, proposal_id);
 // ✅ Transaction executed! No separate call needed.
 ```
 
@@ -68,6 +68,16 @@ Creates a new proposal for multisig execution.
 - Expiry must be in the future (expiry > current_block)
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
+**Auto-Cleanup Before Creation:**
+Before creating a new proposal, the system **automatically removes all expired Active proposals** for this multisig:
+- Expired proposals are identified (current_block > expiry)
+- Deposits are returned to original proposers
+- Storage is cleaned up
+- Counters are decremented
+- Events are emitted for each removed proposal
+
+This ensures storage is kept clean and users get their deposits back without manual intervention.
+
 **Economic Costs:**
 - **ProposalFee**: Non-refundable fee (spam prevention, scaled by signer count) → burned
 - **ProposalDeposit**: Refundable deposit (storage rent) → returned when proposal removed
@@ -80,7 +90,7 @@ to or above the threshold, the transaction will be automatically executed and im
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
-- `proposal_hash: Hash` - Hash of proposal to approve (REQUIRED)
+- `proposal_id: u32` - ID (nonce) of the proposal to approve (REQUIRED)
 
 **Validation:**
 - Caller must be a signer
@@ -102,7 +112,7 @@ Cancels a proposal and immediately removes it from storage (proposer only).
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
-- `proposal_hash: Hash` - Hash of proposal to cancel (REQUIRED)
+- `proposal_id: u32` - ID (nonce) of the proposal to cancel (REQUIRED)
 
 **Validation:**
 - Caller must be the proposer
@@ -124,7 +134,7 @@ Manually removes expired proposals from storage. Only signers can call this.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
-- `proposal_hash: Hash` - Hash of expired proposal (REQUIRED)
+- `proposal_id: u32` - ID (nonce) of the expired proposal (REQUIRED)
 
 **Validation:**
 - Caller must be a signer of the multisig
@@ -254,8 +264,8 @@ MultisigData {
 }
 ```
 
-### Proposals: DoubleMap<AccountId, Hash, ProposalData>
-Stores proposal data indexed by (multisig_address, proposal_hash):
+### Proposals: DoubleMap<AccountId, u32, ProposalData>
+Stores proposal data indexed by (multisig_address, proposal_id):
 ```rust
 ProposalData {
     proposer: AccountId,                // Who proposed (receives deposit back)
@@ -263,25 +273,11 @@ ProposalData {
     expiry: BlockNumber,                // Deadline for approvals
     approvals: BoundedVec<AccountId>,   // List of signers who approved
     deposit: Balance,                   // Reserved deposit (refundable)
+    status: ProposalStatus,             // Active only (Executed/Cancelled are removed immediately)
 }
 ```
 
-### ExecutedProposals: DoubleMap<AccountId, Hash, ExecutedProposalData>
-**Archive of successfully executed proposals.** Only proposals that were executed are stored here.
-Cancelled or expired proposals are NOT archived (only available in events).
-
-```rust
-ExecutedProposalData {
-    proposer: AccountId,                // Who proposed
-    call: BoundedVec<u8>,               // The call that was executed
-    approvers: BoundedVec<AccountId>,   // Full list of who approved
-    executed_at: BlockNumber,           // When it was executed
-    execution_succeeded: bool,          // Whether the call succeeded
-}
-```
-
-**Purpose:** Provides permanent on-chain history of all executed multisig transactions.
-Can be queried using `Multisig::get_executed_proposal(multisig_address, proposal_hash)`.
+**Important:** Only **Active** proposals are stored. Executed and Cancelled proposals are **immediately removed** from storage and their deposits are returned. Historical data is available through events (see Historical Data section below).
 
 ### GlobalNonce: u64
 Internal counter for generating unique multisig addresses. Not exposed via API.
@@ -289,12 +285,13 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 ## Events
 
 - `MultisigCreated { creator, multisig_address, signers, threshold, nonce }`
-- `TransactionProposed { multisig_address, proposer, proposal_hash }`
-- `ProposalApproved { multisig_address, approver, proposal_hash, approvals_count }`
-- `ProposalExecuted { multisig_address, proposal_hash, proposer, call, approvers, result }`
-- `ProposalCancelled { multisig_address, proposer, proposal_hash }`
-- `ProposalRemoved { multisig_address, proposal_hash, proposer, removed_by }`
+- `ProposalCreated { multisig_address, proposer, proposal_id }`
+- `ProposalApproved { multisig_address, approver, proposal_id, approvals_count }`
+- `ProposalExecuted { multisig_address, proposal_id, proposer, call, approvers, result }`
+- `ProposalCancelled { multisig_address, proposer, proposal_id }`
+- `ProposalRemoved { multisig_address, proposal_id, proposer, removed_by }`
 - `DepositsClaimed { multisig_address, claimer, total_returned, proposals_removed, multisig_removed }`
+- `MultisigDissolved { multisig_address, caller, deposit_returned }`
 
 ## Errors
 
@@ -324,6 +321,23 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 
 ## Important Behavior
 
+### Simple Proposal IDs (Not Hashes)
+Proposals are identified by a simple **nonce (u32)** instead of a hash:
+- **More efficient:** 4 bytes instead of 32 bytes (Blake2_256 hash)
+- **Simpler:** No need to hash `(call, nonce)`, just use nonce directly
+- **Better UX:** Sequential IDs (0, 1, 2...) easier to read than random hashes
+- **Easier queries:** Can iterate proposals by ID without needing call data
+
+**Example:**
+```rust
+propose(...) // → proposal_id: 0
+propose(...) // → proposal_id: 1
+propose(...) // → proposal_id: 2
+
+// Approve by ID (not hash)
+approve(multisig, 1) // Approve proposal #1
+```
+
 ### Signer Order Doesn't Matter
 Signers are **automatically sorted** before address generation and storage:
 - Input order is irrelevant - signers are always sorted deterministically
@@ -352,7 +366,7 @@ When a proposal is successfully executed, the pallet emits a comprehensive `Prop
 ```rust
 Event::ProposalExecuted {
     multisig_address: T::AccountId,   // The multisig that executed
-    proposal_hash: T::Hash,            // Hash of the proposal
+    proposal_id: u32,                  // ID (nonce) of the proposal
     proposer: T::AccountId,            // Who originally proposed it
     call: Vec<u8>,                     // The encoded call that was executed
     approvers: Vec<T::AccountId>,      // All accounts that approved

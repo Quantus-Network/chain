@@ -1,6 +1,6 @@
 //! Unit tests for pallet-multisig
 
-use crate::{mock::*, Error, Event, GlobalNonce, Multisigs, ProposalStatus};
+use crate::{mock::*, Error, Event, GlobalNonce, Multisigs};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok};
 /// Helper function to get Alice's account ID
@@ -29,25 +29,11 @@ fn make_call(remark: Vec<u8>) -> Vec<u8> {
 	call.encode()
 }
 
-/// Helper function to calculate proposal hash for testing
-/// Note: This calculates hash for the LAST proposal (uses current proposal_nonce - 1)
-/// because propose() increments nonce before calculating hash
-fn calculate_last_proposal_hash(
-	multisig_address: u64,
-	call: &[u8],
-) -> <Test as frame_system::Config>::Hash {
+/// Helper function to get the ID of the last proposal created
+/// Returns the current proposal_nonce - 1 (last used ID)
+fn get_last_proposal_id(multisig_address: u64) -> u32 {
 	let multisig = Multisigs::<Test>::get(multisig_address).expect("Multisig should exist");
-	// The last proposal used (proposal_nonce - 1) because propose() increments it
-	let nonce_used = multisig.proposal_nonce.saturating_sub(1);
-	Multisig::calculate_proposal_hash(call, nonce_used)
-}
-
-/// Helper function to calculate proposal hash for a specific nonce
-fn calculate_proposal_hash_with_nonce(
-	call: &[u8],
-	nonce: u32,
-) -> <Test as frame_system::Config>::Hash {
-	Multisig::calculate_proposal_hash(call, nonce)
+	multisig.proposal_nonce.saturating_sub(1)
 }
 
 // ==================== MULTISIG CREATION TESTS ====================
@@ -218,9 +204,9 @@ fn propose_works() {
 		// Fee is burned (reduces total issuance)
 
 		// Check event
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 		System::assert_last_event(
-			Event::ProposalCreated { multisig_address, proposer, proposal_hash }.into(),
+			Event::ProposalCreated { multisig_address, proposer, proposal_id }.into(),
 		);
 	});
 }
@@ -264,13 +250,13 @@ fn approve_works() {
 			1000
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Charlie approves (now 2/3)
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 
 		// Check event
@@ -278,14 +264,14 @@ fn approve_works() {
 			Event::ProposalApproved {
 				multisig_address,
 				approver: charlie(),
-				proposal_hash,
+				proposal_id,
 				approvals_count: 2,
 			}
 			.into(),
 		);
 
 		// Proposal should still exist (not executed yet)
-		assert!(crate::Proposals::<Test>::contains_key(multisig_address, proposal_hash));
+		assert!(crate::Proposals::<Test>::contains_key(multisig_address, proposal_id));
 	});
 }
 
@@ -308,17 +294,17 @@ fn approve_auto_executes_when_threshold_reached() {
 			1000
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Charlie approves - threshold reached (2/2), auto-executes and removes
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 
 		// Check that proposal was executed and immediately removed from storage
-		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_hash).is_none());
+		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_id).is_none());
 
 		// Deposit should be returned immediately
 		assert_eq!(Balances::reserved_balance(bob()), 0); // No longer reserved
@@ -327,7 +313,7 @@ fn approve_auto_executes_when_threshold_reached() {
 		System::assert_has_event(
 			Event::ProposalExecuted {
 				multisig_address,
-				proposal_hash,
+				proposal_id,
 				proposer: bob(),
 				call: call.clone(),
 				approvers: vec![bob(), charlie()],
@@ -360,24 +346,24 @@ fn cancel_works() {
 			1000
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Cancel the proposal - immediately removes and returns deposit
 		assert_ok!(Multisig::cancel(
 			RuntimeOrigin::signed(proposer),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 
 		// Proposal should be immediately removed from storage
-		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_hash).is_none());
+		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_id).is_none());
 
 		// Deposit should be returned immediately
 		assert_eq!(Balances::reserved_balance(proposer), 0);
 
 		// Check event
 		System::assert_last_event(
-			Event::ProposalCancelled { multisig_address, proposer, proposal_hash }.into(),
+			Event::ProposalCancelled { multisig_address, proposer, proposal_id }.into(),
 		);
 	});
 }
@@ -401,18 +387,18 @@ fn cancel_fails_if_already_executed() {
 			1000
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Approve to execute (auto-executes and removes proposal)
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 
 		// Try to cancel executed proposal (already removed, so ProposalNotFound)
 		assert_noop!(
-			Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, proposal_hash),
+			Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, proposal_id),
 			Error::<Test>::ProposalNotFound
 		);
 	});
@@ -440,7 +426,7 @@ fn remove_expired_works_after_grace_period() {
 			expiry
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Move past expiry + grace period (100 blocks)
 		System::set_block_number(expiry + 101);
@@ -449,11 +435,11 @@ fn remove_expired_works_after_grace_period() {
 		assert_ok!(Multisig::remove_expired(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 
 		// Proposal should be gone
-		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, proposal_hash));
+		assert!(!crate::Proposals::<Test>::contains_key(multisig_address, proposal_id));
 
 		// Deposit should be returned to proposer
 		assert_eq!(Balances::reserved_balance(bob()), 0);
@@ -479,17 +465,17 @@ fn executed_proposals_auto_removed() {
 			1000
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Execute - should auto-remove proposal and return deposit
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 
 		// Proposal should be immediately removed
-		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_hash).is_none());
+		assert!(crate::Proposals::<Test>::get(multisig_address, proposal_id).is_none());
 
 		// Deposit should be immediately returned
 		assert_eq!(Balances::reserved_balance(bob()), 0);
@@ -499,7 +485,7 @@ fn executed_proposals_auto_removed() {
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(charlie()),
 				multisig_address,
-				proposal_hash
+				proposal_id
 			),
 			Error::<Test>::ProposalNotFound
 		);
@@ -526,18 +512,14 @@ fn remove_expired_fails_for_non_signer() {
 			expiry
 		));
 
-		let proposal_hash = calculate_last_proposal_hash(multisig_address, &call);
+		let proposal_id = get_last_proposal_id(multisig_address);
 
 		// Move past expiry
 		System::set_block_number(expiry + 1);
 
 		// Dave is not a signer, should fail
 		assert_noop!(
-			Multisig::remove_expired(
-				RuntimeOrigin::signed(dave()),
-				multisig_address,
-				proposal_hash
-			),
+			Multisig::remove_expired(RuntimeOrigin::signed(dave()), multisig_address, proposal_id),
 			Error::<Test>::NotASigner
 		);
 
@@ -545,7 +527,7 @@ fn remove_expired_fails_for_non_signer() {
 		assert_ok!(Multisig::remove_expired(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address,
-			proposal_hash
+			proposal_id
 		));
 	});
 }
@@ -708,15 +690,15 @@ fn only_active_proposals_remain_in_storage() {
 			));
 
 			if i < 5 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
+				let id = get_last_proposal_id(multisig_address);
 				assert_ok!(Multisig::approve(
 					RuntimeOrigin::signed(charlie()),
 					multisig_address,
-					hash
+					id
 				));
 			} else if i == 5 {
-				let hash = calculate_last_proposal_hash(multisig_address, &call);
-				assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, hash));
+				let id = get_last_proposal_id(multisig_address);
+				assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address, id));
 			}
 		}
 		// Bob now has 4 Active in storage (i=6,7,8,9), 5 executed + 1 cancelled were removed

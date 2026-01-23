@@ -4,9 +4,8 @@ use super::*;
 use crate::Pallet as Multisig;
 use alloc::vec;
 use frame_benchmarking::{account as benchmark_account, v2::*, BenchmarkError};
-use frame_support::traits::fungible::Mutate;
+use frame_support::traits::{fungible::Mutate, ReservableCurrency};
 use frame_system::RawOrigin;
-use sp_runtime::traits::Hash;
 
 const SEED: u32 = 0;
 
@@ -61,33 +60,62 @@ mod benchmarks {
 	#[benchmark]
 	fn propose(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+		e: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, // expired proposals to cleanup
 	) -> Result<(), BenchmarkError> {
 		// Setup: Create a multisig first
 		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
 		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
 		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
-		fund_account::<T>(&signer1, BalanceOf2::<T>::from(10000u128));
-		fund_account::<T>(&signer2, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
+		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
 
-		let signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
+		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
 		let threshold = 2u32;
+		signers.sort();
 
-		Multisig::<T>::create_multisig(
-			RawOrigin::Signed(caller.clone()).into(),
-			signers.clone(),
+		// Create multisig directly in storage
+		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, 0);
+		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
+		let multisig_data = MultisigDataOf::<T> {
+			signers: bounded_signers,
 			threshold,
-		)?;
+			nonce: 0,
+			proposal_nonce: e, // We'll insert e expired proposals
+			creator: caller.clone(),
+			deposit: T::MultisigDeposit::get(),
+			last_activity: frame_system::Pallet::<T>::block_number(),
+			active_proposals: e,
+			proposals_per_signer: BoundedBTreeMap::new(),
+		};
+		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Note: signers are sorted internally, so we must sort for address derivation
-		let mut sorted_signers = signers.clone();
-		sorted_signers.sort();
-		let multisig_address = Multisig::<T>::derive_multisig_address(&sorted_signers, 0);
+		// Insert e expired proposals (worst case for auto-cleanup)
+		let expired_block = 10u32.into();
+		for i in 0..e {
+			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 10] };
+			let call = <T as Config>::RuntimeCall::from(system_call);
+			let encoded_call = call.encode();
+			let bounded_call: BoundedCallOf<T> = encoded_call.try_into().unwrap();
+			let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
 
-		// Create a remark call where the remark itself is c bytes
-		// We limit c to MaxCallSize - 100 to account for encoding overhead
-		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
+			let proposal_data = ProposalDataOf::<T> {
+				proposer: caller.clone(),
+				call: bounded_call,
+				expiry: expired_block,
+				approvals: bounded_approvals,
+				deposit: 10u32.into(),
+				status: ProposalStatus::Active,
+			};
+			Proposals::<T>::insert(&multisig_address, i, proposal_data);
+		}
+
+		// Move past expiry so proposals are expired
+		frame_system::Pallet::<T>::set_block_number(100u32.into());
+
+		// Create a new proposal (will auto-cleanup all e expired proposals)
+		let system_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
@@ -95,8 +123,9 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), encoded_call, expiry);
 
-		// Verify proposal was created
-		assert!(Proposals::<T>::iter_key_prefix(&multisig_address).next().is_some());
+		// Verify new proposal was created and expired ones were cleaned
+		let multisig = Multisigs::<T>::get(&multisig_address).unwrap();
+		assert_eq!(multisig.active_proposals, 1); // Only new proposal remains
 
 		Ok(())
 	}
@@ -130,11 +159,12 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 0,
+			proposal_nonce: 1, // We'll insert proposal with id 0
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
+			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
@@ -156,15 +186,14 @@ mod benchmarks {
 			status: ProposalStatus::Active,
 		};
 
-		// Match pallet hashing: hash_of(bounded_call)
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
-		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
+		let proposal_id = 0u32;
+		Proposals::<T>::insert(&multisig_address, proposal_id, proposal_data);
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(signer1.clone()), multisig_address.clone(), proposal_hash);
+		_(RawOrigin::Signed(signer1.clone()), multisig_address.clone(), proposal_id);
 
 		// Verify approval was added (now 2/3, not executed yet)
-		let proposal = Proposals::<T>::get(&multisig_address, proposal_hash).unwrap();
+		let proposal = Proposals::<T>::get(&multisig_address, proposal_id).unwrap();
 		assert!(proposal.approvals.contains(&signer1));
 		assert_eq!(proposal.approvals.len(), 2);
 
@@ -197,11 +226,12 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 0,
+			proposal_nonce: 1, // We'll insert proposal with id 0
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
+			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
@@ -225,17 +255,15 @@ mod benchmarks {
 			status: ProposalStatus::Active,
 		};
 
-		// Match pallet hashing: hash_of(bounded_call)
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
-		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
+		let proposal_id = 0u32;
+		Proposals::<T>::insert(&multisig_address, proposal_id, proposal_data);
 
 		// signer2 approves, reaching threshold (2/2), triggering auto-execution
 		#[extrinsic_call]
-		approve(RawOrigin::Signed(signer2.clone()), multisig_address.clone(), proposal_hash);
+		approve(RawOrigin::Signed(signer2.clone()), multisig_address.clone(), proposal_id);
 
-		// Verify proposal status was changed to Executed
-		let executed_proposal = Proposals::<T>::get(&multisig_address, proposal_hash).unwrap();
-		assert_eq!(executed_proposal.status, ProposalStatus::Executed);
+		// Verify proposal was removed from storage (auto-deleted after execution)
+		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_id));
 
 		Ok(())
 	}
@@ -266,11 +294,12 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 0,
+			proposal_nonce: 1, // We'll insert proposal with id 0
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
 			active_proposals: 1,
+			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
@@ -292,16 +321,14 @@ mod benchmarks {
 			status: ProposalStatus::Active,
 		};
 
-		// Match pallet hashing: hash_of(bounded_call)
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
-		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
+		let proposal_id = 0u32;
+		Proposals::<T>::insert(&multisig_address, proposal_id, proposal_data);
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), proposal_hash);
+		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), proposal_id);
 
-		// Verify proposal status was changed to Cancelled
-		let cancelled_proposal = Proposals::<T>::get(&multisig_address, proposal_hash).unwrap();
-		assert_eq!(cancelled_proposal.status, ProposalStatus::Cancelled);
+		// Verify proposal was removed from storage (auto-deleted after cancellation)
+		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_id));
 
 		Ok(())
 	}
@@ -330,11 +357,12 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 0,
+			proposal_nonce: 1, // We'll insert proposal with id 0
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: 1u32.into(),
 			active_proposals: 1,
+			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
@@ -355,25 +383,27 @@ mod benchmarks {
 			status: ProposalStatus::Active,
 		};
 
-		// Match pallet hashing: hash_of(bounded_call)
-		let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
-		Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
+		let proposal_id = 0u32;
+		Proposals::<T>::insert(&multisig_address, proposal_id, proposal_data);
 
-		// Move past expiry + grace period
-		frame_system::Pallet::<T>::set_block_number(300u32.into());
+		// Move past expiry
+		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
-		// Call as proposer (caller) since we might still be in grace period
+		// Call as signer (caller is one of signers)
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), proposal_hash);
+		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), proposal_id);
 
 		// Verify proposal was removed
-		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_hash));
+		assert!(!Proposals::<T>::contains_key(&multisig_address, proposal_id));
 
 		Ok(())
 	}
 
 	#[benchmark]
-	fn claim_deposits() -> Result<(), BenchmarkError> {
+	fn claim_deposits(
+		p: Linear<1, { T::MaxTotalProposalsInStorage::get() }>, /* number of expired proposals
+		                                                         * to cleanup */
+	) -> Result<(), BenchmarkError> {
 		// Setup: Create multisig with multiple expired proposals directly in storage
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
@@ -396,18 +426,19 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 0,
+			proposal_nonce: p, // We'll insert p proposals with ids 0..p-1
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: 1u32.into(),
-			active_proposals: 5,
+			active_proposals: p,
+			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
 		// Create multiple expired proposals directly in storage
 		let expiry = 10u32.into(); // Already expired
 
-		for i in 0..5 {
+		for i in 0..p {
 			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 32] };
 			let call = <T as Config>::RuntimeCall::from(system_call);
 			let encoded_call = call.encode();
@@ -423,21 +454,66 @@ mod benchmarks {
 				status: ProposalStatus::Active,
 			};
 
-			// Match pallet hashing: hash_of(bounded_call)
-			let proposal_hash = <T as frame_system::Config>::Hashing::hash_of(&proposal_data.call);
-			Proposals::<T>::insert(&multisig_address, proposal_hash, proposal_data);
+			Proposals::<T>::insert(&multisig_address, i, proposal_data);
 		}
 
-		// Move past expiry + grace period
-		frame_system::Pallet::<T>::set_block_number(300u32.into());
+		// Move past expiry
+		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), multisig_address.clone());
 
-		// Verify at least some proposals were cleaned up
-		// Note: claim_deposits only removes proposals past grace period
-		// Since we set block 300 and expiry was 10, and grace period might vary,
-		// we just verify the call succeeded
+		// Verify all expired proposals were cleaned up
+		assert_eq!(Proposals::<T>::iter_key_prefix(&multisig_address).count(), 0);
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn dissolve_multisig() -> Result<(), BenchmarkError> {
+		// Setup: Create a clean multisig (no proposals, zero balance)
+		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
+
+		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
+		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+
+		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
+		let threshold = 2u32;
+
+		// Sort signers to match create_multisig behavior
+		signers.sort();
+
+		// Directly insert multisig into storage
+		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, 0);
+		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
+		let deposit = T::MultisigDeposit::get();
+
+		// Reserve deposit from caller
+		T::Currency::reserve(&caller, deposit)?;
+
+		let multisig_data = MultisigDataOf::<T> {
+			signers: bounded_signers,
+			threshold,
+			nonce: 0,
+			proposal_nonce: 0,
+			creator: caller.clone(),
+			deposit,
+			last_activity: frame_system::Pallet::<T>::block_number(),
+			active_proposals: 0, // No proposals
+			proposals_per_signer: BoundedBTreeMap::new(),
+		};
+		Multisigs::<T>::insert(&multisig_address, multisig_data);
+
+		// Ensure multisig address has zero balance (required for dissolution)
+		// Don't fund it at all
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(caller.clone()), multisig_address.clone());
+
+		// Verify multisig was removed
+		assert!(!Multisigs::<T>::contains_key(&multisig_address));
+
 		Ok(())
 	}
 
