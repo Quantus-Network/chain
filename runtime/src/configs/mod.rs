@@ -55,10 +55,7 @@ use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::{
-	traits::{AccountIdConversion, One},
-	FixedU128, Perbill, Permill,
-};
+use sp_runtime::{traits::One, FixedU128, Perbill, Permill};
 use sp_version::RuntimeVersion;
 
 // Local module imports
@@ -579,8 +576,37 @@ parameter_types! {
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
 }
 
+/// Whitelist for calls that can be proposed in multisigs
+/// Production: Only balance transfers are allowed
+/// Benchmarking: system::remark is also allowed for weight generation
+pub struct MultisigCallFilter;
+impl frame_support::traits::Contains<RuntimeCall> for MultisigCallFilter {
+	fn contains(call: &RuntimeCall) -> bool {
+		#[cfg(feature = "runtime-benchmarks")]
+		{
+			// Benchmarks use system::remark with varying sizes to generate universal weights
+			matches!(
+				call,
+				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+					RuntimeCall::System(frame_system::Call::remark { .. })
+			)
+		}
+		#[cfg(not(feature = "runtime-benchmarks"))]
+		{
+			// Production: strict whitelist
+			matches!(
+				call,
+				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
+			)
+		}
+	}
+}
+
 impl pallet_multisig::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
+	type CallFilter = MultisigCallFilter;
 	type Currency = Balances;
 	type MaxSigners = MaxSigners;
 	type MaxActiveProposals = MaxActiveProposals;

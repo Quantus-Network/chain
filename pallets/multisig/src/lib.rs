@@ -34,7 +34,10 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
+use frame_support::{
+	traits::{Contains, Get},
+	BoundedBTreeMap, BoundedVec,
+};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
@@ -147,6 +150,10 @@ pub mod pallet {
 			+ GetDispatchInfo
 			+ From<frame_system::Call<Self>>
 			+ codec::Decode;
+
+		/// Filter for which calls can be proposed in multisigs
+		/// Use `Everything` to allow all calls, or custom filter for whitelist
+		type CallFilter: Contains<<Self as frame_system::Config>::RuntimeCall>;
 
 		/// Currency type for handling deposits
 		type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
@@ -375,6 +382,8 @@ pub mod pallet {
 		ProposalNotExpired,
 		/// Proposal is not active (already executed or cancelled)
 		ProposalNotActive,
+		/// Call is not whitelisted for high-security multisig
+		CallNotWhitelisted,
 		/// Cannot dissolve multisig with existing proposals (clear them first)
 		ProposalsExist,
 		/// Multisig account must have zero balance before dissolution
@@ -590,6 +599,13 @@ pub mod pallet {
 
 			// Check call size
 			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
+
+			// Validate call against whitelist (CallFilter)
+			// Note: We decode as frame_system::Config::RuntimeCall which is the same as
+			// Config::RuntimeCall
+			let decoded_call = <<T as frame_system::Config>::RuntimeCall>::decode(&mut &call[..])
+				.map_err(|_| Error::<T>::InvalidCall)?;
+			ensure!(T::CallFilter::contains(&decoded_call), Error::<T>::CallNotWhitelisted);
 
 			// Validate expiry is in the future
 			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
