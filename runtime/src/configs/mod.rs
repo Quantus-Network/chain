@@ -577,36 +577,8 @@ parameter_types! {
 }
 
 /// Whitelist for calls that can be proposed in multisigs
-/// Production: Only balance transfers are allowed
-/// Benchmarking: system::remark is also allowed for weight generation
-pub struct MultisigCallFilter;
-impl frame_support::traits::Contains<RuntimeCall> for MultisigCallFilter {
-	fn contains(call: &RuntimeCall) -> bool {
-		#[cfg(feature = "runtime-benchmarks")]
-		{
-			// Benchmarks use system::remark with varying sizes to generate universal weights
-			matches!(
-				call,
-				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-					RuntimeCall::System(frame_system::Call::remark { .. })
-			)
-		}
-		#[cfg(not(feature = "runtime-benchmarks"))]
-		{
-			// Production: strict whitelist
-			matches!(
-				call,
-				RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
-			)
-		}
-	}
-}
-
 impl pallet_multisig::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
-	type CallFilter = MultisigCallFilter;
 	type Currency = Balances;
 	type MaxSigners = MaxSigners;
 	type MaxActiveProposals = MaxActiveProposals;

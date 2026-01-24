@@ -34,10 +34,7 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{
-	traits::{Contains, Get},
-	BoundedBTreeMap, BoundedVec,
-};
+use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
@@ -150,10 +147,6 @@ pub mod pallet {
 			+ GetDispatchInfo
 			+ From<frame_system::Call<Self>>
 			+ codec::Decode;
-
-		/// Filter for which calls can be proposed in multisigs
-		/// Use `Everything` to allow all calls, or custom filter for whitelist
-		type CallFilter: Contains<<Self as frame_system::Config>::RuntimeCall>;
 
 		/// Currency type for handling deposits
 		type Currency: Currency<Self::AccountId> + ReservableCurrency<Self::AccountId>;
@@ -382,8 +375,6 @@ pub mod pallet {
 		ProposalNotExpired,
 		/// Proposal is not active (already executed or cancelled)
 		ProposalNotActive,
-		/// Call is not whitelisted for high-security multisig
-		CallNotWhitelisted,
 		/// Cannot dissolve multisig with existing proposals (clear them first)
 		ProposalsExist,
 		/// Multisig account must have zero balance before dissolution
@@ -536,23 +527,12 @@ pub mod pallet {
 
 			// Remove expired proposals and return deposits
 			for (id, expired_proposer, deposit) in expired_proposals.iter() {
-				Proposals::<T>::remove(&multisig_address, id);
-				T::Currency::unreserve(expired_proposer, *deposit);
-
-				// Decrement counters
-				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-					if let Some(multisig) = maybe_multisig {
-						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-
-						if let Some(count) = multisig.proposals_per_signer.get_mut(expired_proposer)
-						{
-							*count = count.saturating_sub(1);
-							if *count == 0 {
-								multisig.proposals_per_signer.remove(expired_proposer);
-							}
-						}
-					}
-				});
+				Self::remove_proposal_and_return_deposit(
+					&multisig_address,
+					*id,
+					expired_proposer,
+					*deposit,
+				);
 
 				// Emit event for each removed proposal
 				Self::deposit_event(Event::ProposalRemoved {
@@ -599,13 +579,6 @@ pub mod pallet {
 
 			// Check call size
 			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
-
-			// Validate call against whitelist (CallFilter)
-			// Note: We decode as frame_system::Config::RuntimeCall which is the same as
-			// Config::RuntimeCall
-			let decoded_call = <<T as frame_system::Config>::RuntimeCall>::decode(&mut &call[..])
-				.map_err(|_| Error::<T>::InvalidCall)?;
-			ensure!(T::CallFilter::contains(&decoded_call), Error::<T>::CallNotWhitelisted);
 
 			// Validate expiry is in the future
 			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
@@ -715,9 +688,7 @@ pub mod pallet {
 			let approver = ensure_signed(origin)?;
 
 			// Check if approver is a signer
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-			ensure!(multisig_data.signers.contains(&approver), Error::<T>::NotASigner);
+			let multisig_data = Self::ensure_is_signer(&multisig_address, &approver)?;
 
 			// Get proposal
 			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_id)
@@ -789,26 +760,13 @@ pub mod pallet {
 			// Check if proposal is still active
 			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
 
-			// Remove proposal from storage immediately
-			Proposals::<T>::remove(&multisig_address, proposal_id);
-
-			// Return deposit to proposer immediately
-			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
-
-			// Decrement counters
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-
-					// Decrement per-signer counter
-					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
-						*count = count.saturating_sub(1);
-						if *count == 0 {
-							multisig.proposals_per_signer.remove(&proposal.proposer);
-						}
-					}
-				}
-			});
+			// Remove proposal from storage and return deposit immediately
+			Self::remove_proposal_and_return_deposit(
+				&multisig_address,
+				proposal_id,
+				&proposal.proposer,
+				proposal.deposit,
+			);
 
 			// Emit event
 			Self::deposit_event(Event::ProposalCancelled {
@@ -838,9 +796,7 @@ pub mod pallet {
 			let caller = ensure_signed(origin)?;
 
 			// Verify caller is a signer
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-			ensure!(multisig_data.signers.contains(&caller), Error::<T>::NotASigner);
+			let _multisig_data = Self::ensure_is_signer(&multisig_address, &caller)?;
 
 			// Get proposal
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
@@ -854,26 +810,13 @@ pub mod pallet {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			ensure!(current_block > proposal.expiry, Error::<T>::ProposalNotExpired);
 
-			// Return deposit to proposer
-			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
-
-			// Remove proposal from storage
-			Proposals::<T>::remove(&multisig_address, proposal_id);
-
-			// Decrement counters
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-
-					// Decrement per-signer counter
-					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
-						*count = count.saturating_sub(1);
-						if *count == 0 {
-							multisig.proposals_per_signer.remove(&proposal.proposer);
-						}
-					}
-				}
-			});
+			// Remove proposal from storage and return deposit
+			Self::remove_proposal_and_return_deposit(
+				&multisig_address,
+				proposal_id,
+				&proposal.proposer,
+				proposal.deposit,
+			);
 
 			// Emit event
 			Self::deposit_event(Event::ProposalRemoved {
@@ -929,30 +872,16 @@ pub mod pallet {
 
 			// Remove proposals and return deposits
 			for (id, proposal) in proposals_to_remove {
-				// Return deposit
-				T::Currency::unreserve(&proposal.proposer, proposal.deposit);
 				total_returned = total_returned.saturating_add(proposal.deposit);
-
-				// Remove from storage
-				Proposals::<T>::remove(&multisig_address, id);
 				removed_count = removed_count.saturating_add(1);
 
-				// Decrement counters (all are Active since Executed/Cancelled auto-removed)
-				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-					if let Some(multisig) = maybe_multisig {
-						multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-
-						// Decrement per-signer counter
-						if let Some(count) =
-							multisig.proposals_per_signer.get_mut(&proposal.proposer)
-						{
-							*count = count.saturating_sub(1);
-							if *count == 0 {
-								multisig.proposals_per_signer.remove(&proposal.proposer);
-							}
-						}
-					}
-				});
+				// Remove from storage and return deposit
+				Self::remove_proposal_and_return_deposit(
+					&multisig_address,
+					id,
+					&proposal.proposer,
+					proposal.deposit,
+				);
 
 				// Emit event for each removed proposal
 				Self::deposit_event(Event::ProposalRemoved {
@@ -1058,6 +987,54 @@ pub mod pallet {
 			}
 		}
 
+		/// Ensure account is a signer, otherwise return error
+		/// Returns multisig data if successful
+		fn ensure_is_signer(
+			multisig_address: &T::AccountId,
+			account: &T::AccountId,
+		) -> Result<MultisigDataOf<T>, DispatchError> {
+			let multisig_data =
+				Multisigs::<T>::get(multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+			ensure!(multisig_data.signers.contains(account), Error::<T>::NotASigner);
+			Ok(multisig_data)
+		}
+
+		/// Decrement proposal counters (active_proposals and per-signer counter)
+		/// Used when removing proposals from storage
+		fn decrement_proposal_counters(multisig_address: &T::AccountId, proposer: &T::AccountId) {
+			Multisigs::<T>::mutate(multisig_address, |maybe_multisig| {
+				if let Some(multisig) = maybe_multisig {
+					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
+
+					// Decrement per-signer counter
+					if let Some(count) = multisig.proposals_per_signer.get_mut(proposer) {
+						*count = count.saturating_sub(1);
+						if *count == 0 {
+							multisig.proposals_per_signer.remove(proposer);
+						}
+					}
+				}
+			});
+		}
+
+		/// Remove a proposal from storage and return deposit to proposer
+		/// Used for cleanup operations
+		fn remove_proposal_and_return_deposit(
+			multisig_address: &T::AccountId,
+			proposal_id: u32,
+			proposer: &T::AccountId,
+			deposit: BalanceOf<T>,
+		) {
+			// Remove from storage
+			Proposals::<T>::remove(multisig_address, proposal_id);
+
+			// Return deposit to proposer
+			T::Currency::unreserve(proposer, deposit);
+
+			// Decrement counters
+			Self::decrement_proposal_counters(multisig_address, proposer);
+		}
+
 		/// Internal function to execute a proposal
 		/// Called automatically from `approve()` when threshold is reached
 		///
@@ -1076,26 +1053,19 @@ pub mod pallet {
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Error::<T>::InvalidCall)?;
 
-			// EFFECTS: Remove proposal from storage BEFORE external interaction (reentrancy
-			// protection)
-			Proposals::<T>::remove(&multisig_address, proposal_id);
+			// EFFECTS: Remove proposal from storage and return deposit BEFORE external interaction
+			// (reentrancy protection)
+			Self::remove_proposal_and_return_deposit(
+				&multisig_address,
+				proposal_id,
+				&proposal.proposer,
+				proposal.deposit,
+			);
 
-			// EFFECTS: Return deposit to proposer BEFORE external interaction
-			T::Currency::unreserve(&proposal.proposer, proposal.deposit);
-
-			// EFFECTS: Update multisig counters BEFORE external interaction
+			// EFFECTS: Update multisig last_activity BEFORE external interaction
 			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
 				if let Some(multisig) = maybe_multisig {
 					multisig.last_activity = frame_system::Pallet::<T>::block_number();
-					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-
-					// Decrement per-signer counter
-					if let Some(count) = multisig.proposals_per_signer.get_mut(&proposal.proposer) {
-						*count = count.saturating_sub(1);
-						if *count == 0 {
-							multisig.proposals_per_signer.remove(&proposal.proposer);
-						}
-					}
 				}
 			});
 

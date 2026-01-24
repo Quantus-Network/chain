@@ -174,44 +174,7 @@ Batch cleanup operation to recover all expired proposal deposits.
 
 **Auto-Cleanup:** When anyone calls `propose()`, all expired proposals are automatically removed first, making this function often unnecessary.
 
-## Call Filtering & Whitelisting
-
-The pallet supports optional call whitelisting through the `CallFilter` configuration parameter. This allows restricting which calls can be proposed in multisigs.
-
-### Configuration
-
-```rust
-// Whitelist only specific calls (e.g., transfers only)
-pub struct MultisigCallFilter;
-impl Contains<RuntimeCall> for MultisigCallFilter {
-    fn contains(call: &RuntimeCall) -> bool {
-        matches!(call,
-            RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-            RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
-        )
-    }
-}
-
-impl pallet_multisig::Config for Runtime {
-    type CallFilter = MultisigCallFilter;
-    // ...
-}
-```
-
-### Validation
-
-When a proposal is created via `propose()`, the call is:
-1. **Decoded** from `Vec<u8>` to `RuntimeCall`
-2. **Checked** against `CallFilter::contains()`
-3. **Rejected** with `Error::CallNotWhitelisted` if not in whitelist
-
-**Important:** 
-- Filter applies to **ALL multisigs** in the runtime (global setting)
-- Changes require **runtime upgrade** (no per-multisig customization)
-- Custom filter defines which calls can be proposed
-- Unauthorized calls rejected with `CallNotWhitelisted` error
-
-### Use Cases
+## Use Cases
 
 **Payroll Multisig (transfers only):**
 ```rust
@@ -366,7 +329,6 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `ProposalExpired` - Proposal deadline passed (for approve)
 - `CallTooLarge` - Encoded call exceeds MaxCallSize
 - `InvalidCall` - Call decoding failed during execution
-- `CallNotWhitelisted` - Call is not allowed by CallFilter (whitelist rejection)
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyActiveProposals` - Multisig has MaxActiveProposals open proposals
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
@@ -495,7 +457,6 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 ```rust
 impl pallet_multisig::Config for Runtime {
     type RuntimeCall = RuntimeCall;
-    type CallFilter = MultisigCallFilter;  // Custom whitelist (see Call Filtering section)
     type Currency = Balances;
     
     // Storage limits (prevent unbounded growth)

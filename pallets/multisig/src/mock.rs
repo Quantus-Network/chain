@@ -101,7 +101,6 @@ parameter_types! {
 
 impl pallet_multisig::Config for Test {
 	type RuntimeCall = RuntimeCall;
-	type CallFilter = Everything; // Allow all calls in tests
 	type Currency = Balances;
 	type MaxSigners = MaxSignersParam;
 	type MaxActiveProposals = MaxActiveProposalsParam;
