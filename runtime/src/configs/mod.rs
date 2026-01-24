@@ -190,6 +190,7 @@ impl pallet_balances::Config for Runtime {
 	type MaxReserves = ();
 	type MaxFreezes = VariantCountOf<RuntimeFreezeReason>;
 	type DoneSlashHandler = ();
+	type MintingAccount = MintingAccount;
 }
 
 parameter_types! {

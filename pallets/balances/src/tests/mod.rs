@@ -112,6 +112,7 @@ impl pallet_transaction_payment::Config for Test {
 
 parameter_types! {
 	pub FooReason: TestId = TestId::Foo;
+	pub MintingAccount: AccountId = AccountId::new([1u8; 32]);
 }
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
@@ -126,6 +127,7 @@ impl Config for Test {
 	type RuntimeFreezeReason = TestId;
 	type FreezeIdentifier = TestId;
 	type MaxFreezes = VariantCountOf<TestId>;
+	type MintingAccount = MintingAccount;
 }
 
 #[derive(Clone)]
