@@ -55,6 +55,7 @@ pub trait WeightInfo {
 	fn schedule_transfer() -> Weight;
 	fn cancel() -> Weight;
 	fn execute_transfer() -> Weight;
+	fn recover_funds() -> Weight;
 }
 
 /// Weights for `pallet_reversible_transfers` using the Substrate node and recommended hardware.
@@ -136,6 +137,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(5_u64))
 	}
+	fn recover_funds() -> Weight {
+		Weight::from_parts(50_000_000, 3556)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -215,5 +221,10 @@ impl WeightInfo for () {
 		Weight::from_parts(88_000_000, 3696)
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(5_u64))
+	}
+	fn recover_funds() -> Weight {
+		Weight::from_parts(50_000_000, 3556)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 }

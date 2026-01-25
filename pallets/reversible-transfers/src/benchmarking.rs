@@ -229,6 +229,23 @@ mod benchmarks {
 		Ok(())
 	}
 
+	#[benchmark]
+	fn recover_funds() -> Result<(), BenchmarkError> {
+		let account: T::AccountId = whitelisted_caller();
+		let guardian: T::AccountId = benchmark_account("guardian", 0, SEED);
+
+		fund_account::<T>(&account, BalanceOf::<T>::from(10000u128));
+		fund_account::<T>(&guardian, BalanceOf::<T>::from(100u128));
+
+		let delay = T::DefaultDelay::get();
+		setup_high_security_account::<T>(account.clone(), delay, guardian.clone());
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(guardian.clone()), account.clone());
+
+		Ok(())
+	}
+
 	impl_benchmark_test_suite!(
 		ReversibleTransfers,
 		crate::tests::mock::new_test_ext(),
