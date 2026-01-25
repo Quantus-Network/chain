@@ -235,7 +235,7 @@ mod benchmarks {
 		let guardian: T::AccountId = benchmark_account("guardian", 0, SEED);
 
 		fund_account::<T>(&account, BalanceOf::<T>::from(10000u128));
-		fund_account::<T>(&guardian, BalanceOf::<T>::from(100u128));
+		fund_account::<T>(&guardian, BalanceOf::<T>::from(10000u128));
 
 		let delay = T::DefaultDelay::get();
 		setup_high_security_account::<T>(account.clone(), delay, guardian.clone());
