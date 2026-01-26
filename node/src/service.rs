@@ -14,18 +14,117 @@ use crate::{external_miner_client::QuicMinerClient, prometheus::ResonanceBusines
 use codec::Encode;
 use jsonrpsee::tokio;
 use qpow_math::mine_range;
-use quantus_miner_api::ApiResponseStatus;
+use quantus_miner_api::{ApiResponseStatus, MiningResult};
 use sc_cli::TransactionPoolType;
 use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
-use sp_core::{crypto::AccountId32, U512};
+use sp_core::{crypto::AccountId32, H256, U512};
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
+
+// ============================================================================
+// External Mining Helper Types and Functions
+// ============================================================================
+
+/// Result of waiting for an external mining result.
+enum ExternalMiningOutcome {
+	/// Successfully found a valid seal (64 bytes).
+	Success(Vec<u8>),
+	/// Mining completed but result was invalid, stale, cancelled, or failed.
+	Failed,
+	/// New block arrived, need to send new job.
+	NewBlock,
+	/// Shutdown requested.
+	Shutdown,
+}
+
+/// Parse a mining result and extract the seal if valid.
+fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<Vec<u8>> {
+	// Check job ID matches
+	if result.job_id != expected_job_id {
+		log::debug!(target: "miner", "Received stale result for job {}, ignoring", result.job_id);
+		return None;
+	}
+
+	// Check status
+	if result.status != ApiResponseStatus::Completed {
+		match result.status {
+			ApiResponseStatus::Failed => log::warn!("⛏️ Mining job failed"),
+			ApiResponseStatus::Cancelled => {
+				log::debug!(target: "miner", "Mining job was cancelled")
+			},
+			_ => log::debug!(target: "miner", "Unexpected result status: {:?}", result.status),
+		}
+		return None;
+	}
+
+	// Extract and decode work
+	let work_hex = result.work.as_ref()?;
+	match hex::decode(work_hex) {
+		Ok(seal) if seal.len() == 64 => Some(seal),
+		Ok(seal) => {
+			log::warn!("⛏️ Invalid seal length from miner: {} bytes", seal.len());
+			None
+		},
+		Err(e) => {
+			log::warn!("⛏️ Failed to decode work hex: {}", e);
+			None
+		},
+	}
+}
+
+/// Wait for a mining result from the external miner.
+///
+/// Returns when:
+/// - A valid result is received
+/// - A new block is detected (need to send new job)
+/// - The operation is cancelled
+///
+/// The `check_new_block` closure should return `true` if a new block has arrived.
+async fn wait_for_mining_result<F>(
+	miner: &QuicMinerClient,
+	job_id: &str,
+	check_new_block: F,
+	cancellation_token: &CancellationToken,
+) -> ExternalMiningOutcome
+where
+	F: Fn() -> bool,
+{
+	loop {
+		// Check for new block
+		if check_new_block() {
+			log::debug!(target: "miner", "New block detected, will send new job");
+			return ExternalMiningOutcome::NewBlock;
+		}
+
+		// Check for shutdown
+		if cancellation_token.is_cancelled() {
+			return ExternalMiningOutcome::Shutdown;
+		}
+
+		// Wait for result with timeout
+		match miner.recv_result_timeout(Duration::from_millis(500)).await {
+			Some(result) => {
+				if let Some(seal) = parse_mining_result(&result, job_id) {
+					return ExternalMiningOutcome::Success(seal);
+				}
+				// For completed but invalid results, or failed/cancelled, stop waiting
+				if result.job_id == job_id {
+					return ExternalMiningOutcome::Failed;
+				}
+				// Stale result for different job, keep waiting
+			},
+			None => {
+				// Timeout, continue waiting
+			},
+		}
+	}
+}
 
 pub(crate) type FullClient = sc_service::TFullClient<
 	Block,
@@ -366,34 +465,26 @@ pub fn new_full<
 
 				// If external miner is connected, use external mining
 				if let Some(ref miner) = miner_client {
-					// Get current distance_threshold from runtime
-					let difficulty =
-						match client.runtime_api().get_difficulty(metadata.best_hash) {
-							Ok(d) => d,
-							Err(e) => {
-								log::warn!("⛏️Failed to get difficulty: {:?}", e);
-								tokio::select! {
-									_ = tokio::time::sleep(Duration::from_millis(250)) => {},
-									_ = mining_cancellation_token.cancelled() => continue,
-								}
-								continue;
-							},
-						};
+					// Get difficulty from runtime
+					let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
+						Ok(d) => d,
+						Err(e) => {
+							log::warn!("⛏️ Failed to get difficulty: {:?}", e);
+							tokio::select! {
+								_ = tokio::time::sleep(Duration::from_millis(250)) => {},
+								_ = mining_cancellation_token.cancelled() => continue,
+							}
+							continue;
+						},
+					};
 
-					// Generate new job ID (NewJob implicitly cancels any previous job)
+					// Submit job to external miner
 					let job_id = Uuid::new_v4().to_string();
-					current_job_id = Some(job_id.clone());
-
-					if let Err(e) = miner.send_job(
-						&job_id,
-						&metadata.pre_hash,
-						difficulty,
-						nonce,
-						U512::max_value(),
-					)
-					.await
+					if let Err(e) = miner
+						.send_job(&job_id, &metadata.pre_hash, difficulty, nonce, U512::max_value())
+						.await
 					{
-						log::warn!("⛏️Failed to submit mining job: {}", e);
+						log::warn!("⛏️ Failed to submit mining job: {}", e);
 						tokio::select! {
 							_ = tokio::time::sleep(Duration::from_millis(250)) => {},
 							_ = mining_cancellation_token.cancelled() => continue,
@@ -401,86 +492,48 @@ pub fn new_full<
 						continue;
 					}
 
-					// Wait for result (with periodic checks for new blocks)
-					loop {
-						// Check for new block (would require sending new job)
-						if worker_handle
-							.metadata()
-							.map(|m| m.best_hash != metadata.best_hash)
-							.unwrap_or(false)
-						{
-							log::debug!(target: "miner", "New block detected, will send new job");
-							break;
-						}
+					// Wait for result
+					let best_hash = metadata.best_hash;
+					let outcome = wait_for_mining_result(
+						miner,
+						&job_id,
+						|| {
+							worker_handle
+								.metadata()
+								.map(|m| m.best_hash != best_hash)
+								.unwrap_or(false)
+						},
+						&mining_cancellation_token,
+					)
+					.await;
 
-						// Check for cancellation
-						if mining_cancellation_token.is_cancelled() {
-							break;
-						}
-
-						// Wait for result with timeout
-						match miner.recv_result_timeout(Duration::from_millis(500)).await {
-							Some(result) => {
-								// Check if this result is for our current job
-								if current_job_id.as_ref() != Some(&result.job_id) {
-									log::debug!(target: "miner", "Received stale result for job {}, ignoring", result.job_id);
-									continue;
-								}
-
-								match result.status {
-									ApiResponseStatus::Completed => {
-										if let Some(work_hex) = result.work {
-											match hex::decode(&work_hex) {
-												Ok(seal) if seal.len() == 64 => {
-													let current_version = worker_handle.version();
-													if current_version == version {
-														// seal is already raw 64 bytes, don't SCALE-encode it
-														if futures::executor::block_on(
-															worker_handle.submit(seal),
-														) {
-															let mining_time = mining_start_time.elapsed().as_secs();
-															log::info!("🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)", mining_time);
-															nonce = U512::one();
-															mining_start_time = std::time::Instant::now();
-														} else {
-															log::warn!(
-																"⛏️ Failed to submit mined block from external miner"
-															);
-															nonce += U512::one();
-														}
-													} else {
-														log::debug!(target: "miner", "Work from external miner is stale, discarding.");
-													}
-												},
-												Ok(seal) => {
-													log::warn!("⛏️ Invalid seal length from miner: {} bytes", seal.len());
-												},
-												Err(e) => {
-													log::warn!("⛏️ Failed to decode work hex: {}", e);
-												}
-											}
-										} else {
-											log::warn!("⛏️ Completed result missing work field");
-										}
-										break;
-									},
-									ApiResponseStatus::Failed => {
-										log::warn!("⛏️ Mining job failed");
-										break;
-									},
-									ApiResponseStatus::Cancelled => {
-										log::debug!(target: "miner", "Mining job was cancelled");
-										break;
-									},
-									_ => {
-										log::debug!(target: "miner", "Unexpected result status: {:?}", result.status);
-									}
-								}
-							},
-							None => {
-								// Timeout - continue waiting
+					match outcome {
+						ExternalMiningOutcome::Success(seal) => {
+							let current_version = worker_handle.version();
+							if current_version != version {
+								log::debug!(target: "miner", "Work from external miner is stale, discarding.");
+							} else if futures::executor::block_on(worker_handle.submit(seal)) {
+								let mining_time = mining_start_time.elapsed().as_secs();
+								log::info!(
+									"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
+									mining_time
+								);
+								nonce = U512::one();
+								mining_start_time = std::time::Instant::now();
+							} else {
+								log::warn!("⛏️ Failed to submit mined block from external miner");
+								nonce += U512::one();
 							}
-						}
+						},
+						ExternalMiningOutcome::NewBlock => {
+							// Loop will continue and send new job
+						},
+						ExternalMiningOutcome::Shutdown => {
+							break;
+						},
+						ExternalMiningOutcome::Failed => {
+							// Continue to next iteration
+						},
 					}
 				} else {
 					// Local mining: try a range of N sequential nonces using optimized path
