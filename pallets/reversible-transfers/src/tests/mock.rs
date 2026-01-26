@@ -49,9 +49,6 @@ pub fn eve() -> AccountId {
 pub fn ferdie() -> AccountId {
 	account_id(255)
 }
-pub fn treasury() -> AccountId {
-	account_id(99)
-}
 
 /// Helper function for interceptor account (avoiding + 100 calculations)
 pub fn interceptor_1() -> AccountId {
@@ -139,6 +136,10 @@ impl frame_system::Config for Test {
 	type AccountData = pallet_balances::AccountData<Balance>;
 }
 
+parameter_types! {
+	pub MintingAccount: AccountId = AccountId::new([1u8; 32]);
+}
+
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl pallet_balances::Config for Test {
 	type Balance = Balance;
@@ -148,6 +149,7 @@ impl pallet_balances::Config for Test {
 	type WeightInfo = ();
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type MaxFreezes = MaxReversibleTransfers;
+	type MintingAccount = MintingAccount;
 }
 
 // In memory storage
@@ -195,8 +197,6 @@ parameter_types! {
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
-	/// Mock treasury account ID for tests
-	pub const TreasuryAccount: AccountId = AccountId::new([99u8; 32]);
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -215,7 +215,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-	type TreasuryAccountId = TreasuryAccount;
 }
 
 parameter_types! {
@@ -346,8 +345,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(account_id(109), 100_000_000_000),
 			(account_id(110), 100_000_000_000),
 			(account_id(111), 100_000_000_000),
-			// Treasury account for fee collection tests (must meet existential deposit)
-			(account_id(99), 1),
 		],
 	}
 	.assimilate_storage(&mut t)

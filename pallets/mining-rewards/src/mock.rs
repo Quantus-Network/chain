@@ -82,6 +82,7 @@ impl pallet_balances::Config for Test {
 	type MaxReserves = ();
 	type MaxFreezes = ConstU32<0>;
 	type DoneSlashHandler = ();
+	type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
