@@ -126,8 +126,9 @@ parameter_types! {
 impl pallet_mining_rewards::Config for Runtime {
 	type Currency = Balances;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
-	type MinerBlockReward = ConstU128<{ 10 * UNIT }>; // 10 tokens
-	type TreasuryBlockReward = ConstU128<0>; // 0 tokens
+	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
+	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
+	type TreasuryPortion = ConstU8<50>; // % of rewards go to treasury
 	type TreasuryPalletId = TreasuryPalletId;
 	type MintingAccount = MintingAccount;
 }
