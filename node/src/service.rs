@@ -10,11 +10,11 @@ use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory,
 use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
-use crate::{external_miner_client, prometheus::ResonanceBusinessMetrics};
+use crate::{external_miner_client::QuicMinerClient, prometheus::ResonanceBusinessMetrics};
 use codec::Encode;
 use jsonrpsee::tokio;
 use qpow_math::mine_range;
-use reqwest::Client;
+use quantus_miner_api::ApiResponseStatus;
 use sc_cli::TransactionPoolType;
 use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::ProvideRuntimeApi;
@@ -152,7 +152,7 @@ pub fn new_full<
 >(
 	config: Configuration,
 	rewards_address: AccountId32,
-	external_miner_url: Option<String>,
+	external_miner_addr: Option<String>,
 	enable_peer_sharing: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
@@ -302,8 +302,31 @@ pub fn new_full<
 		task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
 			log::info!("⛏️ QPoW Mining task spawned");
 			let mut nonce: U512 = U512::one();
-			let http_client = Client::new();
 			let mut current_job_id: Option<String> = None;
+
+			// Connect to external miner if address is provided
+			let miner_client: Option<QuicMinerClient> = if let Some(ref addr_str) = external_miner_addr {
+				match addr_str.parse::<std::net::SocketAddr>() {
+					Ok(addr) => {
+						match QuicMinerClient::connect(addr).await {
+							Ok(client) => {
+								log::info!("⛏️ Connected to external miner at {}", addr);
+								Some(client)
+							},
+							Err(e) => {
+								log::error!("⛏️ Failed to connect to external miner at {}: {}", addr, e);
+								None
+							}
+						}
+					},
+					Err(e) => {
+						log::error!("⛏️ Invalid external miner address '{}': {}", addr_str, e);
+						None
+					}
+				}
+			} else {
+				None
+			};
 
 			// Submit new mining job
 			let mut mining_start_time = std::time::Instant::now();
@@ -313,22 +336,7 @@ pub fn new_full<
 				// Check for cancellation
 				if mining_cancellation_token.is_cancelled() {
 					log::info!("⛏️ QPoW Mining task shutting down gracefully");
-
-					// Cancel any pending external mining job
-					if let Some(job_id) = &current_job_id {
-						if let Some(miner_url) = &external_miner_url {
-							if let Err(e) = external_miner_client::cancel_mining_job(
-								&http_client,
-								miner_url,
-								job_id,
-							)
-							.await
-							{
-								log::warn!("⛏️Failed to cancel mining job during shutdown: {}", e);
-							}
-						}
-					}
-
+					// QUIC client will clean up on drop (connection closes, miner cancels job)
 					break;
 				}
 
@@ -356,26 +364,8 @@ pub fn new_full<
 				};
 				let version = worker_handle.version();
 
-				// If external miner URL is provided, use external mining
-				if let Some(miner_url) = &external_miner_url {
-					// Fire-and-forget cancellation of previous job - don't wait for confirmation
-					// This reduces latency when switching to a new block
-					if let Some(old_job_id) = current_job_id.take() {
-						let cancel_client = http_client.clone();
-						let cancel_url = miner_url.clone();
-						tokio::spawn(async move {
-							if let Err(e) = external_miner_client::cancel_mining_job(
-								&cancel_client,
-								&cancel_url,
-								&old_job_id,
-							)
-							.await
-							{
-								log::debug!("⛏️ Failed to cancel previous mining job {}: {}", old_job_id, e);
-							}
-						});
-					}
-
+				// If external miner is connected, use external mining
+				if let Some(ref miner) = miner_client {
 					// Get current distance_threshold from runtime
 					let difficulty =
 						match client.runtime_api().get_difficulty(metadata.best_hash) {
@@ -390,13 +380,11 @@ pub fn new_full<
 							},
 						};
 
-					// Generate new job ID
+					// Generate new job ID (NewJob implicitly cancels any previous job)
 					let job_id = Uuid::new_v4().to_string();
 					current_job_id = Some(job_id.clone());
 
-					if let Err(e) = external_miner_client::submit_mining_job(
-						&http_client,
-						miner_url,
+					if let Err(e) = miner.send_job(
 						&job_id,
 						&metadata.pre_hash,
 						difficulty,
@@ -413,54 +401,85 @@ pub fn new_full<
 						continue;
 					}
 
-					// Poll for results
+					// Wait for result (with periodic checks for new blocks)
 					loop {
-						match external_miner_client::check_mining_result(
-							&http_client,
-							miner_url,
-							&job_id,
-						)
-						.await
+						// Check for new block (would require sending new job)
+						if worker_handle
+							.metadata()
+							.map(|m| m.best_hash != metadata.best_hash)
+							.unwrap_or(false)
 						{
-							Ok(Some(seal)) => {
-								let current_version = worker_handle.version();
-								if current_version == version {
-									if futures::executor::block_on(
-										worker_handle.submit(seal.encode()),
-									) {
-										let mining_time = mining_start_time.elapsed().as_secs();
-										log::info!("🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)", mining_time);
-										nonce = U512::one();
-										mining_start_time = std::time::Instant::now();
-									} else {
-										log::warn!(
-											"⛏️ Failed to submit mined block from external miner"
-										);
-										nonce += U512::one();
+							log::debug!(target: "miner", "New block detected, will send new job");
+							break;
+						}
+
+						// Check for cancellation
+						if mining_cancellation_token.is_cancelled() {
+							break;
+						}
+
+						// Wait for result with timeout
+						match miner.recv_result_timeout(Duration::from_millis(500)).await {
+							Some(result) => {
+								// Check if this result is for our current job
+								if current_job_id.as_ref() != Some(&result.job_id) {
+									log::debug!(target: "miner", "Received stale result for job {}, ignoring", result.job_id);
+									continue;
+								}
+
+								match result.status {
+									ApiResponseStatus::Completed => {
+										if let Some(work_hex) = result.work {
+											match hex::decode(&work_hex) {
+												Ok(seal) if seal.len() == 64 => {
+													let current_version = worker_handle.version();
+													if current_version == version {
+														// seal is already raw 64 bytes, don't SCALE-encode it
+														if futures::executor::block_on(
+															worker_handle.submit(seal),
+														) {
+															let mining_time = mining_start_time.elapsed().as_secs();
+															log::info!("🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)", mining_time);
+															nonce = U512::one();
+															mining_start_time = std::time::Instant::now();
+														} else {
+															log::warn!(
+																"⛏️ Failed to submit mined block from external miner"
+															);
+															nonce += U512::one();
+														}
+													} else {
+														log::debug!(target: "miner", "Work from external miner is stale, discarding.");
+													}
+												},
+												Ok(seal) => {
+													log::warn!("⛏️ Invalid seal length from miner: {} bytes", seal.len());
+												},
+												Err(e) => {
+													log::warn!("⛏️ Failed to decode work hex: {}", e);
+												}
+											}
+										} else {
+											log::warn!("⛏️ Completed result missing work field");
+										}
+										break;
+									},
+									ApiResponseStatus::Failed => {
+										log::warn!("⛏️ Mining job failed");
+										break;
+									},
+									ApiResponseStatus::Cancelled => {
+										log::debug!(target: "miner", "Mining job was cancelled");
+										break;
+									},
+									_ => {
+										log::debug!(target: "miner", "Unexpected result status: {:?}", result.status);
 									}
-								} else {
-									log::debug!(target: "miner", "Work from external miner is stale, discarding.");
-								}
-								break;
-							},
-							Ok(None) => {
-								// Still working, check if metadata has changed
-								if worker_handle
-									.metadata()
-									.map(|m| m.best_hash != metadata.best_hash)
-									.unwrap_or(false)
-								{
-									break;
-								}
-								tokio::select! {
-									_ = tokio::time::sleep(Duration::from_millis(500)) => {},
-									_ = mining_cancellation_token.cancelled() => return,
 								}
 							},
-							Err(e) => {
-								log::warn!("⛏️Polling external miner result failed: {}", e);
-								break;
-							},
+							None => {
+								// Timeout - continue waiting
+							}
 						}
 					}
 				} else {

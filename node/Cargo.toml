@@ -38,11 +38,12 @@ qp-rusty-crystals-hdwallet.workspace = true
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
+quinn = "0.10"
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
-reqwest = { workspace = true, default-features = false, features = ["json"] }
+rustls = { version = "0.21", default-features = false, features = ["dangerous_configuration", "quic"] }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true

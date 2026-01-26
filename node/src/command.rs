@@ -481,7 +481,7 @@ pub fn run() -> sc_cli::Result<()> {
 						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 					>,
 				>(
-					config, rewards_account, cli.external_miner_url.clone(), cli.enable_peer_sharing
+					config, rewards_account, cli.external_miner_addr.clone(), cli.enable_peer_sharing
 				)
 				.map_err(sc_cli::Error::Service)
 			})

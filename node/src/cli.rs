@@ -13,9 +13,9 @@ pub struct Cli {
 	#[arg(long, value_name = "REWARDS_ADDRESS")]
 	pub rewards_address: Option<String>,
 
-	/// Specify the URL of an external QPoW miner service
-	#[arg(long, value_name = "EXTERNAL_MINER_URL")]
-	pub external_miner_url: Option<String>,
+	/// Specify the address of an external QPoW miner service (e.g., "127.0.0.1:9833")
+	#[arg(long, value_name = "EXTERNAL_MINER_ADDR")]
+	pub external_miner_addr: Option<String>,
 
 	/// Enable peer sharing via RPC endpoint
 	#[arg(long)]
