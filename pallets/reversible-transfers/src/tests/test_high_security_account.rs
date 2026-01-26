@@ -1,8 +1,10 @@
-use crate::tests::{
-	mock::*,
-	test_reversible_transfers::{calculate_tx_id, transfer_call},
+use crate::{
+	tests::{
+		mock::*,
+		test_reversible_transfers::{calculate_tx_id, transfer_call},
+	},
+	Event,
 };
-use crate::Event;
 use frame_support::{assert_err, assert_ok};
 
 // NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
@@ -29,9 +31,7 @@ fn guardian_can_recover_all_funds_from_high_security_account() {
 			initial_guardian_balance + initial_hs_balance
 		);
 
-		System::assert_has_event(
-			Event::FundsRecovered { account: hs_user, guardian }.into(),
-		);
+		System::assert_has_event(Event::FundsRecovered { account: hs_user, guardian }.into());
 	});
 }
 
@@ -42,10 +42,7 @@ fn recover_funds_fails_if_caller_is_not_guardian() {
 		let not_guardian = charlie();
 
 		assert_err!(
-			ReversibleTransfers::recover_funds(
-				RuntimeOrigin::signed(not_guardian),
-				hs_user
-			),
+			ReversibleTransfers::recover_funds(RuntimeOrigin::signed(not_guardian), hs_user),
 			crate::Error::<Test>::InvalidReverser
 		);
 	});
@@ -58,10 +55,7 @@ fn recover_funds_fails_for_non_high_security_account() {
 		let attacker = dave();
 
 		assert_err!(
-			ReversibleTransfers::recover_funds(
-				RuntimeOrigin::signed(attacker),
-				regular_user
-			),
+			ReversibleTransfers::recover_funds(RuntimeOrigin::signed(attacker), regular_user),
 			crate::Error::<Test>::AccountNotHighSecurity
 		);
 	});
