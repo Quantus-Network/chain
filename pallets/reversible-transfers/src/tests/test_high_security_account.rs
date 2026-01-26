@@ -5,7 +5,7 @@ use crate::{
 	},
 	Event,
 };
-use frame_support::assert_ok;
+use frame_support::{assert_err, assert_ok};
 use pallet_balances::TotalIssuance;
 
 // NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
