@@ -31,18 +31,6 @@ const LOG_FREQUENCY: u64 = 1000;
 // External Mining Helper Types and Functions
 // ============================================================================
 
-/// Result of waiting for an external mining result.
-enum ExternalMiningOutcome {
-	/// Successfully found a valid seal (64 bytes).
-	Success(Vec<u8>),
-	/// Mining completed but result was invalid, stale, cancelled, or failed.
-	Failed,
-	/// New block arrived, need to send new job.
-	NewBlock,
-	/// Shutdown requested.
-	Shutdown,
-}
-
 /// Parse a mining result and extract the seal if valid.
 fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<Vec<u8>> {
 	// Check job ID matches
@@ -80,42 +68,32 @@ fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<V
 
 /// Wait for a mining result from the external miner.
 ///
-/// Returns when:
-/// - A valid result is received
-/// - A new block is detected (need to send new job)
-/// - The operation is cancelled
+/// Returns `Some(seal)` if a valid 64-byte seal is received, `None` otherwise
+/// (interrupted, failed, invalid, or stale).
 ///
-/// The `check_new_block` closure should return `true` if a new block has arrived.
+/// The `should_stop` closure should return `true` if we should stop waiting
+/// (e.g., new block arrived or shutdown requested).
 async fn wait_for_mining_result<F>(
 	miner: &QuicMinerClient,
 	job_id: &str,
-	check_new_block: F,
-	cancellation_token: &CancellationToken,
-) -> ExternalMiningOutcome
+	should_stop: F,
+) -> Option<Vec<u8>>
 where
 	F: Fn() -> bool,
 {
 	loop {
-		// Check for new block
-		if check_new_block() {
-			log::debug!(target: "miner", "New block detected, will send new job");
-			return ExternalMiningOutcome::NewBlock;
+		if should_stop() {
+			return None;
 		}
 
-		// Check for shutdown
-		if cancellation_token.is_cancelled() {
-			return ExternalMiningOutcome::Shutdown;
-		}
-
-		// Wait for result with timeout
 		match miner.recv_result_timeout(Duration::from_millis(500)).await {
 			Some(result) => {
 				if let Some(seal) = parse_mining_result(&result, job_id) {
-					return ExternalMiningOutcome::Success(seal);
+					return Some(seal);
 				}
 				// For completed but invalid results, or failed/cancelled, stop waiting
 				if result.job_id == job_id {
-					return ExternalMiningOutcome::Failed;
+					return None;
 				}
 				// Stale result for different job, keep waiting
 			},
@@ -494,46 +472,32 @@ pub fn new_full<
 
 					// Wait for result
 					let best_hash = metadata.best_hash;
-					let outcome = wait_for_mining_result(
-						miner,
-						&job_id,
-						|| {
-							worker_handle
+					let outcome = wait_for_mining_result(miner, &job_id, || {
+						// Stop if new block arrived or shutdown requested
+						mining_cancellation_token.is_cancelled()
+							|| worker_handle
 								.metadata()
 								.map(|m| m.best_hash != best_hash)
 								.unwrap_or(false)
-						},
-						&mining_cancellation_token,
-					)
+					})
 					.await;
 
-					match outcome {
-						ExternalMiningOutcome::Success(seal) => {
-							let current_version = worker_handle.version();
-							if current_version != version {
-								log::debug!(target: "miner", "Work from external miner is stale, discarding.");
-							} else if futures::executor::block_on(worker_handle.submit(seal)) {
-								let mining_time = mining_start_time.elapsed().as_secs();
-								log::info!(
-									"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
-									mining_time
-								);
-								nonce = U512::one();
-								mining_start_time = std::time::Instant::now();
-							} else {
-								log::warn!("⛏️ Failed to submit mined block from external miner");
-								nonce += U512::one();
-							}
-						},
-						ExternalMiningOutcome::NewBlock => {
-							// Loop will continue and send new job
-						},
-						ExternalMiningOutcome::Shutdown => {
-							break;
-						},
-						ExternalMiningOutcome::Failed => {
-							// Continue to next iteration
-						},
+					if let Some(seal) = outcome {
+						let current_version = worker_handle.version();
+						if current_version != version {
+							log::debug!(target: "miner", "Work from external miner is stale, discarding.");
+						} else if futures::executor::block_on(worker_handle.submit(seal)) {
+							let mining_time = mining_start_time.elapsed().as_secs();
+							log::info!(
+								"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
+								mining_time
+							);
+							nonce = U512::one();
+							mining_start_time = std::time::Instant::now();
+						} else {
+							log::warn!("⛏️ Failed to submit mined block from external miner");
+							nonce += U512::one();
+						}
 					}
 				} else {
 					// Local mining: try a range of N sequential nonces using optimized path
