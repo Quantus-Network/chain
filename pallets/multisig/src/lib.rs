@@ -124,7 +124,9 @@ pub mod pallet {
 	use super::*;
 	use codec::Encode;
 	use frame_support::{
-		dispatch::{DispatchResult, GetDispatchInfo, PostDispatchInfo},
+		dispatch::{
+			DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo, Pays, PostDispatchInfo,
+		},
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
 		PalletId,
@@ -678,13 +680,16 @@ pub mod pallet {
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to approve
+		///
+		/// Weight: Charges for MAX call size, but refunds based on actual call size
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get()))]
+		#[allow(clippy::useless_conversion)]
 		pub fn approve(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			proposal_id: u32,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
 			// Check if approver is a signer
@@ -693,6 +698,10 @@ pub mod pallet {
 			// Get proposal
 			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
+
+			// Calculate actual weight based on real call size (for refund)
+			let actual_call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
 			// Check if not expired
 			let current_block = frame_system::Pallet::<T>::block_number();
@@ -733,7 +742,8 @@ pub mod pallet {
 				});
 			}
 
-			Ok(())
+			// Return actual weight (refund overpayment)
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
 		/// Cancel a proposed transaction (only by proposer)
@@ -741,18 +751,25 @@ pub mod pallet {
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to cancel
+		///
+		/// Weight: Charges for MAX call size, but refunds based on actual call size
 		#[pallet::call_index(3)]
 		#[pallet::weight(<T as Config>::WeightInfo::cancel(T::MaxCallSize::get()))]
+		#[allow(clippy::useless_conversion)]
 		pub fn cancel(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			proposal_id: u32,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let canceller = ensure_signed(origin)?;
 
 			// Get proposal
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
+
+			// Calculate actual weight based on real call size (for refund)
+			let actual_call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::cancel(actual_call_size);
 
 			// Check if caller is the proposer
 			ensure!(canceller == proposal.proposer, Error::<T>::NotProposer);
@@ -775,7 +792,8 @@ pub mod pallet {
 				proposal_id,
 			});
 
-			Ok(())
+			// Return actual weight (refund overpayment)
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
 		/// Remove expired proposals and return deposits to proposers
