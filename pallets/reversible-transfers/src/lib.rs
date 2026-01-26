@@ -41,10 +41,6 @@ use sp_runtime::traits::StaticLookup;
 pub type BlockNumberOrTimestampOf<T> =
 	BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
 
-/// Type alias for the Recovery pallet's expected block number type
-pub type RecoveryBlockNumberOf<T> =
-	<<T as pallet_recovery::Config>::BlockNumberProvider as sp_runtime::traits::BlockNumberProvider>::BlockNumber;
-
 /// High security account details
 #[derive(Encode, Decode, MaxEncodedLen, Clone, Default, TypeInfo, Debug, PartialEq, Eq)]
 pub struct HighSecurityAccountData<AccountId, Delay> {
@@ -123,7 +119,6 @@ pub mod pallet {
 		> + pallet_balances::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
 		+ pallet_assets::Config<Balance = <Self as pallet_balances::Config>::Balance>
 		+ pallet_assets_holder::Config<RuntimeHoldReason = <Self as Config>::RuntimeHoldReason>
-		+ pallet_recovery::Config
 	{
 		/// Scheduler for the runtime. We use the Named scheduler for cancellability.
 		type Scheduler: ScheduleNamed<
@@ -284,11 +279,11 @@ pub mod pallet {
 			execute_at: DispatchTime<BlockNumberFor<T>, T::Moment>,
 		},
 		/// A scheduled transaction has been successfully cancelled by the owner.
-		/// [who, tx_id]
 		TransactionCancelled { who: T::AccountId, tx_id: T::Hash },
 		/// A scheduled transaction was executed by the scheduler.
-		/// [tx_id, dispatch_result]
 		TransactionExecuted { tx_id: T::Hash, result: DispatchResultWithPostInfo },
+		/// Funds were recovered from a high security account by its guardian.
+		FundsRecovered { account: T::AccountId, guardian: T::AccountId },
 	}
 
 	#[pallet::error]
@@ -350,7 +345,7 @@ pub mod pallet {
 			delay: BlockNumberOrTimestampOf<T>,
 			interceptor: T::AccountId,
 		) -> DispatchResult {
-			let who = ensure_signed(origin.clone())?;
+			let who = ensure_signed(origin)?;
 
 			ensure!(interceptor != who.clone(), Error::<T>::InterceptorCannotBeSelf);
 			ensure!(
@@ -359,17 +354,6 @@ pub mod pallet {
 			);
 
 			Self::validate_delay(&delay)?;
-
-			// Set up zero delay recovery for interceptor
-			// The interceptor then simply needs to claim the recovery in order to be able
-			// to make calls on behalf of the high security account.
-			let recovery_delay_blocks: RecoveryBlockNumberOf<T> = Zero::zero();
-			pallet_recovery::Pallet::<T>::create_recovery(
-				origin,
-				alloc::vec![interceptor.clone()],
-				One::one(),
-				recovery_delay_blocks,
-			)?;
 
 			let high_security_account_data =
 				HighSecurityAccountData { interceptor: interceptor.clone(), delay };
@@ -496,6 +480,36 @@ pub mod pallet {
 			Self::validate_delay(&delay)?;
 
 			Self::do_schedule_transfer_inner(who.clone(), dest, who, amount, delay, Some(asset_id))
+		}
+
+		/// Allows the guardian (interceptor) to recover all funds from a high security
+		/// account by transferring the entire balance to themselves.
+		///
+		/// This is an emergency function for when the high security account may be compromised.
+		#[pallet::call_index(7)]
+		#[pallet::weight(<T as Config>::WeightInfo::recover_funds())]
+		pub fn recover_funds(
+			origin: OriginFor<T>,
+			account: T::AccountId,
+		) -> DispatchResultWithPostInfo {
+			let who = ensure_signed(origin)?;
+
+			let high_security_account_data = HighSecurityAccounts::<T>::get(&account)
+				.ok_or(Error::<T>::AccountNotHighSecurity)?;
+
+			ensure!(who == high_security_account_data.interceptor, Error::<T>::InvalidReverser);
+
+			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_all {
+				dest: T::Lookup::unlookup(who.clone()),
+				keep_alive: false,
+			}
+			.into();
+
+			let result = call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into());
+
+			Self::deposit_event(Event::FundsRecovered { account, guardian: who });
+
+			result
 		}
 	}
 

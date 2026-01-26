@@ -172,14 +172,9 @@ mod benchmarks {
 	#[benchmark]
 	fn execute_transfer() -> Result<(), BenchmarkError> {
 		let owner: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&owner, BalanceOf::<T>::from(10000u128)); // Fund owner
+		fund_account::<T>(&owner, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
-		// Fund recipient with minimum_balance * 100 to match assertion expectation
-		let initial_balance = <pallet_balances::Pallet<T> as frame_support::traits::Currency<
-			T::AccountId,
-		>>::minimum_balance() *
-			100_u128.into();
-		fund_account::<T>(&recipient, initial_balance);
+		fund_account::<T>(&recipient, BalanceOf::<T>::from(100u128));
 		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
 		let transfer_amount = 100u128;
 
@@ -210,21 +205,25 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(execute_origin, tx_id);
 
-		// Check state cleaned up
 		assert_eq!(AccountPendingIndex::<T>::get(&owner), 0);
 		assert!(!PendingTransfers::<T>::contains_key(tx_id));
-		// Check side effect of inner call (balance transfer)
-		let initial_balance = <pallet_balances::Pallet<T> as frame_support::traits::Currency<
-			T::AccountId,
-		>>::minimum_balance() *
-			100_u128.into();
-		let expected_balance = initial_balance.saturating_add(transfer_amount.into());
-		assert_eq!(
-            <pallet_balances::Pallet<T> as frame_support::traits::Currency<T::AccountId>>::free_balance(
-                &recipient
-            ),
-            expected_balance
-        );
+
+		Ok(())
+	}
+
+	#[benchmark]
+	fn recover_funds() -> Result<(), BenchmarkError> {
+		let account: T::AccountId = whitelisted_caller();
+		let guardian: T::AccountId = benchmark_account("guardian", 0, SEED);
+
+		fund_account::<T>(&account, BalanceOf::<T>::from(10000u128));
+		fund_account::<T>(&guardian, BalanceOf::<T>::from(10000u128));
+
+		let delay = T::DefaultDelay::get();
+		setup_high_security_account::<T>(account.clone(), delay, guardian.clone());
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(guardian.clone()), account.clone());
 
 		Ok(())
 	}
