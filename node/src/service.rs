@@ -22,7 +22,6 @@ use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
 use std::{sync::Arc, time::Duration};
-use uuid::Uuid;
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
@@ -397,6 +396,7 @@ pub fn new_full<
 			};
 
 			let mut mining_start_time = std::time::Instant::now();
+			let mut job_counter: u64 = 0;
 
 			loop {
 				// Check for cancellation
@@ -446,7 +446,8 @@ pub fn new_full<
 					};
 
 					// Broadcast job to all connected miners (also stores for new miners)
-					let job_id = Uuid::new_v4().to_string();
+					job_counter += 1;
+					let job_id = job_counter.to_string();
 					let job = MiningRequest {
 						job_id: job_id.clone(),
 						mining_hash: hex::encode(metadata.pre_hash.as_bytes()),
