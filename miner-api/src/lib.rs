@@ -19,11 +19,16 @@ pub enum ApiResponseStatus {
 
 /// QUIC protocol messages exchanged between node and miner.
 ///
-/// The protocol is simple:
+/// The protocol is:
+/// - Miner sends `Ready` immediately after connecting to establish the stream
 /// - Node sends `NewJob` to submit a mining job (implicitly cancels any previous job)
 /// - Miner sends `JobResult` when mining completes
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MinerMessage {
+	/// Miner → Node: Sent immediately after connecting to establish the stream.
+	/// This is required because QUIC streams are lazily initialized.
+	Ready,
+
 	/// Node → Miner: Submit a new mining job.
 	/// If a job is already running, it will be cancelled and replaced.
 	NewJob(MiningRequest),
@@ -69,18 +74,17 @@ pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Resu
 		.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
-/// Request payload sent from Node to Miner (`/mine` endpoint).
+/// Request payload sent from Node to Miner.
+///
+/// The miner will choose its own random starting nonce, enabling multiple
+/// miners to work on the same job without coordination.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MiningRequest {
 	pub job_id: String,
 	/// Hex encoded header hash (32 bytes -> 64 chars, no 0x prefix)
 	pub mining_hash: String,
-	/// Distance threshold (u64 as string)
+	/// Distance threshold (U512 as decimal string)
 	pub distance_threshold: String,
-	/// Hex encoded start nonce (U512 -> 128 chars, no 0x prefix)
-	pub nonce_start: String,
-	/// Hex encoded end nonce (U512 -> 128 chars, no 0x prefix)
-	pub nonce_end: String,
 }
 
 /// Response payload for job submission (`/mine`) and cancellation (`/cancel`).

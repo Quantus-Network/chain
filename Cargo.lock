@@ -9093,6 +9093,7 @@ dependencies = [
  "quantus-runtime",
  "quinn 0.10.2",
  "rand 0.8.5",
+ "rcgen",
  "rustls 0.21.12",
  "sc-basic-authorship",
  "sc-cli",

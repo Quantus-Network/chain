@@ -43,6 +43,7 @@ rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
+rcgen = "0.11"
 rustls = { version = "0.21", default-features = false, features = ["dangerous_configuration", "quic"] }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
