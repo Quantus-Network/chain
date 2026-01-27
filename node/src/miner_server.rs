@@ -116,34 +116,10 @@ impl MinerServer {
 		}
 	}
 
-	/// Wait for a mining result from any miner.
-	///
-	/// Returns `None` if the channel is closed.
-	pub async fn recv_result(&self) -> Option<MiningResult> {
-		let mut rx = self.result_rx.lock().await;
-		rx.recv().await
-	}
-
-	/// Try to receive a mining result without blocking.
-	pub async fn try_recv_result(&self) -> Option<MiningResult> {
-		let mut rx = self.result_rx.lock().await;
-		rx.try_recv().ok()
-	}
-
 	/// Wait for a mining result with a timeout.
 	pub async fn recv_result_timeout(&self, timeout: Duration) -> Option<MiningResult> {
 		let mut rx = self.result_rx.lock().await;
 		tokio::time::timeout(timeout, rx.recv()).await.ok().flatten()
-	}
-
-	/// Check if any miners are currently connected.
-	pub async fn has_miners(&self) -> bool {
-		!self.miners.read().await.is_empty()
-	}
-
-	/// Get the number of connected miners.
-	pub async fn miner_count(&self) -> usize {
-		self.miners.read().await.len()
 	}
 
 	/// Add a new miner connection.

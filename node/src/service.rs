@@ -66,17 +66,16 @@ fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<V
 	}
 }
 
-/// Maximum time to wait for a mining result before giving up and retrying.
-/// This is a fallback safety net in case miners disconnect without notification.
-const MAX_MINING_WAIT: Duration = Duration::from_secs(30);
-
 /// Wait for a mining result from the miner server.
 ///
 /// Returns `Some(seal)` if a valid 64-byte seal is received, `None` otherwise
-/// (interrupted, failed, invalid, stale, or timeout).
+/// (interrupted, failed, invalid, or stale).
 ///
 /// The `should_stop` closure should return `true` if we should stop waiting
 /// (e.g., new block arrived or shutdown requested).
+///
+/// This function will keep waiting even if all miners disconnect, since newly
+/// connecting miners automatically receive the current job and can submit results.
 async fn wait_for_mining_result<F>(
 	server: &Arc<MinerServer>,
 	job_id: &str,
@@ -85,16 +84,8 @@ async fn wait_for_mining_result<F>(
 where
 	F: Fn() -> bool,
 {
-	let start = std::time::Instant::now();
-
 	loop {
 		if should_stop() {
-			return None;
-		}
-
-		// Fallback timeout
-		if start.elapsed() > MAX_MINING_WAIT {
-			log::warn!("⛏️ Timed out waiting for mining result, will retry");
 			return None;
 		}
 
@@ -405,23 +396,6 @@ pub fn new_full<
 				None
 			};
 
-			// If using external miners, wait for at least one to connect (once)
-			if let Some(ref server) = miner_server {
-				if !server.has_miners().await {
-					log::info!(
-						"⛏️ Waiting for miners to connect on port {}...",
-						miner_listen_port.unwrap()
-					);
-					while !server.has_miners().await {
-						if mining_cancellation_token.is_cancelled() {
-							log::info!("⛏️ QPoW Mining task shutting down gracefully");
-							return;
-						}
-						tokio::time::sleep(Duration::from_secs(1)).await;
-					}
-				}
-			}
-
 			let mut mining_start_time = std::time::Instant::now();
 
 			loop {
@@ -455,66 +429,61 @@ pub fn new_full<
 				};
 				let version = worker_handle.version();
 
-				// If miner server is running and has connected miners, use external mining
+				// If miner server is running, use external mining
+				// (broadcast_job stores the job for newly connecting miners)
 				if let Some(ref server) = miner_server {
-					if server.has_miners().await {
-						// Get difficulty from runtime
-						let difficulty =
-							match client.runtime_api().get_difficulty(metadata.best_hash) {
-								Ok(d) => d,
-								Err(e) => {
-									log::warn!("⛏️ Failed to get difficulty: {:?}", e);
-									tokio::select! {
-										_ = tokio::time::sleep(Duration::from_millis(250)) => {},
-										_ = mining_cancellation_token.cancelled() => continue,
-									}
-									continue;
-								},
-							};
-
-						// Broadcast job to all connected miners
-						let job_id = Uuid::new_v4().to_string();
-						let job = MiningRequest {
-							job_id: job_id.clone(),
-							mining_hash: hex::encode(metadata.pre_hash.as_bytes()),
-							distance_threshold: difficulty.to_string(),
-						};
-
-						server.broadcast_job(job).await;
-
-						// Wait for result from any miner
-						let best_hash = metadata.best_hash;
-						let outcome = wait_for_mining_result(server, &job_id, || {
-							// Stop if new block arrived or shutdown requested
-							mining_cancellation_token.is_cancelled() ||
-								worker_handle
-									.metadata()
-									.map(|m| m.best_hash != best_hash)
-									.unwrap_or(false)
-						})
-						.await;
-
-						if let Some(seal) = outcome {
-							let current_version = worker_handle.version();
-							if current_version != version {
-								log::debug!(target: "miner", "Work from external miner is stale, discarding.");
-							} else if futures::executor::block_on(worker_handle.submit(seal)) {
-								let mining_time = mining_start_time.elapsed().as_secs();
-								log::info!(
-									"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
-									mining_time
-								);
-								nonce = U512::one();
-								mining_start_time = std::time::Instant::now();
-							} else {
-								log::warn!("⛏️ Failed to submit mined block from external miner");
-								nonce += U512::one();
+					// Get difficulty from runtime
+					let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
+						Ok(d) => d,
+						Err(e) => {
+							log::warn!("⛏️ Failed to get difficulty: {:?}", e);
+							tokio::select! {
+								_ = tokio::time::sleep(Duration::from_millis(250)) => {},
+								_ = mining_cancellation_token.cancelled() => continue,
 							}
+							continue;
+						},
+					};
+
+					// Broadcast job to all connected miners (also stores for new miners)
+					let job_id = Uuid::new_v4().to_string();
+					let job = MiningRequest {
+						job_id: job_id.clone(),
+						mining_hash: hex::encode(metadata.pre_hash.as_bytes()),
+						distance_threshold: difficulty.to_string(),
+					};
+
+					server.broadcast_job(job).await;
+
+					// Wait for result from any miner (new miners auto-receive current job)
+					let best_hash = metadata.best_hash;
+					let outcome = wait_for_mining_result(server, &job_id, || {
+						// Stop if new block arrived or shutdown requested
+						mining_cancellation_token.is_cancelled() ||
+							worker_handle
+								.metadata()
+								.map(|m| m.best_hash != best_hash)
+								.unwrap_or(false)
+					})
+					.await;
+
+					if let Some(seal) = outcome {
+						let current_version = worker_handle.version();
+						if current_version != version {
+							log::debug!(target: "miner", "Work from external miner is stale, discarding.");
+						} else if futures::executor::block_on(worker_handle.submit(seal)) {
+							let mining_time = mining_start_time.elapsed().as_secs();
+							log::info!(
+								"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
+								mining_time
+							);
+							nonce = U512::one();
+							mining_start_time = std::time::Instant::now();
+						} else {
+							log::warn!("⛏️ Failed to submit mined block from external miner");
+							nonce += U512::one();
 						}
-						continue;
 					}
-					// No miners connected, fall through to wait
-					tokio::time::sleep(Duration::from_secs(1)).await;
 					continue;
 				}
 
