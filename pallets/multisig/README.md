@@ -62,7 +62,6 @@ Creates a new proposal for multisig execution.
 **Validation:**
 - Caller must be a signer
 - Call size must be ≤ MaxCallSize
-- Multisig cannot have MaxActiveProposals or more open proposals
 - Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
 - Caller cannot exceed their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - Expiry must be in the future (expiry > current_block)
@@ -240,14 +239,10 @@ matches!(call,
 - **MaxSigners**: Maximum signers per multisig
   - Trade-off: Higher → more flexible governance, more computation per approval
   
-- **MaxActiveProposals**: Maximum concurrent active proposals per multisig
-  - Trade-off: Lower → better spam protection, may limit legitimate use
-  - Prevents flooding attacks
-  
 - **MaxTotalProposalsInStorage**: Maximum total proposals (Active + Executed + Cancelled)
   - Trade-off: Higher → more flexible, more storage risk
   - Forces periodic cleanup to continue operating
-  - Recommend: 2× MaxActiveProposals
+  - **Auto-cleanup**: Expired proposals are automatically removed when new proposals are created
   - **Per-Signer Limit**: Each signer gets `MaxTotalProposalsInStorage / signers_count` quota
     - Prevents single signer from monopolizing storage (filibuster protection)
     - Fair allocation ensures all signers can participate
@@ -276,7 +271,7 @@ MultisigData {
     deposit: Balance,                                       // Reserved deposit (refundable)
     creator: AccountId,                                     // Who created it (receives deposit back)
     last_activity: BlockNumber,                             // Last action timestamp (for grace period)
-    active_proposals: u32,                                  // Count of open proposals (for MaxActiveProposals check)
+    active_proposals: u32,                                  // Count of open proposals (monitoring/analytics)
     proposals_per_signer: BoundedBTreeMap<AccountId, u32>,  // Per-signer proposal count (filibuster protection)
 }
 ```
@@ -330,7 +325,6 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `CallTooLarge` - Encoded call exceeds MaxCallSize
 - `InvalidCall` - Call decoding failed during execution
 - `InsufficientBalance` - Not enough funds for fee/deposit
-- `TooManyActiveProposals` - Multisig has MaxActiveProposals open proposals
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
 - `TooManyProposalsPerSigner` - Caller has reached their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
@@ -421,8 +415,9 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 ### Spam Prevention
 - Fees (non-refundable, burned) prevent proposal spam
 - Deposits (refundable) prevent storage bloat
-- MaxActiveProposals limits per-multisig open proposals
+- MaxTotalProposalsInStorage caps total storage per multisig
 - Per-signer limits prevent single signer from monopolizing storage (filibuster protection)
+- Auto-cleanup of expired proposals reduces storage pressure
 
 ### Storage Cleanup
 - Grace period allows proposers priority cleanup
@@ -461,8 +456,7 @@ impl pallet_multisig::Config for Runtime {
     
     // Storage limits (prevent unbounded growth)
     type MaxSigners = ConstU32<100>;                    // Max complexity
-    type MaxActiveProposals = ConstU32<100>;            // Spam protection
-    type MaxTotalProposalsInStorage = ConstU32<200>;    // Total cap (recommend: 2× active)
+    type MaxTotalProposalsInStorage = ConstU32<200>;    // Total storage cap (auto-cleanup on propose)
     type MaxCallSize = ConstU32<10240>;                 // Per-proposal storage limit
     type MaxExpiryDuration = ConstU32<100_800>;         // Max proposal lifetime (~2 weeks @ 12s)
     

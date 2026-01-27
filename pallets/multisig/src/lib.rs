@@ -157,10 +157,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxSigners: Get<u32>;
 
-		/// Maximum number of active (open) proposals per multisig at any given time
-		#[pallet::constant]
-		type MaxActiveProposals: Get<u32>;
-
 		/// Maximum total number of proposals in storage per multisig (Active + Executed +
 		/// Cancelled) This prevents unbounded storage growth and incentivizes cleanup
 		#[pallet::constant]
@@ -363,8 +359,6 @@ pub mod pallet {
 		CallTooLarge,
 		/// Failed to decode call data
 		InvalidCall,
-		/// Too many active proposals for this multisig
-		TooManyActiveProposals,
 		/// Too many total proposals in storage for this multisig (cleanup required)
 		TooManyProposalsInStorage,
 		/// This signer has too many proposals in storage (filibuster protection)
@@ -552,12 +546,6 @@ pub mod pallet {
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
-			// Check active proposals limit
-			ensure!(
-				multisig_data.active_proposals < T::MaxActiveProposals::get(),
-				Error::<T>::TooManyActiveProposals
-			);
-
 			// Check total proposals in storage limit (Active + Executed + Cancelled)
 			// This incentivizes cleanup and prevents unbounded storage growth
 			let total_proposals_in_storage =
@@ -667,7 +655,21 @@ pub mod pallet {
 			});
 
 			// Emit event
-			Self::deposit_event(Event::ProposalCreated { multisig_address, proposer, proposal_id });
+			Self::deposit_event(Event::ProposalCreated {
+				multisig_address: multisig_address.clone(),
+				proposer,
+				proposal_id,
+			});
+
+			// Check if threshold is reached immediately (threshold=1 case)
+			// Proposer is already counted as first approval
+			if 1 >= multisig_data.threshold {
+				// Threshold reached - execute immediately
+				// Need to get proposal again since we inserted it
+				let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
+					.ok_or(Error::<T>::ProposalNotFound)?;
+				Self::do_execute(multisig_address, proposal_id, proposal)?;
+			}
 
 			Ok(())
 		}

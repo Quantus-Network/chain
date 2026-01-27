@@ -90,8 +90,7 @@ impl pallet_balances::Config for Test {
 parameter_types! {
 	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
 	pub const MaxSignersParam: u32 = 10;
-	pub const MaxActiveProposalsParam: u32 = 50; // For testing
-	pub const MaxTotalProposalsInStorageParam: u32 = 20; // 2x MaxActiveProposals
+	pub const MaxTotalProposalsInStorageParam: u32 = 20;
 	pub const MaxCallSizeParam: u32 = 1024;
 	pub const MultisigFeeParam: Balance = 1000; // Non-refundable fee
 	pub const MultisigDepositParam: Balance = 500; // Refundable deposit
@@ -105,7 +104,6 @@ impl pallet_multisig::Config for Test {
 	type RuntimeCall = RuntimeCall;
 	type Currency = Balances;
 	type MaxSigners = MaxSignersParam;
-	type MaxActiveProposals = MaxActiveProposalsParam;
 	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorageParam;
 	type MaxCallSize = MaxCallSizeParam;
 	type MultisigFee = MultisigFeeParam;
