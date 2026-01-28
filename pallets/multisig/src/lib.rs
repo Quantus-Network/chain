@@ -678,17 +678,18 @@ pub mod pallet {
 			let multisig_data = Self::ensure_is_signer(&multisig_address, &approver)?;
 
 			// Auto-cleanup expired proposals on any multisig activity
-			// Returns count of cleaned proposals for accurate weight refund
-			let cleaned_count = Self::auto_cleanup_expired_proposals(&multisig_address, &approver);
+			// Returns count of proposals in storage (which determines iteration cost)
+			let iterated_count = Self::auto_cleanup_expired_proposals(&multisig_address, &approver);
 
 			// Get proposal
 			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
-			// Calculate actual weight based on real call size and actual cleanup count
-			// We charge for worst-case (e=Max), but refund based on actual usage
+			// Calculate actual weight based on real call size and actual storage size
+			// We charge for worst-case (e=Max), but refund based on actual storage size
 			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size, cleaned_count);
+			let actual_weight =
+				<T as Config>::WeightInfo::approve(actual_call_size, iterated_count);
 
 			// Check if not expired
 			let current_block = frame_system::Pallet::<T>::block_number();
@@ -757,17 +758,18 @@ pub mod pallet {
 			let canceller = ensure_signed(origin)?;
 
 			// Auto-cleanup expired proposals on any multisig activity
-			// Returns count of cleaned proposals for accurate weight refund
-			let cleaned_count = Self::auto_cleanup_expired_proposals(&multisig_address, &canceller);
+			// Returns count of proposals in storage (which determines iteration cost)
+			let iterated_count =
+				Self::auto_cleanup_expired_proposals(&multisig_address, &canceller);
 
 			// Get proposal
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
-			// Calculate actual weight based on real call size and actual cleanup count
-			// We charge for worst-case (e=Max), but refund based on actual usage
+			// Calculate actual weight based on real call size and actual storage size
+			// We charge for worst-case (e=Max), but refund based on actual storage size
 			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::cancel(actual_call_size, cleaned_count);
+			let actual_weight = <T as Config>::WeightInfo::cancel(actual_call_size, iterated_count);
 
 			// Check if caller is the proposer
 			ensure!(canceller == proposal.proposer, Error::<T>::NotProposer);
@@ -1023,20 +1025,16 @@ pub mod pallet {
 			caller: &T::AccountId,
 		) -> u32 {
 			let current_block = frame_system::Pallet::<T>::block_number();
-			let expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> =
-				Proposals::<T>::iter_prefix(multisig_address)
-					.filter_map(|(id, proposal)| {
-						if proposal.status == ProposalStatus::Active &&
-							current_block > proposal.expiry
-						{
-							Some((id, proposal.proposer, proposal.deposit))
-						} else {
-							None
-						}
-					})
-					.collect();
+			let mut iterated_count = 0u32;
+			let mut expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> = Vec::new();
 
-			let cleaned_count = expired_proposals.len() as u32;
+			// Iterate through all proposals to count them AND identify expired ones
+			for (id, proposal) in Proposals::<T>::iter_prefix(multisig_address) {
+				iterated_count += 1;
+				if proposal.status == ProposalStatus::Active && current_block > proposal.expiry {
+					expired_proposals.push((id, proposal.proposer, proposal.deposit));
+				}
+			}
 
 			// Remove expired proposals and return deposits
 			for (id, expired_proposer, deposit) in expired_proposals.iter() {
@@ -1056,7 +1054,9 @@ pub mod pallet {
 				});
 			}
 
-			cleaned_count
+			// Return total number of proposals iterated (not cleaned)
+			// This reflects the actual storage read cost
+			iterated_count
 		}
 
 		/// Decrement proposal counters (active_proposals and per-signer counter)
