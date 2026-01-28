@@ -31,8 +31,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
@@ -188,8 +187,8 @@ async fn handle_external_mining(
 	let best_hash = metadata.best_hash;
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
-			cancellation_token.is_cancelled()
-				|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
+			cancellation_token.is_cancelled() ||
+				worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
 		})
 		.await
 		{
