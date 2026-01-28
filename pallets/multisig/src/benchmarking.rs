@@ -133,18 +133,19 @@ mod benchmarks {
 	#[benchmark]
 	fn approve(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+		e: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, // expired proposals to cleanup
 	) -> Result<(), BenchmarkError> {
 		// Setup: Create multisig and proposal directly in storage
 		// Threshold is 3, so adding one more approval won't trigger execution
 		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
 		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
 		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
 		let signer3: T::AccountId = benchmark_account("signer3", 2, SEED);
-		fund_account::<T>(&signer1, BalanceOf2::<T>::from(10000u128));
-		fund_account::<T>(&signer2, BalanceOf2::<T>::from(10000u128));
-		fund_account::<T>(&signer3, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
+		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
+		fund_account::<T>(&signer3, BalanceOf2::<T>::from(100000u128));
 
 		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone(), signer3.clone()];
 		let threshold = 3u32; // Need 3 approvals
@@ -159,16 +160,39 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 1, // We'll insert proposal with id 0
+			proposal_nonce: e + 1, // We'll insert e expired proposals + 1 active
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
-			active_proposals: 1,
+			active_proposals: e + 1,
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Directly insert proposal into storage with 1 approval
+		// Insert e expired proposals (worst case for auto-cleanup)
+		let expired_block = 10u32.into();
+		for i in 0..e {
+			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 10] };
+			let call = <T as Config>::RuntimeCall::from(system_call);
+			let encoded_call = call.encode();
+			let bounded_call: BoundedCallOf<T> = encoded_call.try_into().unwrap();
+			let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
+
+			let proposal_data = ProposalDataOf::<T> {
+				proposer: caller.clone(),
+				call: bounded_call,
+				expiry: expired_block,
+				approvals: bounded_approvals,
+				deposit: 10u32.into(),
+				status: ProposalStatus::Active,
+			};
+			Proposals::<T>::insert(&multisig_address, i, proposal_data);
+		}
+
+		// Move past expiry so proposals are expired
+		frame_system::Pallet::<T>::set_block_number(100u32.into());
+
+		// Directly insert active proposal into storage with 1 approval
 		// Create a remark call where the remark itself is c bytes
 		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
@@ -186,7 +210,7 @@ mod benchmarks {
 			status: ProposalStatus::Active,
 		};
 
-		let proposal_id = 0u32;
+		let proposal_id = e; // Active proposal after expired ones
 		Proposals::<T>::insert(&multisig_address, proposal_id, proposal_data);
 
 		#[extrinsic_call]
@@ -271,15 +295,16 @@ mod benchmarks {
 	#[benchmark]
 	fn cancel(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+		e: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, // expired proposals to cleanup
 	) -> Result<(), BenchmarkError> {
 		// Setup: Create multisig and proposal directly in storage
 		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
 		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
 		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
-		fund_account::<T>(&signer1, BalanceOf2::<T>::from(10000u128));
-		fund_account::<T>(&signer2, BalanceOf2::<T>::from(10000u128));
+		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
+		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
 
 		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
 		let threshold = 2u32;
@@ -294,16 +319,39 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			nonce: 0,
-			proposal_nonce: 1, // We'll insert proposal with id 0
+			proposal_nonce: e + 1, // We'll insert e expired proposals + 1 active
 			creator: caller.clone(),
 			deposit: T::MultisigDeposit::get(),
 			last_activity: frame_system::Pallet::<T>::block_number(),
-			active_proposals: 1,
+			active_proposals: e + 1,
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Directly insert proposal into storage
+		// Insert e expired proposals (worst case for auto-cleanup)
+		let expired_block = 10u32.into();
+		for i in 0..e {
+			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 10] };
+			let call = <T as Config>::RuntimeCall::from(system_call);
+			let encoded_call = call.encode();
+			let bounded_call: BoundedCallOf<T> = encoded_call.try_into().unwrap();
+			let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
+
+			let proposal_data = ProposalDataOf::<T> {
+				proposer: caller.clone(),
+				call: bounded_call,
+				expiry: expired_block,
+				approvals: bounded_approvals,
+				deposit: 10u32.into(),
+				status: ProposalStatus::Active,
+			};
+			Proposals::<T>::insert(&multisig_address, i, proposal_data);
+		}
+
+		// Move past expiry so proposals are expired
+		frame_system::Pallet::<T>::set_block_number(100u32.into());
+
+		// Directly insert active proposal into storage
 		// Create a remark call where the remark itself is c bytes
 		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
@@ -321,7 +369,7 @@ mod benchmarks {
 			status: ProposalStatus::Active,
 		};
 
-		let proposal_id = 0u32;
+		let proposal_id = e; // Active proposal after expired ones
 		Proposals::<T>::insert(&multisig_address, proposal_id, proposal_data);
 
 		#[extrinsic_call]

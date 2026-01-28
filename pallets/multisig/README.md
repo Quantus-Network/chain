@@ -77,6 +77,14 @@ Before creating a new proposal, the system **automatically removes all expired A
 
 This ensures storage is kept clean and users get their deposits back without manual intervention.
 
+**Threshold=1 Auto-Execution:**
+If the multisig has `threshold=1`, the proposal **executes immediately** after creation:
+- Proposer's approval counts as the first (and only required) approval
+- Call is dispatched automatically
+- Proposal is removed from storage immediately
+- Deposit is returned to proposer immediately
+- No separate `approve()` call needed
+
 **Economic Costs:**
 - **ProposalFee**: Non-refundable fee (spam prevention, scaled by signer count) → burned
 - **ProposalDeposit**: Refundable deposit (storage rent) → returned when proposal removed
@@ -129,7 +137,7 @@ Cancels a proposal and immediately removes it from storage (proposer only).
 ### 5. Remove Expired
 Manually removes expired proposals from storage. Only signers can call this.
 
-**Important:** This is rarely needed because expired proposals are automatically cleaned up when anyone creates a new proposal in the same multisig.
+**Important:** This is rarely needed because expired proposals are automatically cleaned up on any multisig activity (`propose()`, `approve()`, `cancel()`).
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -149,12 +157,12 @@ Manually removes expired proposals from storage. Only signers can call this.
 
 **Economic Costs:** None (deposit always returned to proposer)
 
-**Auto-Cleanup:** When anyone calls `propose()`, all expired proposals are automatically removed first, making this function often unnecessary.
+**Auto-Cleanup:** ALL expired proposals are automatically removed on any multisig activity (`propose()`, `approve()`, `cancel()`), making this function often unnecessary.
 
 ### 6. Claim Deposits
 Batch cleanup operation to recover all expired proposal deposits.
 
-**Important:** This is rarely needed because expired proposals are automatically cleaned up when anyone creates a new proposal in the same multisig.
+**Important:** This is rarely needed because expired proposals are automatically cleaned up on any multisig activity (`propose()`, `approve()`, `cancel()`).
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -171,7 +179,27 @@ Batch cleanup operation to recover all expired proposal deposits.
 
 **Economic Costs:** None (only returns deposits)
 
-**Auto-Cleanup:** When anyone calls `propose()`, all expired proposals are automatically removed first, making this function often unnecessary.
+**Auto-Cleanup:** ALL expired proposals are automatically removed on any multisig activity (`propose()`, `approve()`, `cancel()`), making this function often unnecessary.
+
+### 7. Dissolve Multisig
+Permanently removes a multisig and returns the creation deposit to the original creator.
+
+**Required Parameters:**
+- `multisig_address: AccountId` - Target multisig (REQUIRED)
+
+**Pre-conditions:**
+- NO proposals can exist (any status)
+- Multisig balance MUST be zero
+- Caller must be creator OR any signer
+
+**Post-conditions:**
+- MultisigDeposit returned to **original creator** (not caller)
+- Multisig removed from storage
+- Cannot be used after dissolution
+
+**Economic Costs:** None (returns MultisigDeposit)
+
+**Important:** MultisigFee is NEVER returned - only the MultisigDeposit.
 
 ## Use Cases
 
@@ -228,10 +256,11 @@ matches!(call,
   - **Auto-Returned Immediately:**
     - When proposal executed (threshold reached)
     - When proposal cancelled (proposer cancels)
-  - **Manual Cleanup Required:**
-    - Expired proposals: Must be manually removed OR auto-cleaned on next `propose()`
-  - **Auto-Cleanup:** When anyone creates new proposal, all expired proposals cleaned automatically
-  - No grace period needed - executed/cancelled proposals auto-removed
+  - **Auto-Cleanup:** ALL expired proposals are automatically removed on ANY multisig activity
+    - Triggered by: `propose()`, `approve()`, `cancel()`
+    - Deposits returned to original proposers
+    - No manual cleanup needed for active multisigs
+  - **Manual Cleanup:** Only needed for inactive multisigs via `remove_expired()` or `claim_deposits()`
 
 ### Storage Limits & Configuration
 **Purpose:** Prevent unbounded storage growth and resource exhaustion

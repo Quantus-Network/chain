@@ -488,6 +488,7 @@ pub mod pallet {
 		/// This is an emergency function for when the high security account may be compromised.
 		#[pallet::call_index(7)]
 		#[pallet::weight(<T as Config>::WeightInfo::recover_funds())]
+		#[allow(clippy::useless_conversion)]
 		pub fn recover_funds(
 			origin: OriginFor<T>,
 			account: T::AccountId,
