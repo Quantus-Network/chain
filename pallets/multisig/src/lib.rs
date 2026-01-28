@@ -482,11 +482,14 @@ pub mod pallet {
 		/// - `expiry`: Block number when this proposal expires
 		///
 		/// The proposer must be a signer and must pay:
-		/// - A deposit (locked until proposal is removed after grace period)
+		/// - A deposit (refundable - returned immediately on execution/cancellation)
 		/// - A fee (non-refundable, burned immediately)
 		///
-		/// The proposal remains in storage even after execution/cancellation.
-		/// Use `remove_expired()` or `claim_deposits()` after grace period to recover the deposit.
+		/// **Auto-cleanup:** Before creating a new proposal, ALL expired proposals are
+		/// automatically removed and deposits returned to original proposers. This is the primary
+		/// cleanup mechanism.
+		///
+		/// **For threshold=1:** If the multisig threshold is 1, the proposal executes immediately.
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as Config>::WeightInfo::propose(
 			call.len() as u32,
@@ -500,48 +503,19 @@ pub mod pallet {
 		) -> DispatchResult {
 			let proposer = ensure_signed(origin)?;
 
-			// Check if proposer is a signer and active proposals limit
+			// Check if proposer is a signer
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
 			// Auto-cleanup expired proposals before creating new one
-			// This ensures storage is managed proactively during normal operation
-			let current_block = frame_system::Pallet::<T>::block_number();
-			let expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> =
-				Proposals::<T>::iter_prefix(&multisig_address)
-					.filter_map(|(id, proposal)| {
-						if proposal.status == ProposalStatus::Active &&
-							current_block > proposal.expiry
-						{
-							Some((id, proposal.proposer, proposal.deposit))
-						} else {
-							None
-						}
-					})
-					.collect();
-
-			// Remove expired proposals and return deposits
-			for (id, expired_proposer, deposit) in expired_proposals.iter() {
-				Self::remove_proposal_and_return_deposit(
-					&multisig_address,
-					*id,
-					expired_proposer,
-					*deposit,
-				);
-
-				// Emit event for each removed proposal
-				Self::deposit_event(Event::ProposalRemoved {
-					multisig_address: multisig_address.clone(),
-					proposal_id: *id,
-					proposer: expired_proposer.clone(),
-					removed_by: proposer.clone(),
-				});
-			}
+			// This is the primary cleanup mechanism for active multisigs
+			Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
 
 			// Reload multisig data after potential cleanup
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+			let current_block = frame_system::Pallet::<T>::block_number();
 
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
@@ -679,13 +653,19 @@ pub mod pallet {
 		/// If this approval brings the total approvals to or above the threshold,
 		/// the transaction will be automatically executed.
 		///
+		/// **Auto-cleanup:** Before processing the approval, ALL expired proposals are
+		/// automatically removed and deposits returned to original proposers.
+		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to approve
 		///
-		/// Weight: Charges for MAX call size, but refunds based on actual call size
+		/// Weight: Charges for MAX call size and MAX expired proposals, refunds based on actual
 		#[pallet::call_index(2)]
-		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get()))]
+		#[pallet::weight(<T as Config>::WeightInfo::approve(
+			T::MaxCallSize::get(),
+			T::MaxTotalProposalsInStorage::get()
+		))]
 		#[allow(clippy::useless_conversion)]
 		pub fn approve(
 			origin: OriginFor<T>,
@@ -697,13 +677,19 @@ pub mod pallet {
 			// Check if approver is a signer
 			let multisig_data = Self::ensure_is_signer(&multisig_address, &approver)?;
 
+			// Auto-cleanup expired proposals on any multisig activity
+			// Returns count of proposals in storage (which determines iteration cost)
+			let iterated_count = Self::auto_cleanup_expired_proposals(&multisig_address, &approver);
+
 			// Get proposal
 			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
-			// Calculate actual weight based on real call size (for refund)
+			// Calculate actual weight based on real call size and actual storage size
+			// We charge for worst-case (e=Max), but refund based on actual storage size
 			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
+			let actual_weight =
+				<T as Config>::WeightInfo::approve(actual_call_size, iterated_count);
 
 			// Check if not expired
 			let current_block = frame_system::Pallet::<T>::block_number();
@@ -750,13 +736,19 @@ pub mod pallet {
 
 		/// Cancel a proposed transaction (only by proposer)
 		///
+		/// **Auto-cleanup:** Before processing the cancellation, ALL expired proposals are
+		/// automatically removed and deposits returned to original proposers.
+		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to cancel
 		///
-		/// Weight: Charges for MAX call size, but refunds based on actual call size
+		/// Weight: Charges for MAX call size and MAX expired proposals, refunds based on actual
 		#[pallet::call_index(3)]
-		#[pallet::weight(<T as Config>::WeightInfo::cancel(T::MaxCallSize::get()))]
+		#[pallet::weight(<T as Config>::WeightInfo::cancel(
+			T::MaxCallSize::get(),
+			T::MaxTotalProposalsInStorage::get()
+		))]
 		#[allow(clippy::useless_conversion)]
 		pub fn cancel(
 			origin: OriginFor<T>,
@@ -765,13 +757,19 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let canceller = ensure_signed(origin)?;
 
+			// Auto-cleanup expired proposals on any multisig activity
+			// Returns count of proposals in storage (which determines iteration cost)
+			let iterated_count =
+				Self::auto_cleanup_expired_proposals(&multisig_address, &canceller);
+
 			// Get proposal
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
-			// Calculate actual weight based on real call size (for refund)
+			// Calculate actual weight based on real call size and actual storage size
+			// We charge for worst-case (e=Max), but refund based on actual storage size
 			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::cancel(actual_call_size);
+			let actual_weight = <T as Config>::WeightInfo::cancel(actual_call_size, iterated_count);
 
 			// Check if caller is the proposer
 			ensure!(canceller == proposal.proposer, Error::<T>::NotProposer);
@@ -1017,6 +1015,48 @@ pub mod pallet {
 				Multisigs::<T>::get(multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(account), Error::<T>::NotASigner);
 			Ok(multisig_data)
+		}
+
+		/// Auto-cleanup expired proposals at the start of any multisig activity
+		/// This is the primary cleanup mechanism for active multisigs
+		/// Returns deposits to original proposers and emits cleanup events
+		fn auto_cleanup_expired_proposals(
+			multisig_address: &T::AccountId,
+			caller: &T::AccountId,
+		) -> u32 {
+			let current_block = frame_system::Pallet::<T>::block_number();
+			let mut iterated_count = 0u32;
+			let mut expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> = Vec::new();
+
+			// Iterate through all proposals to count them AND identify expired ones
+			for (id, proposal) in Proposals::<T>::iter_prefix(multisig_address) {
+				iterated_count += 1;
+				if proposal.status == ProposalStatus::Active && current_block > proposal.expiry {
+					expired_proposals.push((id, proposal.proposer, proposal.deposit));
+				}
+			}
+
+			// Remove expired proposals and return deposits
+			for (id, expired_proposer, deposit) in expired_proposals.iter() {
+				Self::remove_proposal_and_return_deposit(
+					multisig_address,
+					*id,
+					expired_proposer,
+					*deposit,
+				);
+
+				// Emit event for each removed proposal
+				Self::deposit_event(Event::ProposalRemoved {
+					multisig_address: multisig_address.clone(),
+					proposal_id: *id,
+					proposer: expired_proposer.clone(),
+					removed_by: caller.clone(),
+				});
+			}
+
+			// Return total number of proposals iterated (not cleaned)
+			// This reflects the actual storage read cost
+			iterated_count
 		}
 
 		/// Decrement proposal counters (active_proposals and per-signer counter)
