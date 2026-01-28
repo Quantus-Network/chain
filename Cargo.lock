@@ -9037,8 +9037,6 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "log",
- "num-bigint",
- "num-traits",
  "primitive-types 0.13.1",
  "qp-poseidon-core",
 ]
@@ -9084,7 +9082,6 @@ dependencies = [
  "parity-scale-codec",
  "prometheus",
  "qp-dilithium-crypto",
- "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "qp-wormhole-circuit-builder",
  "qp-wormhole-verifier",
@@ -9125,7 +9122,6 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "tokio-util",
- "uuid",
 ]
 
 [[package]]
@@ -10162,7 +10158,6 @@ dependencies = [
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-rusty-crystals-dilithium",
- "qp-rusty-crystals-hdwallet",
  "rand 0.8.5",
  "regex",
  "rpassword",
@@ -10181,7 +10176,6 @@ dependencies = [
  "sp-blockchain",
  "sp-core",
  "sp-keyring",
- "sp-keystore",
  "sp-panic-handler",
  "sp-runtime",
  "sp-tracing",
@@ -10337,9 +10331,6 @@ dependencies = [
  "sc-client-api",
  "sc-consensus",
  "sc-service",
- "scale-info",
- "sha2 0.10.9",
- "sha3",
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
@@ -10528,7 +10519,6 @@ dependencies = [
  "log",
  "mockall",
  "multistream-select",
- "once_cell",
  "parity-scale-codec",
  "parking_lot 0.12.4",
  "partial_sort",
@@ -14125,7 +14115,6 @@ checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
 dependencies = [
  "getrandom 0.3.3",
  "js-sys",
- "serde",
  "wasm-bindgen",
 ]
 

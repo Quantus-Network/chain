@@ -43,20 +43,24 @@ const LOG_FREQUENCY: u64 = 1000;
 
 /// Parse a mining result and extract the seal if valid.
 fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<Vec<u8>> {
+	let miner_id = result.miner_id.unwrap_or(0);
+
 	// Check job ID matches
 	if result.job_id != expected_job_id {
-		log::debug!(target: "miner", "Received stale result for job {}, ignoring", result.job_id);
+		log::debug!(target: "miner", "Received stale result from miner {} for job {}, ignoring", miner_id, result.job_id);
 		return None;
 	}
 
 	// Check status
 	if result.status != ApiResponseStatus::Completed {
 		match result.status {
-			ApiResponseStatus::Failed => log::warn!("⛏️ Mining job failed"),
+			ApiResponseStatus::Failed => log::warn!("⛏️ Mining job failed (miner {})", miner_id),
 			ApiResponseStatus::Cancelled => {
-				log::debug!(target: "miner", "Mining job was cancelled")
+				log::debug!(target: "miner", "Mining job was cancelled (miner {})", miner_id)
 			},
-			_ => log::debug!(target: "miner", "Unexpected result status: {:?}", result.status),
+			_ => {
+				log::debug!(target: "miner", "Unexpected result status from miner {}: {:?}", miner_id, result.status)
+			},
 		}
 		return None;
 	}
@@ -66,11 +70,15 @@ fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<V
 	match hex::decode(work_hex) {
 		Ok(seal) if seal.len() == 64 => Some(seal),
 		Ok(seal) => {
-			log::warn!("⛏️ Invalid seal length from miner: {} bytes", seal.len());
+			log::error!(
+				"🚨🚨🚨 INVALID SEAL LENGTH FROM MINER {}! Expected 64 bytes, got {} bytes",
+				miner_id,
+				seal.len()
+			);
 			None
 		},
 		Err(e) => {
-			log::warn!("⛏️ Failed to decode work hex: {}", e);
+			log::error!("🚨🚨🚨 FAILED TO DECODE SEAL HEX FROM MINER {}: {}", miner_id, e);
 			None
 		},
 	}
@@ -78,7 +86,7 @@ fn parse_mining_result(result: &MiningResult, expected_job_id: &str) -> Option<V
 
 /// Wait for a mining result from the miner server.
 ///
-/// Returns `Some(seal)` if a valid 64-byte seal is received, `None` otherwise
+/// Returns `Some((miner_id, seal))` if a valid 64-byte seal is received, `None` otherwise
 /// (interrupted, failed, invalid, or stale).
 ///
 /// The `should_stop` closure should return `true` if we should stop waiting
@@ -90,7 +98,7 @@ async fn wait_for_mining_result<F>(
 	server: &Arc<MinerServer>,
 	job_id: &str,
 	should_stop: F,
-) -> Option<Vec<u8>>
+) -> Option<(u64, Vec<u8>)>
 where
 	F: Fn() -> bool,
 {
@@ -101,8 +109,9 @@ where
 
 		match server.recv_result_timeout(Duration::from_millis(500)).await {
 			Some(result) => {
+				let miner_id = result.miner_id.unwrap_or(0);
 				if let Some(seal) = parse_mining_result(&result, job_id) {
-					return Some(seal);
+					return Some((miner_id, seal));
 				}
 				// Keep waiting for other miners (stale, failed, or invalid parse)
 			},
@@ -178,20 +187,21 @@ async fn handle_external_mining(
 	// Wait for results from miners, retrying on invalid seals
 	let best_hash = metadata.best_hash;
 	loop {
-		let seal = match wait_for_mining_result(server, &job_id, || {
+		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
 			cancellation_token.is_cancelled()
 				|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
 		})
 		.await
 		{
-			Some(seal) => seal,
+			Some(result) => result,
 			None => return ExternalMiningOutcome::Interrupted,
 		};
 
 		// Verify the seal before attempting to submit (submit consumes the build)
 		if !worker_handle.verify_seal(&seal) {
-			log::warn!(
-				"⛏️ Invalid seal from miner, continuing to wait for valid seals (job {})",
+			log::error!(
+				"🚨🚨🚨 INVALID SEAL FROM MINER {}! Job {} - seal failed verification. This may indicate a miner bug or stale work. Continuing to wait for valid seals...",
+				miner_id,
 				job_id
 			);
 			continue;
@@ -201,7 +211,8 @@ async fn handle_external_mining(
 		if futures::executor::block_on(worker_handle.submit(seal.clone())) {
 			let mining_time = mining_start_time.elapsed().as_secs();
 			log::info!(
-				"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
+				"🥇 Successfully mined and submitted a new block via external miner {} (mining time: {}s)",
+				miner_id,
 				mining_time
 			);
 			*mining_start_time = std::time::Instant::now();
@@ -209,7 +220,11 @@ async fn handle_external_mining(
 		}
 
 		// Submit failed for some other reason (should be rare after verify_seal passed)
-		log::warn!("⛏️ Failed to submit verified seal, continuing to wait (job {})", job_id);
+		log::warn!(
+			"⛏️ Failed to submit verified seal from miner {}, continuing to wait (job {})",
+			miner_id,
+			job_id
+		);
 	}
 }
 

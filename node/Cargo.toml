@@ -33,7 +33,6 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
-qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
@@ -97,7 +96,6 @@ sp-timestamp.workspace = true
 substrate-frame-rpc-system.default-features = true
 substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
-uuid.workspace = true
 
 [build-dependencies]
 qp-wormhole-circuit-builder.workspace = true

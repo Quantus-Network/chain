@@ -299,13 +299,15 @@ async fn connection_handler(
 			// Receive results from miner
 			msg_result = read_message(&mut recv) => {
 				match msg_result {
-					Ok(MinerMessage::JobResult(result)) => {
+					Ok(MinerMessage::JobResult(mut result)) => {
 						log::info!(
 							"Received result from miner {}: job_id={}, status={:?}",
 							miner_id,
 							result.job_id,
 							result.status
 						);
+						// Tag the result with the miner ID
+						result.miner_id = Some(miner_id);
 						if result_tx.send(result).await.is_err() {
 							return Err("Result channel closed".to_string());
 						}

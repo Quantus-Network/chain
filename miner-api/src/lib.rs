@@ -108,4 +108,7 @@ pub struct MiningResult {
 	pub work: Option<String>,
 	pub hash_count: u64,
 	pub elapsed_time: f64,
+	/// Miner ID assigned by the node (set server-side, not by the miner).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub miner_id: Option<u64>,
 }
