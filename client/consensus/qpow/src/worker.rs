@@ -31,6 +31,7 @@ use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChange
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::{BlockOrigin, Proposal};
 use sp_consensus_pow::{Seal, POW_ENGINE_ID};
+use sp_consensus_qpow::QPoWApi;
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
 	AccountId32, DigestItem,
@@ -82,6 +83,7 @@ impl<Block, AC, L, Proof> MiningHandle<Block, AC, L, Proof>
 where
 	Block: BlockT<Hash = H256>,
 	AC: ProvideRuntimeApi<Block>,
+	AC::Api: QPoWApi<Block>,
 	L: sc_consensus::JustificationSyncLink<Block>,
 {
 	fn increment_version(&self) {
@@ -131,6 +133,39 @@ where
 	/// Get a copy of the current mining metadata, if available.
 	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, U512>> {
 		self.build.lock().as_ref().map(|b| b.metadata.clone())
+	}
+
+	/// Verify a seal without consuming the build.
+	///
+	/// Returns `true` if the seal is valid for the current block, `false` otherwise.
+	/// Returns `false` if there's no current build.
+	pub fn verify_seal(&self, seal: &Seal) -> bool {
+		let build = self.build.lock();
+		let build = match build.as_ref() {
+			Some(b) => b,
+			None => return false,
+		};
+
+		// Convert seal to nonce [u8; 64]
+		let nonce: [u8; 64] = match seal.as_slice().try_into() {
+			Ok(arr) => arr,
+			Err(_) => {
+				warn!(target: LOG_TARGET, "Seal does not have exactly 64 bytes");
+				return false;
+			},
+		};
+
+		let pre_hash = build.metadata.pre_hash.0;
+		let best_hash = build.metadata.best_hash;
+
+		// Verify using runtime API
+		match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
+			Ok(valid) => valid,
+			Err(e) => {
+				warn!(target: LOG_TARGET, "Runtime API error verifying seal: {:?}", e);
+				false
+			},
+		}
 	}
 
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is

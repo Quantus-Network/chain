@@ -38,7 +38,7 @@ use std::time::Duration;
 const LOG_FREQUENCY: u64 = 1000;
 
 // ============================================================================
-// External Mining Helper Types and Functions
+// External Mining Helper Functions
 // ============================================================================
 
 /// Parse a mining result and extract the seal if valid.
@@ -104,11 +104,7 @@ where
 				if let Some(seal) = parse_mining_result(&result, job_id) {
 					return Some(seal);
 				}
-				// For completed but invalid results, or failed/cancelled, stop waiting
-				if result.job_id == job_id {
-					return None;
-				}
-				// Stale result for different job, keep waiting
+				// Keep waiting for other miners (stale, failed, or invalid parse)
 			},
 			None => {
 				// Timeout, continue waiting
@@ -123,16 +119,17 @@ where
 
 /// Result of attempting to mine with an external miner.
 enum ExternalMiningOutcome {
-	/// Successfully found a seal.
-	Found(Vec<u8>),
+	/// Successfully found and imported a seal.
+	Success,
 	/// Mining was interrupted (new block, cancellation, or failure).
 	Interrupted,
 }
 
 /// Handle a single round of external mining.
 ///
-/// Broadcasts the job to connected miners and waits for a result.
-/// Returns the seal if found, or indicates interruption.
+/// Broadcasts the job to connected miners and waits for results.
+/// If a seal fails validation, continues waiting for more seals.
+/// Only returns when a seal is successfully imported, or when interrupted.
 async fn handle_external_mining(
 	server: &Arc<MinerServer>,
 	client: &Arc<FullClient>,
@@ -144,12 +141,12 @@ async fn handle_external_mining(
 	>,
 	cancellation_token: &CancellationToken,
 	job_counter: &mut u64,
+	mining_start_time: &mut std::time::Instant,
 ) -> ExternalMiningOutcome {
 	let metadata = match worker_handle.metadata() {
 		Some(m) => m,
 		None => return ExternalMiningOutcome::Interrupted,
 	};
-	let version = worker_handle.version();
 
 	// Get difficulty from runtime
 	let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
@@ -163,34 +160,56 @@ async fn handle_external_mining(
 	// Create and broadcast job
 	*job_counter += 1;
 	let job_id = job_counter.to_string();
+	let mining_hash = hex::encode(metadata.pre_hash.as_bytes());
+	log::info!(
+		"⛏️ Broadcasting job {}: pre_hash={}, difficulty={}",
+		job_id,
+		mining_hash,
+		difficulty
+	);
 	let job = MiningRequest {
 		job_id: job_id.clone(),
-		mining_hash: hex::encode(metadata.pre_hash.as_bytes()),
+		mining_hash,
 		distance_threshold: difficulty.to_string(),
 	};
 
 	server.broadcast_job(job).await;
 
-	// Wait for result from any miner
+	// Wait for results from miners, retrying on invalid seals
 	let best_hash = metadata.best_hash;
-	let outcome = wait_for_mining_result(server, &job_id, || {
-		cancellation_token.is_cancelled()
-			|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(false)
-	})
-	.await;
+	loop {
+		let seal = match wait_for_mining_result(server, &job_id, || {
+			cancellation_token.is_cancelled()
+				|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
+		})
+		.await
+		{
+			Some(seal) => seal,
+			None => return ExternalMiningOutcome::Interrupted,
+		};
 
-	match outcome {
-		Some(seal) => {
-			// Verify work is still valid
-			let current_version = worker_handle.version();
-			if current_version != version {
-				log::debug!(target: "miner", "Work from external miner is stale, discarding.");
-				ExternalMiningOutcome::Interrupted
-			} else {
-				ExternalMiningOutcome::Found(seal)
-			}
-		},
-		None => ExternalMiningOutcome::Interrupted,
+		// Verify the seal before attempting to submit (submit consumes the build)
+		if !worker_handle.verify_seal(&seal) {
+			log::warn!(
+				"⛏️ Invalid seal from miner, continuing to wait for valid seals (job {})",
+				job_id
+			);
+			continue;
+		}
+
+		// Seal is valid, submit it
+		if futures::executor::block_on(worker_handle.submit(seal.clone())) {
+			let mining_time = mining_start_time.elapsed().as_secs();
+			log::info!(
+				"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
+				mining_time
+			);
+			*mining_start_time = std::time::Instant::now();
+			return ExternalMiningOutcome::Success;
+		}
+
+		// Submit failed for some other reason (should be rare after verify_seal passed)
+		log::warn!("⛏️ Failed to submit verified seal, continuing to wait (job {})", job_id);
 	}
 }
 
@@ -316,25 +335,15 @@ async fn mining_loop(
 
 		// External mining path
 		if let Some(ref server) = miner_server {
-			match handle_external_mining(
+			handle_external_mining(
 				server,
 				&client,
 				&worker_handle,
 				&cancellation_token,
 				&mut job_counter,
+				&mut mining_start_time,
 			)
-			.await
-			{
-				ExternalMiningOutcome::Found(seal) => {
-					submit_mined_block(
-						&worker_handle,
-						seal,
-						&mut mining_start_time,
-						" via external miner",
-					);
-				},
-				ExternalMiningOutcome::Interrupted => {},
-			}
+			.await;
 			continue;
 		}
 
