@@ -301,7 +301,7 @@ async fn connection_handler(
 				match msg_result {
 					Ok(MinerMessage::JobResult(mut result)) => {
 						log::info!(
-							"Received result from miner {}: job_id={}, status={:?}",
+							"⛏️ Received result from miner {}: job_id={}, status={:?}",
 							miner_id,
 							result.job_id,
 							result.status
