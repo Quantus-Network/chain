@@ -1,27 +1,38 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
+//!
+//! This module provides the main service setup for a Quantus node, including:
+//! - Network configuration and setup
+//! - Transaction pool management
+//! - Mining infrastructure (local and external miner support)
+//! - RPC endpoint configuration
 
-use futures::{FutureExt, StreamExt};
+use futures::FutureExt;
+#[cfg(feature = "tx-logging")]
+use futures::StreamExt;
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::ChainManagement;
+use sc_consensus_qpow::{ChainManagement, MiningHandle};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
-use sc_transaction_pool_api::{InPoolTransaction, OffchainTransactionPoolFactory, TransactionPool};
+#[cfg(feature = "tx-logging")]
+use sc_transaction_pool_api::InPoolTransaction;
+use sc_transaction_pool_api::{OffchainTransactionPoolFactory, TransactionPool};
 use sp_inherents::CreateInherentDataProviders;
 use tokio_util::sync::CancellationToken;
 
-use crate::{miner_server::MinerServer, prometheus::ResonanceBusinessMetrics};
+use crate::{miner_server::MinerServer, prometheus::BusinessMetrics};
 use codec::Encode;
 use jsonrpsee::tokio;
-use qpow_math::mine_range;
 use quantus_miner_api::{ApiResponseStatus, MiningRequest, MiningResult};
+use sc_basic_authorship::ProposerFactory;
 use sc_cli::TransactionPoolType;
 use sc_transaction_pool::TransactionPoolOptions;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_qpow::QPoWApi;
 use sp_core::{crypto::AccountId32, U512};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Frequency of block import logging. Every 1000 blocks.
 const LOG_FREQUENCY: u64 = 1000;
@@ -105,6 +116,366 @@ where
 		}
 	}
 }
+
+// ============================================================================
+// Mining Loop Helpers
+// ============================================================================
+
+/// Result of attempting to mine with an external miner.
+enum ExternalMiningOutcome {
+	/// Successfully found a seal.
+	Found(Vec<u8>),
+	/// Mining was interrupted (new block, cancellation, or failure).
+	Interrupted,
+}
+
+/// Handle a single round of external mining.
+///
+/// Broadcasts the job to connected miners and waits for a result.
+/// Returns the seal if found, or indicates interruption.
+async fn handle_external_mining(
+	server: &Arc<MinerServer>,
+	client: &Arc<FullClient>,
+	worker_handle: &MiningHandle<
+		Block,
+		FullClient,
+		Arc<sc_network_sync::SyncingService<Block>>,
+		(),
+	>,
+	cancellation_token: &CancellationToken,
+	job_counter: &mut u64,
+) -> ExternalMiningOutcome {
+	let metadata = match worker_handle.metadata() {
+		Some(m) => m,
+		None => return ExternalMiningOutcome::Interrupted,
+	};
+	let version = worker_handle.version();
+
+	// Get difficulty from runtime
+	let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
+		Ok(d) => d,
+		Err(e) => {
+			log::warn!("⛏️ Failed to get difficulty: {:?}", e);
+			return ExternalMiningOutcome::Interrupted;
+		},
+	};
+
+	// Create and broadcast job
+	*job_counter += 1;
+	let job_id = job_counter.to_string();
+	let job = MiningRequest {
+		job_id: job_id.clone(),
+		mining_hash: hex::encode(metadata.pre_hash.as_bytes()),
+		distance_threshold: difficulty.to_string(),
+	};
+
+	server.broadcast_job(job).await;
+
+	// Wait for result from any miner
+	let best_hash = metadata.best_hash;
+	let outcome = wait_for_mining_result(server, &job_id, || {
+		cancellation_token.is_cancelled()
+			|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(false)
+	})
+	.await;
+
+	match outcome {
+		Some(seal) => {
+			// Verify work is still valid
+			let current_version = worker_handle.version();
+			if current_version != version {
+				log::debug!(target: "miner", "Work from external miner is stale, discarding.");
+				ExternalMiningOutcome::Interrupted
+			} else {
+				ExternalMiningOutcome::Found(seal)
+			}
+		},
+		None => ExternalMiningOutcome::Interrupted,
+	}
+}
+
+/// Try to find a valid nonce for local mining.
+///
+/// Tries 50k nonces from a random starting point, then yields to check for new blocks.
+/// With Poseidon2 hashing this takes ~50-100ms, keeping the node responsive.
+async fn handle_local_mining(
+	client: &Arc<FullClient>,
+	worker_handle: &MiningHandle<
+		Block,
+		FullClient,
+		Arc<sc_network_sync::SyncingService<Block>>,
+		(),
+	>,
+) -> Option<Vec<u8>> {
+	let metadata = worker_handle.metadata()?;
+	let version = worker_handle.version();
+	let block_hash = metadata.pre_hash.0;
+	let difficulty = client.runtime_api().get_difficulty(metadata.best_hash).unwrap_or_else(|e| {
+		log::warn!("API error getting difficulty: {:?}", e);
+		U512::zero()
+	});
+
+	if difficulty.is_zero() {
+		return None;
+	}
+
+	let start_nonce = U512::from(rand::random::<u128>());
+	let target = U512::MAX / difficulty;
+
+	let found = tokio::task::spawn_blocking(move || {
+		let mut nonce = start_nonce;
+		for _ in 0..50_000 {
+			let nonce_bytes = nonce.to_big_endian();
+			if qpow_math::get_nonce_hash(block_hash, nonce_bytes) < target {
+				return Some(nonce_bytes);
+			}
+			nonce = nonce.overflowing_add(U512::one()).0;
+		}
+		None
+	})
+	.await
+	.ok()
+	.flatten();
+
+	found.filter(|_| worker_handle.version() == version).map(|nonce| nonce.encode())
+}
+
+/// Submit a mined seal to the worker handle.
+///
+/// Returns `true` if submission was successful, `false` otherwise.
+fn submit_mined_block(
+	worker_handle: &MiningHandle<
+		Block,
+		FullClient,
+		Arc<sc_network_sync::SyncingService<Block>>,
+		(),
+	>,
+	seal: Vec<u8>,
+	mining_start_time: &mut std::time::Instant,
+	source: &str,
+) -> bool {
+	if futures::executor::block_on(worker_handle.submit(seal)) {
+		let mining_time = mining_start_time.elapsed().as_secs();
+		log::info!(
+			"🥇 Successfully mined and submitted a new block{} (mining time: {}s)",
+			source,
+			mining_time
+		);
+		*mining_start_time = std::time::Instant::now();
+		true
+	} else {
+		log::warn!("⛏️ Failed to submit mined block{}", source);
+		false
+	}
+}
+
+/// The main mining loop that coordinates local and external mining.
+///
+/// This function runs continuously until the cancellation token is triggered.
+/// It handles:
+/// - Waiting for sync to complete
+/// - Coordinating with external miners (if server is available)
+/// - Falling back to local mining
+async fn mining_loop(
+	client: Arc<FullClient>,
+	worker_handle: MiningHandle<Block, FullClient, Arc<sc_network_sync::SyncingService<Block>>, ()>,
+	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
+	miner_server: Option<Arc<MinerServer>>,
+	cancellation_token: CancellationToken,
+) {
+	log::info!("⛏️ QPoW Mining task spawned");
+
+	let mut mining_start_time = std::time::Instant::now();
+	let mut job_counter: u64 = 0;
+
+	loop {
+		if cancellation_token.is_cancelled() {
+			log::info!("⛏️ QPoW Mining task shutting down gracefully");
+			break;
+		}
+
+		// Don't mine if we're still syncing
+		if sync_service.is_major_syncing() {
+			log::debug!(target: "pow", "Mining paused: node is still syncing with network");
+			tokio::select! {
+				_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+				_ = cancellation_token.cancelled() => continue
+			}
+			continue;
+		}
+
+		// Wait for mining metadata to be available
+		if worker_handle.metadata().is_none() {
+			log::debug!(target: "pow", "No mining metadata available");
+			tokio::select! {
+				_ = tokio::time::sleep(Duration::from_millis(250)) => {}
+				_ = cancellation_token.cancelled() => continue
+			}
+			continue;
+		}
+
+		// External mining path
+		if let Some(ref server) = miner_server {
+			match handle_external_mining(
+				server,
+				&client,
+				&worker_handle,
+				&cancellation_token,
+				&mut job_counter,
+			)
+			.await
+			{
+				ExternalMiningOutcome::Found(seal) => {
+					submit_mined_block(
+						&worker_handle,
+						seal,
+						&mut mining_start_time,
+						" via external miner",
+					);
+				},
+				ExternalMiningOutcome::Interrupted => {},
+			}
+			continue;
+		}
+
+		// Local mining path
+		if let Some(seal) = handle_local_mining(&client, &worker_handle).await {
+			submit_mined_block(&worker_handle, seal, &mut mining_start_time, "");
+		}
+
+		// Yield to let other async tasks run
+		tokio::task::yield_now().await;
+	}
+
+	log::info!("⛏️ QPoW Mining task terminated");
+}
+
+/// Spawn the transaction logger task.
+///
+/// This task logs transactions as they are added to the pool.
+/// Only available when the `tx-logging` feature is enabled.
+#[cfg(feature = "tx-logging")]
+fn spawn_transaction_logger(
+	task_manager: &TaskManager,
+	transaction_pool: Arc<sc_transaction_pool::TransactionPoolHandle<Block, FullClient>>,
+	tx_stream: impl futures::Stream<Item = sp_core::H256> + Send + 'static,
+) {
+	task_manager.spawn_handle().spawn("tx-logger", None, async move {
+		let tx_stream = tx_stream;
+		futures::pin_mut!(tx_stream);
+		while let Some(tx_hash) = tx_stream.next().await {
+			if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
+				log::trace!(target: "miner", "New transaction: Hash = {:?}", tx_hash);
+				let extrinsic = tx.data();
+				log::trace!(target: "miner", "Payload: {:?}", extrinsic);
+			} else {
+				log::warn!("⛏️ Transaction {:?} not found in pool", tx_hash);
+			}
+		}
+	});
+}
+
+/// Spawn all authority-related tasks (mining, metrics, transaction logging).
+///
+/// This is only called when the node is running as an authority (block producer).
+#[allow(clippy::too_many_arguments)]
+fn spawn_authority_tasks(
+	task_manager: &mut TaskManager,
+	client: Arc<FullClient>,
+	transaction_pool: Arc<sc_transaction_pool::TransactionPoolHandle<Block, FullClient>>,
+	select_chain: FullSelectChain,
+	pow_block_import: PowBlockImport,
+	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
+	prometheus_registry: Option<prometheus::Registry>,
+	rewards_address: AccountId32,
+	miner_listen_port: Option<u16>,
+	tx_stream_for_worker: impl futures::Stream<Item = sp_core::H256> + Send + Unpin + 'static,
+	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
+		+ Send
+		+ 'static,
+) {
+	// Create block proposer factory
+	let proposer = ProposerFactory::new(
+		task_manager.spawn_handle(),
+		client.clone(),
+		transaction_pool.clone(),
+		prometheus_registry.as_ref(),
+		None,
+	);
+
+	// Create inherent data providers
+	let inherent_data_providers = Box::new(move |_, _| async move {
+		let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+		Ok(timestamp)
+	})
+		as Box<
+			dyn CreateInherentDataProviders<
+				Block,
+				(),
+				InherentDataProviders = sp_timestamp::InherentDataProvider,
+			>,
+		>;
+
+	// Start the mining worker (block building task)
+	let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
+		Box::new(pow_block_import),
+		client.clone(),
+		select_chain,
+		proposer,
+		sync_service.clone(),
+		sync_service.clone(),
+		rewards_address,
+		inherent_data_providers,
+		tx_stream_for_worker,
+		Duration::from_secs(10),
+	);
+
+	task_manager
+		.spawn_essential_handle()
+		.spawn_blocking("block-producer", None, worker_task);
+
+	// Start Prometheus business metrics monitoring
+	BusinessMetrics::start_monitoring_task(client.clone(), prometheus_registry, task_manager);
+
+	// Setup graceful shutdown for mining
+	let mining_cancellation_token = CancellationToken::new();
+	let mining_token_clone = mining_cancellation_token.clone();
+
+	task_manager.spawn_handle().spawn("mining-shutdown-listener", None, async move {
+		tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+		log::info!("🛑 Received Ctrl+C signal, shutting down qpow-mining worker");
+		mining_token_clone.cancel();
+	});
+
+	// Spawn the main mining loop
+	task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
+		// Start miner server if port is specified
+		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
+			match MinerServer::start(port).await {
+				Ok(server) => Some(server),
+				Err(e) => {
+					log::error!("⛏️ Failed to start miner server on port {}: {}", port, e);
+					None
+				},
+			}
+		} else {
+			None
+		};
+
+		mining_loop(client, worker_handle, sync_service, miner_server, mining_cancellation_token)
+			.await;
+	});
+
+	// Spawn transaction logger (only when tx-logging feature is enabled)
+	#[cfg(feature = "tx-logging")]
+	spawn_transaction_logger(task_manager, transaction_pool, tx_stream_for_logger);
+
+	log::info!(target: "miner", "⛏️  Pow miner spawned");
+}
+
+// ============================================================================
+// Type Definitions
+// ============================================================================
 
 pub(crate) type FullClient = sc_service::TFullClient<
 	Block,
@@ -246,6 +617,7 @@ pub fn new_full<
 	} = new_partial(&config)?;
 
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
+	#[cfg(feature = "tx-logging")]
 	let tx_stream_for_logger = transaction_pool.clone().import_notification_stream();
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
@@ -327,236 +699,33 @@ pub fn new_full<
 	})?;
 
 	if role.is_authority() {
-		let proposer = sc_basic_authorship::ProposerFactory::new(
-			task_manager.spawn_handle(),
-			client.clone(),
-			transaction_pool.clone(),
-			prometheus_registry.as_ref(),
-			None, // lets worry about telemetry later! TODO
-		);
-
-		let inherent_data_providers = Box::new(move |_, _| async move {
-			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-			Ok(timestamp)
-		})
-			as Box<
-				dyn CreateInherentDataProviders<
-					Block,
-					(),
-					InherentDataProviders = sp_timestamp::InherentDataProvider,
-				>,
-			>;
-
-		let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
-			Box::new(pow_block_import),
-			client.clone(),
+		#[cfg(feature = "tx-logging")]
+		spawn_authority_tasks(
+			&mut task_manager,
+			client,
+			transaction_pool,
 			select_chain.clone(),
-			proposer,
-			sync_service.clone(),
-			sync_service.clone(),
+			pow_block_import,
+			sync_service,
+			prometheus_registry,
 			rewards_address,
-			inherent_data_providers,
+			miner_listen_port,
 			tx_stream_for_worker,
-			Duration::from_secs(10),
+			tx_stream_for_logger,
 		);
-
-		task_manager.spawn_essential_handle().spawn_blocking("pow", None, worker_task);
-
-		ResonanceBusinessMetrics::start_monitoring_task(
-			client.clone(),
-			prometheus_registry.clone(),
-			&task_manager,
+		#[cfg(not(feature = "tx-logging"))]
+		spawn_authority_tasks(
+			&mut task_manager,
+			client,
+			transaction_pool,
+			select_chain.clone(),
+			pow_block_import,
+			sync_service,
+			prometheus_registry,
+			rewards_address,
+			miner_listen_port,
+			tx_stream_for_worker,
 		);
-
-		let mining_cancellation_token = CancellationToken::new();
-		let mining_token_clone = mining_cancellation_token.clone();
-
-		// Listen for shutdown signals
-		task_manager.spawn_handle().spawn("mining-shutdown-listener", None, async move {
-			tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
-			log::info!("🛑 Received Ctrl+C signal, shutting down qpow-mining worker");
-			mining_token_clone.cancel();
-		});
-
-		task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
-			log::info!("⛏️ QPoW Mining task spawned");
-			let mut nonce: U512 = U512::one();
-
-			// Start miner server if port is specified
-			let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
-				match MinerServer::start(port).await {
-					Ok(server) => Some(server),
-					Err(e) => {
-						log::error!("⛏️ Failed to start miner server on port {}: {}", port, e);
-						None
-					},
-				}
-			} else {
-				None
-			};
-
-			let mut mining_start_time = std::time::Instant::now();
-			let mut job_counter: u64 = 0;
-
-			loop {
-				// Check for cancellation
-				if mining_cancellation_token.is_cancelled() {
-					log::info!("⛏️ QPoW Mining task shutting down gracefully");
-					break;
-				}
-
-				// Don't mine if we're still syncing
-				if sync_service.is_major_syncing() {
-					log::debug!(target: "pow", "Mining paused: node is still syncing with network");
-					tokio::select! {
-						_ = tokio::time::sleep(Duration::from_secs(5)) => {},
-						_ = mining_cancellation_token.cancelled() => continue,
-					}
-					continue;
-				}
-
-				// Get mining metadata
-				let metadata = match worker_handle.metadata() {
-					Some(m) => m,
-					None => {
-						log::debug!(target: "pow", "No mining metadata available");
-						tokio::select! {
-							_ = tokio::time::sleep(Duration::from_millis(250)) => {},
-							_ = mining_cancellation_token.cancelled() => continue,
-						}
-						continue;
-					},
-				};
-				let version = worker_handle.version();
-
-				// If miner server is running, use external mining
-				// (broadcast_job stores the job for newly connecting miners)
-				if let Some(ref server) = miner_server {
-					// Get difficulty from runtime
-					let difficulty = match client.runtime_api().get_difficulty(metadata.best_hash) {
-						Ok(d) => d,
-						Err(e) => {
-							log::warn!("⛏️ Failed to get difficulty: {:?}", e);
-							tokio::select! {
-								_ = tokio::time::sleep(Duration::from_millis(250)) => {},
-								_ = mining_cancellation_token.cancelled() => continue,
-							}
-							continue;
-						},
-					};
-
-					// Broadcast job to all connected miners (also stores for new miners)
-					job_counter += 1;
-					let job_id = job_counter.to_string();
-					let job = MiningRequest {
-						job_id: job_id.clone(),
-						mining_hash: hex::encode(metadata.pre_hash.as_bytes()),
-						distance_threshold: difficulty.to_string(),
-					};
-
-					server.broadcast_job(job).await;
-
-					// Wait for result from any miner (new miners auto-receive current job)
-					let best_hash = metadata.best_hash;
-					let outcome = wait_for_mining_result(server, &job_id, || {
-						// Stop if new block arrived or shutdown requested
-						mining_cancellation_token.is_cancelled() ||
-							worker_handle
-								.metadata()
-								.map(|m| m.best_hash != best_hash)
-								.unwrap_or(false)
-					})
-					.await;
-
-					if let Some(seal) = outcome {
-						let current_version = worker_handle.version();
-						if current_version != version {
-							log::debug!(target: "miner", "Work from external miner is stale, discarding.");
-						} else if futures::executor::block_on(worker_handle.submit(seal)) {
-							let mining_time = mining_start_time.elapsed().as_secs();
-							log::info!(
-								"🥇 Successfully mined and submitted a new block via external miner (mining time: {}s)",
-								mining_time
-							);
-							nonce = U512::one();
-							mining_start_time = std::time::Instant::now();
-						} else {
-							log::warn!("⛏️ Failed to submit mined block from external miner");
-							nonce += U512::one();
-						}
-					}
-					continue;
-				}
-
-				// Local mining: try a range of N sequential nonces using optimized path
-				let block_hash = metadata.pre_hash.0; // [u8;32]
-				let start_nonce_bytes = nonce.to_big_endian();
-				let difficulty =
-					client.runtime_api().get_difficulty(metadata.best_hash).unwrap_or_else(|e| {
-						log::warn!("API error getting difficulty: {:?}", e);
-						U512::zero()
-					});
-				let nonces_to_mine = 300u64;
-
-				let found = match tokio::task::spawn_blocking(move || {
-					mine_range(block_hash, start_nonce_bytes, nonces_to_mine, difficulty)
-				})
-				.await
-				{
-					Ok(res) => res,
-					Err(e) => {
-						log::warn!("⛏️Local mining task failed: {}", e);
-						None
-					},
-				};
-
-				let nonce_bytes = if let Some((good_nonce, _distance)) = found {
-					good_nonce
-				} else {
-					nonce += U512::from(nonces_to_mine);
-					// Yield back to the runtime to avoid starving other tasks
-					tokio::task::yield_now().await;
-					continue;
-				};
-
-				let current_version = worker_handle.version();
-				// TODO: what does this check do?
-				if current_version == version {
-					if futures::executor::block_on(worker_handle.submit(nonce_bytes.encode())) {
-						let mining_time = mining_start_time.elapsed().as_secs();
-						log::info!(
-							"🥇 Successfully mined and submitted a new block (mining time: {}s)",
-							mining_time
-						);
-						nonce = U512::one();
-						mining_start_time = std::time::Instant::now();
-					} else {
-						log::warn!("⛏️Failed to submit mined block");
-						nonce += U512::one();
-					}
-				}
-
-				// Yield after each mining batch to cooperate with other tasks
-				tokio::task::yield_now().await;
-			}
-
-			log::info!("⛏️ QPoW Mining task terminated");
-		});
-
-		task_manager.spawn_handle().spawn("tx-logger", None, async move {
-			let mut tx_stream = tx_stream_for_logger;
-			while let Some(tx_hash) = tx_stream.next().await {
-				if let Some(tx) = transaction_pool.ready_transaction(&tx_hash) {
-					log::trace!(target: "miner", "New transaction: Hash = {:?}", tx_hash);
-					let extrinsic = tx.data();
-					log::trace!(target: "miner", "Payload: {:?}", extrinsic);
-				} else {
-					log::warn!("⛏️Transaction {:?} not found in pool", tx_hash);
-				}
-			}
-		});
-
-		log::info!(target: "miner", "⛏️  Pow miner spawned");
 	}
 
 	// Start deterministic-depth finalization task

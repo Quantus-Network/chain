@@ -58,6 +58,8 @@ sc-executor.default-features = true
 sc-executor.workspace = true
 sc-network.default-features = true
 sc-network.workspace = true
+sc-network-sync.default-features = true
+sc-network-sync.workspace = true
 sc-offchain.default-features = true
 sc-offchain.workspace = true
 sc-service.default-features = true
@@ -105,6 +107,7 @@ substrate-build-script-utils.workspace = true
 
 [features]
 default = ["std"]
+tx-logging = []  # Enable transaction pool logging for debugging
 std = [
 	"codec/std",
 	"hex/std",
