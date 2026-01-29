@@ -33,16 +33,17 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
-qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
+quinn = "0.10"
 rand = { workspace = true, default-features = false, features = [
 	"alloc",
 	"getrandom",
 ] }
-reqwest = { workspace = true, default-features = false, features = ["json"] }
+rcgen = "0.11"
+rustls = { version = "0.21", default-features = false, features = ["dangerous_configuration", "quic"] }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
@@ -56,6 +57,8 @@ sc-executor.default-features = true
 sc-executor.workspace = true
 sc-network.default-features = true
 sc-network.workspace = true
+sc-network-sync.default-features = true
+sc-network-sync.workspace = true
 sc-offchain.default-features = true
 sc-offchain.workspace = true
 sc-service.default-features = true
@@ -93,7 +96,6 @@ sp-timestamp.workspace = true
 substrate-frame-rpc-system.default-features = true
 substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
-uuid.workspace = true
 
 [build-dependencies]
 qp-wormhole-circuit-builder.workspace = true
@@ -115,6 +117,7 @@ std = [
 	"serde_json/std",
 	"sp-consensus-qpow/std",
 ]
+tx-logging = [] # Enable transaction pool logging for debugging
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"frame-benchmarking-cli/runtime-benchmarks",

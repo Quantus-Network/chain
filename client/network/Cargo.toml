@@ -39,7 +39,6 @@ libp2p-identity = { workspace = true, features = ["dilithium"] }
 linked_hash_set = { workspace = true }
 log = { workspace = true, default-features = true }
 mockall = { workspace = true }
-once_cell = { workspace = true }
 parking_lot = { workspace = true, default-features = true }
 partial_sort = { workspace = true }
 pin-project = { workspace = true }
