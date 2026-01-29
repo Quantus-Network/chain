@@ -347,8 +347,8 @@ async fn mining_loop(
 			continue;
 		}
 
-		// External mining path
 		if let Some(ref server) = miner_server {
+			// External mining path
 			handle_external_mining(
 				server,
 				&client,
@@ -358,11 +358,8 @@ async fn mining_loop(
 				&mut mining_start_time,
 			)
 			.await;
-			continue;
-		}
-
-		// Local mining path
-		if let Some(seal) = handle_local_mining(&client, &worker_handle).await {
+		} else if let Some(seal) = handle_local_mining(&client, &worker_handle).await {
+			// Local mining path
 			submit_mined_block(&worker_handle, seal, &mut mining_start_time, "");
 		}
 
@@ -482,6 +479,7 @@ fn spawn_authority_tasks(
 				},
 			}
 		} else {
+			log::warn!("⚠️ No --miner-listen-port specified. Using LOCAL mining only.");
 			None
 		};
 

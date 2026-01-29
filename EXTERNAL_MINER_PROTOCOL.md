@@ -52,10 +52,11 @@ When multiple miners are connected:
 
 ### Message Types
 
-The protocol uses only **two message types**:
+The protocol uses **three message types**:
 
 | Direction | Message | Description |
 |-----------|---------|-------------|
+| Miner → Node | `Ready` | Sent immediately after connecting to establish the stream |
 | Node → Miner | `NewJob` | Submit a mining job (implicitly cancels any previous job) |
 | Miner → Node | `JobResult` | Mining result (completed, failed, or cancelled) |
 
@@ -80,8 +81,9 @@ See the `quantus-miner-api` crate for the canonical Rust definitions.
 
 ```rust
 pub enum MinerMessage {
-    NewJob(MiningRequest),
-    JobResult(MiningResult),
+    Ready,                      // Miner → Node: establish stream
+    NewJob(MiningRequest),      // Node → Miner: submit job
+    JobResult(MiningResult),    // Miner → Node: return result
 }
 ```
 
@@ -105,6 +107,7 @@ Note: Nonce range is not specified - each miner independently selects a random s
 | `work` | Option<String> | Winning nonce as bytes (128 hex chars) |
 | `hash_count` | u64 | Number of nonces checked |
 | `elapsed_time` | f64 | Time spent mining (seconds) |
+| `miner_id` | Option<u64> | Miner ID (set by node, not miner) |
 
 ### ApiResponseStatus (Enum)
 
@@ -124,6 +127,8 @@ Miner                                        Node
   │                                            │
   │──── QUIC Connect ─────────────────────────►│
   │◄─── Connection Established ────────────────│
+  │                                            │
+  │──── Ready ────────────────────────────────►│ (establish stream)
   │                                            │
   │◄─── NewJob { job_id: "abc", ... } ─────────│
   │                                            │
@@ -166,6 +171,9 @@ Miner (new)                                  Node
   │                                            │ (already mining job "abc")
   │──── QUIC Connect ─────────────────────────►│
   │◄─── Connection Established ────────────────│
+  │                                            │
+  │──── Ready ────────────────────────────────►│ (establish stream)
+  │                                            │
   │◄─── NewJob { job_id: "abc", ... } ─────────│ (current job sent immediately)
   │                                            │
   │     (joins mining effort)                  │
