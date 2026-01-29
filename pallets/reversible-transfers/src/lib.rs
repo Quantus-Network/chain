@@ -37,6 +37,57 @@ use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_arithmetic::Permill;
 use sp_runtime::traits::StaticLookup;
 
+/// Trait for checking high-security status and whitelisting calls.
+/// This can be used by other pallets (like multisig) or transaction extensions.
+pub trait HighSecurityInspector<AccountId, RuntimeCall> {
+	/// Check if account is high-security
+	fn is_high_security(who: &AccountId) -> bool;
+	/// Check if call is whitelisted for high-security accounts
+	/// Note: This must be implemented at runtime level since it needs RuntimeCall
+	fn is_whitelisted(call: &RuntimeCall) -> bool;
+	/// Get guardian for high-security account
+	fn guardian(who: &AccountId) -> Option<AccountId>;
+
+	/// Set account as high-security for benchmarking purposes only
+	/// This allows benchmarks to measure the HS code path without full runtime setup
+	#[cfg(feature = "runtime-benchmarks")]
+	fn set_high_security_for_benchmarking(who: &AccountId);
+}
+
+/// Default implementation for HighSecurityInspector (no high-security)
+/// This allows pallets to have optional high-security support by using `type HighSecurity = ();`
+impl<AccountId, RuntimeCall> HighSecurityInspector<AccountId, RuntimeCall> for () {
+	fn is_high_security(_who: &AccountId) -> bool {
+		false
+	}
+	fn is_whitelisted(_call: &RuntimeCall) -> bool {
+		true // Allow everything if no high-security
+	}
+	fn guardian(_who: &AccountId) -> Option<AccountId> {
+		None
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn set_high_security_for_benchmarking(_who: &AccountId) {
+		// No-op for default implementation
+	}
+}
+
+// Partial implementation for Pallet - runtime will complete it
+impl<T: Config> Pallet<T> {
+	/// Check if account is registered as high-security
+	/// This is used by runtime's HighSecurityInspector implementation
+	pub fn is_high_security_account(who: &T::AccountId) -> bool {
+		HighSecurityAccounts::<T>::contains_key(who)
+	}
+
+	/// Get guardian for high-security account
+	/// This is used by runtime's HighSecurityInspector implementation
+	pub fn get_guardian(who: &T::AccountId) -> Option<T::AccountId> {
+		HighSecurityAccounts::<T>::get(who).map(|data| data.interceptor)
+	}
+}
+
 /// Type alias for this config's `BlockNumberOrTimestamp`.
 pub type BlockNumberOrTimestampOf<T> =
 	BlockNumberOrTimestamp<BlockNumberFor<T>, <T as Config>::Moment>;
