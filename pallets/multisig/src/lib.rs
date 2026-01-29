@@ -205,7 +205,16 @@ pub mod pallet {
 
 		/// Weight information for extrinsics
 		type WeightInfo: WeightInfo;
+
+		/// Interface to check if an account is in high-security mode
+		type HighSecurity: pallet_reversible_transfers::HighSecurityInspector<
+			Self::AccountId,
+			<Self as pallet::Config>::RuntimeCall,
+		>;
 	}
+
+	/// Re-export HighSecurityInspector trait from reversible-transfers for convenience
+	pub use pallet_reversible_transfers::HighSecurityInspector;
 
 	/// Type alias for bounded signers vector
 	pub type BoundedSignersOf<T> =
@@ -375,6 +384,8 @@ pub mod pallet {
 		ProposalsExist,
 		/// Multisig account must have zero balance before dissolution
 		MultisigAccountNotZero,
+		/// Call is not allowed for high-security multisig
+		CallNotAllowedForHighSecurityMultisig,
 	}
 
 	#[pallet::call]
@@ -508,6 +519,16 @@ pub mod pallet {
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
+			// High-security check: if multisig is high-security, only whitelisted calls allowed
+			if T::HighSecurity::is_high_security(&multisig_address) {
+				let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
+					.map_err(|_| Error::<T>::InvalidCall)?;
+				ensure!(
+					T::HighSecurity::is_whitelisted(&decoded_call),
+					Error::<T>::CallNotAllowedForHighSecurityMultisig
+				);
+			}
+
 			// Auto-cleanup expired proposals before creating new one
 			// This is the primary cleanup mechanism for active multisigs
 			Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
@@ -515,6 +536,7 @@ pub mod pallet {
 			// Reload multisig data after potential cleanup
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+
 			let current_block = frame_system::Pallet::<T>::block_number();
 
 			// Get signers count (used for multiple checks below)

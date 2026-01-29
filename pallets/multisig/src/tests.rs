@@ -3,7 +3,31 @@
 use crate::{mock::*, Error, Event, GlobalNonce, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate};
+use pallet_reversible_transfers::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
+
+/// Mock implementation for HighSecurityInspector
+pub struct MockHighSecurity;
+impl HighSecurityInspector<AccountId32, RuntimeCall> for MockHighSecurity {
+	fn is_high_security(who: &AccountId32) -> bool {
+		// For testing, account 100 is high security
+		who == &account_id(100)
+	}
+	fn is_whitelisted(call: &RuntimeCall) -> bool {
+		// For testing, only remarks with "safe" are whitelisted
+		match call {
+			RuntimeCall::System(frame_system::Call::remark { remark }) => remark == b"safe",
+			_ => false,
+		}
+	}
+	fn guardian(who: &AccountId32) -> Option<AccountId32> {
+		if who == &account_id(100) {
+			Some(account_id(200)) // Guardian is account 200
+		} else {
+			None
+		}
+	}
+}
 
 /// Helper function to get Alice's account ID
 fn alice() -> AccountId32 {
@@ -1321,5 +1345,72 @@ fn auto_cleanup_on_approve_and_cancel() {
 		// Verify active_proposals counter is correct (should be 0)
 		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
 		assert_eq!(multisig_data.active_proposals, 0);
+	});
+}
+
+// ==================== HIGH SECURITY TESTS ====================
+
+#[test]
+fn high_security_propose_fails_for_non_whitelisted_call() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// Create a multisig with account_id(100) as one of signers
+		// We'll manually insert it as high-security multisig
+		let multisig_address = account_id(100);
+		let signers = vec![alice(), bob()];
+
+		Multisigs::<Test>::insert(
+			&multisig_address,
+			crate::MultisigData {
+				signers: signers.try_into().unwrap(),
+				threshold: 2,
+				nonce: 0,
+				proposal_nonce: 0,
+				creator: alice(),
+				deposit: 500,
+				last_activity: 1,
+				active_proposals: 0,
+				proposals_per_signer: Default::default(),
+			},
+		);
+
+		// Try to propose a non-whitelisted call (remark without "safe")
+		let call = make_call(b"unsafe".to_vec());
+		assert_noop!(
+			Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address.clone(), call, 1000),
+			Error::<Test>::CallNotAllowedForHighSecurityMultisig
+		);
+
+		// Try to propose a whitelisted call (remark with "safe") - should work
+		let call = make_call(b"safe".to_vec());
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call,
+			1000
+		));
+	});
+}
+
+#[test]
+fn normal_multisig_allows_any_call() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// Create a normal multisig (not high-security)
+		let signers = vec![alice(), bob(), charlie()];
+		let threshold = 2;
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			threshold
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+
+		// Any call should work for normal multisig
+		let call = make_call(b"anything".to_vec());
+		assert_ok!(Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address, call, 1000));
 	});
 }

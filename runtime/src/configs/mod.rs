@@ -577,7 +577,47 @@ parameter_types! {
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
 }
 
-/// Whitelist for calls that can be proposed in multisigs
+/// High-Security configuration wrapper for Runtime
+///
+/// This type alias delegates to `ReversibleTransfers` pallet for high-security checks
+/// and adds RuntimeCall-specific whitelist validation.
+///
+/// Used by:
+/// - Multisig pallet: validates calls in `propose()` extrinsic
+/// - Transaction extensions: validates calls for high-security EOAs
+///
+/// Whitelist includes only delayed, reversible operations:
+/// - `schedule_transfer`: Schedule delayed native token transfer
+/// - `schedule_asset_transfer`: Schedule delayed asset transfer
+/// - `cancel`: Cancel pending delayed transfer
+pub struct HighSecurityConfig;
+
+impl pallet_reversible_transfers::HighSecurityInspector<AccountId, RuntimeCall>
+	for HighSecurityConfig
+{
+	fn is_high_security(who: &AccountId) -> bool {
+		// Delegate to reversible-transfers pallet
+		pallet_reversible_transfers::Pallet::<Runtime>::is_high_security_account(who)
+	}
+
+	fn is_whitelisted(call: &RuntimeCall) -> bool {
+		// Runtime-level whitelist: only reversible-transfers operations allowed
+		matches!(
+			call,
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer { .. }
+			) | RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
+			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. })
+		)
+	}
+
+	fn guardian(who: &AccountId) -> Option<AccountId> {
+		// Delegate to reversible-transfers pallet
+		pallet_reversible_transfers::Pallet::<Runtime>::get_guardian(who)
+	}
+}
+
 impl pallet_multisig::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type Currency = Balances;
@@ -592,6 +632,7 @@ impl pallet_multisig::Config for Runtime {
 	type MaxExpiryDuration = MaxExpiryDuration;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+	type HighSecurity = HighSecurityConfig;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {

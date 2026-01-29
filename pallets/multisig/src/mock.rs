@@ -114,6 +114,7 @@ impl pallet_multisig::Config for Test {
 	type MaxExpiryDuration = MaxExpiryDurationParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
+	type HighSecurity = crate::tests::MockHighSecurity;
 }
 
 // Helper to create AccountId32 from u64

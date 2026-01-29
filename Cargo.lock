@@ -7179,6 +7179,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-balances 40.0.1",
+ "pallet-reversible-transfers",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
