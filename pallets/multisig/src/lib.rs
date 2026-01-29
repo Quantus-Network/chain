@@ -501,17 +501,21 @@ pub mod pallet {
 		/// cleanup mechanism.
 		///
 		/// **For threshold=1:** If the multisig threshold is 1, the proposal executes immediately.
+		///
+		/// **Weight:** Charged based on whether multisig is high-security or not.
+		/// High-security multisigs incur additional cost for decode + whitelist check.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose(
+		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(
 			call.len() as u32,
 			T::MaxTotalProposalsInStorage::get()
 		))]
+		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			call: Vec<u8>,
 			expiry: BlockNumberFor<T>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
 
 			// Check if proposer is a signer
@@ -520,7 +524,8 @@ pub mod pallet {
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
 			// High-security check: if multisig is high-security, only whitelisted calls allowed
-			if T::HighSecurity::is_high_security(&multisig_address) {
+			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
+			if is_high_security {
 				let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
 					.map_err(|_| Error::<T>::InvalidCall)?;
 				ensure!(
@@ -531,7 +536,7 @@ pub mod pallet {
 
 			// Auto-cleanup expired proposals before creating new one
 			// This is the primary cleanup mechanism for active multisigs
-			Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
+			let iterated_count = Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
 
 			// Reload multisig data after potential cleanup
 			let multisig_data =
@@ -605,6 +610,9 @@ pub mod pallet {
 				}
 			});
 
+			// Store call length before moving it (needed for weight calculation)
+			let call_size = call.len() as u32;
+
 			// Convert to bounded vec
 			let bounded_call: BoundedCallOf<T> =
 				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
@@ -667,7 +675,16 @@ pub mod pallet {
 				Self::do_execute(multisig_address, proposal_id, proposal)?;
 			}
 
-			Ok(())
+			// Calculate actual weight and refund if not high-security
+			let actual_weight = if is_high_security {
+				// Used high-security path (decode + whitelist check)
+				<T as Config>::WeightInfo::propose_high_security(call_size, iterated_count)
+			} else {
+				// Used normal path (no decode overhead)
+				<T as Config>::WeightInfo::propose(call_size, iterated_count)
+			};
+
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
 		/// Approve a proposed transaction
