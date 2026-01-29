@@ -602,6 +602,15 @@ impl pallet_reversible_transfers::HighSecurityInspector<AccountId, RuntimeCall>
 
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
 		// Runtime-level whitelist: only reversible-transfers operations allowed
+		#[cfg(feature = "runtime-benchmarks")]
+		{
+			// For benchmarking: allow system::remark to measure decode overhead
+			// without side effects from actual transfer operations
+			if matches!(call, RuntimeCall::System(frame_system::Call::remark { .. })) {
+				return true;
+			}
+		}
+
 		matches!(
 			call,
 			RuntimeCall::ReversibleTransfers(
@@ -615,6 +624,19 @@ impl pallet_reversible_transfers::HighSecurityInspector<AccountId, RuntimeCall>
 	fn guardian(who: &AccountId) -> Option<AccountId> {
 		// Delegate to reversible-transfers pallet
 		pallet_reversible_transfers::Pallet::<Runtime>::get_guardian(who)
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn set_high_security_for_benchmarking(who: &AccountId) {
+		use pallet_reversible_transfers::{HighSecurityAccountData, HighSecurityAccounts};
+		use qp_scheduler::BlockNumberOrTimestamp;
+
+		// Insert dummy HS data for benchmarking
+		let hs_data = HighSecurityAccountData {
+			interceptor: who.clone(),
+			delay: BlockNumberOrTimestamp::BlockNumber(100u32),
+		};
+		HighSecurityAccounts::<Runtime>::insert(who, hs_data);
 	}
 }
 

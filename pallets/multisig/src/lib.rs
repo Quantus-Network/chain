@@ -518,12 +518,18 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
 
+			// CRITICAL: Check call size FIRST, before any heavy operations (especially decode)
+			// This prevents DoS via oversized payloads that would be decoded before size validation
+			let call_size = call.len() as u32;
+			ensure!(call_size <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
+
 			// Check if proposer is a signer
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
 			// High-security check: if multisig is high-security, only whitelisted calls allowed
+			// Size already validated above, so decode is now safe
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
 			if is_high_security {
 				let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
@@ -610,10 +616,7 @@ pub mod pallet {
 				}
 			});
 
-			// Store call length before moving it (needed for weight calculation)
-			let call_size = call.len() as u32;
-
-			// Convert to bounded vec
+			// Convert to bounded vec (call_size already computed and validated above)
 			let bounded_call: BoundedCallOf<T> =
 				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
 

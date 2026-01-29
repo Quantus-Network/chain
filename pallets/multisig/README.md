@@ -525,6 +525,53 @@ The multisig pallet integrates with **pallet-reversible-transfers** to support h
 - **Guardian oversight:** Guardian can cancel during delay period
 - **Use case:** Corporate treasury, regulated operations, high-value custody
 
+### ⚠️ Important: Enabling High-Security
+
+**Risk Window:**
+When enabling high-security for an existing multisig with active proposals:
+1. **Existing proposals** are NOT automatically blocked
+2. **Whitelist check** only happens at proposal creation time (`propose()`)
+3. **Proposals created before HS** can still be executed after HS is enabled
+
+**Mitigation:**
+Before enabling high-security, ensure:
+- ✅ All active proposals are **completed** (executed or cancelled)
+- ✅ All proposals have **expired** or been **removed**
+- ✅ No pending approvals exist
+
+**Safe workflow:**
+```rust
+// 1. Check for active proposals
+let proposals = query_proposals(multisig_address);
+assert_eq!(proposals.len(), 0, "Must cleanup proposals first");
+
+// 2. Cancel or wait for expiry
+for proposal_id in proposals {
+    Multisig::cancel(Origin::signed(proposer), multisig_address, proposal_id);
+    // OR: wait for expiry
+}
+
+// 3. NOW enable high-security
+ReversibleTransfers::set_high_security(
+    Origin::signed(multisig_address),
+    delay: 100_800,
+    guardian: guardian_account
+);
+```
+
+**Why this design:**
+- **Simplicity:** Single check point (`propose`) easier to reason about
+- **Gas efficiency:** No decode overhead on every approval
+- **User control:** Explicit transition management
+- **Trade-off:** Performance and simplicity over defense-in-depth
+
+**Could be changed:**
+Adding whitelist check in `approve()` (before execution) would close this window,
+at the cost of:
+- Higher gas on every approval for HS multisigs (~70M units for decode + check)
+- More complex execution path
+- Would make this a non-issue
+
 ### How It Works
 
 1. **Setup:** Multisig account calls `ReversibleTransfers::set_high_security(delay, guardian)`
@@ -585,15 +632,25 @@ Multisig::propose(
 
 ### Performance Impact
 
-High-security multisigs have slightly higher costs due to call validation:
+High-security multisigs have higher costs due to call validation:
 
 - **+1 DB read:** Check `ReversibleTransfers::HighSecurityAccounts`
-- **+Decode overhead:** ~50k units per call byte
+- **+Decode overhead:** Variable cost based on call size (O(call_size))
 - **+Whitelist check:** ~10k units for pattern matching
-- **Total overhead:** ~25M base + 50k/byte for typical 1KB call
+- **Total overhead:** Base cost + decode cost proportional to call size
 
 **Dynamic weight refund:**
-Normal multisigs automatically get refunded for unused high-security overhead (typically 92-94% refund).
+Normal multisigs automatically get refunded for unused high-security overhead.
+
+**Weight calculation:**
+- `propose()` charges upfront for worst-case: `propose_high_security(call.len(), max_expired)`
+- If multisig is NOT HS, refunds decode overhead based on actual path taken
+- If multisig IS HS, charges correctly for decode cost (scales with call size)
+
+**Security notes:**
+- Call size is validated BEFORE decode to prevent DoS via oversized payloads
+- Weight formula includes O(call_size) component for decode to prevent underpayment
+- Benchmarks must be regenerated to capture accurate decode costs
 
 See `MULTISIG_REQ.md` for detailed cost breakdown and benchmarking instructions.
 

@@ -47,6 +47,11 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 	fn is_whitelisted(call: &RuntimeCall) -> bool;
 	/// Get guardian for high-security account
 	fn guardian(who: &AccountId) -> Option<AccountId>;
+
+	/// Set account as high-security for benchmarking purposes only
+	/// This allows benchmarks to measure the HS code path without full runtime setup
+	#[cfg(feature = "runtime-benchmarks")]
+	fn set_high_security_for_benchmarking(who: &AccountId);
 }
 
 /// Default implementation for HighSecurityInspector (no high-security)
@@ -60,6 +65,11 @@ impl<AccountId, RuntimeCall> HighSecurityInspector<AccountId, RuntimeCall> for (
 	}
 	fn guardian(_who: &AccountId) -> Option<AccountId> {
 		None
+	}
+
+	#[cfg(feature = "runtime-benchmarks")]
+	fn set_high_security_for_benchmarking(_who: &AccountId) {
+		// No-op for default implementation
 	}
 }
 

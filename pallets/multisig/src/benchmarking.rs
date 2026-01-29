@@ -179,11 +179,13 @@ mod benchmarks {
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// IMPORTANT: Set this multisig as high-security
-		// Note: This is a mock setup - in production, HighSecurity implementation
-		// would check reversible-transfers storage. For benchmarking, we assume
-		// the HighSecurity type implementation recognizes this multisig as HS.
-		// The benchmark measures the worst-case: decode + whitelist check.
+		// IMPORTANT: Set this multisig as high-security for benchmarking
+		// This ensures we measure the actual HS code path:
+		// - is_high_security() will return true
+		// - propose() will decode the call and check whitelist
+		// - This adds ~25M base + ~50k/byte overhead vs normal propose
+		#[cfg(feature = "runtime-benchmarks")]
+		T::HighSecurity::set_high_security_for_benchmarking(&multisig_address);
 
 		// Insert e expired proposals (worst case for auto-cleanup)
 		let expired_block = 10u32.into();
@@ -208,12 +210,18 @@ mod benchmarks {
 		// Move past expiry so proposals are expired
 		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
-		// Create a whitelisted call for high-security (system::remark as placeholder)
-		// In production this would be ReversibleTransfers::schedule_transfer
-		// But for benchmarking we measure the decode overhead with system::remark of size c
+		// Create a whitelisted call for high-security
+		// IMPORTANT: Use remark with variable size 'c' to measure decode overhead
+		// The benchmark must vary the call size to properly measure O(c) decode cost
+		// system::remark is used as proxy - in production this would be
+		// ReversibleTransfers::schedule_transfer
 		let system_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
+
+		// Verify we're testing with actual variable size
+		assert!(encoded_call.len() >= c as usize, "Call size should scale with parameter c");
+
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
