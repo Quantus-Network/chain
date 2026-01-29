@@ -34,14 +34,19 @@ fn charlie() -> AccountId {
 	account_id(3)
 }
 
+/// When monied(true), genesis creates 5 accounts with balances.
+/// However, account_id(1) == MintingAccount ([1u8; 32]), so that's a self-transfer
+/// which doesn't create a proof. Thus we get 4 transfer proofs.
+const GENESIS_TRANSFER_COUNT: u64 = 4;
+
 #[test]
-fn transfer_counter_starts_at_zero() {
+fn transfer_counter_starts_at_genesis_count() {
 	ExtBuilder::default()
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Transfer counter should start at 0
-			assert_eq!(Balances::transfer_count(), 0);
+			// Transfer counter should start at GENESIS_TRANSFER_COUNT (one per endowed account)
+			assert_eq!(Balances::transfer_count(), GENESIS_TRANSFER_COUNT);
 		});
 }
 
@@ -51,20 +56,19 @@ fn transfer_allow_death_increments_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Perform a transfer
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 5));
 
-			// Counter should increment to 1
-			assert_eq!(Balances::transfer_count(), 1);
+			// Counter should increment by 1
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 
 			// Perform another transfer
 			assert_ok!(Balances::transfer_allow_death(Some(bob()).into(), charlie(), 3));
 
-			// Counter should increment to 2
-			assert_eq!(Balances::transfer_count(), 2);
+			// Counter should increment by 2 total
+			assert_eq!(Balances::transfer_count(), initial_count + 2);
 		});
 }
 
@@ -74,14 +78,13 @@ fn transfer_keep_alive_increments_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Perform a transfer_keep_alive
 			assert_ok!(Balances::transfer_keep_alive(Some(alice()).into(), bob(), 5));
 
-			// Counter should increment to 1
-			assert_eq!(Balances::transfer_count(), 1);
+			// Counter should increment by 1
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 		});
 }
 
@@ -91,14 +94,13 @@ fn force_transfer_increments_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Perform a force transfer
 			assert_ok!(Balances::force_transfer(RuntimeOrigin::root(), alice(), bob(), 5));
 
-			// Counter should increment to 1
-			assert_eq!(Balances::transfer_count(), 1);
+			// Counter should increment by 1
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 		});
 }
 
@@ -108,14 +110,13 @@ fn transfer_all_increments_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Perform a transfer_all
 			assert_ok!(Balances::transfer_all(Some(alice()).into(), bob(), false));
 
-			// Counter should increment to 1
-			assert_eq!(Balances::transfer_count(), 1);
+			// Counter should increment by 1
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 		});
 }
 
@@ -125,14 +126,13 @@ fn self_transfer_does_not_increment_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Self transfer should not increment counter
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), alice(), 5));
 
-			// Counter should remain 0 since it's a self-transfer
-			assert_eq!(Balances::transfer_count(), 0);
+			// Counter should remain unchanged since it's a self-transfer
+			assert_eq!(Balances::transfer_count(), initial_count);
 		});
 }
 
@@ -142,11 +142,14 @@ fn transfer_proof_storage_is_created() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
+			let current_count = Balances::transfer_count();
+
 			// Perform a transfer
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 5));
 
-			// Check that transfer proof was stored with correct key
-			let key = (0u64, alice(), bob(), 5);
+			// Check that transfer proof was stored with correct key (using current count as the
+			// index)
+			let key = (current_count, alice(), bob(), 5u128);
 			assert!(TransferProof::<Test>::contains_key(&key));
 		});
 }
@@ -157,28 +160,30 @@ fn multiple_transfers_create_sequential_proofs() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
+			let initial_count = Balances::transfer_count();
+
 			// First transfer
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 5));
-			assert_eq!(Balances::transfer_count(), 1);
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 
 			// Check first proof exists
-			let key1 = (0u64, alice(), bob(), 5u128);
+			let key1 = (initial_count, alice(), bob(), 5u128);
 			assert!(TransferProof::<Test>::contains_key(&key1));
 
 			// Second transfer
 			assert_ok!(Balances::transfer_allow_death(Some(bob()).into(), charlie(), 3));
-			assert_eq!(Balances::transfer_count(), 2);
+			assert_eq!(Balances::transfer_count(), initial_count + 2);
 
 			// Check second proof exists
-			let key2 = (1u64, bob(), charlie(), 3u128);
+			let key2 = (initial_count + 1, bob(), charlie(), 3u128);
 			assert!(TransferProof::<Test>::contains_key(&key2));
 
 			// Third transfer with different amount
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), charlie(), 1));
-			assert_eq!(Balances::transfer_count(), 3);
+			assert_eq!(Balances::transfer_count(), initial_count + 3);
 
 			// Check third proof exists
-			let key3 = (2u64, alice(), charlie(), 1u128);
+			let key3 = (initial_count + 2, alice(), charlie(), 1u128);
 			assert!(TransferProof::<Test>::contains_key(&key3));
 		});
 }
@@ -189,8 +194,7 @@ fn failed_transfers_do_not_increment_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Attempt transfer with insufficient funds
 			assert_noop!(
@@ -198,8 +202,8 @@ fn failed_transfers_do_not_increment_counter() {
 				Arithmetic(Underflow)
 			);
 
-			// Counter should remain 0 since transfer failed
-			assert_eq!(Balances::transfer_count(), 0);
+			// Counter should remain unchanged since transfer failed
+			assert_eq!(Balances::transfer_count(), initial_count);
 		});
 }
 
@@ -268,19 +272,21 @@ fn transfer_counter_persists_across_blocks() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
+			let initial_count = Balances::transfer_count();
+
 			// Perform transfer in block 1
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 5));
-			assert_eq!(Balances::transfer_count(), 1);
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 
 			// Move to block 2
 			System::set_block_number(2);
 
 			// Counter should persist
-			assert_eq!(Balances::transfer_count(), 1);
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 
 			// Perform another transfer in block 2
 			assert_ok!(Balances::transfer_allow_death(Some(bob()).into(), charlie(), 3));
-			assert_eq!(Balances::transfer_count(), 2);
+			assert_eq!(Balances::transfer_count(), initial_count + 2);
 		});
 }
 
@@ -290,17 +296,16 @@ fn zero_value_transfers_increment_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// Perform a zero-value transfer
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 0));
 
 			// Counter should increment even for zero-value transfers
-			assert_eq!(Balances::transfer_count(), 1);
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 
 			// Transfer proof should be created
-			let key = (0u64, alice(), bob(), 0u128);
+			let key = (initial_count, alice(), bob(), 0u128);
 			assert!(TransferProof::<Test>::contains_key(&key));
 		});
 }
@@ -311,26 +316,25 @@ fn different_transfer_types_all_increment_counter() {
 		.existential_deposit(1)
 		.monied(true)
 		.build_and_execute_with(|| {
-			// Initial counter should be 0
-			assert_eq!(Balances::transfer_count(), 0);
+			let initial_count = Balances::transfer_count();
 
 			// transfer_allow_death
 			assert_ok!(Balances::transfer_allow_death(Some(alice()).into(), bob(), 1));
-			assert_eq!(Balances::transfer_count(), 1);
+			assert_eq!(Balances::transfer_count(), initial_count + 1);
 
 			// transfer_keep_alive
 			assert_ok!(Balances::transfer_keep_alive(Some(alice()).into(), charlie(), 1));
-			assert_eq!(Balances::transfer_count(), 2);
+			assert_eq!(Balances::transfer_count(), initial_count + 2);
 
 			// force_transfer
 			assert_ok!(Balances::force_transfer(RuntimeOrigin::root(), bob(), charlie(), 1));
-			assert_eq!(Balances::transfer_count(), 3);
+			assert_eq!(Balances::transfer_count(), initial_count + 3);
 
 			// transfer_all (transfer remaining balance)
 			let remaining = Balances::free_balance(alice());
 			if remaining > 1 {
 				assert_ok!(Balances::transfer_all(Some(alice()).into(), bob(), false));
-				assert_eq!(Balances::transfer_count(), 4);
+				assert_eq!(Balances::transfer_count(), initial_count + 4);
 			}
 		});
 }

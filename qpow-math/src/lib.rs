@@ -49,49 +49,6 @@ pub fn get_nonce_hash(
 	result
 }
 
-/// Mine a contiguous range of nonces using simple incremental search.
-/// Returns the first valid nonce and its hash if one is found.
-/// This is called during local mining
-pub fn mine_range(
-	block_hash: [u8; 32],
-	start_nonce: [u8; 64],
-	steps: u64,
-	difficulty: U512,
-) -> Option<([u8; 64], U512)> {
-	if steps == 0 {
-		return None;
-	}
-
-	if difficulty == U512::zero() {
-		log::error!(
-			"mine_range should not be called with 0 difficulty, but was for block_hash: {:?}",
-			block_hash
-		);
-		return None;
-	}
-
-	let mut nonce_u = U512::from_big_endian(&start_nonce);
-	let max_target = U512::MAX;
-	let target = max_target / difficulty;
-
-	for _ in 0..steps {
-		let nonce_bytes = nonce_u.to_big_endian();
-		let hash_result = get_nonce_hash(block_hash, nonce_bytes);
-
-		if hash_result < target {
-			log::debug!(target: "math", "💎 Local miner found nonce {:x} with hash {:x} and target {:x} and block_hash {:?}",
-			nonce_u.low_u32() as u16, hash_result.low_u32() as u16,
-				target.low_u32() as u16, hex::encode(block_hash));
-			return Some((nonce_bytes, hash_result));
-		}
-
-		// Advance to next nonce
-		nonce_u = nonce_u.saturating_add(U512::from(1u64));
-	}
-
-	None
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

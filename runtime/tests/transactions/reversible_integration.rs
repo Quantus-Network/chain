@@ -1,9 +1,7 @@
 use crate::common::TestCommons;
 use frame_support::{assert_err, assert_ok};
 use qp_scheduler::BlockNumberOrTimestamp;
-use quantus_runtime::{
-	Balances, Recovery, ReversibleTransfers, RuntimeCall, RuntimeOrigin, EXISTENTIAL_DEPOSIT, UNIT,
-};
+use quantus_runtime::{Balances, ReversibleTransfers, RuntimeOrigin, EXISTENTIAL_DEPOSIT};
 use sp_runtime::MultiAddress;
 
 fn acc(n: u8) -> sp_core::crypto::AccountId32 {
@@ -15,9 +13,6 @@ fn high_security_account() -> sp_core::crypto::AccountId32 {
 }
 fn interceptor() -> sp_core::crypto::AccountId32 {
 	TestCommons::account_id(2)
-}
-fn recoverer() -> sp_core::crypto::AccountId32 {
-	TestCommons::account_id(3)
 }
 
 #[test]
@@ -97,64 +92,38 @@ fn high_security_end_to_end_flow() {
             pallet_reversible_transfers::Error::<quantus_runtime::Runtime>::AccountAlreadyHighSecurity
         );
 
-        // 6) Interceptor recovers all funds from high sec account via Recovery pallet
-
-        // 6.1 Interceptor initiates recovery
-        assert_ok!(Recovery::initiate_recovery(
-            RuntimeOrigin::signed(interceptor()),
-            MultiAddress::Id(high_security_account()),
-        ));
-
-        // 6.2 Interceptor vouches on recovery
-        assert_ok!(Recovery::vouch_recovery(
-            RuntimeOrigin::signed(interceptor()),
-            MultiAddress::Id(high_security_account()),
-            MultiAddress::Id(interceptor()),
-        ));
-
-        // 6.3 Interceptor claims recovery
-        assert_ok!(Recovery::claim_recovery(
-            RuntimeOrigin::signed(interceptor()),
-            MultiAddress::Id(high_security_account()),
-        ));
-
+        // 6) Interceptor recovers all funds from high sec account via recover_funds
         let interceptor_before_recovery = Balances::free_balance(interceptor());
 
-        // 6.4 Interceptor recovers all funds
-        let call = RuntimeCall::Balances(pallet_balances::Call::transfer_all {
-            dest: MultiAddress::Id(interceptor()),
-            keep_alive: false,
-        });
-        assert_ok!(Recovery::as_recovered(
+        assert_ok!(ReversibleTransfers::recover_funds(
             RuntimeOrigin::signed(interceptor()),
-            MultiAddress::Id(high_security_account()),
-            Box::new(call),
+            high_security_account(),
         ));
 
         let hs_after_recovery = Balances::free_balance(high_security_account());
         let interceptor_after_recovery = Balances::free_balance(interceptor());
 
-        // HS should be drained to existential deposit; account 2 increased accordingly
-        assert_eq!(hs_after_recovery, EXISTENTIAL_DEPOSIT);
+        // HS account should be drained completely (keep_alive: false)
+        assert_eq!(hs_after_recovery, 0);
 
-        // Fees - Interceptor spends 11 units in total for all the calls they are making.
-
-        // Interceptor has hs account's balance now
-        let estimated_fees = UNIT/100 * 101; // The final recover call costs 1.01 units.
+        // Interceptor should have received all the HS account's remaining funds
         assert!(
-            interceptor_after_recovery >= (hs_after_cancel + interceptor_before_recovery - estimated_fees),
-            "recoverer {interceptor_after_recovery} should be at least {hs_after_cancel} + {interceptor_start} - {estimated_fees}"
+            interceptor_after_recovery > interceptor_before_recovery,
+            "interceptor should have received funds from HS account"
+        );
+        assert_eq!(
+            interceptor_after_recovery,
+            interceptor_before_recovery + hs_after_cancel,
+            "interceptor should have received the HS account's remaining balance"
         );
     });
 }
 
 #[test]
-fn test_recovery_allows_multiple_recovery_configs() {
-	// Test that Account 3 can recover both Account 1 (HS) and Account 2 (interceptor)
-	// This proves our inheritance + high security use case will work
+fn test_recover_funds_only_works_for_guardian() {
+	// Test that only the guardian (interceptor) can call recover_funds
 	let mut ext = TestCommons::new_test_ext();
 	ext.execute_with(|| {
-		// Set up Account 1 as high security with Account 2 as interceptor
 		let delay = BlockNumberOrTimestamp::BlockNumber(5);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(high_security_account()),
@@ -162,88 +131,33 @@ fn test_recovery_allows_multiple_recovery_configs() {
 			interceptor(),
 		));
 
-		// Account 2 initiates recovery of Account 1
-		assert_ok!(Recovery::initiate_recovery(
-			RuntimeOrigin::signed(interceptor()),
-			MultiAddress::Id(high_security_account()),
-		));
-		assert_ok!(Recovery::vouch_recovery(
-			RuntimeOrigin::signed(interceptor()),
-			MultiAddress::Id(high_security_account()),
-			MultiAddress::Id(interceptor()),
-		));
-		assert_ok!(Recovery::claim_recovery(
-			RuntimeOrigin::signed(interceptor()),
-			MultiAddress::Id(high_security_account()),
-		));
+		// Non-guardian (account 3) tries to recover funds - should fail
+		assert_err!(
+			ReversibleTransfers::recover_funds(
+				RuntimeOrigin::signed(acc(3)),
+				high_security_account(),
+			),
+			pallet_reversible_transfers::Error::<quantus_runtime::Runtime>::InvalidReverser
+		);
 
-		// Set up recovery for Account 2 with Account 3 as friend
-		assert_ok!(Recovery::create_recovery(
-			RuntimeOrigin::signed(interceptor()),
-			vec![recoverer()],
-			1,
-			0,
-		));
-
-		// Now Account 3 can recover Account 2
-		assert_ok!(Recovery::initiate_recovery(
-			RuntimeOrigin::signed(recoverer()),
-			MultiAddress::Id(interceptor()),
-		));
-		assert_ok!(Recovery::vouch_recovery(
-			RuntimeOrigin::signed(recoverer()),
-			MultiAddress::Id(interceptor()),
-			MultiAddress::Id(recoverer()),
-		));
-
-		// This should succeed - Account 3 can recover Account 2
-		assert_ok!(Recovery::claim_recovery(
-			RuntimeOrigin::signed(recoverer()),
-			MultiAddress::Id(interceptor()),
-		));
-
-		// Verify both proxies exist
-		// Account 2 proxies Account 1
-		assert_eq!(Recovery::proxy(interceptor()), Some(high_security_account()));
-		// Account 3 proxies Account 2
-		assert_eq!(Recovery::proxy(recoverer()), Some(interceptor()));
-
-		// Give Account 1 some funds to test transfer
-		let transfer_amount = 100 * UNIT;
-		assert_ok!(Balances::force_set_balance(
-			RuntimeOrigin::root(),
-			MultiAddress::Id(high_security_account()),
-			transfer_amount,
-		));
-
-		// Capture balances before nested transfer
+		// Guardian (account 2) can recover funds
 		let hs_balance_before = Balances::free_balance(high_security_account());
-		let recoverer_balance_before = Balances::free_balance(recoverer());
+		let interceptor_balance_before = Balances::free_balance(interceptor());
 
-		// Now test nested as_recovered: Account 3 -> Account 2 -> Account 1
-		let inner_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-			dest: MultiAddress::Id(recoverer()),
-			value: transfer_amount / 2, // Transfer half the amount
-		});
-		let outer_call = RuntimeCall::Recovery(pallet_recovery::Call::as_recovered {
-			account: MultiAddress::Id(high_security_account()),
-			call: Box::new(inner_call),
-		});
-
-		// Account 3 calls as_recovered on Account 2, which contains as_recovered on Account 1
-		// This should succeed and transfer funds: Account 1 -> Account 3
-		assert_ok!(Recovery::as_recovered(
-			RuntimeOrigin::signed(recoverer()),
-			MultiAddress::Id(interceptor()),
-			Box::new(outer_call),
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(interceptor()),
+			high_security_account(),
 		));
 
-		// Verify the transfer happened
+		// Verify funds were transferred
 		let hs_balance_after = Balances::free_balance(high_security_account());
-		let recoverer_balance_after = Balances::free_balance(recoverer());
+		let interceptor_balance_after = Balances::free_balance(interceptor());
 
-		assert_eq!(hs_balance_before, transfer_amount);
-		assert!(hs_balance_after < hs_balance_before); // Account 1 lost funds
-		assert!(recoverer_balance_after > recoverer_balance_before); // Account 3 gained funds
+		assert_eq!(hs_balance_after, 0);
+		assert_eq!(
+			interceptor_balance_after,
+			interceptor_balance_before + hs_balance_before,
+			"guardian should have received all HS account funds"
+		);
 	});
 }

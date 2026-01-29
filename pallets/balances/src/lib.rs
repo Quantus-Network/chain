@@ -337,6 +337,13 @@ pub mod pallet {
 			Self::AccountId,
 			Self::Balance,
 		>;
+
+		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
+		/// (e.g., genesis balances, mining rewards). This should be a well-known address that
+		/// represents "minted from nothing".
+		#[pallet::constant]
+		#[pallet::no_default]
+		type MintingAccount: Get<Self::AccountId>;
 	}
 
 	/// The in-code storage version.
@@ -572,10 +579,13 @@ pub mod pallet {
 				"duplicate balances in genesis."
 			);
 
+			let mint_account = T::MintingAccount::get();
 			for &(ref who, free) in self.balances.iter() {
 				frame_system::Pallet::<T>::inc_providers(who);
 				assert!(T::AccountStore::insert(who, AccountData { free, ..Default::default() })
 					.is_ok());
+				// Create transfer proof for genesis balance (from minting account)
+				Pallet::<T, I>::do_store_transfer_proof(&mint_account, who, free);
 			}
 		}
 	}

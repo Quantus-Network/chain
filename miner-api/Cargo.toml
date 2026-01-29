@@ -16,3 +16,5 @@ version = "0.0.3"
 
 [dependencies]
 serde = { workspace = true, features = ["alloc", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["io-util"] }

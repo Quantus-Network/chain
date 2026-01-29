@@ -592,7 +592,6 @@ fn cancel_dispatch_works() {
 		System::set_block_number(1);
 		let user = alice(); // High-security account from genesis
 		let interceptor = bob();
-		let treasury = treasury();
 		let amount = 10_000;
 		let call = transfer_call(interceptor.clone(), amount);
 		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
@@ -604,7 +603,7 @@ fn cancel_dispatch_works() {
 
 		// Record initial balances
 		let initial_interceptor_balance = Balances::free_balance(&interceptor);
-		let initial_treasury_balance = Balances::free_balance(&treasury);
+		let initial_total_issuance = pallet_balances::TotalIssuance::<Test>::get();
 
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
@@ -633,7 +632,7 @@ fn cancel_dispatch_works() {
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
 		// Verify volume fee was applied for high-security account
-		// Expected fee: 10,000 * 100 / 10,000 = 100 tokens
+		// Expected fee: 10,000 * 1% = 100 tokens
 		let expected_fee = 100;
 		let expected_remaining = amount - expected_fee;
 
@@ -645,10 +644,11 @@ fn cancel_dispatch_works() {
 			"High-security account should have volume fee deducted"
 		);
 
+		// Check that fee was burned (total issuance decreased)
 		assert_eq!(
-			Balances::free_balance(&treasury),
-			initial_treasury_balance + expected_fee,
-			"Treasury should receive volume fee from high-security account cancellation"
+			pallet_balances::TotalIssuance::<Test>::get(),
+			initial_total_issuance - expected_fee,
+			"Volume fee should be burned from total issuance"
 		);
 
 		// Check event
@@ -662,13 +662,12 @@ fn no_volume_fee_for_regular_reversible_accounts() {
 		System::set_block_number(1);
 		let user = charlie(); // Regular account (not high-security)
 		let recipient = dave();
-		let treasury = treasury();
 		let amount = 10_000;
 
 		// Check initial balances
 		let initial_user_balance = Balances::free_balance(&user);
 		let initial_recipient_balance = Balances::free_balance(&recipient);
-		let initial_treasury_balance = Balances::free_balance(&treasury);
+		let initial_total_issuance = pallet_balances::TotalIssuance::<Test>::get();
 
 		let call = transfer_call(recipient.clone(), amount);
 		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
@@ -700,11 +699,11 @@ fn no_volume_fee_for_regular_reversible_accounts() {
 			"Recipient should not receive funds when transaction is cancelled"
 		);
 
-		// Verify treasury balance unchanged
+		// Verify total issuance unchanged (no fee burned for regular accounts)
 		assert_eq!(
-			Balances::free_balance(&treasury),
-			initial_treasury_balance,
-			"Treasury should not receive fee from regular account cancellation"
+			pallet_balances::TotalIssuance::<Test>::get(),
+			initial_total_issuance,
+			"Total issuance should not change for regular account cancellation"
 		);
 
 		// Should still have TransactionCancelled event

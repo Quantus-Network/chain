@@ -89,6 +89,7 @@ impl pallet_balances::Config for Test {
 	type MaxReserves = ();
 	type MaxFreezes = ();
 	type DoneSlashHandler = ();
+	type MintingAccount = MintingAccount;
 }
 
 // --- PALLET WORMHOLE ---

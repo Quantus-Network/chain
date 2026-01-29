@@ -27,7 +27,6 @@ log = { workspace = true, default-features = true }
 names = { workspace = true, default-features = false }
 qp-dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
 qp-rusty-crystals-dilithium = { workspace = true }
-qp-rusty-crystals-hdwallet = { workspace = true }
 rand = { workspace = true, default-features = true }
 regex = { workspace = true }
 rpassword = { workspace = true }
@@ -46,7 +45,6 @@ serde_json = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 sp-keyring = { workspace = true, default-features = true }
-sp-keystore = { workspace = true, default-features = true }
 sp-panic-handler = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 sp-version = { workspace = true, default-features = true }
