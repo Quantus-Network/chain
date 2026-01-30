@@ -15,8 +15,8 @@ scale-info = { workspace = true }
 
 [features]
 default = ["std"]
+runtime-benchmarks = []
 std = [
 	"codec/std",
 	"scale-info/std",
 ]
-runtime-benchmarks = []
