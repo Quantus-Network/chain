@@ -3,7 +3,7 @@
 use crate::{mock::*, Error, Event, GlobalNonce, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate};
-use pallet_reversible_transfers::HighSecurityInspector;
+use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
 
 /// Mock implementation for HighSecurityInspector

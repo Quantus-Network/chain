@@ -132,6 +132,7 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_high_security::HighSecurityInspector;
 	use sp_arithmetic::traits::Saturating;
 	use sp_runtime::{
 		traits::{Dispatchable, Hash, TrailingZeroInput},
@@ -207,14 +208,11 @@ pub mod pallet {
 		type WeightInfo: WeightInfo;
 
 		/// Interface to check if an account is in high-security mode
-		type HighSecurity: pallet_reversible_transfers::HighSecurityInspector<
+		type HighSecurity: qp_high_security::HighSecurityInspector<
 			Self::AccountId,
 			<Self as pallet::Config>::RuntimeCall,
 		>;
 	}
-
-	/// Re-export HighSecurityInspector trait from reversible-transfers for convenience
-	pub use pallet_reversible_transfers::HighSecurityInspector;
 
 	/// Type alias for bounded signers vector
 	pub type BoundedSignersOf<T> =

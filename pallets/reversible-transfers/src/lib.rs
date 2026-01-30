@@ -20,7 +20,7 @@ pub use pallet::*;
 mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
+pub mod benchmarking;
 pub mod weights;
 pub use weights::WeightInfo;
 
@@ -36,42 +36,6 @@ use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_arithmetic::Permill;
 use sp_runtime::traits::StaticLookup;
-
-/// Trait for checking high-security status and whitelisting calls.
-/// This can be used by other pallets (like multisig) or transaction extensions.
-pub trait HighSecurityInspector<AccountId, RuntimeCall> {
-	/// Check if account is high-security
-	fn is_high_security(who: &AccountId) -> bool;
-	/// Check if call is whitelisted for high-security accounts
-	/// Note: This must be implemented at runtime level since it needs RuntimeCall
-	fn is_whitelisted(call: &RuntimeCall) -> bool;
-	/// Get guardian for high-security account
-	fn guardian(who: &AccountId) -> Option<AccountId>;
-
-	/// Set account as high-security for benchmarking purposes only
-	/// This allows benchmarks to measure the HS code path without full runtime setup
-	#[cfg(feature = "runtime-benchmarks")]
-	fn set_high_security_for_benchmarking(who: &AccountId);
-}
-
-/// Default implementation for HighSecurityInspector (no high-security)
-/// This allows pallets to have optional high-security support by using `type HighSecurity = ();`
-impl<AccountId, RuntimeCall> HighSecurityInspector<AccountId, RuntimeCall> for () {
-	fn is_high_security(_who: &AccountId) -> bool {
-		false
-	}
-	fn is_whitelisted(_call: &RuntimeCall) -> bool {
-		true // Allow everything if no high-security
-	}
-	fn guardian(_who: &AccountId) -> Option<AccountId> {
-		None
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn set_high_security_for_benchmarking(_who: &AccountId) {
-		// No-op for default implementation
-	}
-}
 
 // Partial implementation for Pallet - runtime will complete it
 impl<T: Config> Pallet<T> {

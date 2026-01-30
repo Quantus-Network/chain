@@ -592,9 +592,7 @@ parameter_types! {
 /// - `cancel`: Cancel pending delayed transfer
 pub struct HighSecurityConfig;
 
-impl pallet_reversible_transfers::HighSecurityInspector<AccountId, RuntimeCall>
-	for HighSecurityConfig
-{
+impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
 	fn is_high_security(who: &AccountId) -> bool {
 		// Delegate to reversible-transfers pallet
 		pallet_reversible_transfers::Pallet::<Runtime>::is_high_security_account(who)
@@ -604,8 +602,7 @@ impl pallet_reversible_transfers::HighSecurityInspector<AccountId, RuntimeCall>
 		// Runtime-level whitelist: only reversible-transfers operations allowed
 		#[cfg(feature = "runtime-benchmarks")]
 		{
-			// For benchmarking: allow system::remark to measure decode overhead
-			// without side effects from actual transfer operations
+			// For benchmarking: allow system::remark to measure O(c) decode overhead
 			if matches!(call, RuntimeCall::System(frame_system::Call::remark { .. })) {
 				return true;
 			}
@@ -624,19 +621,6 @@ impl pallet_reversible_transfers::HighSecurityInspector<AccountId, RuntimeCall>
 	fn guardian(who: &AccountId) -> Option<AccountId> {
 		// Delegate to reversible-transfers pallet
 		pallet_reversible_transfers::Pallet::<Runtime>::get_guardian(who)
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn set_high_security_for_benchmarking(who: &AccountId) {
-		use pallet_reversible_transfers::{HighSecurityAccountData, HighSecurityAccounts};
-		use qp_scheduler::BlockNumberOrTimestamp;
-
-		// Insert dummy HS data for benchmarking
-		let hs_data = HighSecurityAccountData {
-			interceptor: who.clone(),
-			delay: BlockNumberOrTimestamp::BlockNumber(100u32),
-		};
-		HighSecurityAccounts::<Runtime>::insert(who, hs_data);
 	}
 }
 

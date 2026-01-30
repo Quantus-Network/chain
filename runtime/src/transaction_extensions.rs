@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 
 use frame_system::ensure_signed;
-use pallet_reversible_transfers::HighSecurityInspector;
+use qp_high_security::HighSecurityInspector;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{traits::TransactionExtension, Weight};

@@ -18,7 +18,9 @@ frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
-pallet-reversible-transfers = { path = "../reversible-transfers", default-features = false }
+pallet-reversible-transfers = { path = "../reversible-transfers", default-features = false, optional = true }
+qp-high-security = { path = "../../primitives/high-security", default-features = false }
+qp-scheduler = { workspace = true, optional = true }
 scale-info = { features = ["derive"], workspace = true }
 sp-arithmetic.workspace = true
 sp-core.workspace = true
@@ -39,7 +41,10 @@ runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
-	"pallet-reversible-transfers/runtime-benchmarks",
+	"pallet-reversible-transfers",
+	"pallet-reversible-transfers?/runtime-benchmarks",
+	"qp-high-security/runtime-benchmarks",
+	"qp-scheduler",
 	"sp-runtime/runtime-benchmarks",
 ]
 std = [
@@ -49,8 +54,10 @@ std = [
 	"frame-system/std",
 	"log/std",
 	"pallet-balances/std",
-	"pallet-reversible-transfers/std",
+	"pallet-reversible-transfers?/std",
 	"pallet-timestamp/std",
+	"qp-high-security/std",
+	"qp-scheduler?/std",
 	"scale-info/std",
 	"sp-arithmetic/std",
 	"sp-core/std",
@@ -60,6 +67,5 @@ std = [
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
-	"pallet-reversible-transfers/try-runtime",
 	"sp-runtime/try-runtime",
 ]

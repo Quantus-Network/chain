@@ -24,7 +24,7 @@ where
 
 #[benchmarks(
 	where
-	T: Config + pallet_balances::Config,
+	T: Config + pallet_balances::Config + pallet_reversible_transfers::Config,
 	BalanceOf2<T>: From<u128>,
 )]
 mod benchmarks {
@@ -180,12 +180,21 @@ mod benchmarks {
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
 		// IMPORTANT: Set this multisig as high-security for benchmarking
-		// This ensures we measure the actual HS code path:
-		// - is_high_security() will return true
-		// - propose() will decode the call and check whitelist
-		// - This adds ~25M base + ~50k/byte overhead vs normal propose
+		// This ensures we measure the actual HS code path
 		#[cfg(feature = "runtime-benchmarks")]
-		T::HighSecurity::set_high_security_for_benchmarking(&multisig_address);
+		{
+			use pallet_reversible_transfers::{
+				benchmarking::insert_hs_account_for_benchmark, HighSecurityAccountData,
+			};
+			use qp_scheduler::BlockNumberOrTimestamp;
+
+			let hs_data = HighSecurityAccountData {
+				interceptor: multisig_address.clone(),
+				delay: BlockNumberOrTimestamp::BlockNumber(100u32.into()),
+			};
+			// Use helper that accepts T: pallet_reversible_transfers::Config
+			insert_hs_account_for_benchmark::<T>(multisig_address.clone(), hs_data);
+		}
 
 		// Insert e expired proposals (worst case for auto-cleanup)
 		let expired_block = 10u32.into();
@@ -210,11 +219,9 @@ mod benchmarks {
 		// Move past expiry so proposals are expired
 		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
-		// Create a whitelisted call for high-security
-		// IMPORTANT: Use remark with variable size 'c' to measure decode overhead
-		// The benchmark must vary the call size to properly measure O(c) decode cost
-		// system::remark is used as proxy - in production this would be
-		// ReversibleTransfers::schedule_transfer
+		// Create a whitelisted call for HS multisig
+		// Using system::remark with variable size to measure decode cost O(c)
+		// NOTE: system::remark is whitelisted ONLY in runtime-benchmarks mode
 		let system_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
 		let call = <T as Config>::RuntimeCall::from(system_call);
 		let encoded_call = call.encode();
@@ -642,7 +649,7 @@ mod benchmarks {
 		let deposit = T::MultisigDeposit::get();
 
 		// Reserve deposit from caller
-		T::Currency::reserve(&caller, deposit)?;
+		<T as crate::Config>::Currency::reserve(&caller, deposit)?;
 
 		let multisig_data = MultisigDataOf::<T> {
 			signers: bounded_signers,

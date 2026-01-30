@@ -663,8 +663,9 @@ impl pallet_multisig::Config for Runtime {
 }
 
 // Runtime implements HighSecurityInspector trait
+// (trait defined in primitives/high-security crate)
 pub struct HighSecurityConfig;
-impl HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
+impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
     fn is_high_security(who: &AccountId) -> bool {
         ReversibleTransfers::is_high_security_account(who)
     }
