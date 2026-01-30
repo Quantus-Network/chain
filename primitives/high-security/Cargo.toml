@@ -1,0 +1,22 @@
+[package]
+authors.workspace = true
+description = "High-Security account primitives for Quantus blockchain"
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "qp-high-security"
+publish = false
+repository.workspace = true
+version = "0.1.0"
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+
+[features]
+default = ["std"]
+runtime-benchmarks = []
+std = [
+	"codec/std",
+	"scale-info/std",
+]

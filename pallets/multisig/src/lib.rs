@@ -132,6 +132,7 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_high_security::HighSecurityInspector;
 	use sp_arithmetic::traits::Saturating;
 	use sp_runtime::{
 		traits::{Dispatchable, Hash, TrailingZeroInput},
@@ -205,6 +206,12 @@ pub mod pallet {
 
 		/// Weight information for extrinsics
 		type WeightInfo: WeightInfo;
+
+		/// Interface to check if an account is in high-security mode
+		type HighSecurity: qp_high_security::HighSecurityInspector<
+			Self::AccountId,
+			<Self as pallet::Config>::RuntimeCall,
+		>;
 	}
 
 	/// Type alias for bounded signers vector
@@ -375,6 +382,8 @@ pub mod pallet {
 		ProposalsExist,
 		/// Multisig account must have zero balance before dissolution
 		MultisigAccountNotZero,
+		/// Call is not allowed for high-security multisig
+		CallNotAllowedForHighSecurityMultisig,
 	}
 
 	#[pallet::call]
@@ -490,31 +499,53 @@ pub mod pallet {
 		/// cleanup mechanism.
 		///
 		/// **For threshold=1:** If the multisig threshold is 1, the proposal executes immediately.
+		///
+		/// **Weight:** Charged based on whether multisig is high-security or not.
+		/// High-security multisigs incur additional cost for decode + whitelist check.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose(
+		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(
 			call.len() as u32,
 			T::MaxTotalProposalsInStorage::get()
 		))]
+		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			call: Vec<u8>,
 			expiry: BlockNumberFor<T>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
+
+			// CRITICAL: Check call size FIRST, before any heavy operations (especially decode)
+			// This prevents DoS via oversized payloads that would be decoded before size validation
+			let call_size = call.len() as u32;
+			ensure!(call_size <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
 
 			// Check if proposer is a signer
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
 
+			// High-security check: if multisig is high-security, only whitelisted calls allowed
+			// Size already validated above, so decode is now safe
+			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
+			if is_high_security {
+				let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
+					.map_err(|_| Error::<T>::InvalidCall)?;
+				ensure!(
+					T::HighSecurity::is_whitelisted(&decoded_call),
+					Error::<T>::CallNotAllowedForHighSecurityMultisig
+				);
+			}
+
 			// Auto-cleanup expired proposals before creating new one
 			// This is the primary cleanup mechanism for active multisigs
-			Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
+			let iterated_count = Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
 
 			// Reload multisig data after potential cleanup
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+
 			let current_block = frame_system::Pallet::<T>::block_number();
 
 			// Get signers count (used for multiple checks below)
@@ -583,7 +614,7 @@ pub mod pallet {
 				}
 			});
 
-			// Convert to bounded vec
+			// Convert to bounded vec (call_size already computed and validated above)
 			let bounded_call: BoundedCallOf<T> =
 				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
 
@@ -645,7 +676,16 @@ pub mod pallet {
 				Self::do_execute(multisig_address, proposal_id, proposal)?;
 			}
 
-			Ok(())
+			// Calculate actual weight and refund if not high-security
+			let actual_weight = if is_high_security {
+				// Used high-security path (decode + whitelist check)
+				<T as Config>::WeightInfo::propose_high_security(call_size, iterated_count)
+			} else {
+				// Used normal path (no decode overhead)
+				<T as Config>::WeightInfo::propose(call_size, iterated_count)
+			};
+
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
 		/// Approve a proposed transaction

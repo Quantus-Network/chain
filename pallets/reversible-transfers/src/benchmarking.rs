@@ -13,6 +13,17 @@ use sp_runtime::{
 
 const SEED: u32 = 0;
 
+/// Helper for external benchmarks (e.g., `pallet-multisig`) to set up HS storage state.
+/// Bypasses all validation - direct storage write only for benchmarking.
+pub fn insert_hs_account_for_benchmark<T>(
+	who: T::AccountId,
+	data: HighSecurityAccountData<T::AccountId, BlockNumberOrTimestampOf<T>>,
+) where
+	T: Config,
+{
+	HighSecurityAccounts::<T>::insert(who, data);
+}
+
 // Helper to create a RuntimeCall (e.g., a balance transfer)
 // Adjust type parameters as needed for your actual Balance type if not u128
 fn make_transfer_call<T: Config>(

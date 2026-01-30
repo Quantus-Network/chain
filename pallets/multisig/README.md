@@ -61,6 +61,7 @@ Creates a new proposal for multisig execution.
 
 **Validation:**
 - Caller must be a signer
+- **High-Security Check:** If multisig is high-security, only whitelisted calls are allowed (see High-Security Integration section)
 - Call size must be ≤ MaxCallSize
 - Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
 - Caller cannot exceed their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
@@ -506,6 +507,187 @@ impl pallet_multisig::Config for Runtime {
 - **Low-value chains:** Higher fees (maintain spam protection), lower deposits
 - **Enterprise use:** Higher MaxSigners, longer MaxExpiryDuration
 - **Public use:** Moderate limits, shorter expiry for faster turnover
+
+## High-Security Integration
+
+The multisig pallet integrates with **pallet-reversible-transfers** to support high-security multisigs with call whitelisting and delayed execution.
+
+### Overview
+
+**Standard Multisig:**
+- Proposes any `RuntimeCall`
+- Executes immediately on threshold
+- No restrictions
+
+**High-Security Multisig:**
+- **Whitelist enforced:** Only allowed calls can be proposed
+- **Delayed execution:** Via `ReversibleTransfers::schedule_transfer()`
+- **Guardian oversight:** Guardian can cancel during delay period
+- **Use case:** Corporate treasury, regulated operations, high-value custody
+
+### ⚠️ Important: Enabling High-Security
+
+**Risk Window:**
+When enabling high-security for an existing multisig with active proposals:
+1. **Existing proposals** are NOT automatically blocked
+2. **Whitelist check** only happens at proposal creation time (`propose()`)
+3. **Proposals created before HS** can still be executed after HS is enabled
+
+**Mitigation:**
+Before enabling high-security, ensure:
+- ✅ All active proposals are **completed** (executed or cancelled)
+- ✅ All proposals have **expired** or been **removed**
+- ✅ No pending approvals exist
+
+**Safe workflow:**
+```rust
+// 1. Check for active proposals
+let proposals = query_proposals(multisig_address);
+assert_eq!(proposals.len(), 0, "Must cleanup proposals first");
+
+// 2. Cancel or wait for expiry
+for proposal_id in proposals {
+    Multisig::cancel(Origin::signed(proposer), multisig_address, proposal_id);
+    // OR: wait for expiry
+}
+
+// 3. NOW enable high-security
+ReversibleTransfers::set_high_security(
+    Origin::signed(multisig_address),
+    delay: 100_800,
+    guardian: guardian_account
+);
+```
+
+**Why this design:**
+- **Simplicity:** Single check point (`propose`) easier to reason about
+- **Gas efficiency:** No decode overhead on every approval
+- **User control:** Explicit transition management
+- **Trade-off:** Performance and simplicity over defense-in-depth
+
+**Could be changed:**
+Adding whitelist check in `approve()` (before execution) would close this window,
+at the cost of:
+- Higher gas on every approval for HS multisigs (~70M units for decode + check)
+- More complex execution path
+- Would make this a non-issue
+
+### How It Works
+
+1. **Setup:** Multisig account calls `ReversibleTransfers::set_high_security(delay, guardian)`
+2. **Propose:** Only whitelisted calls allowed:
+   - ✅ `ReversibleTransfers::schedule_transfer`
+   - ✅ `ReversibleTransfers::schedule_asset_transfer`
+   - ✅ `ReversibleTransfers::cancel`
+   - ❌ All other calls → `CallNotAllowedForHighSecurityMultisig` error
+3. **Approve:** Standard multisig approval process
+4. **Execute:** Threshold reached → transfer scheduled with delay
+5. **Guardian:** Can cancel via `ReversibleTransfers::cancel(tx_id)` during delay
+
+### Code Example
+
+```rust
+// 1. Create standard 3-of-5 multisig
+let multisig_addr = Multisig::create_multisig(
+    Origin::signed(alice),
+    vec![alice, bob, charlie, dave, eve],
+    3
+);
+
+// 2. Enable high-security (via multisig proposal + approvals)
+// Propose and get 3 approvals for:
+ReversibleTransfers::set_high_security(
+    Origin::signed(multisig_addr),
+    delay: 100_800, // 2 weeks @ 12s blocks
+    guardian: guardian_account
+);
+
+// 3. Now only whitelisted calls work
+// ✅ ALLOWED: Schedule delayed transfer
+Multisig::propose(
+    Origin::signed(alice),
+    multisig_addr,
+    RuntimeCall::ReversibleTransfers(
+        Call::schedule_transfer { dest: recipient, amount: 1000 }
+    ).encode(),
+    expiry
+);
+// → Whitelist check passes
+// → Collect approvals
+// → Transfer scheduled with 2-week delay
+// → Guardian can cancel if suspicious
+
+// ❌ REJECTED: Direct transfer
+Multisig::propose(
+    Origin::signed(alice),
+    multisig_addr,
+    RuntimeCall::Balances(
+        Call::transfer { dest: recipient, amount: 1000 }
+    ).encode(),
+    expiry
+);
+// → ERROR: CallNotAllowedForHighSecurityMultisig
+// → Proposal fails immediately
+```
+
+### Performance Impact
+
+High-security multisigs have higher costs due to call validation:
+
+- **+1 DB read:** Check `ReversibleTransfers::HighSecurityAccounts`
+- **+Decode overhead:** Variable cost based on call size (O(call_size))
+- **+Whitelist check:** ~10k units for pattern matching
+- **Total overhead:** Base cost + decode cost proportional to call size
+
+**Dynamic weight refund:**
+Normal multisigs automatically get refunded for unused high-security overhead.
+
+**Weight calculation:**
+- `propose()` charges upfront for worst-case: `propose_high_security(call.len(), max_expired)`
+- If multisig is NOT HS, refunds decode overhead based on actual path taken
+- If multisig IS HS, charges correctly for decode cost (scales with call size)
+
+**Security notes:**
+- Call size is validated BEFORE decode to prevent DoS via oversized payloads
+- Weight formula includes O(call_size) component for decode to prevent underpayment
+- Benchmarks must be regenerated to capture accurate decode costs
+
+See `MULTISIG_REQ.md` for detailed cost breakdown and benchmarking instructions.
+
+### Configuration
+
+```rust
+impl pallet_multisig::Config for Runtime {
+    type HighSecurity = runtime::HighSecurityConfig;
+    // ... other config
+}
+
+// Runtime implements HighSecurityInspector trait
+// (trait defined in primitives/high-security crate)
+pub struct HighSecurityConfig;
+impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
+    fn is_high_security(who: &AccountId) -> bool {
+        ReversibleTransfers::is_high_security_account(who)
+    }
+    
+    fn is_whitelisted(call: &RuntimeCall) -> bool {
+        matches!(call,
+            RuntimeCall::ReversibleTransfers(Call::schedule_transfer { .. }) |
+            RuntimeCall::ReversibleTransfers(Call::schedule_asset_transfer { .. }) |
+            RuntimeCall::ReversibleTransfers(Call::cancel { .. })
+        )
+    }
+    
+    fn guardian(who: &AccountId) -> Option<AccountId> {
+        ReversibleTransfers::get_guardian(who)
+    }
+}
+```
+
+### Documentation
+
+- See `MULTISIG_REQ.md` for complete high-security integration requirements
+- See `pallet-reversible-transfers` docs for guardian management and delay configuration
 
 ## License
 

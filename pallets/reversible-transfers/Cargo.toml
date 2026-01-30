@@ -21,6 +21,7 @@ pallet-assets.workspace = true
 pallet-assets-holder.workspace = true
 pallet-balances.workspace = true
 pallet-recovery.workspace = true
+qp-high-security = { path = "../../primitives/high-security", default-features = false }
 qp-scheduler.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-arithmetic.workspace = true
@@ -53,6 +54,7 @@ std = [
 	"pallet-scheduler/std",
 	"pallet-timestamp/std",
 	"pallet-utility/std",
+	"qp-high-security/std",
 	"qp-scheduler/std",
 	"scale-info/std",
 	"sp-core/std",
@@ -67,6 +69,7 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"qp-high-security/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
