@@ -821,7 +821,7 @@ fn only_active_proposals_remain_in_storage() {
 }
 
 #[test]
-fn auto_cleanup_allows_new_proposals() {
+fn cleanup_expired_proposals_allows_new_proposals() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -843,7 +843,6 @@ fn auto_cleanup_allows_new_proposals() {
 				100
 			));
 		}
-		// Bob: 10 Active (at per-signer limit)
 
 		// Bob cannot create more (at limit)
 		assert_noop!(
@@ -859,7 +858,28 @@ fn auto_cleanup_allows_new_proposals() {
 		// Move past expiry
 		System::set_block_number(101);
 
-		// Now Bob can create new - propose() auto-cleans expired
+		// Bob still cannot create new - must call cleanup first
+		assert_noop!(
+			Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				make_call(vec![99]),
+				200
+			),
+			Error::<Test>::TooManyProposalsPerSigner
+		);
+
+		// Call cleanup_expired_proposals
+		assert_ok!(Multisig::cleanup_expired_proposals(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone()
+		));
+
+		// Verify old proposals were removed
+		let count = crate::Proposals::<Test>::iter_prefix(&multisig_address).count();
+		assert_eq!(count, 0);
+
+		// Now Bob can create new
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
@@ -867,9 +887,8 @@ fn auto_cleanup_allows_new_proposals() {
 			200
 		));
 
-		// Verify old proposals were removed
 		let count = crate::Proposals::<Test>::iter_prefix(&multisig_address).count();
-		assert_eq!(count, 1); // Only the new one remains
+		assert_eq!(count, 1);
 	});
 }
 
@@ -1271,15 +1290,14 @@ fn propose_with_threshold_two_waits_for_approval() {
 }
 
 #[test]
-fn auto_cleanup_on_approve_and_cancel() {
+fn cleanup_expired_proposals_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
 		let creator = alice();
 		let signers = vec![alice(), bob(), charlie()];
-		let threshold = 3; // Need all 3 signers - prevents auto-execution during test
+		let threshold = 3;
 
-		// Create multisig
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
@@ -1288,63 +1306,61 @@ fn auto_cleanup_on_approve_and_cancel() {
 
 		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
 
-		// Create two proposals
+		// Create proposals with different expiries
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
 			make_call(vec![1]),
-			100 // expires at block 100
+			100
 		));
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
 			make_call(vec![2]),
-			200 // expires at block 200
+			200
 		));
 
-		// Verify both proposals exist
-		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some());
-		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
-
-		// Move time forward past first proposal expiry
-		System::set_block_number(101);
-
-		// Charlie approves proposal #1 (should trigger auto-cleanup of proposal #0)
-		// Note: Bob is the proposer of #1, so Charlie must approve
-		assert_ok!(Multisig::approve(
+		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
-			1
-		));
-
-		// Verify proposal #0 was auto-cleaned
-		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
-		// Proposal #1 still exists (not expired, waiting for approval)
-		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
-
-		// Create another proposal that will expire
-		assert_ok!(Multisig::propose(
-			RuntimeOrigin::signed(alice()),
-			multisig_address.clone(),
 			make_call(vec![3]),
-			150 // expires at block 150
+			300
 		));
 
-		// Move time forward past proposal #2 expiry
-		System::set_block_number(151);
+		// Verify all proposals exist
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some());
+		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
 
-		// Charlie cancels proposal #1 (should trigger auto-cleanup of proposal #2)
-		assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address.clone(), 1));
+		// Move past first proposal expiry
+		System::set_block_number(101);
 
-		// Verify proposal #2 was auto-cleaned
-		assert!(Proposals::<Test>::get(&multisig_address, 2).is_none());
-		// Proposal #1 was cancelled
+		// Call cleanup - should remove only expired proposal #0
+		assert_ok!(Multisig::cleanup_expired_proposals(
+			RuntimeOrigin::signed(dave()),
+			multisig_address.clone()
+		));
+
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
+		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
+
+		// Move past second proposal expiry
+		System::set_block_number(201);
+
+		// Call cleanup - should remove proposal #1
+		assert_ok!(Multisig::cleanup_expired_proposals(
+			RuntimeOrigin::signed(dave()),
+			multisig_address.clone()
+		));
+
 		assert!(Proposals::<Test>::get(&multisig_address, 1).is_none());
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
 
-		// Verify active_proposals counter is correct (should be 0)
+		// Verify active_proposals counter is correct
 		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
-		assert_eq!(multisig_data.active_proposals, 0);
+		assert_eq!(multisig_data.active_proposals, 1);
 	});
 }
 
