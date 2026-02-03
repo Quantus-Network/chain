@@ -187,8 +187,8 @@ async fn handle_external_mining(
 	let best_hash = metadata.best_hash;
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
-			cancellation_token.is_cancelled() ||
-				worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
+			cancellation_token.is_cancelled()
+				|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
 		})
 		.await
 		{
@@ -437,6 +437,8 @@ fn spawn_authority_tasks(
 		>;
 
 	// Start the mining worker (block building task)
+	// Convert AccountId32 to [u8; 32] for the mining worker (rewards preimage)
+	let rewards_preimage: [u8; 32] = rewards_address.into();
 	let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
 		Box::new(pow_block_import),
 		client.clone(),
@@ -444,7 +446,7 @@ fn spawn_authority_tasks(
 		proposer,
 		sync_service.clone(),
 		sync_service.clone(),
-		rewards_address,
+		rewards_preimage,
 		inherent_data_providers,
 		tx_stream_for_worker,
 		Duration::from_secs(10),

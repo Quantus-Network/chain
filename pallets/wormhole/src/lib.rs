@@ -2,8 +2,13 @@
 
 extern crate alloc;
 
+use core::marker::PhantomData;
+
+use codec::{Decode, MaxEncodedLen};
+use frame_support::StorageHasher;
 use lazy_static::lazy_static;
 pub use pallet::*;
+pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(test)]
@@ -11,6 +16,7 @@ mod mock;
 #[cfg(test)]
 mod tests;
 pub mod weights;
+use sp_metadata_ir::StorageHasherIR;
 pub use weights::*;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -22,6 +28,11 @@ lazy_static! {
 		let common_bytes = include_bytes!("../common.bin");
 		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
 	};
+	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
+		let verifier_bytes = include_bytes!("../aggregated_verifier.bin");
+		let common_bytes = include_bytes!("../aggregated_common.bin");
+		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+	};
 }
 
 // Add a safe getter function
@@ -29,51 +40,141 @@ pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str
 	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
 }
 
+// Getter for aggregated verifier
+pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
+}
+
+/// Scale factor for quantizing amounts from 12 to 2 decimal places (10^10).
+/// Amounts in the circuit are stored as u32 with 2 decimal places of precision.
+/// On-chain amounts use 12 decimal places, so we multiply by this factor when
+/// converting from circuit amounts to on-chain amounts.
+pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
+
+// We use a generic struct so we can pass the specific Key type to the hasher
+pub struct PoseidonStorageHasher<Key>(PhantomData<Key>);
+
+impl<Key: Decode + ToFelts + 'static> StorageHasher for PoseidonStorageHasher<Key> {
+	// We are lying here, but maybe it's ok because it's just metadata
+	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
+	type Output = [u8; 32];
+
+	fn hash(x: &[u8]) -> Self::Output {
+		PoseidonCore::hash_storage::<Key>(x)
+	}
+
+	fn max_len<K: MaxEncodedLen>() -> usize {
+		32
+	}
+}
+
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::WeightInfo;
+	use crate::{PoseidonStorageHasher, ToFelts, WeightInfo};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
+		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
 			fungible::{Mutate, Unbalanced},
-			Currency, ExistenceRequirement, WithdrawReasons,
+			fungibles::{self, Inspect as FungiblesInspect, Mutate as FungiblesMutate},
+			tokens::Preservation,
+			Currency,
 		},
-		weights::WeightToFee,
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole::TransferProofs;
-	use qp_wormhole_circuit::inputs::PublicCircuitInputs;
+	use qp_wormhole_circuit::inputs::{AggregatedPublicCircuitInputs, PublicCircuitInputs};
 	use qp_wormhole_verifier::ProofWithPublicInputs;
 	use qp_zk_circuits_common::circuit::{C, D, F};
 	use sp_runtime::{
-		traits::{Saturating, Zero},
-		Perbill,
+		traits::{MaybeDisplay, Saturating, StaticLookup, Zero},
+		transaction_validity::{
+			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
+			ValidTransaction,
+		},
+		Permill,
 	};
 
 	pub type BalanceOf<T> =
 		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+	pub type AssetIdOf<T> = <<T as Config>::Assets as fungibles::Inspect<
+		<T as frame_system::Config>::AccountId,
+	>>::AssetId;
+	pub type AssetBalanceOf<T> = <<T as Config>::Assets as fungibles::Inspect<
+		<T as frame_system::Config>::AccountId,
+	>>::Balance;
+	pub type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
+
+	pub type TransferProofKey<T> = (
+		AssetIdOf<T>,
+		<T as Config>::TransferCount,
+		<T as Config>::WormholeAccountId,
+		<T as Config>::WormholeAccountId,
+		BalanceOf<T>,
+	);
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
-		/// Currency type used for minting tokens and handling wormhole transfers
-		type Currency: Mutate<Self::AccountId, Balance = BalanceOf<Self>>
-			+ TransferProofs<BalanceOf<Self>, Self::AccountId>
-			+ Unbalanced<Self::AccountId>
-			+ Currency<Self::AccountId>;
+	pub trait Config: frame_system::Config
+	where
+		AssetIdOf<Self>: Default + From<u32> + Clone + ToFelts,
+		BalanceOf<Self>: Default + ToFelts,
+		AssetBalanceOf<Self>: Into<BalanceOf<Self>> + From<BalanceOf<Self>>,
+	{
+		/// Currency type used for native token transfers and minting
+		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = BalanceOf<Self>>
+			+ Unbalanced<<Self as frame_system::Config>::AccountId>
+			+ Currency<<Self as frame_system::Config>::AccountId>;
+
+		/// Assets type used for managing fungible assets
+		type Assets: fungibles::Inspect<<Self as frame_system::Config>::AccountId>
+			+ fungibles::Mutate<<Self as frame_system::Config>::AccountId>
+			+ fungibles::Create<<Self as frame_system::Config>::AccountId>;
+
+		/// Transfer count type used in storage
+		type TransferCount: Parameter
+			+ MaxEncodedLen
+			+ Default
+			+ Saturating
+			+ Copy
+			+ sp_runtime::traits::One
+			+ ToFelts;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
-		type MintingAccount: Get<Self::AccountId>;
+		type MintingAccount: Get<<Self as frame_system::Config>::AccountId>;
+
+		/// Minimum transfer amount required for proof verification
+		#[pallet::constant]
+		type MinimumTransferAmount: Get<BalanceOf<Self>>;
+
+		/// Volume fee rate in basis points (1 basis point = 0.01%).
+		/// This must match the fee rate used in proof generation.
+		#[pallet::constant]
+		type VolumeFeeRateBps: Get<u32>;
+
+		/// Proportion of volume fees to burn (not mint). The remainder goes to the block author.
+		/// Example: Permill::from_percent(50) means 50% burned, 50% to miner.
+		#[pallet::constant]
+		type VolumeFeesBurnRate: Get<Permill>;
 
 		/// Weight information for pallet operations.
 		type WeightInfo: WeightInfo;
 
-		type WeightToFee: WeightToFee<Balance = BalanceOf<Self>>;
+		/// Override system AccountId to make it felts encodable
+		type WormholeAccountId: Parameter
+			+ Member
+			+ MaybeSerializeDeserialize
+			+ core::fmt::Debug
+			+ MaybeDisplay
+			+ Ord
+			+ MaxEncodedLen
+			+ ToFelts
+			+ Into<<Self as frame_system::Config>::AccountId>
+			+ From<<Self as frame_system::Config>::AccountId>;
 	}
 
 	#[pallet::storage]
@@ -81,10 +182,42 @@ pub mod pallet {
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
+	/// Transfer proofs for wormhole transfers (both native and assets)
+	#[pallet::storage]
+	#[pallet::getter(fn transfer_proof)]
+	pub type TransferProof<T: Config> = StorageMap<
+		_,
+		PoseidonStorageHasher<TransferProofKey<T>>,
+		TransferProofKey<T>,
+		(),
+		OptionQuery,
+	>;
+
+	/// Transfer count for all wormhole transfers
+	#[pallet::storage]
+	#[pallet::getter(fn transfer_count)]
+	pub type TransferCount<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::WormholeAccountId, T::TransferCount, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		ProofVerified { exit_amount: BalanceOf<T> },
+		NativeTransferred {
+			from: <T as frame_system::Config>::AccountId,
+			to: <T as frame_system::Config>::AccountId,
+			amount: BalanceOf<T>,
+			transfer_count: T::TransferCount,
+		},
+		AssetTransferred {
+			asset_id: AssetIdOf<T>,
+			from: <T as frame_system::Config>::AccountId,
+			to: <T as frame_system::Config>::AccountId,
+			amount: AssetBalanceOf<T>,
+			transfer_count: T::TransferCount,
+		},
+		ProofVerified {
+			exit_amount: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::error]
@@ -99,17 +232,22 @@ pub mod pallet {
 		StorageRootMismatch,
 		BlockNotFound,
 		InvalidBlockNumber,
+		AssetNotFound,
+		SelfTransfer,
+		AggregatedVerifierNotAvailable,
+		AggregatedProofDeserializationFailed,
+		AggregatedVerificationFailed,
+		InvalidAggregatedPublicInputs,
+		TransferAmountBelowMinimum,
+		/// The volume fee rate in the proof doesn't match the configured rate
+		InvalidVolumeFeeRate,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
-		pub fn verify_wormhole_proof(
-			origin: OriginFor<T>,
-			proof_bytes: Vec<u8>,
-			block_number: BlockNumberFor<T>,
-		) -> DispatchResult {
+		pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
 			ensure_none(origin)?;
 
 			let verifier =
@@ -133,6 +271,9 @@ pub mod pallet {
 				Error::<T>::NullifierAlreadyUsed
 			);
 
+			// Extract the block number from public inputs
+			let block_number = BlockNumberFor::<T>::from(public_inputs.block_number);
+
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
 
@@ -145,43 +286,27 @@ pub mod pallet {
 			let default_hash = T::Hash::default();
 			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
 
-			// Get the storage root for the specified block
-			let storage_root = sp_io::storage::root(sp_runtime::StateVersion::V1);
-
-			let root_hash = public_inputs.root_hash;
-			let storage_root_bytes = storage_root.as_slice();
-
-			// Compare the root_hash from the proof with the actual storage root
-			// Skip storage root validation in test and benchmark environments since proofs
-			// may have been generated with different state
-			#[cfg(not(any(test, feature = "runtime-benchmarks")))]
-			if root_hash.as_ref() != storage_root_bytes {
-				log::warn!(
-					target: "wormhole",
-					"Storage root mismatch for block {:?}: expected {:?}, got {:?}",
-					block_number,
-					root_hash.as_ref(),
-					storage_root_bytes
-				);
-				return Err(Error::<T>::StorageRootMismatch.into());
-			}
-
-			#[cfg(any(test, feature = "runtime-benchmarks"))]
-			{
-				let _root_hash = root_hash;
-				let _storage_root_bytes = storage_root_bytes;
-				log::debug!(
-					target: "wormhole",
-					"Skipping storage root validation in test/benchmark environment"
-				);
-			}
+			// Ensure that the block hash from storage matches the one in public inputs
+			ensure!(
+				block_hash.as_ref() == public_inputs.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
 
 			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
 
 			// Mark nullifier as used
 			UsedNullifiers::<T>::insert(nullifier_bytes, true);
 
-			let exit_balance_u128 = public_inputs.funding_amount;
+			// Verify the volume fee rate matches our configured rate
+			ensure!(
+				public_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
+
+			// The output_amount is what the user receives after fee deduction (already enforced by
+			// circuit)
+			let exit_balance_u128 =
+				(public_inputs.output_amount as u128).saturating_mul(crate::SCALE_DOWN_FACTOR);
 
 			// Convert to Balance type
 			let exit_balance: BalanceOf<T> =
@@ -189,44 +314,478 @@ pub mod pallet {
 
 			// Decode exit account from public inputs
 			let exit_account_bytes = *public_inputs.exit_account;
-			let exit_account = T::AccountId::decode(&mut &exit_account_bytes[..])
-				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+			let exit_account =
+				<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
+					.map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
-			// Calculate fees first
-			let weight = <T as Config>::WeightInfo::verify_wormhole_proof();
-			let weight_fee = T::WeightToFee::weight_to_fee(&weight);
-			let volume_fee_perbill = Perbill::from_rational(1u32, 1000u32);
-			let volume_fee = volume_fee_perbill * exit_balance;
-			let total_fee = weight_fee.saturating_add(volume_fee);
+			// Extract asset_id from public inputs
+			let asset_id_u32 = public_inputs.asset_id;
+			let asset_id: AssetIdOf<T> = asset_id_u32.into();
 
-			// Mint tokens to the exit account
-			// This does not affect total issuance and does not create an imbalance
-			<T::Currency as Unbalanced<_>>::increase_balance(
-				&exit_account,
-				exit_balance,
-				frame_support::traits::tokens::Precision::Exact,
-			)?;
+			// Ensure transfer amount meets minimum requirement
+			ensure!(
+				exit_balance >= T::MinimumTransferAmount::get(),
+				Error::<T>::TransferAmountBelowMinimum
+			);
 
-			// Withdraw fee from exit account if fees are non-zero
-			// This creates a negative imbalance that will be handled by the transaction payment
-			// pallet
-			if !total_fee.is_zero() {
-				let _fee_imbalance = T::Currency::withdraw(
+			// Compute the total fee that was deducted from input to get output
+			// fee = output_amount * volume_fee_bps / (10000 - volume_fee_bps)
+			let fee_bps = T::VolumeFeeRateBps::get() as u128;
+			let fee_u128 = exit_balance_u128
+				.saturating_mul(fee_bps)
+				.checked_div(10000u128.saturating_sub(fee_bps))
+				.unwrap_or(0);
+
+			// Fee distribution: configurable portion burned, remainder to miner
+			// burn_rate determines what proportion is burned (reduces total issuance)
+			let burn_rate = T::VolumeFeesBurnRate::get();
+			let burn_amount_u128 = burn_rate * fee_u128;
+			let miner_fee_u128 = fee_u128.saturating_sub(burn_amount_u128);
+			let miner_fee: BalanceOf<T> =
+				miner_fee_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
+			let burn_amount: BalanceOf<T> =
+				burn_amount_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
+
+			// Burn the burned portion by reducing total issuance
+			// This offsets the supply increase from minting exit_balance + miner_fee
+			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
+			if !burn_amount.is_zero() {
+				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
+			}
+
+			// Handle native (asset_id = 0) or asset transfers
+			if asset_id == AssetIdOf::<T>::default() {
+				// Native token transfer
+				// Mint tokens to the exit account
+				// This does not affect total issuance and does not create an imbalance
+				<T::Currency as Unbalanced<_>>::increase_balance(
 					&exit_account,
-					total_fee,
-					WithdrawReasons::TRANSACTION_PAYMENT,
-					ExistenceRequirement::KeepAlive,
+					exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
 				)?;
+
+				// Mint miner's portion of volume fee to block author
+				// The remaining portion (fee - miner_fee) is not minted, effectively burned
+				if !miner_fee.is_zero() {
+					if let Some(author) = frame_system::Pallet::<T>::digest()
+						.logs
+						.iter()
+						.find_map(|item| item.as_pre_runtime())
+						.and_then(|(_, data)| {
+							<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
+						}) {
+						<T::Currency as Unbalanced<_>>::increase_balance(
+							&author,
+							miner_fee,
+							frame_support::traits::tokens::Precision::Exact,
+						)?;
+					}
+				}
+			} else {
+				// Asset transfer
+				let asset_balance: AssetBalanceOf<T> = exit_balance.into();
+				<T::Assets as FungiblesMutate<_>>::mint_into(
+					asset_id.clone(),
+					&exit_account,
+					asset_balance,
+				)?;
+
+				// Mint miner's portion of volume fee to block author (fee is in native currency)
+				// The remaining portion (fee - miner_fee) is not minted, effectively burned
+				if !miner_fee.is_zero() {
+					if let Some(author) = frame_system::Pallet::<T>::digest()
+						.logs
+						.iter()
+						.find_map(|item| item.as_pre_runtime())
+						.and_then(|(_, data)| {
+							<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
+						}) {
+						<T::Currency as Unbalanced<_>>::increase_balance(
+							&author,
+							miner_fee,
+							frame_support::traits::tokens::Precision::Exact,
+						)?;
+					}
+				}
 			}
 
 			// Create a transfer proof for the minted tokens
 			let mint_account = T::MintingAccount::get();
-			T::Currency::store_transfer_proof(&mint_account, &exit_account, exit_balance);
+			Self::record_transfer(
+				asset_id,
+				mint_account.into(),
+				exit_account.into(),
+				exit_balance,
+			)?;
 
 			// Emit event
 			Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
 
 			Ok(())
+		}
+
+		/// Transfer native tokens and store proof for wormhole
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::DbWeight::get().reads_writes(1, 2))]
+		pub fn transfer_native(
+			origin: OriginFor<T>,
+			dest: AccountIdLookupOf<T>,
+			#[pallet::compact] amount: BalanceOf<T>,
+		) -> DispatchResult {
+			let source = ensure_signed(origin)?;
+			let dest = T::Lookup::lookup(dest)?;
+
+			// Prevent self-transfers
+			ensure!(source != dest, Error::<T>::SelfTransfer);
+
+			// Perform the transfer
+			<T::Currency as Mutate<_>>::transfer(&source, &dest, amount, Preservation::Expendable)?;
+
+			// Store proof with asset_id = Default (0 for native)
+			Self::record_transfer(AssetIdOf::<T>::default(), source.into(), dest.into(), amount)?;
+
+			Ok(())
+		}
+
+		/// Transfer asset tokens and store proof for wormhole
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+		pub fn transfer_asset(
+			origin: OriginFor<T>,
+			asset_id: AssetIdOf<T>,
+			dest: AccountIdLookupOf<T>,
+			#[pallet::compact] amount: AssetBalanceOf<T>,
+		) -> DispatchResult {
+			let source = ensure_signed(origin)?;
+			let dest = T::Lookup::lookup(dest)?;
+
+			// Prevent self-transfers
+			ensure!(source != dest, Error::<T>::SelfTransfer);
+
+			// Check if asset exists
+			ensure!(
+				<T::Assets as FungiblesInspect<_>>::asset_exists(asset_id.clone()),
+				Error::<T>::AssetNotFound
+			);
+
+			// Perform the transfer
+			<T::Assets as fungibles::Mutate<_>>::transfer(
+				asset_id.clone(),
+				&source,
+				&dest,
+				amount,
+				Preservation::Expendable,
+			)?;
+
+			// Store proof
+			Self::record_transfer(asset_id, source.into(), dest.into(), amount.into())?;
+
+			Ok(())
+		}
+
+		/// Verify an aggregated wormhole proof and process all transfers in the batch
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
+		pub fn verify_aggregated_proof(
+			origin: OriginFor<T>,
+			proof_bytes: Vec<u8>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes,
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
+
+			// Verify the aggregated proof
+			verifier
+				.verify(proof.clone())
+				.map_err(|_| Error::<T>::AggregatedVerificationFailed)?;
+
+			// Parse aggregated public inputs
+			let aggregated_inputs =
+				AggregatedPublicCircuitInputs::try_from_slice(&proof.public_inputs)
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+			// Verify all nullifiers haven't been used and then mark them as used
+			for nullifier in &aggregated_inputs.nullifiers {
+				let nullifier_bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
+				UsedNullifiers::<T>::insert(nullifier_bytes, true);
+			}
+
+			// Convert block number from u32 to BlockNumberFor<T>
+			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
+
+			// Check if block number is not in the future
+			let current_block = frame_system::Pallet::<T>::block_number();
+			// TODO: is this check necessary?
+			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
+
+			// Get the block hash for the specified block number
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+
+			// Validate that the block exists by checking if it's not the default hash
+			// The default hash (all zeros) indicates the block doesn't exist
+			// TODO: is this check necessary?
+			let default_hash = T::Hash::default();
+			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
+
+			// Ensure that the block hash from storage matches the one in public inputs
+			ensure!(
+				block_hash.as_ref() == aggregated_inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
+
+			// Extract asset_id from aggregated public inputs
+			let asset_id: AssetIdOf<T> = aggregated_inputs.asset_id.into();
+
+			// Verify the volume fee rate matches our configured rate
+			ensure!(
+				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
+
+			// Get the minting account for recording transfer proofs
+			let mint_account = T::MintingAccount::get();
+
+			// First pass: compute total exit amount and prepare account data
+			let mut total_exit_amount: BalanceOf<T> = Zero::zero();
+			let mut processed_accounts: Vec<(
+				<T as frame_system::Config>::AccountId,
+				BalanceOf<T>,
+			)> = Vec::with_capacity(aggregated_inputs.account_data.len());
+
+			for account_data in &aggregated_inputs.account_data {
+				// Convert output amount to Balance type (scale up from quantized value)
+				let exit_balance_u128 = (account_data.summed_output_amount as u128)
+					.saturating_mul(crate::SCALE_DOWN_FACTOR);
+				let exit_balance: BalanceOf<T> = exit_balance_u128
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				// Decode exit account from public inputs
+				let exit_account_bytes: [u8; 32] = (*account_data.exit_account)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				let exit_account =
+					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
+						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
+				processed_accounts.push((exit_account, exit_balance));
+			}
+
+			// Check minimum against total aggregated amount
+			ensure!(
+				total_exit_amount >= T::MinimumTransferAmount::get(),
+				Error::<T>::TransferAmountBelowMinimum
+			);
+
+			// Compute the total fee from the input amounts
+			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
+			// This is the fee that was deducted from input to get output.
+			let fee_bps = T::VolumeFeeRateBps::get() as u128;
+			let total_exit_u128: u128 = total_exit_amount
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let total_fee_u128 = total_exit_u128
+				.saturating_mul(fee_bps)
+				.checked_div(10000u128.saturating_sub(fee_bps))
+				.unwrap_or(0);
+
+			// Fee distribution: configurable portion burned, remainder to miner
+			//
+			// Original deposit locked `input_amount` in an unspendable account (tokens still
+			// exist). On exit we mint `output_amount` to user, where: input = output + fee
+			//
+			// Fee split (controlled by VolumeFeesBurnRate):
+			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
+			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
+			//
+			// Supply accounting:
+			//   - Minting exit amounts: increases total issuance by sum(output_amounts)
+			//   - Minting miner fee: increases balance but NOT issuance (increase_balance)
+			//   - Burning: decreases total issuance by burn_amount
+			//   - Net change: +sum(output_amounts) - burn_amount
+			let burn_rate = T::VolumeFeesBurnRate::get();
+			let burn_amount_u128 = burn_rate * total_fee_u128;
+			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+			let miner_fee: BalanceOf<T> = miner_fee_u128
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let burn_amount: BalanceOf<T> = burn_amount_u128
+				.try_into()
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+			// Burn the burned portion by reducing total issuance
+			// This offsets the supply increase from minting exit amounts + miner_fee
+			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
+			if !burn_amount.is_zero() {
+				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
+			}
+
+			// Second pass: process transfers and record proofs
+			for (exit_account, exit_balance) in &processed_accounts {
+				// Handle native (asset_id = 0) or asset transfers
+				if asset_id == AssetIdOf::<T>::default() {
+					// Native token transfer - mint tokens to the exit account
+					<T::Currency as Unbalanced<_>>::increase_balance(
+						exit_account,
+						*exit_balance,
+						frame_support::traits::tokens::Precision::Exact,
+					)?;
+				} else {
+					// Asset transfer
+					let asset_balance: AssetBalanceOf<T> = (*exit_balance).into();
+					<T::Assets as FungiblesMutate<_>>::mint_into(
+						asset_id.clone(),
+						exit_account,
+						asset_balance,
+					)?;
+				}
+
+				// Record transfer proof for the minted tokens
+				Self::record_transfer(
+					asset_id.clone(),
+					mint_account.clone().into(),
+					exit_account.clone().into(),
+					*exit_balance,
+				)?;
+
+				// Emit event for each exit account
+				Self::deposit_event(Event::ProofVerified { exit_amount: *exit_balance });
+			}
+
+			// Mint miner's portion of volume fee to block author
+			// The remaining portion (fee - miner_fee) is not minted, effectively burned
+			if !miner_fee.is_zero() {
+				if let Some(author) = frame_system::Pallet::<T>::digest()
+					.logs
+					.iter()
+					.find_map(|item| item.as_pre_runtime())
+					.and_then(|(_, data)| {
+						<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
+					}) {
+					<T::Currency as Unbalanced<_>>::increase_balance(
+						&author,
+						miner_fee,
+						frame_support::traits::tokens::Precision::Exact,
+					)?;
+				}
+			}
+
+			Ok(())
+		}
+	}
+
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T>
+	where
+		AssetIdOf<T>: Default + From<u32> + Clone + ToFelts,
+		BalanceOf<T>: Default + ToFelts,
+		AssetBalanceOf<T>: Into<BalanceOf<T>> + From<BalanceOf<T>>,
+	{
+		type Call = Call<T>;
+
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			match call {
+				Call::verify_wormhole_proof { proof_bytes } => {
+					// Basic validation: check proof bytes are not empty
+					if proof_bytes.is_empty() {
+						return InvalidTransaction::Custom(1).into();
+					}
+					ValidTransaction::with_tag_prefix("WormholeVerify")
+						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.priority(TransactionPriority::MAX)
+						.longevity(5)
+						.propagate(true)
+						.build()
+				},
+				Call::verify_aggregated_proof { proof_bytes } => {
+					// Basic validation: check proof bytes are not empty
+					if proof_bytes.is_empty() {
+						return InvalidTransaction::Custom(2).into();
+					}
+					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
+						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
+						.priority(TransactionPriority::MAX)
+						.longevity(5)
+						.propagate(true)
+						.build()
+				},
+				_ => InvalidTransaction::Call.into(),
+			}
+		}
+	}
+
+	// Helper functions for recording transfer proofs
+	impl<T: Config> Pallet<T> {
+		/// Record a transfer proof
+		/// This should be called by transaction extensions or other runtime components
+		pub fn record_transfer(
+			asset_id: AssetIdOf<T>,
+			from: <T as Config>::WormholeAccountId,
+			to: <T as Config>::WormholeAccountId,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			let current_count = TransferCount::<T>::get(&to);
+			TransferProof::<T>::insert(
+				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
+				(),
+			);
+			TransferCount::<T>::insert(&to, current_count.saturating_add(T::TransferCount::one()));
+
+			if asset_id == AssetIdOf::<T>::default() {
+				Self::deposit_event(Event::<T>::NativeTransferred {
+					from: from.into(),
+					to: to.into(),
+					amount,
+					transfer_count: current_count,
+				});
+			} else {
+				Self::deposit_event(Event::<T>::AssetTransferred {
+					from: from.into(),
+					to: to.into(),
+					asset_id,
+					amount: amount.into(),
+					transfer_count: current_count,
+				});
+			}
+
+			Ok(())
+		}
+	}
+
+	// Implement the TransferProofRecorder trait for other pallets to use
+	impl<T: Config>
+		qp_wormhole::TransferProofRecorder<
+			<T as Config>::WormholeAccountId,
+			AssetIdOf<T>,
+			BalanceOf<T>,
+		> for Pallet<T>
+	{
+		type Error = DispatchError;
+
+		fn record_transfer_proof(
+			asset_id: Option<AssetIdOf<T>>,
+			from: <T as Config>::WormholeAccountId,
+			to: <T as Config>::WormholeAccountId,
+			amount: BalanceOf<T>,
+		) -> Result<(), Self::Error> {
+			let asset_id_value = asset_id.unwrap_or_default();
+			Self::record_transfer(asset_id_value, from, to, amount)
 		}
 	}
 }

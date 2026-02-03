@@ -71,6 +71,7 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type Balance = Balance;
 	type DustRemoval = ();
@@ -84,7 +85,6 @@ impl pallet_balances::Config for Test {
 	type FreezeIdentifier = ();
 	type MaxFreezes = MaxFreezes;
 	type DoneSlashHandler = ();
-	type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
@@ -135,6 +135,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(account_id(4), 400000), // Dave
 			(account_id(5), 500000), // Eve
 		],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

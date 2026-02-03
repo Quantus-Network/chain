@@ -26,14 +26,14 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole::TransferProofs;
+	use qp_poseidon::PoseidonHasher;
+	use qp_wormhole::TransferProofRecorder;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{
 		generic::DigestItem,
 		traits::{AccountIdConversion, Saturating},
+		Permill,
 	};
-
-	const UNIT: u128 = 1_000_000_000_000u128;
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -50,9 +50,18 @@ pub mod pallet {
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 
-		/// Currency type that also stores zk proofs
-		type Currency: Mutate<Self::AccountId>
-			+ qp_wormhole::TransferProofs<BalanceOf<Self>, Self::AccountId>;
+		/// Currency type for minting rewards
+		type Currency: Mutate<Self::AccountId>;
+
+		/// Asset ID type for the proof recorder
+		type AssetId: Default;
+
+		/// Proof recorder for storing wormhole transfer proofs
+		type ProofRecorder: qp_wormhole::TransferProofRecorder<
+			Self::AccountId,
+			Self::AssetId,
+			BalanceOf<Self>,
+		>;
 
 		/// The maximum total supply of tokens
 		#[pallet::constant]
@@ -62,9 +71,13 @@ pub mod pallet {
 		#[pallet::constant]
 		type EmissionDivisor: Get<BalanceOf<Self>>;
 
-		/// The portion of rewards that goes to treasury (out of 100)
+		/// The portion of rewards that goes to treasury
 		#[pallet::constant]
-		type TreasuryPortion: Get<u8>;
+		type TreasuryPortion: Get<Permill>;
+
+		/// The base unit for token amounts (e.g., 1e12 for 12 decimals)
+		#[pallet::constant]
+		type Unit: Get<BalanceOf<Self>>;
 
 		/// The treasury pallet ID
 		#[pallet::constant]
@@ -123,12 +136,10 @@ pub mod pallet {
 
 			let total_reward = remaining_supply
 				.checked_div(&emission_divisor)
-				.unwrap_or_else(BalanceOf::<T>::zero);
+				.unwrap_or_else(|| BalanceOf::<T>::zero());
 
 			// Split the reward between treasury and miner
-			let treasury_portion = T::TreasuryPortion::get();
-			let treasury_reward =
-				total_reward.saturating_mul(treasury_portion.into()) / 100u32.into();
+			let treasury_reward = T::TreasuryPortion::get().mul_floor(total_reward);
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
 
 			let tx_fees = <CollectedFees<T>>::take();
@@ -136,23 +147,29 @@ pub mod pallet {
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
 
-			// Log readable amounts (convert to tokens by dividing by 1e12)
-			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees)) = (
+			// Log readable amounts (convert to tokens by dividing by unit)
+			if let (Ok(total), Ok(treasury), Ok(miner_amt), Ok(current), Ok(fees), Ok(unit)) = (
 				TryInto::<u128>::try_into(total_reward),
 				TryInto::<u128>::try_into(treasury_reward),
 				TryInto::<u128>::try_into(miner_reward),
 				TryInto::<u128>::try_into(current_supply),
 				TryInto::<u128>::try_into(tx_fees),
+				TryInto::<u128>::try_into(T::Unit::get()),
 			) {
 				let remaining: u128 =
 					TryInto::<u128>::try_into(max_supply.saturating_sub(current_supply))
 						.unwrap_or(0);
-				log::debug!(target: "mining-rewards", "💰 Total reward: {:.6}", total as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Treasury reward: {:.6}", treasury as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Miner reward: {:.6}", miner_amt as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Current supply: {:.2}", current as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Remaining supply: {:.2}", remaining as f64 / UNIT as f64);
-				log::debug!(target: "mining-rewards", "💰 Transaction fees: {:.6}", fees as f64 / UNIT as f64);
+				let unit_f64 = unit as f64;
+				log::debug!(
+					target: "mining-rewards",
+					"💰 Rewards: total={:.6}, treasury={:.6}, miner={:.6}, fees={:.6}, supply={:.2}, remaining={:.2}",
+					total as f64 / unit_f64,
+					treasury as f64 / unit_f64,
+					miner_amt as f64 / unit_f64,
+					fees as f64 / unit_f64,
+					current as f64 / unit_f64,
+					remaining as f64 / unit_f64
+				);
 			}
 
 			// Send fees to miner if any
@@ -167,7 +184,7 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Extract miner account ID from the pre-runtime digest
+		/// Extract miner wormhole address by hashing the preimage from pre-runtime digest
 		fn extract_miner_from_digest() -> Option<T::AccountId> {
 			// Get the digest from the current block
 			let digest = <frame_system::Pallet<T>>::digest();
@@ -176,10 +193,22 @@ pub mod pallet {
 			for log in digest.logs.iter() {
 				if let DigestItem::PreRuntime(engine_id, data) = log {
 					if engine_id == &POW_ENGINE_ID {
-						// Try to decode the accountId
-						// TODO: to enforce miner wormholes, decode inner hash here
-						if let Ok(miner) = T::AccountId::decode(&mut &data[..]) {
-							return Some(miner);
+						// The data is a 32-byte preimage from the incoming block
+						if data.len() == 32 {
+							let preimage: [u8; 32] = match data.as_slice().try_into() {
+								Ok(arr) => arr,
+								Err(_) => continue,
+							};
+
+							// Hash the preimage with Poseidon2 to derive the wormhole address
+							let wormhole_address_bytes = PoseidonHasher::hash_padded(&preimage);
+
+							// Convert to AccountId
+							if let Ok(miner) =
+								T::AccountId::decode(&mut &wormhole_address_bytes[..])
+							{
+								return Some(miner);
+							}
 						}
 					}
 				}
@@ -208,7 +237,12 @@ pub mod pallet {
 				Some(miner) => {
 					let _ = T::Currency::mint_into(&miner, reward).defensive();
 
-					T::Currency::store_transfer_proof(&mint_account, &miner, reward);
+					let _ = T::ProofRecorder::record_transfer_proof(
+						None,
+						mint_account.clone(),
+						miner.clone(),
+						reward,
+					);
 
 					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
 				},
@@ -216,7 +250,12 @@ pub mod pallet {
 					let treasury = T::TreasuryPalletId::get().into_account_truncating();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
-					T::Currency::store_transfer_proof(&mint_account, &treasury, reward);
+					let _ = T::ProofRecorder::record_transfer_proof(
+						None,
+						mint_account.clone(),
+						treasury.clone(),
+						reward,
+					);
 
 					Self::deposit_event(Event::TreasuryRewarded { reward });
 				},

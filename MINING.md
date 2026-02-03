@@ -2,6 +2,15 @@
 
 Get started mining on the Quantus Network testnet in minutes.
 
+## Important: Wormhole Address System
+
+**⚠️ Mining rewards are automatically sent to wormhole addresses derived from your preimage.**
+
+- You provide a 32-byte preimage when starting mining
+- The system derives your wormhole address using Poseidon hashing
+- All mining rewards are sent to this derived wormhole address
+- This ensures all miners use privacy-preserving wormhole addresses
+
 ## System Requirements
 
 ### Minimum Requirements
@@ -32,17 +41,17 @@ If you prefer manual installation or the script doesn't work for your system:
    ./quantus-node key generate-node-key --file ~/.quantus/node_key.p2p
    ```
 
-3. **Generate Rewards Address**
+3. **Generate Wormhole Address & Preimage**
+   
    ```bash
-   ./quantus-node key quantus
+   ./quantus-node key quantus --scheme wormhole
    ```
-
-  The address is in the output like this:
-```sh
-...
-Address: qzpjg55HuN2vLdQerpZwhsGfRn6b4pc8uh4bdEgsYbJNeu8rn
-...
-```
+   
+   This generates a wormhole key pair and shows:
+   - `Address`: Your wormhole address (where rewards will be sent)
+   - `inner_hash`: Your 32-byte preimage (use this for mining)
+   
+   **Save the preimage** - you'll need it for the `--rewards-address` parameter.
 
 4. **Run the node (Dirac testnet)**
 
@@ -52,10 +61,12 @@ Minimal command - see --help for many more options
     --validator \
     --chain dirac \
     --node-key-file ~/.quantus/node_key.p2p \
-    --rewards-address <COPIED_REWARDS_ADDRESS> \
+    --rewards-preimage <YOUR_PREIMAGE_FROM_STEP_3> \
     --max-blocks-per-request 64 \
     --sync full
 ```
+
+**Note:** Use the `inner_hash` from step 3 as your `--rewards-preimage`. The node will derive your wormhole address and log it on startup.
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:
@@ -92,23 +103,20 @@ docker run --rm --platform linux/amd64 \
 Replace `quantus-node:v0.0.4` with your desired image (e.g., `ghcr.io/quantus-network/quantus-node:latest`).
 This command saves `node_key.p2p` into your local `./quantus_node_data` directory.
 
-**Step 3: Generate and Save Your Rewards Address**
+**Step 3: Generate Your Wormhole Address**
 
-Run the following command to generate your unique rewards address:
 ```bash
 # If on Apple Silicon, you may need to add --platform linux/amd64
-docker run --rm ghcr.io/quantus-network/quantus-node:latest key quantus
+docker run --rm ghcr.io/quantus-network/quantus-node:latest key quantus --scheme wormhole
 ```
-Replace `quantus-node:v0.0.4` with your desired image.
-This command will display your secret phrase, public key, address, and seed.
-**Important: Securely back up your secret phrase!**
-Next, **copy the displayed `Address`.
+
+This generates a wormhole key pair. Save the `inner_hash` value - this is your preimage for mining.
 
 **Step 4: Run the Validator Node**
 
-Now, run the Docker container with all the necessary parameters:
 ```bash
 # If on Apple Silicon, you may need to add --platform linux/amd64
+# Replace YOUR_PREIMAGE with the inner_hash from step 3
 docker run -d \
   --name quantus-node \
   --restart unless-stopped \
@@ -120,7 +128,7 @@ docker run -d \
   --base-path /var/lib/quantus \
   --chain dirac \
   --node-key-file /var/lib/quantus/node_key.p2p \
-  --rewards-address <COPIED_REWARDS_ADDRESS>
+  --rewards-preimage <YOUR_PREIMAGE>
 ```
 
 *Note for Apple Silicon (M1/M2/M3) users:* As mentioned above, if you are using an `amd64` based Docker image on an ARM-based Mac, you will likely need to add the `--platform linux/amd64` flag to your `docker run` commands.
@@ -190,6 +198,49 @@ docker run -d \
 - Docker 20.10+ or compatible runtime
 - All other system requirements same as binary installation
 
+## External Miner Setup
+
+For high-performance mining, you can offload the QPoW mining process to a separate service, freeing up node resources.
+
+### Prerequisites
+
+1. **Build Node:**
+   ```bash
+   # From workspace root
+   cargo build --release -p quantus-node
+   ```
+
+2. **Get External Miner:**
+   ```bash
+   git clone https://github.com/Quantus-Network/quantus-miner
+   cd quantus-miner
+   cargo build --release
+   ```
+
+### Setup with Wormhole Addresses
+
+1. **Generate Your Wormhole Address**:
+   ```bash
+   ./quantus-node key quantus --scheme wormhole
+   ```
+   Save the `inner_hash` value.
+
+2. **Start External Miner** (in separate terminal):
+   ```bash
+   RUST_LOG=info ./target/release/quantus-miner
+   ```
+   *(Default: `http://127.0.0.1:9833`)*
+
+3. **Start Node with External Miner** (in another terminal):
+   ```bash
+   # Replace <YOUR_PREIMAGE> with the inner_hash from step 1
+   RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
+    --validator \
+    --chain dirac \
+    --external-miner-url http://127.0.0.1:9833 \
+    --rewards-preimage <YOUR_PREIMAGE>
+   ```
+
 ## Configuration Options
 
 ### Node Parameters
@@ -197,7 +248,7 @@ docker run -d \
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
-| `--rewards-address` | Path to rewards address file | Required |
+| `--rewards-preimage` | Wormhole preimage (inner_hash from key generation) | Required |
 | `--chain` | Chain specification | `dirac` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
@@ -234,13 +285,17 @@ curl -H "Content-Type: application/json" \
 
 ### Check Mining Rewards
 
-**View Balance**
+**View Balance at Your Wormhole Address**
 ```bash
-# Replace YOUR_ADDRESS with your rewards address
+# Replace YOUR_WORMHOLE_ADDRESS with your wormhole address from key generation
 curl -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"faucet_getAccountInfo","params":["YOUR_ADDRESS"]}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"faucet_getAccountInfo","params":["YOUR_WORMHOLE_ADDRESS"]}' \
   http://localhost:9944
 ```
+
+**Find Your Wormhole Address**
+- From key generation: Use the `Address` field from `./quantus-node key quantus --scheme wormhole`
+- From node logs: Check startup logs for "Mining rewards will be sent to wormhole address"
 
 ## Testnet Information
 
@@ -268,8 +323,13 @@ quantus-node purge-chain --chain dirac
 
 **Mining Not Working**
 1. Check that `--validator` flag is present
-2. Verify rewards address file exists and contains valid address
+2. Verify your preimage from `inner_hash` field in key generation
 3. Ensure node is synchronized (check logs for "Imported #XXXX")
+
+**Wormhole Address Issues**
+1. **Can't find rewards**: Check the `Address` field from your key generation
+2. **Invalid preimage**: Use the exact `inner_hash` value from key generation  
+3. **Wrong address**: Rewards go to the wormhole address, not the preimage
 
 **Connection Issues**
 1. Check firewall settings (allow port 30333)
@@ -302,9 +362,11 @@ curl -H "Content-Type: application/json" \
 
 ## Mining Economics
 
-### Rewards Structure
+### Wormhole Address Rewards System
 
-- **Block Rewards**: Earned by successfully mining blocks
+- **Automatic Wormhole Addresses**: All mining rewards go to your wormhole address
+- **Privacy by Design**: Your reward address is derived from your preimage
+- **Block Rewards**: Earned by successfully mining blocks  
 - **Transaction Fees**: Collected from transactions in mined blocks
 - **Network Incentives**: Additional rewards for network participation
 
@@ -320,9 +382,9 @@ Mining performance depends on:
 
 ### Key Management
 
-- **Backup Your Keys**: Store copies of your node identity and rewards keys safely
-- **Secure Storage**: Keep private keys in encrypted storage
-- **Regular Rotation**: Consider rotating keys periodically for enhanced security
+- **Backup Your Keys**: Securely store your wormhole key pair from key generation
+- **Backup Node Keys**: Store copies of your node identity keys safely  
+- **Secure Storage**: Keep preimages and private keys in encrypted storage
 
 ### Node Security
 
@@ -341,8 +403,8 @@ This is testnet software for testing purposes only:
 ## Next Steps
 
 1. **Join the Community**: Connect with other miners and developers
-2. **Monitor Performance**: Track your mining efficiency and rewards
-3. **Experiment**: Try different configurations and optimizations
+2. **Monitor Performance**: Track your mining efficiency and rewards at your wormhole address
+3. **Experiment**: Try different configurations and optimizations  
 4. **Contribute**: Help improve the network by reporting issues and feedback
 
 Happy mining! 🚀

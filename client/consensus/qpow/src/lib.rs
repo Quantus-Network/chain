@@ -7,7 +7,7 @@ use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::{generic::BlockId, traits::Block as BlockT, AccountId32};
+use sp_runtime::{generic::BlockId, traits::Block as BlockT};
 use std::{sync::Arc, time::Duration};
 
 use crate::worker::UntilImportedOrTransaction;
@@ -24,7 +24,7 @@ use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
 use sp_consensus_pow::POW_ENGINE_ID;
-use sp_core::ByteArray;
+
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{
 	generic::{Digest, DigestItem},
@@ -370,7 +370,7 @@ pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP, TxHash, TxStream>(
 	mut env: E,
 	sync_oracle: SO,
 	justification_sync_link: L,
-	rewards_address: AccountId32,
+	rewards_preimage: [u8; 32],
 	create_inherent_data_providers: CIDP,
 	tx_notifications: TxStream,
 	build_time: Duration,
@@ -479,8 +479,8 @@ where
 			};
 
 			let mut inherent_digest = Digest::default();
-			let rewards_address_bytes = rewards_address.clone().as_slice().to_vec();
-			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, rewards_address_bytes));
+			let rewards_preimage_bytes = rewards_preimage.to_vec();
+			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, rewards_preimage_bytes));
 
 			let proposer = match env.init(&best_header).await {
 				Ok(x) => x,
@@ -513,7 +513,7 @@ where
 				metadata: MiningMetadata {
 					best_hash,
 					pre_hash: proposal.block.header().hash(),
-					rewards_address: rewards_address.clone(),
+					rewards_preimage,
 					difficulty,
 				},
 				proposal,

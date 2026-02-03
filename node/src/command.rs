@@ -179,21 +179,25 @@ impl SubstrateCli for Cli {
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
 		Ok(match id {
-			"dev" =>
-				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"dirac_live_spec" =>
-				Box::new(chain_spec::dirac_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"dev" => {
+				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
+			"dirac_live_spec" => {
+				Box::new(chain_spec::dirac_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"dirac" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/dirac.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			"heisenberg_live_spec" =>
-				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"heisenberg_live_spec" => {
+				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>
+			},
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
-			path =>
+			path => {
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
-					as Box<dyn sc_service::ChainSpec>,
+					as Box<dyn sc_service::ChainSpec>
+			},
 		})
 	}
 }
@@ -409,8 +413,9 @@ pub fn run() -> sc_cli::Result<()> {
 
 						cmd.run(client, inherent_benchmark_data()?, Vec::new(), &ext_factory)
 					},
-					BenchmarkCmd::Machine(cmd) =>
-						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
+					BenchmarkCmd::Machine(cmd) => {
+						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())
+					},
 				}
 			})
 		},
@@ -448,16 +453,16 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.network_backend = NetworkBackendType::Libp2p;
 
-				let rewards_account = match cli.rewards_address {
+				let rewards_account = match cli.rewards_preimage {
 					Some(address) => {
 						let account = address.parse::<AccountId32>().map_err(|_| {
-							sc_cli::Error::Input("Invalid rewards address format".into())
+							sc_cli::Error::Input("Invalid rewards preimage format".into())
 						})?;
 						log::info!("⛏️ Using address for rewards: {:?}", account);
 						account
 					},
 					None => {
-						// Automatically set rewards_address to Treasury when --dev is used
+						// Automatically set rewards_preimage to Treasury when --dev is used
 						if cli.run.shared_params.is_dev() {
 							let treasury_account =
 								quantus_runtime::configs::TreasuryPalletId::get()
@@ -470,7 +475,9 @@ pub fn run() -> sc_cli::Result<()> {
 							treasury_account
 						} else {
 							// Should never happen
-							return Err(sc_cli::Error::Input("No rewards address provided".into()));
+							return Err(sc_cli::Error::Input(
+								"No rewards preimage provided".into(),
+							));
 						}
 					},
 				};

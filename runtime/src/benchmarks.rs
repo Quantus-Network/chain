@@ -34,4 +34,5 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_multisig, Multisig]
 	[pallet_scheduler, Scheduler]
 	[pallet_qpow, QPoW]
+	[pallet_wormhole, Wormhole]
 );
