@@ -5,15 +5,20 @@
 //!
 //! ## Features
 //!
-//! - Create multisig addresses with configurable thresholds
+//! - Create multisig addresses with deterministic generation (signers + threshold + user-provided
+//!   nonce)
 //! - Propose transactions for multisig approval
 //! - Approve proposed transactions
-//! - Execute transactions once threshold is reached
+//! - Execute transactions once threshold is reached (automatic)
+//! - Auto-cleanup of proposer's expired proposals on propose()
+//! - Per-signer proposal limits for filibuster protection
 //!
 //! ## Data Structures
 //!
-//! - **Multisig**: Contains signers, threshold, and global nonce
-//! - **Proposal**: Contains transaction data, proposer, expiry, and approvals
+//! - **MultisigData**: Contains signers, threshold, proposal counter, deposit, and per-signer
+//!   tracking
+//! - **ProposalData**: Contains transaction data, proposer, expiry, approvals, deposit, and status
+//! - **DissolveApprovals**: Tracks threshold-based approvals for multisig dissolution
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -376,14 +381,21 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Create a new multisig account
+		/// Create a new multisig account with deterministic address
 		///
 		/// Parameters:
 		/// - `signers`: List of accounts that can sign for this multisig
 		/// - `threshold`: Number of approvals required to execute transactions
+		/// - `nonce`: User-provided nonce for address uniqueness
 		///
-		/// The multisig address is derived from a hash of all signers + global nonce.
-		/// The creator must pay a non-refundable fee (burned).
+		/// The multisig address is deterministically derived from:
+		/// hash(pallet_id || sorted_signers || threshold || nonce)
+		///
+		/// Signers are automatically sorted before hashing, so order doesn't matter.
+		///
+		/// Economic costs:
+		/// - MultisigFee: burned immediately (spam prevention)
+		/// - MultisigDeposit: locked until dissolution, then burned (storage bond)
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::create_multisig(signers.len() as u32))]
 		pub fn create_multisig(
@@ -483,9 +495,10 @@ pub mod pallet {
 		/// High-security multisigs incur additional cost for decode + whitelist check.
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(
-			call.len() as u32,
-			T::MaxTotalProposalsInStorage::get()
-		))]
+		call.len() as u32,
+		T::MaxTotalProposalsInStorage::get(),  // Worst-case iterated
+		T::MaxTotalProposalsInStorage::get().saturating_div(2)  // Worst-case cleaned (MaxTotal / 2 signers)
+	))]
 		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
@@ -519,7 +532,11 @@ pub mod pallet {
 
 			// Auto-cleanup ALL proposer's expired proposals before creating new one
 			// This is the primary cleanup mechanism for active multisigs
-			let _cleaned = Self::cleanup_proposer_expired(&multisig_address, &proposer, &proposer);
+			// Returns: (cleaned_count, total_proposals_iterated)
+			// - cleaned_count: proposals removed (O(M) write cost)
+			// - total_proposals_iterated: proposals iterated (O(N) read cost, where N >= M)
+			let (cleaned, total_proposals_iterated) =
+				Self::cleanup_proposer_expired(&multisig_address, &proposer, &proposer);
 
 			// Reload multisig data after potential cleanup
 			let multisig_data =
@@ -532,6 +549,7 @@ pub mod pallet {
 
 			// Check total proposals in storage limit (Active + Executed + Cancelled)
 			// This incentivizes cleanup and prevents unbounded storage growth
+			// NOTE: After cleanup, so this is the NEW count (post-cleanup)
 			let total_proposals_in_storage =
 				Proposals::<T>::iter_prefix(&multisig_address).count() as u32;
 			ensure!(
@@ -644,14 +662,20 @@ pub mod pallet {
 				Self::do_execute(multisig_address, proposal_id, proposal)?;
 			}
 
-			// Calculate actual weight based on call size
-			// Note: cleanup cost is included in base weight (worst-case all proposals)
+			// Calculate actual weight based on call size, proposals iterated, and cleaned
+			// Accurate charging based on actual work performed:
+			// - total_proposals_iterated: O(N) read cost
+			// - cleaned: O(M) write cost (where M <= N)
 			let actual_weight = if is_high_security {
 				// Used high-security path (decode + whitelist check)
-				<T as Config>::WeightInfo::propose_high_security(call_size, 0)
+				<T as Config>::WeightInfo::propose_high_security(
+					call_size,
+					total_proposals_iterated,
+					cleaned,
+				)
 			} else {
 				// Used normal path (no decode overhead)
-				<T as Config>::WeightInfo::propose(call_size, 0)
+				<T as Config>::WeightInfo::propose(call_size, total_proposals_iterated, cleaned)
 			};
 
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
@@ -667,8 +691,9 @@ pub mod pallet {
 		/// - `proposal_id`: ID (nonce) of the proposal to approve
 		///
 		/// Weight: Charges for MAX call size, refunds based on actual
+		/// NOTE: approve() does NOT do auto-cleanup (removed for predictable gas costs)
 		#[pallet::call_index(2)]
-		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get(), 0))]
+		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get()))]
 		#[allow(clippy::useless_conversion)]
 		pub fn approve(
 			origin: OriginFor<T>,
@@ -686,7 +711,7 @@ pub mod pallet {
 
 			// Calculate actual weight based on real call size
 			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size, 0);
+			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
 			// Check if not expired
 			let current_block = frame_system::Pallet::<T>::block_number();
@@ -831,8 +856,9 @@ pub mod pallet {
 		/// Returns all proposal deposits to the proposer in a single transaction.
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits(
-	T::MaxTotalProposalsInStorage::get()
-))]
+		T::MaxTotalProposalsInStorage::get(),  // Worst-case iterated
+		T::MaxTotalProposalsInStorage::get().saturating_div(2)  // Worst-case cleaned (MaxTotal / 2 signers)
+	))]
 		#[allow(clippy::useless_conversion)]
 		pub fn claim_deposits(
 			origin: OriginFor<T>,
@@ -841,7 +867,9 @@ pub mod pallet {
 			let caller = ensure_signed(origin)?;
 
 			// Cleanup ALL caller's expired proposals
-			let cleaned = Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
+			// Returns: (cleaned_count, total_proposals_iterated)
+			let (cleaned, total_proposals_iterated) =
+				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
 
 			let deposit_per_proposal = T::ProposalDeposit::get();
 			let total_returned = deposit_per_proposal.saturating_mul(cleaned.into());
@@ -855,8 +883,12 @@ pub mod pallet {
 				multisig_removed: false,
 			});
 
-			// Return actual weight based on number of proposals cleaned
-			let actual_weight = <T as Config>::WeightInfo::claim_deposits(cleaned);
+			// Return actual weight based on proposals iterated and cleaned
+			// Accurate charging based on actual work performed:
+			// - total_proposals_iterated: O(N) read cost
+			// - cleaned: O(M) write cost (where M <= N)
+			let actual_weight =
+				<T as Config>::WeightInfo::claim_deposits(total_proposals_iterated, cleaned);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -1001,19 +1033,25 @@ pub mod pallet {
 		/// Iterates through all proposals in the multisig and removes expired ones
 		/// belonging to the specified proposer.
 		///
-		/// Returns: number of proposals cleaned
+		/// Returns: (cleaned_count, total_proposals_iterated)
+		/// - cleaned_count: number of proposals actually removed
+		/// - total_proposals_iterated: total proposals that existed before cleanup (for weight
+		///   calculation)
 		fn cleanup_proposer_expired(
 			multisig_address: &T::AccountId,
 			proposer: &T::AccountId,
 			caller: &T::AccountId,
-		) -> u32 {
+		) -> (u32, u32) {
 			let current_block = frame_system::Pallet::<T>::block_number();
-			let mut cleaned = 0u32;
+			let mut total_iterated = 0u32;
 
 			// Collect expired proposals to remove
+			// IMPORTANT: We count ALL proposals during iteration (for weight calculation)
 			let expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> =
 				Proposals::<T>::iter_prefix(multisig_address)
 					.filter_map(|(proposal_id, proposal)| {
+						total_iterated += 1; // Count every proposal we iterate through
+
 						// Only proposer's expired active proposals
 						if proposal.proposer == *proposer &&
 							proposal.status == ProposalStatus::Active &&
@@ -1025,6 +1063,8 @@ pub mod pallet {
 						}
 					})
 					.collect();
+
+			let cleaned = expired_proposals.len() as u32;
 
 			// Remove proposals and emit events
 			for (proposal_id, expired_proposer, deposit) in expired_proposals {
@@ -1041,11 +1081,9 @@ pub mod pallet {
 					proposer: expired_proposer,
 					removed_by: caller.clone(),
 				});
-
-				cleaned += 1;
 			}
 
-			cleaned
+			(cleaned, total_iterated)
 		}
 
 		/// Remove a proposal from storage and return deposit to proposer

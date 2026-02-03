@@ -12,8 +12,10 @@ Basic workflow for using a multisig:
 
 ```rust
 // 1. Create a 2-of-3 multisig (Alice creates, Bob/Charlie/Dave are signers)
-Multisig::create_multisig(Origin::signed(alice), vec![bob, charlie, dave], 2);
-let multisig_addr = Multisig::derive_multisig_address(&[bob, charlie, dave], 0);
+Multisig::create_multisig(Origin::signed(alice), vec![bob, charlie, dave], 2, 0);
+//                                                                        ^ threshold ^ nonce
+let multisig_addr = Multisig::derive_multisig_address(&[bob, charlie, dave], 2, 0);
+//                                                                           ^ threshold ^ nonce
 
 // 2. Bob proposes a transaction
 let call = RuntimeCall::Balances(pallet_balances::Call::transfer { dest: eve, value: 100 });
@@ -35,21 +37,25 @@ Creates a new multisig account with deterministic address generation.
 **Required Parameters:**
 - `signers: Vec<AccountId>` - List of authorized signers (REQUIRED, 1 to MaxSigners)
 - `threshold: u32` - Number of approvals needed (REQUIRED, 1 ≤ threshold ≤ signers.len())
+- `nonce: u64` - User-provided nonce for address uniqueness (REQUIRED)
 
 **Validation:**
 - No duplicate signers
 - Threshold must be > 0
 - Threshold cannot exceed number of signers
 - Signers count must be ≤ MaxSigners
+- Multisig address (derived from signers+threshold+nonce) must not already exist
 
 **Important:** Signers are automatically sorted before storing and address generation. Order doesn't matter:
-- `[alice, bob, charlie]` → sorted to `[alice, bob, charlie]` → `address_1`
-- `[charlie, bob, alice]` → sorted to `[alice, bob, charlie]` → `address_1` (same!)
-- To create multiple multisigs with same signers, the nonce provides uniqueness
+- `[alice, bob, charlie]` + threshold=2 + nonce=0 → `address_1`
+- `[charlie, bob, alice]` + threshold=2 + nonce=0 → `address_1` (same!)
+- To create multiple multisigs with same signers, use different nonce:
+  - `signers=[alice, bob], threshold=2, nonce=0` → `address_A`
+  - `signers=[alice, bob], threshold=2, nonce=1` → `address_B` (different!)
 
 **Economic Costs:**
 - **MultisigFee**: Non-refundable fee (spam prevention) → burned
-- **MultisigDeposit**: Refundable deposit (storage rent) → returned when multisig dissolved
+- **MultisigDeposit**: Locked deposit (storage bond) → burned when multisig dissolved
 
 ### 2. Propose Transaction
 Creates a new proposal for multisig execution.
@@ -69,14 +75,15 @@ Creates a new proposal for multisig execution.
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
 **Auto-Cleanup Before Creation:**
-Before creating a new proposal, the system **automatically removes all expired Active proposals** for this multisig:
+Before creating a new proposal, the system **automatically removes all proposer's expired Active proposals**:
+- Only proposer's expired proposals are cleaned (not all proposals)
 - Expired proposals are identified (current_block > expiry)
-- Deposits are returned to original proposers
+- Deposits are returned to original proposer
 - Storage is cleaned up
-- Counters are decremented
+- Counters are decremented (active_proposals, proposals_per_signer)
 - Events are emitted for each removed proposal
 
-This ensures storage is kept clean and users get their deposits back without manual intervention.
+This ensures proposers get their deposits back and free up their quota automatically.
 
 **Threshold=1 Auto-Execution:**
 If the multisig has `threshold=1`, the proposal **executes immediately** after creation:
@@ -115,6 +122,8 @@ When approval count reaches the threshold:
 
 **Economic Costs:** None (deposit immediately returned on execution)
 
+**Note:** `approve()` does NOT perform auto-cleanup of expired proposals (removed for predictable gas costs).
+
 ### 4. Cancel Transaction
 Cancels a proposal and immediately removes it from storage (proposer only).
 
@@ -129,16 +138,18 @@ Cancels a proposal and immediately removes it from storage (proposer only).
 **Economic Effects:**
 - Proposal **immediately removed** from storage
 - ProposalDeposit **immediately returned** to proposer
-- Counters decremented
+- Counters decremented (active_proposals, proposals_per_signer)
 
 **Economic Costs:** None (deposit immediately returned)
 
-**Note:** ProposalFee is NOT refunded - it was burned at proposal creation.
+**Note:** 
+- ProposalFee is NOT refunded - it was burned at proposal creation.
+- `cancel()` does NOT perform auto-cleanup of expired proposals (removed for predictable gas costs).
 
 ### 5. Remove Expired
 Manually removes expired proposals from storage. Only signers can call this.
 
-**Important:** This is rarely needed because expired proposals are automatically cleaned up on any multisig activity (`propose()`, `approve()`, `cancel()`).
+**Important:** This is rarely needed because proposer's expired proposals are automatically cleaned up when that proposer calls `propose()` or `claim_deposits()`.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -154,16 +165,14 @@ Manually removes expired proposals from storage. Only signers can call this.
 **Economic Effects:**
 - ProposalDeposit returned to **original proposer** (not caller)
 - Proposal removed from storage
-- Counters decremented
+- Counters decremented (active_proposals, proposals_per_signer)
 
 **Economic Costs:** None (deposit always returned to proposer)
 
-**Auto-Cleanup:** ALL expired proposals are automatically removed on any multisig activity (`propose()`, `approve()`, `cancel()`), making this function often unnecessary.
+**Auto-Cleanup:** When a proposer calls `propose()`, all their expired proposals are automatically removed. This function is useful for cleaning up proposals from inactive proposers.
 
 ### 6. Claim Deposits
-Batch cleanup operation to recover all expired proposal deposits.
-
-**Important:** This is rarely needed because expired proposals are automatically cleaned up on any multisig activity (`propose()`, `approve()`, `cancel()`).
+Batch cleanup operation to recover all caller's expired proposal deposits.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -173,34 +182,49 @@ Batch cleanup operation to recover all expired proposal deposits.
 - Only removes Active+Expired proposals (Executed/Cancelled already auto-removed)
 - Must be expired (current_block > expiry)
 
+**Behavior:**
+- Iterates through ALL proposals in the multisig
+- Removes all that match: proposer=caller AND expired AND status=Active
+- No iteration limits - cleans all in one call
+
 **Economic Effects:**
 - Returns all eligible proposal deposits to caller
 - Removes all expired proposals from storage
-- Counters decremented
+- Counters decremented (active_proposals, proposals_per_signer)
 
-**Economic Costs:** None (only returns deposits)
+**Economic Costs:** 
+- Gas cost proportional to total proposals in storage (iteration cost)
+- Dynamic weight refund based on actual proposals cleaned
 
-**Auto-Cleanup:** ALL expired proposals are automatically removed on any multisig activity (`propose()`, `approve()`, `cancel()`), making this function often unnecessary.
+**Note:** Same functionality as the auto-cleanup in `propose()`, but caller can trigger it manually without creating a new proposal.
 
-### 7. Dissolve Multisig
-Permanently removes a multisig and returns the creation deposit to the original creator.
+### 7. Approve Dissolve
+Approve dissolving a multisig account. Requires threshold approvals to complete.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
 
 **Pre-conditions:**
+- Caller must be a signer
 - NO proposals can exist (any status)
 - Multisig balance MUST be zero
-- Caller must be creator OR any signer
 
-**Post-conditions:**
-- MultisigDeposit returned to **original creator** (not caller)
+**Approval Process:**
+- Each signer calls `approve_dissolve()`
+- Approvals are tracked in `DissolveApprovals` storage
+- When threshold reached, multisig is automatically dissolved
+
+**Post-conditions (when threshold reached):**
+- MultisigDeposit is **burned** (NOT returned)
 - Multisig removed from storage
+- DissolveApprovals cleared
 - Cannot be used after dissolution
 
-**Economic Costs:** None (returns MultisigDeposit)
+**Economic Costs:** None (but deposit is burned, not returned)
 
-**Important:** MultisigFee is NEVER returned - only the MultisigDeposit.
+**Important:** 
+- MultisigFee and MultisigDeposit are NEVER returned - both are permanently locked/burned
+- Requires threshold approvals (not just any signer or creator)
 
 ## Use Cases
 
@@ -243,25 +267,27 @@ matches!(call,
 - Spam attacks reduce circulating supply
 - Lower transaction costs (withdraw vs transfer)
 
-### Deposits (Refundable, locked as storage rent)
+### Deposits (Locked as storage rent)
 **Purpose:** Compensate for on-chain storage, incentivize cleanup
 
 - **MultisigDeposit**:
   - Reserved on multisig creation
-  - Returned when multisig dissolved (via `dissolve_multisig`)
+  - **Burned** when multisig dissolved (via `approve_dissolve`)
   - Locked until no proposals exist and balance is zero
   - Opportunity cost incentivizes cleanup
+  - **NOT refundable** (acts as permanent storage bond)
   
 - **ProposalDeposit**:
   - Reserved on proposal creation
+  - **Refundable** - returned in following scenarios:
   - **Auto-Returned Immediately:**
     - When proposal executed (threshold reached)
     - When proposal cancelled (proposer cancels)
-  - **Auto-Cleanup:** ALL expired proposals are automatically removed on ANY multisig activity
-    - Triggered by: `propose()`, `approve()`, `cancel()`
-    - Deposits returned to original proposers
-    - No manual cleanup needed for active multisigs
-  - **Manual Cleanup:** Only needed for inactive multisigs via `remove_expired()` or `claim_deposits()`
+  - **Auto-Cleanup:** Proposer's expired proposals are automatically removed when proposer calls `propose()`
+    - Only proposer's proposals are cleaned (not all)
+    - Deposits returned to proposer
+    - Frees up proposer's quota automatically
+  - **Manual Cleanup:** For inactive proposers via `remove_expired()` or `claim_deposits()`
 
 ### Storage Limits & Configuration
 **Purpose:** Prevent unbounded storage growth and resource exhaustion
@@ -295,16 +321,16 @@ matches!(call,
 Stores multisig account data:
 ```rust
 MultisigData {
-    signers: BoundedVec<AccountId>,                        // List of authorized signers
+    signers: BoundedVec<AccountId>,                        // List of authorized signers (sorted)
     threshold: u32,                                         // Required approvals
-    nonce: u64,                                             // Unique identifier used in address generation
-    deposit: Balance,                                       // Reserved deposit (refundable)
-    creator: AccountId,                                     // Who created it (receives deposit back)
-    last_activity: BlockNumber,                             // Last action timestamp (for grace period)
-    active_proposals: u32,                                  // Count of open proposals (monitoring/analytics)
+    proposal_nonce: u32,                                    // Counter for unique proposal IDs
+    deposit: Balance,                                       // Reserved deposit (burned on dissolve)
+    active_proposals: u32,                                  // Count of active proposals (for limits)
     proposals_per_signer: BoundedBTreeMap<AccountId, u32>,  // Per-signer proposal count (filibuster protection)
 }
 ```
+
+**Note:** Address is deterministically derived from `hash(pallet_id || sorted_signers || threshold || nonce)` where nonce is user-provided at creation time.
 
 ### Proposals: DoubleMap<AccountId, u32, ProposalData>
 Stores proposal data indexed by (multisig_address, proposal_id):
@@ -321,8 +347,11 @@ ProposalData {
 
 **Important:** Only **Active** proposals are stored. Executed and Cancelled proposals are **immediately removed** from storage and their deposits are returned. Historical data is available through events (see Historical Data section below).
 
-### GlobalNonce: u64
-Internal counter for generating unique multisig addresses. Not exposed via API.
+### DissolveApprovals: Map<AccountId, BoundedVec<AccountId>>
+Tracks which signers have approved dissolving each multisig.
+- Key: Multisig address
+- Value: List of signers who approved dissolution
+- Cleared when multisig is dissolved or when threshold reached
 
 ## Events
 
@@ -333,7 +362,8 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `ProposalCancelled { multisig_address, proposer, proposal_id }`
 - `ProposalRemoved { multisig_address, proposal_id, proposer, removed_by }`
 - `DepositsClaimed { multisig_address, claimer, total_returned, proposals_removed, multisig_removed }`
-- `MultisigDissolved { multisig_address, caller, deposit_returned }`
+- `DissolveApproved { multisig_address, approver, approvals_count }`
+- `MultisigDissolved { multisig_address, deposit_returned, approvers }`
 
 ## Errors
 
@@ -359,6 +389,8 @@ Internal counter for generating unique multisig addresses. Not exposed via API.
 - `TooManyProposalsPerSigner` - Caller has reached their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
 - `ProposalNotActive` - Proposal is not active (already executed or cancelled)
+- `ProposalsExist` - Cannot dissolve multisig while proposals exist
+- `MultisigAccountNotZero` - Cannot dissolve multisig with non-zero balance
 
 ## Important Behavior
 
@@ -382,18 +414,21 @@ approve(multisig, 1) // Approve proposal #1
 ### Signer Order Doesn't Matter
 Signers are **automatically sorted** before address generation and storage:
 - Input order is irrelevant - signers are always sorted deterministically
-- Address is derived from `Hash(PalletId + sorted_signers + nonce)`
-- Same signers in any order = same multisig address (with same nonce)
-- To create multiple multisigs with same participants, use different creation transactions (nonce auto-increments)
+- Address is derived from `Hash(PalletId + sorted_signers + threshold + nonce)`
+- Same signers+threshold+nonce in any order = same multisig address
+- User must provide unique nonce to create multiple multisigs with same signers
 
 **Example:**
 ```rust
-// These create the SAME multisig address (same signers, same nonce):
-create_multisig([alice, bob, charlie], 2) // → multisig_addr_1 (nonce=0)
-create_multisig([charlie, bob, alice], 2) // → multisig_addr_1 (SAME! nonce would be 1 but already exists)
+// These create the SAME multisig address (same signers, threshold, nonce):
+create_multisig([alice, bob, charlie], 2, 0) // → multisig_addr_1
+create_multisig([charlie, bob, alice], 2, 0) // → multisig_addr_1 (SAME!)
 
-// To create another multisig with same signers:
-create_multisig([alice, bob, charlie], 2) // → multisig_addr_2 (nonce=1, different address)
+// To create another multisig with same signers, use different nonce:
+create_multisig([alice, bob, charlie], 2, 1) // → multisig_addr_2 (different!)
+
+// Different threshold = different address (even with same nonce):
+create_multisig([alice, bob, charlie], 3, 0) // → multisig_addr_3 (different!)
 ```
 
 ## Historical Data and Event Indexing
@@ -450,9 +485,9 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - Auto-cleanup of expired proposals reduces storage pressure
 
 ### Storage Cleanup
-- Grace period allows proposers priority cleanup
-- After grace: public cleanup incentivized
-- Batch cleanup via claim_deposits for efficiency
+- Auto-cleanup in `propose()`: proposer's expired proposals removed automatically
+- Manual cleanup via `remove_expired()`: any signer can clean any expired proposal
+- Batch cleanup via `claim_deposits()`: proposer recovers all their expired deposits at once
 
 ### Economic Attacks
 - **Multisig Spam:** Costs MultisigFee (burned, reduces supply)
@@ -491,10 +526,10 @@ impl pallet_multisig::Config for Runtime {
     type MaxExpiryDuration = ConstU32<100_800>;         // Max proposal lifetime (~2 weeks @ 12s)
     
     // Economic parameters (example values - adjust per runtime)
-    type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;      // Creation barrier
-    type MultisigDeposit = ConstU128<{ 500 * MILLI_UNIT }>;  // Storage rent
-    type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;     // Base proposal cost
-    type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>; // Cleanup incentive
+    type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;      // Creation barrier (burned)
+    type MultisigDeposit = ConstU128<{ 500 * MILLI_UNIT }>;  // Storage bond (burned on dissolve)
+    type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;     // Base proposal cost (burned)
+    type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>; // Storage rent (refundable)
     type SignerStepFactor = Permill::from_percent(1);        // Dynamic pricing (1% per signer)
     
     type PalletId = ConstPalletId(*b"py/mltsg");
@@ -591,7 +626,8 @@ at the cost of:
 let multisig_addr = Multisig::create_multisig(
     Origin::signed(alice),
     vec![alice, bob, charlie, dave, eve],
-    3
+    3,
+    0 // nonce
 );
 
 // 2. Enable high-security (via multisig proposal + approvals)
@@ -643,13 +679,26 @@ High-security multisigs have higher costs due to call validation:
 Normal multisigs automatically get refunded for unused high-security overhead.
 
 **Weight calculation:**
-- `propose()` charges upfront for worst-case: `propose_high_security(call.len(), max_expired)`
+- `propose()` charges upfront for worst-case: 
+  - `propose_high_security(call.len(), MaxTotalProposalsInStorage, MaxTotalProposalsInStorage.saturating_div(2))`
+  - Second parameter (`i`): worst-case proposals iterated (MaxTotal)
+  - Third parameter (`r`): worst-case proposals removed/cleaned (MaxTotal/2, based on 2-signer minimum)
+- Actual weight based on:
+  - Call size (actual, not worst-case)
+  - Proposals actually iterated during cleanup (`i`)
+  - Proposals actually removed/cleaned (`r`)
 - If multisig is NOT HS, refunds decode overhead based on actual path taken
 - If multisig IS HS, charges correctly for decode cost (scales with call size)
+- Auto-cleanup returns both iteration count AND cleaned count for accurate weight calculation
 
 **Security notes:**
 - Call size is validated BEFORE decode to prevent DoS via oversized payloads
 - Weight formula includes O(call_size) component for decode to prevent underpayment
+- **Separate charging for iteration cost (reads) vs cleanup cost (writes)**:
+  - `i` parameter: proposals iterated (O(N) read cost)
+  - `r` parameter: proposals removed (O(M) write cost, where M ≤ N)
+- No refund for the iteration that actually happened (prevents undercharging attack)
+- Single-pass optimization: cleanup counts proposals during iteration (no extra pass needed)
 - Benchmarks must be regenerated to capture accurate decode costs
 
 See `MULTISIG_REQ.md` for detailed cost breakdown and benchmarking instructions.
