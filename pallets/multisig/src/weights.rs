@@ -47,12 +47,12 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_multisig`.
 pub trait WeightInfo {
-	fn create_multisig() -> Weight;
+	fn create_multisig(s: u32, ) -> Weight;
 	fn propose(c: u32, e: u32, ) -> Weight;
 	fn propose_high_security(c: u32, e: u32, ) -> Weight;
 	fn approve(c: u32, e: u32, ) -> Weight;
 	fn approve_and_execute(c: u32, ) -> Weight;
-	fn cancel(c: u32, e: u32, ) -> Weight;
+	fn cancel() -> Weight;
 	fn remove_expired() -> Weight;
 	fn claim_deposits(p: u32, ) -> Weight;
 	fn dissolve_multisig() -> Weight;
@@ -61,18 +61,19 @@ pub trait WeightInfo {
 /// Weights for `pallet_multisig` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `Multisig::GlobalNonce` (r:1 w:1)
-	/// Proof: `Multisig::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
-	fn create_multisig() -> Weight {
+	/// The range of component `s` is `[2, 100]` (number of signers).
+	fn create_multisig(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `152`
 		//  Estimated: `10389`
 		// Minimum execution time: 190_000_000 picoseconds.
 		Weight::from_parts(196_000_000, 10389)
-			.saturating_add(T::DbWeight::get().reads(2_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+			// Standard Error: 1_000
+			.saturating_add(Weight::from_parts(50_000, 0).saturating_mul(s.into()))
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
@@ -164,21 +165,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
 	/// The range of component `c` is `[0, 10140]`.
 	/// The range of component `e` is `[0, 200]`.
-	fn cancel(c: u32, e: u32, ) -> Weight {
+	/// Storage: `Multisig::Multisigs` (r:1 w:1)
+	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
+	/// Storage: `Multisig::Proposals` (r:1 w:1)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
+	fn cancel() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `625 + c * (1 ±0) + e * (215 ±0)`
-		//  Estimated: `33054 + e * (16032 ±0)`
+		//  Measured:  `625`
+		//  Estimated: `17022`
 		// Minimum execution time: 28_000_000 picoseconds.
-		Weight::from_parts(33_000_000, 33054)
-			// Standard Error: 229
-			.saturating_add(Weight::from_parts(3_462, 0).saturating_mul(c.into()))
-			// Standard Error: 11_632
-			.saturating_add(Weight::from_parts(13_752_458, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(3_u64))
-			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(e.into())))
+		Weight::from_parts(33_000_000, 17022)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
-			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(e.into())))
-			.saturating_add(Weight::from_parts(0, 16032).saturating_mul(e.into()))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
@@ -231,18 +229,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Storage: `Multisig::GlobalNonce` (r:1 w:1)
-	/// Proof: `Multisig::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
-	fn create_multisig() -> Weight {
+	/// The range of component `s` is `[2, 100]` (number of signers).
+	fn create_multisig(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `152`
 		//  Estimated: `10389`
 		// Minimum execution time: 190_000_000 picoseconds.
 		Weight::from_parts(196_000_000, 10389)
-			.saturating_add(RocksDbWeight::get().reads(2_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+			// Standard Error: 1_000
+			.saturating_add(Weight::from_parts(50_000, 0).saturating_mul(s.into()))
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
@@ -334,21 +333,18 @@ impl WeightInfo for () {
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
 	/// The range of component `c` is `[0, 10140]`.
 	/// The range of component `e` is `[0, 200]`.
-	fn cancel(c: u32, e: u32, ) -> Weight {
+	/// Storage: `Multisig::Multisigs` (r:1 w:1)
+	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)
+	/// Storage: `Multisig::Proposals` (r:1 w:1)
+	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
+	fn cancel() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `625 + c * (1 ±0) + e * (215 ±0)`
-		//  Estimated: `33054 + e * (16032 ±0)`
+		//  Measured:  `625`
+		//  Estimated: `17022`
 		// Minimum execution time: 28_000_000 picoseconds.
-		Weight::from_parts(33_000_000, 33054)
-			// Standard Error: 229
-			.saturating_add(Weight::from_parts(3_462, 0).saturating_mul(c.into()))
-			// Standard Error: 11_632
-			.saturating_add(Weight::from_parts(13_752_458, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(3_u64))
-			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(e.into())))
+		Weight::from_parts(33_000_000, 17022)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
-			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(e.into())))
-			.saturating_add(Weight::from_parts(0, 16032).saturating_mul(e.into()))
 	}
 	/// Storage: `Multisig::Multisigs` (r:1 w:1)
 	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6924), added: 9399, mode: `MaxEncodedLen`)

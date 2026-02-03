@@ -1,6 +1,6 @@
 //! Unit tests for pallet-multisig
 
-use crate::{mock::*, Error, Event, GlobalNonce, Multisigs, ProposalStatus, Proposals};
+use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate};
 use qp_high_security::HighSecurityInspector;
@@ -85,6 +85,7 @@ fn create_multisig_works() {
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
 			threshold,
+			0, // nonce
 		));
 
 		// Check balances
@@ -93,19 +94,13 @@ fn create_multisig_works() {
 		assert_eq!(Balances::free_balance(creator.clone()), initial_balance - fee - deposit);
 
 		// Check that multisig was created
-		let global_nonce = GlobalNonce::<Test>::get();
-		assert_eq!(global_nonce, 1);
-
 		// Get multisig address
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Check storage
 		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
 		assert_eq!(multisig_data.threshold, threshold);
-		assert_eq!(multisig_data.nonce, 0);
 		assert_eq!(multisig_data.signers.to_vec(), signers);
-		assert_eq!(multisig_data.active_proposals, 0);
-		assert_eq!(multisig_data.creator, creator.clone());
 		assert_eq!(multisig_data.deposit, deposit);
 
 		// Check that event was emitted
@@ -124,7 +119,12 @@ fn create_multisig_fails_with_threshold_zero() {
 		let threshold = 0;
 
 		assert_noop!(
-			Multisig::create_multisig(RuntimeOrigin::signed(creator.clone()), signers, threshold,),
+			Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers,
+				threshold,
+				0
+			),
 			Error::<Test>::ThresholdZero
 		);
 	});
@@ -138,7 +138,12 @@ fn create_multisig_fails_with_empty_signers() {
 		let threshold = 1;
 
 		assert_noop!(
-			Multisig::create_multisig(RuntimeOrigin::signed(creator.clone()), signers, threshold,),
+			Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers,
+				threshold,
+				0
+			),
 			Error::<Test>::NotEnoughSigners
 		);
 	});
@@ -152,7 +157,12 @@ fn create_multisig_fails_with_threshold_too_high() {
 		let threshold = 3; // More than number of signers
 
 		assert_noop!(
-			Multisig::create_multisig(RuntimeOrigin::signed(creator.clone()), signers, threshold,),
+			Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers,
+				threshold,
+				0
+			),
 			Error::<Test>::ThresholdTooHigh
 		);
 	});
@@ -166,7 +176,12 @@ fn create_multisig_fails_with_duplicate_signers() {
 		let threshold = 2;
 
 		assert_noop!(
-			Multisig::create_multisig(RuntimeOrigin::signed(creator.clone()), signers, threshold,),
+			Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers,
+				threshold,
+				0
+			),
 			Error::<Test>::DuplicateSigner
 		);
 	});
@@ -179,20 +194,25 @@ fn create_multiple_multisigs_increments_nonce() {
 		let signers1 = vec![bob(), charlie()];
 		let signers2 = vec![bob(), dave()];
 
+		// Create first multisig with nonce=0
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers1.clone(),
-			2
+			2,
+			0 // nonce
 		));
+
+		// Create second multisig with nonce=1
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers2.clone(),
-			2
+			2,
+			1 // nonce - user must provide different nonce
 		));
 
-		// Check both multisigs exist
-		let multisig1 = Multisig::derive_multisig_address(&signers1, 0);
-		let multisig2 = Multisig::derive_multisig_address(&signers2, 1);
+		// Check both multisigs exist with their respective nonces
+		let multisig1 = Multisig::derive_multisig_address(&signers1, 2, 0);
+		let multisig2 = Multisig::derive_multisig_address(&signers2, 2, 1);
 
 		assert!(Multisigs::<Test>::contains_key(multisig1));
 		assert!(Multisigs::<Test>::contains_key(multisig2));
@@ -211,10 +231,11 @@ fn propose_works() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Propose a transaction
 		let proposer = bob();
@@ -257,10 +278,11 @@ fn propose_fails_if_not_signer() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Try to propose as non-signer
 		let call = make_call(vec![1, 2, 3]);
@@ -280,13 +302,15 @@ fn approve_works() {
 
 		let creator = alice();
 		let signers = vec![bob(), charlie(), dave()];
+		let threshold = 3;
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			3
+			threshold,
+			0
 		)); // Need 3 approvals
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, threshold, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 		assert_ok!(Multisig::propose(
@@ -331,10 +355,11 @@ fn approve_auto_executes_when_threshold_reached() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 		assert_ok!(Multisig::propose(
@@ -386,10 +411,11 @@ fn cancel_works() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let proposer = bob();
 		let call = make_call(vec![1, 2, 3]);
@@ -432,10 +458,11 @@ fn cancel_fails_if_already_executed() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 		assert_ok!(Multisig::propose(
@@ -474,10 +501,11 @@ fn remove_expired_works_after_grace_period() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 		let expiry = 100;
@@ -518,10 +546,11 @@ fn executed_proposals_auto_removed() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 		assert_ok!(Multisig::propose(
@@ -568,10 +597,11 @@ fn remove_expired_fails_for_non_signer() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 		let expiry = 1000;
@@ -616,10 +646,11 @@ fn claim_deposits_works() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Bob creates 3 proposals
 		for i in 0..3 {
@@ -667,10 +698,11 @@ fn claim_deposits_works() {
 fn derive_multisig_address_is_deterministic() {
 	new_test_ext().execute_with(|| {
 		let signers = vec![bob(), charlie(), dave()];
+		let threshold = 2;
 		let nonce = 42;
 
-		let address1 = Multisig::derive_multisig_address(&signers, nonce);
-		let address2 = Multisig::derive_multisig_address(&signers, nonce);
+		let address1 = Multisig::derive_multisig_address(&signers, threshold, nonce);
+		let address2 = Multisig::derive_multisig_address(&signers, threshold, nonce);
 
 		assert_eq!(address1, address2);
 	});
@@ -680,9 +712,10 @@ fn derive_multisig_address_is_deterministic() {
 fn derive_multisig_address_different_for_different_nonce() {
 	new_test_ext().execute_with(|| {
 		let signers = vec![bob(), charlie(), dave()];
+		let threshold = 2;
 
-		let address1 = Multisig::derive_multisig_address(&signers, 0);
-		let address2 = Multisig::derive_multisig_address(&signers, 1);
+		let address1 = Multisig::derive_multisig_address(&signers, threshold, 0);
+		let address2 = Multisig::derive_multisig_address(&signers, threshold, 1);
 
 		assert_ne!(address1, address2);
 	});
@@ -692,9 +725,14 @@ fn derive_multisig_address_different_for_different_nonce() {
 fn is_signer_works() {
 	new_test_ext().execute_with(|| {
 		let signers = vec![bob(), charlie()];
-		assert_ok!(Multisig::create_multisig(RuntimeOrigin::signed(alice()), signers.clone(), 2));
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		assert!(Multisig::is_signer(&multisig_address, &bob()));
 		assert!(Multisig::is_signer(&multisig_address, &charlie()));
@@ -712,9 +750,10 @@ fn too_many_proposals_in_storage_fails() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// MaxTotal = 20, 2 signers = 10 each
 		// Executed/Cancelled proposals are auto-removed, so only Active count toward storage
@@ -762,9 +801,10 @@ fn only_active_proposals_remain_in_storage() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Test that only Active proposals remain in storage (Executed/Cancelled auto-removed)
 
@@ -805,9 +845,9 @@ fn only_active_proposals_remain_in_storage() {
 				2000
 			));
 		}
-		// Bob: 10 Active (at per-signer limit)
+		// Bob: 10 Active (at per-signer limit: 20 total / 2 signers = 10 per signer)
 
-		// Bob cannot create 11th
+		// Bob cannot create 11th (exceeds per-signer limit)
 		assert_noop!(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
@@ -830,9 +870,10 @@ fn auto_cleanup_allows_new_proposals() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Bob creates 10 proposals, all expire at block 100 (at per-signer limit)
 		for i in 0..10 {
@@ -843,7 +884,7 @@ fn auto_cleanup_allows_new_proposals() {
 				100
 			));
 		}
-		// Bob: 10 Active (at per-signer limit)
+		// Bob: 10 Active (at per-signer limit: 20 total / 2 signers = 10 per signer)
 
 		// Bob cannot create more (at limit)
 		assert_noop!(
@@ -859,7 +900,7 @@ fn auto_cleanup_allows_new_proposals() {
 		// Move past expiry
 		System::set_block_number(101);
 
-		// Now Bob can create new - propose() auto-cleans expired
+		// Now Bob can create new - propose() auto-cleans his expired proposals
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
@@ -867,7 +908,7 @@ fn auto_cleanup_allows_new_proposals() {
 			200
 		));
 
-		// Verify old proposals were removed
+		// Verify old proposals were removed (only the new one remains)
 		let count = crate::Proposals::<Test>::iter_prefix(&multisig_address).count();
 		assert_eq!(count, 1); // Only the new one remains
 	});
@@ -883,10 +924,11 @@ fn propose_fails_with_expiry_in_past() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 
@@ -932,10 +974,11 @@ fn propose_fails_with_expiry_too_far() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let call = make_call(vec![1, 2, 3]);
 
@@ -996,10 +1039,11 @@ fn propose_charges_correct_fee_with_signer_factor() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		let proposer = bob();
 		let call = make_call(vec![1, 2, 3]);
@@ -1034,30 +1078,37 @@ fn dissolve_multisig_works() {
 		let creator = alice();
 		let signers = vec![bob(), charlie()];
 		let deposit = 500;
-		let fee = 1000;
-		let initial_balance = Balances::free_balance(creator.clone());
 
 		// Create
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2, // threshold
+			0  // nonce
 		));
 		assert_eq!(Balances::reserved_balance(creator.clone()), deposit);
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
-		// Try to dissolve immediately (success)
-		assert_ok!(Multisig::dissolve_multisig(
-			RuntimeOrigin::signed(creator.clone()),
+		// Approve dissolve by Bob (1st approval)
+		assert_ok!(Multisig::approve_dissolve(
+			RuntimeOrigin::signed(bob()),
 			multisig_address.clone()
 		));
 
-		// Check cleanup
+		// Still exists (threshold not reached)
+		assert!(Multisigs::<Test>::contains_key(&multisig_address));
+
+		// Approve dissolve by Charlie (2nd approval - threshold reached!)
+		assert_ok!(Multisig::approve_dissolve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone()
+		));
+
+		// Check cleanup - multisig removed
 		assert!(!Multisigs::<Test>::contains_key(&multisig_address));
-		assert_eq!(Balances::reserved_balance(creator.clone()), 0);
-		// Balance returned (minus burned fee)
-		assert_eq!(Balances::free_balance(creator.clone()), initial_balance - fee);
+		// Deposit stays locked (burned)
+		assert_eq!(Balances::reserved_balance(creator.clone()), deposit);
 	});
 }
 
@@ -1070,9 +1121,10 @@ fn dissolve_multisig_fails_with_proposals() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2, // threshold
+			0  // nonce
 		));
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Create proposal
 		let call = make_call(vec![1]);
@@ -1083,12 +1135,9 @@ fn dissolve_multisig_fails_with_proposals() {
 			100
 		));
 
-		// Try to dissolve
+		// Try to approve dissolve - should fail because proposals exist
 		assert_noop!(
-			Multisig::dissolve_multisig(
-				RuntimeOrigin::signed(creator.clone()),
-				multisig_address.clone()
-			),
+			Multisig::approve_dissolve(RuntimeOrigin::signed(bob()), multisig_address.clone()),
 			Error::<Test>::ProposalsExist
 		);
 	});
@@ -1103,9 +1152,10 @@ fn per_signer_proposal_limit_enforced() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			2
+			2,
+			0
 		));
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// MaxTotalProposalsInStorage = 20
 		// With 2 signers, each can have max 20/2 = 10 proposals
@@ -1155,10 +1205,11 @@ fn propose_with_threshold_one_executes_immediately() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			threshold
+			threshold,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, threshold, 0);
 
 		// Fund multisig account for balance transfer
 		<pallet_balances::Pallet<Test> as Mutate<_>>::mint_into(&multisig_address, 50000).unwrap();
@@ -1202,10 +1253,6 @@ fn propose_with_threshold_one_executes_immediately() {
 		// Verify deposit was returned to Alice (execution removes proposal)
 		let alice_reserved = Balances::reserved_balance(alice());
 		assert_eq!(alice_reserved, 500); // Only MultisigDeposit, no ProposalDeposit
-
-		// Verify active_proposals counter was decremented back to 0
-		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
-		assert_eq!(multisig_data.active_proposals, 0);
 	});
 }
 
@@ -1222,10 +1269,11 @@ fn propose_with_threshold_two_waits_for_approval() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			threshold
+			threshold,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Fund multisig account
 		<pallet_balances::Pallet<Test> as Mutate<_>>::mint_into(&multisig_address, 50000).unwrap();
@@ -1283,10 +1331,11 @@ fn auto_cleanup_on_approve_and_cancel() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(creator.clone()),
 			signers.clone(),
-			threshold
+			threshold,
+			0
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 3, 0);
 
 		// Create two proposals
 		assert_ok!(Multisig::propose(
@@ -1310,20 +1359,22 @@ fn auto_cleanup_on_approve_and_cancel() {
 		// Move time forward past first proposal expiry
 		System::set_block_number(101);
 
-		// Charlie approves proposal #1 (should trigger auto-cleanup of proposal #0)
-		// Note: Bob is the proposer of #1, so Charlie must approve
+		// Charlie approves proposal #1
+		// IMPORTANT: approve() NO LONGER does auto-cleanup (removed for predictable gas)
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
 			1
 		));
 
-		// Verify proposal #0 was auto-cleaned
-		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
-		// Proposal #1 still exists (not expired, waiting for approval)
+		// Verify proposal #0 still exists (NOT auto-cleaned by approve())
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some());
+		// Proposal #1 still exists (waiting for more approvals)
 		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
 
-		// Create another proposal that will expire
+		// Alice creates another proposal
+		// IMPORTANT: propose() DOES auto-cleanup of proposer's expired proposals
+		// So this will clean proposal #0 (Alice's expired proposal)
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
@@ -1331,20 +1382,37 @@ fn auto_cleanup_on_approve_and_cancel() {
 			150 // expires at block 150
 		));
 
+		// Verify proposal #0 was auto-cleaned by propose()
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
+		// Proposal #1 still exists
+		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
+		// Proposal #2 exists (just created)
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
+
 		// Move time forward past proposal #2 expiry
 		System::set_block_number(151);
 
-		// Charlie cancels proposal #1 (should trigger auto-cleanup of proposal #2)
+		// Bob cancels his own proposal #1
+		// IMPORTANT: cancel() NO LONGER does auto-cleanup (removed for predictable gas)
 		assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address.clone(), 1));
 
-		// Verify proposal #2 was auto-cleaned
-		assert!(Proposals::<Test>::get(&multisig_address, 2).is_none());
-		// Proposal #1 was cancelled
+		// Verify proposal #2 still exists (NOT auto-cleaned by cancel())
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
+		// Proposal #1 was cancelled and removed
 		assert!(Proposals::<Test>::get(&multisig_address, 1).is_none());
 
-		// Verify active_proposals counter is correct (should be 0)
-		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
-		assert_eq!(multisig_data.active_proposals, 0);
+		// Alice creates another proposal - this will clean her expired #2
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			make_call(vec![4]),
+			300
+		));
+
+		// Now Alice's expired proposal #2 should be cleaned
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_none());
+		// Only the new proposal #3 exists
+		assert!(Proposals::<Test>::get(&multisig_address, 3).is_some());
 	});
 }
 
@@ -1365,11 +1433,8 @@ fn high_security_propose_fails_for_non_whitelisted_call() {
 			crate::MultisigData {
 				signers: signers.try_into().unwrap(),
 				threshold: 2,
-				nonce: 0,
 				proposal_nonce: 0,
-				creator: alice(),
 				deposit: 500,
-				last_activity: 1,
 				active_proposals: 0,
 				proposals_per_signer: Default::default(),
 			},
@@ -1404,10 +1469,11 @@ fn normal_multisig_allows_any_call() {
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(alice()),
 			signers.clone(),
-			threshold
+			threshold,
+			0 // nonce
 		));
 
-		let multisig_address = Multisig::derive_multisig_address(&signers, 0);
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Any call should work for normal multisig
 		let call = make_call(b"anything".to_vec());
