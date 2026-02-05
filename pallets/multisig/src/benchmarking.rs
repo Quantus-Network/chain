@@ -94,6 +94,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: e, // We'll insert e expired proposals
@@ -182,6 +183,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: e,
@@ -282,6 +284,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: 1, // One active proposal
@@ -349,6 +352,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: 1, // We'll insert proposal with id 0
@@ -410,6 +414,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: 1,
@@ -472,6 +477,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: 1, // We'll insert proposal with id 0
@@ -541,6 +547,7 @@ mod benchmarks {
 		let multisig_address = Multisig::<T>::derive_multisig_address(&signers, threshold, 0);
 		let bounded_signers: BoundedSignersOf<T> = signers.clone().try_into().unwrap();
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce: p, // We'll insert p proposals with ids 0..p-1
@@ -612,6 +619,7 @@ mod benchmarks {
 		<T as crate::Config>::Currency::reserve(&caller, deposit)?;
 
 		let multisig_data = MultisigDataOf::<T> {
+			creator: caller.clone(),
 			signers: bounded_signers.clone(),
 			threshold,
 			proposal_nonce: 0,

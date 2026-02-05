@@ -54,8 +54,8 @@ Creates a new multisig account with deterministic address generation.
   - `signers=[alice, bob], threshold=2, nonce=1` → `address_B` (different!)
 
 **Economic Costs:**
-- **MultisigFee**: Non-refundable fee (spam prevention) → burned
-- **MultisigDeposit**: Locked deposit (storage bond) → burned when multisig dissolved
+- **MultisigFee**: Non-refundable fee (spam prevention) → burned immediately
+- **MultisigDeposit**: Reserved deposit (storage bond) → returned to creator when multisig dissolved
 
 ### 2. Propose Transaction
 Creates a new proposal for multisig execution.
@@ -215,15 +215,16 @@ Approve dissolving a multisig account. Requires threshold approvals to complete.
 - When threshold reached, multisig is automatically dissolved
 
 **Post-conditions (when threshold reached):**
-- MultisigDeposit is **burned** (NOT returned)
+- MultisigDeposit is **returned to creator**
 - Multisig removed from storage
 - DissolveApprovals cleared
 - Cannot be used after dissolution
 
-**Economic Costs:** None (but deposit is burned, not returned)
+**Economic Costs:** None (deposit returned to creator)
 
 **Important:** 
-- MultisigFee and MultisigDeposit are NEVER returned - both are permanently locked/burned
+- MultisigFee is NEVER returned (burned on creation)
+- MultisigDeposit IS returned to the original creator
 - Requires threshold approvals (not just any signer or creator)
 
 ## Use Cases
@@ -321,10 +322,11 @@ matches!(call,
 Stores multisig account data:
 ```rust
 MultisigData {
+    creator: AccountId,                                     // Original creator (receives deposit back on dissolve)
     signers: BoundedVec<AccountId>,                        // List of authorized signers (sorted)
     threshold: u32,                                         // Required approvals
     proposal_nonce: u32,                                    // Counter for unique proposal IDs
-    deposit: Balance,                                       // Reserved deposit (burned on dissolve)
+    deposit: Balance,                                       // Reserved deposit (returned to creator on dissolve)
     active_proposals: u32,                                  // Count of active proposals (for limits)
     proposals_per_signer: BoundedBTreeMap<AccountId, u32>,  // Per-signer proposal count (filibuster protection)
 }
@@ -527,7 +529,7 @@ impl pallet_multisig::Config for Runtime {
     
     // Economic parameters (example values - adjust per runtime)
     type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;      // Creation barrier (burned)
-    type MultisigDeposit = ConstU128<{ 500 * MILLI_UNIT }>;  // Storage bond (burned on dissolve)
+    type MultisigDeposit = ConstU128<{ 500 * MILLI_UNIT }>;  // Storage bond (returned to creator on dissolve)
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;     // Base proposal cost (burned)
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>; // Storage rent (refundable)
     type SignerStepFactor = Permill::from_percent(1);        // Dynamic pricing (1% per signer)

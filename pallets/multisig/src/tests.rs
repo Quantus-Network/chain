@@ -1107,8 +1107,8 @@ fn dissolve_multisig_works() {
 
 		// Check cleanup - multisig removed
 		assert!(!Multisigs::<Test>::contains_key(&multisig_address));
-		// Deposit stays locked (burned)
-		assert_eq!(Balances::reserved_balance(creator.clone()), deposit);
+		// Deposit was returned to creator (unreserved)
+		assert_eq!(Balances::reserved_balance(creator.clone()), 0);
 	});
 }
 
@@ -1431,6 +1431,7 @@ fn high_security_propose_fails_for_non_whitelisted_call() {
 		Multisigs::<Test>::insert(
 			&multisig_address,
 			crate::MultisigData {
+				creator: alice(),
 				signers: signers.try_into().unwrap(),
 				threshold: 2,
 				proposal_nonce: 0,

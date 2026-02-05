@@ -45,7 +45,9 @@ use sp_runtime::RuntimeDebug;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct MultisigData<BoundedSigners, Balance, BoundedProposalsPerSigner> {
+pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner> {
+	/// Account that created this multisig (receives deposit back on dissolve)
+	pub creator: AccountId,
 	/// List of signers who can approve transactions
 	pub signers: BoundedSigners,
 	/// Number of approvals required to execute a transaction
@@ -61,11 +63,16 @@ pub struct MultisigData<BoundedSigners, Balance, BoundedProposalsPerSigner> {
 	pub proposals_per_signer: BoundedProposalsPerSigner,
 }
 
-impl<BoundedSigners: Default, Balance: Default, BoundedProposalsPerSigner: Default> Default
-	for MultisigData<BoundedSigners, Balance, BoundedProposalsPerSigner>
+impl<
+		AccountId: Default,
+		BoundedSigners: Default,
+		Balance: Default,
+		BoundedProposalsPerSigner: Default,
+	> Default for MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
 {
 	fn default() -> Self {
 		Self {
+			creator: Default::default(),
 			signers: Default::default(),
 			threshold: 1,
 			proposal_nonce: 0,
@@ -220,8 +227,12 @@ pub mod pallet {
 		BoundedBTreeMap<<T as frame_system::Config>::AccountId, u32, <T as Config>::MaxSigners>;
 
 	/// Type alias for MultisigData with proper bounds
-	pub type MultisigDataOf<T> =
-		MultisigData<BoundedSignersOf<T>, BalanceOf<T>, BoundedProposalsPerSignerOf<T>>;
+	pub type MultisigDataOf<T> = MultisigData<
+		<T as frame_system::Config>::AccountId,
+		BoundedSignersOf<T>,
+		BalanceOf<T>,
+		BoundedProposalsPerSignerOf<T>,
+	>;
 
 	/// Type alias for ProposalData with proper bounds
 	pub type ProposalDataOf<T> = ProposalData<
@@ -318,7 +329,7 @@ pub mod pallet {
 		/// A multisig account was dissolved (threshold reached)
 		MultisigDissolved {
 			multisig_address: T::AccountId,
-			deposit_returned: BalanceOf<T>,
+			deposit_returned: T::AccountId, // Creator who receives the deposit back
 			approvers: Vec<T::AccountId>,
 		},
 	}
@@ -395,7 +406,7 @@ pub mod pallet {
 		///
 		/// Economic costs:
 		/// - MultisigFee: burned immediately (spam prevention)
-		/// - MultisigDeposit: locked until dissolution, then burned (storage bond)
+		/// - MultisigDeposit: reserved until dissolution, then returned to creator (storage bond)
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::create_multisig(signers.len() as u32))]
 		pub fn create_multisig(
@@ -454,6 +465,7 @@ pub mod pallet {
 			Multisigs::<T>::insert(
 				&multisig_address,
 				MultisigDataOf::<T> {
+					creator: creator.clone(),
 					signers: bounded_signers.clone(),
 					threshold,
 					proposal_nonce: 0,
@@ -903,7 +915,7 @@ pub mod pallet {
 		/// - Multisig account balance must be zero
 		///
 		/// When threshold is reached:
-		/// - Deposit is burned (stays locked forever)
+		/// - Deposit is returned to creator
 		/// - Multisig storage is removed
 		#[pallet::call_index(6)]
 		#[pallet::weight(<T as Config>::WeightInfo::dissolve_multisig())]
@@ -951,15 +963,19 @@ pub mod pallet {
 			if approvals_count >= multisig_data.threshold {
 				// Threshold reached - dissolve multisig
 				let deposit = multisig_data.deposit;
+				let creator = multisig_data.creator.clone();
 
-				// Remove multisig from storage (deposit stays locked/burned)
+				// Remove multisig from storage
 				Multisigs::<T>::remove(&multisig_address);
 				DissolveApprovals::<T>::remove(&multisig_address);
+
+				// Return deposit to creator
+				T::Currency::unreserve(&creator, deposit);
 
 				// Emit dissolved event
 				Self::deposit_event(Event::MultisigDissolved {
 					multisig_address,
-					deposit_returned: deposit,
+					deposit_returned: creator,
 					approvers: approvals.to_vec(),
 				});
 			} else {
