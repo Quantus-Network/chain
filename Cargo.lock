@@ -78,7 +78,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
- "const-random",
  "getrandom 0.3.4",
  "once_cell",
  "version_check",
@@ -7928,8 +7927,6 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 [[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e1e554181dc95243b8d9948ae7bae5759c7fb2502fed28f671f95ef38079406"
 dependencies = [
  "rayon",
 ]
@@ -7937,12 +7934,6 @@ dependencies = [
 [[package]]
 name = "plonky2_util"
 version = "1.0.0"
-
-[[package]]
-name = "plonky2_util"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c32c137808ca984ab2458b612b7eb0462d853ee041a3136e83d54b96074c7610"
 
 [[package]]
 name = "plotters"
@@ -8918,8 +8909,6 @@ dependencies = [
 [[package]]
 name = "qp-plonky2"
 version = "1.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39530b02faa85964bba211e030afa2d54995b403b0022f88e984c4c65679c4bc"
 dependencies = [
  "ahash",
  "anyhow",
@@ -8934,8 +8923,9 @@ dependencies = [
  "p3-poseidon2",
  "p3-symmetric",
  "plonky2_maybe_rayon",
- "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "qp-plonky2-field 1.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plonky2_util",
+ "qp-plonky2-field",
+ "qp-plonky2-verifier",
  "qp-poseidon-constants",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -8952,23 +8942,7 @@ dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
- "plonky2_util 1.0.0",
- "rustc_version 0.4.1",
- "serde",
- "static_assertions",
- "unroll",
-]
-
-[[package]]
-name = "qp-plonky2-field"
-version = "1.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8d52dadf3bb92708c309922b62d7f3f2587d3047f9fe05a0c9f587e2890526"
-dependencies = [
- "anyhow",
- "itertools 0.11.0",
- "num",
- "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plonky2_util",
  "rand 0.8.5",
  "rustc_version 0.4.1",
  "serde",
@@ -8991,8 +8965,8 @@ dependencies = [
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
- "plonky2_util 1.0.0",
- "qp-plonky2-field 1.1.3",
+ "plonky2_util",
+ "qp-plonky2-field",
  "qp-poseidon-constants",
  "serde",
  "static_assertions",
@@ -9299,9 +9273,7 @@ dependencies = [
  "qp-poseidon",
  "qp-scheduler",
  "qp-wormhole",
- "qp-wormhole-circuit",
  "qp-wormhole-verifier 0.1.8",
- "qp-zk-circuits-common",
  "scale-info",
  "serde_json",
  "sp-api",

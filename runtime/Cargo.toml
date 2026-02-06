@@ -53,13 +53,7 @@ qp-header = { workspace = true, features = ["serde"] }
 qp-poseidon = { workspace = true, features = ["serde"] }
 qp-scheduler.workspace = true
 qp-wormhole.workspace = true
-qp-wormhole-circuit = { workspace = true, default-features = false }
-qp-wormhole-verifier = { workspace = true, default-features = false, features = [
-	"no_random",
-] }
-qp-zk-circuits-common = { workspace = true, default-features = false, features = [
-	"no_random",
-] }
+qp-wormhole-verifier = { workspace = true, default-features = false }
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = [
 	"alloc",
