@@ -84,9 +84,9 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole_circuit::inputs::{AggregatedPublicCircuitInputs, PublicCircuitInputs};
-	use qp_wormhole_verifier::ProofWithPublicInputs;
-	use qp_zk_circuits_common::circuit::{C, D, F};
+	use qp_wormhole_verifier::{
+		parse_aggregated_public_inputs, parse_public_inputs, ProofWithPublicInputs, C, D, F,
+	};
 	use sp_runtime::{
 		traits::{MaybeDisplay, Saturating, StaticLookup, Zero},
 		transaction_validity::{
@@ -259,9 +259,9 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
 
-			// Parse public inputs using the existing parser
-			let public_inputs = PublicCircuitInputs::try_from(&proof)
-				.map_err(|_| Error::<T>::InvalidPublicInputs)?;
+			// Parse public inputs using the verifier's parser
+			let public_inputs =
+				parse_public_inputs(&proof).map_err(|_| Error::<T>::InvalidPublicInputs)?;
 
 			let nullifier_bytes = *public_inputs.nullifier;
 
@@ -507,9 +507,8 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::AggregatedVerificationFailed)?;
 
 			// Parse aggregated public inputs
-			let aggregated_inputs =
-				AggregatedPublicCircuitInputs::try_from_slice(&proof.public_inputs)
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let aggregated_inputs = parse_aggregated_public_inputs(&proof)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
 			// Verify all nullifiers haven't been used and then mark them as used
 			for nullifier in &aggregated_inputs.nullifiers {

@@ -19,9 +19,7 @@ pallet-balances.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
 qp-poseidon.workspace = true
 qp-wormhole.workspace = true
-qp-wormhole-circuit = { workspace = true, default-features = false }
 qp-wormhole-verifier = { workspace = true, default-features = false }
-qp-zk-circuits-common = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = [
 	"derive",
 ] }
@@ -64,10 +62,8 @@ std = [
 	"pallet-balances/std",
 	"qp-header/std",
 	"qp-poseidon/std",
-	"qp-wormhole-circuit/std",
 	"qp-wormhole-verifier/std",
 	"qp-wormhole/std",
-	"qp-zk-circuits-common/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
