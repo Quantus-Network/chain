@@ -6,12 +6,8 @@ use crate::{
 	Multisigs, Pallet as Multisig, ProposalDataOf, ProposalStatus, Proposals,
 };
 use alloc::vec;
-use frame_benchmarking::{account as benchmark_account, v2::*, BenchmarkError};
-use frame_support::{
-	traits::{fungible::Mutate, ReservableCurrency},
-	BoundedBTreeMap,
-};
-use frame_system::RawOrigin;
+use frame_benchmarking::v2::*;
+use frame_support::{traits::fungible::Mutate, BoundedBTreeMap};
 
 const SEED: u32 = 0;
 
@@ -36,11 +32,13 @@ where
 mod benchmarks {
 	use super::*;
 	use codec::Encode;
+	use frame_support::traits::ReservableCurrency;
+	use frame_system::RawOrigin;
 
+	/// Benchmark `create_multisig` extrinsic.
+	/// Parameter: s = signers count
 	#[benchmark]
-	fn create_multisig(
-		s: Linear<2, { T::MaxSigners::get() }>, // number of signers
-	) -> Result<(), BenchmarkError> {
+	fn create_multisig(s: Linear<2, { T::MaxSigners::get() }>) -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
 
 		// Fund the caller with enough balance for deposit
@@ -48,8 +46,8 @@ mod benchmarks {
 
 		// Create signers (including caller)
 		let mut signers = vec![caller.clone()];
-		for i in 0..s.saturating_sub(1) {
-			let signer: T::AccountId = benchmark_account("signer", i, SEED);
+		for n in 0..s.saturating_sub(1) {
+			let signer: T::AccountId = account("signer", n, SEED);
 			signers.push(signer);
 		}
 		let threshold = 2u32;
@@ -69,20 +67,33 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark `propose` extrinsic.
+	/// Parameters: c = call size, i = iterated proposals, r = removed (cleaned) proposals
 	#[benchmark]
 	fn propose(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
-		i: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, /* proposals iterated */
-		r: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, /* proposals removed (cleaned) */
+		i: Linear<0, { T::MaxTotalProposalsInStorage::get() }>,
+		r: Linear<0, { T::MaxTotalProposalsInStorage::get() }>,
 	) -> Result<(), BenchmarkError> {
-		// NOTE: In benchmark we set i == r (worst-case: all expired)
-		let e = i.max(r); // Use max for setup to ensure enough expired proposals
-					// Setup: Create a multisig with 3 signers (standard test case)
+		// Can't clean more proposals than we iterate
+		let cleaned_target = (r as u32).min(i);
+		// Total proposals = iterated (maps directly to iteration parameter)
+		// Edge case: when i == Max and cleaned_target == 0, all proposals remain
+		// after cleanup. propose() checks `total_in_storage < Max`, so cap to Max - 1.
+		// In runtime this combination results in TooManyProposalsInStorage error,
+		// but we still need the data point for accurate regression at nearby values.
+		let total_proposals = if i == T::MaxTotalProposalsInStorage::get() && cleaned_target == 0 {
+			T::MaxTotalProposalsInStorage::get() - 1
+		} else {
+			i
+		};
+
+		// Setup: Create a multisig with 3 signers (standard test case)
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
 
@@ -97,81 +108,90 @@ mod benchmarks {
 			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
-			proposal_nonce: e, // We'll insert e expired proposals
+			proposal_nonce: total_proposals,
 			deposit: T::MultisigDeposit::get(),
-			active_proposals: e,
+			active_proposals: total_proposals,
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Insert e expired proposals (measures iteration cost, not cleanup cost)
-		let expired_block = 10u32.into();
-		for i in 0..e {
-			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 10] };
-			let call = <T as Config>::RuntimeCall::from(system_call);
-			let encoded_call = call.encode();
-			let bounded_call: BoundedCallOf<T> = encoded_call.try_into().unwrap();
-			let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
+		// Build proposal template once - only expiry varies per proposal
+		let template_call: BoundedCallOf<T> = {
+			let system_call = frame_system::Call::<T>::remark { remark: vec![0u8; 10] };
+			<T as Config>::RuntimeCall::from(system_call).encode().try_into().unwrap()
+		};
+		let template_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
 
-			let proposal_data = ProposalDataOf::<T> {
-				proposer: caller.clone(),
-				call: bounded_call,
-				expiry: expired_block,
-				approvals: bounded_approvals,
-				deposit: 10u32.into(),
-				status: ProposalStatus::Active,
-			};
-			Proposals::<T>::insert(&multisig_address, i, proposal_data);
+		// Insert proposals: first `cleaned_target` are expired, rest are non-expired.
+		// This separates iteration cost (read all total_proposals) from cleanup cost
+		// (delete cleaned_target).
+		let expired_block = 10u32.into();
+		let future_block = 999999u32.into();
+		for idx in 0..total_proposals {
+			let expiry = if idx < cleaned_target { expired_block } else { future_block };
+			Proposals::<T>::insert(
+				&multisig_address,
+				idx,
+				ProposalDataOf::<T> {
+					proposer: caller.clone(),
+					call: template_call.clone(),
+					expiry,
+					approvals: template_approvals.clone(),
+					deposit: 10u32.into(),
+					status: ProposalStatus::Active,
+				},
+			);
 		}
 
-		// Move past expiry so proposals are expired
+		// Move past expired_block but before future_block
 		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
-		// Create a new proposal (will auto-cleanup all e expired proposals)
-		let system_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
-		let call = <T as Config>::RuntimeCall::from(system_call);
-		let encoded_call = call.encode();
+		// Create a new proposal (will auto-cleanup expired proposals only)
+		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
+		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), encoded_call, expiry);
 
-		// Verify new proposal was created and expired ones were cleaned
+		// Verify: non-expired proposals remain + 1 new proposal
 		let multisig = Multisigs::<T>::get(&multisig_address).unwrap();
-		assert_eq!(multisig.active_proposals, 1); // Only new proposal remains
+		let expected_active = (total_proposals - cleaned_target) + 1;
+		assert_eq!(multisig.active_proposals, expected_active);
 
 		Ok(())
 	}
 
+	/// Benchmark `propose` for high-security multisigs (includes decode + whitelist check).
+	/// Parameters: c = call size, i = iterated proposals, r = removed (cleaned) proposals
 	#[benchmark]
 	fn propose_high_security(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
-		i: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, /* proposals iterated */
-		r: Linear<0, { T::MaxTotalProposalsInStorage::get() }>, /* proposals removed (cleaned) */
+		i: Linear<0, { T::MaxTotalProposalsInStorage::get() }>,
+		r: Linear<0, { T::MaxTotalProposalsInStorage::get() }>,
 	) -> Result<(), BenchmarkError> {
-		// NOTE: In benchmark we set i == r (worst-case: all expired)
-		let e = i.max(r);
-		// Benchmarks propose() for high-security multisigs (includes decode + whitelist check)
-		// This is more expensive than normal propose due to:
+		// Can't clean more proposals than we iterate
+		let cleaned_target = (r as u32).min(i);
+		// Total proposals = i (maps directly to iteration parameter)
+		// Edge case: when i == Max and cleaned_target == 0, cap to Max - 1
+		// (same reasoning as propose)
+		let total_proposals = if i == T::MaxTotalProposalsInStorage::get() && cleaned_target == 0 {
+			T::MaxTotalProposalsInStorage::get() - 1
+		} else {
+			i
+		};
+
+		// More expensive than normal propose due to:
 		// 1. is_high_security() check (1 DB read from ReversibleTransfers::HighSecurityAccounts)
 		// 2. RuntimeCall decode (O(c) overhead - scales with call size)
 		// 3. is_whitelisted() pattern matching
-		//
-		// NOTE: This benchmark measures the OVERHEAD of high-security checks,
-		// not the functionality. The actual HighSecurity implementation is runtime-specific.
-		// Mock implementation in tests would need to recognize this multisig as HS,
-		// but for weight measurement, we're benchmarking the worst-case: full decode path.
-		//
-		// In production, the runtime's HighSecurityConfig will check:
-		// - pallet_reversible_transfers::HighSecurityAccounts storage
-		// - Pattern match against RuntimeCall variants
 
 		// Setup: Create a high-security multisig with 3 signers (standard test case)
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
 
@@ -186,9 +206,9 @@ mod benchmarks {
 			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
-			proposal_nonce: e,
+			proposal_nonce: total_proposals,
 			deposit: T::MultisigDeposit::get(),
-			active_proposals: e,
+			active_proposals: total_proposals,
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
@@ -210,35 +230,42 @@ mod benchmarks {
 			insert_hs_account_for_benchmark::<T>(multisig_address.clone(), hs_data);
 		}
 
-		// Insert e expired proposals (measures iteration cost, not cleanup cost)
-		let expired_block = 10u32.into();
-		for i in 0..e {
-			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 10] };
-			let call = <T as Config>::RuntimeCall::from(system_call);
-			let encoded_call = call.encode();
-			let bounded_call: BoundedCallOf<T> = encoded_call.try_into().unwrap();
-			let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
+		// Build proposal template once - only expiry varies per proposal
+		let template_call: BoundedCallOf<T> = {
+			let system_call = frame_system::Call::<T>::remark { remark: vec![0u8; 10] };
+			<T as Config>::RuntimeCall::from(system_call).encode().try_into().unwrap()
+		};
+		let template_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
 
-			let proposal_data = ProposalDataOf::<T> {
-				proposer: caller.clone(),
-				call: bounded_call,
-				expiry: expired_block,
-				approvals: bounded_approvals,
-				deposit: 10u32.into(),
-				status: ProposalStatus::Active,
-			};
-			Proposals::<T>::insert(&multisig_address, i, proposal_data);
+		// Insert proposals: first `cleaned_target` are expired, rest are non-expired.
+		// This separates iteration cost (read all total_proposals) from cleanup cost
+		// (delete cleaned_target).
+		let expired_block = 10u32.into();
+		let future_block = 999999u32.into();
+		for idx in 0..total_proposals {
+			let expiry = if idx < cleaned_target { expired_block } else { future_block };
+			Proposals::<T>::insert(
+				&multisig_address,
+				idx,
+				ProposalDataOf::<T> {
+					proposer: caller.clone(),
+					call: template_call.clone(),
+					expiry,
+					approvals: template_approvals.clone(),
+					deposit: 10u32.into(),
+					status: ProposalStatus::Active,
+				},
+			);
 		}
 
-		// Move past expiry so proposals are expired
+		// Move past expired_block but before future_block
 		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
 		// Create a whitelisted call for HS multisig
 		// Using system::remark with variable size to measure decode cost O(c)
 		// NOTE: system::remark is whitelisted ONLY in runtime-benchmarks mode
-		let system_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
-		let call = <T as Config>::RuntimeCall::from(system_call);
-		let encoded_call = call.encode();
+		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
+		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
 
 		// Verify we're testing with actual variable size
 		assert!(encoded_call.len() >= c as usize, "Call size should scale with parameter c");
@@ -248,28 +275,31 @@ mod benchmarks {
 		#[extrinsic_call]
 		propose(RawOrigin::Signed(caller.clone()), multisig_address.clone(), encoded_call, expiry);
 
-		// Verify new proposal was created and expired ones were cleaned
+		// Verify: non-expired proposals remain + 1 new proposal
 		let multisig = Multisigs::<T>::get(&multisig_address).unwrap();
-		assert_eq!(multisig.active_proposals, 1);
+		let expected_active = (total_proposals - cleaned_target) + 1;
+		assert_eq!(multisig.active_proposals, expected_active);
 
 		Ok(())
 	}
 
+	/// Benchmark `approve` extrinsic (without execution).
+	/// Parameter: c = call size (stored proposal call)
 	#[benchmark]
 	fn approve(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
 		// NOTE: approve() does NOT do auto-cleanup (removed for predictable gas costs)
-		// So we don't need to test with expired proposals (e parameter removed)
+		// So we don't need to test with expired proposals
 
 		// Setup: Create multisig and proposal directly in storage
 		// Threshold is 3, so adding one more approval won't trigger execution
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
-		let signer3: T::AccountId = benchmark_account("signer3", 2, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
+		let signer3: T::AccountId = account("signer3", 2, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
 		fund_account::<T>(&signer3, BalanceOf2::<T>::from(100000u128));
@@ -329,16 +359,17 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark `approve` when it triggers auto-execution (threshold reached).
+	/// Parameter: c = call size
 	#[benchmark]
 	fn approve_and_execute(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
-		// Benchmarks approve() when it triggers auto-execution (threshold reached)
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(10000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(10000u128));
 
@@ -401,8 +432,8 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 
 		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
 		let threshold = 2u32;
@@ -462,8 +493,8 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(10000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(10000u128));
 
@@ -520,20 +551,27 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark `claim_deposits` extrinsic.
+	/// Parameters: i = iterated proposals, r = removed (cleaned) proposals
 	#[benchmark]
 	fn claim_deposits(
-		i: Linear<1, { T::MaxTotalProposalsInStorage::get() }>, /* proposals iterated */
-		r: Linear<1, { T::MaxTotalProposalsInStorage::get() }>, /* proposals removed (cleaned) */
+		i: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
+		r: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
 	) -> Result<(), BenchmarkError> {
-		// NOTE: In benchmark we set i == r (worst-case: all expired)
-		let p = i.max(r);
+		// cleaned_target = min(r, i): can't clean more proposals than we iterate
+		let cleaned_target = (r as u32).min(i);
 
-		// Setup: Create multisig with 3 signers and multiple expired proposals
+		// Total proposals = i (maps directly to iteration parameter)
+		// No edge case needed here: claim_deposits doesn't create a new proposal,
+		// so there's no `total < Max` check to worry about.
+		let total_proposals = i;
+
+		// Setup: Create multisig with 3 signers and multiple proposals
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(100000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100000u128));
 		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100000u128));
 
@@ -550,47 +588,50 @@ mod benchmarks {
 			creator: caller.clone(),
 			signers: bounded_signers,
 			threshold,
-			proposal_nonce: p, // We'll insert p proposals with ids 0..p-1
+			proposal_nonce: total_proposals,
 			deposit: T::MultisigDeposit::get(),
-			active_proposals: p,
+			active_proposals: total_proposals,
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, multisig_data);
 
-		// Create multiple expired proposals directly in storage
-		// NOTE: All proposals are expired and belong to caller, so:
-		//   - total_iterated = p (what we measure)
-		//   - cleaned = p (side effect)
-		// We charge for iteration cost, not cleanup count!
-		let expiry = 10u32.into(); // Already expired
+		// Build proposal template once - only expiry varies per proposal
+		let template_call: BoundedCallOf<T> = {
+			let system_call = frame_system::Call::<T>::remark { remark: vec![0u8; 32] };
+			<T as Config>::RuntimeCall::from(system_call).encode().try_into().unwrap()
+		};
+		let template_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
 
-		for i in 0..p {
-			let system_call = frame_system::Call::<T>::remark { remark: vec![i as u8; 32] };
-			let call = <T as Config>::RuntimeCall::from(system_call);
-			let encoded_call = call.encode();
-			let bounded_call: BoundedCallOf<T> = encoded_call.clone().try_into().unwrap();
-			let bounded_approvals: BoundedApprovalsOf<T> = vec![caller.clone()].try_into().unwrap();
-
-			let proposal_data = ProposalDataOf::<T> {
-				proposer: caller.clone(),
-				call: bounded_call,
-				expiry,
-				approvals: bounded_approvals,
-				deposit: 10u32.into(),
-				status: ProposalStatus::Active,
-			};
-
-			Proposals::<T>::insert(&multisig_address, i, proposal_data);
+		// Insert proposals: first `cleaned_target` are expired, rest are non-expired.
+		// This separates iteration cost (read all total_proposals) from cleanup cost
+		// (delete cleaned_target).
+		let expired_block = 10u32.into();
+		let future_block = 999999u32.into();
+		for idx in 0..total_proposals {
+			let expiry = if idx < cleaned_target { expired_block } else { future_block };
+			Proposals::<T>::insert(
+				&multisig_address,
+				idx,
+				ProposalDataOf::<T> {
+					proposer: caller.clone(),
+					call: template_call.clone(),
+					expiry,
+					approvals: template_approvals.clone(),
+					deposit: 10u32.into(),
+					status: ProposalStatus::Active,
+				},
+			);
 		}
 
-		// Move past expiry
+		// Move past expired_block but before future_block
 		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), multisig_address.clone());
 
-		// Verify all expired proposals were cleaned up
-		assert_eq!(Proposals::<T>::iter_key_prefix(&multisig_address).count(), 0);
+		// Verify: only non-expired proposals remain
+		let remaining = Proposals::<T>::iter_key_prefix(&multisig_address).count() as u32;
+		assert_eq!(remaining, total_proposals - cleaned_target);
 
 		Ok(())
 	}
@@ -601,8 +642,8 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf2::<T>::from(10000u128));
 
-		let signer1: T::AccountId = benchmark_account("signer1", 0, SEED);
-		let signer2: T::AccountId = benchmark_account("signer2", 1, SEED);
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
 
 		let mut signers = vec![caller.clone(), signer1.clone(), signer2.clone()];
 		let threshold = 2u32;

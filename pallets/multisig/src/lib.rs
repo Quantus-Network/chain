@@ -122,7 +122,8 @@ pub mod pallet {
 	use codec::Encode;
 	use frame_support::{
 		dispatch::{
-			DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo, Pays, PostDispatchInfo,
+			DispatchErrorWithPostInfo, DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo,
+			Pays, PostDispatchInfo,
 		},
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
@@ -523,23 +524,45 @@ pub mod pallet {
 			// CRITICAL: Check call size FIRST, before any heavy operations (especially decode)
 			// This prevents DoS via oversized payloads that would be decoded before size validation
 			let call_size = call.len() as u32;
-			ensure!(call_size <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
+			if call_size > T::MaxCallSize::get() {
+				return Self::err_with_weight(Error::<T>::CallTooLarge, 0);
+			}
 
-			// Check if proposer is a signer
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
+			// Check if proposer is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&proposer) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
 
 			// High-security check: if multisig is high-security, only whitelisted calls allowed
 			// Size already validated above, so decode is now safe
+			// (2 reads: Multisigs + HighSecurityAccounts)
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
 			if is_high_security {
-				let decoded_call = <T as Config>::RuntimeCall::decode(&mut &call[..])
-					.map_err(|_| Error::<T>::InvalidCall)?;
-				ensure!(
-					T::HighSecurity::is_whitelisted(&decoded_call),
-					Error::<T>::CallNotAllowedForHighSecurityMultisig
-				);
+				let decoded_call =
+					<T as Config>::RuntimeCall::decode(&mut &call[..]).map_err(|_| {
+						DispatchErrorWithPostInfo {
+							post_info: PostDispatchInfo {
+								actual_weight: Some(T::DbWeight::get().reads(2)),
+								pays_fee: Pays::Yes,
+							},
+							error: Error::<T>::InvalidCall.into(),
+						}
+					})?;
+				if !T::HighSecurity::is_whitelisted(&decoded_call) {
+					return Self::err_with_weight(
+						Error::<T>::CallNotAllowedForHighSecurityMultisig,
+						2,
+					);
+				}
 			}
 
 			// Auto-cleanup ALL proposer's expired proposals before creating new one
@@ -714,23 +737,46 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
-			// Check if approver is a signer
-			let multisig_data = Self::ensure_is_signer(&multisig_address, &approver)?;
+			// Check if approver is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&approver) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
 
-			// Get proposal
-			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-				.ok_or(Error::<T>::ProposalNotFound)?;
+			// Get proposal (2 reads: Multisigs + Proposals)
+			let mut proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(2)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
 
 			// Calculate actual weight based on real call size
 			let actual_call_size = proposal.call.len() as u32;
 			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
-			// Check if not expired
+			// Check if not expired (2 reads already performed)
 			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(current_block <= proposal.expiry, Error::<T>::ProposalExpired);
+			if current_block > proposal.expiry {
+				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+			}
 
-			// Check if already approved
-			ensure!(!proposal.approvals.contains(&approver), Error::<T>::AlreadyApproved);
+			// Check if already approved (2 reads already performed)
+			if proposal.approvals.contains(&approver) {
+				return Self::err_with_weight(Error::<T>::AlreadyApproved, 2);
+			}
 
 			// Add approval
 			proposal
@@ -776,15 +822,27 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let canceller = ensure_signed(origin)?;
 
-			// Get proposal
-			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-				.ok_or(Error::<T>::ProposalNotFound)?;
+			// Get proposal (1 read: Proposals)
+			let proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(1)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
 
-			// Check if caller is the proposer
-			ensure!(canceller == proposal.proposer, Error::<T>::NotProposer);
+			// Check if caller is the proposer (1 read already performed)
+			if canceller != proposal.proposer {
+				return Self::err_with_weight(Error::<T>::NotProposer, 1);
+			}
 
-			// Check if proposal is still active
-			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
+			// Check if proposal is still active (1 read already performed)
+			if proposal.status != ProposalStatus::Active {
+				return Self::err_with_weight(Error::<T>::ProposalNotActive, 1);
+			}
 
 			// Remove proposal from storage and return deposit immediately
 			Self::remove_proposal_and_return_deposit(
@@ -988,6 +1046,18 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Return an error with actual weight consumed instead of charging full upfront weight.
+		/// Use for early exits where minimal work was performed.
+		fn err_with_weight(error: Error<T>, reads: u64) -> DispatchResultWithPostInfo {
+			Err(DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo {
+					actual_weight: Some(T::DbWeight::get().reads(reads)),
+					pays_fee: Pays::Yes,
+				},
+				error: error.into(),
+			})
+		}
+
 		/// Derive a deterministic multisig address from signers, threshold, and nonce
 		///
 		/// The address is computed as: hash(pallet_id || sorted_signers || threshold || nonce)
