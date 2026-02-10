@@ -21,13 +21,15 @@ let multisig_addr = Multisig::derive_multisig_address(&[bob, charlie, dave], 2, 
 let call = RuntimeCall::Balances(pallet_balances::Call::transfer { dest: eve, value: 100 });
 Multisig::propose(Origin::signed(bob), multisig_addr, call.encode(), expiry_block);
 
-// 3. Charlie approves - transaction executes automatically (2/2 threshold reached)
+// 3. Charlie approves (2/2 threshold reached → proposal status becomes Approved)
 Multisig::approve(Origin::signed(charlie), multisig_addr, proposal_id);
-// ✅ Transaction executed! No separate call needed.
+
+// 4. Any signer executes the approved proposal
+Multisig::execute(Origin::signed(charlie), multisig_addr, proposal_id);
+// ✅ Transaction executed! Proposal removed from storage, deposit returned to proposer.
 ```
 
-**Key Point:** Once the threshold is reached, the transaction is **automatically executed**. 
-There is no separate `execute()` call exposed to users.
+**Key Point:** Approval and execution are **separate**. When the threshold is reached, the proposal status becomes `Approved`; any signer must then call `execute()` to dispatch the call.
 
 ## Core Functionality
 
@@ -74,24 +76,10 @@ Creates a new proposal for multisig execution.
 - Expiry must be in the future (expiry > current_block)
 - Expiry must not exceed MaxExpiryDuration blocks from now (expiry ≤ current_block + MaxExpiryDuration)
 
-**Auto-Cleanup Before Creation:**
-Before creating a new proposal, the system **automatically removes all proposer's expired Active proposals**:
-- Only proposer's expired proposals are cleaned (not all proposals)
-- Expired proposals are identified (current_block > expiry)
-- Deposits are returned to original proposer
-- Storage is cleaned up
-- Counters are decremented (active_proposals, proposals_per_signer)
-- Events are emitted for each removed proposal
+**No auto-cleanup in propose:** The pallet does **not** remove expired proposals when creating a new one. To free slots and recover deposits from expired proposals, the proposer must call `claim_deposits()` or any signer can call `remove_expired()` for individual proposals.
 
-This ensures proposers get their deposits back and free up their quota automatically.
-
-**Threshold=1 Auto-Execution:**
-If the multisig has `threshold=1`, the proposal **executes immediately** after creation:
-- Proposer's approval counts as the first (and only required) approval
-- Call is dispatched automatically
-- Proposal is removed from storage immediately
-- Deposit is returned to proposer immediately
-- No separate `approve()` call needed
+**Threshold=1 behaviour:**
+If the multisig has `threshold=1`, the proposal becomes **Approved** immediately after creation (proposer counts as the only required approval). The proposer (or any signer) must then call `execute()` to dispatch the call and remove the proposal.
 
 **Economic Costs:**
 - **ProposalFee**: Non-refundable fee (spam prevention, scaled by signer count) → burned
@@ -100,8 +88,7 @@ If the multisig has `threshold=1`, the proposal **executes immediately** after c
 **Important:** Fee is ALWAYS paid, even if proposal expires or is cancelled. Only deposit is refundable.
 
 ### 3. Approve Transaction
-Adds caller's approval to an existing proposal. **If this approval brings the total approvals 
-to or above the threshold, the transaction will be automatically executed and immediately removed from storage.**
+Adds caller's approval to an existing proposal. **If this approval brings the total approvals to or above the threshold, the proposal status becomes `Approved`**; the call is **not** executed here—use `execute()` for that.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -109,20 +96,16 @@ to or above the threshold, the transaction will be automatically executed and im
 
 **Validation:**
 - Caller must be a signer
-- Proposal must exist
+- Proposal must exist and be Active
 - Proposal must not be expired (current_block ≤ expiry)
 - Caller must not have already approved
 
-**Auto-Execution:**
-When approval count reaches the threshold:
-- Encoded call is executed as multisig_address origin
-- Proposal **immediately removed** from storage
-- ProposalDeposit **immediately returned** to proposer
-- TransactionExecuted event emitted with execution result
+**When threshold is reached:**
+- Proposal status is set to `Approved`
+- `ProposalReadyToExecute` event is emitted
+- Any signer can then call `execute()` to dispatch the call
 
-**Economic Costs:** None (deposit immediately returned on execution)
-
-**Note:** `approve()` does NOT perform auto-cleanup of expired proposals (removed for predictable gas costs).
+**Economic Costs:** None (deposit is returned when the proposal is executed or cancelled).
 
 ### 4. Cancel Transaction
 Cancels a proposal and immediately removes it from storage (proposer only).
@@ -133,7 +116,7 @@ Cancels a proposal and immediately removes it from storage (proposer only).
 
 **Validation:**
 - Caller must be the proposer
-- Proposal must exist and be Active
+- Proposal must exist and be **Active or Approved** (both can be cancelled)
 
 **Economic Effects:**
 - Proposal **immediately removed** from storage
@@ -142,14 +125,30 @@ Cancels a proposal and immediately removes it from storage (proposer only).
 
 **Economic Costs:** None (deposit immediately returned)
 
-**Note:** 
-- ProposalFee is NOT refunded - it was burned at proposal creation.
-- `cancel()` does NOT perform auto-cleanup of expired proposals (removed for predictable gas costs).
+**Note:** ProposalFee is NOT refunded (it was burned at proposal creation).
 
-### 5. Remove Expired
-Manually removes expired proposals from storage. Only signers can call this.
+### 5. Execute Transaction
+Dispatches an **Approved** proposal. Can be called by any signer of the multisig once the approval threshold has been reached.
 
-**Important:** This is rarely needed because proposer's expired proposals are automatically cleaned up when that proposer calls `propose()` or `claim_deposits()`.
+**Required Parameters:**
+- `multisig_address: AccountId` - Target multisig (REQUIRED)
+- `proposal_id: u32` - ID (nonce) of the proposal to execute (REQUIRED)
+
+**Validation:**
+- Caller must be a signer
+- Proposal must exist and have status **Approved**
+- Proposal must not be expired (current_block ≤ expiry)
+
+**Effects:**
+- Call is decoded and dispatched with multisig_address as origin
+- Proposal is removed from storage
+- ProposalDeposit is returned to the proposer
+- `ProposalExecuted` event is emitted
+
+**Economic Costs:** Weight depends on call size (charged upfront for MaxCallSize, refunded for actual size).
+
+### 6. Remove Expired
+Manually removes a single expired **Active** proposal from storage. Only signers can call this. Deposit is returned to the original proposer.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -160,7 +159,7 @@ Manually removes expired proposals from storage. Only signers can call this.
 - Proposal must exist and be Active
 - Must be expired (current_block > expiry)
 
-**Note:** Executed/Cancelled proposals are automatically removed immediately, so this only applies to Active+Expired proposals.
+**Note:** Executed/Cancelled proposals are removed immediately when executed/cancelled. This extrinsic only applies to **Active** proposals that are past expiry.
 
 **Economic Effects:**
 - ProposalDeposit returned to **original proposer** (not caller)
@@ -169,9 +168,7 @@ Manually removes expired proposals from storage. Only signers can call this.
 
 **Economic Costs:** None (deposit always returned to proposer)
 
-**Auto-Cleanup:** When a proposer calls `propose()`, all their expired proposals are automatically removed. This function is useful for cleaning up proposals from inactive proposers.
-
-### 6. Claim Deposits
+### 7. Claim Deposits
 Batch cleanup operation to recover all caller's expired proposal deposits.
 
 **Required Parameters:**
@@ -193,12 +190,11 @@ Batch cleanup operation to recover all caller's expired proposal deposits.
 - Counters decremented (active_proposals, proposals_per_signer)
 
 **Economic Costs:** 
-- Gas cost proportional to total proposals in storage (iteration cost)
-- Dynamic weight refund based on actual proposals cleaned
+- Gas cost proportional to proposals iterated and cleaned (dynamic weight; charged upfront for worst-case, refunded for actual work)
 
-**Note:** Same functionality as the auto-cleanup in `propose()`, but caller can trigger it manually without creating a new proposal.
+**Note:** This is the main way to clean up a proposer's expired proposals and free per-signer quota (there is no auto-cleanup in `propose()`).
 
-### 7. Approve Dissolve
+### 8. Approve Dissolve
 Approve dissolving a multisig account. Requires threshold approvals to complete.
 
 **Required Parameters:**
@@ -273,22 +269,16 @@ matches!(call,
 
 - **MultisigDeposit**:
   - Reserved on multisig creation
-  - **Burned** when multisig dissolved (via `approve_dissolve`)
+  - **Returned to creator** when multisig is dissolved (via `approve_dissolve` after threshold approvals)
   - Locked until no proposals exist and balance is zero
   - Opportunity cost incentivizes cleanup
-  - **NOT refundable** (acts as permanent storage bond)
   
 - **ProposalDeposit**:
   - Reserved on proposal creation
   - **Refundable** - returned in following scenarios:
-  - **Auto-Returned Immediately:**
-    - When proposal executed (threshold reached)
-    - When proposal cancelled (proposer cancels)
-  - **Auto-Cleanup:** Proposer's expired proposals are automatically removed when proposer calls `propose()`
-    - Only proposer's proposals are cleaned (not all)
-    - Deposits returned to proposer
-    - Frees up proposer's quota automatically
-  - **Manual Cleanup:** For inactive proposers via `remove_expired()` or `claim_deposits()`
+  - **When proposal is executed:** Any signer calls `execute()` on an Approved proposal → deposit returned to proposer
+  - **When proposal is cancelled:** Proposer calls `cancel()` (Active or Approved) → deposit returned to proposer
+  - **Expired proposals:** No auto-cleanup in `propose()`. Proposer recovers deposits via `claim_deposits()`; any signer can remove a single expired proposal via `remove_expired()` (deposit → proposer)
 
 ### Storage Limits & Configuration
 **Purpose:** Prevent unbounded storage growth and resource exhaustion
@@ -296,10 +286,9 @@ matches!(call,
 - **MaxSigners**: Maximum signers per multisig
   - Trade-off: Higher → more flexible governance, more computation per approval
   
-- **MaxTotalProposalsInStorage**: Maximum total proposals (Active + Executed + Cancelled)
+- **MaxTotalProposalsInStorage**: Maximum total proposals (Active + Approved; Executed/Cancelled are removed immediately)
   - Trade-off: Higher → more flexible, more storage risk
-  - Forces periodic cleanup to continue operating
-  - **Auto-cleanup**: Expired proposals are automatically removed when new proposals are created
+  - Forces periodic cleanup to continue operating (via `claim_deposits()` or `remove_expired()`)
   - **Per-Signer Limit**: Each signer gets `MaxTotalProposalsInStorage / signers_count` quota
     - Prevents single signer from monopolizing storage (filibuster protection)
     - Fair allocation ensures all signers can participate
@@ -343,11 +332,17 @@ ProposalData {
     expiry: BlockNumber,                // Deadline for approvals
     approvals: BoundedVec<AccountId>,   // List of signers who approved
     deposit: Balance,                   // Reserved deposit (refundable)
-    status: ProposalStatus,             // Active only (Executed/Cancelled are removed immediately)
+    status: ProposalStatus,             // Active | Approved (Executed/Cancelled are removed immediately)
+}
+
+enum ProposalStatus {
+    Active,    // Collecting approvals
+    Approved,  // Threshold reached; any signer can call execute()
+    // Executed and Cancelled are not stored — proposal is removed immediately
 }
 ```
 
-**Important:** Only **Active** proposals are stored. Executed and Cancelled proposals are **immediately removed** from storage and their deposits are returned. Historical data is available through events (see Historical Data section below).
+**Important:** Only **Active** and **Approved** proposals are stored. When a proposal is executed or cancelled, it is **immediately removed** from storage and the deposit is returned. Historical data is available through events (see Historical Data section below).
 
 ### DissolveApprovals: Map<AccountId, BoundedVec<AccountId>>
 Tracks which signers have approved dissolving each multisig.
@@ -360,6 +355,7 @@ Tracks which signers have approved dissolving each multisig.
 - `MultisigCreated { creator, multisig_address, signers, threshold, nonce }`
 - `ProposalCreated { multisig_address, proposer, proposal_id }`
 - `ProposalApproved { multisig_address, approver, proposal_id, approvals_count }`
+- `ProposalReadyToExecute { multisig_address, proposal_id, approvals_count }` — emitted when threshold is reached (approve or propose with threshold=1); proposal is Approved until someone calls `execute()`
 - `ProposalExecuted { multisig_address, proposal_id, proposer, call, approvers, result }`
 - `ProposalCancelled { multisig_address, proposer, proposal_id }`
 - `ProposalRemoved { multisig_address, proposal_id, proposer, removed_by }`
@@ -390,7 +386,8 @@ Tracks which signers have approved dissolving each multisig.
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
 - `TooManyProposalsPerSigner` - Caller has reached their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
-- `ProposalNotActive` - Proposal is not active (already executed or cancelled)
+- `ProposalNotActive` - Proposal is not active or approved (already executed or cancelled)
+- `ProposalNotApproved` - Proposal is not in Approved status (for `execute()`)
 - `ProposalsExist` - Cannot dissolve multisig while proposals exist
 - `MultisigAccountNotZero` - Cannot dissolve multisig with non-zero balance
 
@@ -484,12 +481,12 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - Deposits (refundable) prevent storage bloat
 - MaxTotalProposalsInStorage caps total storage per multisig
 - Per-signer limits prevent single signer from monopolizing storage (filibuster protection)
-- Auto-cleanup of expired proposals reduces storage pressure
+- Explicit cleanup (claim_deposits, remove_expired) keeps storage under control
 
 ### Storage Cleanup
-- Auto-cleanup in `propose()`: proposer's expired proposals removed automatically
-- Manual cleanup via `remove_expired()`: any signer can clean any expired proposal
-- Batch cleanup via `claim_deposits()`: proposer recovers all their expired deposits at once
+- No auto-cleanup in `propose()` (predictable weight; proposer must free slots via cleanup)
+- Manual cleanup via `remove_expired()`: any signer can remove a single expired Active proposal (deposit → proposer)
+- Batch cleanup via `claim_deposits()`: proposer recovers all their expired proposal deposits at once and frees per-signer quota
 
 ### Economic Attacks
 - **Multisig Spam:** Costs MultisigFee (burned, reduces supply)
@@ -523,7 +520,7 @@ impl pallet_multisig::Config for Runtime {
     
     // Storage limits (prevent unbounded growth)
     type MaxSigners = ConstU32<100>;                    // Max complexity
-    type MaxTotalProposalsInStorage = ConstU32<200>;    // Total storage cap (auto-cleanup on propose)
+    type MaxTotalProposalsInStorage = ConstU32<200>;    // Total storage cap (cleanup via claim_deposits/remove_expired)
     type MaxCallSize = ConstU32<10240>;                 // Per-proposal storage limit
     type MaxExpiryDuration = ConstU32<100_800>;         // Max proposal lifetime (~2 weeks @ 12s)
     
@@ -681,27 +678,14 @@ High-security multisigs have higher costs due to call validation:
 Normal multisigs automatically get refunded for unused high-security overhead.
 
 **Weight calculation:**
-- `propose()` charges upfront for worst-case: 
-  - `propose_high_security(call.len(), MaxTotalProposalsInStorage, MaxTotalProposalsInStorage.saturating_div(2))`
-  - Second parameter (`i`): worst-case proposals iterated (MaxTotal)
-  - Third parameter (`r`): worst-case proposals removed/cleaned (MaxTotal/2, based on 2-signer minimum)
-- Actual weight based on:
-  - Call size (actual, not worst-case)
-  - Proposals actually iterated during cleanup (`i`)
-  - Proposals actually removed/cleaned (`r`)
-- If multisig is NOT HS, refunds decode overhead based on actual path taken
-- If multisig IS HS, charges correctly for decode cost (scales with call size)
-- Auto-cleanup returns both iteration count AND cleaned count for accurate weight calculation
+- `propose()` charges upfront for worst-case high-security path: `propose_high_security(call.len())`. Actual weight refunded based on path: `propose(call_size)` for normal multisig, `propose_high_security(call_size)` for HS. No cleanup in propose (no iteration/cleanup parameters).
+- `execute()` charges upfront for `execute(MaxCallSize)`; actual weight refunded as `execute(actual_call_size)`.
+- `claim_deposits()` charges upfront for worst-case iteration and cleanup; actual weight based on proposals iterated and cleaned (dynamic refund).
 
 **Security notes:**
 - Call size is validated BEFORE decode to prevent DoS via oversized payloads
-- Weight formula includes O(call_size) component for decode to prevent underpayment
-- **Separate charging for iteration cost (reads) vs cleanup cost (writes)**:
-  - `i` parameter: proposals iterated (O(N) read cost)
-  - `r` parameter: proposals removed (O(M) write cost, where M ≤ N)
-- No refund for the iteration that actually happened (prevents undercharging attack)
-- Single-pass optimization: cleanup counts proposals during iteration (no extra pass needed)
-- Benchmarks must be regenerated to capture accurate decode costs
+- Weight formula includes O(call_size) component for decode (HS path) to prevent underpayment
+- Benchmarks must be regenerated after logic changes (see README / MULTISIG_REQ benchmarking section)
 
 See `MULTISIG_REQ.md` for detailed cost breakdown and benchmarking instructions.
 

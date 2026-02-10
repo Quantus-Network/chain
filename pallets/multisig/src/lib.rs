@@ -88,6 +88,8 @@ impl<
 pub enum ProposalStatus {
 	/// Proposal is active and awaiting approvals
 	Active,
+	/// Proposal has reached threshold and is ready to execute
+	Approved,
 	/// Proposal was executed successfully
 	Executed,
 	/// Proposal was cancelled by proposer
@@ -290,6 +292,12 @@ pub mod pallet {
 			proposal_id: u32,
 			approvals_count: u32,
 		},
+		/// A proposal has reached threshold and is ready to execute
+		ProposalReadyToExecute {
+			multisig_address: T::AccountId,
+			proposal_id: u32,
+			approvals_count: u32,
+		},
 		/// A proposal has been executed
 		/// Contains all data needed for indexing by SubSquid
 		ProposalExecuted {
@@ -383,6 +391,8 @@ pub mod pallet {
 		ProposalNotExpired,
 		/// Proposal is not active (already executed or cancelled)
 		ProposalNotActive,
+		/// Proposal has not been approved yet (threshold not reached)
+		ProposalNotApproved,
 		/// Cannot dissolve multisig with existing proposals (clear them first)
 		ProposalsExist,
 		/// Multisig account must have zero balance before dissolution
@@ -504,14 +514,10 @@ pub mod pallet {
 		///
 		/// **For threshold=1:** If the multisig threshold is 1, the proposal executes immediately.
 		///
-		/// **Weight:** Charged based on whether multisig is high-security or not.
-		/// High-security multisigs incur additional cost for decode + whitelist check.
+		/// **Weight:** Charged upfront for worst-case (high-security path with decode).
+		/// Refunded to actual cost on success based on whether HS path was taken.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(
-		call.len() as u32,
-		T::MaxTotalProposalsInStorage::get(),  // Worst-case iterated
-		T::MaxTotalProposalsInStorage::get().saturating_div(2)  // Worst-case cleaned (MaxTotal / 2 signers)
-	))]
+		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(call.len() as u32))]
 		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
@@ -565,26 +571,13 @@ pub mod pallet {
 				}
 			}
 
-			// Auto-cleanup ALL proposer's expired proposals before creating new one
-			// This is the primary cleanup mechanism for active multisigs
-			// Returns: (cleaned_count, total_proposals_iterated)
-			// - cleaned_count: proposals removed (O(M) write cost)
-			// - total_proposals_iterated: proposals iterated (O(N) read cost, where N >= M)
-			let (cleaned, total_proposals_iterated) =
-				Self::cleanup_proposer_expired(&multisig_address, &proposer, &proposer);
-
-			// Reload multisig data after potential cleanup
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-
 			let current_block = frame_system::Pallet::<T>::block_number();
 
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
-			// Check total proposals in storage limit (Active + Executed + Cancelled)
-			// This incentivizes cleanup and prevents unbounded storage growth
-			// NOTE: After cleanup, so this is the NEW count (post-cleanup)
+			// Check total proposals in storage limit
+			// Users must call claim_deposits() or remove_expired() to free space
 			let total_proposals_in_storage =
 				Proposals::<T>::iter_prefix(&multisig_address).count() as u32;
 			ensure!(
@@ -690,27 +683,23 @@ pub mod pallet {
 			// Check if threshold is reached immediately (threshold=1 case)
 			// Proposer is already counted as first approval
 			if 1 >= multisig_data.threshold {
-				// Threshold reached - execute immediately
-				// Need to get proposal again since we inserted it
-				let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-					.ok_or(Error::<T>::ProposalNotFound)?;
-				Self::do_execute(multisig_address, proposal_id, proposal)?;
+				Proposals::<T>::mutate(&multisig_address, proposal_id, |maybe_proposal| {
+					if let Some(ref mut p) = maybe_proposal {
+						p.status = ProposalStatus::Approved;
+					}
+				});
+				Self::deposit_event(Event::ProposalReadyToExecute {
+					multisig_address: multisig_address.clone(),
+					proposal_id,
+					approvals_count: 1,
+				});
 			}
 
-			// Calculate actual weight based on call size, proposals iterated, and cleaned
-			// Accurate charging based on actual work performed:
-			// - total_proposals_iterated: O(N) read cost
-			// - cleaned: O(M) write cost (where M <= N)
+			// Refund weight: HS path was charged upfront, refund if non-HS
 			let actual_weight = if is_high_security {
-				// Used high-security path (decode + whitelist check)
-				<T as Config>::WeightInfo::propose_high_security(
-					call_size,
-					total_proposals_iterated,
-					cleaned,
-				)
+				<T as Config>::WeightInfo::propose_high_security(call_size)
 			} else {
-				// Used normal path (no decode overhead)
-				<T as Config>::WeightInfo::propose(call_size, total_proposals_iterated, cleaned)
+				<T as Config>::WeightInfo::propose(call_size)
 			};
 
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
@@ -719,14 +708,13 @@ pub mod pallet {
 		/// Approve a proposed transaction
 		///
 		/// If this approval brings the total approvals to or above the threshold,
-		/// the transaction will be automatically executed.
+		/// the proposal status changes to `Approved` and can be executed via `execute()`.
 		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to approve
 		///
 		/// Weight: Charges for MAX call size, refunds based on actual
-		/// NOTE: approve() does NOT do auto-cleanup (removed for predictable gas costs)
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get()))]
 		#[allow(clippy::useless_conversion)]
@@ -786,6 +774,14 @@ pub mod pallet {
 
 			let approvals_count = proposal.approvals.len() as u32;
 
+			// Check if threshold is reached - if so, mark as Approved
+			if approvals_count >= multisig_data.threshold {
+				proposal.status = ProposalStatus::Approved;
+			}
+
+			// Save proposal
+			Proposals::<T>::insert(&multisig_address, proposal_id, &proposal);
+
 			// Emit approval event
 			Self::deposit_event(Event::ProposalApproved {
 				multisig_address: multisig_address.clone(),
@@ -794,13 +790,13 @@ pub mod pallet {
 				approvals_count,
 			});
 
-			// Check if threshold is reached - if so, execute immediately
-			if approvals_count >= multisig_data.threshold {
-				// Execute the transaction
-				Self::do_execute(multisig_address, proposal_id, proposal)?;
-			} else {
-				// Not ready yet, just save the proposal
-				Proposals::<T>::insert(&multisig_address, proposal_id, proposal);
+			// Emit ready-to-execute event if threshold just reached
+			if proposal.status == ProposalStatus::Approved {
+				Self::deposit_event(Event::ProposalReadyToExecute {
+					multisig_address,
+					proposal_id,
+					approvals_count,
+				});
 			}
 
 			// Return actual weight (refund overpayment)
@@ -839,8 +835,10 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::NotProposer, 1);
 			}
 
-			// Check if proposal is still active (1 read already performed)
-			if proposal.status != ProposalStatus::Active {
+			// Check if proposal is cancellable (Active or Approved)
+			if proposal.status != ProposalStatus::Active &&
+				proposal.status != ProposalStatus::Approved
+			{
 				return Self::err_with_weight(Error::<T>::ProposalNotActive, 1);
 			}
 
@@ -959,6 +957,76 @@ pub mod pallet {
 			// - cleaned: O(M) write cost (where M <= N)
 			let actual_weight =
 				<T as Config>::WeightInfo::claim_deposits(total_proposals_iterated, cleaned);
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
+		}
+
+		/// Execute an approved proposal
+		///
+		/// Can be called by any signer of the multisig once the proposal has reached
+		/// the approval threshold (status = Approved). The proposal must not be expired.
+		///
+		/// On execution:
+		/// - The call is decoded and dispatched as the multisig account
+		/// - Proposal is removed from storage
+		/// - Deposit is returned to the proposer
+		///
+		/// Parameters:
+		/// - `multisig_address`: The multisig account
+		/// - `proposal_id`: ID (nonce) of the proposal to execute
+		#[pallet::call_index(7)]
+		#[pallet::weight(<T as Config>::WeightInfo::execute(T::MaxCallSize::get()))]
+		#[allow(clippy::useless_conversion)]
+		pub fn execute(
+			origin: OriginFor<T>,
+			multisig_address: T::AccountId,
+			proposal_id: u32,
+		) -> DispatchResultWithPostInfo {
+			let executor = ensure_signed(origin)?;
+
+			// Check if executor is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&executor) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
+
+			// Get proposal (2 reads: Multisigs + Proposals)
+			let proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(2)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
+
+			// Must be Approved status
+			if proposal.status != ProposalStatus::Approved {
+				return Self::err_with_weight(Error::<T>::ProposalNotApproved, 2);
+			}
+
+			// Must not be expired
+			let current_block = frame_system::Pallet::<T>::block_number();
+			if current_block > proposal.expiry {
+				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+			}
+
+			// Calculate actual weight based on real call size
+			let actual_call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::execute(actual_call_size);
+
+			// Execute the proposal
+			Self::do_execute(multisig_address, proposal_id, proposal)?;
+
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 

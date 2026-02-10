@@ -5,6 +5,7 @@ use codec::Encode;
 use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate};
 use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
+use sp_runtime::DispatchError;
 
 /// Mock implementation for HighSecurityInspector
 pub struct MockHighSecurity;
@@ -60,6 +61,18 @@ fn make_call(remark: Vec<u8>) -> Vec<u8> {
 fn get_last_proposal_id(multisig_address: &AccountId32) -> u32 {
 	let multisig = Multisigs::<Test>::get(multisig_address).expect("Multisig should exist");
 	multisig.proposal_nonce.saturating_sub(1)
+}
+
+/// Assert that a DispatchResultWithPostInfo is Err with the expected error variant,
+/// ignoring the PostDispatchInfo (actual_weight).
+fn assert_err_ignore_postinfo(
+	result: sp_runtime::DispatchResultWithInfo<frame_support::dispatch::PostDispatchInfo>,
+	expected: DispatchError,
+) {
+	match result {
+		Err(err) => assert_eq!(err.error, expected),
+		Ok(_) => panic!("Expected Err({:?}), got Ok", expected),
+	}
 }
 
 // ==================== MULTISIG CREATION TESTS ====================
@@ -286,9 +299,9 @@ fn propose_fails_if_not_signer() {
 
 		// Try to propose as non-signer
 		let call = make_call(vec![1, 2, 3]);
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(RuntimeOrigin::signed(dave()), multisig_address.clone(), call, 1000),
-			Error::<Test>::NotASigner
+			Error::<Test>::NotASigner.into(),
 		);
 	});
 }
@@ -346,7 +359,7 @@ fn approve_works() {
 }
 
 #[test]
-fn approve_auto_executes_when_threshold_reached() {
+fn approve_sets_approved_when_threshold_reached() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -371,20 +384,44 @@ fn approve_auto_executes_when_threshold_reached() {
 
 		let proposal_id = get_last_proposal_id(&multisig_address);
 
-		// Charlie approves - threshold reached (2/2), auto-executes and removes
+		// Charlie approves - threshold reached (2/2), status becomes Approved
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
 			proposal_id
 		));
 
-		// Check that proposal was executed and immediately removed from storage
+		// Proposal should still exist with Approved status
+		let proposal = crate::Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		// Deposit should still be reserved (not returned until execute)
+		assert!(Balances::reserved_balance(bob()) > 0);
+
+		// Check ProposalReadyToExecute event
+		System::assert_has_event(
+			Event::ProposalReadyToExecute {
+				multisig_address: multisig_address.clone(),
+				proposal_id,
+				approvals_count: 2,
+			}
+			.into(),
+		);
+
+		// Now any signer can execute
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Now proposal is removed
 		assert!(crate::Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
 
-		// Deposit should be returned immediately
-		assert_eq!(Balances::reserved_balance(bob()), 0); // No longer reserved
+		// Deposit returned
+		assert_eq!(Balances::reserved_balance(bob()), 0);
 
-		// Check event was emitted
+		// Check execution event
 		System::assert_has_event(
 			Event::ProposalExecuted {
 				multisig_address,
@@ -474,17 +511,24 @@ fn cancel_fails_if_already_executed() {
 
 		let proposal_id = get_last_proposal_id(&multisig_address);
 
-		// Approve to execute (auto-executes and removes proposal)
+		// Approve (reaches threshold → Approved)
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
 			proposal_id
 		));
 
+		// Execute (removes proposal from storage)
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
 		// Try to cancel executed proposal (already removed, so ProposalNotFound)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address.clone(), proposal_id),
-			Error::<Test>::ProposalNotFound
+			Error::<Test>::ProposalNotFound.into(),
 		);
 	});
 }
@@ -537,7 +581,7 @@ fn remove_expired_works_after_grace_period() {
 }
 
 #[test]
-fn executed_proposals_auto_removed() {
+fn executed_proposals_removed_from_storage() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -562,20 +606,27 @@ fn executed_proposals_auto_removed() {
 
 		let proposal_id = get_last_proposal_id(&multisig_address);
 
-		// Execute - should auto-remove proposal and return deposit
+		// Approve → Approved
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
 			proposal_id
 		));
 
-		// Proposal should be immediately removed
+		// Execute → removed from storage, deposit returned
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Proposal should be removed
 		assert!(crate::Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
 
-		// Deposit should be immediately returned
+		// Deposit should be returned
 		assert_eq!(Balances::reserved_balance(bob()), 0);
 
-		// Trying to remove again should fail (already removed)
+		// Trying to remove again should fail
 		assert_noop!(
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(charlie()),
@@ -806,9 +857,10 @@ fn only_active_proposals_remain_in_storage() {
 		));
 		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
-		// Test that only Active proposals remain in storage (Executed/Cancelled auto-removed)
+		// Test that only Active/Approved proposals remain in storage
+		// (Executed/Cancelled are removed)
 
-		// Bob creates 10, executes 5, cancels 1 - only 4 active remain
+		// Bob creates 10, approves+executes 5, cancels 1 - only 4 active remain
 		for i in 0..10 {
 			let call = make_call(vec![i as u8]);
 			assert_ok!(Multisig::propose(
@@ -820,7 +872,14 @@ fn only_active_proposals_remain_in_storage() {
 
 			if i < 5 {
 				let id = get_last_proposal_id(&multisig_address);
+				// Approve → Approved
 				assert_ok!(Multisig::approve(
+					RuntimeOrigin::signed(charlie()),
+					multisig_address.clone(),
+					id
+				));
+				// Execute → removed
+				assert_ok!(Multisig::execute(
 					RuntimeOrigin::signed(charlie()),
 					multisig_address.clone(),
 					id
@@ -861,7 +920,7 @@ fn only_active_proposals_remain_in_storage() {
 }
 
 #[test]
-fn auto_cleanup_allows_new_proposals() {
+fn per_signer_limit_blocks_new_proposals_until_cleanup() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -900,7 +959,24 @@ fn auto_cleanup_allows_new_proposals() {
 		// Move past expiry
 		System::set_block_number(101);
 
-		// Now Bob can create new - propose() auto-cleans his expired proposals
+		// propose() no longer auto-cleans, so Bob is still blocked
+		assert_noop!(
+			Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				make_call(vec![99]),
+				200
+			),
+			Error::<Test>::TooManyProposalsPerSigner
+		);
+
+		// Bob must explicitly claim deposits to free space
+		assert_ok!(Multisig::claim_deposits(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+		));
+
+		// Now Bob can create new
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
@@ -908,9 +984,9 @@ fn auto_cleanup_allows_new_proposals() {
 			200
 		));
 
-		// Verify old proposals were removed (only the new one remains)
+		// Verify: old expired removed by claim_deposits, plus the new one
 		let count = crate::Proposals::<Test>::iter_prefix(&multisig_address).count();
-		assert_eq!(count, 1); // Only the new one remains
+		assert_eq!(count, 1);
 	});
 }
 
@@ -1193,7 +1269,7 @@ fn per_signer_proposal_limit_enforced() {
 }
 
 #[test]
-fn propose_with_threshold_one_executes_immediately() {
+fn propose_with_threshold_one_sets_approved() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -1216,7 +1292,7 @@ fn propose_with_threshold_one_executes_immediately() {
 
 		let initial_dave_balance = Balances::free_balance(dave());
 
-		// Alice proposes a transfer - should execute immediately since threshold=1
+		// Alice proposes a transfer - threshold=1, so immediately Approved
 		let transfer_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 			dest: dave(),
 			value: 1000,
@@ -1229,28 +1305,37 @@ fn propose_with_threshold_one_executes_immediately() {
 			100
 		));
 
-		let proposal_id = 0; // First proposal
+		let proposal_id = 0;
 
-		// Verify the proposal was executed immediately (should NOT exist anymore)
-		assert!(Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
+		// Proposal should be Approved (not executed yet)
+		let proposal = Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
 
-		// Verify the transfer actually happened
-		assert_eq!(Balances::free_balance(dave()), initial_dave_balance + 1000);
+		// Transfer hasn't happened yet
+		assert_eq!(Balances::free_balance(dave()), initial_dave_balance);
 
-		// Verify ProposalExecuted event was emitted
+		// Check ProposalReadyToExecute event
 		System::assert_has_event(
-			Event::ProposalExecuted {
+			Event::ProposalReadyToExecute {
 				multisig_address: multisig_address.clone(),
 				proposal_id,
-				proposer: alice(),
-				call: transfer_call.encode(),
-				approvers: vec![alice()],
-				result: Ok(()),
+				approvals_count: 1,
 			}
 			.into(),
 		);
 
-		// Verify deposit was returned to Alice (execution removes proposal)
+		// Any signer can now execute
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Now the transfer happened
+		assert_eq!(Balances::free_balance(dave()), initial_dave_balance + 1000);
+
+		// Proposal removed, deposit returned
+		assert!(Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
 		let alice_reserved = Balances::reserved_balance(alice());
 		assert_eq!(alice_reserved, 500); // Only MultisigDeposit, no ProposalDeposit
 	});
@@ -1303,23 +1388,35 @@ fn propose_with_threshold_two_waits_for_approval() {
 		// Verify the transfer did NOT happen yet
 		assert_eq!(Balances::free_balance(dave()), initial_dave_balance);
 
-		// Bob approves - NOW it should execute (threshold=2 reached)
+		// Bob approves - threshold=2 reached → Approved
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(bob()),
 			multisig_address.clone(),
 			proposal_id
 		));
 
-		// Now proposal should be executed and removed
-		assert!(Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
+		// Proposal should be Approved but NOT removed
+		let proposal = Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
 
-		// Verify the transfer happened
+		// Transfer NOT yet happened
+		assert_eq!(Balances::free_balance(dave()), initial_dave_balance);
+
+		// Now execute
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Now proposal removed and transfer happened
+		assert!(Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
 		assert_eq!(Balances::free_balance(dave()), initial_dave_balance + 1000);
 	});
 }
 
 #[test]
-fn auto_cleanup_on_approve_and_cancel() {
+fn no_auto_cleanup_on_propose_approve_cancel() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -1359,60 +1456,41 @@ fn auto_cleanup_on_approve_and_cancel() {
 		// Move time forward past first proposal expiry
 		System::set_block_number(101);
 
-		// Charlie approves proposal #1
-		// IMPORTANT: approve() NO LONGER does auto-cleanup (removed for predictable gas)
+		// approve() does NOT auto-cleanup
 		assert_ok!(Multisig::approve(
 			RuntimeOrigin::signed(charlie()),
 			multisig_address.clone(),
 			1
 		));
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some()); // expired but still there
 
-		// Verify proposal #0 still exists (NOT auto-cleaned by approve())
-		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some());
-		// Proposal #1 still exists (waiting for more approvals)
-		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
-
-		// Alice creates another proposal
-		// IMPORTANT: propose() DOES auto-cleanup of proposer's expired proposals
-		// So this will clean proposal #0 (Alice's expired proposal)
+		// propose() does NOT auto-cleanup either
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
 			make_call(vec![3]),
-			150 // expires at block 150
+			150
 		));
-
-		// Verify proposal #0 was auto-cleaned by propose()
-		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
-		// Proposal #1 still exists
+		// Proposal #0 still exists - not auto-cleaned
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some());
 		assert!(Proposals::<Test>::get(&multisig_address, 1).is_some());
-		// Proposal #2 exists (just created)
 		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
 
-		// Move time forward past proposal #2 expiry
+		// cancel() does NOT auto-cleanup
 		System::set_block_number(151);
-
-		// Bob cancels his own proposal #1
-		// IMPORTANT: cancel() NO LONGER does auto-cleanup (removed for predictable gas)
 		assert_ok!(Multisig::cancel(RuntimeOrigin::signed(bob()), multisig_address.clone(), 1));
+		assert!(Proposals::<Test>::get(&multisig_address, 1).is_none()); // cancelled
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_some()); // expired, still there
+		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some()); // expired, still there
 
-		// Verify proposal #2 still exists (NOT auto-cleaned by cancel())
-		assert!(Proposals::<Test>::get(&multisig_address, 2).is_some());
-		// Proposal #1 was cancelled and removed
-		assert!(Proposals::<Test>::get(&multisig_address, 1).is_none());
-
-		// Alice creates another proposal - this will clean her expired #2
-		assert_ok!(Multisig::propose(
+		// Only explicit cleanup works: claim_deposits or remove_expired
+		assert_ok!(Multisig::claim_deposits(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
-			make_call(vec![4]),
-			300
 		));
-
-		// Now Alice's expired proposal #2 should be cleaned
+		// Alice's expired proposals (#0, #2) now cleaned
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
 		assert!(Proposals::<Test>::get(&multisig_address, 2).is_none());
-		// Only the new proposal #3 exists
-		assert!(Proposals::<Test>::get(&multisig_address, 3).is_some());
 	});
 }
 
@@ -1443,9 +1521,9 @@ fn high_security_propose_fails_for_non_whitelisted_call() {
 
 		// Try to propose a non-whitelisted call (remark without "safe")
 		let call = make_call(b"unsafe".to_vec());
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address.clone(), call, 1000),
-			Error::<Test>::CallNotAllowedForHighSecurityMultisig
+			Error::<Test>::CallNotAllowedForHighSecurityMultisig.into(),
 		);
 
 		// Try to propose a whitelisted call (remark with "safe") - should work
