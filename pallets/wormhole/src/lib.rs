@@ -566,6 +566,17 @@ pub mod pallet {
 			)> = Vec::with_capacity(aggregated_inputs.account_data.len());
 
 			for account_data in &aggregated_inputs.account_data {
+				// Skip dummy account slots (exit_account == 0 with zero amount)
+				// Dummy proofs from aggregation padding have all-zero exit accounts
+				let exit_account_bytes: [u8; 32] = (*account_data.exit_account)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				if exit_account_bytes == [0u8; 32] && account_data.summed_output_amount == 0 {
+					continue;
+				}
+
 				// Convert output amount to Balance type (scale up from quantized value)
 				let exit_balance_u128 = (account_data.summed_output_amount as u128)
 					.saturating_mul(crate::SCALE_DOWN_FACTOR);
@@ -574,10 +585,6 @@ pub mod pallet {
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
 				// Decode exit account from public inputs
-				let exit_account_bytes: [u8; 32] = (*account_data.exit_account)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 				let exit_account =
 					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
 						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
