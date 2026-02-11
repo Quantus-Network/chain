@@ -499,16 +499,22 @@ pub mod pallet {
 				proof_bytes,
 				&verifier.circuit_data.common,
 			)
-			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
+			.map_err(|e| {
+				log::error!("Failed to deserialize aggregated proof: {:?}", e);
+				Error::<T>::AggregatedProofDeserializationFailed
+			})?;
 
 			// Verify the aggregated proof
-			verifier
-				.verify(proof.clone())
-				.map_err(|_| Error::<T>::AggregatedVerificationFailed)?;
+			verifier.verify(proof.clone()).map_err(|e| {
+				log::error!("Aggregated proof verification failed: {:?}", e);
+				Error::<T>::AggregatedVerificationFailed
+			})?;
 
 			// Parse aggregated public inputs
-			let aggregated_inputs = parse_aggregated_public_inputs(&proof)
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let aggregated_inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
+				log::error!("Failed to parse aggregated public inputs: {:?}", e);
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
 
 			// Verify all nullifiers haven't been used and then mark them as used
 			for nullifier in &aggregated_inputs.nullifiers {
@@ -528,7 +534,6 @@ pub mod pallet {
 
 			// Check if block number is not in the future
 			let current_block = frame_system::Pallet::<T>::block_number();
-			// TODO: is this check necessary?
 			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
 
 			// Get the block hash for the specified block number
@@ -573,16 +578,17 @@ pub mod pallet {
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
-				if exit_account_bytes == [0u8; 32] && account_data.summed_output_amount == 0 {
+				if exit_account_bytes == [0u8; 32] || account_data.summed_output_amount == 0 {
 					continue;
 				}
 
 				// Convert output amount to Balance type (scale up from quantized value)
 				let exit_balance_u128 = (account_data.summed_output_amount as u128)
 					.saturating_mul(crate::SCALE_DOWN_FACTOR);
-				let exit_balance: BalanceOf<T> = exit_balance_u128
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				let exit_balance: BalanceOf<T> = exit_balance_u128.try_into().map_err(|_| {
+					log::error!("Failed to convert exit_balance at idx {}", idx);
+					Error::<T>::InvalidAggregatedPublicInputs
+				})?;
 
 				// Decode exit account from public inputs
 				let exit_account =
@@ -603,9 +609,10 @@ pub mod pallet {
 			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
 			// This is the fee that was deducted from input to get output.
 			let fee_bps = T::VolumeFeeRateBps::get() as u128;
-			let total_exit_u128: u128 = total_exit_amount
-				.try_into()
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let total_exit_u128: u128 = total_exit_amount.try_into().map_err(|_| {
+				log::error!("Failed to convert total_exit_amount to u128");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
 			let total_fee_u128 = total_exit_u128
 				.saturating_mul(fee_bps)
 				.checked_div(10000u128.saturating_sub(fee_bps))
@@ -614,26 +621,33 @@ pub mod pallet {
 			// Fee distribution: configurable portion burned, remainder to miner
 			//
 			// Original deposit locked `input_amount` in an unspendable account (tokens still
-			// exist). On exit we mint `output_amount` to user, where: input = output + fee
+			// exist). On exit we mint `output_amount` to user, where: input >= output + fee
 			//
 			// Fee split (controlled by VolumeFeesBurnRate):
 			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
 			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
 			//
 			// Supply accounting:
-			//   - Minting exit amounts: increases total issuance by sum(output_amounts)
+			//   - Minting exit amounts: increases balances but NOT issuance by sum(output_amounts)
 			//   - Minting miner fee: increases balance but NOT issuance (increase_balance)
 			//   - Burning: decreases total issuance by burn_amount
 			//   - Net change: +sum(output_amounts) - burn_amount
 			let burn_rate = T::VolumeFeesBurnRate::get();
 			let burn_amount_u128 = burn_rate * total_fee_u128;
 			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
-			let miner_fee: BalanceOf<T> = miner_fee_u128
-				.try_into()
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-			let burn_amount: BalanceOf<T> = burn_amount_u128
-				.try_into()
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+			log::debug!(
+				"Fee calculation done: miner_fee={:?}, burn_amount={:?}",
+				miner_fee,
+				burn_amount
+			);
 
 			// Burn the burned portion by reducing total issuance
 			// This offsets the supply increase from minting exit amounts + miner_fee
