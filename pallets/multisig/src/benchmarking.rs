@@ -107,6 +107,11 @@ mod benchmarks {
 		frame_system::Pallet::<T>::set_block_number(n.into());
 	}
 
+	/// Returns a Vec of MaxSigners account IDs for worst-case approvals decode cost.
+	fn approvals_max<T: Config>() -> Vec<T::AccountId> {
+		(0..T::MaxSigners::get()).map(|i| account("approval", i, SEED)).collect()
+	}
+
 	/// Insert a single proposal into storage. `approvals` = list of account ids that have approved.
 	fn insert_proposal<T: Config>(
 		multisig_address: &T::AccountId,
@@ -223,60 +228,65 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// Benchmark `approve` extrinsic (without execution). Threshold 3, so 1 approval added → 2/3.
+	/// Benchmark `approve` extrinsic (without execution). Uses MaxSigners for worst-case approvals
+	/// decode. Threshold = MaxSigners, 99 approvals pre-stored, approver adds 100th.
 	/// Parameter: c = call size (stored proposal call)
 	#[benchmark]
 	fn approve(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
-		let (caller, signers) = setup_funded_signer_set::<T>(4); // caller + 3 signers
-		let threshold = 3u32;
+		let max_s = T::MaxSigners::get();
+		let (caller, signers) = setup_funded_signer_set::<T>(max_s);
+		let threshold = max_s;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
+		// Worst-case approvals decode: threshold-1 approvals (99 for MaxSigners=100)
+		let approvals: Vec<_> = signers[0..threshold as usize - 1].to_vec();
 		insert_proposal::<T>(
 			&multisig_address,
 			0,
 			&caller,
 			c,
 			expiry,
-			&[caller.clone()],
+			&approvals,
 			ProposalStatus::Active,
 			10u32.into(),
 		);
-		let signer1 = signers[1].clone();
+		let approver = signers[threshold as usize - 1].clone();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(signer1), multisig_address.clone(), 0u32);
+		_(RawOrigin::Signed(approver), multisig_address.clone(), 0u32);
 
 		let proposal = Proposals::<T>::get(&multisig_address, 0).unwrap();
-		assert!(proposal.approvals.len() == 2);
+		assert_eq!(proposal.approvals.len(), threshold as usize);
 		Ok(())
 	}
 
 	/// Benchmark `execute` extrinsic (dispatches an Approved proposal).
-	/// Parameter: c = call size
+	/// Uses MaxSigners approvals for worst-case decode. Parameter: c = call size
 	#[benchmark]
 	fn execute(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
-		let (caller, signers) = setup_funded_signer_set::<T>(3);
-		let threshold = 2u32;
+		let max_s = T::MaxSigners::get();
+		let (caller, signers) = setup_funded_signer_set::<T>(max_s);
+		let threshold = max_s;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
-		// Approved = caller + signers[1] (2/2)
+		// Worst-case approvals decode: MaxSigners approvals (Approved)
 		insert_proposal::<T>(
 			&multisig_address,
 			0,
 			&caller,
 			c,
 			expiry,
-			&[caller.clone(), signers[1].clone()],
+			&signers,
 			ProposalStatus::Approved,
 			10u32.into(),
 		);
-		let executor = signers[2].clone();
+		let executor = signers[0].clone();
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(executor), multisig_address.clone(), 0u32);
@@ -285,7 +295,8 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// Benchmark `cancel` extrinsic. Parameter: c = stored proposal call size
+	/// Benchmark `cancel` extrinsic. Uses MaxSigners approvals for worst-case decode.
+	/// Parameter: c = stored proposal call size
 	#[benchmark]
 	fn cancel(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
@@ -295,13 +306,14 @@ mod benchmarks {
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
+		let approvals = approvals_max::<T>();
 		insert_proposal::<T>(
 			&multisig_address,
 			0,
 			&caller,
 			c,
 			expiry,
-			&[caller.clone()],
+			&approvals,
 			ProposalStatus::Active,
 			T::ProposalDeposit::get(),
 		);
@@ -314,7 +326,8 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// Benchmark `remove_expired` extrinsic. Parameter: c = stored proposal call size
+	/// Benchmark `remove_expired` extrinsic. Uses MaxSigners approvals for worst-case decode.
+	/// Parameter: c = stored proposal call size
 	#[benchmark]
 	fn remove_expired(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
@@ -323,13 +336,14 @@ mod benchmarks {
 		let threshold = 2u32;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
 		let expiry = 10u32.into();
+		let approvals = approvals_max::<T>();
 		insert_proposal::<T>(
 			&multisig_address,
 			0,
 			&caller,
 			c,
 			expiry,
-			&[caller.clone()],
+			&approvals,
 			ProposalStatus::Active,
 			10u32.into(),
 		);
@@ -342,8 +356,8 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// Benchmark `claim_deposits` extrinsic.
-	/// Parameters: i = iterated proposals, r = removed (cleaned) proposals,
+	/// Benchmark `claim_deposits` extrinsic. Uses MaxSigners approvals per proposal for worst-case
+	/// decode. Parameters: i = iterated proposals, r = removed (cleaned) proposals,
 	/// c = average stored call size (affects iteration cost)
 	#[benchmark]
 	fn claim_deposits(
@@ -359,6 +373,7 @@ mod benchmarks {
 		let multisig_address =
 			insert_multisig::<T>(&caller, &signers, threshold, 0, total_proposals, total_proposals);
 
+		let approvals = approvals_max::<T>();
 		let expired_block = 10u32.into();
 		let future_block = 999999u32.into();
 		for idx in 0..total_proposals {
@@ -369,7 +384,7 @@ mod benchmarks {
 				&caller,
 				c,
 				expiry,
-				&[caller.clone()],
+				&approvals,
 				ProposalStatus::Active,
 				10u32.into(),
 			);
