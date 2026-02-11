@@ -599,23 +599,34 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 	}
 
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
-		// Runtime-level whitelist: only reversible-transfers operations allowed
 		#[cfg(feature = "runtime-benchmarks")]
 		{
-			// For benchmarking: allow system::remark to measure O(c) decode overhead
-			if matches!(call, RuntimeCall::System(frame_system::Call::remark { .. })) {
-				return true;
-			}
+			// Production whitelist + remark for propose_high_security benchmark
+			matches!(
+				call,
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::cancel { .. }
+				) | RuntimeCall::System(frame_system::Call::remark { .. })
+			)
 		}
 
-		matches!(
-			call,
-			RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(
-				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. })
-		)
+		#[cfg(not(feature = "runtime-benchmarks"))]
+		{
+			matches!(
+				call,
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::cancel { .. }
+				)
+			)
+		}
 	}
 
 	fn guardian(who: &AccountId) -> Option<AccountId> {

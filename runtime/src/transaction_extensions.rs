@@ -195,7 +195,11 @@ mod tests {
 			assert_ok!(result);
 
 			// All other calls are disallowed for high-security accounts
-			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+			// (use transfer_keep_alive - not in whitelist for prod or runtime-benchmarks)
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
 			let result = check_call(call);
 			assert_eq!(
 				result.unwrap_err(),

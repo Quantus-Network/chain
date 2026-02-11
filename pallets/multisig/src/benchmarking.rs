@@ -26,7 +26,7 @@ where
 
 #[benchmarks(
 	where
-	T: Config + pallet_balances::Config + pallet_reversible_transfers::Config,
+	T: Config + pallet_balances::Config,
 	BalanceOf2<T>: From<u128>,
 )]
 mod benchmarks {
@@ -34,6 +34,7 @@ mod benchmarks {
 	use codec::Encode;
 	use frame_support::traits::ReservableCurrency;
 	use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
+	use qp_high_security::HighSecurityInspector;
 
 	// ---------- Reusable setup helpers (keep benchmark bodies focused on what we measure)
 	// ----------
@@ -53,6 +54,24 @@ mod benchmarks {
 			fund_account::<T>(&s, BalanceOf2::<T>::from(100_000u128));
 			signers.push(s);
 		}
+		signers.sort();
+		(caller, signers)
+	}
+
+	/// Funded caller + signers matching genesis (signer1, signer2). Multisig address is in
+	/// ReversibleTransfers::initial_high_security_accounts when runtime-benchmarks.
+	fn setup_funded_signer_set_hs<T: Config + pallet_balances::Config>(
+	) -> (T::AccountId, Vec<T::AccountId>)
+	where
+		BalanceOf2<T>: From<u128>,
+	{
+		let caller: T::AccountId = whitelisted_caller();
+		let signer1: T::AccountId = account("signer1", 0, SEED);
+		let signer2: T::AccountId = account("signer2", 1, SEED);
+		fund_account::<T>(&caller, BalanceOf2::<T>::from(100_000u128));
+		fund_account::<T>(&signer1, BalanceOf2::<T>::from(100_000u128));
+		fund_account::<T>(&signer2, BalanceOf2::<T>::from(100_000u128));
+		let mut signers = vec![caller.clone(), signer1, signer2];
 		signers.sort();
 		(caller, signers)
 	}
@@ -147,14 +166,21 @@ mod benchmarks {
 	}
 
 	/// Benchmark `propose` extrinsic (non-HS path).
-	/// Parameter: c = call size
+	/// Uses different signers than propose_high_security so the multisig address is NOT in
+	/// HighSecurityAccounts (dev genesis records whitelisted_caller+signer1+signer2). No decode, no
+	/// whitelist. Parameter: c = call size
 	#[benchmark]
 	fn propose(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
+		// Uses account("signer", 0/1) so multisig address differs from genesis (signer1/signer2).
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
+		assert!(
+			!T::HighSecurity::is_high_security(&multisig_address),
+			"propose must hit non-HS path"
+		);
 		set_block::<T>(100);
 
 		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
@@ -169,29 +195,20 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// Benchmark `propose` for high-security multisigs (includes decode + whitelist check).
-	/// Parameter: c = call size
+	/// Benchmark `propose` for high-security multisigs.
+	/// Uses signer1/signer2 so multisig address matches genesis (ReversibleTransfers::
+	/// initial_high_security_accounts). HighSecurityAccounts::contains_key reads from trie.
 	#[benchmark]
 	fn propose_high_security(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
-		let (caller, signers) = setup_funded_signer_set::<T>(3);
+		let (caller, signers) = setup_funded_signer_set_hs::<T>();
 		let threshold = 2u32;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
-
-		#[cfg(feature = "runtime-benchmarks")]
-		{
-			use pallet_reversible_transfers::{
-				benchmarking::insert_hs_account_for_benchmark, HighSecurityAccountData,
-			};
-			use qp_scheduler::BlockNumberOrTimestamp;
-			let hs_data = HighSecurityAccountData {
-				interceptor: multisig_address.clone(),
-				delay: BlockNumberOrTimestamp::BlockNumber(100u32.into()),
-			};
-			insert_hs_account_for_benchmark::<T>(multisig_address.clone(), hs_data);
-		}
-
+		assert!(
+			T::HighSecurity::is_high_security(&multisig_address),
+			"propose_high_security must hit HS path"
+		);
 		set_block::<T>(100);
 
 		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
