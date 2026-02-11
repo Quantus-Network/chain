@@ -532,14 +532,13 @@ pub mod pallet {
 			// Convert block number from u32 to BlockNumberFor<T>
 			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
 
-			// Check if block number is not in the future
-			let current_block = frame_system::Pallet::<T>::block_number();
-
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
 
 			// Validate that the block exists by checking if it's not the default hash
 			// The default hash (all zeros) indicates the block doesn't exist
+			// If we don't check this a malicious prover can set the block_hash to 0
+			// and block_number in the future and this check will pass
 			let default_hash = T::Hash::default();
 			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
 
@@ -571,6 +570,7 @@ pub mod pallet {
 			for (idx, account_data) in aggregated_inputs.account_data.iter().enumerate() {
 				// Skip dummy account slots (exit_account == 0 with zero amount)
 				// Dummy proofs from aggregation padding have all-zero exit accounts
+				// Also skip deduplicated slots (the circuit zeros out duplicate exit accounts)
 				let exit_account_bytes: [u8; 32] =
 					(*account_data.exit_account).as_ref().try_into().map_err(|e| {
 						log::error!("Failed to convert exit_account at idx {}: {:?}", idx, e);
@@ -603,6 +603,9 @@ pub mod pallet {
 				total_exit_amount >= T::MinimumTransferAmount::get(),
 				Error::<T>::TransferAmountBelowMinimum
 			);
+
+			// Emit event for each exit account
+			Self::deposit_event(Event::ProofVerified { exit_amount: total_exit_amount });
 
 			// Compute the total fee from the input amounts
 			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
@@ -682,9 +685,6 @@ pub mod pallet {
 					exit_account.clone().into(),
 					*exit_balance,
 				)?;
-
-				// Emit event for each exit account
-				Self::deposit_event(Event::ProofVerified { exit_amount: *exit_balance });
 			}
 
 			// Mint miner's portion of volume fee to block author
