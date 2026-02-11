@@ -85,7 +85,7 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole_verifier::{
-		parse_aggregated_public_inputs, parse_public_inputs, ProofWithPublicInputs, C, D, F,
+		parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F,
 	};
 	use sp_runtime::{
 		traits::{MaybeDisplay, Saturating, StaticLookup, Zero},
@@ -146,10 +146,6 @@ pub mod pallet {
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
 		type MintingAccount: Get<<Self as frame_system::Config>::AccountId>;
-
-		/// Minimum transfer amount required for proof verification
-		#[pallet::constant]
-		type MinimumTransferAmount: Get<BalanceOf<Self>>;
 
 		/// Volume fee rate in basis points (1 basis point = 0.01%).
 		/// This must match the fee rate used in proof generation.
@@ -238,194 +234,14 @@ pub mod pallet {
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
 		InvalidAggregatedPublicInputs,
-		TransferAmountBelowMinimum,
 		/// The volume fee rate in the proof doesn't match the configured rate
 		InvalidVolumeFeeRate,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::call_index(0)]
-		#[pallet::weight(<T as Config>::WeightInfo::verify_wormhole_proof())]
-		pub fn verify_wormhole_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
-			ensure_none(origin)?;
-
-			let verifier =
-				crate::get_wormhole_verifier().map_err(|_| Error::<T>::VerifierNotAvailable)?;
-
-			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
-				proof_bytes,
-				&verifier.circuit_data.common,
-			)
-			.map_err(|_| Error::<T>::ProofDeserializationFailed)?;
-
-			// Parse public inputs using the verifier's parser
-			let public_inputs =
-				parse_public_inputs(&proof).map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-			let nullifier_bytes = *public_inputs.nullifier;
-
-			// Verify nullifier hasn't been used
-			ensure!(
-				!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-				Error::<T>::NullifierAlreadyUsed
-			);
-
-			// Extract the block number from public inputs
-			let block_number = BlockNumberFor::<T>::from(public_inputs.block_number);
-
-			// Get the block hash for the specified block number
-			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-
-			// Check if block number is not in the future
-			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
-
-			// Validate that the block exists by checking if it's not the default hash
-			// The default hash (all zeros) indicates the block doesn't exist
-			let default_hash = T::Hash::default();
-			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
-
-			// Ensure that the block hash from storage matches the one in public inputs
-			ensure!(
-				block_hash.as_ref() == public_inputs.block_hash.as_ref(),
-				Error::<T>::InvalidPublicInputs
-			);
-
-			verifier.verify(proof.clone()).map_err(|_| Error::<T>::VerificationFailed)?;
-
-			// Mark nullifier as used
-			UsedNullifiers::<T>::insert(nullifier_bytes, true);
-
-			// Verify the volume fee rate matches our configured rate
-			ensure!(
-				public_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
-				Error::<T>::InvalidVolumeFeeRate
-			);
-
-			// The output_amount is what the user receives after fee deduction (already enforced by
-			// circuit)
-			let exit_balance_u128 =
-				(public_inputs.output_amount as u128).saturating_mul(crate::SCALE_DOWN_FACTOR);
-
-			// Convert to Balance type
-			let exit_balance: BalanceOf<T> =
-				exit_balance_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-			// Decode exit account from public inputs
-			let exit_account_bytes = *public_inputs.exit_account;
-			let exit_account =
-				<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
-					.map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-			// Extract asset_id from public inputs
-			let asset_id_u32 = public_inputs.asset_id;
-			let asset_id: AssetIdOf<T> = asset_id_u32.into();
-
-			// Ensure transfer amount meets minimum requirement
-			ensure!(
-				exit_balance >= T::MinimumTransferAmount::get(),
-				Error::<T>::TransferAmountBelowMinimum
-			);
-
-			// Compute the total fee that was deducted from input to get output
-			// fee = output_amount * volume_fee_bps / (10000 - volume_fee_bps)
-			let fee_bps = T::VolumeFeeRateBps::get() as u128;
-			let fee_u128 = exit_balance_u128
-				.saturating_mul(fee_bps)
-				.checked_div(10000u128.saturating_sub(fee_bps))
-				.unwrap_or(0);
-
-			// Fee distribution: configurable portion burned, remainder to miner
-			// burn_rate determines what proportion is burned (reduces total issuance)
-			let burn_rate = T::VolumeFeesBurnRate::get();
-			let burn_amount_u128 = burn_rate * fee_u128;
-			let miner_fee_u128 = fee_u128.saturating_sub(burn_amount_u128);
-			let miner_fee: BalanceOf<T> =
-				miner_fee_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
-			let burn_amount: BalanceOf<T> =
-				burn_amount_u128.try_into().map_err(|_| Error::<T>::InvalidPublicInputs)?;
-
-			// Burn the burned portion by reducing total issuance
-			// This offsets the supply increase from minting exit_balance + miner_fee
-			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
-			if !burn_amount.is_zero() {
-				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
-			}
-
-			// Handle native (asset_id = 0) or asset transfers
-			if asset_id == AssetIdOf::<T>::default() {
-				// Native token transfer
-				// Mint tokens to the exit account
-				// This does not affect total issuance and does not create an imbalance
-				<T::Currency as Unbalanced<_>>::increase_balance(
-					&exit_account,
-					exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				)?;
-
-				// Mint miner's portion of volume fee to block author
-				// The remaining portion (fee - miner_fee) is not minted, effectively burned
-				if !miner_fee.is_zero() {
-					if let Some(author) = frame_system::Pallet::<T>::digest()
-						.logs
-						.iter()
-						.find_map(|item| item.as_pre_runtime())
-						.and_then(|(_, data)| {
-							<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
-						}) {
-						<T::Currency as Unbalanced<_>>::increase_balance(
-							&author,
-							miner_fee,
-							frame_support::traits::tokens::Precision::Exact,
-						)?;
-					}
-				}
-			} else {
-				// Asset transfer
-				let asset_balance: AssetBalanceOf<T> = exit_balance.into();
-				<T::Assets as FungiblesMutate<_>>::mint_into(
-					asset_id.clone(),
-					&exit_account,
-					asset_balance,
-				)?;
-
-				// Mint miner's portion of volume fee to block author (fee is in native currency)
-				// The remaining portion (fee - miner_fee) is not minted, effectively burned
-				if !miner_fee.is_zero() {
-					if let Some(author) = frame_system::Pallet::<T>::digest()
-						.logs
-						.iter()
-						.find_map(|item| item.as_pre_runtime())
-						.and_then(|(_, data)| {
-							<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
-						}) {
-						<T::Currency as Unbalanced<_>>::increase_balance(
-							&author,
-							miner_fee,
-							frame_support::traits::tokens::Precision::Exact,
-						)?;
-					}
-				}
-			}
-
-			// Create a transfer proof for the minted tokens
-			let mint_account = T::MintingAccount::get();
-			Self::record_transfer(
-				asset_id,
-				mint_account.into(),
-				exit_account.into(),
-				exit_balance,
-			)?;
-
-			// Emit event
-			Self::deposit_event(Event::ProofVerified { exit_amount: exit_balance });
-
-			Ok(())
-		}
-
 		/// Transfer native tokens and store proof for wormhole
-		#[pallet::call_index(1)]
+		#[pallet::call_index(0)]
 		#[pallet::weight(T::DbWeight::get().reads_writes(1, 2))]
 		pub fn transfer_native(
 			origin: OriginFor<T>,
@@ -448,7 +264,7 @@ pub mod pallet {
 		}
 
 		/// Transfer asset tokens and store proof for wormhole
-		#[pallet::call_index(2)]
+		#[pallet::call_index(1)]
 		#[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
 		pub fn transfer_asset(
 			origin: OriginFor<T>,
@@ -484,7 +300,7 @@ pub mod pallet {
 		}
 
 		/// Verify an aggregated wormhole proof and process all transfers in the batch
-		#[pallet::call_index(3)]
+		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
 		pub fn verify_aggregated_proof(
 			origin: OriginFor<T>,
@@ -597,12 +413,6 @@ pub mod pallet {
 				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
 				processed_accounts.push((exit_account, exit_balance));
 			}
-
-			// Check minimum against total aggregated amount
-			ensure!(
-				total_exit_amount >= T::MinimumTransferAmount::get(),
-				Error::<T>::TransferAmountBelowMinimum
-			);
 
 			// Emit event for each exit account
 			Self::deposit_event(Event::ProofVerified { exit_amount: total_exit_amount });
@@ -720,18 +530,6 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
-				Call::verify_wormhole_proof { proof_bytes } => {
-					// Basic validation: check proof bytes are not empty
-					if proof_bytes.is_empty() {
-						return InvalidTransaction::Custom(1).into();
-					}
-					ValidTransaction::with_tag_prefix("WormholeVerify")
-						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(TransactionPriority::MAX)
-						.longevity(5)
-						.propagate(true)
-						.build()
-				},
 				Call::verify_aggregated_proof { proof_bytes } => {
 					// Basic validation: check proof bytes are not empty
 					if proof_bytes.is_empty() {

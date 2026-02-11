@@ -117,8 +117,6 @@ parameter_types! {
 		231, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	]);
-	/// Minimum transfer amount: 1 token (100 quantized units × SCALE_DOWN_FACTOR)
-	pub const MinimumTransferAmount: Balance = 100 * SCALE_DOWN_FACTOR;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
@@ -131,7 +129,6 @@ impl pallet_wormhole::Config for Test {
 	type Assets = Assets;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
-	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;
