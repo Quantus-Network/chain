@@ -534,14 +534,12 @@ pub mod pallet {
 
 			// Check if block number is not in the future
 			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(block_number <= current_block, Error::<T>::InvalidBlockNumber);
 
 			// Get the block hash for the specified block number
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
 
 			// Validate that the block exists by checking if it's not the default hash
 			// The default hash (all zeros) indicates the block doesn't exist
-			// TODO: is this check necessary?
 			let default_hash = T::Hash::default();
 			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
 
@@ -570,13 +568,14 @@ pub mod pallet {
 				BalanceOf<T>,
 			)> = Vec::with_capacity(aggregated_inputs.account_data.len());
 
-			for account_data in &aggregated_inputs.account_data {
+			for (idx, account_data) in aggregated_inputs.account_data.iter().enumerate() {
 				// Skip dummy account slots (exit_account == 0 with zero amount)
 				// Dummy proofs from aggregation padding have all-zero exit accounts
-				let exit_account_bytes: [u8; 32] = (*account_data.exit_account)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				let exit_account_bytes: [u8; 32] =
+					(*account_data.exit_account).as_ref().try_into().map_err(|e| {
+						log::error!("Failed to convert exit_account at idx {}: {:?}", idx, e);
+						Error::<T>::InvalidAggregatedPublicInputs
+					})?;
 
 				if exit_account_bytes == [0u8; 32] || account_data.summed_output_amount == 0 {
 					continue;
