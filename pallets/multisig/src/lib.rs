@@ -1053,11 +1053,12 @@ pub mod pallet {
 		/// - Deposit is returned to creator
 		/// - Multisig storage is removed
 		#[pallet::call_index(6)]
-		#[pallet::weight(<T as Config>::WeightInfo::dissolve_multisig())]
+		#[pallet::weight(<T as Config>::WeightInfo::approve_dissolve_threshold_reached())]
+		#[allow(clippy::useless_conversion)]
 		pub fn approve_dissolve(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
 			// 1. Get multisig data
@@ -1090,12 +1091,13 @@ pub mod pallet {
 			// 8. Emit approval event
 			Self::deposit_event(Event::DissolveApproved {
 				multisig_address: multisig_address.clone(),
-				approver,
+				approver: approver.clone(),
 				approvals_count,
 			});
 
 			// 9. Check if threshold reached
-			if approvals_count >= multisig_data.threshold {
+			let threshold_reached = approvals_count >= multisig_data.threshold;
+			if threshold_reached {
 				// Threshold reached - dissolve multisig
 				let deposit = multisig_data.deposit;
 				let creator = multisig_data.creator.clone();
@@ -1118,7 +1120,12 @@ pub mod pallet {
 				DissolveApprovals::<T>::insert(&multisig_address, approvals);
 			}
 
-			Ok(())
+			let actual_weight = if threshold_reached {
+				<T as Config>::WeightInfo::approve_dissolve_threshold_reached()
+			} else {
+				<T as Config>::WeightInfo::approve_dissolve()
+			};
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 	}
 

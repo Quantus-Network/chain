@@ -385,8 +385,29 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark `approve_dissolve` when threshold is NOT reached.
+	/// Just adds an approval to DissolveApprovals (cheap path).
 	#[benchmark]
-	fn dissolve_multisig() -> Result<(), BenchmarkError> {
+	fn approve_dissolve() -> Result<(), BenchmarkError> {
+		let (caller, signers) = setup_funded_signer_set::<T>(3);
+		let threshold = 3u32; // Need 3 approvals, we add 1st
+		let deposit = T::MultisigDeposit::get();
+		<T as crate::Config>::Currency::reserve(&caller, deposit)?;
+
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
+		// No pre-inserted approvals - caller adds first approval (threshold not reached)
+
+		#[extrinsic_call]
+		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone());
+
+		assert!(Multisigs::<T>::contains_key(&multisig_address));
+		assert!(DissolveApprovals::<T>::get(&multisig_address).unwrap().len() == 1);
+		Ok(())
+	}
+
+	/// Benchmark `approve_dissolve` when threshold IS reached (dissolves multisig).
+	#[benchmark]
+	fn approve_dissolve_threshold_reached() -> Result<(), BenchmarkError> {
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
 		let deposit = T::MultisigDeposit::get();
