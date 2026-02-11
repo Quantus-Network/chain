@@ -285,8 +285,11 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark `cancel` extrinsic. Parameter: c = stored proposal call size
 	#[benchmark]
-	fn cancel() -> Result<(), BenchmarkError> {
+	fn cancel(
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+	) -> Result<(), BenchmarkError> {
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
@@ -296,7 +299,7 @@ mod benchmarks {
 			&multisig_address,
 			0,
 			&caller,
-			10,
+			c,
 			expiry,
 			&[caller.clone()],
 			ProposalStatus::Active,
@@ -311,8 +314,11 @@ mod benchmarks {
 		Ok(())
 	}
 
+	/// Benchmark `remove_expired` extrinsic. Parameter: c = stored proposal call size
 	#[benchmark]
-	fn remove_expired() -> Result<(), BenchmarkError> {
+	fn remove_expired(
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
+	) -> Result<(), BenchmarkError> {
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
@@ -321,7 +327,7 @@ mod benchmarks {
 			&multisig_address,
 			0,
 			&caller,
-			32,
+			c,
 			expiry,
 			&[caller.clone()],
 			ProposalStatus::Active,
@@ -337,11 +343,13 @@ mod benchmarks {
 	}
 
 	/// Benchmark `claim_deposits` extrinsic.
-	/// Parameters: i = iterated proposals, r = removed (cleaned) proposals
+	/// Parameters: i = iterated proposals, r = removed (cleaned) proposals,
+	/// c = average stored call size (affects iteration cost)
 	#[benchmark]
 	fn claim_deposits(
 		i: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
 		r: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
+		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
 		let cleaned_target = (r as u32).min(i);
 		let total_proposals = i;
@@ -359,7 +367,7 @@ mod benchmarks {
 				&multisig_address,
 				idx,
 				&caller,
-				32,
+				c,
 				expiry,
 				&[caller.clone()],
 				ProposalStatus::Active,

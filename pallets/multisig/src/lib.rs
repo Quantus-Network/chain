@@ -809,7 +809,7 @@ pub mod pallet {
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to cancel
 		#[pallet::call_index(3)]
-		#[pallet::weight(<T as Config>::WeightInfo::cancel())]
+		#[pallet::weight(<T as Config>::WeightInfo::cancel(T::MaxCallSize::get()))]
 		#[allow(clippy::useless_conversion)]
 		pub fn cancel(
 			origin: OriginFor<T>,
@@ -842,6 +842,8 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::ProposalNotActive, 1);
 			}
 
+			let call_size = proposal.call.len() as u32;
+
 			// Remove proposal from storage and return deposit immediately
 			Self::remove_proposal_and_return_deposit(
 				&multisig_address,
@@ -857,7 +859,7 @@ pub mod pallet {
 				proposal_id,
 			});
 
-			let actual_weight = <T as Config>::WeightInfo::cancel();
+			let actual_weight = <T as Config>::WeightInfo::cancel(call_size);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -870,7 +872,7 @@ pub mod pallet {
 		/// The deposit is always returned to the original proposer, not the caller.
 		/// This allows any signer to help clean up storage even if proposer is inactive.
 		#[pallet::call_index(4)]
-		#[pallet::weight(<T as Config>::WeightInfo::remove_expired())]
+		#[pallet::weight(<T as Config>::WeightInfo::remove_expired(T::MaxCallSize::get()))]
 		pub fn remove_expired(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -925,7 +927,8 @@ pub mod pallet {
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits(
 		T::MaxTotalProposalsInStorage::get(),  // Worst-case iterated
-		T::MaxTotalProposalsInStorage::get().saturating_div(2)  // Worst-case cleaned (MaxTotal / 2 signers)
+		T::MaxTotalProposalsInStorage::get().saturating_div(2),  // Worst-case cleaned
+		T::MaxCallSize::get()  // Worst-case avg call size
 	))]
 		#[allow(clippy::useless_conversion)]
 		pub fn claim_deposits(
@@ -935,8 +938,8 @@ pub mod pallet {
 			let caller = ensure_signed(origin)?;
 
 			// Cleanup ALL caller's expired proposals
-			// Returns: (cleaned_count, total_proposals_iterated)
-			let (cleaned, total_proposals_iterated) =
+			// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes)
+			let (cleaned, total_proposals_iterated, total_call_bytes) =
 				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
 
 			let deposit_per_proposal = T::ProposalDeposit::get();
@@ -951,12 +954,18 @@ pub mod pallet {
 				multisig_removed: false,
 			});
 
-			// Return actual weight based on proposals iterated and cleaned
-			// Accurate charging based on actual work performed:
-			// - total_proposals_iterated: O(N) read cost
-			// - cleaned: O(M) write cost (where M <= N)
-			let actual_weight =
-				<T as Config>::WeightInfo::claim_deposits(total_proposals_iterated, cleaned);
+			// Average call size over iterated proposals (for weight)
+			let avg_call_size = if total_proposals_iterated > 0 {
+				total_call_bytes / total_proposals_iterated
+			} else {
+				0
+			};
+
+			let actual_weight = <T as Config>::WeightInfo::claim_deposits(
+				total_proposals_iterated,
+				cleaned,
+				avg_call_size,
+			);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -1191,13 +1200,16 @@ pub mod pallet {
 		/// - cleaned_count: number of proposals actually removed
 		/// - total_proposals_iterated: total proposals that existed before cleanup (for weight
 		///   calculation)
+		/// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes)
+		/// - total_call_bytes: sum of proposal.call.len() over iterated proposals (for weight)
 		fn cleanup_proposer_expired(
 			multisig_address: &T::AccountId,
 			proposer: &T::AccountId,
 			caller: &T::AccountId,
-		) -> (u32, u32) {
+		) -> (u32, u32, u32) {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			let mut total_iterated = 0u32;
+			let mut total_call_bytes = 0u32;
 
 			// Collect expired proposals to remove
 			// IMPORTANT: We count ALL proposals during iteration (for weight calculation)
@@ -1205,6 +1217,7 @@ pub mod pallet {
 				Proposals::<T>::iter_prefix(multisig_address)
 					.filter_map(|(proposal_id, proposal)| {
 						total_iterated += 1; // Count every proposal we iterate through
+						total_call_bytes += proposal.call.len() as u32;
 
 						// Only proposer's expired active proposals
 						if proposal.proposer == *proposer &&
@@ -1237,7 +1250,7 @@ pub mod pallet {
 				});
 			}
 
-			(cleaned, total_iterated)
+			(cleaned, total_iterated, total_call_bytes)
 		}
 
 		/// Remove a proposal from storage and return deposit to proposer
