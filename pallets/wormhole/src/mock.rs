@@ -1,4 +1,4 @@
-use crate::{self as pallet_wormhole, SCALE_DOWN_FACTOR};
+use crate::{self as pallet_wormhole};
 use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{ConstU128, ConstU32, Everything},

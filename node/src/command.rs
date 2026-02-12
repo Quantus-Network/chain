@@ -46,9 +46,9 @@ pub fn generate_quantus_key(
 			let mut words_to_print: Option<String> = None;
 			let seed_for_pair: Vec<u8>;
 
-			// Build the derivation path
+			// Build the derivation path (all components must be hardened for lattice-based crypto)
 			let path =
-				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0/0", index = wallet_index);
+				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
 			if let Some(words_phrase) = words {
 				// Use provided mnemonic
@@ -289,7 +289,7 @@ pub fn run() -> sc_cli::Result<()> {
 										println!("Derivation disabled (--no-derivation). Using master seed.");
 									} else {
 										println!(
-											"Deriving child with index {} (path m/44'/{}/{}'/0/0)",
+											"Deriving child with index {} (path m/44'/{}/{}'/0'/0')",
 											wallet_index, QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
