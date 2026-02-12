@@ -20,7 +20,7 @@ pub use pallet::*;
 mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
+pub mod benchmarking;
 pub mod weights;
 pub use weights::WeightInfo;
 
@@ -36,6 +36,21 @@ use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use sp_arithmetic::Permill;
 use sp_runtime::traits::StaticLookup;
+
+// Partial implementation for Pallet - runtime will complete it
+impl<T: Config> Pallet<T> {
+	/// Check if account is registered as high-security
+	/// This is used by runtime's HighSecurityInspector implementation
+	pub fn is_high_security_account(who: &T::AccountId) -> bool {
+		HighSecurityAccounts::<T>::contains_key(who)
+	}
+
+	/// Get guardian for high-security account
+	/// This is used by runtime's HighSecurityInspector implementation
+	pub fn get_guardian(who: &T::AccountId) -> Option<T::AccountId> {
+		HighSecurityAccounts::<T>::get(who).map(|data| data.interceptor)
+	}
+}
 
 /// Type alias for this config's `BlockNumberOrTimestamp`.
 pub type BlockNumberOrTimestampOf<T> =

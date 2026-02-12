@@ -5,15 +5,20 @@
 //!
 //! ## Features
 //!
-//! - Create multisig addresses with configurable thresholds
+//! - Create multisig addresses with deterministic generation (signers + threshold + user-provided
+//!   nonce)
 //! - Propose transactions for multisig approval
 //! - Approve proposed transactions
-//! - Execute transactions once threshold is reached
+//! - Execute transactions once threshold is reached (automatic)
+//! - Auto-cleanup of proposer's expired proposals on propose()
+//! - Per-signer proposal limits for filibuster protection
 //!
 //! ## Data Structures
 //!
-//! - **Multisig**: Contains signers, threshold, and global nonce
-//! - **Proposal**: Contains transaction data, proposer, expiry, and approvals
+//! - **MultisigData**: Contains signers, threshold, proposal counter, deposit, and per-signer
+//!   tracking
+//! - **ProposalData**: Contains transaction data, proposer, expiry, approvals, deposit, and status
+//! - **DissolveApprovals**: Tracks threshold-based approvals for multisig dissolution
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -40,46 +45,38 @@ use sp_runtime::RuntimeDebug;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct MultisigData<BlockNumber, AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
-{
+pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner> {
+	/// Account that created this multisig (receives deposit back on dissolve)
+	pub creator: AccountId,
 	/// List of signers who can approve transactions
 	pub signers: BoundedSigners,
 	/// Number of approvals required to execute a transaction
 	pub threshold: u32,
-	/// Global unique identifier for this multisig (for address derivation)
-	pub nonce: u64,
-	/// Proposal counter for unique proposal hashes
+	/// Proposal counter for unique proposal IDs
 	pub proposal_nonce: u32,
-	/// Account that created this multisig
-	pub creator: AccountId,
-	/// Deposit reserved by the creator
+	/// Deposit reserved by the creator (returned on dissolve)
 	pub deposit: Balance,
-	/// Last block when this multisig was used
-	pub last_activity: BlockNumber,
-	/// Number of currently active (non-executed/non-cancelled) proposals
+	/// Number of active proposals (for global limit checking)
 	pub active_proposals: u32,
-	/// Counter of proposals in storage per signer (for filibuster protection)
+	/// Per-signer proposal count (for filibuster protection)
+	/// Maps AccountId -> number of active proposals
 	pub proposals_per_signer: BoundedProposalsPerSigner,
 }
 
 impl<
-		BlockNumber: Default,
 		AccountId: Default,
 		BoundedSigners: Default,
 		Balance: Default,
 		BoundedProposalsPerSigner: Default,
-	> Default
-	for MultisigData<BlockNumber, AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
+	> Default for MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
 {
 	fn default() -> Self {
 		Self {
+			creator: Default::default(),
 			signers: Default::default(),
 			threshold: 1,
-			nonce: 0,
 			proposal_nonce: 0,
-			creator: Default::default(),
 			deposit: Default::default(),
-			last_activity: Default::default(),
 			active_proposals: 0,
 			proposals_per_signer: Default::default(),
 		}
@@ -91,6 +88,8 @@ impl<
 pub enum ProposalStatus {
 	/// Proposal is active and awaiting approvals
 	Active,
+	/// Proposal has reached threshold and is ready to execute
+	Approved,
 	/// Proposal was executed successfully
 	Executed,
 	/// Proposal was cancelled by proposer
@@ -125,13 +124,15 @@ pub mod pallet {
 	use codec::Encode;
 	use frame_support::{
 		dispatch::{
-			DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo, Pays, PostDispatchInfo,
+			DispatchErrorWithPostInfo, DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo,
+			Pays, PostDispatchInfo,
 		},
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
+	use qp_high_security::HighSecurityInspector;
 	use sp_arithmetic::traits::Saturating;
 	use sp_runtime::{
 		traits::{Dispatchable, Hash, TrailingZeroInput},
@@ -205,6 +206,12 @@ pub mod pallet {
 
 		/// Weight information for extrinsics
 		type WeightInfo: WeightInfo;
+
+		/// Interface to check if an account is in high-security mode
+		type HighSecurity: qp_high_security::HighSecurityInspector<
+			Self::AccountId,
+			<Self as pallet::Config>::RuntimeCall,
+		>;
 	}
 
 	/// Type alias for bounded signers vector
@@ -218,13 +225,12 @@ pub mod pallet {
 	/// Type alias for bounded call data
 	pub type BoundedCallOf<T> = BoundedVec<u8, <T as Config>::MaxCallSize>;
 
-	/// Type alias for bounded proposals per signer map
+	/// Type alias for per-signer proposal counts
 	pub type BoundedProposalsPerSignerOf<T> =
 		BoundedBTreeMap<<T as frame_system::Config>::AccountId, u32, <T as Config>::MaxSigners>;
 
 	/// Type alias for MultisigData with proper bounds
 	pub type MultisigDataOf<T> = MultisigData<
-		BlockNumberFor<T>,
 		<T as frame_system::Config>::AccountId,
 		BoundedSignersOf<T>,
 		BalanceOf<T>,
@@ -240,11 +246,7 @@ pub mod pallet {
 		BoundedApprovalsOf<T>,
 	>;
 
-	/// Global nonce for generating unique multisig addresses
-	#[pallet::storage]
-	pub type GlobalNonce<T: Config> = StorageValue<_, u64, ValueQuery>;
-
-	/// Multisigs stored by their generated address
+	/// Multisigs stored by their deterministic address
 	#[pallet::storage]
 	#[pallet::getter(fn multisigs)]
 	pub type Multisigs<T: Config> =
@@ -262,6 +264,12 @@ pub mod pallet {
 		ProposalDataOf<T>,
 		OptionQuery,
 	>;
+
+	/// Dissolve approvals: tracks which signers approved dissolving the multisig
+	/// Maps multisig_address -> Vec<approver_accounts>
+	#[pallet::storage]
+	pub type DissolveApprovals<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, BoundedApprovalsOf<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -281,6 +289,12 @@ pub mod pallet {
 		ProposalApproved {
 			multisig_address: T::AccountId,
 			approver: T::AccountId,
+			proposal_id: u32,
+			approvals_count: u32,
+		},
+		/// A proposal has reached threshold and is ready to execute
+		ProposalReadyToExecute {
+			multisig_address: T::AccountId,
 			proposal_id: u32,
 			approvals_count: u32,
 		},
@@ -315,11 +329,17 @@ pub mod pallet {
 			proposals_removed: u32,
 			multisig_removed: bool,
 		},
-		/// A multisig account was dissolved and deposit returned
+		/// A signer approved dissolving the multisig
+		DissolveApproved {
+			multisig_address: T::AccountId,
+			approver: T::AccountId,
+			approvals_count: u32,
+		},
+		/// A multisig account was dissolved (threshold reached)
 		MultisigDissolved {
 			multisig_address: T::AccountId,
-			caller: T::AccountId,
-			deposit_returned: BalanceOf<T>,
+			deposit_returned: T::AccountId, // Creator who receives the deposit back
+			approvers: Vec<T::AccountId>,
 		},
 	}
 
@@ -371,28 +391,40 @@ pub mod pallet {
 		ProposalNotExpired,
 		/// Proposal is not active (already executed or cancelled)
 		ProposalNotActive,
+		/// Proposal has not been approved yet (threshold not reached)
+		ProposalNotApproved,
 		/// Cannot dissolve multisig with existing proposals (clear them first)
 		ProposalsExist,
 		/// Multisig account must have zero balance before dissolution
 		MultisigAccountNotZero,
+		/// Call is not allowed for high-security multisig
+		CallNotAllowedForHighSecurityMultisig,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Create a new multisig account
+		/// Create a new multisig account with deterministic address
 		///
 		/// Parameters:
 		/// - `signers`: List of accounts that can sign for this multisig
 		/// - `threshold`: Number of approvals required to execute transactions
+		/// - `nonce`: User-provided nonce for address uniqueness
 		///
-		/// The multisig address is derived from a hash of all signers + global nonce.
-		/// The creator must pay a non-refundable fee (burned).
+		/// The multisig address is deterministically derived from:
+		/// hash(pallet_id || sorted_signers || threshold || nonce)
+		///
+		/// Signers are automatically sorted before hashing, so order doesn't matter.
+		///
+		/// Economic costs:
+		/// - MultisigFee: burned immediately (spam prevention)
+		/// - MultisigDeposit: reserved until dissolution, then returned to creator (storage bond)
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as Config>::WeightInfo::create_multisig())]
+		#[pallet::weight(<T as Config>::WeightInfo::create_multisig(signers.len() as u32))]
 		pub fn create_multisig(
 			origin: OriginFor<T>,
 			signers: Vec<T::AccountId>,
 			threshold: u32,
+			nonce: u64,
 		) -> DispatchResult {
 			let creator = ensure_signed(origin)?;
 
@@ -402,8 +434,7 @@ pub mod pallet {
 			ensure!(threshold <= signers.len() as u32, Error::<T>::ThresholdTooHigh);
 			ensure!(signers.len() <= T::MaxSigners::get() as usize, Error::<T>::TooManySigners);
 
-			// Sort signers for deterministic address generation
-			// (order shouldn't matter - nonce provides uniqueness)
+			// Sort signers for duplicate check and storage
 			let mut sorted_signers = signers.clone();
 			sorted_signers.sort();
 
@@ -412,12 +443,10 @@ pub mod pallet {
 				ensure!(sorted_signers[i] != sorted_signers[i - 1], Error::<T>::DuplicateSigner);
 			}
 
-			// Get and increment global nonce
-			let nonce = GlobalNonce::<T>::get();
-			GlobalNonce::<T>::put(nonce.saturating_add(1));
-
-			// Generate multisig address from hash of (sorted_signers, nonce)
-			let multisig_address = Self::derive_multisig_address(&sorted_signers, nonce);
+			// Generate deterministic multisig address
+			// Note: derive_multisig_address() will sort internally, but we already have sorted
+			// for duplicate check, so we pass sorted to avoid double sorting
+			let multisig_address = Self::derive_multisig_address(&sorted_signers, threshold, nonce);
 
 			// Ensure multisig doesn't already exist
 			ensure!(
@@ -443,22 +472,17 @@ pub mod pallet {
 			let bounded_signers: BoundedSignersOf<T> =
 				sorted_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
 
-			// Get current block for last_activity
-			let current_block = frame_system::Pallet::<T>::block_number();
-
 			// Store multisig data
 			Multisigs::<T>::insert(
 				&multisig_address,
 				MultisigDataOf::<T> {
+					creator: creator.clone(),
 					signers: bounded_signers.clone(),
 					threshold,
-					nonce,
 					proposal_nonce: 0,
-					creator: creator.clone(),
 					deposit,
-					last_activity: current_block,
 					active_proposals: 0,
-					proposals_per_signer: Default::default(),
+					proposals_per_signer: BoundedProposalsPerSignerOf::<T>::default(),
 				},
 			);
 
@@ -485,43 +509,75 @@ pub mod pallet {
 		/// - A deposit (refundable - returned immediately on execution/cancellation)
 		/// - A fee (non-refundable, burned immediately)
 		///
-		/// **Auto-cleanup:** Before creating a new proposal, ALL expired proposals are
-		/// automatically removed and deposits returned to original proposers. This is the primary
-		/// cleanup mechanism.
+		/// **Auto-cleanup:** Before creating a new proposal, ALL proposer's expired
+		/// proposals are automatically removed. This is the primary cleanup mechanism.
 		///
 		/// **For threshold=1:** If the multisig threshold is 1, the proposal executes immediately.
+		///
+		/// **Weight:** Charged upfront for worst-case (high-security path with decode).
+		/// Refunded to actual cost on success based on whether HS path was taken.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as Config>::WeightInfo::propose(
-			call.len() as u32,
-			T::MaxTotalProposalsInStorage::get()
-		))]
+		#[pallet::weight(<T as Config>::WeightInfo::propose_high_security(call.len() as u32))]
+		#[allow(clippy::useless_conversion)]
 		pub fn propose(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			call: Vec<u8>,
 			expiry: BlockNumberFor<T>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
 
-			// Check if proposer is a signer
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-			ensure!(multisig_data.signers.contains(&proposer), Error::<T>::NotASigner);
+			// CRITICAL: Check call size FIRST, before any heavy operations (especially decode)
+			// This prevents DoS via oversized payloads that would be decoded before size validation
+			let call_size = call.len() as u32;
+			if call_size > T::MaxCallSize::get() {
+				return Self::err_with_weight(Error::<T>::CallTooLarge, 0);
+			}
 
-			// Auto-cleanup expired proposals before creating new one
-			// This is the primary cleanup mechanism for active multisigs
-			Self::auto_cleanup_expired_proposals(&multisig_address, &proposer);
+			// Check if proposer is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&proposer) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
 
-			// Reload multisig data after potential cleanup
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+			// High-security check: if multisig is high-security, only whitelisted calls allowed
+			// Size already validated above, so decode is now safe
+			// (2 reads: Multisigs + HighSecurityAccounts)
+			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
+			if is_high_security {
+				let decoded_call =
+					<T as Config>::RuntimeCall::decode(&mut &call[..]).map_err(|_| {
+						DispatchErrorWithPostInfo {
+							post_info: PostDispatchInfo {
+								actual_weight: Some(T::DbWeight::get().reads(2)),
+								pays_fee: Pays::Yes,
+							},
+							error: Error::<T>::InvalidCall.into(),
+						}
+					})?;
+				if !T::HighSecurity::is_whitelisted(&decoded_call) {
+					return Self::err_with_weight(
+						Error::<T>::CallNotAllowedForHighSecurityMultisig,
+						2,
+					);
+				}
+			}
+
 			let current_block = frame_system::Pallet::<T>::block_number();
 
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
-			// Check total proposals in storage limit (Active + Executed + Cancelled)
-			// This incentivizes cleanup and prevents unbounded storage growth
+			// Check total proposals in storage limit
+			// Users must call claim_deposits() or remove_expired() to free space
 			let total_proposals_in_storage =
 				Proposals::<T>::iter_prefix(&multisig_address).count() as u32;
 			ensure!(
@@ -530,16 +586,15 @@ pub mod pallet {
 			);
 
 			// Check per-signer proposal limit (filibuster protection)
-			// Each signer can have at most (MaxTotal / NumSigners) proposals in storage
-			// This prevents a single signer from monopolizing the proposal queue
-			// Use saturating_div to handle edge cases (division by 0, etc.) and ensure at least 1
-			let max_per_signer = T::MaxTotalProposalsInStorage::get()
-				.checked_div(signers_count)
-				.unwrap_or(1) // If division fails (shouldn't happen), allow at least 1
-				.max(1); // Ensure minimum of 1 proposal per signer
-			let proposer_count =
+			// Each signer can have max (TotalLimit / SignersCount) proposals
+			let max_proposals_per_signer =
+				T::MaxTotalProposalsInStorage::get().saturating_div(signers_count);
+			let proposer_current_count =
 				multisig_data.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
-			ensure!(proposer_count < max_per_signer, Error::<T>::TooManyProposalsPerSigner);
+			ensure!(
+				proposer_current_count < max_proposals_per_signer,
+				Error::<T>::TooManyProposalsPerSigner
+			);
 
 			// Check call size
 			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
@@ -576,14 +631,7 @@ pub mod pallet {
 			T::Currency::reserve(&proposer, deposit)
 				.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Update multisig last_activity
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.last_activity = current_block;
-				}
-			});
-
-			// Convert to bounded vec
+			// Convert to bounded vec (call_size already computed and validated above)
 			let bounded_call: BoundedCallOf<T> =
 				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
 
@@ -614,17 +662,14 @@ pub mod pallet {
 			// Store proposal with nonce as key (simple and efficient)
 			Proposals::<T>::insert(&multisig_address, proposal_id, proposal);
 
-			// Increment active proposals counter and per-signer counter
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.active_proposals = multisig.active_proposals.saturating_add(1);
-
-					// Update per-signer counter for filibuster protection
-					let current_count =
-						multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
-					let _ = multisig
+			// Increment proposal counters
+			Multisigs::<T>::mutate(&multisig_address, |maybe_data| {
+				if let Some(ref mut data) = maybe_data {
+					data.active_proposals = data.active_proposals.saturating_add(1);
+					let count = data.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
+					let _ = data
 						.proposals_per_signer
-						.try_insert(proposer.clone(), current_count.saturating_add(1));
+						.try_insert(proposer.clone(), count.saturating_add(1));
 				}
 			});
 
@@ -638,34 +683,40 @@ pub mod pallet {
 			// Check if threshold is reached immediately (threshold=1 case)
 			// Proposer is already counted as first approval
 			if 1 >= multisig_data.threshold {
-				// Threshold reached - execute immediately
-				// Need to get proposal again since we inserted it
-				let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-					.ok_or(Error::<T>::ProposalNotFound)?;
-				Self::do_execute(multisig_address, proposal_id, proposal)?;
+				Proposals::<T>::mutate(&multisig_address, proposal_id, |maybe_proposal| {
+					if let Some(ref mut p) = maybe_proposal {
+						p.status = ProposalStatus::Approved;
+					}
+				});
+				Self::deposit_event(Event::ProposalReadyToExecute {
+					multisig_address: multisig_address.clone(),
+					proposal_id,
+					approvals_count: 1,
+				});
 			}
 
-			Ok(())
+			// Refund weight: HS path was charged upfront, refund if non-HS
+			let actual_weight = if is_high_security {
+				<T as Config>::WeightInfo::propose_high_security(call_size)
+			} else {
+				<T as Config>::WeightInfo::propose(call_size)
+			};
+
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
 		/// Approve a proposed transaction
 		///
 		/// If this approval brings the total approvals to or above the threshold,
-		/// the transaction will be automatically executed.
-		///
-		/// **Auto-cleanup:** Before processing the approval, ALL expired proposals are
-		/// automatically removed and deposits returned to original proposers.
+		/// the proposal status changes to `Approved` and can be executed via `execute()`.
 		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to approve
 		///
-		/// Weight: Charges for MAX call size and MAX expired proposals, refunds based on actual
+		/// Weight: Charges for MAX call size, refunds based on actual
 		#[pallet::call_index(2)]
-		#[pallet::weight(<T as Config>::WeightInfo::approve(
-			T::MaxCallSize::get(),
-			T::MaxTotalProposalsInStorage::get()
-		))]
+		#[pallet::weight(<T as Config>::WeightInfo::approve(T::MaxCallSize::get()))]
 		#[allow(clippy::useless_conversion)]
 		pub fn approve(
 			origin: OriginFor<T>,
@@ -674,29 +725,46 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
-			// Check if approver is a signer
-			let multisig_data = Self::ensure_is_signer(&multisig_address, &approver)?;
+			// Check if approver is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&approver) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
 
-			// Auto-cleanup expired proposals on any multisig activity
-			// Returns count of proposals in storage (which determines iteration cost)
-			let iterated_count = Self::auto_cleanup_expired_proposals(&multisig_address, &approver);
+			// Get proposal (2 reads: Multisigs + Proposals)
+			let mut proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(2)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
 
-			// Get proposal
-			let mut proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-				.ok_or(Error::<T>::ProposalNotFound)?;
-
-			// Calculate actual weight based on real call size and actual storage size
-			// We charge for worst-case (e=Max), but refund based on actual storage size
+			// Calculate actual weight based on real call size
 			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight =
-				<T as Config>::WeightInfo::approve(actual_call_size, iterated_count);
+			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
-			// Check if not expired
+			// Check if not expired (2 reads already performed)
 			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(current_block <= proposal.expiry, Error::<T>::ProposalExpired);
+			if current_block > proposal.expiry {
+				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+			}
 
-			// Check if already approved
-			ensure!(!proposal.approvals.contains(&approver), Error::<T>::AlreadyApproved);
+			// Check if already approved (2 reads already performed)
+			if proposal.approvals.contains(&approver) {
+				return Self::err_with_weight(Error::<T>::AlreadyApproved, 2);
+			}
 
 			// Add approval
 			proposal
@@ -706,6 +774,14 @@ pub mod pallet {
 
 			let approvals_count = proposal.approvals.len() as u32;
 
+			// Check if threshold is reached - if so, mark as Approved
+			if approvals_count >= multisig_data.threshold {
+				proposal.status = ProposalStatus::Approved;
+			}
+
+			// Save proposal
+			Proposals::<T>::insert(&multisig_address, proposal_id, &proposal);
+
 			// Emit approval event
 			Self::deposit_event(Event::ProposalApproved {
 				multisig_address: multisig_address.clone(),
@@ -714,19 +790,12 @@ pub mod pallet {
 				approvals_count,
 			});
 
-			// Check if threshold is reached - if so, execute immediately
-			if approvals_count >= multisig_data.threshold {
-				// Execute the transaction
-				Self::do_execute(multisig_address, proposal_id, proposal)?;
-			} else {
-				// Not ready yet, just save the proposal
-				Proposals::<T>::insert(&multisig_address, proposal_id, proposal);
-
-				// Update multisig last_activity
-				Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-					if let Some(multisig) = maybe_multisig {
-						multisig.last_activity = frame_system::Pallet::<T>::block_number();
-					}
+			// Emit ready-to-execute event if threshold just reached
+			if proposal.status == ProposalStatus::Approved {
+				Self::deposit_event(Event::ProposalReadyToExecute {
+					multisig_address,
+					proposal_id,
+					approvals_count,
 				});
 			}
 
@@ -736,19 +805,11 @@ pub mod pallet {
 
 		/// Cancel a proposed transaction (only by proposer)
 		///
-		/// **Auto-cleanup:** Before processing the cancellation, ALL expired proposals are
-		/// automatically removed and deposits returned to original proposers.
-		///
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to cancel
-		///
-		/// Weight: Charges for MAX call size and MAX expired proposals, refunds based on actual
 		#[pallet::call_index(3)]
-		#[pallet::weight(<T as Config>::WeightInfo::cancel(
-			T::MaxCallSize::get(),
-			T::MaxTotalProposalsInStorage::get()
-		))]
+		#[pallet::weight(<T as Config>::WeightInfo::cancel(T::MaxCallSize::get()))]
 		#[allow(clippy::useless_conversion)]
 		pub fn cancel(
 			origin: OriginFor<T>,
@@ -757,25 +818,31 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let canceller = ensure_signed(origin)?;
 
-			// Auto-cleanup expired proposals on any multisig activity
-			// Returns count of proposals in storage (which determines iteration cost)
-			let iterated_count =
-				Self::auto_cleanup_expired_proposals(&multisig_address, &canceller);
+			// Get proposal (1 read: Proposals)
+			let proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(1)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
 
-			// Get proposal
-			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-				.ok_or(Error::<T>::ProposalNotFound)?;
+			// Check if caller is the proposer (1 read already performed)
+			if canceller != proposal.proposer {
+				return Self::err_with_weight(Error::<T>::NotProposer, 1);
+			}
 
-			// Calculate actual weight based on real call size and actual storage size
-			// We charge for worst-case (e=Max), but refund based on actual storage size
-			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::cancel(actual_call_size, iterated_count);
+			// Check if proposal is cancellable (Active or Approved)
+			if proposal.status != ProposalStatus::Active &&
+				proposal.status != ProposalStatus::Approved
+			{
+				return Self::err_with_weight(Error::<T>::ProposalNotActive, 1);
+			}
 
-			// Check if caller is the proposer
-			ensure!(canceller == proposal.proposer, Error::<T>::NotProposer);
-
-			// Check if proposal is still active
-			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
+			let call_size = proposal.call.len() as u32;
 
 			// Remove proposal from storage and return deposit immediately
 			Self::remove_proposal_and_return_deposit(
@@ -792,7 +859,7 @@ pub mod pallet {
 				proposal_id,
 			});
 
-			// Return actual weight (refund overpayment)
+			let actual_weight = <T as Config>::WeightInfo::cancel(call_size);
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
@@ -805,7 +872,7 @@ pub mod pallet {
 		/// The deposit is always returned to the original proposer, not the caller.
 		/// This allows any signer to help clean up storage even if proposer is inactive.
 		#[pallet::call_index(4)]
-		#[pallet::weight(<T as Config>::WeightInfo::remove_expired())]
+		#[pallet::weight(<T as Config>::WeightInfo::remove_expired(T::MaxCallSize::get()))]
 		pub fn remove_expired(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
@@ -859,96 +926,149 @@ pub mod pallet {
 		/// Returns all proposal deposits to the proposer in a single transaction.
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits(
-			T::MaxTotalProposalsInStorage::get()
-		))]
+		T::MaxTotalProposalsInStorage::get(),  // Worst-case iterated
+		T::MaxTotalProposalsInStorage::get().saturating_div(2),  // Worst-case cleaned
+		T::MaxCallSize::get()  // Worst-case avg call size
+	))]
+		#[allow(clippy::useless_conversion)]
 		pub fn claim_deposits(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let caller = ensure_signed(origin)?;
 
-			let current_block = frame_system::Pallet::<T>::block_number();
+			// Cleanup ALL caller's expired proposals
+			// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes)
+			let (cleaned, total_proposals_iterated, total_call_bytes) =
+				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
 
-			let mut total_returned = BalanceOf::<T>::zero();
-			let mut removed_count = 0u32;
-
-			// Iterate through all proposals for this multisig
-			// Only Active+Expired proposals exist (Executed/Cancelled are auto-removed)
-			let proposals_to_remove: Vec<(u32, ProposalDataOf<T>)> =
-				Proposals::<T>::iter_prefix(&multisig_address)
-					.filter(|(_, proposal)| {
-						// Only proposals where caller is proposer
-						if proposal.proposer != caller {
-							return false;
-						}
-
-						// Only Active proposals can exist (Executed/Cancelled auto-removed)
-						// Must be expired to remove
-						proposal.status == ProposalStatus::Active && current_block > proposal.expiry
-					})
-					.collect();
-
-			// Remove proposals and return deposits
-			for (id, proposal) in proposals_to_remove {
-				total_returned = total_returned.saturating_add(proposal.deposit);
-				removed_count = removed_count.saturating_add(1);
-
-				// Remove from storage and return deposit
-				Self::remove_proposal_and_return_deposit(
-					&multisig_address,
-					id,
-					&proposal.proposer,
-					proposal.deposit,
-				);
-
-				// Emit event for each removed proposal
-				Self::deposit_event(Event::ProposalRemoved {
-					multisig_address: multisig_address.clone(),
-					proposal_id: id,
-					proposer: caller.clone(),
-					removed_by: caller.clone(),
-				});
-			}
+			let deposit_per_proposal = T::ProposalDeposit::get();
+			let total_returned = deposit_per_proposal.saturating_mul(cleaned.into());
 
 			// Emit summary event
 			Self::deposit_event(Event::DepositsClaimed {
 				multisig_address: multisig_address.clone(),
 				claimer: caller,
 				total_returned,
-				proposals_removed: removed_count,
-				multisig_removed: false, // Multisig is never auto-removed now
+				proposals_removed: cleaned,
+				multisig_removed: false,
 			});
 
-			Ok(())
+			// Average call size over iterated proposals (for weight)
+			let avg_call_size = if total_proposals_iterated > 0 {
+				total_call_bytes / total_proposals_iterated
+			} else {
+				0
+			};
+
+			let actual_weight = <T as Config>::WeightInfo::claim_deposits(
+				total_proposals_iterated,
+				cleaned,
+				avg_call_size,
+			);
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
-		/// Dissolve (remove) a multisig and recover the creation deposit.
+		/// Execute an approved proposal
 		///
-		/// Requirements:
-		/// - No proposals exist (active, executed, or cancelled) - must be fully cleaned up.
-		/// - Multisig account balance must be zero.
-		/// - Can be called by the creator OR any signer.
+		/// Can be called by any signer of the multisig once the proposal has reached
+		/// the approval threshold (status = Approved). The proposal must not be expired.
 		///
-		/// The deposit is ALWAYS returned to the original `creator` stored in `MultisigData`.
-		#[pallet::call_index(6)]
-		#[pallet::weight(<T as Config>::WeightInfo::dissolve_multisig())]
-		pub fn dissolve_multisig(
+		/// On execution:
+		/// - The call is decoded and dispatched as the multisig account
+		/// - Proposal is removed from storage
+		/// - Deposit is returned to the proposer
+		///
+		/// Parameters:
+		/// - `multisig_address`: The multisig account
+		/// - `proposal_id`: ID (nonce) of the proposal to execute
+		#[pallet::call_index(7)]
+		#[pallet::weight(<T as Config>::WeightInfo::execute(T::MaxCallSize::get()))]
+		#[allow(clippy::useless_conversion)]
+		pub fn execute(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
-		) -> DispatchResult {
-			let caller = ensure_signed(origin)?;
+			proposal_id: u32,
+		) -> DispatchResultWithPostInfo {
+			let executor = ensure_signed(origin)?;
+
+			// Check if executor is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&executor) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
+
+			// Get proposal (2 reads: Multisigs + Proposals)
+			let proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(2)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
+
+			// Must be Approved status
+			if proposal.status != ProposalStatus::Approved {
+				return Self::err_with_weight(Error::<T>::ProposalNotApproved, 2);
+			}
+
+			// Must not be expired
+			let current_block = frame_system::Pallet::<T>::block_number();
+			if current_block > proposal.expiry {
+				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
+			}
+
+			// Calculate actual weight based on real call size
+			let actual_call_size = proposal.call.len() as u32;
+			let actual_weight = <T as Config>::WeightInfo::execute(actual_call_size);
+
+			// Execute the proposal
+			Self::do_execute(multisig_address, proposal_id, proposal)?;
+
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
+		}
+
+		/// Approve dissolving a multisig account
+		///
+		/// Signers call this to approve dissolving the multisig.
+		/// When threshold is reached, the multisig is automatically dissolved.
+		///
+		/// Requirements:
+		/// - Caller must be a signer
+		/// - No proposals exist (active, executed, or cancelled) - must be fully cleaned up
+		/// - Multisig account balance must be zero
+		///
+		/// When threshold is reached:
+		/// - Deposit is returned to creator
+		/// - Multisig storage is removed
+		#[pallet::call_index(6)]
+		#[pallet::weight(<T as Config>::WeightInfo::approve_dissolve_threshold_reached())]
+		#[allow(clippy::useless_conversion)]
+		pub fn approve_dissolve(
+			origin: OriginFor<T>,
+			multisig_address: T::AccountId,
+		) -> DispatchResultWithPostInfo {
+			let approver = ensure_signed(origin)?;
 
 			// 1. Get multisig data
 			let multisig_data =
 				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
 
-			// 2. Check permissions: Creator OR Any Signer
-			let is_signer = multisig_data.signers.contains(&caller);
-			let is_creator = multisig_data.creator == caller;
-			ensure!(is_signer || is_creator, Error::<T>::NotASigner);
+			// 2. Check permissions: Must be a signer
+			ensure!(multisig_data.signers.contains(&approver), Error::<T>::NotASigner);
 
 			// 3. Check if account is clean (no proposals at all)
-			// iter_prefix is efficient enough here as we just need to check if ANY exist
 			if Proposals::<T>::iter_prefix(&multisig_address).next().is_some() {
 				return Err(Error::<T>::ProposalsExist.into());
 			}
@@ -957,27 +1077,87 @@ pub mod pallet {
 			let balance = T::Currency::total_balance(&multisig_address);
 			ensure!(balance.is_zero(), Error::<T>::MultisigAccountNotZero);
 
-			// 5. Return deposit to creator
-			T::Currency::unreserve(&multisig_data.creator, multisig_data.deposit);
+			// 5. Get or create approval list
+			let mut approvals = DissolveApprovals::<T>::get(&multisig_address).unwrap_or_default();
 
-			// 6. Remove multisig from storage
-			Multisigs::<T>::remove(&multisig_address);
+			// 6. Check if already approved
+			ensure!(!approvals.contains(&approver), Error::<T>::AlreadyApproved);
 
-			// 7. Emit event
-			Self::deposit_event(Event::MultisigDissolved {
-				multisig_address,
-				caller,
-				deposit_returned: multisig_data.deposit,
+			// 7. Add approval
+			approvals.try_push(approver.clone()).map_err(|_| Error::<T>::TooManySigners)?;
+
+			let approvals_count = approvals.len() as u32;
+
+			// 8. Emit approval event
+			Self::deposit_event(Event::DissolveApproved {
+				multisig_address: multisig_address.clone(),
+				approver: approver.clone(),
+				approvals_count,
 			});
 
-			Ok(())
+			// 9. Check if threshold reached
+			let threshold_reached = approvals_count >= multisig_data.threshold;
+			if threshold_reached {
+				// Threshold reached - dissolve multisig
+				let deposit = multisig_data.deposit;
+				let creator = multisig_data.creator.clone();
+
+				// Remove multisig from storage
+				Multisigs::<T>::remove(&multisig_address);
+				DissolveApprovals::<T>::remove(&multisig_address);
+
+				// Return deposit to creator
+				T::Currency::unreserve(&creator, deposit);
+
+				// Emit dissolved event
+				Self::deposit_event(Event::MultisigDissolved {
+					multisig_address,
+					deposit_returned: creator,
+					approvers: approvals.to_vec(),
+				});
+			} else {
+				// Not ready yet, save approvals
+				DissolveApprovals::<T>::insert(&multisig_address, approvals);
+			}
+
+			let actual_weight = if threshold_reached {
+				<T as Config>::WeightInfo::approve_dissolve_threshold_reached()
+			} else {
+				<T as Config>::WeightInfo::approve_dissolve()
+			};
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Derive a multisig address from signers and nonce
-		pub fn derive_multisig_address(signers: &[T::AccountId], nonce: u64) -> T::AccountId {
-			// Create a unique identifier from pallet id + signers + nonce.
+		/// Return an error with actual weight consumed instead of charging full upfront weight.
+		/// Use for early exits where minimal work was performed.
+		fn err_with_weight(error: Error<T>, reads: u64) -> DispatchResultWithPostInfo {
+			Err(DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo {
+					actual_weight: Some(T::DbWeight::get().reads(reads)),
+					pays_fee: Pays::Yes,
+				},
+				error: error.into(),
+			})
+		}
+
+		/// Derive a deterministic multisig address from signers, threshold, and nonce
+		///
+		/// The address is computed as: hash(pallet_id || sorted_signers || threshold || nonce)
+		/// Signers are automatically sorted internally for deterministic results.
+		/// This allows users to pre-compute the address before creating the multisig.
+		pub fn derive_multisig_address(
+			signers: &[T::AccountId],
+			threshold: u32,
+			nonce: u64,
+		) -> T::AccountId {
+			// Sort signers for deterministic address generation
+			// User doesn't need to worry about order
+			let mut sorted_signers = signers.to_vec();
+			sorted_signers.sort();
+
+			// Create a unique identifier from pallet id + sorted signers + threshold + nonce.
 			//
 			// IMPORTANT:
 			// - Do NOT `Decode` directly from a finite byte-slice and then "fallback" to a constant
@@ -987,7 +1167,8 @@ pub mod pallet {
 			let pallet_id = T::PalletId::get();
 			let mut data = Vec::new();
 			data.extend_from_slice(&pallet_id.0);
-			data.extend_from_slice(&signers.encode());
+			data.extend_from_slice(&sorted_signers.encode());
+			data.extend_from_slice(&threshold.encode());
 			data.extend_from_slice(&nonce.encode());
 
 			// Hash the data and map it deterministically into an AccountId.
@@ -1017,64 +1198,66 @@ pub mod pallet {
 			Ok(multisig_data)
 		}
 
-		/// Auto-cleanup expired proposals at the start of any multisig activity
-		/// This is the primary cleanup mechanism for active multisigs
-		/// Returns deposits to original proposers and emits cleanup events
-		fn auto_cleanup_expired_proposals(
+		/// Cleanup ALL expired proposals for a specific proposer
+		///
+		/// Iterates through all proposals in the multisig and removes expired ones
+		/// belonging to the specified proposer.
+		///
+		/// Returns: (cleaned_count, total_proposals_iterated)
+		/// - cleaned_count: number of proposals actually removed
+		/// - total_proposals_iterated: total proposals that existed before cleanup (for weight
+		///   calculation)
+		/// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes)
+		/// - total_call_bytes: sum of proposal.call.len() over iterated proposals (for weight)
+		fn cleanup_proposer_expired(
 			multisig_address: &T::AccountId,
+			proposer: &T::AccountId,
 			caller: &T::AccountId,
-		) -> u32 {
+		) -> (u32, u32, u32) {
 			let current_block = frame_system::Pallet::<T>::block_number();
-			let mut iterated_count = 0u32;
-			let mut expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> = Vec::new();
+			let mut total_iterated = 0u32;
+			let mut total_call_bytes = 0u32;
 
-			// Iterate through all proposals to count them AND identify expired ones
-			for (id, proposal) in Proposals::<T>::iter_prefix(multisig_address) {
-				iterated_count += 1;
-				if proposal.status == ProposalStatus::Active && current_block > proposal.expiry {
-					expired_proposals.push((id, proposal.proposer, proposal.deposit));
-				}
-			}
+			// Collect expired proposals to remove
+			// IMPORTANT: We count ALL proposals during iteration (for weight calculation)
+			let expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> =
+				Proposals::<T>::iter_prefix(multisig_address)
+					.filter_map(|(proposal_id, proposal)| {
+						total_iterated += 1; // Count every proposal we iterate through
+						total_call_bytes += proposal.call.len() as u32;
 
-			// Remove expired proposals and return deposits
-			for (id, expired_proposer, deposit) in expired_proposals.iter() {
+						// Only proposer's expired active proposals
+						if proposal.proposer == *proposer &&
+							proposal.status == ProposalStatus::Active &&
+							current_block > proposal.expiry
+						{
+							Some((proposal_id, proposal.proposer, proposal.deposit))
+						} else {
+							None
+						}
+					})
+					.collect();
+
+			let cleaned = expired_proposals.len() as u32;
+
+			// Remove proposals and emit events
+			for (proposal_id, expired_proposer, deposit) in expired_proposals {
 				Self::remove_proposal_and_return_deposit(
 					multisig_address,
-					*id,
-					expired_proposer,
-					*deposit,
+					proposal_id,
+					&expired_proposer,
+					deposit,
 				);
 
-				// Emit event for each removed proposal
 				Self::deposit_event(Event::ProposalRemoved {
 					multisig_address: multisig_address.clone(),
-					proposal_id: *id,
-					proposer: expired_proposer.clone(),
+					proposal_id,
+					proposer: expired_proposer,
 					removed_by: caller.clone(),
 				});
 			}
 
-			// Return total number of proposals iterated (not cleaned)
-			// This reflects the actual storage read cost
-			iterated_count
-		}
-
-		/// Decrement proposal counters (active_proposals and per-signer counter)
-		/// Used when removing proposals from storage
-		fn decrement_proposal_counters(multisig_address: &T::AccountId, proposer: &T::AccountId) {
-			Multisigs::<T>::mutate(multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.active_proposals = multisig.active_proposals.saturating_sub(1);
-
-					// Decrement per-signer counter
-					if let Some(count) = multisig.proposals_per_signer.get_mut(proposer) {
-						*count = count.saturating_sub(1);
-						if *count == 0 {
-							multisig.proposals_per_signer.remove(proposer);
-						}
-					}
-				}
-			});
+			(cleaned, total_iterated, total_call_bytes)
 		}
 
 		/// Remove a proposal from storage and return deposit to proposer
@@ -1088,11 +1271,22 @@ pub mod pallet {
 			// Remove from storage
 			Proposals::<T>::remove(multisig_address, proposal_id);
 
+			// Decrement proposal counters
+			Multisigs::<T>::mutate(multisig_address, |maybe_data| {
+				if let Some(ref mut data) = maybe_data {
+					data.active_proposals = data.active_proposals.saturating_sub(1);
+					if let Some(count) = data.proposals_per_signer.get_mut(proposer) {
+						*count = count.saturating_sub(1);
+						// Remove entry if count reaches 0 to save storage
+						if *count == 0 {
+							data.proposals_per_signer.remove(proposer);
+						}
+					}
+				}
+			});
+
 			// Return deposit to proposer
 			T::Currency::unreserve(proposer, deposit);
-
-			// Decrement counters
-			Self::decrement_proposal_counters(multisig_address, proposer);
 		}
 
 		/// Internal function to execute a proposal
@@ -1121,13 +1315,6 @@ pub mod pallet {
 				&proposal.proposer,
 				proposal.deposit,
 			);
-
-			// EFFECTS: Update multisig last_activity BEFORE external interaction
-			Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					multisig.last_activity = frame_system::Pallet::<T>::block_number();
-				}
-			});
 
 			// INTERACTIONS: NOW execute the call as the multisig account
 			// Proposal already removed, so reentrancy cannot affect storage

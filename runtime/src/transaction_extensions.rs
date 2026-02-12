@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
 
 use frame_system::ensure_signed;
+use qp_high_security::HighSecurityInspector;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{traits::TransactionExtension, Weight};
@@ -65,25 +66,15 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			)
 		})?;
 
-		if ReversibleTransfers::is_high_security(&who).is_some() {
-			// High-security accounts can only call schedule_transfer and cancel
-			match call {
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_transfer { .. },
-				) |
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_asset_transfer { .. },
-				) |
-				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
-					..
-				}) => {
-					return Ok((ValidTransaction::default(), (), origin));
-				},
-				_ => {
-					return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
-						InvalidTransaction::Custom(1),
-					));
-				},
+		// Check if account is high-security using the same inspector as multisig
+		if crate::configs::HighSecurityConfig::is_high_security(&who) {
+			// Use the same whitelist check as multisig
+			if crate::configs::HighSecurityConfig::is_whitelisted(call) {
+				return Ok((ValidTransaction::default(), (), origin));
+			} else {
+				return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
+					InvalidTransaction::Custom(1),
+				));
 			}
 		}
 
@@ -204,7 +195,11 @@ mod tests {
 			assert_ok!(result);
 
 			// All other calls are disallowed for high-security accounts
-			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+			// (use transfer_keep_alive - not in whitelist for prod or runtime-benchmarks)
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
 			let result = check_call(call);
 			assert_eq!(
 				result.unwrap_err(),

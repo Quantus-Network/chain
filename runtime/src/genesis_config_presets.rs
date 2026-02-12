@@ -83,6 +83,46 @@ pub fn development_config_genesis() -> Value {
 		log::info!("🍆 Endowed account raw: {:?}", account);
 	}
 
+	#[cfg(feature = "runtime-benchmarks")]
+	{
+		use crate::Runtime;
+		use frame_benchmarking::v2::{account, whitelisted_caller};
+		use pallet_multisig::Pallet as Multisig;
+
+		const SEED: u32 = 0;
+		let caller = whitelisted_caller::<AccountId>();
+		let signer1 = account::<AccountId>("signer1", 0, SEED);
+		let signer2 = account::<AccountId>("signer2", 1, SEED);
+		let mut signers = vec![caller, signer1, signer2];
+		signers.sort();
+		let multisig_address = Multisig::<Runtime>::derive_multisig_address(&signers, 2, 0);
+		let interceptor = crystal_alice().into_account();
+		let delay = 10u32;
+
+		let rt_genesis = pallet_reversible_transfers::GenesisConfig::<Runtime> {
+			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
+		};
+
+		let config = RuntimeGenesisConfig {
+			balances: BalancesConfig {
+				balances: endowed_accounts
+					.iter()
+					.cloned()
+					.map(|k| (k, 100_000 * UNIT))
+					.chain([(
+						TreasuryPalletId::get().into_account_truncating(),
+						21_000_000 * 30 * UNIT / 100,
+					)])
+					.collect::<Vec<_>>(),
+			},
+			sudo: SudoConfig { key: Some(crystal_alice().into_account()) },
+			reversible_transfers: rt_genesis,
+			..Default::default()
+		};
+		return serde_json::to_value(config).expect("Could not build genesis config.");
+	}
+
+	#[cfg(not(feature = "runtime-benchmarks"))]
 	genesis_template(endowed_accounts, crystal_alice().into_account())
 }
 

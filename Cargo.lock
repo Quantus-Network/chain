@@ -7163,9 +7163,18 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
+ "pallet-assets",
+ "pallet-assets-holder",
  "pallet-balances 40.0.1",
+ "pallet-preimage",
+ "pallet-recovery",
+ "pallet-reversible-transfers",
+ "pallet-scheduler",
  "pallet-timestamp",
+ "pallet-utility",
  "parity-scale-codec",
+ "qp-high-security",
+ "qp-scheduler",
  "scale-info",
  "sp-arithmetic",
  "sp-core",
@@ -7278,6 +7287,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-utility",
  "parity-scale-codec",
+ "qp-high-security",
  "qp-scheduler",
  "scale-info",
  "sp-arithmetic",
@@ -8870,6 +8880,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qp-high-security"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+]
+
+[[package]]
 name = "qp-plonky2"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9180,6 +9198,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
  "qp-header",
+ "qp-high-security",
  "qp-poseidon",
  "qp-scheduler",
  "scale-info",
