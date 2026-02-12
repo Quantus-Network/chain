@@ -11,6 +11,8 @@ pub use pallet::*;
 pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
 use qp_wormhole_verifier::WormholeVerifier;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -19,15 +21,7 @@ pub mod weights;
 use sp_metadata_ir::StorageHasherIR;
 pub use weights::*;
 
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
-
 lazy_static! {
-	static ref WORMHOLE_VERIFIER: Option<WormholeVerifier> = {
-		let verifier_bytes = include_bytes!("../verifier.bin");
-		let common_bytes = include_bytes!("../common.bin");
-		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
-	};
 	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
 		let verifier_bytes = include_bytes!("../aggregated_verifier.bin");
 		let common_bytes = include_bytes!("../aggregated_common.bin");
@@ -35,12 +29,7 @@ lazy_static! {
 	};
 }
 
-// Add a safe getter function
-pub fn get_wormhole_verifier() -> Result<&'static WormholeVerifier, &'static str> {
-	WORMHOLE_VERIFIER.as_ref().ok_or("Wormhole verifier not available")
-}
-
-// Getter for aggregated verifier
+/// Getter for the aggregated proof verifier
 pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static str> {
 	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
 }
@@ -145,6 +134,11 @@ pub mod pallet {
 		#[pallet::constant]
 		type MintingAccount: Get<<Self as frame_system::Config>::AccountId>;
 
+		/// Minimum transfer amount required for wormhole transfers.
+		/// This prevents dust transfers that waste storage.
+		#[pallet::constant]
+		type MinimumTransferAmount: Get<BalanceOf<Self>>;
+
 		/// Volume fee rate in basis points (1 basis point = 0.01%).
 		/// This must match the fee rate used in proof generation.
 		#[pallet::constant]
@@ -234,6 +228,8 @@ pub mod pallet {
 		InvalidAggregatedPublicInputs,
 		/// The volume fee rate in the proof doesn't match the configured rate
 		InvalidVolumeFeeRate,
+		/// Transfer amount is below the minimum required
+		TransferAmountBelowMinimum,
 	}
 
 	#[pallet::call]
@@ -411,6 +407,12 @@ pub mod pallet {
 				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
 				processed_accounts.push((exit_account, exit_balance));
 			}
+
+			// Ensure total exit amount meets the minimum transfer requirement
+			ensure!(
+				total_exit_amount >= T::MinimumTransferAmount::get(),
+				Error::<T>::TransferAmountBelowMinimum
+			);
 
 			// Emit event for each exit account
 			Self::deposit_event(Event::ProofVerified { exit_amount: total_exit_amount });

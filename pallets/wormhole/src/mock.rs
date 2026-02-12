@@ -18,6 +18,8 @@ construct_runtime!(
 );
 
 pub type Balance = u128;
+/// 1 QUAN = 10^12 (12 decimal places)
+pub const UNIT: Balance = 1_000_000_000_000;
 pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block<T> = sp_runtime::generic::Block<
 	qp_header::Header<u64, PoseidonHasher>,
@@ -117,6 +119,8 @@ parameter_types! {
 		231, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	]);
+	/// Minimum transfer amount (10 QUAN)
+	pub const MinimumTransferAmount: Balance = 10 * UNIT;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
@@ -129,6 +133,7 @@ impl pallet_wormhole::Config for Test {
 	type Assets = Assets;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
+	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;

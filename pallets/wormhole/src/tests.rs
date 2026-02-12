@@ -11,7 +11,8 @@ mod wormhole_tests {
 		new_test_ext().execute_with(|| {
 			let alice = account_id(1);
 			let bob = account_id(2);
-			let amount = 1000u128;
+			// Minimum transfer amount is 10 QUAN
+			let amount = 10 * UNIT;
 
 			assert_ok!(Balances::mint_into(&alice, amount * 2));
 
@@ -53,10 +54,12 @@ mod wormhole_tests {
 			let alice = account_id(1);
 			let bob = account_id(2);
 			let asset_id = 1u32;
-			let amount = 1000u128;
+			// Minimum transfer amount is 10 QUAN
+			let amount = 10 * UNIT;
 
-			assert_ok!(Balances::mint_into(&alice, 1000));
-			assert_ok!(Balances::mint_into(&bob, 1000));
+			// Need enough balance for asset creation deposit
+			assert_ok!(Balances::mint_into(&alice, 10 * UNIT));
+			assert_ok!(Balances::mint_into(&bob, 10 * UNIT));
 
 			assert_ok!(Assets::create(
 				frame_system::RawOrigin::Signed(alice.clone()).into(),
@@ -112,9 +115,9 @@ mod wormhole_tests {
 		new_test_ext().execute_with(|| {
 			let alice = account_id(1);
 			let asset_id = 1u32;
-			let amount = 1000u128;
+			let amount = 10 * UNIT;
 
-			assert_ok!(Balances::mint_into(&alice, 1000));
+			assert_ok!(Balances::mint_into(&alice, 10 * UNIT));
 
 			assert_ok!(Assets::create(
 				frame_system::RawOrigin::Signed(alice.clone()).into(),
