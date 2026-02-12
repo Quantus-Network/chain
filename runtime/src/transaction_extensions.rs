@@ -6,6 +6,7 @@ use frame_support::pallet_prelude::{
 	InvalidTransaction, TransactionValidityError, ValidTransaction,
 };
 use frame_system::ensure_signed;
+use qp_high_security::HighSecurityInspector;
 use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
@@ -67,23 +68,13 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		let who = ensure_signed(origin.clone())
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))?;
 
-		if ReversibleTransfers::is_high_security(&who).is_some() {
-			// High-security accounts can only call schedule_transfer and cancel
-			match call {
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_transfer { .. },
-				) |
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_asset_transfer { .. },
-				) |
-				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
-					..
-				}) => {
-					return Ok((ValidTransaction::default(), (), origin));
-				},
-				_ => {
-					return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
-				},
+		// Check if account is high-security using the same inspector as multisig
+		if crate::configs::HighSecurityConfig::is_high_security(&who) {
+			// Use the same whitelist check as multisig
+			if crate::configs::HighSecurityConfig::is_whitelisted(call) {
+				return Ok((ValidTransaction::default(), (), origin));
+			} else {
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
 			}
 		}
 
@@ -193,10 +184,10 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	fn weight(&self, call: &RuntimeCall) -> Weight {
 		// Account for proof recording in post_dispatch
 		match call {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => {
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
+			| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => {
 				// 2 writes: TransferProof insert + TransferCount update
 				// 1 read: TransferCount get
 				T::DbWeight::get().reads_writes(1, 2)
@@ -364,7 +355,11 @@ mod tests {
 			assert_ok!(result);
 
 			// All other calls are disallowed for high-security accounts
-			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+			// (use transfer_keep_alive - not in whitelist for prod or runtime-benchmarks)
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 10 * EXISTENTIAL_DEPOSIT,
+			});
 			let result = check_call(call);
 			assert_eq!(
 				result.unwrap_err(),

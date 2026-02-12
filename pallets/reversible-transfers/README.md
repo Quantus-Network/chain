@@ -1,6 +1,14 @@
-### Motivation
+# Reversible Transfers Pallet
 
-To have accounts for which all outgoing transfer are subject to a variable time during which they may be cancelled. The idea is this could be used to deter theft as well as correct mistakes.
+## Motivation
+
+To have accounts for which all outgoing transfers are subject to a variable time during which they may be cancelled. The idea is this could be used to deter theft as well as correct mistakes.
+
+**Use Cases:**
+- **High-security custody:** Corporate treasury with guardian oversight
+- **Mistake recovery:** Cancel accidental transfers during delay period
+- **Theft deterrence:** Guardian can cancel suspicious transfers before execution
+- **Regulatory compliance:** Time-delayed transfers with oversight capabilities
 
 ## Design
 
@@ -32,3 +40,119 @@ Pending/delayed transfers can be tracked at `PendingTransfers` storage and by su
 ### Notes
 
 - Transaction id is `((who, call).hash())` where `who` is the account that called the transaction and `call` is the call itself. This is used to identify the transaction in the scheduler and preimage. For identical transfers, there is a counter in `PendingTransfer` to differentiate between them.
+
+## High-Security Integration
+
+This pallet provides the **HighSecurityInspector** trait for integrating high-security features with other pallets (like `pallet-multisig`).
+
+### HighSecurityInspector Trait
+
+```rust
+pub trait HighSecurityInspector<AccountId, RuntimeCall> {
+    /// Check if account is registered as high-security
+    fn is_high_security(who: &AccountId) -> bool;
+    
+    /// Check if call is whitelisted for high-security accounts
+    fn is_whitelisted(call: &RuntimeCall) -> bool;
+    
+    /// Get guardian account for high-security account (if exists)
+    fn guardian(who: &AccountId) -> Option<AccountId>;
+}
+```
+
+**Purpose:**
+- Provides unified interface for high-security checks
+- Used by `pallet-multisig` for call whitelisting
+- Used by transaction extensions for EOA whitelisting
+- Implemented by runtime for call pattern matching
+
+### Implementation
+
+**This pallet provides:**
+- Trait definition (`pub trait HighSecurityInspector`)
+- Helper functions for runtime implementation:
+  - `is_high_security_account(who)` - checks `HighSecurityAccounts` storage
+  - `get_guardian(who)` - retrieves guardian from storage
+- Default no-op implementation: `impl HighSecurityInspector for ()`
+
+**Runtime implements:**
+- The actual `is_whitelisted(call)` logic (requires `RuntimeCall` access)
+- Delegates `is_high_security` and `guardian` to pallet helper functions
+- Example:
+
+```rust
+pub struct HighSecurityConfig;
+
+impl HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
+    fn is_high_security(who: &AccountId) -> bool {
+        // Delegate to pallet helper
+        ReversibleTransfers::is_high_security_account(who)
+    }
+
+    fn is_whitelisted(call: &RuntimeCall) -> bool {
+        // Runtime implements pattern matching (has RuntimeCall access)
+        matches!(
+            call,
+            RuntimeCall::ReversibleTransfers(Call::schedule_transfer { .. }) |
+            RuntimeCall::ReversibleTransfers(Call::schedule_asset_transfer { .. }) |
+            RuntimeCall::ReversibleTransfers(Call::cancel { .. })
+        )
+    }
+
+    fn guardian(who: &AccountId) -> Option<AccountId> {
+        // Delegate to pallet helper
+        ReversibleTransfers::get_guardian(who)
+    }
+}
+```
+
+### Usage by Other Pallets
+
+**pallet-multisig:**
+```rust
+impl pallet_multisig::Config for Runtime {
+    type HighSecurity = HighSecurityConfig;
+    // ...
+}
+
+// In multisig propose():
+if T::HighSecurity::is_high_security(&multisig_address) {
+    let decoded_call = RuntimeCall::decode(&call)?;
+    ensure!(
+        T::HighSecurity::is_whitelisted(&decoded_call),
+        Error::CallNotAllowedForHighSecurityMultisig
+    );
+}
+```
+
+**Transaction Extensions:**
+```rust
+// In ReversibleTransactionExtension::validate():
+if HighSecurityConfig::is_high_security(&who) {
+    ensure!(
+        HighSecurityConfig::is_whitelisted(&call),
+        TransactionValidityError::Invalid(InvalidTransaction::Call)
+    );
+}
+```
+
+### Architecture Benefits
+
+**Single Source of Truth:**
+- Whitelist defined once in runtime
+- Used by multisig, transaction extensions, and any future consumers
+- Easy to maintain and update
+
+**Modularity:**
+- Trait defined in this pallet (storage owner)
+- Implementation in runtime (has `RuntimeCall` access)
+- Consumers use trait without coupling to implementation
+
+**Reusability:**
+- Same security model for EOAs and multisigs
+- Consistent whitelist enforcement across all account types
+- Easy to add new consumers (just use the trait)
+
+### Documentation
+
+See `MULTISIG_REQ.md` for complete high-security integration architecture and examples.
