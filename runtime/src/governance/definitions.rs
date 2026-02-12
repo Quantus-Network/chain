@@ -482,13 +482,12 @@ where
 		let pallets_origin = o.into_caller();
 
 		match pallets_origin {
-			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) => {
+			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) =>
 				if pallet_ranked_collective::Members::<Runtime, I>::contains_key(&who) {
 					Ok(0)
 				} else {
 					Err(original_o_for_error)
-				}
-			},
+				},
 			_ => Err(original_o_for_error),
 		}
 	}
@@ -532,13 +531,12 @@ where
 		let pallets_origin = o.into_caller();
 
 		match pallets_origin {
-			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) => {
+			crate::OriginCaller::system(frame_system::RawOrigin::Signed(who)) =>
 				if pallet_ranked_collective::Members::<Runtime, I>::contains_key(&who) {
 					Ok(who)
 				} else {
 					Err(original_o_for_error)
-				}
-			},
+				},
 			_ => Err(original_o_for_error),
 		}
 	}

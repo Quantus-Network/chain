@@ -187,8 +187,8 @@ async fn handle_external_mining(
 	let best_hash = metadata.best_hash;
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
-			cancellation_token.is_cancelled()
-				|| worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
+			cancellation_token.is_cancelled() ||
+				worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
 		})
 		.await
 		{

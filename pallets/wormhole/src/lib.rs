@@ -84,9 +84,7 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole_verifier::{
-		parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F,
-	};
+	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F};
 	use sp_runtime::{
 		traits::{MaybeDisplay, Saturating, StaticLookup, Zero},
 		transaction_validity::{

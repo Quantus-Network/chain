@@ -244,9 +244,8 @@ qp-plonky2 = { path = "../qp-plonky2/plonky2" }
 qp-plonky2-field = { path = "../qp-plonky2/field" }
 
 [patch."https://github.com/Quantus-Network/qp-zk-circuits"]
-qp-wormhole-verifier = { path = "../qp-zk-circuits/wormhole/verifier" }
 qp-wormhole-inputs = { path = "../qp-zk-circuits/wormhole/inputs" }
-
+qp-wormhole-verifier = { path = "../qp-zk-circuits/wormhole/verifier" }
 
 
 [profile.release]
