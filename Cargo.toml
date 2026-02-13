@@ -239,9 +239,6 @@ sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
-# Patch plonky2 crates to use local versions with fixed rand feature handling
-qp-plonky2 = { path = "../qp-plonky2/plonky2" }
-qp-plonky2-field = { path = "../qp-plonky2/field" }
 
 [patch."https://github.com/Quantus-Network/qp-zk-circuits"]
 qp-wormhole-inputs = { path = "../qp-zk-circuits/wormhole/inputs" }
