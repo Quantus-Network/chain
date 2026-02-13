@@ -89,7 +89,7 @@ static mut GLOBAL_TRACK_OVERRIDE: Option<(BlockNumber, BlockNumber, BlockNumber,
 
 impl GlobalTrackConfig {
 	/// Set global track timing overrides for ALL governance tracks
-	/// This affects CommunityTracksInfo, TechCollectiveTracksInfo, and Treasury tracks
+	/// This affects CommunityTracksInfo and TechCollectiveTracksInfo
 	pub fn set_track_override(
 		prepare_period: BlockNumber,
 		decision_period: BlockNumber,

@@ -25,13 +25,10 @@
 
 // Substrate and Polkadot dependencies
 use crate::{
-	governance::{
-		definitions::{
-			CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
-			TechCollectiveTracksInfo,
-		},
-		pallet_custom_origins,
+	governance::definitions::{
+		CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
+		RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
+		TechCollectiveTracksInfo,
 	},
 	MILLI_UNIT,
 };
@@ -481,8 +478,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 impl pallet_treasury::Config for Runtime {
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
 }
-
-impl pallet_custom_origins::Config for Runtime {}
 
 parameter_types! {
 	pub const AssetDeposit: Balance = MILLI_UNIT;

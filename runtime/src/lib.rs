@@ -32,7 +32,6 @@ pub mod genesis_config_presets;
 pub mod governance;
 pub mod transaction_extensions;
 
-use crate::governance::pallet_custom_origins;
 use qp_poseidon::PoseidonHasher;
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -241,9 +240,6 @@ mod runtime {
 
 	#[runtime::pallet_index(18)]
 	pub type Treasury = pallet_treasury;
-
-	#[runtime::pallet_index(19)]
-	pub type Origins = pallet_custom_origins;
 
 	#[runtime::pallet_index(20)]
 	pub type Recovery = pallet_recovery;
