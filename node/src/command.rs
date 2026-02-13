@@ -19,7 +19,7 @@ use sp_core::{
 	H256,
 };
 use sp_keyring::Sr25519Keyring;
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
+use sp_runtime::traits::IdentifyAccount;
 
 #[derive(Debug, PartialEq)]
 pub struct QuantusKeyDetails {
@@ -459,9 +459,14 @@ pub fn run() -> sc_cli::Result<()> {
 					None => {
 						// Automatically set rewards_address to Treasury when --dev is used
 						if cli.run.shared_params.is_dev() {
-							let treasury_account =
-								quantus_runtime::configs::TreasuryPalletId::get()
-									.into_account_truncating();
+							let chain_id = config.chain_spec.id();
+							let treasury_account = quantus_runtime::genesis_config_presets::get_treasury_account_for_chain(chain_id)
+								.ok_or_else(|| {
+									sc_cli::Error::Input(format!(
+										"Unknown chain ID for treasury config: {}",
+										chain_id
+									))
+								})?;
 							log::info!(
 								"⛏️ Using treasury address for rewards: {:?}",
 								treasury_account

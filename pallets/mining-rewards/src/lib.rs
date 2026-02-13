@@ -26,12 +26,10 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
+	use pallet_treasury::TreasuryProvider;
 	use qp_wormhole::TransferProofs;
 	use sp_consensus_pow::POW_ENGINE_ID;
-	use sp_runtime::{
-		generic::DigestItem,
-		traits::{AccountIdConversion, Saturating},
-	};
+	use sp_runtime::{generic::DigestItem, traits::Saturating};
 
 	const UNIT: u128 = 1_000_000_000_000u128;
 
@@ -62,13 +60,8 @@ pub mod pallet {
 		#[pallet::constant]
 		type EmissionDivisor: Get<BalanceOf<Self>>;
 
-		/// The portion of rewards that goes to treasury (out of 100)
-		#[pallet::constant]
-		type TreasuryPortion: Get<u8>;
-
-		/// The treasury pallet ID
-		#[pallet::constant]
-		type TreasuryPalletId: Get<frame_support::PalletId>;
+		/// Provides treasury account and portion (from pallet_treasury or mock)
+		type Treasury: pallet_treasury::TreasuryProvider<AccountId = Self::AccountId>;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -126,7 +119,7 @@ pub mod pallet {
 				.unwrap_or_else(BalanceOf::<T>::zero);
 
 			// Split the reward between treasury and miner
-			let treasury_portion = T::TreasuryPortion::get();
+			let treasury_portion = T::Treasury::portion();
 			let treasury_reward =
 				total_reward.saturating_mul(treasury_portion.into()) / 100u32.into();
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
@@ -213,7 +206,7 @@ pub mod pallet {
 					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
 				},
 				None => {
-					let treasury = T::TreasuryPalletId::get().into_account_truncating();
+					let treasury = T::Treasury::account_id();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
 					T::Currency::store_transfer_proof(&mint_account, &treasury, reward);

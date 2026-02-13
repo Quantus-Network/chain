@@ -18,6 +18,7 @@ members = [
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
+	"pallets/treasury",
 	"pallets/wormhole",
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
@@ -136,6 +137,7 @@ pallet-multisig = { path = "./pallets/multisig", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
+pallet-treasury = { path = "./pallets/treasury", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.2.0", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }
@@ -184,7 +186,6 @@ pallet-timestamp = { version = "40.0.0", default-features = false }
 pallet-transaction-payment = { version = "41.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "44.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "41.0.0", default-features = false }
-pallet-treasury = { version = "40.0.0", default-features = false }
 pallet-utility = { version = "41.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.2", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.50.0", default-features = false }

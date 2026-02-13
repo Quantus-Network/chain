@@ -3,7 +3,6 @@ use codec::Encode;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
-	PalletId,
 };
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{
@@ -32,7 +31,19 @@ parameter_types! {
 	pub const MaxSupply: u128 = 21_000_000 * UNIT;
 	pub const EmissionDivisor: u128 = 26_280_000;
 	pub const ExistentialDeposit: Balance = 1;
-	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+	pub const TreasuryAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([42u8; 32]);
+}
+
+/// Mock treasury for mining-rewards tests
+pub struct MockTreasury;
+impl pallet_treasury::TreasuryProvider for MockTreasury {
+	type AccountId = sp_core::crypto::AccountId32;
+	fn account_id() -> Self::AccountId {
+		TreasuryAccount::get()
+	}
+	fn portion() -> u8 {
+		50
+	}
 }
 
 impl frame_system::Config for Test {
@@ -86,7 +97,6 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const TreasuryPortion: u8 = 50; // 50% goes to treasury in tests (matching runtime)
 	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
 }
 
@@ -95,8 +105,7 @@ impl pallet_mining_rewards::Config for Test {
 	type WeightInfo = ();
 	type MaxSupply = MaxSupply;
 	type EmissionDivisor = EmissionDivisor;
-	type TreasuryPortion = TreasuryPortion;
-	type TreasuryPalletId = TreasuryPalletId;
+	type Treasury = MockTreasury;
 	type MintingAccount = MintingAccount;
 }
 
@@ -118,7 +127,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
+		balances: vec![
+			(miner(), ExistentialDeposit::get()),
+			(miner2(), ExistentialDeposit::get()),
+			(TreasuryAccount::get(), ExistentialDeposit::get()),
+		],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
