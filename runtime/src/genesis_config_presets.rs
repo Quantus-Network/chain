@@ -123,6 +123,7 @@ pub fn development_config_genesis() -> Value {
 						21_000_000 * 30 * UNIT / 100,
 					)])
 					.collect::<Vec<_>>(),
+				dev_accounts: None,
 			},
 			sudo: SudoConfig { key: Some(crystal_alice().into_account()) },
 			reversible_transfers: rt_genesis,
