@@ -89,9 +89,32 @@ mod test {
 	use super::*;
 
 	const SEED: &str = "tide power better crop pencil arrange trouble luxury pistol coach daughter senior scatter portion power harsh addict journey carry gloom fox voice volume marble";
+	const BOB_SEED: &str =
+		"option finger leader trip goose struggle blame relief afford fabric chief elevator";
 
 	/// Test message to sign
 	const TEST_MESSAGE: &[u8; 9] = b"Something";
+
+	/// Helper test to print public keys - run with: cargo test -p sc-cli print_public_keys --
+	/// --nocapture
+	#[test]
+	#[ignore]
+	fn print_public_keys() {
+		use qp_dilithium_crypto::DilithiumPair;
+		use sp_core::Pair;
+
+		println!("\n=== Public Keys for sig_verify tests ===\n");
+
+		let alice_pair = DilithiumPair::from_string(SEED, None).expect("Valid ALICE seed");
+		println!("const ALICE: &str = \"0x{}\";", hex::encode(alice_pair.public().as_ref()));
+
+		// Use a different valid 24-word mnemonic for BOB
+		let bob_seed = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+		let bob_pair = DilithiumPair::from_string(bob_seed, None).expect("Valid BOB seed");
+		println!("\nconst BOB: &str = \"0x{}\";", hex::encode(bob_pair.public().as_ref()));
+
+		println!("\n=========================================\n");
+	}
 
 	#[test]
 	fn sign_arg() {

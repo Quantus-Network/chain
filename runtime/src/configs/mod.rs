@@ -55,14 +55,17 @@ use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
-use sp_runtime::{traits::One, FixedU128, Perbill, Permill};
+use sp_runtime::{
+	traits::{AccountIdConversion, One},
+	AccountId32, FixedU128, Perbill, Permill,
+};
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
-	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, DAYS,
+	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
+	PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
@@ -123,14 +126,22 @@ parameter_types! {
 	pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
+parameter_types! {
+	pub const TreasuryPortion: Permill = Permill::from_percent(50);
+	pub const MiningUnit: Balance = UNIT;
+}
+
 impl pallet_mining_rewards::Config for Runtime {
 	type Currency = Balances;
+	type AssetId = AssetId;
+	type ProofRecorder = Wormhole;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
 	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
-	type TreasuryPortion = ConstU8<50>; // % of rewards go to treasury
+	type TreasuryPortion = TreasuryPortion;
 	type TreasuryPalletId = TreasuryPalletId;
 	type MintingAccount = MintingAccount;
+	type Unit = MiningUnit;
 }
 
 parameter_types! {
@@ -177,6 +188,7 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
@@ -191,7 +203,6 @@ impl pallet_balances::Config for Runtime {
 	type MaxReserves = ();
 	type MaxFreezes = VariantCountOf<RuntimeFreezeReason>;
 	type DoneSlashHandler = ();
-	type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
@@ -670,4 +681,26 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 			_ => Err(()),
 		}
 	}
+}
+
+parameter_types! {
+	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
+	/// Minimum transfer amount for wormhole (10 QUAN = 10 * 10^12)
+	pub const WormholeMinimumTransferAmount: Balance = 10 * UNIT;
+	/// Volume fee rate in basis points (10 bps = 0.1%)
+	pub const VolumeFeeRateBps: u32 = 10;
+	/// Proportion of volume fees to burn (50% burned, 50% to miner)
+	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+}
+
+impl pallet_wormhole::Config for Runtime {
+	type MintingAccount = WormholeMintingAccount;
+	type MinimumTransferAmount = WormholeMinimumTransferAmount;
+	type VolumeFeeRateBps = VolumeFeeRateBps;
+	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type WeightInfo = ();
+	type Currency = Balances;
+	type Assets = Assets;
+	type TransferCount = u64;
+	type WormholeAccountId = AccountId32;
 }

@@ -9,9 +9,9 @@ pub struct Cli {
 	#[clap(flatten)]
 	pub run: RunCmd,
 
-	/// Specify a rewards address for the miner
-	#[arg(long, value_name = "REWARDS_ADDRESS")]
-	pub rewards_address: Option<String>,
+	/// Specify a rewards preimage for the miner (32-byte hex from wormhole key generation)
+	#[arg(long, value_name = "REWARDS_PREIMAGE")]
+	pub rewards_preimage: Option<String>,
 
 	/// Port to listen for external miner connections (e.g., 9833).
 	/// When set, the node will wait for miners to connect instead of mining locally.

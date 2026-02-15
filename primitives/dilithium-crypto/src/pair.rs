@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use qp_rusty_crystals_dilithium::{
 	ml_dsa_87::{Keypair, PublicKey, SecretKey},
 	params::SEEDBYTES,
+	SensitiveBytes32,
 };
 use sp_core::{
 	crypto::{DeriveError, DeriveJunction, SecretStringError},
@@ -61,7 +62,7 @@ impl Pair for DilithiumPair {
 		let keypair = create_keypair(&self.public, &self.secret).expect("Failed to create keypair");
 
 		// Sign the message
-		let signature = keypair.sign(message, None, None);
+		let signature = keypair.sign(message, None, None).expect("Signing should not fail");
 
 		let signature =
 			DilithiumSignature::try_from(signature.as_ref()).expect("Wrap doesn't fail");
@@ -102,13 +103,17 @@ impl Pair for DilithiumPair {
 		phrase: &str,
 		password: Option<&str>,
 	) -> Result<(Self, Self::Seed), SecretStringError> {
-		use qp_rusty_crystals_hdwallet::HDLattice;
-		let hd = HDLattice::from_mnemonic(phrase, password)
+		use qp_rusty_crystals_hdwallet::{derive_key_from_mnemonic, mnemonic_to_seed};
+		// Default derivation path for Quantus: m/44'/189189'/0'/0'/0'
+		const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
+		let keypair = derive_key_from_mnemonic(phrase, password, DEFAULT_PATH)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
-		let keypair = hd.generate_keys();
 		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+		// Get seed for return value
+		let seed_bytes = mnemonic_to_seed(phrase.to_string(), password)
+			.map_err(|_| SecretStringError::InvalidPhrase)?;
 		let mut seed = [0u8; 32];
-		seed.copy_from_slice(&hd.seed[..32]);
+		seed.copy_from_slice(&seed_bytes[..32]);
 		Ok((pair, seed))
 	}
 
@@ -117,12 +122,13 @@ impl Pair for DilithiumPair {
 		s: &str,
 		password: Option<&str>,
 	) -> Result<(Self, Option<Self::Seed>), SecretStringError> {
-		use qp_rusty_crystals_hdwallet::HDLattice;
+		use qp_rusty_crystals_hdwallet::derive_key_from_mnemonic;
+		// Default derivation path for Quantus: m/44'/189189'/0'/0'/0'
+		const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
 		// For Dilithium, we use the string directly as entropy for key generation
 		// We combine the string with the password if provided
-		let hd =
-			HDLattice::from_mnemonic(s, password).map_err(|_| SecretStringError::InvalidPhrase)?;
-		let keypair = hd.generate_keys();
+		let keypair = derive_key_from_mnemonic(s, password, DEFAULT_PATH)
+			.map_err(|_| SecretStringError::InvalidPhrase)?;
 		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
 
 		// Return the pair with no seed since Dilithium doesn't use traditional seed-based
@@ -184,7 +190,10 @@ pub fn generate(entropy: &[u8]) -> Result<Keypair, crate::types::Error> {
 			actual: entropy.len(),
 		});
 	}
-	Ok(Keypair::generate(entropy))
+	let mut entropy_array = [0u8; 32];
+	entropy_array.copy_from_slice(&entropy[..32]);
+	let sensitive_entropy = SensitiveBytes32::from(&mut entropy_array);
+	Ok(Keypair::generate(sensitive_entropy))
 }
 
 /// Creates a keypair from existing public and secret key bytes

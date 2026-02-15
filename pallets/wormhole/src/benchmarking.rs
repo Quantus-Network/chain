@@ -1,66 +1,90 @@
 //! Benchmarking setup for pallet-wormhole
+//!
+//! Uses a pre-generated aggregated proof from aggregated_proof.hex and sets up
+//! the storage to match the proof's public inputs.
 
 use super::*;
 use alloc::vec::Vec;
+use codec::Decode;
 use frame_benchmarking::v2::*;
-use frame_support::{ensure, traits::fungible::Inspect};
-use frame_system::RawOrigin;
-use qp_wormhole_circuit::inputs::PublicCircuitInputs;
-use qp_wormhole_verifier::ProofWithPublicInputs;
-use qp_zk_circuits_common::circuit::{C, D, F};
+use frame_support::ensure;
+use frame_system::{pallet_prelude::BlockNumberFor, RawOrigin};
+use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F};
 
-fn get_benchmark_proof() -> Vec<u8> {
-	let hex_proof = include_str!("../proof_from_bins.hex");
-	hex::decode(hex_proof.trim()).expect("Failed to decode hex proof")
+fn get_benchmark_aggregated_proof() -> Vec<u8> {
+	let hex_proof = include_str!("../aggregated_proof.hex");
+	hex::decode(hex_proof.trim()).expect("Failed to decode hex aggregated proof")
 }
 
-#[benchmarks(
-    where
-    T: Send + Sync,
-    T: Config,
-    BalanceOf<T>: Into<<<T as Config>::Currency as Inspect<T::AccountId>>::Balance>,
-)]
+#[benchmarks]
 mod benchmarks {
 	use super::*;
 
 	#[benchmark]
-	fn verify_wormhole_proof() -> Result<(), BenchmarkError> {
-		let proof_bytes = get_benchmark_proof();
+	fn verify_aggregated_proof() -> Result<(), BenchmarkError> {
+		let proof_bytes = get_benchmark_aggregated_proof();
 
-		let verifier = crate::get_wormhole_verifier()
-			.map_err(|_| BenchmarkError::Stop("Verifier not available"))?;
+		// Parse the proof to get public inputs
+		let verifier = crate::get_aggregated_verifier()
+			.map_err(|_| BenchmarkError::Stop("Aggregated verifier not available"))?;
 
 		let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 			proof_bytes.clone(),
 			&verifier.circuit_data.common,
 		)
-		.map_err(|_| BenchmarkError::Stop("Invalid proof data"))?;
+		.map_err(|_| BenchmarkError::Stop("Invalid aggregated proof data"))?;
 
-		let public_inputs = PublicCircuitInputs::try_from(&proof)
-			.map_err(|_| BenchmarkError::Stop("Invalid public inputs"))?;
+		let aggregated_inputs = parse_aggregated_public_inputs(&proof)
+			.map_err(|_| BenchmarkError::Stop("Invalid aggregated public inputs"))?;
 
-		let nullifier_bytes = *public_inputs.nullifier;
+		// Extract values from aggregated public inputs
+		let block_number_u32 = aggregated_inputs.block_data.block_number;
+		let block_hash_bytes: [u8; 32] = (*aggregated_inputs.block_data.block_hash)
+			.try_into()
+			.map_err(|_| BenchmarkError::Stop("Invalid block hash length"))?;
 
-		ensure!(
-			!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-			BenchmarkError::Stop("Nullifier already used")
-		);
+		// Ensure nullifiers haven't been used
+		for nullifier in &aggregated_inputs.nullifiers {
+			let nullifier_bytes: [u8; 32] = (*nullifier)
+				.as_ref()
+				.try_into()
+				.map_err(|_| BenchmarkError::Stop("Invalid nullifier"))?;
+			ensure!(
+				!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+				BenchmarkError::Stop("Nullifier already used")
+			);
+		}
 
+		// Verify the proof is valid (sanity check)
 		verifier
 			.verify(proof)
-			.map_err(|_| BenchmarkError::Stop("Proof verification failed"))?;
+			.map_err(|_| BenchmarkError::Stop("Aggregated proof verification failed"))?;
 
-		let block_number = frame_system::Pallet::<T>::block_number();
+		// Set up storage to match the proof's public inputs:
+		// Set current block number to be >= proof's block_number
+		let block_number: BlockNumberFor<T> = block_number_u32.into();
+		frame_system::Pallet::<T>::set_block_number(block_number + 1u32.into());
+
+		// Override block hash to match proof's block_hash
+		let block_hash = T::Hash::decode(&mut &block_hash_bytes[..])
+			.map_err(|_| BenchmarkError::Stop("Failed to decode block hash"))?;
+		frame_system::BlockHash::<T>::insert(block_number, block_hash);
 
 		#[extrinsic_call]
-		verify_wormhole_proof(RawOrigin::None, proof_bytes, block_number);
+		verify_aggregated_proof(RawOrigin::None, proof_bytes);
+
+		// Verify nullifiers were marked as used
+		for nullifier in &aggregated_inputs.nullifiers {
+			let nullifier_bytes: [u8; 32] = (*nullifier)
+				.as_ref()
+				.try_into()
+				.map_err(|_| BenchmarkError::Stop("Invalid nullifier"))?;
+			ensure!(
+				UsedNullifiers::<T>::contains_key(nullifier_bytes),
+				BenchmarkError::Stop("Nullifier should be marked as used after verification")
+			);
+		}
 
 		Ok(())
-	}
-
-	impl_benchmark_test_suite! {
-		Pallet,
-		crate::mock::new_test_ext(),
-		crate::mock::Test,
 	}
 }

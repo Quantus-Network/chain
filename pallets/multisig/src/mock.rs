@@ -103,10 +103,6 @@ impl frame_system::Config for Test {
 	type AccountData = pallet_balances::AccountData<Balance>;
 }
 
-parameter_types! {
-	pub MintingAccount: AccountId = AccountId::new([1u8; 32]);
-}
-
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl pallet_balances::Config for Test {
 	type Balance = Balance;
@@ -115,8 +111,10 @@ impl pallet_balances::Config for Test {
 	type AccountStore = frame_system::Pallet<Test>;
 	type WeightInfo = ();
 	type RuntimeHoldReason = RuntimeHoldReason;
-	type MaxFreezes = MaxReversibleTransfers;
-	type MintingAccount = MintingAccount;
+	type RuntimeFreezeReason = RuntimeFreezeReason;
+	type FreezeIdentifier = ();
+	type MaxFreezes = ();
+	type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -310,6 +308,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(account_id(4), 400_000),
 			(account_id(5), 500_000),
 		],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

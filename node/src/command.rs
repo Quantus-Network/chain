@@ -7,7 +7,8 @@ use crate::{
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
-	generate_mnemonic, wormhole::WormholePair, HDLattice, QUANTUS_DILITHIUM_CHAIN_ID,
+	derive_key_from_mnemonic, generate_mnemonic, mnemonic_to_seed, wormhole::WormholePair,
+	SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
 };
 use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use rand::Rng;
@@ -42,16 +43,49 @@ pub fn generate_quantus_key(
 ) -> Result<QuantusKeyDetails, sc_cli::Error> {
 	match scheme {
 		QuantusAddressType::Standard => {
-			let hd_lattice: Option<HDLattice>;
 			let mut words_to_print: Option<String> = None;
+			let seed_for_pair: Vec<u8>;
+
+			// Build the derivation path (all components must be hardened for lattice-based crypto)
+			let path =
+				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
 			if let Some(words_phrase) = words {
-				let hd = HDLattice::from_mnemonic(&words_phrase, None).map_err(|e| {
-					eprintln!("Error processing provided words: {:?}", e);
-					sc_cli::Error::Input("Failed to process provided words".into())
-				})?;
-				hd_lattice = Some(hd);
+				// Use provided mnemonic
 				words_to_print = Some(words_phrase.clone());
+				if no_derivation {
+					// Get raw seed from mnemonic
+					let seed64 = mnemonic_to_seed(words_phrase, None).map_err(|e| {
+						eprintln!("Error processing provided words: {:?}", e);
+						sc_cli::Error::Input("Failed to process provided words".into())
+					})?;
+					seed_for_pair = seed64.to_vec();
+				} else {
+					// Derive keypair directly from mnemonic, then create DilithiumPair from it
+					println!("Deriving HD path: {}", path);
+					let keypair =
+						derive_key_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
+							eprintln!("Error deriving from mnemonic: {:?}", e);
+							sc_cli::Error::Input("Failed to derive from mnemonic".into())
+						})?;
+					// Create DilithiumPair from the derived keypair's secret
+					let dilithium_pair = DilithiumPair::from_seed(&keypair.secret.to_bytes())
+						.map_err(|e| {
+							eprintln!("Error creating DilithiumPair: {:?}", e);
+							sc_cli::Error::Input("Failed to create keypair".into())
+						})?;
+					let account_id = AccountId32::from(dilithium_pair.public());
+					return Ok(QuantusKeyDetails {
+						address: account_id
+							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
+						raw_address: format!("0x{}", hex::encode(account_id)),
+						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
+						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+						seed_hex: "N/A (derived from mnemonic)".to_string(),
+						secret_phrase: words_to_print,
+						inner_hash: None,
+					});
+				}
 			} else if let Some(mut hex_seed_str) = seed {
 				if hex_seed_str.starts_with("0x") {
 					hex_seed_str = hex_seed_str.trim_start_matches("0x").to_string();
@@ -73,41 +107,51 @@ pub fn generate_quantus_key(
 				}
 				let mut seed64 = [0u8; 64];
 				seed64.copy_from_slice(&decoded_seed_bytes);
-				let hd = HDLattice::from_seed(seed64).map_err(|e| {
-					eprintln!("Error creating HD lattice from seed: {:?}", e);
-					sc_cli::Error::Input("Failed to process provided seed".into())
-				})?;
-				hd_lattice = Some(hd);
+				seed_for_pair = seed64.to_vec();
 			} else {
-				let mut seed = [0u8; 32];
-				rand::thread_rng().fill(&mut seed);
-				let new_words = generate_mnemonic(24, seed).map_err(|e| {
+				// Generate new mnemonic from random entropy
+				let mut entropy = [0u8; 32];
+				rand::thread_rng().fill(&mut entropy);
+				let sensitive_entropy = SensitiveBytes32::from(&mut entropy);
+				let new_words = generate_mnemonic(sensitive_entropy).map_err(|e| {
 					eprintln!("Error generating new words: {:?}", e);
 					sc_cli::Error::Input("Failed to generate new words".into())
 				})?;
+				words_to_print = Some(new_words.clone());
 
-				let hd = HDLattice::from_mnemonic(&new_words, None).map_err(|e| {
-					eprintln!("Error creating HD lattice from new words: {:?}", e);
-					sc_cli::Error::Input("Failed to process new words".into())
-				})?;
-				hd_lattice = Some(hd);
-				words_to_print = Some(new_words);
-			}
-
-			let hd = hd_lattice.expect("HD lattice must be initialized");
-			// Compute seed for pair: master seed or derived child entropy
-			let seed_for_pair: Vec<u8> = if no_derivation {
-				hd.seed.to_vec()
-			} else {
-				// Example: m/44'/189189'/<index>'/0/0
-				// Explanation: "m/$purpose'/$coinType'/$account'/$change/$addressIndex";
-				let path = format!("m/44'/189189'/{index}'/0/0", index = wallet_index);
-				println!("Deriving HD path: {}", path);
-				let child = hd.derive_entropy(&path).map_err(|e| {
-					eprintln!("Error deriving HD path {}: {:?}", path, e);
-					sc_cli::Error::Input("Failed to derive HD child".into())
-				})?;
-				child.to_vec()
+				if no_derivation {
+					// Get raw seed from mnemonic
+					let seed64 = mnemonic_to_seed(new_words, None).map_err(|e| {
+						eprintln!("Error converting mnemonic to seed: {:?}", e);
+						sc_cli::Error::Input("Failed to convert mnemonic to seed".into())
+					})?;
+					seed_for_pair = seed64.to_vec();
+				} else {
+					// Derive keypair directly from mnemonic, then create DilithiumPair from it
+					println!("Deriving HD path: {}", path);
+					let keypair =
+						derive_key_from_mnemonic(&new_words, None, &path).map_err(|e| {
+							eprintln!("Error deriving from mnemonic: {:?}", e);
+							sc_cli::Error::Input("Failed to derive from mnemonic".into())
+						})?;
+					// Create DilithiumPair from the derived keypair's secret
+					let dilithium_pair = DilithiumPair::from_seed(&keypair.secret.to_bytes())
+						.map_err(|e| {
+							eprintln!("Error creating DilithiumPair: {:?}", e);
+							sc_cli::Error::Input("Failed to create keypair".into())
+						})?;
+					let account_id = AccountId32::from(dilithium_pair.public());
+					return Ok(QuantusKeyDetails {
+						address: account_id
+							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
+						raw_address: format!("0x{}", hex::encode(account_id)),
+						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
+						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+						seed_hex: "N/A (derived from mnemonic)".to_string(),
+						secret_phrase: words_to_print,
+						inner_hash: None,
+					});
+				}
 			};
 
 			let dilithium_pair = DilithiumPair::from_seed(&seed_for_pair).map_err(|e| {
@@ -130,7 +174,8 @@ pub fn generate_quantus_key(
 		QuantusAddressType::Wormhole => {
 			let mut seed = [0u8; 32];
 			rand::thread_rng().fill(&mut seed);
-			let wormhole_pair = WormholePair::generate_new(seed).map_err(|e| {
+			let sensitive_seed = SensitiveBytes32::from(&mut seed);
+			let wormhole_pair = WormholePair::generate_new(sensitive_seed).map_err(|e| {
 				eprintln!("Error generating WormholePair: {:?}", e);
 				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e))
 			})?;
@@ -240,7 +285,7 @@ pub fn run() -> sc_cli::Result<()> {
 										println!("Derivation disabled (--no-derivation). Using master seed.");
 									} else {
 										println!(
-											"Deriving child with index {} (path m/44'/{}/{}'/0/0)",
+											"Deriving child with index {} (path m/44'/{}/{}'/0'/0')",
 											wallet_index, QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
@@ -448,16 +493,16 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.network_backend = NetworkBackendType::Libp2p;
 
-				let rewards_account = match cli.rewards_address {
+				let rewards_account = match cli.rewards_preimage {
 					Some(address) => {
 						let account = address.parse::<AccountId32>().map_err(|_| {
-							sc_cli::Error::Input("Invalid rewards address format".into())
+							sc_cli::Error::Input("Invalid rewards preimage format".into())
 						})?;
 						log::info!("⛏️ Using address for rewards: {:?}", account);
 						account
 					},
 					None => {
-						// Automatically set rewards_address to Treasury when --dev is used
+						// Automatically set rewards_preimage to Treasury when --dev is used
 						if cli.run.shared_params.is_dev() {
 							let treasury_account =
 								quantus_runtime::configs::TreasuryPalletId::get()
@@ -470,7 +515,7 @@ pub fn run() -> sc_cli::Result<()> {
 							treasury_account
 						} else {
 							// Should never happen
-							return Err(sc_cli::Error::Input("No rewards address provided".into()));
+							return Err(sc_cli::Error::Input("No rewards preimage provided".into()));
 						}
 					},
 				};

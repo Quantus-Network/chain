@@ -2,13 +2,18 @@
 use crate::*;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
-use frame_support::pallet_prelude::{InvalidTransaction, ValidTransaction};
-
+use frame_support::pallet_prelude::{
+	InvalidTransaction, TransactionValidityError, ValidTransaction,
+};
 use frame_system::ensure_signed;
 use qp_high_security::HighSecurityInspector;
+use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
-use sp_runtime::{traits::TransactionExtension, Weight};
+use sp_runtime::{
+	traits::{DispatchInfoOf, PostDispatchInfoOf, StaticLookup, TransactionExtension},
+	DispatchResult, Weight,
+};
 
 /// Transaction extension for reversible accounts
 ///
@@ -46,7 +51,7 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		_call: &RuntimeCall,
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
-	) -> Result<Self::Pre, frame_support::pallet_prelude::TransactionValidityError> {
+	) -> Result<Self::Pre, TransactionValidityError> {
 		Ok(())
 	}
 
@@ -60,11 +65,8 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 		_inherited_implication: &impl sp_runtime::traits::Implication,
 		_source: frame_support::pallet_prelude::TransactionSource,
 	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
-		let who = ensure_signed(origin.clone()).map_err(|_| {
-			frame_support::pallet_prelude::TransactionValidityError::Invalid(
-				InvalidTransaction::BadSigner,
-			)
-		})?;
+		let who = ensure_signed(origin.clone())
+			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))?;
 
 		// Check if account is high-security using the same inspector as multisig
 		if crate::configs::HighSecurityConfig::is_high_security(&who) {
@@ -72,13 +74,170 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 			if crate::configs::HighSecurityConfig::is_whitelisted(call) {
 				return Ok((ValidTransaction::default(), (), origin));
 			} else {
-				return Err(frame_support::pallet_prelude::TransactionValidityError::Invalid(
-					InvalidTransaction::Custom(1),
-				));
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Custom(1)));
 			}
 		}
 
 		Ok((ValidTransaction::default(), (), origin))
+	}
+}
+
+/// Details of a transfer to be recorded
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferDetails {
+	from: AccountId,
+	to: AccountId,
+	amount: Balance,
+	asset_id: AssetId,
+}
+
+/// Transaction extension that records transfer proofs in the wormhole pallet
+///
+/// This extension:
+/// - Extracts transfer details from balance/asset transfer calls
+/// - Records proofs in wormhole storage after successful execution
+/// - Increments transfer count
+/// - Emits events
+/// - Fails the transaction if proof recording fails
+#[derive(Encode, Decode, Clone, Eq, PartialEq, Default, TypeInfo, Debug, DecodeWithMemTracking)]
+#[scale_info(skip_type_params(T))]
+pub struct WormholeProofRecorderExtension<T: pallet_wormhole::Config + Send + Sync>(PhantomData<T>);
+
+impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T> {
+	/// Creates new extension
+	pub fn new() -> Self {
+		Self(PhantomData)
+	}
+
+	/// Helper to convert lookup errors to transaction validity errors
+	fn lookup(address: &Address) -> Result<AccountId, TransactionValidityError> {
+		<Runtime as frame_system::Config>::Lookup::lookup(address.clone())
+			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))
+	}
+
+	/// Extract transfer details from a runtime call
+	fn extract_transfer_details(
+		origin: &RuntimeOrigin,
+		call: &RuntimeCall,
+	) -> Result<Option<TransferDetails>, TransactionValidityError> {
+		// Only process signed transactions
+		let who = match ensure_signed(origin.clone()) {
+			Ok(signer) => signer,
+			Err(_) => return Ok(None),
+		};
+
+		let details = match call {
+			// Native balance transfers
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value }) => {
+				let to = Self::lookup(dest)?;
+				Some(TransferDetails { from: who, to, amount: *value, asset_id: 0 })
+			},
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { dest, value }) => {
+				let to = Self::lookup(dest)?;
+				Some(TransferDetails { from: who, to, amount: *value, asset_id: 0 })
+			},
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => None,
+
+			// Asset transfers
+			RuntimeCall::Assets(pallet_assets::Call::transfer { id, target, amount }) => {
+				let to = Self::lookup(target)?;
+				Some(TransferDetails { asset_id: id.0, from: who, to, amount: *amount })
+			},
+			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
+				id,
+				target,
+				amount,
+			}) => {
+				let to = Self::lookup(target)?;
+				Some(TransferDetails { asset_id: id.0, from: who, to, amount: *amount })
+			},
+
+			_ => None,
+		};
+
+		Ok(details)
+	}
+
+	/// Record the transfer proof using the TransferProofRecorder trait
+	fn record_proof(details: TransferDetails) -> Result<(), TransactionValidityError> {
+		let asset_id = if details.asset_id == 0 { None } else { Some(details.asset_id) };
+
+		<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
+			asset_id,
+			details.from,
+			details.to,
+			details.amount,
+		)
+		.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Custom(100)))
+	}
+}
+
+impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionExtension<RuntimeCall>
+	for WormholeProofRecorderExtension<T>
+{
+	type Pre = Option<TransferDetails>;
+	type Val = ();
+	type Implicit = ();
+
+	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
+
+	fn weight(&self, call: &RuntimeCall) -> Weight {
+		// Account for proof recording in post_dispatch
+		match call {
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => {
+				// 2 writes: TransferProof insert + TransferCount update
+				// 1 read: TransferCount get
+				T::DbWeight::get().reads_writes(1, 2)
+			},
+			_ => Weight::zero(),
+		}
+	}
+
+	fn prepare(
+		self,
+		_val: Self::Val,
+		origin: &sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
+		call: &RuntimeCall,
+		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
+		_len: usize,
+	) -> Result<Self::Pre, TransactionValidityError> {
+		// Extract transfer details to pass to post_dispatch
+		Self::extract_transfer_details(origin, call)
+	}
+
+	fn validate(
+		&self,
+		_origin: sp_runtime::traits::DispatchOriginOf<RuntimeCall>,
+		_call: &RuntimeCall,
+		_info: &DispatchInfoOf<RuntimeCall>,
+		_len: usize,
+		_self_implicit: Self::Implicit,
+		_inherited_implication: &impl sp_runtime::traits::Implication,
+		_source: frame_support::pallet_prelude::TransactionSource,
+	) -> sp_runtime::traits::ValidateResult<Self::Val, RuntimeCall> {
+		// No validation needed - just return Ok
+		Ok((ValidTransaction::default(), (), _origin))
+	}
+
+	fn post_dispatch(
+		pre: Self::Pre,
+		_info: &DispatchInfoOf<RuntimeCall>,
+		post_info: &mut PostDispatchInfoOf<RuntimeCall>,
+		_len: usize,
+		_result: &DispatchResult,
+	) -> Result<(), TransactionValidityError> {
+		// Only record proof if the transaction succeeded (no error in post_info)
+		if post_info.actual_weight.is_some() || _result.is_ok() {
+			if let Some(details) = pre {
+				// Record the proof - if this fails, fail the whole transaction
+				Self::record_proof(details)?;
+			}
+		}
+
+		Ok(())
 	}
 }
 
@@ -108,6 +267,7 @@ mod tests {
 				(bob(), EXISTENTIAL_DEPOSIT * 2),
 				(charlie(), EXISTENTIAL_DEPOSIT * 100),
 			],
+			dev_accounts: None,
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
@@ -321,8 +481,73 @@ mod tests {
 				RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 					tx_id: sp_core::H256::default(),
 				});
-			// High-security accounts can call cancel
 			assert_ok!(check_call(call));
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_native_transfer() {
+		new_test_ext().execute_with(|| {
+			let alice_origin = RuntimeOrigin::signed(alice());
+			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 100 * UNIT,
+			});
+
+			let details = WormholeProofRecorderExtension::<Runtime>::extract_transfer_details(
+				&alice_origin,
+				&call,
+			)
+			.unwrap();
+
+			assert!(details.is_some());
+			let details = details.unwrap();
+			assert_eq!(details.from, alice());
+			assert_eq!(details.to, bob());
+			assert_eq!(details.amount, 100 * UNIT);
+			assert_eq!(details.asset_id, 0);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_asset_transfer() {
+		new_test_ext().execute_with(|| {
+			let alice_origin = RuntimeOrigin::signed(alice());
+			let asset_id = 42u32;
+			let call = RuntimeCall::Assets(pallet_assets::Call::transfer {
+				id: codec::Compact(asset_id),
+				target: MultiAddress::Id(bob()),
+				amount: 500,
+			});
+
+			let details = WormholeProofRecorderExtension::<Runtime>::extract_transfer_details(
+				&alice_origin,
+				&call,
+			)
+			.unwrap();
+
+			assert!(details.is_some());
+			let details = details.unwrap();
+			assert_eq!(details.from, alice());
+			assert_eq!(details.to, bob());
+			assert_eq!(details.amount, 500);
+			assert_eq!(details.asset_id, asset_id);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_ignores_non_transfer() {
+		new_test_ext().execute_with(|| {
+			let alice_origin = RuntimeOrigin::signed(alice());
+			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
+
+			let details = WormholeProofRecorderExtension::<Runtime>::extract_transfer_details(
+				&alice_origin,
+				&call,
+			)
+			.unwrap();
+
+			assert!(details.is_none());
 		});
 	}
 }

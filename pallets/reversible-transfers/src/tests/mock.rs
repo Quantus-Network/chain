@@ -149,7 +149,6 @@ impl pallet_balances::Config for Test {
 	type WeightInfo = ();
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type MaxFreezes = MaxReversibleTransfers;
-	type MintingAccount = MintingAccount;
 }
 
 // In memory storage
@@ -346,6 +345,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(account_id(110), 100_000_000_000),
 			(account_id(111), 100_000_000_000),
 		],
+		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
