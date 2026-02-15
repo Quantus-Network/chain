@@ -9058,48 +9058,78 @@ name = "qp-wormhole"
 version = "0.1.0"
 
 [[package]]
-name = "qp-wormhole-circuit"
-version = "0.1.8"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#67cf016f6f0237f61dab644d0724124311a15e1f"
+name = "qp-wormhole-aggregator"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "128197d45244b09c2a74e7741dc738e99ec9e6e962e130141cfb5a039d90a05c"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
+ "qp-wormhole-circuit",
+ "qp-wormhole-inputs",
+ "qp-wormhole-prover",
+ "qp-zk-circuits-common",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "qp-wormhole-circuit"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d07dc178b68cb1ba21afe953d42a9f3c35aac2da88452d15f6bc6d5354ff665"
+dependencies = [
+ "anyhow",
+ "hex",
+ "qp-plonky2",
+ "qp-wormhole-inputs",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "0.1.8"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#67cf016f6f0237f61dab644d0724124311a15e1f"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a62ae8e869c71a3c94b5557939fc74735157d4a569395338ea61fb3c503c0ccf"
 dependencies = [
  "anyhow",
+ "clap",
  "qp-plonky2",
+ "qp-wormhole-aggregator",
  "qp-wormhole-circuit",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.0.1"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ed52f1c97996071aa3442537e6cd34a964568d7cec3dfd2a19c008aefc65a69"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "0.1.8"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#67cf016f6f0237f61dab644d0724124311a15e1f"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ae4a1eaa8549ac5471b39aa48325ad645bf0b446985606719f6dd4f67e87f08"
 dependencies = [
  "anyhow",
  "qp-plonky2",
  "qp-wormhole-circuit",
+ "qp-wormhole-inputs",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.0.1"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "391aa040d915295504bd2675be8d140fcbb639dbfe7fe033de604169c185d7f6"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -9108,13 +9138,15 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "0.1.8"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits?branch=illuzen%2Fagg-fees#67cf016f6f0237f61dab644d0724124311a15e1f"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8259c977a1f275fe4c56a85b8bca4d23a4909cbf30601d850380672a58a4bf5c"
 dependencies = [
  "anyhow",
  "hex",
  "qp-plonky2",
  "qp-poseidon-core",
+ "qp-wormhole-inputs",
  "serde",
 ]
 
