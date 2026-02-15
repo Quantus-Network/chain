@@ -103,10 +103,6 @@ impl frame_system::Config for Test {
 	type AccountData = pallet_balances::AccountData<Balance>;
 }
 
-parameter_types! {
-	pub MintingAccount: AccountId = AccountId::new([1u8; 32]);
-}
-
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl pallet_balances::Config for Test {
 	type Balance = Balance;
@@ -117,9 +113,8 @@ impl pallet_balances::Config for Test {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type FreezeIdentifier = ();
-	type MaxFreezes = MaxFreezes;
+	type MaxFreezes = ();
 	type DoneSlashHandler = ();
-	type MintingAccount = MintingAccount;
 }
 
 parameter_types! {
