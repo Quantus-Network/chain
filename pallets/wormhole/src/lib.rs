@@ -67,15 +67,14 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Mutate, Unbalanced},
-			fungibles::{self, Inspect as FungiblesInspect, Mutate as FungiblesMutate},
-			tokens::Preservation,
+			fungibles::{self, Mutate as FungiblesMutate},
 			Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F};
 	use sp_runtime::{
-		traits::{MaybeDisplay, Saturating, StaticLookup, Zero},
+		traits::{MaybeDisplay, Saturating, Zero},
 		transaction_validity::{
 			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 			ValidTransaction,
@@ -91,8 +90,6 @@ pub mod pallet {
 	pub type AssetBalanceOf<T> = <<T as Config>::Assets as fungibles::Inspect<
 		<T as frame_system::Config>::AccountId,
 	>>::Balance;
-	pub type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
-
 	pub type TransferProofKey<T> = (
 		AssetIdOf<T>,
 		<T as Config>::TransferCount,
@@ -220,8 +217,6 @@ pub mod pallet {
 		StorageRootMismatch,
 		BlockNotFound,
 		InvalidBlockNumber,
-		AssetNotFound,
-		SelfTransfer,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
@@ -234,65 +229,6 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Transfer native tokens and store proof for wormhole
-		#[pallet::call_index(0)]
-		#[pallet::weight(T::DbWeight::get().reads_writes(1, 2))]
-		pub fn transfer_native(
-			origin: OriginFor<T>,
-			dest: AccountIdLookupOf<T>,
-			#[pallet::compact] amount: BalanceOf<T>,
-		) -> DispatchResult {
-			let source = ensure_signed(origin)?;
-			let dest = T::Lookup::lookup(dest)?;
-
-			// Prevent self-transfers
-			ensure!(source != dest, Error::<T>::SelfTransfer);
-
-			// Perform the transfer
-			<T::Currency as Mutate<_>>::transfer(&source, &dest, amount, Preservation::Expendable)?;
-
-			// Store proof with asset_id = Default (0 for native)
-			Self::record_transfer(AssetIdOf::<T>::default(), source.into(), dest.into(), amount)?;
-
-			Ok(())
-		}
-
-		/// Transfer asset tokens and store proof for wormhole
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-		pub fn transfer_asset(
-			origin: OriginFor<T>,
-			asset_id: AssetIdOf<T>,
-			dest: AccountIdLookupOf<T>,
-			#[pallet::compact] amount: AssetBalanceOf<T>,
-		) -> DispatchResult {
-			let source = ensure_signed(origin)?;
-			let dest = T::Lookup::lookup(dest)?;
-
-			// Prevent self-transfers
-			ensure!(source != dest, Error::<T>::SelfTransfer);
-
-			// Check if asset exists
-			ensure!(
-				<T::Assets as FungiblesInspect<_>>::asset_exists(asset_id.clone()),
-				Error::<T>::AssetNotFound
-			);
-
-			// Perform the transfer
-			<T::Assets as fungibles::Mutate<_>>::transfer(
-				asset_id.clone(),
-				&source,
-				&dest,
-				amount,
-				Preservation::Expendable,
-			)?;
-
-			// Store proof
-			Self::record_transfer(asset_id, source.into(), dest.into(), amount.into())?;
-
-			Ok(())
-		}
-
 		/// Verify an aggregated wormhole proof and process all transfers in the batch
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
