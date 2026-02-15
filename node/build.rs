@@ -12,7 +12,8 @@ fn main() {
 
 fn validate_circuit_binaries() {
 	// NOTE: cargo:rerun-if-changed paths are relative to the package's Cargo.toml directory.
-	// Since this build.rs is in node/, we use ../pallets/wormhole/ to point to the pallet directory.
+	// Since this build.rs is in node/, we use ../pallets/wormhole/ to point to the pallet
+	// directory.
 	println!("cargo:rerun-if-changed=../pallets/wormhole/aggregated_verifier.bin");
 	println!("cargo:rerun-if-changed=../pallets/wormhole/aggregated_common.bin");
 
