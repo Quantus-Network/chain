@@ -85,7 +85,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// should be higher than single proof verification.
 	fn verify_aggregated_proof() -> Weight {
 		// Placeholder: use 8x the single proof weight as a conservative estimate
-		// for the default tree configuration (branching_factor=2, depth=3 = 8 proofs)
+		// for the default configuration (8 leaf proofs)
 		Weight::from_parts(115_744_000_000, 28744)
 			.saturating_add(T::DbWeight::get().reads(32_u64))
 			.saturating_add(T::DbWeight::get().writes(32_u64))

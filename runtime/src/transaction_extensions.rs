@@ -1,5 +1,8 @@
 //! Custom signed extensions for the runtime.
+extern crate alloc;
 use crate::*;
+use alloc::vec;
+use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{
@@ -115,33 +118,30 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::BadSigner))
 	}
 
-	/// Extract transfer details from a runtime call
-	fn extract_transfer_details(
-		origin: &RuntimeOrigin,
+	/// Extract transfer details from a runtime call, recursing into batch calls.
+	///
+	/// Returns a list of all transfers found in the call tree. For direct transfer
+	/// calls this returns a single-element vec. For `utility.batch()` and similar
+	/// wrappers, it recurses into the inner calls and collects all transfers.
+	fn extract_all_transfers(
+		who: &AccountId,
 		call: &RuntimeCall,
-	) -> Result<Option<TransferDetails>, TransactionValidityError> {
-		// Only process signed transactions
-		let who = match ensure_signed(origin.clone()) {
-			Ok(signer) => signer,
-			Err(_) => return Ok(None),
-		};
-
-		let details = match call {
+	) -> Result<Vec<TransferDetails>, TransactionValidityError> {
+		match call {
 			// Native balance transfers
 			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value }) => {
 				let to = Self::lookup(dest)?;
-				Some(TransferDetails { from: who, to, amount: *value, asset_id: 0 })
+				Ok(vec![TransferDetails { from: who.clone(), to, amount: *value, asset_id: 0 }])
 			},
 			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { dest, value }) => {
 				let to = Self::lookup(dest)?;
-				Some(TransferDetails { from: who, to, amount: *value, asset_id: 0 })
+				Ok(vec![TransferDetails { from: who.clone(), to, amount: *value, asset_id: 0 }])
 			},
-			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) => None,
 
 			// Asset transfers
 			RuntimeCall::Assets(pallet_assets::Call::transfer { id, target, amount }) => {
 				let to = Self::lookup(target)?;
-				Some(TransferDetails { asset_id: id.0, from: who, to, amount: *amount })
+				Ok(vec![TransferDetails { asset_id: id.0, from: who.clone(), to, amount: *amount }])
 			},
 			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
 				id,
@@ -149,13 +149,42 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 				amount,
 			}) => {
 				let to = Self::lookup(target)?;
-				Some(TransferDetails { asset_id: id.0, from: who, to, amount: *amount })
+				Ok(vec![TransferDetails { asset_id: id.0, from: who.clone(), to, amount: *amount }])
 			},
 
-			_ => None,
-		};
+			// Batch calls -- recurse into inner calls
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls })
+			| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+			| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
+				let mut all = Vec::new();
+				for inner_call in calls {
+					all.extend(Self::extract_all_transfers(who, inner_call)?);
+				}
+				Ok(all)
+			},
 
-		Ok(details)
+			// Everything else (transfer_all, system calls, etc.)
+			_ => Ok(vec![]),
+		}
+	}
+
+	/// Count the number of transfers in a call (including inside batches).
+	/// Used for weight estimation.
+	fn count_transfers(call: &RuntimeCall) -> usize {
+		match call {
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
+			| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
+
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls })
+			| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+			| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
+				calls.iter().map(Self::count_transfers).sum()
+			},
+
+			_ => 0,
+		}
 	}
 
 	/// Record the transfer proof using the TransferProofRecorder trait
@@ -175,24 +204,21 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionExtension<RuntimeCall>
 	for WormholeProofRecorderExtension<T>
 {
-	type Pre = Option<TransferDetails>;
+	type Pre = Vec<TransferDetails>;
 	type Val = ();
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
 
 	fn weight(&self, call: &RuntimeCall) -> Weight {
-		// Account for proof recording in post_dispatch
-		match call {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
-			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
-			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => {
-				// 2 writes: TransferProof insert + TransferCount update
-				// 1 read: TransferCount get
-				T::DbWeight::get().reads_writes(1, 2)
-			},
-			_ => Weight::zero(),
+		// Count the number of transfers in the call (including inside batches)
+		// to accurately estimate the weight for proof recording.
+		let n = Self::count_transfers(call) as u64;
+		if n > 0 {
+			// Per transfer: 1 read (TransferCount) + 2 writes (TransferProof + TransferCount)
+			T::DbWeight::get().reads_writes(n, 2 * n)
+		} else {
+			Weight::zero()
 		}
 	}
 
@@ -204,8 +230,11 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
-		// Extract transfer details to pass to post_dispatch
-		Self::extract_transfer_details(origin, call)
+		let who = match ensure_signed(origin.clone()) {
+			Ok(signer) => signer,
+			Err(_) => return Ok(vec![]),
+		};
+		Self::extract_all_transfers(&who, call)
 	}
 
 	fn validate(
@@ -225,14 +254,13 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	fn post_dispatch(
 		pre: Self::Pre,
 		_info: &DispatchInfoOf<RuntimeCall>,
-		post_info: &mut PostDispatchInfoOf<RuntimeCall>,
+		_post_info: &mut PostDispatchInfoOf<RuntimeCall>,
 		_len: usize,
-		_result: &DispatchResult,
+		result: &DispatchResult,
 	) -> Result<(), TransactionValidityError> {
-		// Only record proof if the transaction succeeded (no error in post_info)
-		if post_info.actual_weight.is_some() || _result.is_ok() {
-			if let Some(details) = pre {
-				// Record the proof - if this fails, fail the whole transaction
+		// Only record proofs if the transaction succeeded
+		if result.is_ok() {
+			for details in pre {
 				Self::record_proof(details)?;
 			}
 		}
@@ -488,31 +516,26 @@ mod tests {
 	#[test]
 	fn wormhole_proof_recorder_native_transfer() {
 		new_test_ext().execute_with(|| {
-			let alice_origin = RuntimeOrigin::signed(alice());
 			let call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
 				dest: MultiAddress::Id(bob()),
 				value: 100 * UNIT,
 			});
 
-			let details = WormholeProofRecorderExtension::<Runtime>::extract_transfer_details(
-				&alice_origin,
-				&call,
-			)
-			.unwrap();
+			let transfers =
+				WormholeProofRecorderExtension::<Runtime>::extract_all_transfers(&alice(), &call)
+					.unwrap();
 
-			assert!(details.is_some());
-			let details = details.unwrap();
-			assert_eq!(details.from, alice());
-			assert_eq!(details.to, bob());
-			assert_eq!(details.amount, 100 * UNIT);
-			assert_eq!(details.asset_id, 0);
+			assert_eq!(transfers.len(), 1);
+			assert_eq!(transfers[0].from, alice());
+			assert_eq!(transfers[0].to, bob());
+			assert_eq!(transfers[0].amount, 100 * UNIT);
+			assert_eq!(transfers[0].asset_id, 0);
 		});
 	}
 
 	#[test]
 	fn wormhole_proof_recorder_asset_transfer() {
 		new_test_ext().execute_with(|| {
-			let alice_origin = RuntimeOrigin::signed(alice());
 			let asset_id = 42u32;
 			let call = RuntimeCall::Assets(pallet_assets::Call::transfer {
 				id: codec::Compact(asset_id),
@@ -520,34 +543,119 @@ mod tests {
 				amount: 500,
 			});
 
-			let details = WormholeProofRecorderExtension::<Runtime>::extract_transfer_details(
-				&alice_origin,
-				&call,
-			)
-			.unwrap();
+			let transfers =
+				WormholeProofRecorderExtension::<Runtime>::extract_all_transfers(&alice(), &call)
+					.unwrap();
 
-			assert!(details.is_some());
-			let details = details.unwrap();
-			assert_eq!(details.from, alice());
-			assert_eq!(details.to, bob());
-			assert_eq!(details.amount, 500);
-			assert_eq!(details.asset_id, asset_id);
+			assert_eq!(transfers.len(), 1);
+			assert_eq!(transfers[0].from, alice());
+			assert_eq!(transfers[0].to, bob());
+			assert_eq!(transfers[0].amount, 500);
+			assert_eq!(transfers[0].asset_id, asset_id);
 		});
 	}
 
 	#[test]
 	fn wormhole_proof_recorder_ignores_non_transfer() {
 		new_test_ext().execute_with(|| {
-			let alice_origin = RuntimeOrigin::signed(alice());
 			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 
-			let details = WormholeProofRecorderExtension::<Runtime>::extract_transfer_details(
-				&alice_origin,
-				&call,
-			)
-			.unwrap();
+			let transfers =
+				WormholeProofRecorderExtension::<Runtime>::extract_all_transfers(&alice(), &call)
+					.unwrap();
 
-			assert!(details.is_none());
+			assert!(transfers.is_empty());
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_batch_transfers() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![
+					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+						dest: MultiAddress::Id(bob()),
+						value: 100 * UNIT,
+					}),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+						dest: MultiAddress::Id(charlie()),
+						value: 200 * UNIT,
+					}),
+				],
+			});
+
+			let transfers =
+				WormholeProofRecorderExtension::<Runtime>::extract_all_transfers(&alice(), &call)
+					.unwrap();
+
+			assert_eq!(transfers.len(), 2);
+			assert_eq!(transfers[0].to, bob());
+			assert_eq!(transfers[0].amount, 100 * UNIT);
+			assert_eq!(transfers[1].to, charlie());
+			assert_eq!(transfers[1].amount, 200 * UNIT);
+
+			// Weight should reflect 2 transfers
+			let ext = WormholeProofRecorderExtension::<Runtime>::new();
+			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &call);
+			assert!(weight.ref_time() > 0);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_nested_batch() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![
+					RuntimeCall::Utility(pallet_utility::Call::batch {
+						calls: vec![RuntimeCall::Balances(
+							pallet_balances::Call::transfer_allow_death {
+								dest: MultiAddress::Id(bob()),
+								value: 50 * UNIT,
+							},
+						)],
+					}),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+						dest: MultiAddress::Id(charlie()),
+						value: 75 * UNIT,
+					}),
+				],
+			});
+
+			let transfers =
+				WormholeProofRecorderExtension::<Runtime>::extract_all_transfers(&alice(), &call)
+					.unwrap();
+
+			assert_eq!(transfers.len(), 2);
+			assert_eq!(transfers[0].to, bob());
+			assert_eq!(transfers[0].amount, 50 * UNIT);
+			assert_eq!(transfers[1].to, charlie());
+			assert_eq!(transfers[1].amount, 75 * UNIT);
+		});
+	}
+
+	#[test]
+	fn wormhole_proof_recorder_batch_with_non_transfers() {
+		new_test_ext().execute_with(|| {
+			let call = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![
+					RuntimeCall::System(frame_system::Call::remark { remark: vec![1] }),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+						dest: MultiAddress::Id(bob()),
+						value: 100 * UNIT,
+					}),
+					RuntimeCall::System(frame_system::Call::remark { remark: vec![2] }),
+				],
+			});
+
+			let transfers =
+				WormholeProofRecorderExtension::<Runtime>::extract_all_transfers(&alice(), &call)
+					.unwrap();
+
+			// Only the transfer should be extracted, not the remarks
+			assert_eq!(transfers.len(), 1);
+			assert_eq!(transfers[0].to, bob());
 		});
 	}
 }

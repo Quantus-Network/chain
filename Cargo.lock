@@ -9059,9 +9059,9 @@ version = "0.1.0"
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "128197d45244b09c2a74e7741dc738e99ec9e6e962e130141cfb5a039d90a05c"
+checksum = "04272fea9dbfbfa7798c3810b2c6992a51d3ea64dfe9865fc551e7d6beee1849"
 dependencies = [
  "anyhow",
  "hex",
@@ -9078,9 +9078,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d07dc178b68cb1ba21afe953d42a9f3c35aac2da88452d15f6bc6d5354ff665"
+checksum = "f0095585d57804e1c92c0589e1d6cc782d54e0395e16b365c25ccdcaf65d9976"
 dependencies = [
  "anyhow",
  "hex",
@@ -9091,9 +9091,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a62ae8e869c71a3c94b5557939fc74735157d4a569395338ea61fb3c503c0ccf"
+checksum = "e58b0901f261a7f839aa94e4f91ad9a919b812cdb350615feb3278cd9a1f792d"
 dependencies = [
  "anyhow",
  "clap",
@@ -9105,18 +9105,18 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ed52f1c97996071aa3442537e6cd34a964568d7cec3dfd2a19c008aefc65a69"
+checksum = "cbda85b94cac83a3748c5629976f599b6194b6e7d6225e928c9160bf407281cf"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ae4a1eaa8549ac5471b39aa48325ad645bf0b446985606719f6dd4f67e87f08"
+checksum = "1bd9c12cd39356e6d68707369f414f123b82ef57cfd51f9fed2551cec1f202c9"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -9127,9 +9127,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "391aa040d915295504bd2675be8d140fcbb639dbfe7fe033de604169c185d7f6"
+checksum = "b8eed9ab36c6c49fff1ee882ff13d5ea0e2cf6022eee16386265cd5d2c351047"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -9138,9 +9138,9 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8259c977a1f275fe4c56a85b8bca4d23a4909cbf30601d850380672a58a4bf5c"
+checksum = "deba700d52da41d59ebd9fb9f73e6055fa37d6276868d62baeeb52b4bd40e03a"
 dependencies = [
  "anyhow",
  "hex",
