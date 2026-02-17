@@ -17,6 +17,7 @@ members = [
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
+	"pallets/treasury",
 	"pallets/wormhole",
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
@@ -184,7 +185,7 @@ pallet-timestamp = { version = "40.0.0", default-features = false }
 pallet-transaction-payment = { version = "41.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "44.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "41.0.0", default-features = false }
-pallet-treasury = { version = "40.0.0", default-features = false }
+pallet-treasury = { path = "pallets/treasury", default-features = false }
 pallet-utility = { version = "41.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.2", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.50.0", default-features = false }

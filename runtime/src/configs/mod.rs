@@ -25,21 +25,17 @@
 
 // Substrate and Polkadot dependencies
 use crate::{
-	governance::{
-		definitions::{
-			CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
-			RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
-		},
-		pallet_custom_origins, Spender,
+	governance::definitions::{
+		CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
+		RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
+		TechCollectiveTracksInfo,
 	},
 	MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
-		VariantCountOf,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, Get, NeverEnsureOrigin, VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -49,7 +45,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
+	EnsureRoot, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
@@ -127,7 +123,6 @@ parameter_types! {
 }
 
 parameter_types! {
-	pub const TreasuryPortion: Permill = Permill::from_percent(50);
 	pub const MiningUnit: Balance = UNIT;
 }
 
@@ -138,8 +133,7 @@ impl pallet_mining_rewards::Config for Runtime {
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
 	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
-	type TreasuryPortion = TreasuryPortion;
-	type TreasuryPalletId = TreasuryPalletId;
+	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
 	type Unit = MiningUnit;
 }
@@ -493,45 +487,11 @@ impl pallet_reversible_transfers::Config for Runtime {
 
 parameter_types! {
 	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
-	pub const ProposalBond: Permill = Permill::from_percent(5);
-	pub const ProposalBondMinimum: Balance = UNIT;
-	pub const ProposalBondMaximum: Option<Balance> = None;
-	pub const SpendPeriod: BlockNumber = 2 * DAYS;
-	pub const Burn: Permill = Permill::from_percent(0);
-	pub const MaxApprovals: u32 = 100;
-	pub const TreasuryPayoutPeriod: BlockNumber = 14 * DAYS; // Added for PayoutPeriod
 }
 
 impl pallet_treasury::Config for Runtime {
-	type PalletId = TreasuryPalletId;
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type RejectOrigin = EnsureRoot<AccountId>;
-	type SpendPeriod = SpendPeriod;
-	type Burn = Burn;
-	type BurnDestination = (); // Treasury funds will be burnt without a specific destination
-	type SpendFunds = (); // No external pallets spending treasury funds directly through this hook
-	type MaxApprovals = MaxApprovals; // For deprecated spend_local flow
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
-	type SpendOrigin = TreasurySpender; // Changed to use the custom EnsureOrigin
-	type AssetKind = (); // Using () to represent native currency for simplicity
-	type Beneficiary = AccountId; // Spends are paid to AccountId
-	type BeneficiaryLookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>; // Standard lookup for AccountId
-	type Paymaster = RuntimeNativePaymaster; // Custom paymaster for native currency
-	type BalanceConverter = RuntimeNativeBalanceConverter; // Custom converter for native currency
-	type PayoutPeriod = TreasuryPayoutPeriod; // How long a spend is valid for claiming
-	type BlockNumberProvider = System;
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = (); // System pallet provides block number
 }
-
-parameter_types! {
-	pub const MaxBalance: Balance = Balance::MAX;
-}
-
-pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;
-
-impl pallet_custom_origins::Config for Runtime {}
 
 parameter_types! {
 	pub const AssetDeposit: Balance = MILLI_UNIT;

@@ -1,6 +1,6 @@
 use crate::{
-	configs::TreasuryPalletId, governance::pallet_custom_origins, AccountId, Balance, Balances,
-	BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT, UNIT,
+	AccountId, Balance, Balances, BlockNumber, Runtime, RuntimeOrigin, DAYS, HOURS, MICRO_UNIT,
+	UNIT,
 };
 use alloc::borrow::Cow;
 use codec::{Decode, Encode, EncodeLike, MaxEncodedLen};
@@ -10,9 +10,8 @@ use frame_support::traits::Currency;
 use frame_support::{
 	pallet_prelude::TypeInfo,
 	traits::{
-		tokens::{ConversionFromAssetBalance, Pay, PaymentStatus},
-		CallerTrait, Consideration, Currency as CurrencyTrait, EnsureOrigin, EnsureOriginWithArg,
-		Footprint, Get, OriginTrait, ReservableCurrency,
+		CallerTrait, Consideration, EnsureOrigin, EnsureOriginWithArg, Footprint, Get, OriginTrait,
+		ReservableCurrency,
 	},
 };
 use lazy_static::lazy_static;
@@ -21,7 +20,7 @@ use pallet_referenda::Track;
 use sp_core::crypto::AccountId32;
 use sp_runtime::{
 	str_array,
-	traits::{AccountIdConversion, Convert, MaybeConvert},
+	traits::{Convert, MaybeConvert},
 	DispatchError, Perbill,
 };
 ///Preimage pallet fee model
@@ -90,7 +89,7 @@ static mut GLOBAL_TRACK_OVERRIDE: Option<(BlockNumber, BlockNumber, BlockNumber,
 
 impl GlobalTrackConfig {
 	/// Set global track timing overrides for ALL governance tracks
-	/// This affects CommunityTracksInfo, TechCollectiveTracksInfo, and Treasury tracks
+	/// This affects CommunityTracksInfo and TechCollectiveTracksInfo
 	pub fn set_track_override(
 		prepare_period: BlockNumber,
 		decision_period: BlockNumber,
@@ -139,7 +138,7 @@ pub struct CommunityTracksInfo;
 
 impl CommunityTracksInfo {
 	/// Creates the base track configurations with production values
-	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] {
+	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] {
 		[
 			// Track 0: Signed Track (authenticated proposals)
 			pallet_referenda::Track {
@@ -185,95 +184,6 @@ impl CommunityTracksInfo {
                         floor: Perbill::from_percent(1),
                         ceil: Perbill::from_percent(10),
                     },
-                },
-            },
-			// Track 2: Treasury tracks
-			pallet_referenda::Track {
-				id: 2,
-				info: pallet_referenda::TrackInfo {
-					name: str_array("treasury_small_spender"),
-					max_deciding: 5,
-					decision_deposit: 100 * UNIT,
-					prepare_period: DAYS,
-					decision_period: 3 * DAYS,
-					confirm_period: DAYS,
-					min_enactment_period: 12 * HOURS,
-					min_approval: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(25),
-						ceil: Perbill::from_percent(50),
-					},
-					min_support: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(1),
-						ceil: Perbill::from_percent(10),
-					},
-				},
-			},
-			pallet_referenda::Track {
-				id: 3,
-				info: pallet_referenda::TrackInfo {
-					name: str_array("treasury_medium_spender"),
-					max_deciding: 2,
-					decision_deposit: 250 * UNIT,
-					prepare_period: 6 * HOURS,
-					decision_period: 5 * DAYS,
-					confirm_period: DAYS,
-					min_enactment_period: 12 * HOURS,
-					min_approval: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(50),
-						ceil: Perbill::from_percent(75),
-					},
-					min_support: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(2),
-						ceil: Perbill::from_percent(10),
-					},
-				},
-			},
-			pallet_referenda::Track {
-				id: 4,
-				info: pallet_referenda::TrackInfo {
-					name: str_array("treasury_big_spender"),
-					max_deciding: 2,
-					decision_deposit: 500 * UNIT,
-					prepare_period: DAYS,
-					decision_period: 7 * DAYS,
-					confirm_period: 2 * DAYS,
-					min_enactment_period: 12 * HOURS,
-					min_approval: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(65),
-						ceil: Perbill::from_percent(85),
-					},
-					min_support: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(5),
-						ceil: Perbill::from_percent(15),
-					},
-				},
-			},
-			pallet_referenda::Track {
-				id: 5,
-				info: pallet_referenda::TrackInfo {
-					name: str_array("treasury_treasurer"),
-					max_deciding: 1,
-					decision_deposit: 1000 * UNIT,
-					prepare_period: 2 * DAYS,
-					decision_period: 14 * DAYS,
-					confirm_period: 4 * DAYS,
-					min_enactment_period: 24 * HOURS,
-					min_approval: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(75),
-						ceil: Perbill::from_percent(100),
-					},
-					min_support: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(10),
-						ceil: Perbill::from_percent(25),
-					},
 				},
 			},
 		]
@@ -288,13 +198,13 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 	) -> impl Iterator<Item = alloc::borrow::Cow<'static, Track<Self::Id, Balance, BlockNumber>>> {
 		// Static tracks with production values
 		lazy_static! {
-			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] =
+			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] =
 				CommunityTracksInfo::create_community_tracks();
 		}
 
 		// Test tracks with fast governance timing
 		lazy_static! {
-			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = {
+			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] = {
 				let base_tracks = CommunityTracksInfo::create_community_tracks();
 				let mut test_tracks = base_tracks.clone();
 
@@ -318,16 +228,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// Check for specific custom origins first (Spender/Treasurer types)
-		if let crate::OriginCaller::Origins(custom_origin) = id {
-			match custom_origin {
-				pallet_custom_origins::Origin::SmallSpender => return Ok(2),
-				pallet_custom_origins::Origin::MediumSpender => return Ok(3),
-				pallet_custom_origins::Origin::BigSpender => return Ok(4),
-				pallet_custom_origins::Origin::Treasurer => return Ok(5),
-			}
-		}
-
 		// Check for system origins (like None for track 1, Root for track 0)
 		if let Some(system_origin) = id.as_system_ref() {
 			match system_origin {
@@ -549,76 +449,3 @@ where
 }
 
 pub type RootOrMemberForTechReferendaOrigin = RootOrMemberForTechReferendaOriginImpl<Runtime, ()>;
-
-// Helper structs for pallet_treasury::Config
-pub struct RuntimeNativeBalanceConverter;
-impl ConversionFromAssetBalance<Balance, (), Balance> for RuntimeNativeBalanceConverter {
-	type Error = sp_runtime::DispatchError;
-	fn from_asset_balance(
-		balance: Balance,
-		_asset_kind: (),
-	) -> Result<Balance, sp_runtime::DispatchError> {
-		Ok(balance)
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn ensure_successful(_asset_kind: ()) {
-		// For an identity conversion with AssetKind = (), there are no
-		// external conditions to set up for the conversion itself to succeed.
-		// The from_asset_balance call is trivial.
-	}
-}
-
-pub struct RuntimeNativePaymaster;
-impl Pay for RuntimeNativePaymaster {
-	type AssetKind = ();
-	type Balance = crate::Balance;
-	type Beneficiary = crate::AccountId;
-	type Id = u32; // Simple payment ID
-	type Error = sp_runtime::DispatchError;
-
-	fn pay(
-		who: &Self::Beneficiary,
-		_asset_kind: Self::AssetKind,
-		amount: Self::Balance,
-	) -> Result<Self::Id, sp_runtime::DispatchError> {
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
-		<crate::Balances as CurrencyTrait<crate::AccountId>>::transfer(
-			&treasury_account,
-			who,
-			amount,
-			frame_support::traits::ExistenceRequirement::AllowDeath,
-		)?;
-		Ok(0_u32) // Dummy ID
-	}
-
-	fn check_payment(id: Self::Id) -> PaymentStatus {
-		if id == 0_u32 {
-			PaymentStatus::Success
-		} else {
-			PaymentStatus::Unknown
-		}
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn ensure_successful(
-		_who: &Self::Beneficiary,
-		_asset_kind: Self::AssetKind,
-		amount: Self::Balance,
-	) {
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
-		let current_balance = crate::Balances::free_balance(&treasury_account);
-		if current_balance < amount {
-			let missing = amount - current_balance;
-			// Assuming deposit_creating is infallible or panics on error internally, returning
-			// PositiveImbalance directly.
-			let _ = crate::Balances::deposit_creating(&treasury_account, missing);
-		}
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn ensure_concluded(_id: Self::Id) {
-		// For this synchronous paymaster, payment is concluded once pay returns.
-		// No further action needed for ensure_concluded.
-	}
-}

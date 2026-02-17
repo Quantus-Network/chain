@@ -3,15 +3,15 @@ use crate as pallet_mining_rewards;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
-	PalletId,
 };
+use pallet_treasury;
 use qp_poseidon::PoseidonHasher;
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
 	testing::H256,
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage, DigestItem, Permill,
+	BuildStorage, DigestItem,
 };
 
 // Configure a mock runtime to test the pallet
@@ -19,6 +19,7 @@ frame_support::construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		Balances: pallet_balances,
+		Treasury: pallet_treasury,
 		MiningRewards: pallet_mining_rewards,
 	}
 );
@@ -33,7 +34,6 @@ parameter_types! {
 	pub const MaxSupply: u128 = 21_000_000 * UNIT;
 	pub const EmissionDivisor: u128 = 26_280_000;
 	pub const ExistentialDeposit: Balance = 1;
-	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
 }
 
 impl frame_system::Config for Test {
@@ -87,9 +87,13 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const TreasuryPortion: Permill = Permill::from_percent(50); // 50% goes to treasury in tests (matching runtime)
-	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
+	pub const MintingAccount: sp_core::crypto::AccountId32 =
+		sp_core::crypto::AccountId32::new([99u8; 32]);
 	pub const Unit: u128 = UNIT;
+}
+
+impl pallet_treasury::Config for Test {
+	type WeightInfo = ();
 }
 
 // Mock proof recorder that does nothing
@@ -116,8 +120,7 @@ impl pallet_mining_rewards::Config for Test {
 	type WeightInfo = ();
 	type MaxSupply = MaxSupply;
 	type EmissionDivisor = EmissionDivisor;
-	type TreasuryPortion = TreasuryPortion;
-	type TreasuryPalletId = TreasuryPalletId;
+	type Treasury = Treasury;
 	type MintingAccount = MintingAccount;
 	type Unit = Unit;
 }
@@ -150,6 +153,10 @@ pub fn miner2() -> sp_core::crypto::AccountId32 {
 	wormhole_address_from_preimage(miner_preimage_2())
 }
 
+fn treasury_account() -> sp_core::crypto::AccountId32 {
+	sp_core::crypto::AccountId32::new([1u8; 32])
+}
+
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
@@ -157,6 +164,13 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
 		dev_accounts: None,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	pallet_treasury::GenesisConfig::<Test> {
+		treasury_account: treasury_account(),
+		treasury_portion: 50,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
