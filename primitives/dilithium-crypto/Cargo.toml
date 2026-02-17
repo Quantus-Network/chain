@@ -16,7 +16,7 @@ license = "MIT"
 name = "qp-dilithium-crypto"
 readme = "README.md"
 repository = "https://github.com/Quantus-Network/chain"
-version = "0.2.0"
+version = "0.2.1"
 
 [dependencies]
 codec = { workspace = true, default-features = false }
