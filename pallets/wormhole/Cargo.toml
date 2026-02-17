@@ -16,19 +16,31 @@ hex = { workspace = true, features = ["alloc"], optional = true }
 lazy_static.workspace = true
 log.workspace = true
 pallet-balances.workspace = true
+qp-header = { workspace = true, features = ["serde"] }
+qp-poseidon.workspace = true
 qp-wormhole.workspace = true
-qp-wormhole-circuit = { workspace = true, default-features = false }
 qp-wormhole-verifier = { workspace = true, default-features = false }
-qp-zk-circuits-common = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = [
 	"derive",
 ] }
 sp-core.workspace = true
 sp-io.workspace = true
+sp-metadata-ir.workspace = true
 sp-runtime.workspace = true
 
 [dev-dependencies]
 hex = { workspace = true, features = ["alloc"] }
+pallet-assets = { workspace = true, features = ["std"] }
+qp-dilithium-crypto = { workspace = true, features = ["std"] }
+qp-plonky2 = { workspace = true, default-features = false }
+qp-poseidon-core.workspace = true
+qp-wormhole-circuit.workspace = true
+qp-wormhole-circuit-builder = { workspace = true, default-features = false }
+qp-wormhole-prover.workspace = true
+qp-wormhole-verifier = { workspace = true, default-features = false }
+qp-zk-circuits-common = { workspace = true, default-features = false }
+sp-state-machine = { path = "../../primitives/state-machine" }
+sp-trie.workspace = true
 
 [features]
 default = ["std"]
@@ -48,10 +60,10 @@ std = [
 	"lazy_static/spin_no_std",
 	"log/std",
 	"pallet-balances/std",
-	"qp-wormhole-circuit/std",
+	"qp-header/std",
+	"qp-poseidon/std",
 	"qp-wormhole-verifier/std",
 	"qp-wormhole/std",
-	"qp-zk-circuits-common/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",

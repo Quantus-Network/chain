@@ -1,0 +1,11 @@
+{
+  "num_leaf_proofs": 16,
+  "hashes": {
+    "common": "672689a87e8ed780337c0752ebc7fd1db6a63611fbd59b4ad0cbe4a4d97edcf2",
+    "verifier": "bb017485b12fb9c6d0b5c3db8b68f417bd3f75b2d5f3a2ea5fe12b6244233372",
+    "prover": "78c114c7290b04bac00551a590fd652f98194653b10ac4e11b0c0ddd5c7c0976",
+    "aggregated_common": "af4461081f6fb527d2b9ffb74479a133ed8b92cdd3554b46adc481a0dfc38b5d",
+    "aggregated_verifier": "90350437c8e0e2144ca849623ea0b58edd2decd7bdf6b728b32e1aa9d8f1e337",
+    "dummy_proof": "e2920c2abb5c0e0fe8b5190ea311edc613a7e7e5e2dfe8e13db56e90b8222fc7"
+  }
+}

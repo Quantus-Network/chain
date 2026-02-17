@@ -18,9 +18,6 @@ prometheus-endpoint = { workspace = true, default-features = true }
 sc-client-api = { workspace = true, default-features = false }
 sc-consensus = { workspace = true }
 sc-service = { workspace = true, default-features = false }
-scale-info = { workspace = true, default-features = false }
-sha2.workspace = true
-sha3.workspace = true
 sp-api = { workspace = true, default-features = false }
 sp-block-builder = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = false }
@@ -37,9 +34,6 @@ default = ["std"]
 std = [
 	"codec/std",
 	"primitive-types/std",
-	"scale-info/std",
-	"sha2/std",
-	"sha3/std",
 	"sp-api/std",
 	"sp-consensus-pow/std",
 	"sp-consensus-qpow/std",

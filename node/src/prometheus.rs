@@ -7,9 +7,9 @@ use sp_consensus_qpow::QPoWApi;
 use sp_core::U512;
 use std::sync::Arc;
 
-pub struct ResonanceBusinessMetrics;
+pub struct BusinessMetrics;
 
-impl ResonanceBusinessMetrics {
+impl BusinessMetrics {
 	/// Pack a U512 into an f64 by taking the highest-order 64 bits (8 bytes).
 	fn pack_u512_to_f64(value: U512) -> f64 {
 		// Convert U512 to big-endian bytes (64 bytes)

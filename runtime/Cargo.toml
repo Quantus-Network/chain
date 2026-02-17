@@ -31,8 +31,8 @@ pallet-assets.workspace = true
 pallet-assets-holder = { workspace = true, default-features = false }
 pallet-balances.workspace = true
 pallet-conviction-voting.workspace = true
-pallet-merkle-airdrop.workspace = true
 pallet-mining-rewards.workspace = true
+pallet-multisig.workspace = true
 pallet-preimage.workspace = true
 pallet-qpow.workspace = true
 pallet-ranked-collective.workspace = true
@@ -46,11 +46,15 @@ pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
 pallet-utility.workspace = true
-pallet-vesting.workspace = true
+pallet-wormhole.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
+qp-header = { workspace = true, features = ["serde"] }
+qp-high-security = { path = "../primitives/high-security", default-features = false }
 qp-poseidon = { workspace = true, features = ["serde"] }
 qp-scheduler.workspace = true
+qp-wormhole.workspace = true
+qp-wormhole-verifier = { workspace = true, default-features = false }
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = [
 	"alloc",
@@ -95,8 +99,8 @@ std = [
 	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-conviction-voting/std",
-	"pallet-merkle-airdrop/std",
 	"pallet-mining-rewards/std",
+	"pallet-multisig/std",
 	"pallet-preimage/std",
 	"pallet-qpow/std",
 	"pallet-ranked-collective/std",
@@ -110,13 +114,14 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-treasury/std",
 	"pallet-utility/std",
-	"pallet-vesting/std",
+	"pallet-wormhole/std",
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
 	"qp-dilithium-crypto/std",
+	"qp-header/std",
+	"qp-high-security/std",
 	"qp-poseidon/std",
 	"qp-scheduler/std",
-	"scale-info/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-api/std",
@@ -144,8 +149,8 @@ runtime-benchmarks = [
 	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-conviction-voting/runtime-benchmarks",
-	"pallet-merkle-airdrop/runtime-benchmarks",
 	"pallet-mining-rewards/runtime-benchmarks",
+	"pallet-multisig/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-qpow/runtime-benchmarks",
 	"pallet-ranked-collective/runtime-benchmarks",
@@ -157,7 +162,7 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
-	"pallet-vesting/runtime-benchmarks",
+	"pallet-wormhole/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
@@ -175,8 +180,7 @@ try-runtime = [
 	"pallet-sudo/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"pallet-treasury/try-runtime",
-	"pallet-vesting/try-runtime",
+	"pallet-wormhole/try-runtime",
 	"sp-runtime/try-runtime",
 ]
 

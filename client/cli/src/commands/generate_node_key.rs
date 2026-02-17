@@ -21,7 +21,7 @@
 use crate::{build_network_key_dir_or_default, Error, NODE_KEY_DILITHIUM_FILE};
 use clap::{Args, Parser};
 use libp2p_identity::PublicKey;
-use qp_rusty_crystals_dilithium::ml_dsa_87::Keypair;
+use qp_rusty_crystals_dilithium::{ml_dsa_87::Keypair, SensitiveBytes32};
 use sc_service::BasePath;
 use sp_core::blake2_256;
 use std::{
@@ -116,8 +116,9 @@ fn generate_key(
 	default_base_path: bool,
 	executable_name: Option<&String>,
 ) -> Result<(), Error> {
-	let hashed_timestamp = hash_current_time_to_hex();
-	let keypair = Keypair::generate(&hashed_timestamp);
+	let mut hashed_timestamp = hash_current_time_to_hex();
+	let entropy = SensitiveBytes32::from(&mut hashed_timestamp);
+	let keypair = Keypair::generate(entropy);
 
 	let file_data = if bin {
 		keypair.to_bytes().to_vec()

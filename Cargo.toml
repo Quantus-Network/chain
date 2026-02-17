@@ -12,16 +12,17 @@ members = [
 	"client/network",
 	"miner-api",
 	"node",
-	"pallets/balances",
-	"pallets/merkle-airdrop",
 	"pallets/mining-rewards",
+	"pallets/multisig",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
 	"pallets/scheduler",
+	"pallets/treasury",
 	"pallets/wormhole",
 	"primitives/consensus/pow",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
+	"primitives/header",
 	"primitives/scheduler",
 	"primitives/state-machine",
 	"primitives/trie",
@@ -74,7 +75,7 @@ lazy_static = { version = "1.5.0", default-features = false, features = [
 	"spin_no_std",
 ] }
 libp2p = { version = "0.54.1" }
-libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_0" }
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_1" }
 linked_hash_set = { version = "0.1.4" }
 log = { version = "0.4.22", default-features = false }
 memory-db = { version = "0.34.0", default-features = false }
@@ -84,6 +85,8 @@ names = { version = "0.14.0", default-features = false }
 nohash-hasher = { version = "0.2.0" }
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 once_cell = { version = "1.21.3" }
+p3-field = { version = "0.3.0" }
+p3-goldilocks = { version = "0.3.0" }
 parking_lot = { version = "0.12.1", default-features = false }
 partial_sort = { version = "0.2.0" }
 paste = { version = "1.0.15", default-features = false }
@@ -127,14 +130,15 @@ wasm-timer = { version = "0.2.5" }
 zeroize = { version = "1.7.0", default-features = false }
 
 # Own dependencies
-pallet-balances = { path = "./pallets/balances", default-features = false }
-pallet-merkle-airdrop = { path = "./pallets/merkle-airdrop", default-features = false }
+pallet-balances = { version = "42.0.0", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
+pallet-multisig = { path = "./pallets/multisig", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.2.0", default-features = false }
+qp-header = { path = "./primitives/header", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
@@ -145,18 +149,19 @@ sp-consensus-pow = { path = "./primitives/consensus/pow", default-features = fal
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-qp-poseidon = { version = "1.0.1", default-features = false }
-qp-poseidon-core = { version = "1.0.1", default-features = false, features = ["p3"] }
-qp-rusty-crystals-dilithium = { version = "2.0.0", default-features = false }
-qp-rusty-crystals-hdwallet = { version = "1.0.0" }
-qp-wormhole-circuit = { version = "0.1.2", default-features = false }
-qp-wormhole-circuit-builder = { version = "0.1.2", default-features = false }
-qp-wormhole-verifier = { version = "0.1.2", default-features = false, features = [
-	"no_random",
+qp-plonky2 = { version = "1.1.3", default-features = false }
+qp-poseidon = { version = "1.0.7", default-features = false }
+qp-poseidon-core = { version = "1.0.7", package = "qp-poseidon-core", default-features = false, features = [
+	"p2",
+	"p3",
 ] }
-qp-zk-circuits-common = { version = "0.1.2", default-features = false, features = [
-	"no_random",
-] }
+qp-rusty-crystals-dilithium = { version = "2.1.0", default-features = false }
+qp-rusty-crystals-hdwallet = { version = "1.3.0" }
+qp-wormhole-circuit = { version = "1.0.7", default-features = false }
+qp-wormhole-circuit-builder = { version = "1.0.7", default-features = false }
+qp-wormhole-prover = { version = "1.0.7", default-features = false }
+qp-wormhole-verifier = { version = "1.0.7", default-features = false }
+qp-zk-circuits-common = { version = "1.0.7", default-features = false }
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "41.0.0", default-features = false }
@@ -180,9 +185,8 @@ pallet-timestamp = { version = "40.0.0", default-features = false }
 pallet-transaction-payment = { version = "41.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "44.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "41.0.0", default-features = false }
-pallet-treasury = { version = "40.0.0", default-features = false }
+pallet-treasury = { path = "pallets/treasury", default-features = false }
 pallet-utility = { version = "41.0.0", default-features = false }
-pallet-vesting = { version = "41.0.0", default-features = false }
 prometheus-endpoint = { version = "0.17.2", default-features = false, package = "substrate-prometheus-endpoint" }
 sc-basic-authorship = { version = "0.50.0", default-features = false }
 sc-block-builder = { version = "0.45.0", default-features = true }
@@ -192,6 +196,7 @@ sc-consensus = { version = "0.50.0", default-features = false }
 sc-executor = { version = "0.43.0", default-features = false }
 sc-network = { version = "0.51.0", default-features = false }
 sc-network-common = { version = "0.49.0", default-features = false }
+sc-network-sync = { version = "0.50.0", default-features = false }
 sc-network-types = { version = "0.17.0", default-features = false }
 sc-offchain = { version = "46.0.0", default-features = false }
 sc-service = { version = "0.52.0", default-features = false }
@@ -229,13 +234,12 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "27.0.0", default-features = false }
 
 [patch.crates-io]
-libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_0" }
+libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_1" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
-
 
 [profile.release]
 opt-level = 3

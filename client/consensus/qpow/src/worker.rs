@@ -31,9 +31,10 @@ use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChange
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::{BlockOrigin, Proposal};
 use sp_consensus_pow::{Seal, POW_ENGINE_ID};
+use sp_consensus_qpow::QPoWApi;
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
-	AccountId32, DigestItem,
+	DigestItem,
 };
 use std::{
 	pin::Pin,
@@ -51,8 +52,8 @@ pub struct MiningMetadata<H, D> {
 	pub best_hash: H,
 	/// Mining pre-hash.
 	pub pre_hash: H,
-	/// Rewards address.
-	pub rewards_address: AccountId32,
+	/// Rewards preimage (32 bytes) - stored in block headers, hashed to derive wormhole address.
+	pub rewards_preimage: [u8; 32],
 	/// Mining target difficulty.
 	pub difficulty: D,
 }
@@ -82,6 +83,7 @@ impl<Block, AC, L, Proof> MiningHandle<Block, AC, L, Proof>
 where
 	Block: BlockT<Hash = H256>,
 	AC: ProvideRuntimeApi<Block>,
+	AC::Api: QPoWApi<Block>,
 	L: sc_consensus::JustificationSyncLink<Block>,
 {
 	fn increment_version(&self) {
@@ -131,6 +133,39 @@ where
 	/// Get a copy of the current mining metadata, if available.
 	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, U512>> {
 		self.build.lock().as_ref().map(|b| b.metadata.clone())
+	}
+
+	/// Verify a seal without consuming the build.
+	///
+	/// Returns `true` if the seal is valid for the current block, `false` otherwise.
+	/// Returns `false` if there's no current build.
+	pub fn verify_seal(&self, seal: &Seal) -> bool {
+		let build = self.build.lock();
+		let build = match build.as_ref() {
+			Some(b) => b,
+			None => return false,
+		};
+
+		// Convert seal to nonce [u8; 64]
+		let nonce: [u8; 64] = match seal.as_slice().try_into() {
+			Ok(arr) => arr,
+			Err(_) => {
+				warn!(target: LOG_TARGET, "Seal does not have exactly 64 bytes");
+				return false;
+			},
+		};
+
+		let pre_hash = build.metadata.pre_hash.0;
+		let best_hash = build.metadata.best_hash;
+
+		// Verify using runtime API
+		match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
+			Ok(valid) => valid,
+			Err(e) => {
+				warn!(target: LOG_TARGET, "Runtime API error verifying seal: {:?}", e);
+				false
+			},
+		}
 	}
 
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
@@ -198,51 +233,117 @@ where
 	}
 }
 
-/// A stream that waits for a block import or timeout.
-pub struct UntilImportedOrTimeout<Block: BlockT> {
-	import_notifications: ImportNotifications<Block>,
-	timeout: Duration,
-	inner_delay: Option<Delay>,
+/// Reason why the stream fired - either a block was imported or enough transactions arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildTrigger {
+	/// Initial trigger to bootstrap mining (fires once on first poll).
+	Initial,
+	/// A new block was imported from the network.
+	BlockImported,
+	/// Enough new transactions arrived to trigger a rebuild.
+	NewTransactions,
 }
 
-impl<Block: BlockT> UntilImportedOrTimeout<Block> {
-	/// Create a new stream using the given import notification and timeout duration.
-	pub fn new(import_notifications: ImportNotifications<Block>, timeout: Duration) -> Self {
-		Self { import_notifications, timeout, inner_delay: None }
+/// A stream that waits for a block import or new transactions (with rate limiting).
+///
+/// This enables block producers to include new transactions faster by rebuilding
+/// the block being mined when transactions arrive, rather than waiting for the
+/// next block import or timeout.
+///
+/// Rate limiting prevents excessive rebuilds - we limit to `max_rebuilds_per_sec`.
+pub struct UntilImportedOrTransaction<Block: BlockT, TxHash> {
+	/// Block import notifications stream.
+	import_notifications: ImportNotifications<Block>,
+	/// Transaction pool import notifications stream.
+	tx_notifications: Pin<Box<dyn Stream<Item = TxHash> + Send>>,
+	/// Minimum interval between transaction-triggered rebuilds.
+	min_rebuild_interval: Duration,
+	/// Rate limit delay - if set, we're waiting before we can fire again.
+	rate_limit_delay: Option<Delay>,
+	/// Whether we've fired the initial trigger yet.
+	initial_fired: bool,
+	/// Whether we have pending transactions waiting to trigger a rebuild.
+	has_pending_tx: bool,
+}
+
+impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
+	/// Create a new stream.
+	///
+	/// # Arguments
+	/// * `import_notifications` - Stream of block import notifications
+	/// * `tx_notifications` - Stream of transaction import notifications
+	/// * `max_rebuilds_per_sec` - Maximum transaction-triggered rebuilds per second
+	pub fn new(
+		import_notifications: ImportNotifications<Block>,
+		tx_notifications: impl Stream<Item = TxHash> + Send + 'static,
+		max_rebuilds_per_sec: u32,
+	) -> Self {
+		let min_rebuild_interval = if max_rebuilds_per_sec > 0 {
+			Duration::from_millis(1000 / max_rebuilds_per_sec as u64)
+		} else {
+			Duration::from_secs(u64::MAX) // Effectively disable tx-triggered rebuilds
+		};
+
+		Self {
+			import_notifications,
+			tx_notifications: Box::pin(tx_notifications),
+			min_rebuild_interval,
+			rate_limit_delay: None,
+			initial_fired: false,
+			has_pending_tx: false,
+		}
 	}
 }
 
-impl<Block: BlockT> Stream for UntilImportedOrTimeout<Block> {
-	type Item = ();
+impl<Block: BlockT, TxHash> Stream for UntilImportedOrTransaction<Block, TxHash> {
+	type Item = RebuildTrigger;
 
-	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<()>> {
-		let mut fire = false;
+	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<RebuildTrigger>> {
+		// Fire immediately on first poll to bootstrap mining at genesis
+		if !self.initial_fired {
+			self.initial_fired = true;
+			debug!(target: LOG_TARGET, "Initial trigger, bootstrapping block production");
+			return Poll::Ready(Some(RebuildTrigger::Initial));
+		}
 
-		loop {
-			match Stream::poll_next(Pin::new(&mut self.import_notifications), cx) {
-				Poll::Pending => break,
-				Poll::Ready(Some(_)) => {
-					fire = true;
+		// Check for block imports first - these always trigger immediately
+		if let Poll::Ready(notification) =
+			Stream::poll_next(Pin::new(&mut self.import_notifications), cx)
+		{
+			match notification {
+				Some(_) => {
+					// Block import resets pending state since we'll build fresh
+					self.has_pending_tx = false;
+					self.rate_limit_delay = None;
+					debug!(target: LOG_TARGET, "Block imported, triggering rebuild");
+					return Poll::Ready(Some(RebuildTrigger::BlockImported));
 				},
-				Poll::Ready(None) => return Poll::Ready(None),
+				None => return Poll::Ready(None),
 			}
 		}
 
-		let timeout = self.timeout;
-		let inner_delay = self.inner_delay.get_or_insert_with(|| Delay::new(timeout));
-
-		match Future::poll(Pin::new(inner_delay), cx) {
-			Poll::Pending => (),
-			Poll::Ready(()) => {
-				fire = true;
-			},
+		// Drain all pending transaction notifications
+		while let Poll::Ready(Some(_)) = Stream::poll_next(Pin::new(&mut self.tx_notifications), cx)
+		{
+			self.has_pending_tx = true;
 		}
 
-		if fire {
-			self.inner_delay = None;
-			Poll::Ready(Some(()))
-		} else {
-			Poll::Pending
+		// If we have pending transactions, check rate limit
+		if self.has_pending_tx {
+			// Check if rate limit allows firing (no delay or delay expired)
+			let can_fire = match self.rate_limit_delay.as_mut() {
+				None => true,
+				Some(delay) => Future::poll(Pin::new(delay), cx).is_ready(),
+			};
+
+			if can_fire {
+				self.has_pending_tx = false;
+				self.rate_limit_delay = Some(Delay::new(self.min_rebuild_interval));
+				debug!(target: LOG_TARGET, "New transaction(s), triggering rebuild");
+				return Poll::Ready(Some(RebuildTrigger::NewTransactions));
+			}
 		}
+
+		Poll::Pending
 	}
 }

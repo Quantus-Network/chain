@@ -55,7 +55,7 @@ mod tests {
 		// Create and sign a payload
 		let payload: RuntimeCall = 42; // Example call
 		let msg = payload.encode();
-		let sig_bytes = keypair.sign(&msg, None, None);
+		let sig_bytes = keypair.sign(&msg, None, None).expect("Failed to sign message");
 
 		println!("Gen Signature (hex): {:?}", format_hex_truncated(&sig_bytes));
 
@@ -106,11 +106,11 @@ mod tests {
 			// Extract components into individual variables for debugging
 			let decoded_address: Address = address;
 			let decoded_signature: DilithiumSignatureScheme = signature;
-			let decoded_extra: SignedExtra = extra;
+			let _: SignedExtra = extra;
 
 			// Debug output for each component
 			println!("Decoded Address: {:?}", decoded_address);
-			println!("Decoded Extra: {:?}", decoded_extra);
+			println!("Decoded Extra: ()");
 
 			let DilithiumSignatureScheme::Dilithium(sig_public) = decoded_signature.clone();
 			let sig = sig_public.signature();
@@ -164,7 +164,7 @@ mod tests {
 		let entropy2 = [1u8; 32]; // Fixed entropy of all zeros
 		let keypair2 =
 			qp_dilithium_crypto::generate(&entropy2).expect("Failed to generate keypair");
-		let sig_bytes_wrong_key = keypair2.sign(&msg, None, None);
+		let sig_bytes_wrong_key = keypair2.sign(&msg, None, None).expect("Failed to sign message");
 		let signature_wrong_key = DilithiumSignature::try_from(&sig_bytes_wrong_key[..])
 			.expect("Signature length mismatch");
 
@@ -217,7 +217,7 @@ mod tests {
 		// Create and sign a payload
 		let payload: RuntimeCall = 77;
 		let msg = payload.encode();
-		let sig_bytes = keypair.sign(&msg, None, None);
+		let sig_bytes = keypair.sign(&msg, None, None).expect("Failed to sign message");
 		let signature =
 			DilithiumSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
@@ -277,7 +277,7 @@ mod tests {
 		// Create and sign a payload
 		let payload: RuntimeCall = 42;
 		let msg = payload.encode();
-		let sig_bytes = keypair.sign(&msg, None, None);
+		let sig_bytes = keypair.sign(&msg, None, None).expect("Failed to sign message");
 		let signature =
 			DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 

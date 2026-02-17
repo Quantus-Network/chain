@@ -25,21 +25,17 @@
 
 // Substrate and Polkadot dependencies
 use crate::{
-	governance::{
-		definitions::{
-			CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
-			RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
-			RuntimeNativeBalanceConverter, RuntimeNativePaymaster, TechCollectiveTracksInfo,
-		},
-		pallet_custom_origins, Spender,
+	governance::definitions::{
+		CommunityTracksInfo, GlobalMaxMembers, MinRankOfClassConverter, PreimageDeposit,
+		RootOrMemberForCollectiveOrigin, RootOrMemberForTechReferendaOrigin,
+		TechCollectiveTracksInfo,
 	},
 	MILLI_UNIT,
 };
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, EitherOf, Get, NeverEnsureOrigin,
-		VariantCountOf, WithdrawReasons,
+		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, Get, NeverEnsureOrigin, VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -49,23 +45,23 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
+	EnsureRoot, EnsureSigned,
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use qp_poseidon::PoseidonHasher;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, ConvertInto, One},
-	FixedU128, Perbill, Permill,
+	traits::{AccountIdConversion, One},
+	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-	AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller, PalletInfo,
-	Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Vesting, DAYS,
+	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
+	PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, DAYS,
 	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
@@ -85,8 +81,6 @@ parameter_types! {
 	// To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
 	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 189;
-	pub const MerkleAirdropPalletId: PalletId = PalletId(*b"airdrop!");
-	pub const UnsignedClaimPriority: u32 = 100;
 }
 
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
@@ -128,14 +122,20 @@ parameter_types! {
 	pub const DefaultMintAmount: Balance = 10 * UNIT;
 }
 
+parameter_types! {
+	pub const MiningUnit: Balance = UNIT;
+}
+
 impl pallet_mining_rewards::Config for Runtime {
 	type Currency = Balances;
+	type AssetId = AssetId;
+	type ProofRecorder = Wormhole;
 	type WeightInfo = pallet_mining_rewards::weights::SubstrateWeight<Runtime>;
 	type MaxSupply = ConstU128<{ 21_000_000 * UNIT }>; // 21 million tokens
 	type EmissionDivisor = ConstU128<26_280_000>; // Divide remaining supply by this amount
-	type TreasuryPortion = ConstU8<50>; // % of rewards go to treasury
-	type TreasuryPalletId = TreasuryPalletId;
+	type Treasury = pallet_treasury::Pallet<Runtime>;
 	type MintingAccount = MintingAccount;
+	type Unit = MiningUnit;
 }
 
 parameter_types! {
@@ -182,6 +182,7 @@ parameter_types! {
 }
 
 impl pallet_balances::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
@@ -426,25 +427,6 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
-parameter_types! {
-	pub const MinVestedTransfer: Balance = UNIT;
-	/// Unvested funds can be transferred and reserved for any other means (reserves overlap)
-	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
-	WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
-}
-
-impl pallet_vesting::Config for Runtime {
-	type Currency = Balances;
-	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
-	type MinVestedTransfer = MinVestedTransfer;
-	type BlockNumberToBalance = ConvertInto;
-	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
-	type BlockNumberProvider = System;
-
-	const MAX_VESTING_SCHEDULES: u32 = 28;
-}
-
 impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
@@ -481,10 +463,8 @@ parameter_types! {
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
 	pub const MaxReversibleTransfers: u32 = 10;
 	pub const MaxInterceptorAccounts: u32 = 32;
-	/// Volume fee for reversed transactions from high-security accounts only, in basis points (10 = 0.1%)
+	/// Volume fee for reversed transactions from high-security accounts only (1% fee is burned)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
-	/// Treasury account ID
-	pub TreasuryAccountId: AccountId = TreasuryPalletId::get().into_account_truncating();
 }
 
 impl pallet_reversible_transfers::Config for Runtime {
@@ -503,64 +483,15 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
-	type TreasuryAccountId = TreasuryAccountId;
-}
-
-parameter_types! {
-	pub const MaxProofs: u32 = 4096;
-}
-
-impl pallet_merkle_airdrop::Config for Runtime {
-	type Vesting = Vesting;
-	type MaxProofs = MaxProofs;
-	type PalletId = MerkleAirdropPalletId;
-	type WeightInfo = pallet_merkle_airdrop::weights::SubstrateWeight<Runtime>;
-	type UnsignedClaimPriority = UnsignedClaimPriority;
-	type BlockNumberProvider = System;
-	type BlockNumberToBalance = ConvertInto;
 }
 
 parameter_types! {
 	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
-	pub const ProposalBond: Permill = Permill::from_percent(5);
-	pub const ProposalBondMinimum: Balance = UNIT;
-	pub const ProposalBondMaximum: Option<Balance> = None;
-	pub const SpendPeriod: BlockNumber = 2 * DAYS;
-	pub const Burn: Permill = Permill::from_percent(0);
-	pub const MaxApprovals: u32 = 100;
-	pub const TreasuryPayoutPeriod: BlockNumber = 14 * DAYS; // Added for PayoutPeriod
 }
 
 impl pallet_treasury::Config for Runtime {
-	type PalletId = TreasuryPalletId;
-	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type RejectOrigin = EnsureRoot<AccountId>;
-	type SpendPeriod = SpendPeriod;
-	type Burn = Burn;
-	type BurnDestination = (); // Treasury funds will be burnt without a specific destination
-	type SpendFunds = (); // No external pallets spending treasury funds directly through this hook
-	type MaxApprovals = MaxApprovals; // For deprecated spend_local flow
 	type WeightInfo = pallet_treasury::weights::SubstrateWeight<Runtime>;
-	type SpendOrigin = TreasurySpender; // Changed to use the custom EnsureOrigin
-	type AssetKind = (); // Using () to represent native currency for simplicity
-	type Beneficiary = AccountId; // Spends are paid to AccountId
-	type BeneficiaryLookup = sp_runtime::traits::AccountIdLookup<AccountId, ()>; // Standard lookup for AccountId
-	type Paymaster = RuntimeNativePaymaster; // Custom paymaster for native currency
-	type BalanceConverter = RuntimeNativeBalanceConverter; // Custom converter for native currency
-	type PayoutPeriod = TreasuryPayoutPeriod; // How long a spend is valid for claiming
-	type BlockNumberProvider = System;
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = (); // System pallet provides block number
 }
-
-parameter_types! {
-	pub const MaxBalance: Balance = Balance::MAX;
-}
-
-pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;
-
-impl pallet_custom_origins::Config for Runtime {}
 
 parameter_types! {
 	pub const AssetDeposit: Balance = MILLI_UNIT;
@@ -603,6 +534,95 @@ impl pallet_assets_holder::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
+// Multisig configuration
+parameter_types! {
+	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
+	pub const MaxSigners: u32 = 100;
+	pub const MaxTotalProposalsInStorage: u32 = 200; // Max total in storage (Active + Executed + Cancelled)
+	pub const MaxCallSize: u32 = 10240; // 10KB
+	pub const MultisigFee: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (non-refundable)
+	pub const MultisigDeposit: Balance = 500 * MILLI_UNIT; // 0.5 UNIT (refundable)
+	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
+	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
+	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
+	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
+}
+
+/// High-Security configuration wrapper for Runtime
+///
+/// This type alias delegates to `ReversibleTransfers` pallet for high-security checks
+/// and adds RuntimeCall-specific whitelist validation.
+///
+/// Used by:
+/// - Multisig pallet: validates calls in `propose()` extrinsic
+/// - Transaction extensions: validates calls for high-security EOAs
+///
+/// Whitelist includes only delayed, reversible operations:
+/// - `schedule_transfer`: Schedule delayed native token transfer
+/// - `schedule_asset_transfer`: Schedule delayed asset transfer
+/// - `cancel`: Cancel pending delayed transfer
+pub struct HighSecurityConfig;
+
+impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
+	fn is_high_security(who: &AccountId) -> bool {
+		// Delegate to reversible-transfers pallet
+		pallet_reversible_transfers::Pallet::<Runtime>::is_high_security_account(who)
+	}
+
+	fn is_whitelisted(call: &RuntimeCall) -> bool {
+		#[cfg(feature = "runtime-benchmarks")]
+		{
+			// Production whitelist + remark for propose_high_security benchmark
+			matches!(
+				call,
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::cancel { .. }
+				) | RuntimeCall::System(frame_system::Call::remark { .. })
+			)
+		}
+
+		#[cfg(not(feature = "runtime-benchmarks"))]
+		{
+			matches!(
+				call,
+				RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
+				) | RuntimeCall::ReversibleTransfers(
+					pallet_reversible_transfers::Call::cancel { .. }
+				)
+			)
+		}
+	}
+
+	fn guardian(who: &AccountId) -> Option<AccountId> {
+		// Delegate to reversible-transfers pallet
+		pallet_reversible_transfers::Pallet::<Runtime>::get_guardian(who)
+	}
+}
+
+impl pallet_multisig::Config for Runtime {
+	type RuntimeCall = RuntimeCall;
+	type Currency = Balances;
+	type MaxSigners = MaxSigners;
+	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorage;
+	type MaxCallSize = MaxCallSize;
+	type MultisigFee = MultisigFee;
+	type MultisigDeposit = MultisigDeposit;
+	type ProposalDeposit = ProposalDeposit;
+	type ProposalFee = ProposalFee;
+	type SignerStepFactor = SignerStepFactorParam;
+	type MaxExpiryDuration = MaxExpiryDuration;
+	type PalletId = MultisigPalletId;
+	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+	type HighSecurity = HighSecurityConfig;
+}
+
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Runtime> {
 	type Error = ();
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
@@ -621,4 +641,26 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 			_ => Err(()),
 		}
 	}
+}
+
+parameter_types! {
+	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
+	/// Minimum transfer amount for wormhole (10 QUAN = 10 * 10^12)
+	pub const WormholeMinimumTransferAmount: Balance = 10 * UNIT;
+	/// Volume fee rate in basis points (10 bps = 0.1%)
+	pub const VolumeFeeRateBps: u32 = 10;
+	/// Proportion of volume fees to burn (50% burned, 50% to miner)
+	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+}
+
+impl pallet_wormhole::Config for Runtime {
+	type MintingAccount = WormholeMintingAccount;
+	type MinimumTransferAmount = WormholeMinimumTransferAmount;
+	type VolumeFeeRateBps = VolumeFeeRateBps;
+	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type WeightInfo = ();
+	type Currency = Balances;
+	type Assets = Assets;
+	type TransferCount = u64;
+	type WormholeAccountId = AccountId32;
 }

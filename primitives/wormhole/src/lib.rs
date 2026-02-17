@@ -3,26 +3,19 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
+/// Trait for recording transfer proofs in the wormhole pallet.
+/// Other pallets can use this to record proofs when they mint/transfer tokens.
+pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
+	/// Error type for proof recording failures
+	type Error;
 
-/// Trait for managing wormhole transfer proofs.
-pub trait TransferProofs<Balance, AccountId, TxCount = u64> {
-	/// Get transfer proof, if any
-	fn transfer_proof_exists(
-		count: TxCount,
-		from: &AccountId,
-		to: &AccountId,
-		value: Balance,
-	) -> bool;
-
-	/// Get transfer proof key
-	fn transfer_proof_key(
-		count: TxCount,
+	/// Record a transfer proof for native or asset tokens
+	/// - `None` for native tokens (asset_id = 0)
+	/// - `Some(asset_id)` for specific assets
+	fn record_transfer_proof(
+		asset_id: Option<AssetId>,
 		from: AccountId,
 		to: AccountId,
-		value: Balance,
-	) -> Vec<u8>;
-
-	/// Store transfer proofs for a given wormhole transfer.
-	fn store_transfer_proof(from: &AccountId, to: &AccountId, value: Balance);
+		amount: Balance,
+	) -> Result<(), Self::Error>;
 }

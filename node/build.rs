@@ -6,35 +6,25 @@ fn main() {
 
 	rerun_if_git_head_changed();
 
-	// Circuit validation and generation
-	validate_and_generate_circuits();
+	// Validate pre-generated circuit binaries
+	validate_circuit_binaries();
 }
 
-fn validate_and_generate_circuits() {
-	println!("cargo:rerun-if-changed=pallets/wormhole/verifier.bin");
-	println!("cargo:rerun-if-changed=pallets/wormhole/common.bin");
+fn validate_circuit_binaries() {
+	// NOTE: cargo:rerun-if-changed paths are relative to the package's Cargo.toml directory.
+	// Since this build.rs is in node/, we use ../pallets/wormhole/ to point to the pallet
+	// directory.
+	println!("cargo:rerun-if-changed=../pallets/wormhole/aggregated_verifier.bin");
+	println!("cargo:rerun-if-changed=../pallets/wormhole/aggregated_common.bin");
 
-	// Generate circuit binaries from the zk-circuits dependency
-	generate_circuit_binaries();
+	// Validate the aggregated circuit binaries
+	let agg_verifier_bytes = include_bytes!("../pallets/wormhole/aggregated_verifier.bin");
+	let agg_common_bytes = include_bytes!("../pallets/wormhole/aggregated_common.bin");
+	WormholeVerifier::new_from_bytes(agg_verifier_bytes, agg_common_bytes).expect(
+		"CRITICAL ERROR: Failed to create aggregated WormholeVerifier from embedded data. \
+         The aggregated_verifier.bin and aggregated_common.bin files must be regenerated \
+         using qp-zk-circuits. Run: quantus developer build-circuits",
+	);
 
-	// Validate generated binaries
-	let verifier_bytes = include_bytes!("../pallets/wormhole/verifier.bin");
-	let common_bytes = include_bytes!("../pallets/wormhole/common.bin");
-
-	// This will fail at build time if the binaries are invalid
-	WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes)
-        .expect("CRITICAL ERROR: Failed to create WormholeVerifier from embedded data. Check verifier.bin and common.bin");
-
-	println!("cargo:trace=✅ Wormhole circuit binaries generated and validated successfully");
-}
-
-fn generate_circuit_binaries() {
-	println!("cargo:trace=🔧 Generating wormhole circuit binaries from zk-circuits...");
-
-	// Call the circuit-builder to generate binaries directly in the pallet directory
-	// We don't need the prover binary for the chain, only verifier and common
-	qp_wormhole_circuit_builder::generate_circuit_binaries("../pallets/wormhole", false)
-		.expect("Failed to generate circuit binaries");
-
-	println!("cargo:trace=✅ Circuit binaries generated successfully");
+	println!("cargo:trace=✅ Wormhole circuit binaries validated successfully");
 }

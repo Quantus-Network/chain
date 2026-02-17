@@ -1,16 +1,17 @@
 use crate as pallet_mining_rewards;
-use codec::Encode;
+
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
-	PalletId,
 };
+use pallet_treasury;
+use qp_poseidon::PoseidonHasher;
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
 	testing::H256,
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage, Digest, DigestItem,
+	BuildStorage, DigestItem,
 };
 
 // Configure a mock runtime to test the pallet
@@ -18,6 +19,7 @@ frame_support::construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		Balances: pallet_balances,
+		Treasury: pallet_treasury,
 		MiningRewards: pallet_mining_rewards,
 	}
 );
@@ -32,7 +34,6 @@ parameter_types! {
 	pub const MaxSupply: u128 = 21_000_000 * UNIT;
 	pub const EmissionDivisor: u128 = 26_280_000;
 	pub const ExistentialDeposit: Balance = 1;
-	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
 }
 
 impl frame_system::Config for Test {
@@ -69,6 +70,7 @@ impl frame_system::Config for Test {
 }
 
 impl pallet_balances::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type RuntimeHoldReason = ();
 	type RuntimeFreezeReason = ();
 	type WeightInfo = ();
@@ -85,31 +87,74 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const TreasuryPortion: u8 = 50; // 50% goes to treasury in tests (matching runtime)
-	pub const MintingAccount: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([99u8; 32]);
+	pub const MintingAccount: sp_core::crypto::AccountId32 =
+		sp_core::crypto::AccountId32::new([99u8; 32]);
+	pub const Unit: u128 = UNIT;
+}
+
+impl pallet_treasury::Config for Test {
+	type WeightInfo = ();
+}
+
+// Mock proof recorder that does nothing
+pub struct MockProofRecorder;
+impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
+	for MockProofRecorder
+{
+	type Error = ();
+
+	fn record_transfer_proof(
+		_asset_id: Option<u32>,
+		_from: sp_core::crypto::AccountId32,
+		_to: sp_core::crypto::AccountId32,
+		_amount: u128,
+	) -> Result<(), Self::Error> {
+		Ok(())
+	}
 }
 
 impl pallet_mining_rewards::Config for Test {
 	type Currency = Balances;
+	type AssetId = u32;
+	type ProofRecorder = MockProofRecorder;
 	type WeightInfo = ();
 	type MaxSupply = MaxSupply;
 	type EmissionDivisor = EmissionDivisor;
-	type TreasuryPortion = TreasuryPortion;
-	type TreasuryPalletId = TreasuryPalletId;
+	type Treasury = Treasury;
 	type MintingAccount = MintingAccount;
+	type Unit = Unit;
 }
 
-/// Helper function to convert a u8 to an AccountId32
-pub fn account_id(id: u8) -> sp_core::crypto::AccountId32 {
-	sp_core::crypto::AccountId32::from([id; 32])
+/// Helper function to convert a u8 to a preimage
+pub fn miner_preimage(id: u8) -> [u8; 32] {
+	[id; 32]
 }
 
-// Configure a default miner account for tests
+/// Helper function to derive wormhole address from preimage
+pub fn wormhole_address_from_preimage(preimage: [u8; 32]) -> sp_core::crypto::AccountId32 {
+	let hash = PoseidonHasher::hash_padded(&preimage);
+	sp_core::crypto::AccountId32::from(hash)
+}
+
+// Configure default miner preimages and addresses for tests
+pub fn miner_preimage_1() -> [u8; 32] {
+	miner_preimage(1)
+}
+
+pub fn miner_preimage_2() -> [u8; 32] {
+	miner_preimage(2)
+}
+
 pub fn miner() -> sp_core::crypto::AccountId32 {
-	account_id(1)
+	wormhole_address_from_preimage(miner_preimage_1())
 }
+
 pub fn miner2() -> sp_core::crypto::AccountId32 {
-	account_id(2)
+	wormhole_address_from_preimage(miner_preimage_2())
+}
+
+fn treasury_account() -> sp_core::crypto::AccountId32 {
+	sp_core::crypto::AccountId32::new([1u8; 32])
 }
 
 // Build genesis storage according to the mock runtime.
@@ -118,6 +163,14 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
+		dev_accounts: None,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	pallet_treasury::GenesisConfig::<Test> {
+		treasury_account: treasury_account(),
+		treasury_portion: 50,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
@@ -127,15 +180,27 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	ext
 }
 
-// Helper function to create a block digest with a miner pre-runtime digest
-pub fn set_miner_digest(miner: sp_core::crypto::AccountId32) {
-	let miner_bytes = miner.encode();
-	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, miner_bytes);
-	let digest = Digest { logs: vec![pre_digest] };
+// Helper function to create a block digest with a miner preimage
+pub fn set_miner_digest(miner_account: sp_core::crypto::AccountId32) {
+	// Find the preimage that corresponds to this miner address
+	let preimage = if miner_account == miner() {
+		miner_preimage_1()
+	} else if miner_account == miner2() {
+		miner_preimage_2()
+	} else {
+		// For other miners, use their raw bytes as preimage for testing
+		let mut preimage = [0u8; 32];
+		preimage.copy_from_slice(miner_account.as_ref());
+		preimage
+	};
 
-	// Set the digest in the system
-	System::reset_events();
-	System::initialize(&1, &sp_core::H256::default(), &digest);
+	set_miner_preimage_digest(preimage);
+}
+
+// Helper function to create a block digest with a specific preimage
+pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
+	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, preimage.to_vec());
+	System::deposit_log(pre_digest);
 }
 
 // Helper function to run a block

@@ -38,8 +38,8 @@ impl TestCommons {
 
 	/// Create a test externality with governance track timing based on feature flags
 	/// - Without `production-governance-tests`: Uses fast 2-block periods for all governance tracks
-	/// - With `production-governance-tests`: Uses production timing (hours/days)
-	/// This allows CI to test both fast (for speed) and slow (for correctness) governance
+	/// - With `production-governance-tests`: Uses production timing (hours/days) This allows CI to
+	///   test both fast (for speed) and slow (for correctness) governance
 	pub fn new_fast_governance_test_ext() -> sp_io::TestExternalities {
 		#[cfg(feature = "production-governance-tests")]
 		{
