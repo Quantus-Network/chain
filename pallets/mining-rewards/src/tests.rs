@@ -1,6 +1,6 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
-use sp_runtime::{testing::Digest, traits::AccountIdConversion};
+use sp_runtime::{testing::Digest, Permill};
 
 #[test]
 fn miner_reward_works() {
@@ -15,7 +15,8 @@ fn miner_reward_works() {
 		// Initial supply is just the existential deposits (2 accounts * 1 unit each = 2)
 		let current_supply = Balances::total_issuance();
 		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = TreasuryPortion::get().mul_floor(total_reward);
+		let treasury_reward =
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_reward);
 		let miner_reward = total_reward - treasury_reward;
 
 		// Run the on_finalize hook
@@ -53,7 +54,8 @@ fn miner_reward_with_transaction_fees_works() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = TreasuryPortion::get().mul_floor(total_block_reward);
+		let treasury_reward =
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 		let miner_block_reward = total_block_reward - treasury_reward;
 
 		// Run the on_finalize hook
@@ -95,7 +97,8 @@ fn on_unbalanced_collects_fees() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = TreasuryPortion::get().mul_floor(total_block_reward);
+		let treasury_reward =
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 		let miner_block_reward = total_block_reward - treasury_reward;
 
 		// Add a miner to the pre-runtime digest and distribute rewards
@@ -121,8 +124,8 @@ fn multiple_blocks_accumulate_rewards() {
 		let current_supply_block1 = Balances::total_issuance();
 		let total_block1_reward =
 			(MaxSupply::get() - current_supply_block1) / EmissionDivisor::get();
-		let miner_block1_reward =
-			total_block1_reward - TreasuryPortion::get().mul_floor(total_block1_reward);
+		let miner_block1_reward = total_block1_reward -
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block1_reward);
 
 		MiningRewards::on_finalize(1);
 
@@ -136,8 +139,8 @@ fn multiple_blocks_accumulate_rewards() {
 		let current_supply_block2 = Balances::total_issuance();
 		let total_block2_reward =
 			(MaxSupply::get() - current_supply_block2) / EmissionDivisor::get();
-		let miner_block2_reward =
-			total_block2_reward - TreasuryPortion::get().mul_floor(total_block2_reward);
+		let miner_block2_reward = total_block2_reward -
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block2_reward);
 
 		MiningRewards::on_finalize(2);
 
@@ -163,8 +166,8 @@ fn different_miners_get_different_rewards() {
 		let current_supply_block1 = Balances::total_issuance();
 		let total_block1_reward =
 			(MaxSupply::get() - current_supply_block1) / EmissionDivisor::get();
-		let miner_block1_reward =
-			total_block1_reward - TreasuryPortion::get().mul_floor(total_block1_reward);
+		let miner_block1_reward = total_block1_reward -
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block1_reward);
 
 		MiningRewards::on_finalize(1);
 
@@ -181,8 +184,8 @@ fn different_miners_get_different_rewards() {
 		let current_supply_block2 = Balances::total_issuance();
 		let total_block2_reward =
 			(MaxSupply::get() - current_supply_block2) / EmissionDivisor::get();
-		let miner_block2_reward =
-			total_block2_reward - TreasuryPortion::get().mul_floor(total_block2_reward);
+		let miner_block2_reward = total_block2_reward -
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block2_reward);
 
 		MiningRewards::on_finalize(2);
 
@@ -216,8 +219,8 @@ fn transaction_fees_collector_works() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let miner_block_reward =
-			total_block_reward - TreasuryPortion::get().mul_floor(total_block_reward);
+		let miner_block_reward = total_block_reward -
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 
 		// Reward miner
 		set_miner_digest(miner());
@@ -246,8 +249,8 @@ fn block_lifecycle_works() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let miner_block_reward =
-			total_block_reward - TreasuryPortion::get().mul_floor(total_block_reward);
+		let miner_block_reward = total_block_reward -
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 
 		// 3. on_finalize - should reward the miner
 		set_miner_digest(miner());
@@ -294,13 +297,14 @@ fn test_run_to_block_helper() {
 fn rewards_go_to_treasury_when_no_miner() {
 	new_test_ext().execute_with(|| {
 		// Get Treasury account
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = Treasury::account_id();
 		let initial_treasury_balance = Balances::free_balance(&treasury_account);
 
 		// Calculate expected rewards - when no miner, all rewards go to treasury
 		let current_supply = Balances::total_issuance();
 		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_portion_reward = TreasuryPortion::get().mul_floor(total_reward);
+		let treasury_portion_reward =
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_reward);
 		let miner_portion_reward = total_reward - treasury_portion_reward;
 
 		// Create a block without a miner (no digest set)
@@ -337,7 +341,8 @@ fn test_fees_and_rewards_to_miner() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let treasury_reward = TreasuryPortion::get().mul_floor(total_block_reward);
+		let treasury_reward =
+			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 		let miner_block_reward = total_block_reward - treasury_reward;
 
 		// Create a block with the preimage
@@ -379,13 +384,13 @@ fn test_fees_and_rewards_to_miner() {
 fn test_emission_simulation_120m_blocks() {
 	new_test_ext().execute_with(|| {
 		// Add realistic initial supply similar to genesis
-		let treasury_account = TreasuryPalletId::get().into_account_truncating();
+		let treasury_account = Treasury::account_id();
 		let _ = Balances::deposit_creating(&treasury_account, 3_600_000 * UNIT);
 
 		println!("=== Mining Rewards Emission Simulation ===");
 		println!("Max Supply: {:.0} tokens", MaxSupply::get() as f64 / UNIT as f64);
 		println!("Emission Divisor: {:?}", EmissionDivisor::get());
-		println!("Treasury Portion: {:?}", TreasuryPortion::get());
+		println!("Treasury Portion: {:?}", Treasury::portion());
 		println!();
 
 		const MAX_BLOCKS: u32 = 130_000_000;
@@ -404,7 +409,7 @@ fn test_emission_simulation_120m_blocks() {
 		// Print initial state
 		let remaining = MaxSupply::get() - current_supply;
 		let block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
-		let treasury_reward = TreasuryPortion::get().mul_floor(block_reward);
+		let treasury_reward = Permill::from_percent(u32::from(Treasury::portion())).mul_floor(block_reward);
 		let miner_reward = block_reward - treasury_reward;
 
 		println!(
@@ -435,7 +440,7 @@ fn test_emission_simulation_120m_blocks() {
 				}
 
 				let block_reward = remaining_supply / EmissionDivisor::get();
-				let treasury_reward = TreasuryPortion::get().mul_floor(block_reward);
+				let treasury_reward = Permill::from_percent(u32::from(Treasury::portion())).mul_floor(block_reward);
 				let miner_reward = block_reward - treasury_reward;
 
 				// Update totals (simulate the minting)
@@ -453,7 +458,8 @@ fn test_emission_simulation_120m_blocks() {
 			// Print progress report
 			let remaining = MaxSupply::get().saturating_sub(current_supply);
 			let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
-			let next_treasury = TreasuryPortion::get().mul_floor(next_block_reward);
+			let next_treasury =
+				Permill::from_percent(u32::from(Treasury::portion())).mul_floor(next_block_reward);
 			let next_miner = next_block_reward - next_treasury;
 
 			println!(

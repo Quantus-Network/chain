@@ -62,12 +62,16 @@ fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value 
 		.collect::<Vec<_>>();
 
 	const INITIAL_TREASURY: u128 = 21_000_000 * 30 * UNIT / 100; // 30% tokens go to investors
-	let treasury_account = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account, INITIAL_TREASURY));
+	let treasury_account: AccountId = TreasuryPalletId::get().into_account_truncating();
+	balances.push((treasury_account.clone(), INITIAL_TREASURY));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances, dev_accounts: None },
 		sudo: SudoConfig { key: Some(root.clone()) },
+		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
+			treasury_account,
+			treasury_portion: 50,
+		},
 		assets: AssetsConfig {
 			// We need to initialize and reserve the first asset id for the native token transfers
 			// with wormhole.
@@ -112,20 +116,22 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
 		};
 
+		let treasury_account: AccountId = TreasuryPalletId::get().into_account_truncating();
 		let config = RuntimeGenesisConfig {
 			balances: BalancesConfig {
 				balances: endowed_accounts
 					.iter()
 					.cloned()
 					.map(|k| (k, 100_000 * UNIT))
-					.chain([(
-						TreasuryPalletId::get().into_account_truncating(),
-						21_000_000 * 30 * UNIT / 100,
-					)])
+					.chain([(treasury_account.clone(), 21_000_000 * 30 * UNIT / 100)])
 					.collect::<Vec<_>>(),
 				dev_accounts: None,
 			},
 			sudo: SudoConfig { key: Some(crystal_alice().into_account()) },
+			treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
+				treasury_account,
+				treasury_portion: 50,
+			},
 			reversible_transfers: rt_genesis,
 			..Default::default()
 		};

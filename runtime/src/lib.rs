@@ -32,7 +32,6 @@ pub mod genesis_config_presets;
 pub mod governance;
 pub mod transaction_extensions;
 
-use crate::governance::pallet_custom_origins;
 use qp_poseidon::PoseidonHasher;
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -213,51 +212,48 @@ mod runtime {
 	#[runtime::pallet_index(5)]
 	pub type QPoW = pallet_qpow;
 
-	#[runtime::pallet_index(7)]
+	#[runtime::pallet_index(6)]
 	pub type MiningRewards = pallet_mining_rewards;
 
-	#[runtime::pallet_index(9)]
+	#[runtime::pallet_index(7)]
 	pub type Preimage = pallet_preimage;
 
-	#[runtime::pallet_index(10)]
+	#[runtime::pallet_index(8)]
 	pub type Scheduler = pallet_scheduler;
 
-	#[runtime::pallet_index(11)]
+	#[runtime::pallet_index(9)]
 	pub type Utility = pallet_utility;
 
-	#[runtime::pallet_index(12)]
+	#[runtime::pallet_index(10)]
 	pub type Referenda = pallet_referenda;
 
-	#[runtime::pallet_index(13)]
+	#[runtime::pallet_index(11)]
 	pub type ReversibleTransfers = pallet_reversible_transfers;
 
-	#[runtime::pallet_index(14)]
+	#[runtime::pallet_index(12)]
 	pub type ConvictionVoting = pallet_conviction_voting;
 
-	#[runtime::pallet_index(15)]
+	#[runtime::pallet_index(13)]
 	pub type TechCollective = pallet_ranked_collective;
 
-	#[runtime::pallet_index(16)]
+	#[runtime::pallet_index(14)]
 	pub type TechReferenda = pallet_referenda::Pallet<Runtime, Instance1>;
 
-	#[runtime::pallet_index(18)]
+	#[runtime::pallet_index(15)]
 	pub type TreasuryPallet = pallet_treasury;
 
-	#[runtime::pallet_index(19)]
-	pub type Origins = pallet_custom_origins;
-
-	#[runtime::pallet_index(20)]
+	#[runtime::pallet_index(16)]
 	pub type Recovery = pallet_recovery;
 
-	#[runtime::pallet_index(21)]
+	#[runtime::pallet_index(17)]
 	pub type Assets = pallet_assets;
 
-	#[runtime::pallet_index(22)]
+	#[runtime::pallet_index(18)]
 	pub type AssetsHolder = pallet_assets_holder;
 
-	#[runtime::pallet_index(23)]
+	#[runtime::pallet_index(19)]
 	pub type Multisig = pallet_multisig;
 
-	#[runtime::pallet_index(24)]
+	#[runtime::pallet_index(20)]
 	pub type Wormhole = pallet_wormhole;
 }

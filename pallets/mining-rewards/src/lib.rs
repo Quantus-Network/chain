@@ -26,14 +26,11 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
+	use pallet_treasury::TreasuryProvider;
 	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole::TransferProofRecorder;
 	use sp_consensus_pow::POW_ENGINE_ID;
-	use sp_runtime::{
-		generic::DigestItem,
-		traits::{AccountIdConversion, Saturating},
-		Permill,
-	};
+	use sp_runtime::{generic::DigestItem, traits::Saturating, Permill};
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -71,17 +68,12 @@ pub mod pallet {
 		#[pallet::constant]
 		type EmissionDivisor: Get<BalanceOf<Self>>;
 
-		/// The portion of rewards that goes to treasury
-		#[pallet::constant]
-		type TreasuryPortion: Get<Permill>;
+		/// Provides treasury account and portion (from treasury pallet).
+		type Treasury: TreasuryProvider<AccountId = Self::AccountId>;
 
 		/// The base unit for token amounts (e.g., 1e12 for 12 decimals)
 		#[pallet::constant]
 		type Unit: Get<BalanceOf<Self>>;
-
-		/// The treasury pallet ID
-		#[pallet::constant]
-		type TreasuryPalletId: Get<frame_support::PalletId>;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -138,8 +130,10 @@ pub mod pallet {
 				.checked_div(&emission_divisor)
 				.unwrap_or_else(BalanceOf::<T>::zero);
 
-			// Split the reward between treasury and miner
-			let treasury_reward = T::TreasuryPortion::get().mul_floor(total_reward);
+			// Split the reward between treasury and miner (portion is 0-100)
+			let treasury_portion = T::Treasury::portion();
+			let treasury_reward =
+				Permill::from_percent(u32::from(treasury_portion)).mul_floor(total_reward);
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
 
 			let tx_fees = <CollectedFees<T>>::take();
@@ -247,7 +241,7 @@ pub mod pallet {
 					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
 				},
 				None => {
-					let treasury = T::TreasuryPalletId::get().into_account_truncating();
+					let treasury = T::Treasury::account_id();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
 					let _ = T::ProofRecorder::record_transfer_proof(

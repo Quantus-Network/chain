@@ -7098,6 +7098,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-balances",
+ "pallet-treasury",
  "parity-scale-codec",
  "qp-poseidon",
  "qp-wormhole",
@@ -7496,21 +7497,15 @@ dependencies = [
 
 [[package]]
 name = "pallet-treasury"
-version = "40.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77efcc0e81cf6025128d463fa56d024f1abb6ff26e190fc091da3bafd3882d2a"
+version = "0.1.0"
 dependencies = [
- "docify",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "impl-trait-for-tuples",
- "log",
- "pallet-balances",
  "parity-scale-codec",
  "scale-info",
- "serde",
  "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
