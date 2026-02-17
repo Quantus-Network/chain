@@ -89,9 +89,6 @@ mod test {
 	use super::*;
 
 	const SEED: &str = "tide power better crop pencil arrange trouble luxury pistol coach daughter senior scatter portion power harsh addict journey carry gloom fox voice volume marble";
-	const BOB_SEED: &str =
-		"option finger leader trip goose struggle blame relief afford fabric chief elevator";
-
 	/// Test message to sign
 	const TEST_MESSAGE: &[u8; 9] = b"Something";
 

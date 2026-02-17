@@ -136,7 +136,7 @@ pub mod pallet {
 
 			let total_reward = remaining_supply
 				.checked_div(&emission_divisor)
-				.unwrap_or_else(|| BalanceOf::<T>::zero());
+				.unwrap_or_else(BalanceOf::<T>::zero);
 
 			// Split the reward between treasury and miner
 			let treasury_reward = T::TreasuryPortion::get().mul_floor(total_reward);

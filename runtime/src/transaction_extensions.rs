@@ -1,8 +1,7 @@
 //! Custom signed extensions for the runtime.
 extern crate alloc;
 use crate::*;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::{
@@ -153,9 +152,9 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			},
 
 			// Batch calls -- recurse into inner calls
-			RuntimeCall::Utility(pallet_utility::Call::batch { calls })
-			| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
-			| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
 				let mut all = Vec::new();
 				for inner_call in calls {
 					all.extend(Self::extract_all_transfers(who, inner_call)?);
@@ -172,16 +171,15 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// Used for weight estimation.
 	fn count_transfers(call: &RuntimeCall) -> usize {
 		match call {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
-			| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
-			| RuntimeCall::Assets(pallet_assets::Call::transfer { .. })
-			| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
 
-			RuntimeCall::Utility(pallet_utility::Call::batch { calls })
-			| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
-			| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
-				calls.iter().map(Self::count_transfers).sum()
-			},
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+				calls.iter().map(Self::count_transfers).sum(),
 
 			_ => 0,
 		}
