@@ -1,5 +1,6 @@
-//! Mock runtime for testing pallet-multisig (unit tests).
-//! Does not include pallet-reversible-transfers to avoid pulling pallet-assets/pallet-revive.
+//! Mock runtime for testing pallet-multisig.
+//! Single mock used for both unit tests and benchmark tests; implements
+//! `pallet_reversible_transfers::Config` so that benchmark test suite compiles and runs.
 
 use core::{cell::RefCell, marker::PhantomData};
 
@@ -10,6 +11,7 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
+use qp_scheduler::BlockNumberOrTimestamp;
 use sp_core::ConstU128;
 use sp_runtime::{BuildStorage, Perbill, Permill, Weight};
 
@@ -62,6 +64,15 @@ mod runtime {
 
 	#[runtime::pallet_index(6)]
 	pub type Utility = pallet_utility::Pallet<Test>;
+
+	#[runtime::pallet_index(7)]
+	pub type Assets = pallet_assets::Pallet<Test>;
+
+	#[runtime::pallet_index(8)]
+	pub type AssetsHolder = pallet_assets_holder::Pallet<Test>;
+
+	#[runtime::pallet_index(9)]
+	pub type ReversibleTransfers = pallet_reversible_transfers::Pallet<Test>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
@@ -69,6 +80,16 @@ impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
 	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
 		match call {
 			RuntimeCall::Balances(c) => Ok(c),
+			_ => Err(()),
+		}
+	}
+}
+
+impl TryFrom<RuntimeCall> for pallet_assets::Call<Test> {
+	type Error = ();
+	fn try_from(call: RuntimeCall) -> Result<Self, Self::Error> {
+		match call {
+			RuntimeCall::Assets(c) => Ok(c),
 			_ => Err(()),
 		}
 	}
@@ -151,6 +172,73 @@ impl<T> Time for MockTimestamp<T> {
 }
 
 parameter_types! {
+	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
+	pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> =
+		BlockNumberOrTimestamp::BlockNumber(10);
+	pub const MinDelayPeriodBlocks: u64 = 2;
+	pub const MinDelayPeriodMoment: u64 = 2000;
+	pub const MaxReversibleTransfers: u32 = 100;
+	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
+}
+
+impl pallet_reversible_transfers::Config for Test {
+	type SchedulerOrigin = OriginCaller;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type Scheduler = Scheduler;
+	type BlockNumberProvider = System;
+	type MaxPendingPerAccount = MaxReversibleTransfers;
+	type DefaultDelay = DefaultDelay;
+	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
+	type MinDelayPeriodMoment = MinDelayPeriodMoment;
+	type PalletId = ReversibleTransfersPalletIdValue;
+	type Preimages = Preimage;
+	type WeightInfo = ();
+	type Moment = Moment;
+	type TimeProvider = MockTimestamp<Test>;
+	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type VolumeFee = HighSecurityVolumeFee;
+}
+
+parameter_types! {
+	pub const AssetDeposit: Balance = 0;
+	pub const AssetAccountDeposit: Balance = 0;
+	pub const AssetsStringLimit: u32 = 50;
+	pub const MetadataDepositBase: Balance = 0;
+	pub const MetadataDepositPerByte: Balance = 0;
+}
+
+impl pallet_assets::Config for Test {
+	type Balance = Balance;
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = u32;
+	type AssetIdParameter = codec::Compact<u32>;
+	type Currency = Balances;
+	type CreateOrigin =
+		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+	type AssetDeposit = AssetDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = sp_core::ConstU128<0>;
+	type StringLimit = AssetsStringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = ();
+	type CallbackHandle = pallet_assets::AutoIncAssetId<Test, ()>;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
+	type Holder = pallet_assets_holder::Pallet<Test>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
+
+impl pallet_assets_holder::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeHoldReason = RuntimeHoldReason;
+}
+
+parameter_types! {
 	pub const ConfigDepositBase: Balance = 1;
 	pub const FriendDepositFactor: Balance = 1;
 	pub const MaxFriends: u32 = 9;
@@ -224,6 +312,10 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
+
+	pallet_reversible_transfers::GenesisConfig::<Test> { initial_high_security_accounts: vec![] }
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 	t.into()
 }

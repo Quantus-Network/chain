@@ -30,9 +30,12 @@ sp-runtime.workspace = true
 [dev-dependencies]
 frame-support = { workspace = true, features = ["experimental"], default-features = true }
 frame-system = { workspace = true, default-features = true }
+pallet-assets = { workspace = true, default-features = true }
+pallet-assets-holder = { workspace = true, default-features = true }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, default-features = true }
 pallet-recovery = { workspace = true, default-features = true }
+pallet-reversible-transfers = { path = "../reversible-transfers", default-features = true }
 pallet-scheduler = { workspace = true, default-features = true }
 pallet-timestamp.workspace = true
 pallet-utility = { workspace = true, default-features = true }

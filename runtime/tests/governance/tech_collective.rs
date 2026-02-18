@@ -8,8 +8,8 @@ mod tests {
 	use quantus_runtime::configs::TechReferendaInstance;
 
 	use quantus_runtime::{
-		Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin,
-		TechCollective, TechReferenda, UNIT,
+		Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, TechCollective,
+		TechReferenda, UNIT,
 	};
 
 	use sp_runtime::{traits::Hash, MultiAddress};
