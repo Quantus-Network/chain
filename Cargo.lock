@@ -7130,8 +7130,6 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
- "pallet-assets",
- "pallet-assets-holder",
  "pallet-balances",
  "pallet-preimage",
  "pallet-recovery",

@@ -4,7 +4,6 @@ use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 };
-use pallet_treasury;
 use qp_poseidon::PoseidonHasher;
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{

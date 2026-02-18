@@ -113,6 +113,7 @@ mod benchmarks {
 	}
 
 	/// Insert a single proposal into storage. `approvals` = list of account ids that have approved.
+	#[allow(clippy::too_many_arguments)]
 	fn insert_proposal<T: Config>(
 		multisig_address: &T::AccountId,
 		proposal_id: u32,
