@@ -39,9 +39,7 @@ mod benchmarks {
 
 		// Extract values from aggregated public inputs
 		let block_number_u32 = aggregated_inputs.block_data.block_number;
-		let block_hash_bytes: [u8; 32] = (*aggregated_inputs.block_data.block_hash)
-			.try_into()
-			.map_err(|_| BenchmarkError::Stop("Invalid block hash length"))?;
+		let block_hash_bytes = *aggregated_inputs.block_data.block_hash;
 
 		// Ensure nullifiers haven't been used
 		for nullifier in &aggregated_inputs.nullifiers {

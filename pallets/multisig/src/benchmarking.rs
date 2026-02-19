@@ -11,6 +11,24 @@ use frame_support::{traits::fungible::Mutate, BoundedBTreeMap};
 
 const SEED: u32 = 0;
 
+/// Multisig address used by the `propose_high_security` benchmark (signer1+signer2+caller).
+/// Exposed so the mock `HighSecurity` can treat it as HS in unit tests.
+#[cfg(any(test, feature = "runtime-benchmarks"))]
+#[allow(dead_code)]
+pub fn propose_high_security_benchmark_multisig_address<T>() -> T::AccountId
+where
+	T: Config + pallet_balances::Config,
+	BalanceOf2<T>: From<u128>,
+{
+	use frame_benchmarking::v2::{account, whitelisted_caller};
+	let caller: T::AccountId = whitelisted_caller();
+	let signer1: T::AccountId = account("signer1", 0, SEED);
+	let signer2: T::AccountId = account("signer2", 1, SEED);
+	let mut signers = vec![caller, signer1, signer2];
+	signers.sort();
+	Multisig::<T>::derive_multisig_address(&signers, 2, 0)
+}
+
 // Helper to fund an account
 type BalanceOf2<T> = <T as pallet_balances::Config>::Balance;
 
@@ -113,6 +131,7 @@ mod benchmarks {
 	}
 
 	/// Insert a single proposal into storage. `approvals` = list of account ids that have approved.
+	#[allow(clippy::too_many_arguments)]
 	fn insert_proposal<T: Config>(
 		multisig_address: &T::AccountId,
 		proposal_id: u32,
@@ -202,11 +221,13 @@ mod benchmarks {
 
 	/// Benchmark `propose` for high-security multisigs.
 	/// Uses signer1/signer2 so multisig address matches genesis (ReversibleTransfers::
-	/// initial_high_security_accounts). HighSecurityAccounts::contains_key reads from trie.
+	/// initial_high_security_accounts) or mock's HighSecurity (unit tests).
+	/// Uses whitelisted call (remark "safe") so HS path accepts it.
 	#[benchmark]
 	fn propose_high_security(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
+		let _ = c;
 		let (caller, signers) = setup_funded_signer_set_hs::<T>();
 		let threshold = 2u32;
 		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
@@ -216,7 +237,7 @@ mod benchmarks {
 		);
 		set_block::<T>(100);
 
-		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
+		let new_call = frame_system::Call::<T>::remark { remark: b"safe".to_vec() };
 		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 

@@ -8,14 +8,11 @@ mod tests {
 	use quantus_runtime::configs::TechReferendaInstance;
 
 	use quantus_runtime::{
-		Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, System,
-		TechCollective, TechReferenda, UNIT,
+		Balances, OriginCaller, Preimage, Runtime, RuntimeCall, RuntimeOrigin, TechCollective,
+		TechReferenda, UNIT,
 	};
 
-	use sp_runtime::{
-		traits::{AccountIdConversion, Hash, StaticLookup},
-		MultiAddress,
-	};
+	use sp_runtime::{traits::Hash, MultiAddress};
 
 	const TRACK_ID: u16 = 0;
 
