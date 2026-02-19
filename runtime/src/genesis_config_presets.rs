@@ -23,11 +23,15 @@ use crate::{
 	SudoConfig, EXISTENTIAL_DEPOSIT, UNIT,
 };
 use alloc::{vec, vec::Vec};
+use pallet_multisig::Pallet as Multisig;
 use qp_dilithium_crypto::pair::{crystal_alice, crystal_charlie, dilithium_bob};
 use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
-use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Zero};
+use sp_runtime::{
+	traits::{AccountIdConversion, IdentifyAccount, Zero},
+	Permill,
+};
 
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
@@ -53,24 +57,58 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 		crystal_charlie().into_account(),
 	]
 }
-// Returns the genesis config presets populated with given parameters.
-fn genesis_template(endowed_accounts: Vec<AccountId>, root: AccountId) -> Value {
+
+/// Treasury as 2-of-3 multisig derived from the three crystal/dilithium accounts (dev only).
+fn development_treasury_account() -> AccountId {
+	let signers = dilithium_default_accounts();
+	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
+}
+
+/// Treasury as 2-of-3 multisig derived from three heisenberg-specific accounts.
+fn heisenberg_treasury_account() -> AccountId {
+	let signers = vec![
+		heisenberg_root_account(),
+		crystal_alice().into_account(),
+		crystal_charlie().into_account(),
+	];
+	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
+}
+
+/// Total supply used for genesis (same portion% goes to treasury at genesis as in pallet).
+const GENESIS_SUPPLY: u128 = 21_000_000;
+
+/// Treasury genesis params per profile. Initial balance = (portion)% of GENESIS_SUPPLY (same as
+/// pallet portion).
+#[derive(Clone)]
+struct TreasuryGenesis {
+	account: AccountId,
+	portion: u8,
+}
+
+/// Returns the genesis config populated with given parameters. Treasury is per-profile.
+fn genesis_template(
+	endowed_accounts: Vec<AccountId>,
+	root: AccountId,
+	treasury: TreasuryGenesis,
+) -> Value {
+	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
 		.iter()
 		.cloned()
-		.map(|k| (k, 100_000 * UNIT))
+		.map(|k| (k, ENDOWED_BALANCE_UNITS.saturating_mul(UNIT)))
 		.collect::<Vec<_>>();
 
-	const INITIAL_TREASURY: u128 = 21_000_000 * 30 * UNIT / 100; // 30% tokens go to investors
-	let treasury_account: AccountId = TreasuryPalletId::get().into_account_truncating();
-	balances.push((treasury_account.clone(), INITIAL_TREASURY));
+	let total_supply_raw = GENESIS_SUPPLY.saturating_mul(UNIT);
+	let treasury_balance =
+		Permill::from_percent(u32::from(treasury.portion)).mul_floor(total_supply_raw);
+	balances.push((treasury.account.clone(), treasury_balance));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances, dev_accounts: None },
 		sudo: SudoConfig { key: Some(root.clone()) },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
-			treasury_account,
-			treasury_portion: 50,
+			treasury_account: treasury.account,
+			treasury_portion: treasury.portion,
 		},
 		assets: AssetsConfig {
 			// We need to initialize and reserve the first asset id for the native token transfers
@@ -116,30 +154,22 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
 		};
 
-		let treasury_account: AccountId = TreasuryPalletId::get().into_account_truncating();
-		let config = RuntimeGenesisConfig {
-			balances: BalancesConfig {
-				balances: endowed_accounts
-					.iter()
-					.cloned()
-					.map(|k| (k, 100_000 * UNIT))
-					.chain([(treasury_account.clone(), 21_000_000 * 30 * UNIT / 100)])
-					.collect::<Vec<_>>(),
-				dev_accounts: None,
-			},
-			sudo: SudoConfig { key: Some(crystal_alice().into_account()) },
-			treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
-				treasury_account,
-				treasury_portion: 50,
-			},
-			reversible_transfers: rt_genesis,
-			..Default::default()
-		};
+		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 30 };
+		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
+			endowed_accounts,
+			crystal_alice().into_account(),
+			treasury,
+		))
+		.expect("genesis_template returns valid config");
+		config.reversible_transfers = rt_genesis;
 		return serde_json::to_value(config).expect("Could not build genesis config.");
 	}
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
-	genesis_template(endowed_accounts, crystal_alice().into_account())
+	{
+		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 30 };
+		genesis_template(endowed_accounts, crystal_alice().into_account(), treasury)
+	}
 }
 
 pub fn heisenberg_config_genesis() -> Value {
@@ -149,7 +179,8 @@ pub fn heisenberg_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	genesis_template(endowed_accounts, heisenberg_root_account())
+	let treasury = TreasuryGenesis { account: heisenberg_treasury_account(), portion: 30 };
+	genesis_template(endowed_accounts, heisenberg_root_account(), treasury)
 }
 
 pub fn dirac_config_genesis() -> Value {
@@ -158,8 +189,9 @@ pub fn dirac_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-
-	genesis_template(endowed_accounts, dirac_root_account())
+	let treasury =
+		TreasuryGenesis { account: TreasuryPalletId::get().into_account_truncating(), portion: 30 };
+	genesis_template(endowed_accounts, dirac_root_account(), treasury)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
