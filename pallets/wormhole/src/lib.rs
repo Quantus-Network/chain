@@ -202,6 +202,7 @@ pub mod pallet {
 		},
 		ProofVerified {
 			exit_amount: BalanceOf<T>,
+			nullifiers: Vec<[u8; 32]>,
 		},
 	}
 
@@ -263,6 +264,7 @@ pub mod pallet {
 			})?;
 
 			// Verify all nullifiers haven't been used and then mark them as used
+			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
 					.as_ref()
@@ -273,6 +275,7 @@ pub mod pallet {
 					Error::<T>::NullifierAlreadyUsed
 				);
 				UsedNullifiers::<T>::insert(nullifier_bytes, true);
+				nullifier_list.push(nullifier_bytes);
 			}
 
 			// Convert block number from u32 to BlockNumberFor<T>
@@ -351,7 +354,10 @@ pub mod pallet {
 			);
 
 			// Emit event for each exit account
-			Self::deposit_event(Event::ProofVerified { exit_amount: total_exit_amount });
+			Self::deposit_event(Event::ProofVerified {
+				exit_amount: total_exit_amount,
+				nullifiers: nullifier_list,
+			});
 
 			// Compute the total fee from the input amounts
 			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
