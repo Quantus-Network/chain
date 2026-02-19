@@ -12,7 +12,15 @@ pub struct MockHighSecurity;
 impl HighSecurityInspector<AccountId32, RuntimeCall> for MockHighSecurity {
 	fn is_high_security(who: &AccountId32) -> bool {
 		// For testing, account 100 is high security
-		who == &account_id(100)
+		if who == &account_id(100) {
+			return true;
+		}
+		// So that bench_propose_high_security passes (mock has no ReversibleTransfers genesis)
+		#[cfg(feature = "runtime-benchmarks")]
+		if who == &crate::benchmarking::propose_high_security_benchmark_multisig_address::<Test>() {
+			return true;
+		}
+		false
 	}
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
 		// For testing, only remarks with "safe" are whitelisted
