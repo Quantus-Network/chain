@@ -154,7 +154,7 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
 		};
 
-		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 50 };
+		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 30 };
 		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
 			endowed_accounts,
 			crystal_alice().into_account(),
@@ -167,7 +167,7 @@ pub fn development_config_genesis() -> Value {
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
-		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 50 };
+		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 30 };
 		genesis_template(endowed_accounts, crystal_alice().into_account(), treasury)
 	}
 }
@@ -179,7 +179,7 @@ pub fn heisenberg_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	let treasury = TreasuryGenesis { account: heisenberg_treasury_account(), portion: 50 };
+	let treasury = TreasuryGenesis { account: heisenberg_treasury_account(), portion: 30 };
 	genesis_template(endowed_accounts, heisenberg_root_account(), treasury)
 }
 
@@ -190,7 +190,7 @@ pub fn dirac_config_genesis() -> Value {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 	let treasury =
-		TreasuryGenesis { account: TreasuryPalletId::get().into_account_truncating(), portion: 50 };
+		TreasuryGenesis { account: TreasuryPalletId::get().into_account_truncating(), portion: 30 };
 	genesis_template(endowed_accounts, dirac_root_account(), treasury)
 }
 
