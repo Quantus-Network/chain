@@ -40,7 +40,7 @@ pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 pub const DIRAC_RUNTIME_PRESET: &str = "dirac";
 
 fn heisenberg_root_account() -> AccountId {
-	account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB")
+	account_from_ss58("qzpXdKnqr62KUgBxb9RAbJjFC5GgjGriBx7KyfhVMk6oMMYiy")
 }
 
 fn dirac_root_account() -> AccountId {
