@@ -9182,7 +9182,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.4.5-ice-bath"
+version = "0.4.6"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
