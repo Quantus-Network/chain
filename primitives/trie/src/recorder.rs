@@ -111,6 +111,9 @@ struct RecorderInner<H> {
 	///
 	/// Mapping: `Hash(Node) -> Node`.
 	accessed_nodes: HashMap<H, Vec<u8>>,
+
+	/// Nodes that should be ignored when recording.
+	ignored_nodes: IgnoredNodes<H>,
 }
 
 impl<H> Default for RecorderInner<H> {
@@ -119,6 +122,7 @@ impl<H> Default for RecorderInner<H> {
 			recorded_keys: Default::default(),
 			accessed_nodes: Default::default(),
 			transactions: Vec::new(),
+			ignored_nodes: Default::default(),
 		}
 	}
 }
@@ -152,6 +156,14 @@ impl<H: Hasher> Clone for Recorder<H> {
 }
 
 impl<H: Hasher> Recorder<H> {
+	/// Create a new recorder with the given ignored nodes.
+	pub fn with_ignored_nodes(ignored_nodes: IgnoredNodes<H::Out>) -> Self {
+		Self {
+			inner: Arc::new(Mutex::new(RecorderInner { ignored_nodes, ..Default::default() })),
+			encoded_size_estimation: Arc::new(0.into()),
+		}
+	}
+
 	/// Returns [`RecordedForKey`] per recorded key per trie.
 	///
 	/// There are multiple tries when working with e.g. child tries.
@@ -361,13 +373,14 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 
 		match access {
 			TrieAccess::NodeOwned { hash, node_owned } => {
-				tracing::trace!(
-					target: LOG_TARGET,
-					hash = ?hash,
-					"Recording node",
-				);
-
 				let inner = self.inner.deref_mut();
+
+				if inner.ignored_nodes.is_ignored(&hash) {
+					tracing::trace!(target: LOG_TARGET, ?hash, "Ignoring node");
+					return
+				}
+
+				tracing::trace!(target: LOG_TARGET, ?hash, "Recording node");
 
 				inner.accessed_nodes.entry(hash).or_insert_with(|| {
 					let node = node_owned.to_encoded::<NodeCodec<H>>();
@@ -382,13 +395,14 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 				});
 			},
 			TrieAccess::EncodedNode { hash, encoded_node } => {
-				tracing::trace!(
-					target: LOG_TARGET,
-					hash = ?hash,
-					"Recording node",
-				);
-
 				let inner = self.inner.deref_mut();
+
+				if inner.ignored_nodes.is_ignored(&hash) {
+					tracing::trace!(target: LOG_TARGET, ?hash, "Ignoring node");
+					return
+				}
+
+				tracing::trace!(target: LOG_TARGET, hash = ?hash, "Recording node");
 
 				inner.accessed_nodes.entry(hash).or_insert_with(|| {
 					let node = encoded_node.into_owned();
@@ -403,14 +417,19 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 				});
 			},
 			TrieAccess::Value { hash, value, full_key } => {
+				let inner = self.inner.deref_mut();
+
+				if inner.ignored_nodes.is_ignored(&hash) {
+					tracing::trace!(target: LOG_TARGET, ?hash, "Ignoring value");
+					return
+				}
+
 				tracing::trace!(
 					target: LOG_TARGET,
 					hash = ?hash,
 					key = ?sp_core::hexdisplay::HexDisplay::from(&full_key),
 					"Recording value",
 				);
-
-				let inner = self.inner.deref_mut();
 
 				inner.accessed_nodes.entry(hash).or_insert_with(|| {
 					let value = value.into_owned();

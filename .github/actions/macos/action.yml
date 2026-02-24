@@ -7,7 +7,7 @@ runs:
   steps:
     - name: rust compilation prerequisites (macos)
       run: |
-        brew install protobuf
+        brew install protobuf llvm
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         brew uninstall cmake
         brew install openssl cmake

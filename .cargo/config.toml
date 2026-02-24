@@ -1,0 +1,6 @@
+[env]
+# Required for librocksdb-sys (via bindgen) on macOS with Homebrew LLVM.
+# Install with: brew install llvm
+# On Linux (CI/Docker) this is handled by the system clang package.
+LIBCLANG_PATH = { value = "/opt/homebrew/opt/llvm/lib", condition = { os = ["macos"] }, force = false }
+DYLD_LIBRARY_PATH = { value = "/opt/homebrew/opt/llvm/lib", condition = { os = ["macos"] }, force = false }
