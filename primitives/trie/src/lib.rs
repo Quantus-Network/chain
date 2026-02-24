@@ -247,7 +247,8 @@ pub struct PrefixedMemoryDB<H: Hasher, RS = RandomState>(
 );
 
 impl<H: Hasher, RS: BuildHasher + Default> PrefixedMemoryDB<H, RS> {
-	/// The null node data used by our ZK-trie: 8 bytes of zeros (matches `NodeCodec::empty_node()`).
+	/// The null node data used by our ZK-trie: 8 bytes of zeros (matches
+	/// `NodeCodec::empty_node()`).
 	const ZK_NULL_NODE: &'static [u8] = &[0u8; 8];
 
 	pub fn new(prefix: &[u8]) -> Self {
@@ -255,10 +256,7 @@ impl<H: Hasher, RS: BuildHasher + Default> PrefixedMemoryDB<H, RS> {
 	}
 
 	pub fn default_with_root() -> (Self, H::Out) {
-		let db = memory_db::MemoryDB::from_null_node(
-			Self::ZK_NULL_NODE,
-			Self::ZK_NULL_NODE.into(),
-		);
+		let db = memory_db::MemoryDB::from_null_node(Self::ZK_NULL_NODE, Self::ZK_NULL_NODE.into());
 		let root = H::hash(Self::ZK_NULL_NODE);
 		(Self(db), root)
 	}
@@ -359,7 +357,8 @@ pub struct MemoryDB<H: Hasher, RS = RandomState>(
 );
 
 impl<H: Hasher> MemoryDB<H> {
-	/// The null node data used by our ZK-trie: 8 bytes of zeros (matches `NodeCodec::empty_node()`).
+	/// The null node data used by our ZK-trie: 8 bytes of zeros (matches
+	/// `NodeCodec::empty_node()`).
 	const ZK_NULL_NODE: &'static [u8] = &[0u8; 8];
 
 	pub fn new(prefix: &[u8]) -> Self {
