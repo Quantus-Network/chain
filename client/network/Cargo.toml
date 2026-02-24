@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 name = "sc-network"
 readme = "README.md"
 repository.workspace = true
-version = "0.51.1"
+version = "0.55.1"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

@@ -11,7 +11,7 @@ license = "Apache-2.0"
 name = "sp-trie"
 readme = "README.md"
 repository = "https://github.com/Quantus-Network/zk-trie.git"
-version = "40.0.0"
+version = "42.0.1"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

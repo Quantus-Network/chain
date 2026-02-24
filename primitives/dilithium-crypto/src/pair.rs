@@ -40,6 +40,7 @@ impl Pair for DilithiumPair {
 	type Public = DilithiumPublic;
 	type Seed = [u8; 32];
 	type Signature = DilithiumSignatureWithPublic;
+	type ProofOfPossession = DilithiumSignatureWithPublic;
 
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
