@@ -138,7 +138,7 @@ fn expect_public_from_phrase<Pair: sp_core::Pair>(
 			.or_else(|| secret_uri.password.as_ref())
 			.map(|p| p.expose_secret().as_str()),
 	)
-	.map_err(|e| format!("Invalid secret uri: {} {}", suri, e))?
+	.map_err(|_| format!("Invalid secret uri: {}", suri))?
 	.0;
 
 	if pair.public() == expected_public {

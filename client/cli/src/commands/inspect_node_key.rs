@@ -57,7 +57,7 @@ impl InspectNodeKeyCmd {
 		let mut file_data = match &self.file {
 			Some(file) => fs::read(&file)?,
 			None => {
-				let mut buf = Vec::new();
+				let mut buf = Vec::with_capacity(64);
 				io::stdin().lock().read_to_end(&mut buf)?;
 				buf
 			},

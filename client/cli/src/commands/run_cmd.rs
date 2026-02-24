@@ -43,7 +43,7 @@ pub struct RunCmd {
 	/// The node will be started with the authority role and actively
 	/// participate in any consensus task that it can (e.g. depending on
 	/// availability of local keys).
-	#[arg(long, requires = "rewards_address")]
+	#[arg(long)]
 	pub validator: bool,
 
 	/// Disable GRANDPA.
