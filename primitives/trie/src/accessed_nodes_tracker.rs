@@ -48,7 +48,7 @@ impl<H: Hash> AccessedNodesTracker<H> {
 	/// Ensure that all the nodes in the proof have been accessed.
 	pub fn ensure_no_unused_nodes(self) -> Result<(), Error> {
 		if self.proof_nodes_count != self.recorder.len() {
-			return Err(Error::UnusedNodes);
+			return Err(Error::UnusedNodes)
 		}
 
 		Ok(())
@@ -103,6 +103,7 @@ pub mod tests {
 			trie.get(b"key3").unwrap().unwrap();
 		}
 		assert_eq!(accessed_nodes_tracker.ensure_no_unused_nodes(), Ok(()));
+
 		let mut accessed_nodes_tracker = AccessedNodesTracker::<Hash>::new(proof_nodes_count);
 		{
 			let db = proof.into_memory_db();

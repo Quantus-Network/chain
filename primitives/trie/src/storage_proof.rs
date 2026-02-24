@@ -21,9 +21,9 @@ use core::iter::{DoubleEndedIterator, IntoIterator};
 use hash_db::{HashDB, Hasher};
 use scale_info::TypeInfo;
 
-// // Note that `LayoutV1` usage here (proof compaction) is compatible
-// // with `LayoutV0`.
-// use crate::LayoutV1 as Layout;
+// Note that `LayoutV1` usage here (proof compaction) is compatible
+// with `LayoutV0`.
+use crate::LayoutV1 as Layout;
 
 /// Error associated with the `storage_proof` module.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Debug, TypeInfo)]
@@ -39,7 +39,7 @@ pub enum StorageProofError {
 /// The proof consists of the set of serialized nodes in the storage trie accessed when looking up
 /// the keys covered by the proof. Verifying the proof requires constructing the partial trie from
 /// the serialized nodes and performing the key lookups.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo, DecodeWithMemTracking)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
 pub struct StorageProof {
 	trie_nodes: BTreeSet<Vec<u8>>,
 }
@@ -128,19 +128,19 @@ impl StorageProof {
 	/// Encode as a compact proof with default trie layout.
 	pub fn into_compact_proof<H: Hasher>(
 		self,
-		_root: H::Out,
+		root: H::Out,
 	) -> Result<CompactProof, crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
-		// Since CompactProof now wraps StorageProof, just create a CompactProof directly
-		Ok(CompactProof::from_storage_proof(self))
+		let db = self.into_memory_db();
+		crate::encode_compact::<Layout<H>, crate::MemoryDB<H>>(&db, &root)
 	}
 
 	/// Encode as a compact proof with default trie layout.
 	pub fn to_compact_proof<H: Hasher>(
 		&self,
-		_root: H::Out,
+		root: H::Out,
 	) -> Result<CompactProof, crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
-		// Since CompactProof now wraps StorageProof, just create a CompactProof directly
-		Ok(CompactProof::from_storage_proof(self.clone()))
+		let db = self.to_memory_db();
+		crate::encode_compact::<Layout<H>, crate::MemoryDB<H>>(&db, &root)
 	}
 
 	/// Returns the estimated encoded size of the compact proof.
@@ -163,35 +163,24 @@ impl<H: Hasher> From<StorageProof> for crate::MemoryDB<H> {
 
 impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
 	fn from(proof: &StorageProof) -> Self {
-		let mut db = crate::MemoryDB::new(&0u64.to_le_bytes());
+		let mut db = crate::MemoryDB::with_hasher(crate::RandomState::default());
 		proof.iter_nodes().for_each(|n| {
-			db.insert(crate::EMPTY_PREFIX, n);
+			db.insert(crate::EMPTY_PREFIX, &n);
 		});
 		db
 	}
 }
 
 /// Storage proof in compact form.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
 pub struct CompactProof {
 	pub encoded_nodes: Vec<Vec<u8>>,
 }
 
 impl CompactProof {
-	/// Create a new CompactProof from a StorageProof (internal wrapper approach).
-	pub(crate) fn from_storage_proof(storage_proof: StorageProof) -> Self {
-		// Convert StorageProof nodes to the encoded_nodes format to maintain API compatibility
-		Self { encoded_nodes: storage_proof.into_iter_nodes().collect() }
-	}
-
 	/// Return an iterator on the compact encoded nodes.
 	pub fn iter_compact_encoded_nodes(&self) -> impl Iterator<Item = &[u8]> {
 		self.encoded_nodes.iter().map(Vec::as_slice)
-	}
-
-	/// Returns the estimated encoded size of the compact proof.
-	pub fn encoded_size(&self) -> usize {
-		self.encoded_nodes.iter().map(|n| n.len()).sum()
 	}
 
 	/// Decode to a full storage_proof.
@@ -199,13 +188,22 @@ impl CompactProof {
 		&self,
 		expected_root: Option<&H::Out>,
 	) -> Result<(StorageProof, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
-		// Since CompactProof now just wraps StorageProof data, convert back to StorageProof
-		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
-
-		match expected_root {
-			Some(root) => Ok((storage_proof, *root)),
-			None => Ok((storage_proof, H::Out::default())),
-		}
+		let mut db = crate::MemoryDB::<H>::new(&[]);
+		let root = crate::decode_compact::<Layout<H>, _, _>(
+			&mut db,
+			self.iter_compact_encoded_nodes(),
+			expected_root,
+		)?;
+		Ok((
+			StorageProof::new(db.drain().into_iter().filter_map(|kv| {
+				if (kv.1).1 > 0 {
+					Some((kv.1).0)
+				} else {
+					None
+				}
+			})),
+			root,
+		))
 	}
 
 	/// Convert self into a [`MemoryDB`](crate::MemoryDB).
@@ -218,13 +216,14 @@ impl CompactProof {
 		expected_root: Option<&H::Out>,
 	) -> Result<(crate::MemoryDB<H>, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>>
 	{
-		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
-		let db = storage_proof.to_memory_db::<H>();
+		let mut db = crate::MemoryDB::<H>::new(&[]);
+		let root = crate::decode_compact::<Layout<H>, _, _>(
+			&mut db,
+			self.iter_compact_encoded_nodes(),
+			expected_root,
+		)?;
 
-		match expected_root {
-			Some(root) => Ok((db, *root)),
-			None => Ok((db, H::Out::default())),
-		}
+		Ok((db, root))
 	}
 }
 
@@ -234,7 +233,7 @@ pub mod tests {
 	use crate::{tests::create_storage_proof, StorageProof};
 
 	type Hasher = sp_core::Blake2Hasher;
-	type Layout = crate::LayoutV1<sp_core::Blake2Hasher>;
+	type Layout = crate::LayoutV1<Hasher>;
 
 	const TEST_DATA: &[(&[u8], &[u8])] =
 		&[(b"key1", &[1; 64]), (b"key2", &[2; 64]), (b"key3", &[3; 64]), (b"key11", &[4; 64])];
@@ -252,6 +251,6 @@ pub mod tests {
 	fn invalid_compact_proof_does_not_panic_when_decoding() {
 		let invalid_proof = CompactProof { encoded_nodes: vec![vec![135]] };
 		let result = invalid_proof.to_memory_db::<Hasher>(None);
-		assert!(result.is_ok()); // Should not panic, even with invalid data
+		assert!(result.is_err());
 	}
 }

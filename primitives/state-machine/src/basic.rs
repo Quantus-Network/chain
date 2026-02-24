@@ -18,9 +18,12 @@
 //! Basic implementation for Externalities.
 
 use crate::{Backend, OverlayedChanges, StorageKey, StorageValue};
-use alloc::collections::BTreeMap;
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use codec::Encode;
-use core::any::{Any, TypeId};
+use core::{
+	any::{Any, TypeId},
+	iter::FromIterator,
+};
 use hash_db::Hasher;
 use log::warn;
 use sp_core::{
@@ -206,7 +209,7 @@ impl Externalities for BasicExternalities {
 	fn place_storage(&mut self, key: StorageKey, maybe_value: Option<StorageValue>) {
 		if is_child_storage_key(&key) {
 			warn!(target: "trie", "Refuse to set child storage key via main storage");
-			return;
+			return
 		}
 
 		self.overlay.set_storage(key, maybe_value)
@@ -243,7 +246,7 @@ impl Externalities for BasicExternalities {
 				"Refuse to clear prefix that is part of child storage key via main storage"
 			);
 			let maybe_cursor = Some(prefix.to_vec());
-			return MultiRemovalResults { maybe_cursor, backend: 0, unique: 0, loops: 0 };
+			return MultiRemovalResults { maybe_cursor, backend: 0, unique: 0, loops: 0 }
 		}
 
 		let count = self.overlay.clear_prefix(prefix);
@@ -384,7 +387,7 @@ mod tests {
 		ext.set_storage(b"dog".to_vec(), b"puppy".to_vec());
 		ext.set_storage(b"dogglesworth".to_vec(), b"cat".to_vec());
 		let root = array_bytes::hex2bytes_unchecked(
-			"39efe1c12dcaa055fc20afa679abd2946f42661177d55072d771de7abbb72516",
+			"39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa",
 		);
 
 		assert_eq!(&ext.storage_root(StateVersion::default())[..], &root);

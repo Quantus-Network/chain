@@ -31,7 +31,7 @@ use sp_core::{
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion},
 };
 #[cfg(feature = "std")]
-use sp_externalities::{Extension, Extensions};
+use sp_externalities::{Extension, Extensions, TransactionType};
 use sp_trie::{empty_child_trie_root, LayoutV1};
 
 #[cfg(not(feature = "std"))]
@@ -228,7 +228,7 @@ impl<H: Hasher> Default for StorageChanges<H> {
 			main_storage_changes: Default::default(),
 			child_storage_changes: Default::default(),
 			offchain_storage_changes: Default::default(),
-			transaction: BackendTransaction::default(),
+			transaction: BackendTransaction::with_hasher(Default::default()),
 			transaction_storage_root: Default::default(),
 			#[cfg(feature = "std")]
 			transaction_index_changes: Default::default(),
@@ -771,7 +771,7 @@ impl<H: Hasher> OverlayedChanges<H> {
 	}
 }
 
-#[cfg(feature = "std")]
+#[cfg(not(substrate_runtime))]
 impl<H: Hasher> From<sp_core::storage::Storage> for OverlayedChanges<H> {
 	fn from(storage: sp_core::storage::Storage) -> Self {
 		Self {
@@ -815,6 +815,16 @@ where
 pub enum OverlayedExtension<'a> {
 	MutRef(&'a mut Box<dyn Extension>),
 	Owned(Box<dyn Extension>),
+}
+
+#[cfg(feature = "std")]
+impl OverlayedExtension<'_> {
+	fn extension(&mut self) -> &mut dyn Extension {
+		match self {
+			Self::MutRef(ext) => *ext,
+			Self::Owned(ext) => &mut *ext,
+		}
+	}
 }
 
 /// Overlayed extensions which are sourced from [`Extensions`].
@@ -869,6 +879,29 @@ impl<'a> OverlayedExtensions<'a> {
 	/// Returns `true` when there was an extension registered for the given `type_id`.
 	pub fn deregister(&mut self, type_id: TypeId) -> bool {
 		self.extensions.remove(&type_id).is_some()
+	}
+
+	/// Start a transaction.
+	///
+	/// The `ty` declares the type of transaction.
+	pub fn start_transaction(&mut self, ty: TransactionType) {
+		self.extensions.values_mut().for_each(|e| e.extension().start_transaction(ty));
+	}
+
+	/// Commit a transaction.
+	///
+	/// The `ty` declares the type of transaction.
+	pub fn commit_transaction(&mut self, ty: TransactionType) {
+		self.extensions.values_mut().for_each(|e| e.extension().commit_transaction(ty));
+	}
+
+	/// Rollback a transaction.
+	///
+	/// The `ty` declares the type of transaction.
+	pub fn rollback_transaction(&mut self, ty: TransactionType) {
+		self.extensions
+			.values_mut()
+			.for_each(|e| e.extension().rollback_transaction(ty));
 	}
 }
 
@@ -1007,7 +1040,7 @@ mod tests {
 
 		{
 			let mut ext = Ext::new(&mut overlay, &backend, None);
-			let root = "39efe1c12dcaa055fc20afa679abd2946f42661177d55072d771de7abbb72516";
+			let root = "39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa";
 
 			assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
 			// Calling a second time should use it from the cache
@@ -1018,7 +1051,7 @@ mod tests {
 		overlay.set_storage(b"doug2".to_vec(), Some(b"yes".to_vec()));
 
 		let mut ext = Ext::new(&mut overlay, &backend, None);
-		let root = "312a9a151868c8b9c3a3f03b8a5b44ba9bcdcec5adbfab9259fa81f1b133f0b9";
+		let root = "5c0a4e35cb967de785e1cb8743e6f24b6ff6d45155317f2078f6eb3fc4ff3e3d";
 		assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
 	}
 
@@ -1039,8 +1072,8 @@ mod tests {
 
 		{
 			let mut ext = Ext::new(&mut overlay, &backend, None);
-			let child_root = "e573c26fa86bbbd8736af193a9db0fb21a4bb1c3706573364b6ce38c6ee9f6bb";
-			let root = "490ee3bfc2b69730a64994113704f4307cf16306c0c7d5df9ba561e83af0bd22";
+			let child_root = "c02965e1df4dc5baf6977390ce67dab1d7a9b27a87c1afe27b50d29cc990e0f5";
+			let root = "eafb765909c3ed5afd92a0c564acf4620d0234b31702e8e8e9b48da72a748838";
 
 			assert_eq!(
 				bytes2hex("", &ext.child_storage_root(child_info, state_version)),

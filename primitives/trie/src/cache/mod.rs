@@ -117,7 +117,6 @@ impl CacheSize {
 	}
 }
 
-/// A limiter for the local node cache. This makes sure the local cache doesn't grow too big.
 pub struct LocalNodeCacheLimiter {
 	/// The current size (in bytes) of data allocated by this cache on the heap.
 	///
@@ -145,7 +144,7 @@ where
 		// Only enforce the limit if there's more than one element to make sure
 		// we can always add a new element to the cache.
 		if length <= 1 {
-			return false;
+			return false
 		}
 
 		self.current_heap_size > self.config.local_node_cache_max_heap_size
@@ -199,6 +198,7 @@ pub struct LocalValueCacheLimiter {
 	///
 	/// This doesn't include the size of the map itself.
 	current_heap_size: usize,
+
 	config: LocalValueCacheConfig,
 }
 
@@ -221,7 +221,7 @@ where
 		// Only enforce the limit if there's more than one element to make sure
 		// we can always add a new element to the cache.
 		if length <= 1 {
-			return false;
+			return false
 		}
 
 		self.current_heap_size > self.config.local_value_cache_max_heap_size
@@ -289,27 +289,9 @@ impl HitStats {
 }
 
 impl std::fmt::Display for HitStats {
-	fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-		let shared_hits = self.shared_hits.load(Ordering::Relaxed);
-		let shared_fetch_attempts = self.shared_fetch_attempts.load(Ordering::Relaxed);
-		let local_hits = self.local_hits.load(Ordering::Relaxed);
-		let local_fetch_attempts = self.local_fetch_attempts.load(Ordering::Relaxed);
-		if shared_fetch_attempts == 0 && local_hits == 0 {
-			write!(fmt, "empty")
-		} else {
-			let percent_local = (local_hits as f32 / local_fetch_attempts as f32) * 100.0;
-			let percent_shared = (shared_hits as f32 / shared_fetch_attempts as f32) * 100.0;
-			write!(
-				fmt,
-				"local hit rate = {}% [{}/{}], shared hit rate = {}% [{}/{}]",
-				percent_local as u32,
-				local_hits,
-				local_fetch_attempts,
-				percent_shared as u32,
-				shared_hits,
-				shared_fetch_attempts
-			)
-		}
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		let snapshot = self.snapshot();
+		write!(f, "{}", snapshot)
 	}
 }
 
@@ -596,24 +578,21 @@ impl<H: Hasher> Drop for LocalTrieCache<H> {
 					target: LOG_TARGET,
 					"Timeout while trying to acquire a write lock for the shared trie cache"
 				);
-				return;
+				return
 			},
 		};
-
 		let stats_snapshot = self.stats.snapshot();
 		shared_inner.stats_add_snapshot(&stats_snapshot);
 		let metrics = shared_inner.metrics().cloned();
-		if let Some(metrics) = metrics.as_ref() {
-			metrics.observe_hits_stats(&stats_snapshot)
-		}
+		metrics.as_ref().map(|metrics| metrics.observe_hits_stats(&stats_snapshot));
 		{
 			let _node_update_duration =
 				metrics.as_ref().map(|metrics| metrics.start_shared_node_update_timer());
 			let node_cache = self.node_cache.get_mut();
 
-			if let Some(metrics) = metrics.as_ref() {
-				metrics.observe_local_node_cache_length(node_cache.len())
-			}
+			metrics
+				.as_ref()
+				.map(|metrics| metrics.observe_local_node_cache_length(node_cache.len()));
 
 			shared_inner.node_cache_mut().update(
 				node_cache.drain(),
@@ -633,9 +612,9 @@ impl<H: Hasher> Drop for LocalTrieCache<H> {
 			let _node_update_duration =
 				metrics.as_ref().map(|metrics| metrics.start_shared_value_update_timer());
 			let value_cache = self.shared_value_cache_access.get_mut();
-			if let Some(metrics) = metrics.as_ref() {
-				metrics.observe_local_value_cache_length(value_cache.len())
-			}
+			metrics
+				.as_ref()
+				.map(|metrics| metrics.observe_local_value_cache_length(value_cache.len()));
 
 			shared_inner.value_cache_mut().update(
 				self.value_cache.get_mut().drain(),
@@ -704,7 +683,7 @@ impl<H: Hasher> ValueCache<'_, H> {
 					}) {
 					stats.local_hits.fetch_add(1, Ordering::Relaxed);
 
-					return Some(value);
+					return Some(value)
 				}
 
 				stats.shared_fetch_attempts.fetch_add(1, Ordering::Relaxed);
@@ -712,7 +691,7 @@ impl<H: Hasher> ValueCache<'_, H> {
 					stats.shared_hits.fetch_add(1, Ordering::Relaxed);
 					shared_value_cache_access.insert(hash, ());
 					*buffered_value = Some(value.clone());
-					return buffered_value.as_ref();
+					return buffered_value.as_ref()
 				}
 
 				None
@@ -753,14 +732,11 @@ impl<'a, H: Hasher> TrieCache<'a, H> {
 	/// `storage_root` is the new storage root that was obtained after finishing all operations
 	/// using the [`TrieDBMut`](trie_db::TrieDBMut).
 	pub fn merge_into(self, local: &LocalTrieCache<H>, storage_root: H::Out) {
-		let ValueCache::Fresh(cache) = self.value_cache else {
-			return;
-		};
+		let ValueCache::Fresh(cache) = self.value_cache else { return };
 
 		if !cache.is_empty() {
 			let mut value_cache = local.value_cache.lock();
 			let partial_hash = ValueCacheKey::hash_partial_data(&storage_root);
-
 			cache.into_iter().for_each(|(k, v)| {
 				let hash = ValueCacheKeyHash::from_hasher_and_storage_key(partial_hash.clone(), &k);
 				let k = ValueCacheRef { storage_root, storage_key: &k, hash };
@@ -789,7 +765,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 				self.stats.node_cache.shared_hits.fetch_add(1, Ordering::Relaxed);
 				tracing::trace!(target: LOG_TARGET, ?hash, "Serving node from shared cache");
 
-				return Ok(NodeCached::<H::Out> { node: node.clone(), is_from_shared_cache: true });
+				return Ok(NodeCached::<H::Out> { node: node.clone(), is_from_shared_cache: true })
 			}
 
 			// It was not in the shared cache; try fetching it from the database.
@@ -825,7 +801,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 
 			// It was not in the local cache; try the shared cache.
 			self.stats.node_cache.shared_fetch_attempts.fetch_add(1, Ordering::Relaxed);
-			if let Some(node) = self.shared_cache.peek_node(hash) {
+			if let Some(node) = self.shared_cache.peek_node(&hash) {
 				self.stats.node_cache.shared_hits.fetch_add(1, Ordering::Relaxed);
 				tracing::trace!(target: LOG_TARGET, ?hash, "Serving node from shared cache");
 
@@ -880,7 +856,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use rand::{rngs::StdRng, Rng, SeedableRng};
+	use rand::{thread_rng, Rng};
 	use sp_core::H256;
 	use trie_db::{Bytes, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieMut};
 
@@ -895,7 +871,7 @@ mod tests {
 	const CACHE_SIZE: CacheSize = CacheSize::new(CACHE_SIZE_RAW);
 
 	fn create_trie() -> (MemoryDB, TrieHash<Layout>) {
-		let mut db = MemoryDB::new(&0u64.to_le_bytes());
+		let mut db = MemoryDB::default();
 		let mut root = Default::default();
 
 		{
@@ -1211,17 +1187,15 @@ mod tests {
 	}
 
 	#[test]
-	#[ignore]
 	fn test_trusted_works() {
 		let (mut db, root) = create_trie();
 		// Configure cache size to make sure it is large enough to hold all the data.
 		let cache_size = CacheSize::new(1024 * 1024 * 1024);
-		let num_test_keys: usize = 50000;
+		let num_test_keys: usize = 40000;
 		let shared_cache = Cache::new(cache_size, None);
 
 		// Create a random array of bytes to use as a value.
-		// Use a fixed seed to make the test deterministic
-		let mut rng = StdRng::seed_from_u64(42);
+		let mut rng = thread_rng();
 		let random_keys: Vec<Vec<u8>> =
 			(0..num_test_keys).map(|_| (0..100).map(|_| rng.gen()).collect()).collect();
 
