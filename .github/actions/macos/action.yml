@@ -7,7 +7,14 @@ runs:
   steps:
     - name: rust compilation prerequisites (macos)
       run: |
-        brew install protobuf llvm
+        brew update
+        OK=0
+        for i in 1 2 3; do
+          if brew install protobuf llvm; then OK=1; break; fi
+          echo "brew install attempt $i failed (often transient ghcr.io), retrying in 15s..."
+          sleep 15
+        done
+        if [ "$OK" -ne 1 ]; then echo "::error::brew install protobuf llvm failed after 3 attempts"; exit 1; fi
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         brew uninstall cmake
         brew install openssl cmake

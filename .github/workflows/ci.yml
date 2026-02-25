@@ -76,31 +76,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
-      - name: Install libclang for clippy (clang-sys/rocksdb)
-        run: sudo apt-get update -yqq && sudo apt-get install -yqq --no-install-recommends libclang-dev
       - name: Install required components
         run: rustup component add rust-src clippy
-      - name: Set LIBCLANG_PATH (clippy needs clang-sys for rocksdb/bindgen)
-        run: |
-          # Try known LLVM lib dirs first (ubuntu runner often has llvm-18).
-          DIR=
-          for ver in 18 17 16 15 14; do
-            D="/usr/lib/llvm-$ver/lib"
-            if [ -d "$D" ] && ls "$D"/libclang*.so* 1>/dev/null 2>&1; then
-              DIR=$D
-              break
-            fi
-          done
-          if [ -z "$DIR" ]; then
-            LIB=$(find /usr -name 'libclang.so*' \( -type f -o -type l \) 2>/dev/null | head -1)
-            [ -n "$LIB" ] && DIR=$(dirname "$LIB")
-          fi
-          if [ -z "$DIR" ] || [ "$DIR" = "." ]; then
-            echo "::error::Could not find libclang.so (install libclang-dev?)"
-            exit 1
-          fi
-          echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
-          echo "LIBCLANG_PATH=$DIR"
       - name: Run clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
       - name: Run doc
