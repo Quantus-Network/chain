@@ -78,6 +78,19 @@ jobs:
         uses: ./.github/actions/ubuntu
       - name: Install required components
         run: rustup component add rust-src clippy
+      - name: Set LIBCLANG_PATH (clippy needs clang-sys for rocksdb/bindgen)
+        run: |
+          if [ -n "${LIBCLANG_PATH:-}" ]; then
+            echo "LIBCLANG_PATH already set: $LIBCLANG_PATH"
+          elif command -v llvm-config >/dev/null 2>&1; then
+            echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
+          else
+            DIR=$(dirname "$(find /usr/lib -name 'libclang*.so*' -type f 2>/dev/null | head -1)")
+            if [ -n "$DIR" ] && [ "$DIR" != "." ]; then
+              echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
+            fi
+          fi
+          echo "LIBCLANG_PATH=${LIBCLANG_PATH:-not set}"
       - name: Run clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
       - name: Run doc
