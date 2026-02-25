@@ -82,13 +82,21 @@ jobs:
         run: rustup component add rust-src clippy
       - name: Set LIBCLANG_PATH (clippy needs clang-sys for rocksdb/bindgen)
         run: |
-          # Prefer .../llvm-N/lib/ (main lib dir); fallback to any libclang.so* under /usr.
-          LIB=$(find /usr/lib /usr/lib/x86_64-linux-gnu -name 'libclang.so*' -type f 2>/dev/null | grep -E '/llvm-[0-9]+/lib/' | head -1)
-          [ -z "$LIB" ] && LIB=$(find /usr/lib /usr/lib/x86_64-linux-gnu -name 'libclang.so*' -type f 2>/dev/null | head -1)
+          # Try known LLVM lib dirs first (ubuntu runner often has llvm-18).
           DIR=
-          [ -n "$LIB" ] && DIR=$(dirname "$LIB")
+          for ver in 18 17 16 15 14; do
+            D="/usr/lib/llvm-$ver/lib"
+            if [ -d "$D" ] && ls "$D"/libclang*.so* 1>/dev/null 2>&1; then
+              DIR=$D
+              break
+            fi
+          done
+          if [ -z "$DIR" ]; then
+            LIB=$(find /usr -name 'libclang.so*' \( -type f -o -type l \) 2>/dev/null | head -1)
+            [ -n "$LIB" ] && DIR=$(dirname "$LIB")
+          fi
           if [ -z "$DIR" ] || [ "$DIR" = "." ]; then
-            echo "::error::Could not find libclang.so under /usr (install libclang-dev?)"
+            echo "::error::Could not find libclang.so (install libclang-dev?)"
             exit 1
           fi
           echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
