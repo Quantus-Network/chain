@@ -80,9 +80,15 @@ jobs:
         run: rustup component add rust-src clippy
       - name: Set LIBCLANG_PATH (clippy needs clang-sys for rocksdb/bindgen)
         run: |
-          # Runner may set LIBCLANG_PATH to a wrong dir (e.g. .../lib/clang/18/lib/linux). Always use llvm-config.
-          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
-          echo "LIBCLANG_PATH=$(llvm-config --libdir)"
+          # llvm-config is often not on PATH. Find the real libclang dir (skip .../lib/clang/N/... subdirs).
+          LIB=$(find /usr/lib -name 'libclang.so*' -type f 2>/dev/null | grep -v '/clang/[0-9]' | head -1)
+          DIR=${LIB:+$(dirname "$LIB")}
+          if [ -z "$DIR" ] || [ "$DIR" = "." ]; then
+            echo "::error::Could not find libclang.so under /usr/lib (clang-sys will fail)"
+            exit 1
+          fi
+          echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
+          echo "LIBCLANG_PATH=$DIR"
       - name: Run clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
       - name: Run doc
