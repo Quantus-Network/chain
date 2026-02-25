@@ -1005,8 +1005,9 @@ mod tests {
 		// For Dilithium, Secret::Input must contain the full keypair bytes (secret + public),
 		// not just the secret key. Use dilithium_to_bytes() to get the correct format.
 		let kp_bytes = libp2p_identity::Keypair::generate_dilithium().dilithium_to_bytes();
-		let kp1 =
-			NodeKeyConfig::Dilithium(Secret::Input(kp_bytes.clone())).into_keypair().unwrap();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(kp_bytes.clone()))
+			.into_keypair()
+			.unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(kp_bytes)).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) == secret_bytes(kp2));
 	}

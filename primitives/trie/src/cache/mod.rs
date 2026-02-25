@@ -1233,8 +1233,8 @@ mod tests {
 		let stats = read_to_check_cache(&shared_cache, &mut db, root, &random_keys, value.clone());
 		// ZK-trie's 8-byte node encoding can yield 1–2 fewer cache hits than LRU len.
 		assert!(
-			stats.value_cache.shared_hits >= shared_value_cache_len as u64 - 5
-				&& stats.value_cache.shared_hits <= shared_value_cache_len as u64 + 5,
+			stats.value_cache.shared_hits >= shared_value_cache_len as u64 - 5 &&
+				stats.value_cache.shared_hits <= shared_value_cache_len as u64 + 5,
 			"shared_hits {} vs shared_value_cache_len {}",
 			stats.value_cache.shared_hits,
 			shared_value_cache_len

@@ -88,19 +88,12 @@ mod test {
 	use super::*;
 
 	// Standard BIP39 test mnemonic — works with Dilithium HD wallet derivation.
-	const MNEMONIC: &str =
-		"bottom drive obey lake curtain smoke basket hold race lonely fit walk";
+	const MNEMONIC: &str = "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
 
 	#[test]
 	fn sign_arg() {
-		let cmd = SignCmd::parse_from(&[
-			"sign",
-			"--suri",
-			MNEMONIC,
-			"--message",
-			"0xaabbcc",
-			"--hex",
-		]);
+		let cmd =
+			SignCmd::parse_from(&["sign", "--suri", MNEMONIC, "--message", "0xaabbcc", "--hex"]);
 		let sig = cmd.sign(|| std::io::stdin().lock()).expect("Must sign");
 
 		assert!(sig.starts_with("0x"), "Signature must start with 0x");

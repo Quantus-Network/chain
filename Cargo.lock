@@ -8583,6 +8583,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon"
 version = "1.0.7"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=chore%2Fsubstrate_stable2512_2#b0038abe593d5fc93b7440f42421481e497b8473"
 dependencies = [
  "log",
  "p3-field",
@@ -8613,6 +8614,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon-core"
 version = "1.0.7"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=chore%2Fsubstrate_stable2512_2#b0038abe593d5fc93b7440f42421481e497b8473"
 dependencies = [
  "p3-field",
  "p3-goldilocks",

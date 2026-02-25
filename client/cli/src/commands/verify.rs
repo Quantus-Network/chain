@@ -103,8 +103,7 @@ mod test {
 	use sp_core::Pair;
 
 	// Mnemonic for a deterministic Dilithium test keypair.
-	const MNEMONIC: &str =
-		"bottom drive obey lake curtain smoke basket hold race lonely fit walk";
+	const MNEMONIC: &str = "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
 
 	fn alice_public_hex() -> String {
 		format!("0x{}", hex::encode(crystal_alice().public().as_ref()))
@@ -161,8 +160,13 @@ mod test {
 	fn sign_then_verify_roundtrip() {
 		let alice = alice_public_hex();
 		// Sign via the sign command
-		let sign_cmd =
-			crate::commands::sign::SignCmd::parse_from(&["sign", "--suri", MNEMONIC, "--message", "hello"]);
+		let sign_cmd = crate::commands::sign::SignCmd::parse_from(&[
+			"sign",
+			"--suri",
+			MNEMONIC,
+			"--message",
+			"hello",
+		]);
 		let sig = sign_cmd.sign(|| b"hello".as_ref()).expect("sign failed");
 		// Verify via the verify command
 		let verify_cmd = VerifyCmd::parse_from(&["verify", &sig, &alice]);
