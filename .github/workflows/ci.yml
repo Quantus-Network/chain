@@ -80,17 +80,24 @@ jobs:
         run: rustup component add rust-src clippy
       - name: Set LIBCLANG_PATH (clippy needs clang-sys for rocksdb/bindgen)
         run: |
-          if [ -n "${LIBCLANG_PATH:-}" ]; then
-            echo "LIBCLANG_PATH already set: $LIBCLANG_PATH"
-          elif command -v llvm-config >/dev/null 2>&1; then
-            echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
+          # Must point to a dir that contains libclang.so or libclang-*.so (not e.g. .../lib/clang/18/lib/linux)
+          VALID="${LIBCLANG_PATH:-}"
+          if [ -n "$VALID" ] && [ -d "$VALID" ] && ls "$VALID"/libclang*.so* 1>/dev/null 2>&1; then
+            echo "LIBCLANG_PATH already valid: $LIBCLANG_PATH"
           else
-            DIR=$(dirname "$(find /usr/lib -name 'libclang*.so*' -type f 2>/dev/null | head -1)")
-            if [ -n "$DIR" ] && [ "$DIR" != "." ]; then
-              echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
+            if [ -n "$VALID" ]; then echo "LIBCLANG_PATH was invalid (no libclang*.so there): $VALID"; fi
+            if command -v llvm-config >/dev/null 2>&1; then
+              LIBDIR=$(llvm-config --libdir)
+              echo "LIBCLANG_PATH=$LIBDIR" >> $GITHUB_ENV
+              echo "Set LIBCLANG_PATH=$LIBDIR"
+            else
+              DIR=$(dirname "$(find /usr/lib -name 'libclang*.so*' -type f 2>/dev/null | head -1)")
+              if [ -n "$DIR" ] && [ "$DIR" != "." ]; then
+                echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
+                echo "Set LIBCLANG_PATH=$DIR"
+              fi
             fi
           fi
-          echo "LIBCLANG_PATH=${LIBCLANG_PATH:-not set}"
       - name: Run clippy
         run: SKIP_WASM_BUILD=1 cargo clippy --locked --workspace
       - name: Run doc
