@@ -16,3 +16,16 @@ runs:
         rustup component add rustfmt --toolchain nightly
         rustup component add clippy rust-src
       shell: bash
+    - name: Set LIBCLANG_PATH for clang-sys (bindgen/rocksdb etc.)
+      run: |
+        for dir in /usr/lib/llvm-*/lib /usr/lib/x86_64-linux-gnu; do
+          if [ -d "$dir" ] && ls "$dir"/libclang*.so* 1>/dev/null 2>&1; then
+            echo "LIBCLANG_PATH=$dir" >> $GITHUB_ENV
+            break
+          fi
+        done
+        if [ -z "${LIBCLANG_PATH:-}" ] && command -v llvm-config >/dev/null 2>&1; then
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
+        fi
+        echo "LIBCLANG_PATH=${LIBCLANG_PATH:-not set}"
+      shell: bash

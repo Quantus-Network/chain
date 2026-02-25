@@ -173,12 +173,8 @@ pub struct NetworkParams {
 
 	/// Network backend used for P2P networking.
 	///
-	/// Litep2p is a lightweight alternative to libp2p, that is designed to be more
-	/// efficient and easier to use. At the same time, litep2p brings performance
-	/// improvements and reduces the CPU usage significantly.
-	///
-	/// Libp2p is the old network backend, that may still be used for compatibility
-	/// reasons until the whole ecosystem is migrated to litep2p.
+	/// This build only supports Libp2p (with Dilithium for node identity). Litep2p is not
+	/// implemented in this fork.
 	#[arg(
 		long,
 		value_enum,

@@ -32,7 +32,8 @@ use crate::{
 	bitswap::BitswapRequestHandler,
 	config::{
 		parse_addr, FullNetworkConfiguration, IncomingRequest, MultiaddrWithPeerId,
-		NonDefaultSetConfig, NotificationHandshake, Params, SetConfig, TransportConfig,
+		NetworkBackendType, NonDefaultSetConfig, NotificationHandshake, Params, SetConfig,
+		TransportConfig,
 	},
 	discovery::DiscoveryConfig,
 	error::Error,
@@ -285,6 +286,14 @@ where
 			mut network_config,
 			..
 		} = params.network_config;
+
+		// This fork only implements the Libp2p backend (with Dilithium). Reject Litep2p explicitly.
+		if !matches!(network_config.network_backend, NetworkBackendType::Libp2p) {
+			return Err(Error::Io(std::io::Error::new(
+				std::io::ErrorKind::Unsupported,
+				"This build only supports the Libp2p network backend. Litep2p is not implemented.",
+			)));
+		}
 
 		// Private and public keys configuration.
 		let local_identity = network_config.node_key.clone().into_keypair()?;
