@@ -76,15 +76,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu
         uses: ./.github/actions/ubuntu
+      - name: Install libclang for clippy (clang-sys/rocksdb)
+        run: sudo apt-get update -yqq && sudo apt-get install -yqq --no-install-recommends libclang-dev
       - name: Install required components
         run: rustup component add rust-src clippy
       - name: Set LIBCLANG_PATH (clippy needs clang-sys for rocksdb/bindgen)
         run: |
-          # llvm-config is often not on PATH. Find the real libclang dir (skip .../lib/clang/N/... subdirs).
-          LIB=$(find /usr/lib -name 'libclang.so*' -type f 2>/dev/null | grep -v '/clang/[0-9]' | head -1)
-          DIR=${LIB:+$(dirname "$LIB")}
+          # Prefer .../llvm-N/lib/ (main lib dir); fallback to any libclang.so* under /usr.
+          LIB=$(find /usr/lib /usr/lib/x86_64-linux-gnu -name 'libclang.so*' -type f 2>/dev/null | grep -E '/llvm-[0-9]+/lib/' | head -1)
+          [ -z "$LIB" ] && LIB=$(find /usr/lib /usr/lib/x86_64-linux-gnu -name 'libclang.so*' -type f 2>/dev/null | head -1)
+          DIR=
+          [ -n "$LIB" ] && DIR=$(dirname "$LIB")
           if [ -z "$DIR" ] || [ "$DIR" = "." ]; then
-            echo "::error::Could not find libclang.so under /usr/lib (clang-sys will fail)"
+            echo "::error::Could not find libclang.so under /usr (install libclang-dev?)"
             exit 1
           fi
           echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
