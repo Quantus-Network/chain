@@ -87,40 +87,32 @@ fn sign<P: sp_core::Pair>(
 mod test {
 	use super::*;
 
-	const SEED: &str = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
+	// Standard BIP39 test mnemonic — works with Dilithium HD wallet derivation.
+	const MNEMONIC: &str =
+		"bottom drive obey lake curtain smoke basket hold race lonely fit walk";
 
 	#[test]
 	fn sign_arg() {
 		let cmd = SignCmd::parse_from(&[
 			"sign",
 			"--suri",
-			&SEED,
+			MNEMONIC,
 			"--message",
-			&SEED,
-			"--password",
-			"12345",
+			"0xaabbcc",
 			"--hex",
 		]);
 		let sig = cmd.sign(|| std::io::stdin().lock()).expect("Must sign");
 
 		assert!(sig.starts_with("0x"), "Signature must start with 0x");
-		assert!(array_bytes::hex2bytes(&sig).is_ok(), "Signature is valid hex");
+		assert!(array_bytes::hex2bytes(&sig[2..]).is_ok(), "Signature is valid hex");
 	}
 
 	#[test]
 	fn sign_stdin() {
-		let cmd = SignCmd::parse_from(&[
-			"sign",
-			"--suri",
-			SEED,
-			"--message",
-			&SEED,
-			"--password",
-			"12345",
-		]);
-		let sig = cmd.sign(|| SEED.as_bytes()).expect("Must sign");
+		let cmd = SignCmd::parse_from(&["sign", "--suri", MNEMONIC, "--message", "test message"]);
+		let sig = cmd.sign(|| b"test message".as_ref()).expect("Must sign");
 
 		assert!(sig.starts_with("0x"), "Signature must start with 0x");
-		assert!(array_bytes::hex2bytes(&sig).is_ok(), "Signature is valid hex");
+		assert!(array_bytes::hex2bytes(&sig[2..]).is_ok(), "Signature is valid hex");
 	}
 }

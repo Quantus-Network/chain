@@ -340,7 +340,9 @@ mod tests {
 		let mut ignored_nodes =
 			IgnoredNodes::from_storage_proof::<Blake2Hasher>(&recorder.to_storage_proof());
 
-		ignored_nodes.extend(IgnoredNodes::from_memory_db::<Blake2Hasher, _>(transaction.clone()));
+		ignored_nodes.extend(IgnoredNodes::from_memory_db::<Blake2Hasher, _>(
+			transaction.clone().into_inner(),
+		));
 
 		ignored_nodes
 	}

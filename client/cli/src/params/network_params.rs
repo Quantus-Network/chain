@@ -24,6 +24,7 @@ use clap::Args;
 use sc_network::{
 	config::{
 		NetworkConfiguration, NodeKeyConfig, NonReservedPeerMode, SetConfig, TransportConfig,
+		DEFAULT_IDLE_CONNECTION_TIMEOUT,
 	},
 	multiaddr::Protocol,
 };
@@ -294,6 +295,7 @@ impl NetworkParams {
 			sync_mode: self.sync.into(),
 			network_backend: self.network_backend.into(),
 			disable_peer_address_filtering: self.disable_peer_address_filtering,
+			idle_connection_timeout: DEFAULT_IDLE_CONNECTION_TIMEOUT,
 		}
 	}
 }

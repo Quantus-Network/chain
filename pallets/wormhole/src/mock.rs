@@ -112,6 +112,9 @@ impl pallet_assets::Config for Test {
 	type RemoveItemsLimit = ConstU32<1000>;
 	type CallbackHandle = ();
 	type Holder = ();
+	type ReserveData = ();
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
 }
 
 parameter_types! {

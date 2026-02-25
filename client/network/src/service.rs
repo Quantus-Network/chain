@@ -125,9 +125,6 @@ const PER_CONNECTION_EVENT_BUFFER_SIZE: usize = 24;
 /// for DHT queries, sync requests, etc. on bootnodes.
 const MAX_NEGOTIATING_INBOUND_STREAMS: usize = 16384;
 
-/// Idle connection timeout in seconds.
-const IDLE_CONNECTION_TIMEOUT_SECS: u64 = 10;
-
 /// Minimum allowed port for blockchain p2p connections.
 const MIN_P2P_PORT: u16 = 30333;
 
@@ -569,9 +566,7 @@ where
 					)
 					.with_per_connection_event_buffer_size(PER_CONNECTION_EVENT_BUFFER_SIZE)
 					.with_max_negotiating_inbound_streams(MAX_NEGOTIATING_INBOUND_STREAMS)
-					.with_idle_connection_timeout(Duration::from_secs(
-						IDLE_CONNECTION_TIMEOUT_SECS,
-					));
+					.with_idle_connection_timeout(network_config.idle_connection_timeout);
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};

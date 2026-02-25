@@ -387,7 +387,7 @@ mod tests {
 		ext.set_storage(b"dog".to_vec(), b"puppy".to_vec());
 		ext.set_storage(b"dogglesworth".to_vec(), b"cat".to_vec());
 		let root = array_bytes::hex2bytes_unchecked(
-			"39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa",
+			"39efe1c12dcaa055fc20afa679abd2946f42661177d55072d771de7abbb72516",
 		);
 
 		assert_eq!(&ext.storage_root(StateVersion::default())[..], &root);

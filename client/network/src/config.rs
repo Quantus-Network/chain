@@ -66,7 +66,28 @@ use std::{
 	pin::Pin,
 	str::{self, FromStr},
 	sync::Arc,
+	time::Duration,
 };
+
+/// Default timeout for idle connections of 10 seconds is good enough for most networks.
+/// It doesn't make sense to expose it as a CLI parameter on individual nodes, but customizations
+/// are possible in custom nodes through [`NetworkConfiguration`].
+pub const DEFAULT_IDLE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Maximum number of locally kept Kademlia provider keys.
+///
+/// 10000 keys is enough for a testnet with fast runtime (1-minute epoch) and 13 parachains.
+pub const KADEMLIA_MAX_PROVIDER_KEYS: usize = 10000;
+
+/// Time to keep Kademlia content provider records.
+///
+/// 10 h is enough time to keep the parachain bootnode record for two 4-hour epochs.
+pub const KADEMLIA_PROVIDER_RECORD_TTL: Duration = Duration::from_secs(10 * 3600);
+
+/// Interval of republishing Kademlia provider records.
+///
+/// 3.5 h means we refresh next epoch provider record 30 minutes before next 4-hour epoch comes.
+pub const KADEMLIA_PROVIDER_REPUBLISH_INTERVAL: Duration = Duration::from_secs(12600);
 
 /// Protocol name prefix, transmitted on the wire for legacy protocol names.
 /// I.e., `dot` in `/dot/sync/2`. Should be unique for each chain. Always UTF-8.
@@ -333,21 +354,10 @@ impl<K> fmt::Debug for Secret<K> {
 
 /// Helper function to check if data is hex-encoded.
 fn is_hex_data(data: &[u8]) -> bool {
-	// Check if all bytes are valid hex characters (0-9, a-f, A-F) or whitespace
 	data.iter().all(|&b| b.is_ascii_hexdigit() || b.is_ascii_whitespace())
 }
 
 impl NodeKeyConfig {
-	/// Create a new Dilithium (Post-Quantum) node key configuration.
-	pub fn dilithium(secret: DilithiumSecret) -> Self {
-		NodeKeyConfig::Dilithium(secret)
-	}
-
-	/// Create a new random Dilithium (Post-Quantum) keypair.
-	pub fn new_dilithium() -> Self {
-		NodeKeyConfig::Dilithium(Secret::New)
-	}
-
 	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair`:
 	///
 	///  * If the secret is configured as input, the corresponding keypair is returned.
@@ -358,6 +368,17 @@ impl NodeKeyConfig {
 	///
 	///  * If the secret is configured to be new, it is generated and the corresponding keypair is
 	///    returned.
+	/// Create a new Dilithium (Post-Quantum) node key configuration.
+	pub fn dilithium(secret: DilithiumSecret) -> Self {
+		NodeKeyConfig::Dilithium(secret)
+	}
+
+	/// Create a new random Dilithium (Post-Quantum) keypair.
+	pub fn new_dilithium() -> Self {
+		NodeKeyConfig::Dilithium(Secret::New)
+	}
+
+	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair`.
 	pub fn into_keypair(self) -> io::Result<libp2p_identity::Keypair> {
 		use NodeKeyConfig::*;
 		match self {
@@ -366,32 +387,24 @@ impl NodeKeyConfig {
 			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(&k)
 				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
 
-			Dilithium(Secret::File(f)) => {
-				let secret = get_secret(
-					f,
-					|b| {
-						let mut bytes;
-						if is_hex_data(b) {
-							// Convert hex to Vec<u8>, handle the Result, and convert to mutable
-							// slice
-							let vec = array_bytes::hex2bytes(b).map_err(|_| {
-								io::Error::new(
-									io::ErrorKind::InvalidData,
-									"Failed to decode hex data",
-								)
-							})?;
-							bytes = vec;
-						} else {
-							bytes = b.to_vec(); // Convert &mut [u8] to Vec<u8> for binary data
-						}
-						libp2p_identity::Keypair::dilithium_from_bytes(&mut bytes)
-							.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-					},
-					|| libp2p_identity::Keypair::generate_dilithium(),
-					|kp| kp.dilithium_to_bytes(),
-				);
-				secret
-			},
+			Dilithium(Secret::File(f)) => get_secret(
+				f,
+				|b| {
+					let mut bytes;
+					if is_hex_data(b) {
+						let vec = array_bytes::hex2bytes(b).map_err(|_| {
+							io::Error::new(io::ErrorKind::InvalidData, "Failed to decode hex data")
+						})?;
+						bytes = vec;
+					} else {
+						bytes = b.to_vec();
+					}
+					libp2p_identity::Keypair::dilithium_from_bytes(&mut bytes)
+						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+				},
+				|| libp2p_identity::Keypair::generate_dilithium(),
+				|kp| kp.dilithium_to_bytes(),
+			),
 		}
 	}
 }
@@ -647,6 +660,11 @@ pub struct NetworkConfiguration {
 	/// Configuration for the transport layer.
 	pub transport: TransportConfig,
 
+	/// Idle connection timeout.
+	///
+	/// Set by default to [`DEFAULT_IDLE_CONNECTION_TIMEOUT`].
+	pub idle_connection_timeout: Duration,
+
 	/// Maximum number of peers to ask the same blocks in parallel.
 	pub max_parallel_downloads: u32,
 
@@ -709,6 +727,7 @@ impl NetworkConfiguration {
 			client_version: client_version.into(),
 			node_name: node_name.into(),
 			transport: TransportConfig::Normal { enable_mdns: false, allow_private_ip: true },
+			idle_connection_timeout: DEFAULT_IDLE_CONNECTION_TIMEOUT,
 			max_parallel_downloads: 5,
 			max_blocks_per_request: 64,
 			min_peers_to_start_warp_sync: None,
@@ -951,6 +970,11 @@ pub enum NetworkBackendType {
 	/// Use libp2p for P2P networking.
 	#[default]
 	Libp2p,
+
+	/// Use litep2p for P2P networking.
+	///
+	/// Not yet supported by this fork — will be enabled when sc-network is fully rebased.
+	Litep2p,
 }
 
 #[cfg(test)]
@@ -978,9 +1002,12 @@ mod tests {
 
 	#[test]
 	fn test_secret_input() {
-		let sk = libp2p_identity::Keypair::generate_dilithium().dilithium_to_bytes();
-		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.clone())).into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk)).into_keypair().unwrap();
+		// For Dilithium, Secret::Input must contain the full keypair bytes (secret + public),
+		// not just the secret key. Use dilithium_to_bytes() to get the correct format.
+		let kp_bytes = libp2p_identity::Keypair::generate_dilithium().dilithium_to_bytes();
+		let kp1 =
+			NodeKeyConfig::Dilithium(Secret::Input(kp_bytes.clone())).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(kp_bytes)).into_keypair().unwrap();
 		assert!(secret_bytes(kp1) == secret_bytes(kp2));
 	}
 
@@ -995,9 +1022,7 @@ mod tests {
 	fn test_dilithium_keypair_generation() {
 		let kp1 = NodeKeyConfig::new_dilithium().into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::new_dilithium().into_keypair().unwrap();
-		// Dilithium keypairs should be different
 		assert!(kp1.to_protobuf_encoding().unwrap() != kp2.to_protobuf_encoding().unwrap());
-		// Both should be Dilithium type
 		assert_eq!(kp1.key_type(), libp2p_identity::KeyType::Dilithium);
 		assert_eq!(kp2.key_type(), libp2p_identity::KeyType::Dilithium);
 	}
