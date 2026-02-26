@@ -8,8 +8,14 @@ runs:
     - name: rust compilation prerequisites (windows)
       run: |
         choco install protoc --yes --no-progress
+        choco install llvm --yes --no-progress
         rustup update
         rustup target add wasm32-unknown-unknown
         rustup component add rustfmt --toolchain nightly
         rustup component add clippy rust-src
+      shell: bash
+
+    - name: Set LIBCLANG_PATH for clang-sys (libp2p etc.)
+      run: |
+        echo "LIBCLANG_PATH=C:/Program Files/LLVM/bin" >> "$GITHUB_ENV"
       shell: bash

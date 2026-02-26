@@ -19,7 +19,7 @@ runs:
       shell: bash
     - name: Set LIBCLANG_PATH for clang-sys (bindgen/rocksdb etc.)
       run: |
-        # Runner may set wrong LIBCLANG_PATH; llvm-config often not on PATH. Use known dirs + find.
+        # Runner may set wrong LIBCLANG_PATH; use known dirs then find then llvm-config.
         DIR=
         for ver in 18 17 16 15 14; do
           D="/usr/lib/llvm-$ver/lib"
@@ -31,6 +31,12 @@ runs:
         if [ -z "$DIR" ]; then
           LIB=$(find /usr -name 'libclang.so*' \( -type f -o -type l \) 2>/dev/null | head -1)
           [ -n "$LIB" ] && DIR=$(dirname "$LIB")
+        fi
+        if [ -z "$DIR" ] && command -v llvm-config >/dev/null 2>&1; then
+          D=$(llvm-config --libdir 2>/dev/null)
+          if [ -n "$D" ] && [ -d "$D" ] && ls "$D"/libclang*.so* 1>/dev/null 2>&1; then
+            DIR=$D
+          fi
         fi
         if [ -n "$DIR" ] && [ "$DIR" != "." ]; then
           echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
