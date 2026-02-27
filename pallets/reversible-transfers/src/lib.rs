@@ -34,6 +34,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
+use qp_wormhole::TransferProofRecorder;
 use sp_arithmetic::Permill;
 use sp_runtime::traits::StaticLookup;
 
@@ -202,6 +203,10 @@ pub mod pallet {
 		/// fees. The fee is burned (removed from total issuance).
 		#[pallet::constant]
 		type VolumeFee: Get<Permill>;
+
+		/// Proof recorder for storing wormhole transfer proofs.
+		/// This records transfer proofs when reversible transfers are executed.
+		type ProofRecorder: TransferProofRecorder<Self::AccountId, AssetIdOf<Self>, BalanceOf<Self>>;
 	}
 
 	/// Maps accounts to their chosen reversibility delay period (in milliseconds).
@@ -600,6 +605,16 @@ pub mod pallet {
 			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
+			// Determine asset_id for transfer proof recording (None for native balance transfers)
+			let asset_id: Option<AssetIdOf<T>> =
+				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
+					call.clone().try_into()
+				{
+					Some(id.into())
+				} else {
+					None
+				};
+
 			// If this is an assets transfer, release the held amount before dispatch
 			if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) = call.clone().try_into()
 			{
@@ -626,8 +641,18 @@ pub mod pallet {
 			// Remove transfer from all storage (handles indexes, account count, etc.)
 			Self::transfer_removed(&pending.from, *tx_id, &pending);
 
-			let post_info = call
-				.dispatch(frame_support::dispatch::RawOrigin::Signed(pending.from.clone()).into());
+			let post_info =
+				call.dispatch(frame_system::RawOrigin::Signed(pending.from.clone()).into());
+
+			// Record transfer proof if dispatch was successful
+			if post_info.is_ok() {
+				let _ = T::ProofRecorder::record_transfer_proof(
+					asset_id,
+					pending.from.clone(),
+					pending.to.clone(),
+					pending.amount,
+				);
+			}
 
 			// Emit event
 			Self::deposit_event(Event::TransactionExecuted { tx_id: *tx_id, result: post_info });

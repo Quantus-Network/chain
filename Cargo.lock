@@ -7256,6 +7256,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-high-security",
  "qp-scheduler",
+ "qp-wormhole",
  "scale-info",
  "sp-arithmetic",
  "sp-core",

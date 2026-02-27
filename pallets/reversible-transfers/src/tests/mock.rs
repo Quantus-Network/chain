@@ -198,6 +198,22 @@ parameter_types! {
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 }
 
+/// Mock proof recorder that does nothing (for tests)
+pub struct MockProofRecorder;
+
+impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRecorder {
+	type Error = ();
+
+	fn record_transfer_proof(
+		_asset_id: Option<u32>,
+		_from: AccountId,
+		_to: AccountId,
+		_amount: Balance,
+	) -> Result<(), Self::Error> {
+		Ok(())
+	}
+}
+
 impl pallet_reversible_transfers::Config for Test {
 	type SchedulerOrigin = OriginCaller;
 	type RuntimeHoldReason = RuntimeHoldReason;
@@ -214,6 +230,7 @@ impl pallet_reversible_transfers::Config for Test {
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
+	type ProofRecorder = MockProofRecorder;
 }
 
 parameter_types! {

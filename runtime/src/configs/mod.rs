@@ -483,6 +483,7 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
+	type ProofRecorder = Wormhole;
 }
 
 parameter_types! {
