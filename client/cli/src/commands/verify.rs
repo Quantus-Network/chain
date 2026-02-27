@@ -158,20 +158,25 @@ mod test {
 	// Verify that a sign+verify round trip works via the CLI.
 	#[test]
 	fn sign_then_verify_roundtrip() {
-		let alice = alice_public_hex();
+		// Derive public key from mnemonic
+		let mnemonic_pair = utils::pair_from_suri::<qp_dilithium_crypto::types::DilithiumPair>(MNEMONIC, None)
+			.expect("Must derive pair from mnemonic");
+		let public_hex = format!("0x{}", hex::encode(mnemonic_pair.public().as_ref()));
 		// Sign via the sign command
 		let sign_cmd = crate::commands::sign::SignCmd::parse_from(&[
 			"sign",
 			"--suri",
-			MNEMONIC,
-			"--message",
-			"hello",
+			MNEMONIC
 		]);
 		let sig = sign_cmd.sign(|| b"hello".as_ref()).expect("sign failed");
 		// Verify via the verify command
-		let verify_cmd = VerifyCmd::parse_from(&["verify", &sig, &alice]);
-		// Note: mnemonic-derived pair may differ from crystal_alice() seed-based pair, so we just
-		// check the command runs without panicking; actual success depends on the derived key.
-		let _ = verify_cmd.verify(|| b"hello".as_ref());
+		let verify_cmd = VerifyCmd::parse_from(&["verify", &sig, &public_hex]);
+		assert!(verify_cmd.verify(|| b"hello".as_ref()).is_ok());
+		// Try verifying using alice's public key - should fail
+		let alice_verify_cmd = VerifyCmd::parse_from(&["verify", &sig, &alice_public_hex()]);
+		assert!(alice_verify_cmd.verify(|| b"hello".as_ref()).is_err());
+		// Try verifying a different message - should fail
+		let verify_cmd = VerifyCmd::parse_from(&["verify", &sig, &public_hex]);
+		assert!(verify_cmd.verify(|| b"hellO".as_ref()).is_err());```
 	}
 }
