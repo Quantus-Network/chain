@@ -381,6 +381,7 @@ fn test_fees_and_rewards_to_miner() {
 }
 
 #[test]
+#[ignore] // This test takes a very long time (~120M blocks simulation), run manually with --ignored
 fn test_emission_simulation_120m_blocks() {
 	new_test_ext().execute_with(|| {
 		// Add realistic initial supply similar to genesis

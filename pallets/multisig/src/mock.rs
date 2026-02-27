@@ -173,13 +173,28 @@ impl<T> Time for MockTimestamp<T> {
 
 parameter_types! {
 	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
-	pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> =
-		BlockNumberOrTimestamp::BlockNumber(10);
+	pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(10);
 	pub const MinDelayPeriodBlocks: u64 = 2;
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
+}
+
+/// Mock proof recorder that does nothing (for tests)
+pub struct MockProofRecorder;
+
+impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRecorder {
+	type Error = ();
+
+	fn record_transfer_proof(
+		_asset_id: Option<u32>,
+		_from: AccountId,
+		_to: AccountId,
+		_amount: Balance,
+	) -> Result<(), Self::Error> {
+		Ok(())
+	}
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -198,6 +213,7 @@ impl pallet_reversible_transfers::Config for Test {
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
+	type ProofRecorder = MockProofRecorder;
 }
 
 parameter_types! {

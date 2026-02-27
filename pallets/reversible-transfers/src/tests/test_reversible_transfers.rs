@@ -2201,3 +2201,119 @@ fn global_nonce_works() {
 		assert_eq!(ReversibleTransfers::global_nonce(), 4);
 	});
 }
+
+#[test]
+fn reversible_transfer_records_transfer_proof_on_execution() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = alice(); // Reversible, delay 10
+		let dest = bob();
+		let amount = 50;
+		let call = transfer_call(dest.clone(), amount);
+		let _tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+		let HighSecurityAccountData { delay, .. } =
+			ReversibleTransfers::is_high_security(&user).unwrap();
+		let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
+		let execute_block = start_block.saturating_add(&delay).unwrap();
+
+		// No proofs recorded yet
+		assert!(MockProofRecorder::get_recorded_proofs().is_empty());
+
+		// Schedule the transfer
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(user.clone()),
+			dest.clone(),
+			amount,
+		));
+
+		// Still no proofs (transfer not executed yet)
+		assert!(MockProofRecorder::get_recorded_proofs().is_empty());
+
+		// Run to execution block
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		// Now the transfer proof should be recorded
+		let proofs = MockProofRecorder::get_recorded_proofs();
+		assert_eq!(proofs.len(), 1, "Expected exactly one transfer proof to be recorded");
+
+		let proof = &proofs[0];
+		assert_eq!(proof.asset_id, None, "Native transfer should have None asset_id");
+		assert_eq!(proof.from, user, "Transfer proof 'from' should match sender");
+		assert_eq!(proof.to, dest, "Transfer proof 'to' should match destination");
+		assert_eq!(proof.amount, amount, "Transfer proof amount should match");
+	});
+}
+
+#[test]
+fn reversible_asset_transfer_records_transfer_proof_with_asset_id() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = alice(); // Reversible, delay 10
+		let dest = charlie();
+		let asset_id = 1u32;
+		let amount = 100;
+
+		// Create and mint asset to user
+		create_asset(asset_id, user.clone(), Some(1000));
+
+		let HighSecurityAccountData { delay, .. } =
+			ReversibleTransfers::is_high_security(&user).unwrap();
+		let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
+		let execute_block = start_block.saturating_add(&delay).unwrap();
+
+		// Schedule asset transfer (no delay parameter - uses account's default)
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(user.clone()),
+			asset_id,
+			dest.clone(),
+			amount,
+		));
+
+		// Run to execution block
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		// Transfer proof should be recorded with asset_id
+		let proofs = MockProofRecorder::get_recorded_proofs();
+		assert_eq!(proofs.len(), 1, "Expected exactly one transfer proof to be recorded");
+
+		let proof = &proofs[0];
+		assert_eq!(proof.asset_id, Some(asset_id), "Asset transfer should have Some(asset_id)");
+		assert_eq!(proof.from, user, "Transfer proof 'from' should match sender");
+		assert_eq!(proof.to, dest, "Transfer proof 'to' should match destination");
+		assert_eq!(proof.amount, amount, "Transfer proof amount should match");
+	});
+}
+
+#[test]
+fn cancelled_reversible_transfer_does_not_record_proof() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = alice(); // Reversible, delay 10
+		let interceptor = bob(); // interceptor from genesis config
+		let amount = 50;
+		let call = transfer_call(interceptor.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+
+		// Schedule the transfer
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(user.clone()),
+			interceptor.clone(),
+			amount,
+		));
+
+		// Cancel it before execution (must be called by interceptor)
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
+
+		// No proofs should be recorded
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"Cancelled transfer should not record any proof"
+		);
+	});
+}
