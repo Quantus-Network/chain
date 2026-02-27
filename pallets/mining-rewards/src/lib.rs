@@ -207,7 +207,7 @@ pub mod pallet {
 								PoseidonHasher::hash_variable_length(preimage_felts);
 
 							// Log the preimage and derived address for debugging
-							log::info!(
+							log::debug!(
 								target: "mining-rewards",
 								"🔑 Wormhole derivation: preimage={:?} -> address={:?}",
 								preimage,
