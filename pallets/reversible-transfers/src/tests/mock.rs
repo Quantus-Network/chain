@@ -245,6 +245,7 @@ impl pallet_assets::Config for Test {
 	type AssetAccountDeposit = AssetAccountDeposit;
 	type RemoveItemsLimit = frame_support::traits::ConstU32<1000>;
 	type Holder = pallet_assets_holder::Pallet<Test>;
+	type ReserveData = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
 }

@@ -20,8 +20,8 @@
 //!
 //! To see a full list of commands available, see [`commands`].
 
-#![warn(missing_docs)]
 #![allow(clippy::all)]
+#![warn(missing_docs)]
 #![warn(unused_extern_crates)]
 #![warn(unused_imports)]
 

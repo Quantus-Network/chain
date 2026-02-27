@@ -32,7 +32,8 @@ use crate::{
 	bitswap::BitswapRequestHandler,
 	config::{
 		parse_addr, FullNetworkConfiguration, IncomingRequest, MultiaddrWithPeerId,
-		NonDefaultSetConfig, NotificationHandshake, Params, SetConfig, TransportConfig,
+		NetworkBackendType, NonDefaultSetConfig, NotificationHandshake, Params, SetConfig,
+		TransportConfig,
 	},
 	discovery::DiscoveryConfig,
 	error::Error,
@@ -124,9 +125,6 @@ const PER_CONNECTION_EVENT_BUFFER_SIZE: usize = 24;
 /// Increased from 2048 to handle many peers simultaneously opening substreams
 /// for DHT queries, sync requests, etc. on bootnodes.
 const MAX_NEGOTIATING_INBOUND_STREAMS: usize = 16384;
-
-/// Idle connection timeout in seconds.
-const IDLE_CONNECTION_TIMEOUT_SECS: u64 = 10;
 
 /// Minimum allowed port for blockchain p2p connections.
 const MIN_P2P_PORT: u16 = 30333;
@@ -288,6 +286,14 @@ where
 			mut network_config,
 			..
 		} = params.network_config;
+
+		// This fork only implements the Libp2p backend (with Dilithium). Reject Litep2p explicitly.
+		if !matches!(network_config.network_backend, NetworkBackendType::Libp2p) {
+			return Err(Error::Io(std::io::Error::new(
+				std::io::ErrorKind::Unsupported,
+				"This build only supports the Libp2p network backend. Litep2p is not implemented.",
+			)));
+		}
 
 		// Private and public keys configuration.
 		let local_identity = network_config.node_key.clone().into_keypair()?;
@@ -569,9 +575,7 @@ where
 					)
 					.with_per_connection_event_buffer_size(PER_CONNECTION_EVENT_BUFFER_SIZE)
 					.with_max_negotiating_inbound_streams(MAX_NEGOTIATING_INBOUND_STREAMS)
-					.with_idle_connection_timeout(Duration::from_secs(
-						IDLE_CONNECTION_TIMEOUT_SECS,
-					));
+					.with_idle_connection_timeout(network_config.idle_connection_timeout);
 
 				Swarm::new(transport, behaviour, local_peer_id, config)
 			};

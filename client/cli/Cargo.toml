@@ -7,16 +7,16 @@ license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 name = "sc-cli"
 readme = "README.md"
 repository.workspace = true
-version = "0.53.1"
+version = "0.57.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 array-bytes = { workspace = true, default-features = true }
-bip39 = { workspace = true }
+bip39 = { workspace = true, default-features = true, features = ["rand"] }
 chrono = { workspace = true }
-clap = { workspace = true, features = ["derive", "string", "wrap_help"] }
+clap = { features = ["derive", "string", "wrap_help"], workspace = true }
 codec = { workspace = true, default-features = true }
 fdlimit = { workspace = true }
 futures = { workspace = true }
@@ -24,36 +24,54 @@ hex = { workspace = true }
 itertools = { workspace = true }
 libp2p-identity = { features = ["dilithium", "peerid"], workspace = true }
 log = { workspace = true, default-features = true }
-names = { workspace = true, default-features = false }
+names = { workspace = true }
 qp-dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
 qp-rusty-crystals-dilithium = { workspace = true }
 rand = { workspace = true, default-features = true }
 regex = { workspace = true }
 rpassword = { workspace = true }
-sc-client-api = { workspace = true, default-features = true }
-sc-client-db = { workspace = true, default-features = false }
-sc-keystore = { workspace = true, default-features = true }
-sc-mixnet = { workspace = true, default-features = true }
-sc-network = { workspace = true, default-features = true }
-sc-service = { workspace = true, default-features = false }
-sc-telemetry = { workspace = true, default-features = true }
-sc-tracing = { workspace = true, default-features = true }
-sc-transaction-pool = { workspace = true, default-features = true }
-sc-utils = { workspace = true, default-features = true }
+sc-client-api.default-features = true
+sc-client-api.workspace = true
+sc-client-db.default-features = false
+sc-client-db.workspace = true
+sc-keystore.default-features = true
+sc-keystore.workspace = true
+sc-mixnet.default-features = true
+sc-mixnet.workspace = true
+sc-network.default-features = true
+sc-network.workspace = true
+sc-service.default-features = false
+sc-service.workspace = true
+sc-telemetry.default-features = true
+sc-telemetry.workspace = true
+sc-tracing.default-features = true
+sc-tracing.workspace = true
+sc-transaction-pool.default-features = true
+sc-transaction-pool.workspace = true
+sc-utils.default-features = true
+sc-utils.workspace = true
 serde = { workspace = true, default-features = true }
 serde_json = { workspace = true, default-features = true }
-sp-blockchain = { workspace = true, default-features = true }
-sp-core = { workspace = true, default-features = true }
-sp-keyring = { workspace = true, default-features = true }
-sp-panic-handler = { workspace = true, default-features = true }
-sp-runtime = { workspace = true, default-features = true }
-sp-version = { workspace = true, default-features = true }
+sp-blockchain.default-features = true
+sp-blockchain.workspace = true
+sp-core.default-features = true
+sp-core.workspace = true
+sp-keyring.default-features = true
+sp-keyring.workspace = true
+sp-keystore.default-features = true
+sp-keystore.workspace = true
+sp-panic-handler.default-features = true
+sp-panic-handler.workspace = true
+sp-runtime.default-features = true
+sp-runtime.workspace = true
+sp-version.default-features = true
+sp-version.workspace = true
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["parking_lot", "rt-multi-thread", "signal"], default-features = true }
+tokio = { features = ["parking_lot", "rt-multi-thread", "signal"], workspace = true, default-features = true }
 
 [dev-dependencies]
 futures-timer = { workspace = true }
-sp-tracing = { workspace = true, default-features = false }
+sp-tracing = { default-features = true, workspace = true }
 tempfile = { workspace = true }
 
 [features]

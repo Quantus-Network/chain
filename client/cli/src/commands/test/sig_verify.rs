@@ -43,8 +43,7 @@ fn sign_raw(msg: &[u8], hex: bool, stdin: bool) -> String {
 		args.push("--hex");
 	}
 	let cmd = SignCmd::parse_from(&args);
-	let res = cmd.sign(|| msg);
-	res.expect("signature")
+	cmd.sign(|| msg).expect("Static data is good; Must sign; qed")
 }
 
 /// Verify a valid UFT-8 message which can be `hex` and passed either via `stdin` or as an argument.
@@ -63,8 +62,7 @@ fn verify_raw(msg: &[u8], hex: bool, stdin: bool, who: &str, sig: &str) -> bool 
 		args.push("--hex");
 	}
 	let cmd = VerifyCmd::parse_from(&args);
-	let res = cmd.verify(|| msg);
-	res.is_ok()
+	cmd.verify(|| msg).is_ok()
 }
 
 /// Test that sig/verify works with UTF-8 bytes passed as arg.

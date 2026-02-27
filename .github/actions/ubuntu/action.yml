@@ -10,9 +10,36 @@ runs:
         sudo apt-get update -yqq
         sudo apt-get install -yqq --no-install-recommends \
           libclang-dev \
+          clang \
           protobuf-compiler
         rustup update
         rustup target add wasm32-unknown-unknown
         rustup component add rustfmt --toolchain nightly
         rustup component add clippy rust-src
+      shell: bash
+    - name: Set LIBCLANG_PATH for clang-sys (bindgen/rocksdb etc.)
+      run: |
+        # Runner may set wrong LIBCLANG_PATH; use known dirs then find then llvm-config.
+        DIR=
+        for ver in 18 17 16 15 14; do
+          D="/usr/lib/llvm-$ver/lib"
+          if [ -d "$D" ] && ls "$D"/libclang*.so* 1>/dev/null 2>&1; then
+            DIR=$D
+            break
+          fi
+        done
+        if [ -z "$DIR" ]; then
+          LIB=$(find /usr -name 'libclang.so*' \( -type f -o -type l \) 2>/dev/null | head -1)
+          [ -n "$LIB" ] && DIR=$(dirname "$LIB")
+        fi
+        if [ -z "$DIR" ] && command -v llvm-config >/dev/null 2>&1; then
+          D=$(llvm-config --libdir 2>/dev/null)
+          if [ -n "$D" ] && [ -d "$D" ] && ls "$D"/libclang*.so* 1>/dev/null 2>&1; then
+            DIR=$D
+          fi
+        fi
+        if [ -n "$DIR" ] && [ "$DIR" != "." ]; then
+          echo "LIBCLANG_PATH=$DIR" >> $GITHUB_ENV
+        fi
+        echo "LIBCLANG_PATH=${LIBCLANG_PATH:-not set}"
       shell: bash

@@ -20,8 +20,9 @@
 use crate::{
 	error, params::MessageParams, utils, with_crypto_scheme, CryptoSchemeFlag, KeystoreParams,
 };
+use array_bytes::bytes2hex;
 use clap::Parser;
-use sp_core::{bytes::to_hex, crypto::SecretString};
+use sp_core::crypto::SecretString;
 use std::io::{BufRead, Write};
 
 /// The `sign` command
@@ -68,6 +69,7 @@ impl SignCmd {
 		let message = self.message_params.message_from(create_reader)?;
 		let suri = utils::read_uri(self.suri.as_ref())?;
 		let password = self.keystore_params.read_password()?;
+
 		with_crypto_scheme!(self.crypto_scheme.scheme, sign(&suri, password, message))
 	}
 }
@@ -78,72 +80,32 @@ fn sign<P: sp_core::Pair>(
 	message: Vec<u8>,
 ) -> error::Result<String> {
 	let pair = utils::pair_from_suri::<P>(suri, password)?;
-	let signature = pair.sign(&message);
-	Ok(to_hex(signature.as_ref(), false))
+	Ok(bytes2hex("0x", pair.sign(&message).as_ref()))
 }
 
 #[cfg(test)]
 mod test {
-	use sp_core::bytes::to_hex;
-
 	use super::*;
 
-	const SEED: &str = "tide power better crop pencil arrange trouble luxury pistol coach daughter senior scatter portion power harsh addict journey carry gloom fox voice volume marble";
-	/// Test message to sign
-	const TEST_MESSAGE: &[u8; 9] = b"Something";
-
-	/// Helper test to print public keys - run with: cargo test -p sc-cli print_public_keys --
-	/// --nocapture
-	#[test]
-	#[ignore]
-	fn print_public_keys() {
-		use qp_dilithium_crypto::DilithiumPair;
-		use sp_core::Pair;
-
-		println!("\n=== Public Keys for sig_verify tests ===\n");
-
-		let alice_pair = DilithiumPair::from_string(SEED, None).expect("Valid ALICE seed");
-		println!("const ALICE: &str = \"0x{}\";", hex::encode(alice_pair.public().as_ref()));
-
-		// Use a different valid 24-word mnemonic for BOB
-		let bob_seed = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-		let bob_pair = DilithiumPair::from_string(bob_seed, None).expect("Valid BOB seed");
-		println!("\nconst BOB: &str = \"0x{}\";", hex::encode(bob_pair.public().as_ref()));
-
-		println!("\n=========================================\n");
-	}
+	// Standard BIP39 test mnemonic — works with Dilithium HD wallet derivation.
+	const MNEMONIC: &str = "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
 
 	#[test]
 	fn sign_arg() {
-		let cmd = SignCmd::parse_from(&[
-			"sign",
-			"--suri",
-			&SEED,
-			"--message",
-			&to_hex(TEST_MESSAGE, true),
-			"--password",
-			"12345",
-			"--hex",
-		]);
+		let cmd =
+			SignCmd::parse_from(&["sign", "--suri", MNEMONIC, "--message", "0xaabbcc", "--hex"]);
 		let sig = cmd.sign(|| std::io::stdin().lock()).expect("Must sign");
+
 		assert!(sig.starts_with("0x"), "Signature must start with 0x");
-		assert!(array_bytes::hex2bytes(&sig).is_ok(), "Signature is valid hex");
+		assert!(array_bytes::hex2bytes(&sig[2..]).is_ok(), "Signature is valid hex");
 	}
 
 	#[test]
 	fn sign_stdin() {
-		let cmd = SignCmd::parse_from(&[
-			"sign",
-			"--suri",
-			SEED,
-			"--message",
-			&SEED,
-			"--password",
-			"12345",
-		]);
-		let sig = cmd.sign(|| SEED.as_bytes()).expect("Must sign");
+		let cmd = SignCmd::parse_from(&["sign", "--suri", MNEMONIC, "--message", "test message"]);
+		let sig = cmd.sign(|| b"test message".as_ref()).expect("Must sign");
 
 		assert!(sig.starts_with("0x"), "Signature must start with 0x");
-		assert!(array_bytes::hex2bytes(&sig).is_ok(), "Signature is valid hex");
+		assert!(array_bytes::hex2bytes(&sig[2..]).is_ok(), "Signature is valid hex");
 	}
 }

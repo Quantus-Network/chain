@@ -174,7 +174,7 @@ where
 		let inherent_res = self
 			.client
 			.runtime_api()
-			.check_inherents(at_hash, block, inherent_data)
+			.check_inherents(at_hash, block.into(), inherent_data)
 			.map_err(|e| Error::Client(e.into()))?;
 
 		if !inherent_res.ok() {
