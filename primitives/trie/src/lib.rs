@@ -111,13 +111,16 @@ where
 		B: AsRef<[u8]>,
 	{
 		let input_vec: Vec<_> = input.into_iter().collect();
+		log::debug!(target: "zk-trie", "LayoutV0::trie_root input length: {}", input_vec.len());
 		if input_vec.is_empty() {
 			return H::hash(&[0u8; 8]);
 		}
-		trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(
+		let result = trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(
 			input_vec,
 			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		)
+		);
+		log::debug!(target: "zk-trie", "LayoutV0::trie_root result: {:02x?}", result.as_ref());
+		result
 	}
 
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
