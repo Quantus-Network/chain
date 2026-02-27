@@ -1506,8 +1506,7 @@ pub mod tests {
 		let mut cache = local_cache.as_trie_db_cache(new_root);
 		// All the data should be cached now
 		for (key, value) in new_data {
-			let cached_entry = cache.lookup_value_for_key(key).unwrap();
-			let cached_data = cached_entry.data().flatten().unwrap();
+			let cached_data = cache.lookup_value_for_key(key).unwrap().data().flatten().unwrap();
 			let cached: &[u8] = cached_data.as_ref();
 			assert_eq!(value.unwrap(), cached);
 		}

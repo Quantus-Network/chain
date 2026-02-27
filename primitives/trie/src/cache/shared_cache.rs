@@ -18,15 +18,16 @@
 ///! Provides the [`SharedNodeCache`], the [`SharedValueCache`] and the [`SharedTrieCache`]
 ///! that combines both caches and is exported to the outside.
 use super::{
-	metrics::Metrics, CacheSize, LocalNodeCacheConfig, LocalNodeCacheLimiter,
-	LocalValueCacheConfig, LocalValueCacheLimiter, NodeCached, TrieHitStats, TrieHitStatsSnapshot,
+	metrics::{Metrics, TrieHitStatsSnapshot},
+	LocalNodeCacheConfig, LocalNodeCacheLimiter, LocalValueCacheConfig, LocalValueCacheLimiter,
+	TrieHitStats,
 };
+use super::{CacheSize, NodeCached};
 use crate::cache::LOG_TARGET;
-use core::{hash::Hash, time::Duration};
+use core::time::Duration;
 use hash_db::Hasher;
 use nohash_hasher::BuildNoHashHasher;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
-use prometheus_endpoint::Registry;
 use schnellru::LruMap;
 use std::{
 	collections::{hash_map::Entry as SetEntry, HashMap},
@@ -35,6 +36,7 @@ use std::{
 	time::Instant,
 };
 use trie_db::{node::NodeOwned, CachedValue};
+
 static RANDOM_STATE: LazyLock<ahash::RandomState> = LazyLock::new(|| {
 	use rand::Rng;
 	let mut rng = rand::thread_rng();
@@ -91,7 +93,7 @@ where
 		let new_item_heap_size = node.size_in_bytes() - std::mem::size_of::<NodeOwned<H>>();
 		if new_item_heap_size > self.max_heap_size {
 			// Item's too big to add even if the cache's empty; bail.
-			return None
+			return None;
 		}
 
 		self.heap_size += new_item_heap_size;
@@ -112,7 +114,7 @@ where
 		let new_item_heap_size = new_node.size_in_bytes() - std::mem::size_of::<NodeOwned<H>>();
 		if new_item_heap_size > self.max_heap_size {
 			// Item's too big to add even if the cache's empty; bail.
-			return false
+			return false;
 		}
 
 		let old_item_heap_size = old_node.size_in_bytes() - std::mem::size_of::<NodeOwned<H>>();
@@ -189,7 +191,7 @@ where
 				let new_item_heap_size = key.storage_key.len();
 				if new_item_heap_size > self.max_heap_size {
 					// Item's too big to add even if the cache's empty; bail.
-					return None
+					return None;
 				}
 
 				self.heap_size += new_item_heap_size;
@@ -286,17 +288,15 @@ impl<H: AsRef<[u8]> + Eq + std::hash::Hash> SharedNodeCache<H> {
 			self.lru.len() * 100 / config.shared_node_cache_max_replace_percent;
 
 		for (key, cached_node) in list {
-			if cached_node.is_from_shared_cache {
-				if self.lru.get(&key).is_some() {
-					access_count += 1;
+			if cached_node.is_from_shared_cache && self.lru.get(&key).is_some() {
+				access_count += 1;
 
-					if access_count >= config.shared_node_cache_max_promoted_keys {
-						// Stop when we've promoted a large enough number of items.
-						break
-					}
-
-					continue
+				if access_count >= config.shared_node_cache_max_promoted_keys {
+					// Stop when we've promoted a large enough number of items.
+					break;
 				}
+
+				continue;
 			}
 
 			self.lru.insert(key, cached_node.node);
@@ -304,7 +304,7 @@ impl<H: AsRef<[u8]> + Eq + std::hash::Hash> SharedNodeCache<H> {
 
 			if self.lru.limiter().items_evicted > self.lru.limiter().max_items_evicted {
 				// Stop when we've evicted a big enough chunk of the shared cache.
-				break
+				break;
 			}
 		}
 
@@ -384,7 +384,7 @@ impl<'a, H> ValueCacheRef<'a, H> {
 	where
 		H: AsRef<[u8]>,
 	{
-		let hash = ValueCacheKey::<H>::hash_data(&storage_key, &storage_root);
+		let hash = ValueCacheKey::<H>::hash_data(storage_key, &storage_root);
 		Self { storage_root, storage_key, hash }
 	}
 }
@@ -557,7 +557,7 @@ impl<H: Eq + std::hash::Hash + Clone + Copy + AsRef<[u8]>> SharedValueCache<H> {
 
 			if self.lru.limiter().items_evicted > self.lru.limiter().max_items_evicted {
 				// Stop when we've evicted a big enough chunk of the shared cache.
-				break
+				break;
 			}
 		}
 
@@ -619,14 +619,13 @@ impl<H: Hasher> SharedTrieCacheInner<H> {
 	pub(super) fn node_cache_mut(&mut self) -> &mut SharedNodeCache<H::Out> {
 		&mut self.node_cache
 	}
-
 	pub(super) fn metrics(&self) -> Option<&Metrics> {
 		self.metrics.as_ref()
 	}
 
 	/// Returns a mutable reference to the [`TrieHitStats`].
 	pub(super) fn stats_add_snapshot(&mut self, snapshot: &TrieHitStatsSnapshot) {
-		self.stats.add_snapshot(&snapshot);
+		self.stats.add_snapshot(snapshot);
 		// Print trie cache stats every 60 seconds.
 		if self.previous_stats_dump.elapsed() > Duration::from_secs(60) {
 			self.previous_stats_dump = Instant::now();
@@ -661,7 +660,10 @@ impl<H: Hasher> Clone for SharedTrieCache<H> {
 
 impl<H: Hasher> SharedTrieCache<H> {
 	/// Create a new [`SharedTrieCache`].
-	pub fn new(cache_size: CacheSize, metrics_registry: Option<&Registry>) -> Self {
+	pub fn new(
+		cache_size: CacheSize,
+		metrics_registry: Option<&prometheus_endpoint::Registry>,
+	) -> Self {
 		let total_budget = cache_size.0;
 
 		// Split our memory budget between the two types of caches.

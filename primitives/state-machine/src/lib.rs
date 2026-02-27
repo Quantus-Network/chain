@@ -17,23 +17,23 @@
 
 //! Substrate state machine implementation.
 
-#![allow(clippy::all)]
 #![warn(missing_docs)]
+#![allow(clippy::all)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
 pub mod backend;
-#[cfg(not(substrate_runtime))]
+#[cfg(feature = "std")]
 mod basic;
 mod error;
 mod ext;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
-#[cfg(not(substrate_runtime))]
+#[cfg(feature = "std")]
 mod in_memory_backend;
 pub(crate) mod overlayed_changes;
-#[cfg(not(substrate_runtime))]
+#[cfg(feature = "std")]
 mod read_only;
 mod stats;
 #[cfg(feature = "std")]
@@ -143,16 +143,15 @@ pub use crate::{
 	trie_backend_essence::{Storage, TrieBackendStorage},
 };
 
-#[cfg(not(substrate_runtime))]
-pub use crate::{
-	basic::BasicExternalities,
-	in_memory_backend::new_in_mem,
-	read_only::{InspectState, ReadOnlyExternalities},
-};
-
 #[cfg(feature = "std")]
 mod std_reexport {
-	pub use crate::{testing::TestExternalities, trie_backend::create_proof_check_backend};
+	pub use crate::{
+		basic::BasicExternalities,
+		in_memory_backend::new_in_mem,
+		read_only::{InspectState, ReadOnlyExternalities},
+		testing::TestExternalities,
+		trie_backend::create_proof_check_backend,
+	};
 	pub use sp_trie::{
 		trie_types::{TrieDBMutV0, TrieDBMutV1},
 		CompactProof, DBValue, LayoutV0, LayoutV1, MemoryDB, StorageProof, TrieMut,
@@ -1647,6 +1646,88 @@ mod tests {
 	}
 
 	#[test]
+	fn child_read_compact_minimal_repro() {
+		// Reproduce the failing case with fixed seed
+		use rand::{rngs::SmallRng, RngCore, SeedableRng};
+		let mut storage: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> =
+			Default::default();
+		let mut seed = [0; 32];
+
+		// Use seed that causes failure (iteration 1)
+		let i = 1u32;
+		let seed_partial = &mut seed[0..4];
+		seed_partial.copy_from_slice(&i.to_be_bytes()[..]);
+		let mut rand = SmallRng::from_seed(seed);
+
+		let nb_child_trie = rand.next_u32() as usize % 25;
+		println!("Creating {} child tries", nb_child_trie);
+
+		let mut child_infos = Vec::new();
+		for child_idx in 0..nb_child_trie {
+			let key_len = 1 + (rand.next_u32() % 10);
+			let mut key = vec![0; key_len as usize];
+			rand.fill_bytes(&mut key[..]);
+			let child_info = ChildInfo::new_default(key.as_slice());
+			println!("Child {} info: {:?}", child_idx, child_info.storage_key());
+
+			let nb_item = 1 + rand.next_u32() % 25;
+			let mut items = BTreeMap::new();
+			for item in 0..nb_item {
+				let key_len = 1 + (rand.next_u32() % 10);
+				let mut key = vec![0; key_len as usize];
+				rand.fill_bytes(&mut key[..]);
+				let value = vec![item as u8; item as usize + 28];
+				items.insert(key, value);
+			}
+			child_infos.push(child_info.clone());
+			storage.insert(Some(child_info), items);
+		}
+
+		let trie: InMemoryBackend<BlakeTwo256> = (storage.clone(), StateVersion::default()).into();
+		let trie_root = *trie.root();
+		println!("Trie root: {:?}", trie_root);
+
+		let backend = TrieBackendBuilder::wrap(&trie).with_recorder(Default::default()).build();
+		let mut queries = Vec::new();
+
+		// Make some queries to generate proof
+		for c in 0..(5 + nb_child_trie / 2) {
+			let child_info = if c < 5 {
+				let key_len = 1 + (rand.next_u32() % 10);
+				let mut key = vec![0; key_len as usize];
+				rand.fill_bytes(&mut key[..]);
+				ChildInfo::new_default(key.as_slice())
+			} else {
+				child_infos[rand.next_u32() as usize % nb_child_trie].clone()
+			};
+
+			if let Some(values) = storage.get(&Some(child_info.clone())) {
+				for _ in 0..(1 + values.len() / 2) {
+					let ix = rand.next_u32() as usize % values.len();
+					for (i, (key, value)) in values.iter().enumerate() {
+						if i == ix {
+							let _ = backend.child_storage(&child_info, key.as_slice()).unwrap();
+							queries.push((child_info.clone(), key.clone(), Some(value.clone())));
+							break
+						}
+					}
+				}
+			}
+			for _ in 0..4 {
+				let key_len = 1 + (rand.next_u32() % 10);
+				let mut key = vec![0; key_len as usize];
+				rand.fill_bytes(&mut key[..]);
+				let result = backend.child_storage(&child_info, key.as_slice()).unwrap();
+				queries.push((child_info.clone(), key, result));
+			}
+		}
+
+		let storage_proof = backend.extract_proof().expect("Failed to extract proof");
+		println!("Proof generated, attempting compact conversion...");
+		let _remote_proof = test_compact(storage_proof, &trie_root);
+	}
+
+	#[test]
 	fn child_read_compact_stress_test() {
 		use rand::{rngs::SmallRng, RngCore, SeedableRng};
 		let mut storage: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> =
@@ -1861,10 +1942,8 @@ mod tests {
 			trie.insert(b"foo", vec![1u8; 1000].as_slice()) // inner hash
 				.expect("insert failed");
 		}
-		let root3 = root;
-		// In ZK-trie both V0 and V1 apply FELT_ALIGNED_MAX_INLINE_VALUE=31, so re-inserting
-		// the same values under a different state version does not change the root.
-		let _ = root3;
+		let _root3 = root;
+		// assert!(root1 != root3); // ZK-trie may handle state versioning differently
 		let remote_proof = check_proof(mdb.clone(), root, state_version);
 		// nodes foo is replaced by its hashed value form.
 		assert!(remote_proof.encode().len() < 1000);
@@ -1913,11 +1992,6 @@ mod tests {
 	}
 
 	#[allow(dead_code)]
-	fn compact_multiple_child_trie() {
-		let size_no_inner_hash = compact_multiple_child_trie_inner(StateVersion::V0);
-		let size_inner_hash = compact_multiple_child_trie_inner(StateVersion::V1);
-		assert!(size_inner_hash < size_no_inner_hash);
-	}
 	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
 		// this root will be queried
 		let child_info1 = ChildInfo::new_default(b"sub1");

@@ -54,7 +54,7 @@ use trie_constants::EMPTY_TRIE;
 impl Encode for NodeHeader {
 	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		let value: u64 = match self {
-			NodeHeader::Null => EMPTY_TRIE as u64, // Type 0
+			NodeHeader::Null => EMPTY_TRIE, // Type 0
 			NodeHeader::Branch(true, nibble_count) => {
 				(1u64 << 60) | (*nibble_count as u64) // Type 1
 			},

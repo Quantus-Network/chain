@@ -18,12 +18,9 @@
 //! Basic implementation for Externalities.
 
 use crate::{Backend, OverlayedChanges, StorageKey, StorageValue};
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::collections::BTreeMap;
 use codec::Encode;
-use core::{
-	any::{Any, TypeId},
-	iter::FromIterator,
-};
+use core::any::{Any, TypeId};
 use hash_db::Hasher;
 use log::warn;
 use sp_core::{
@@ -209,7 +206,7 @@ impl Externalities for BasicExternalities {
 	fn place_storage(&mut self, key: StorageKey, maybe_value: Option<StorageValue>) {
 		if is_child_storage_key(&key) {
 			warn!(target: "trie", "Refuse to set child storage key via main storage");
-			return
+			return;
 		}
 
 		self.overlay.set_storage(key, maybe_value)
@@ -246,7 +243,7 @@ impl Externalities for BasicExternalities {
 				"Refuse to clear prefix that is part of child storage key via main storage"
 			);
 			let maybe_cursor = Some(prefix.to_vec());
-			return MultiRemovalResults { maybe_cursor, backend: 0, unique: 0, loops: 0 }
+			return MultiRemovalResults { maybe_cursor, backend: 0, unique: 0, loops: 0 };
 		}
 
 		let count = self.overlay.clear_prefix(prefix);

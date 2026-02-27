@@ -13,9 +13,6 @@ version = "0.49.0"
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(substrate_runtime)'] }
-
 [dependencies]
 arbitrary = { features = ["derive"], optional = true, workspace = true }
 codec = { workspace = true }
@@ -26,10 +23,10 @@ rand = { optional = true, workspace = true, default-features = true }
 smallvec = { workspace = true, default-features = true }
 sp-core = { workspace = true }
 sp-externalities = { workspace = true }
-sp-panic-handler = { workspace = true, optional = true, default-features = true }
+sp-panic-handler = { workspace = true, optional = true }
 sp-trie = { workspace = true }
 thiserror = { optional = true, workspace = true }
-tracing = { optional = true, workspace = true, default-features = true }
+tracing = { optional = true, workspace = true }
 trie-db = { workspace = true }
 
 [dev-dependencies]
