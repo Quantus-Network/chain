@@ -27,7 +27,7 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use pallet_treasury::TreasuryProvider;
-	use qp_poseidon::PoseidonHasher;
+	use qp_poseidon::{PoseidonHasher, ToFelts};
 	use qp_wormhole::TransferProofRecorder;
 	use sp_consensus_pow::POW_ENGINE_ID;
 	use sp_runtime::{generic::DigestItem, traits::Saturating, Permill};
@@ -194,8 +194,25 @@ pub mod pallet {
 								Err(_) => continue,
 							};
 
-							// Hash the preimage with Poseidon2 to derive the wormhole address
-							let wormhole_address_bytes = PoseidonHasher::hash_padded(&preimage);
+							// The preimage is the "first_hash" from wormhole derivation:
+							// first_hash = hash(salt + secret)
+							// To get the address, we need: address = hash(first_hash)
+							//
+							// We must use the same serialization as the ZK circuit:
+							// - Convert 32 bytes to 4 field elements using
+							//   unsafe_digest_bytes_to_felts (8 bytes per element)
+							// - Hash without padding using hash_variable_length
+							let preimage_felts = preimage.to_felts();
+							let wormhole_address_bytes =
+								PoseidonHasher::hash_variable_length(preimage_felts);
+
+							// Log the preimage and derived address for debugging
+							log::info!(
+								target: "mining-rewards",
+								"🔑 Wormhole derivation: preimage={:?} -> address={:?}",
+								preimage,
+								wormhole_address_bytes
+							);
 
 							// Convert to AccountId
 							if let Ok(miner) =
