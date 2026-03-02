@@ -19,7 +19,7 @@
 #![warn(unused_extern_crates)]
 #![warn(missing_docs)]
 #![allow(clippy::all)]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Substrate-specific P2P networking.
 //!
