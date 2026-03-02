@@ -74,7 +74,12 @@ pub fn build_transport(
 	};
 
 	let authentication_config = noise::Config::new(&keypair).expect("Can create noise config. qed");
-	let multiplexing_config = libp2p::yamux::Config::default();
+	/// Maximum number of concurrent Yamux streams per connection.
+	/// Increased from default to handle high-throughput validator communication.
+	const MAX_YAMUX_STREAMS: usize = 1024 * 1024;
+
+	let mut multiplexing_config = libp2p::yamux::Config::default();
+	multiplexing_config.set_max_num_streams(MAX_YAMUX_STREAMS);
 
 	let transport = transport
 		.upgrade(upgrade::Version::V1Lazy)
