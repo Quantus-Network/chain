@@ -27,7 +27,7 @@ use crate::{
 	MAX_RESPONSE_SIZE,
 };
 
-use cid::{self, Version};
+use cid::{Cid, Version as CidVersion};
 use futures::StreamExt;
 use log::{debug, error, trace};
 use prost::Message;
@@ -60,11 +60,16 @@ const MAX_WANTED_BLOCKS: usize = 16;
 /// Bitswap protocol name
 const PROTOCOL_NAME: &'static str = "/ipfs/bitswap/1.2.0";
 
+/// Check if a CID is supported by the bitswap protocol.
+pub fn is_cid_supported(c: &Cid) -> bool {
+	c.version() != CidVersion::V0 && c.hash().size() == 32
+}
+
 /// Prefix represents all metadata of a CID, without the actual content.
 #[derive(PartialEq, Eq, Clone, Debug)]
 struct Prefix {
 	/// The version of CID.
-	pub version: Version,
+	pub version: CidVersion,
 	/// The codec of CID.
 	pub codec: u64,
 	/// The multihash type of CID.
@@ -179,30 +184,27 @@ impl<B: BlockT> BitswapRequestHandler<B> {
 			Some(wantlist) => wantlist,
 			None => {
 				debug!(target: LOG_TARGET, "Unexpected bitswap message from {}", peer);
-				return Err(BitswapError::InvalidWantList);
+				return Err(BitswapError::InvalidWantList)
 			},
 		};
 
 		if wantlist.entries.len() > MAX_WANTED_BLOCKS {
 			trace!(target: LOG_TARGET, "Ignored request: too many entries");
-			return Err(BitswapError::TooManyEntries);
+			return Err(BitswapError::TooManyEntries)
 		}
 
 		for entry in wantlist.entries {
-			let cid = match cid::Cid::read_bytes(entry.block.as_slice()) {
+			let cid = match Cid::read_bytes(entry.block.as_slice()) {
 				Ok(cid) => cid,
 				Err(e) => {
 					trace!(target: LOG_TARGET, "Bad CID {:?}: {:?}", entry.block, e);
-					continue;
+					continue
 				},
 			};
 
-			if cid.version() != cid::Version::V1 ||
-				cid.hash().code() != u64::from(cid::multihash::Code::Blake2b256) ||
-				cid.hash().size() != 32
-			{
-				debug!(target: LOG_TARGET, "Ignoring unsupported CID {}: {}", peer, cid);
-				continue;
+			if !is_cid_supported(&cid) {
+				trace!(target: LOG_TARGET, "Ignoring unsupported CID {}: {}", peer, cid);
+				continue
 			}
 
 			let mut hash = B::Hash::default();
@@ -268,9 +270,10 @@ pub enum BitswapError {
 	#[error(transparent)]
 	Client(#[from] sp_blockchain::Error),
 
-	/// Error parsing CID
-	#[error(transparent)]
-	BadCid(#[from] cid::Error),
+	/// Error parsing CID (kept for API; bad entries are currently skipped with `continue`).
+	#[error("Bad CID: {0}")]
+	#[allow(dead_code)]
+	BadCid(cid::Error),
 
 	/// Packet read error.
 	#[error(transparent)]
@@ -289,12 +292,12 @@ pub enum BitswapError {
 	TooManyEntries,
 }
 
-// Tests disabled - require substrate-test-runtime-client and other test dependencies
-// that were removed from dev-dependencies (sc-block-builder, sp-consensus, etc.)
-#[cfg(any())]
+// Requires dev-deps (substrate_test_runtime_client, etc.) and feature "bitswap-tests".
+#[cfg(all(test, feature = "bitswap-tests"))]
 mod tests {
 	use super::*;
 	use futures::channel::oneshot;
+	use litep2p::types::multihash::Code;
 	use sc_block_builder::BlockBuilderBuilder;
 	use schema::bitswap::{
 		message::{wantlist::Entry, Wantlist},
@@ -443,7 +446,7 @@ mod tests {
 							block: cid::Cid::new_v1(
 								0x70,
 								cid::multihash::Multihash::wrap(
-									u64::from(cid::multihash::Code::Blake2b256),
+									u64::from(Code::Blake2b256),
 									&[0u8; 32],
 								)
 								.unwrap(),
@@ -504,7 +507,7 @@ mod tests {
 							block: cid::Cid::new_v1(
 								0x70,
 								cid::multihash::Multihash::wrap(
-									u64::from(cid::multihash::Code::Blake2b256),
+									u64::from(Code::Blake2b256),
 									&sp_crypto_hashing::blake2_256(&ext.encode()[pattern_index..]),
 								)
 								.unwrap(),
