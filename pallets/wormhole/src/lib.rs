@@ -442,13 +442,12 @@ pub mod pallet {
 			// Mint miner's portion of volume fee to block author
 			// The remaining portion (fee - miner_fee) is not minted, effectively burned
 			if !miner_fee.is_zero() {
-				if let Some(author) = frame_system::Pallet::<T>::digest()
-					.logs
-					.iter()
-					.find_map(|item| item.as_pre_runtime())
-					.and_then(|(_, data)| {
-						<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
-					}) {
+				let digest = frame_system::Pallet::<T>::digest();
+				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+					<T as frame_system::Config>::AccountId,
+					_,
+				>(digest.logs.iter().cloned())
+				{
 					<T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
 						miner_fee,

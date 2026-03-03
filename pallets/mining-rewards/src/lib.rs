@@ -16,8 +16,7 @@ pub use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use codec::Decode;
-	use core::{convert::TryInto, marker::PhantomData};
+	use core::marker::PhantomData;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
@@ -27,10 +26,8 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use pallet_treasury::TreasuryProvider;
-	use qp_poseidon::{PoseidonHasher, ToFelts};
 	use qp_wormhole::TransferProofRecorder;
-	use sp_consensus_pow::POW_ENGINE_ID;
-	use sp_runtime::{generic::DigestItem, traits::Saturating, Permill};
+	use sp_runtime::{traits::Saturating, Permill};
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -180,51 +177,8 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Extract miner wormhole address by hashing the preimage from pre-runtime digest
 		fn extract_miner_from_digest() -> Option<T::AccountId> {
-			// Get the digest from the current block
 			let digest = <frame_system::Pallet<T>>::digest();
-
-			// Look for pre-runtime digest with POW_ENGINE_ID
-			for log in digest.logs.iter() {
-				if let DigestItem::PreRuntime(engine_id, data) = log {
-					if engine_id == &POW_ENGINE_ID {
-						// The data is a 32-byte preimage from the incoming block
-						if data.len() == 32 {
-							let preimage: [u8; 32] = match data.as_slice().try_into() {
-								Ok(arr) => arr,
-								Err(_) => continue,
-							};
-
-							// The preimage is the "first_hash" from wormhole derivation:
-							// first_hash = hash(salt + secret)
-							// To get the address, we need: address = hash(first_hash)
-							//
-							// We must use the same serialization as the ZK circuit:
-							// - Convert 32 bytes to 4 field elements using
-							//   unsafe_digest_bytes_to_felts (8 bytes per element)
-							// - Hash without padding using hash_variable_length
-							let preimage_felts = preimage.to_felts();
-							let wormhole_address_bytes =
-								PoseidonHasher::hash_variable_length(preimage_felts);
-
-							// Log the preimage and derived address for debugging
-							log::debug!(
-								target: "mining-rewards",
-								"🔑 Wormhole derivation: preimage={:?} -> address={:?}",
-								preimage,
-								wormhole_address_bytes
-							);
-
-							// Convert to AccountId
-							if let Ok(miner) =
-								T::AccountId::decode(&mut &wormhole_address_bytes[..])
-							{
-								return Some(miner);
-							}
-						}
-					}
-				}
-			}
-			None
+			qp_wormhole::extract_author_from_digest(digest.logs.iter().cloned())
 		}
 
 		pub fn collect_transaction_fees(fees: BalanceOf<T>) {

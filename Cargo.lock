@@ -9053,6 +9053,12 @@ dependencies = [
 [[package]]
 name = "qp-wormhole"
 version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "qp-poseidon",
+ "sp-consensus-pow",
+ "sp-runtime",
+]
 
 [[package]]
 name = "qp-wormhole-aggregator"
