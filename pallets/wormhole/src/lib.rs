@@ -436,7 +436,7 @@ pub mod pallet {
 					mint_account.clone().into(),
 					exit_account.clone().into(),
 					*exit_balance,
-				)?;
+				);
 			}
 
 			// Mint miner's portion of volume fee to block author
@@ -497,7 +497,7 @@ pub mod pallet {
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) -> DispatchResult {
+		) {
 			let current_count = TransferCount::<T>::get(&to);
 			TransferProof::<T>::insert(
 				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
@@ -521,8 +521,6 @@ pub mod pallet {
 					transfer_count: current_count,
 				});
 			}
-
-			Ok(())
 		}
 	}
 
@@ -534,16 +532,14 @@ pub mod pallet {
 			BalanceOf<T>,
 		> for Pallet<T>
 	{
-		type Error = DispatchError;
-
 		fn record_transfer_proof(
 			asset_id: Option<AssetIdOf<T>>,
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) -> Result<(), Self::Error> {
+		) {
 			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, from, to, amount)
+			Self::record_transfer(asset_id_value, from, to, amount);
 		}
 	}
 }

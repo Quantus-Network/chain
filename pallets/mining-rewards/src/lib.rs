@@ -202,7 +202,7 @@ pub mod pallet {
 				Some(miner) => {
 					let _ = T::Currency::mint_into(&miner, reward).defensive();
 
-					let _ = T::ProofRecorder::record_transfer_proof(
+					T::ProofRecorder::record_transfer_proof(
 						None,
 						mint_account.clone(),
 						miner.clone(),
@@ -215,7 +215,7 @@ pub mod pallet {
 					let treasury = T::Treasury::account_id();
 					let _ = T::Currency::mint_into(&treasury, reward).defensive();
 
-					let _ = T::ProofRecorder::record_transfer_proof(
+					T::ProofRecorder::record_transfer_proof(
 						None,
 						mint_account.clone(),
 						treasury.clone(),

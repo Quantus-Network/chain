@@ -5,7 +5,7 @@ mod wormhole_tests {
 		assert_ok,
 		traits::fungible::{Inspect, Mutate},
 	};
-	use qp_poseidon::{PoseidonHasher, ToFelts};
+	use qp_wormhole::derive_wormhole_account;
 	use sp_core::crypto::AccountId32;
 
 	#[test]
@@ -16,7 +16,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			let count_before = Wormhole::transfer_count(&bob);
-			assert_ok!(Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount));
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
 			assert!(Wormhole::transfer_proof((
@@ -29,7 +29,7 @@ mod wormhole_tests {
 			.is_some());
 
 			// Second transfer increments count again
-			assert_ok!(Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount));
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 2);
 		});
 	}
@@ -42,7 +42,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			System::set_block_number(1);
-			assert_ok!(Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount));
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			System::assert_last_event(
 				crate::Event::<Test>::NativeTransferred {
@@ -65,7 +65,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			System::set_block_number(1);
-			assert_ok!(Wormhole::record_transfer(asset_id, alice.clone(), bob.clone(), amount));
+			Wormhole::record_transfer(asset_id, alice.clone(), bob.clone(), amount);
 
 			System::assert_last_event(
 				crate::Event::<Test>::AssetTransferred {
@@ -101,7 +101,7 @@ mod wormhole_tests {
 
 			// 2. Record the transfer proof
 			let count_before = Wormhole::transfer_count(&bob);
-			assert_ok!(Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount));
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
@@ -110,20 +110,11 @@ mod wormhole_tests {
 		});
 	}
 
-	/// Helper function to derive wormhole address from preimage (32 bytes)
-	/// This is the same logic used in mining-rewards and the CLI/SDK
-	/// Uses hash_variable_length with ToFelts, matching the production code
-	fn wormhole_address_from_preimage(preimage: [u8; 32]) -> AccountId32 {
-		let preimage_felts = preimage.to_felts();
-		let hash = PoseidonHasher::hash_variable_length(preimage_felts);
-		AccountId32::from(hash)
-	}
-
 	#[test]
 	fn known_preimage_to_wormhole_address_all_zeros() {
 		// Test vector: all zeros preimage
 		let preimage = [0u8; 32];
-		let address = wormhole_address_from_preimage(preimage);
+		let address = derive_wormhole_account(preimage);
 
 		// This is the expected wormhole address for preimage [0; 32]
 		// Computed via: PoseidonHasher::hash_variable_length(preimage.to_felts())
@@ -145,7 +136,7 @@ mod wormhole_tests {
 	fn known_preimage_to_wormhole_address_all_ones() {
 		// Test vector: all ones preimage
 		let preimage = [1u8; 32];
-		let address = wormhole_address_from_preimage(preimage);
+		let address = derive_wormhole_account(preimage);
 
 		// This is the expected wormhole address for preimage [1; 32]
 		// Computed via: PoseidonHasher::hash_variable_length(preimage.to_felts())
@@ -167,7 +158,7 @@ mod wormhole_tests {
 	fn known_preimage_to_wormhole_address_sequential() {
 		// Test vector: sequential bytes 0..31
 		let preimage: [u8; 32] = core::array::from_fn(|i| i as u8);
-		let address = wormhole_address_from_preimage(preimage);
+		let address = derive_wormhole_account(preimage);
 
 		// This is the expected wormhole address for preimage [0, 1, 2, ..., 31]
 		// Computed via: PoseidonHasher::hash_variable_length(preimage.to_felts())
@@ -190,8 +181,8 @@ mod wormhole_tests {
 		// Same preimage should always produce the same address
 		let preimage = [42u8; 32];
 
-		let address1 = wormhole_address_from_preimage(preimage);
-		let address2 = wormhole_address_from_preimage(preimage);
+		let address1 = derive_wormhole_account(preimage);
+		let address2 = derive_wormhole_account(preimage);
 
 		assert_eq!(address1, address2, "Same preimage should produce same wormhole address");
 	}
@@ -201,8 +192,8 @@ mod wormhole_tests {
 		let preimage1 = [1u8; 32];
 		let preimage2 = [2u8; 32];
 
-		let address1 = wormhole_address_from_preimage(preimage1);
-		let address2 = wormhole_address_from_preimage(preimage2);
+		let address1 = derive_wormhole_account(preimage1);
+		let address2 = derive_wormhole_account(preimage2);
 
 		assert_ne!(
 			address1, address2,

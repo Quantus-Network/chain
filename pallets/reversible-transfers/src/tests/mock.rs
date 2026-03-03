@@ -233,18 +233,15 @@ impl MockProofRecorder {
 }
 
 impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRecorder {
-	type Error = ();
-
 	fn record_transfer_proof(
 		asset_id: Option<u32>,
 		from: AccountId,
 		to: AccountId,
 		amount: Balance,
-	) -> Result<(), Self::Error> {
+	) {
 		RECORDED_PROOFS.with(|proofs| {
 			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
 		});
-		Ok(())
 	}
 }
 

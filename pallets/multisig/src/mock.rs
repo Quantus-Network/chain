@@ -185,15 +185,12 @@ parameter_types! {
 pub struct MockProofRecorder;
 
 impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRecorder {
-	type Error = ();
-
 	fn record_transfer_proof(
 		_asset_id: Option<u32>,
 		_from: AccountId,
 		_to: AccountId,
 		_amount: Balance,
-	) -> Result<(), Self::Error> {
-		Ok(())
+	) {
 	}
 }
 

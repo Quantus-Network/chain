@@ -4,7 +4,7 @@ use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 };
-use qp_poseidon::{PoseidonHasher, ToFelts};
+use qp_wormhole::derive_wormhole_account;
 use sp_consensus_pow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
@@ -100,15 +100,12 @@ pub struct MockProofRecorder;
 impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
 	for MockProofRecorder
 {
-	type Error = ();
-
 	fn record_transfer_proof(
 		_asset_id: Option<u32>,
 		_from: sp_core::crypto::AccountId32,
 		_to: sp_core::crypto::AccountId32,
 		_amount: u128,
-	) -> Result<(), Self::Error> {
-		Ok(())
+	) {
 	}
 }
 
@@ -129,14 +126,6 @@ pub fn miner_preimage(id: u8) -> [u8; 32] {
 	[id; 32]
 }
 
-/// Helper function to derive wormhole address from preimage
-/// Uses hash_variable_length with ToFelts, matching the logic in lib.rs
-pub fn wormhole_address_from_preimage(preimage: [u8; 32]) -> sp_core::crypto::AccountId32 {
-	let preimage_felts = preimage.to_felts();
-	let hash = PoseidonHasher::hash_variable_length(preimage_felts);
-	sp_core::crypto::AccountId32::from(hash)
-}
-
 // Configure default miner preimages and addresses for tests
 pub fn miner_preimage_1() -> [u8; 32] {
 	miner_preimage(1)
@@ -147,11 +136,11 @@ pub fn miner_preimage_2() -> [u8; 32] {
 }
 
 pub fn miner() -> sp_core::crypto::AccountId32 {
-	wormhole_address_from_preimage(miner_preimage_1())
+	derive_wormhole_account(miner_preimage_1())
 }
 
 pub fn miner2() -> sp_core::crypto::AccountId32 {
-	wormhole_address_from_preimage(miner_preimage_2())
+	derive_wormhole_account(miner_preimage_2())
 }
 
 fn treasury_account() -> sp_core::crypto::AccountId32 {

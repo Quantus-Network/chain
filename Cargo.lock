@@ -9057,6 +9057,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-poseidon",
  "sp-consensus-pow",
+ "sp-core",
  "sp-runtime",
 ]
 

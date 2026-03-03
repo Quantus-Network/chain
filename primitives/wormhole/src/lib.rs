@@ -11,9 +11,6 @@ use sp_runtime::generic::DigestItem;
 /// Trait for recording transfer proofs in the wormhole pallet.
 /// Other pallets can use this to record proofs when they mint/transfer tokens.
 pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
-	/// Error type for proof recording failures
-	type Error;
-
 	/// Record a transfer proof for native or asset tokens
 	/// - `None` for native tokens (asset_id = 0)
 	/// - `Some(asset_id)` for specific assets
@@ -22,7 +19,7 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 		from: AccountId,
 		to: AccountId,
 		amount: Balance,
-	) -> Result<(), Self::Error>;
+	);
 }
 
 /// Derive a wormhole address from a 32-byte preimage.
@@ -37,6 +34,15 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 pub fn derive_wormhole_address(preimage: [u8; 32]) -> [u8; 32] {
 	let preimage_felts = preimage.to_felts();
 	PoseidonHasher::hash_variable_length(preimage_felts)
+}
+
+/// Derive a wormhole AccountId32 from a 32-byte preimage.
+///
+/// This is a convenience wrapper around `derive_wormhole_address` that returns
+/// an `sp_core::crypto::AccountId32` directly. Useful for tests.
+#[cfg(feature = "std")]
+pub fn derive_wormhole_account(preimage: [u8; 32]) -> sp_core::crypto::AccountId32 {
+	sp_core::crypto::AccountId32::from(derive_wormhole_address(preimage))
 }
 
 /// Extract the block author (miner) account from a digest.

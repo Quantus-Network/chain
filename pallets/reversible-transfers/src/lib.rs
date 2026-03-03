@@ -605,38 +605,35 @@ pub mod pallet {
 			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-			// Determine asset_id for transfer proof recording (None for native balance transfers)
+			// Release held funds and determine asset_id for transfer proof recording
 			let asset_id: Option<AssetIdOf<T>> =
 				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
 					call.clone().try_into()
 				{
+					// Assets transfer: release the held asset amount
+					let reason = Self::asset_hold_reason();
+					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
+						id.clone().into(),
+						&reason,
+						&pending.from,
+						pending.amount,
+						Precision::Exact,
+					);
 					Some(id.into())
+				} else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
+					call.clone().try_into()
+				{
+					// Native balance transfer: release the held balance
+					pallet_balances::Pallet::<T>::release(
+						&HoldReason::ScheduledTransfer.into(),
+						&pending.from,
+						pending.amount,
+						Precision::Exact,
+					)?;
+					None
 				} else {
 					None
 				};
-
-			// If this is an assets transfer, release the held amount before dispatch
-			if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) = call.clone().try_into()
-			{
-				let reason = Self::asset_hold_reason();
-				let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::release(
-					id.into(),
-					&reason,
-					&pending.from,
-					pending.amount,
-					Precision::Exact,
-				);
-			}
-
-			// Release the funds only for native balances holds
-			if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) = call.clone().try_into() {
-				pallet_balances::Pallet::<T>::release(
-					&HoldReason::ScheduledTransfer.into(),
-					&pending.from,
-					pending.amount,
-					Precision::Exact,
-				)?;
-			}
 
 			// Remove transfer from all storage (handles indexes, account count, etc.)
 			Self::transfer_removed(&pending.from, *tx_id, &pending);
@@ -646,7 +643,7 @@ pub mod pallet {
 
 			// Record transfer proof if dispatch was successful
 			if post_info.is_ok() {
-				let _ = T::ProofRecorder::record_transfer_proof(
+				T::ProofRecorder::record_transfer_proof(
 					asset_id,
 					pending.from.clone(),
 					pending.to.clone(),
