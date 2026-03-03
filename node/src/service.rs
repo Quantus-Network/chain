@@ -184,25 +184,39 @@ async fn handle_external_mining(
 	server.broadcast_job(job).await;
 
 	// Wait for results from miners, retrying on invalid seals
+	// Track both best_hash (parent) and pre_hash (block template) to detect rebuilds
 	let best_hash = metadata.best_hash;
+	let original_pre_hash = metadata.pre_hash;
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
+			// Interrupt if cancelled, parent block changed, OR block template was rebuilt
 			cancellation_token.is_cancelled() ||
-				worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
+				worker_handle
+					.metadata()
+					.map(|m| m.best_hash != best_hash || m.pre_hash != original_pre_hash)
+					.unwrap_or(true)
 		})
 		.await
 		{
 			Some(result) => result,
-			None => return ExternalMiningOutcome::Interrupted,
+			None => {
+				// Check why we were interrupted - log if it was a rebuild
+				if let Some(current) = worker_handle.metadata() {
+					if current.best_hash == best_hash && current.pre_hash != original_pre_hash {
+						log::info!(
+							"⛏️ Block template rebuilt while mining job {}. Old pre_hash: {}, New pre_hash: {}. Rebroadcasting...",
+							job_id,
+							hex::encode(original_pre_hash.as_bytes()),
+							hex::encode(current.pre_hash.as_bytes())
+						);
+					}
+				}
+				return ExternalMiningOutcome::Interrupted;
+			},
 		};
 
 		// Verify the seal before attempting to submit (submit consumes the build)
 		if !worker_handle.verify_seal(&seal) {
-			log::error!(
-				"🚨🚨🚨 INVALID SEAL FROM MINER {}! Job {} - seal failed verification. This may indicate a miner bug or stale work. Continuing to wait for valid seals...",
-				miner_id,
-				job_id
-			);
 			continue;
 		}
 
