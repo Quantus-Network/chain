@@ -2,14 +2,77 @@ use futures::StreamExt;
 use primitive_types::{H256, U512};
 use sc_client_api::{AuxStore, BlockBackend, BlockchainEvents, Finalizer};
 use sc_service::TaskManager;
-use sp_api::ProvideRuntimeApi;
+use sp_api::{ApiError, ProvideRuntimeApi};
 use sp_blockchain::{Backend, HeaderBackend};
-use sp_consensus::SelectChain;
+use sp_consensus::{Error as ConsensusError, SelectChain};
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::traits::{Block as BlockT, Header, One, Zero};
-use std::{marker::PhantomData, sync::Arc};
+use std::{fmt, marker::PhantomData, sync::Arc};
 
 const IGNORED_CHAINS_PREFIX: &[u8] = b"QPow:IgnoredChains:";
+
+/// Errors from chain management operations (best chain selection, finalization, etc.)
+#[derive(Debug)]
+pub enum ChainManagementError {
+	/// Blockchain/header lookup failed
+	ChainLookup(String),
+	/// Block state was unavailable (e.g. pruned)
+	StateUnavailable(String),
+	/// No valid chain could be selected from the leaves
+	NoValidChain,
+	/// No common ancestor found between chains
+	NoCommonAncestor,
+	/// Failed to add chain to ignored list
+	FailedToAddIgnoredChain(String),
+	/// Failed to fetch blockchain leaves
+	FailedToFetchLeaves(String),
+	/// Finalization failed
+	FinalizationFailed(String),
+}
+
+impl fmt::Display for ChainManagementError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::ChainLookup(msg) => write!(f, "Chain lookup error: {}", msg),
+			Self::StateUnavailable(msg) => write!(f, "State unavailable: {}", msg),
+			Self::NoValidChain => write!(f, "No valid chain found"),
+			Self::NoCommonAncestor => write!(f, "No common ancestor found"),
+			Self::FailedToAddIgnoredChain(msg) => write!(f, "Failed to add ignored chain: {}", msg),
+			Self::FailedToFetchLeaves(msg) => write!(f, "Failed to fetch leaves: {}", msg),
+			Self::FinalizationFailed(msg) => write!(f, "Finalization failed: {}", msg),
+		}
+	}
+}
+
+impl std::error::Error for ChainManagementError {}
+
+impl From<ChainManagementError> for ConsensusError {
+	fn from(err: ChainManagementError) -> Self {
+		match err {
+			ChainManagementError::ChainLookup(msg) => ConsensusError::ChainLookup(msg),
+			ChainManagementError::StateUnavailable(msg) => ConsensusError::StateUnavailable(msg),
+			ChainManagementError::NoValidChain =>
+				ConsensusError::ChainLookup("No valid chain found".into()),
+			ChainManagementError::NoCommonAncestor =>
+				ConsensusError::ChainLookup("No common ancestor found".into()),
+			other => ConsensusError::Other(Box::new(other)),
+		}
+	}
+}
+
+/// Returns true if the error indicates that block state was pruned/discarded.
+/// Uses structural matching on ApiError::UnknownBlock only.
+fn is_state_pruned_error_raw(err: &(dyn std::error::Error + 'static)) -> bool {
+	if let Some(api_err) = err.downcast_ref::<ApiError>() {
+		if matches!(api_err, ApiError::UnknownBlock(_)) {
+			return true;
+		}
+	}
+	if let Some(source) = err.source() {
+		return is_state_pruned_error_raw(source);
+	}
+	false
+}
 
 pub struct HeaviestChain<B, C, BE>
 where
@@ -51,7 +114,7 @@ where
 	}
 
 	/// Finalizes blocks that are `max_reorg_depth - 1` blocks behind the current best block
-	pub fn finalize_canonical_at_depth(&self) -> Result<(), sp_consensus::Error>
+	pub fn finalize_canonical_at_depth(&self) -> Result<(), ConsensusError>
 	where
 		C: Finalizer<B, BE>,
 	{
@@ -71,11 +134,11 @@ where
 			.header(best_hash)
 			.map_err(|e| {
 				log::error!("Failed to get header for best hash: {:?}, error: {:?}", best_hash, e);
-				sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+				ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 			})?
 			.ok_or_else(|| {
 				log::error!("Missing header for best hash: {:?}", best_hash);
-				sp_consensus::Error::Other("Missing current best header".into())
+				ChainManagementError::ChainLookup("Missing current best header".into())
 			})?;
 
 		let best_number = *best_header.number();
@@ -110,13 +173,14 @@ where
 			.hash(finalize_number)
 			.map_err(|e| {
 				log::error!("Failed to get hash for block #{}: {:?}", finalize_number, e);
-				sp_consensus::Error::Other(
-					format!("Failed to get hash at #{}: {:?}", finalize_number, e).into(),
-				)
+				ChainManagementError::ChainLookup(format!(
+					"Failed to get hash at #{}: {:?}",
+					finalize_number, e
+				))
 			})?
 			.ok_or_else(|| {
 				log::error!("No block found at #{} for finalization", finalize_number);
-				sp_consensus::Error::Other(format!("No block found at #{}", finalize_number).into())
+				ChainManagementError::ChainLookup(format!("No block found at #{}", finalize_number))
 			})?;
 
 		log::debug!("✓ Found hash for finalization target: {:?}", finalize_hash);
@@ -133,9 +197,10 @@ where
 				finalize_hash,
 				e
 			);
-			sp_consensus::Error::Other(
-				format!("Failed to finalize block #{}: {:?}", finalize_number, e).into(),
-			)
+			ChainManagementError::FinalizationFailed(format!(
+				"Failed to finalize block #{}: {:?}",
+				finalize_number, e
+			))
 		})?;
 
 		// Check if finalization was successful
@@ -154,48 +219,58 @@ where
 		Ok(())
 	}
 
-	fn calculate_chain_work(&self, chain_head: &B::Header) -> Result<U512, sp_consensus::Error> {
-		// calculate cumulative work of a chain
-
+	/// Returns Some(work) on success, None when block state was pruned (non-canonical fork),
+	/// or Err for other failures. Prefer structural matching on ApiError::UnknownBlock;
+	/// string matching is a fallback for nested/wrapped errors.
+	fn try_calculate_chain_work(
+		&self,
+		chain_head: &B::Header,
+	) -> Result<Option<U512>, ConsensusError> {
 		let current_hash = chain_head.hash();
 		let current_number = *chain_head.number();
 
-		let total_work = self.client.runtime_api().get_total_work(current_hash).map_err(|e| {
-			log::error!(
-				"Failed to get total work for chain with head #{}: {:?}",
-				current_number,
-				e
-			);
-			sp_consensus::Error::Other(format!("Failed to get total difficulty {:?}", e).into())
-		})?;
-
-		log::info!(
-			"⛏️ Total chain work: {:?} for chain with head at #{:?} hash: {:?}",
-			total_work,
-			current_number,
-			current_hash
-		);
-
-		Ok(total_work)
-	}
-
-	/// Returns true if the error indicates that block state was pruned/discarded.
-	/// Such blocks cannot be evaluated (e.g. get_total_work) when using ArchiveCanonical
-	/// pruning - non-canonical fork blocks have their state removed.
-	fn is_state_pruned_error(err: &sp_consensus::Error) -> bool {
-		let msg = format!("{:?}", err);
-		msg.contains("State already discarded") || msg.contains("UnknownBlock")
+		match self.client.runtime_api().get_total_work(current_hash) {
+			Ok(total_work) => {
+				log::info!(
+					"⛏️ Total chain work: {:?} for chain with head at #{:?} hash: {:?}",
+					total_work,
+					current_number,
+					current_hash
+				);
+				Ok(Some(total_work))
+			},
+			Err(e) => {
+				let is_pruned = is_state_pruned_error_raw(&e);
+				if is_pruned {
+					log::error!(
+						"Failed to get total work for chain with head #{}: {:?}",
+						current_number,
+						e
+					);
+					Ok(None)
+				} else {
+					log::error!(
+						"Failed to get total work for chain with head #{}: {:?}",
+						current_number,
+						e
+					);
+					Err(ChainManagementError::StateUnavailable(format!(
+						"Failed to get total difficulty: {:?}",
+						e
+					))
+					.into())
+				}
+			},
+		}
 	}
 
 	/// Method to find best chain when there's no current best header
-	async fn find_best_chain(
-		&self,
-		leaves: Vec<B::Hash>,
-	) -> Result<B::Header, sp_consensus::Error> {
+	async fn find_best_chain(&self, leaves: Vec<B::Hash>) -> Result<B::Header, ConsensusError> {
 		log::debug!("Finding best chain among {} leaves when no current best exists", leaves.len());
 
 		let mut best_header = None;
 		let mut best_work = U512::zero();
+		let mut skipped_pruned = 0u32;
 
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
 			log::debug!("Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
@@ -209,27 +284,34 @@ where
 						leaf_hash,
 						e
 					);
-					sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 				})?
 				.ok_or_else(|| {
 					log::error!("Missing header for leaf {:?}", leaf_hash);
-					sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into())
+					ChainManagementError::ChainLookup(format!("Missing header for {:?}", leaf_hash))
 				})?;
 
 			let header_number = *header.number();
 			log::debug!("Found header for leaf at height #{}", header_number);
 
-			let chain_work = match self.calculate_chain_work(&header) {
-				Ok(work) => work,
-				Err(ref e) if Self::is_state_pruned_error(e) => {
+			let chain_work = match self.try_calculate_chain_work(&header)? {
+				Some(work) => work,
+				None => {
 					log::debug!(
-						"Skipping leaf #{} ({:?}) - block state was pruned",
+						"Skipping leaf #{} ({:?}) - block state was pruned. Adding to ignored chains.",
 						header_number,
 						leaf_hash
 					);
+					skipped_pruned += 1;
+					if let Err(e) = self.add_ignored_chain(*leaf_hash) {
+						log::warn!(
+							"Failed to add pruned leaf {:?} to ignored chains: {:?}",
+							leaf_hash,
+							e
+						);
+					}
 					continue;
 				},
-				Err(e) => return Err(e),
 			};
 			log::debug!("Chain work for leaf #{}: {}", header_number, chain_work);
 
@@ -260,11 +342,16 @@ where
 				header.hash(),
 				best_work
 			);
+		} else if skipped_pruned > 0 && skipped_pruned == leaves.len() as u32 {
+			log::warn!(
+				"No valid chain found: all {} leaves had pruned state (non-canonical forks)",
+				leaves.len()
+			);
 		} else {
 			log::error!("No valid chain found among the leaves");
 		}
 
-		best_header.ok_or(sp_consensus::Error::Other("No Valid Chain Found".into()))
+		best_header.ok_or(ChainManagementError::NoValidChain.into())
 	}
 
 	/// Method to find Re-Org depth and fork-point
@@ -272,7 +359,7 @@ where
 		&self,
 		current_best: &B::Header,
 		competing_header: &B::Header,
-	) -> Result<(B::Hash, u32), sp_consensus::Error> {
+	) -> Result<(B::Hash, u32), ConsensusError> {
 		let current_best_hash = current_best.hash();
 		let competing_hash = competing_header.hash();
 		let current_height = *current_best.number();
@@ -334,11 +421,11 @@ where
 						current_height,
 						e
 					);
-					sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 				})?
 				.ok_or_else(|| {
 					log::error!("Missing header at #{} ({:?})", current_height, current_best_hash);
-					sp_consensus::Error::Other("Missing header".into())
+					ChainManagementError::ChainLookup("Missing header".into())
 				})?
 				.parent_hash();
 
@@ -377,7 +464,7 @@ where
 						competing_height,
 						e
 					);
-					sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 				})?
 				.ok_or_else(|| {
 					log::error!(
@@ -385,7 +472,7 @@ where
 						competing_height,
 						competing_hash
 					);
-					sp_consensus::Error::Other("Missing header".into())
+					ChainManagementError::ChainLookup("Missing header".into())
 				})?
 				.parent_hash();
 
@@ -406,7 +493,7 @@ where
 			// If we reach genesis and still no match, no common ancestor
 			if current_height.is_zero() {
 				log::error!("Reached genesis block without finding common ancestor");
-				return Err(sp_consensus::Error::Other("No common ancestor found".into()));
+				return Err(ChainManagementError::NoCommonAncestor.into());
 			}
 
 			log::debug!(
@@ -426,7 +513,7 @@ where
 						current_height,
 						e
 					);
-					sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 				})?
 				.ok_or_else(|| {
 					log::error!(
@@ -434,7 +521,7 @@ where
 						current_height,
 						current_best_hash
 					);
-					sp_consensus::Error::Other("Missing header".into())
+					ChainManagementError::ChainLookup("Missing header".into())
 				})?
 				.parent_hash();
 
@@ -448,7 +535,7 @@ where
 						current_height,
 						e
 					);
-					sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 				})?
 				.ok_or_else(|| {
 					log::error!(
@@ -456,7 +543,7 @@ where
 						current_height,
 						competing_hash
 					);
-					sp_consensus::Error::Other("Missing header".into())
+					ChainManagementError::ChainLookup("Missing header".into())
 				})?
 				.parent_hash();
 
@@ -485,7 +572,7 @@ where
 		Ok((current_best_hash, reorg_depth))
 	}
 
-	fn is_chain_ignored(&self, hash: &B::Hash) -> Result<bool, sp_consensus::Error> {
+	fn is_chain_ignored(&self, hash: &B::Hash) -> Result<bool, ConsensusError> {
 		log::debug!("Checking if chain with head {:?} is ignored", hash);
 
 		let key = ignored_chain_key(hash);
@@ -501,14 +588,16 @@ where
 			},
 			Err(e) => {
 				log::error!("Failed to check if chain with head {:?} is ignored: {:?}", hash, e);
-				Err(sp_consensus::Error::Other(
-					format!("Failed to check ignored chain: {:?}", e).into(),
+				Err(ChainManagementError::FailedToAddIgnoredChain(format!(
+					"Failed to check ignored chain: {:?}",
+					e
 				))
+				.into())
 			},
 		}
 	}
 
-	fn add_ignored_chain(&self, hash: B::Hash) -> Result<(), sp_consensus::Error> {
+	fn add_ignored_chain(&self, hash: B::Hash) -> Result<(), ConsensusError> {
 		log::debug!("Adding chain with head {:?} to ignored chains", hash);
 
 		let key = ignored_chain_key(&hash);
@@ -522,7 +611,11 @@ where
 			.insert_aux(&[(key.as_slice(), empty_value.as_slice())], &[])
 			.map_err(|e| {
 				log::error!("Failed to add chain with head {:?} to ignored chains: {:?}", hash, e);
-				sp_consensus::Error::Other(format!("Failed to add ignored chain: {:?}", e).into())
+				ChainManagementError::FailedToAddIgnoredChain(format!(
+					"Failed to add ignored chain: {:?}",
+					e
+				))
+				.into()
 			})
 	}
 }
@@ -535,12 +628,12 @@ where
 	C::Api: QPoWApi<B>,
 	BE: sc_client_api::Backend<B> + 'static,
 {
-	async fn leaves(&self) -> Result<Vec<B::Hash>, sp_consensus::Error> {
+	async fn leaves(&self) -> Result<Vec<B::Hash>, ConsensusError> {
 		log::debug!("Getting blockchain leaves");
 
 		let leaves = self.backend.blockchain().leaves().map_err(|e| {
 			log::error!("Failed to fetch leaves: {:?}", e);
-			sp_consensus::Error::Other(format!("Failed to fetch leaves: {:?}", e).into())
+			ChainManagementError::FailedToFetchLeaves(format!("Failed to fetch leaves: {:?}", e))
 		})?;
 
 		log::debug!("Found {} leaves", leaves.len());
@@ -548,19 +641,19 @@ where
 		Ok(leaves)
 	}
 
-	async fn best_chain(&self) -> Result<B::Header, sp_consensus::Error> {
+	async fn best_chain(&self) -> Result<B::Header, ConsensusError> {
 		log::debug!(target: "qpow", "------ 🍴️Starting best chain selection process ------");
 
 		let leaves = self.backend.blockchain().leaves().map_err(|e| {
 			log::error!("🍴️ Failed to fetch leaves: {:?}", e);
-			sp_consensus::Error::Other(format!("Failed to fetch leaves: {:?}", e).into())
+			ChainManagementError::FailedToFetchLeaves(format!("Failed to fetch leaves: {:?}", e))
 		})?;
 
 		log::debug!(target: "qpow", "🍴️ Found {} leaves to evaluate", leaves.len());
 
 		if leaves.is_empty() {
 			log::error!("🍴️ Blockchain has no leaves");
-			return Err(sp_consensus::Error::Other("Blockchain has no leaves".into()));
+			return Err(ChainManagementError::NoValidChain.into());
 		}
 
 		// Get info about last finalized block
@@ -579,11 +672,11 @@ where
 							"🍴️ Blockchain error when getting header for best hash: {:?}",
 							e
 						);
-						sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+						ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 					})?
 					.ok_or_else(|| {
 						log::error!("🍴️ Missing header for current best hash: {:?}", hash);
-						sp_consensus::Error::Other("Missing current best header".into())
+						ChainManagementError::ChainLookup("Missing current best header".into())
 					})?
 			},
 			_ => {
@@ -605,16 +698,18 @@ where
 		);
 
 		let mut best_header = current_best.clone();
-		let mut best_work = match self.calculate_chain_work(&current_best) {
-			Ok(work) => work,
-			Err(ref e) if Self::is_state_pruned_error(e) => {
+		let mut best_work = match self.try_calculate_chain_work(&current_best)? {
+			Some(work) => work,
+			None => {
+				// Emergency fallback: current best has pruned state. Evaluate all leaves without
+				// reorg depth constraints. Note: this bypasses max_reorg_depth for the fallback
+				// path, which is acceptable since we have no valid current best to compare against.
 				log::warn!(
 					target: "qpow",
 					"🍴️ Current best block state was pruned. Falling back to evaluating all leaves."
 				);
 				return self.find_best_chain(leaves).await;
 			},
-			Err(e) => return Err(e),
 		};
 		log::debug!(
 			target: "qpow",
@@ -658,29 +753,35 @@ where
 				.header(*leaf_hash)
 				.map_err(|e| {
 					log::error!("🍴️ Blockchain error when getting header for leaf: {:?}", e);
-					sp_consensus::Error::Other(format!("Blockchain error: {:?}", e).into())
+					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
 				})?
 				.ok_or_else(|| {
 					log::error!("🍴️ Missing header for leaf hash: {:?}", leaf_hash);
-					sp_consensus::Error::Other(format!("Missing header for {:?}", leaf_hash).into())
+					ChainManagementError::ChainLookup(format!("Missing header for {:?}", leaf_hash))
 				})?;
 
 			let header_number = *header.number();
 			log::debug!(target: "qpow", "🍴️ Found header for leaf at height #{}", header_number);
 
-			let chain_work = match self.calculate_chain_work(&header) {
-				Ok(work) => work,
-				Err(ref e) if Self::is_state_pruned_error(e) => {
+			let chain_work = match self.try_calculate_chain_work(&header)? {
+				Some(work) => work,
+				None => {
 					log::warn!(
 						target: "qpow",
 						"🍴️ Skipping leaf #{} ({:?}) - block state was pruned (non-canonical fork). Adding to ignored chains.",
 						header_number,
 						leaf_hash
 					);
-					let _ = self.add_ignored_chain(*leaf_hash);
+					if let Err(e) = self.add_ignored_chain(*leaf_hash) {
+						log::warn!(
+							target: "qpow",
+							"🍴️ Failed to add pruned leaf {:?} to ignored chains: {:?}",
+							leaf_hash,
+							e
+						);
+					}
 					continue;
 				},
-				Err(e) => return Err(e),
 			};
 			log::debug!(target: "qpow", "🍴️ Chain work for leaf #{}: {}", header_number, chain_work);
 

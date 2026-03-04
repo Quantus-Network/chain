@@ -1,7 +1,7 @@
 mod chain_management;
 mod worker;
 
-pub use chain_management::{ChainManagement, HeaviestChain};
+pub use chain_management::{ChainManagement, ChainManagementError, HeaviestChain};
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
