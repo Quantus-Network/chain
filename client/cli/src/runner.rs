@@ -97,7 +97,11 @@ impl<C: SubstrateCli> Runner<C> {
 		// the tokio runtime will wait the full 60 seconds for all tasks to stop.
 		let task_registry = task_manager.into_task_registry();
 
-		// Give all futures 60 seconds to shutdown, before tokio "leaks" them.
+		// Give all futures time to shutdown, before tokio "leaks" them.
+		// Use a shorter timeout in tests to speed up test execution.
+		#[cfg(test)]
+		let shutdown_timeout = Duration::from_secs(2);
+		#[cfg(not(test))]
 		let shutdown_timeout = Duration::from_secs(60);
 		self.tokio_runtime.shutdown_timeout(shutdown_timeout);
 
@@ -364,8 +368,9 @@ mod tests {
 		}
 	}
 
-	/// This test ensures that `run_node_until_exit` aborts waiting for "stuck" tasks after 60
-	/// seconds, aka doesn't wait until they are finished (which may never happen).
+	/// This test ensures that `run_node_until_exit` aborts waiting for "stuck" tasks after the
+	/// shutdown timeout, aka doesn't wait until they are finished (which may never happen).
+	/// In tests, the timeout is 2 seconds; in production it's 60 seconds.
 	#[test]
 	fn ensure_run_until_exit_is_not_blocking_indefinitely() {
 		let output = run_test_in_another_process(
@@ -386,7 +391,7 @@ mod tests {
 						task_manager.spawn_handle().spawn_blocking("test", None, async move {
 							let _ = sender.send(());
 							loop {
-								std::thread::sleep(Duration::from_secs(30));
+								std::thread::sleep(Duration::from_secs(1));
 							}
 						});
 
@@ -411,9 +416,10 @@ mod tests {
 		let stderr = dbg!(String::from_utf8(output.stderr).unwrap());
 
 		assert!(
-			stderr.contains("Task \"test\" was still running after waiting 60 seconds to finish.")
+			stderr.contains("Task \"test\" was still running after waiting 2 seconds to finish.")
 		);
-		assert!(!stderr
-			.contains("Task \"test2\" was still running after waiting 60 seconds to finish."));
+		assert!(
+			!stderr.contains("Task \"test2\" was still running after waiting 2 seconds to finish.")
+		);
 	}
 }
