@@ -28,6 +28,8 @@ pub enum ChainManagementError {
 	FailedToFetchLeaves(String),
 	/// Finalization failed
 	FinalizationFailed(String),
+	/// Runtime API call failed (e.g. get_total_work for reasons other than pruned state)
+	RuntimeApiError(String),
 }
 
 impl fmt::Display for ChainManagementError {
@@ -40,6 +42,7 @@ impl fmt::Display for ChainManagementError {
 			Self::FailedToAddIgnoredChain(msg) => write!(f, "Failed to add ignored chain: {}", msg),
 			Self::FailedToFetchLeaves(msg) => write!(f, "Failed to fetch leaves: {}", msg),
 			Self::FinalizationFailed(msg) => write!(f, "Finalization failed: {}", msg),
+			Self::RuntimeApiError(msg) => write!(f, "Runtime API error: {}", msg),
 		}
 	}
 }
@@ -60,8 +63,9 @@ impl From<ChainManagementError> for ConsensusError {
 	}
 }
 
-/// Returns true if the error indicates that block state was pruned/discarded.
-/// Uses structural matching on ApiError::UnknownBlock only.
+/// Returns true if the error indicates that block state was pruned/discarded or the block
+/// is unknown (e.g. never imported). Uses structural matching on ApiError::UnknownBlock.
+/// Note: UnknownBlock can also fire for blocks that were never imported, not just pruned.
 fn is_state_pruned_error_raw(err: &(dyn std::error::Error + 'static)) -> bool {
 	if let Some(api_err) = err.downcast_ref::<ApiError>() {
 		if matches!(api_err, ApiError::UnknownBlock(_)) {
@@ -219,9 +223,8 @@ where
 		Ok(())
 	}
 
-	/// Returns Some(work) on success, None when block state was pruned (non-canonical fork),
-	/// or Err for other failures. Prefer structural matching on ApiError::UnknownBlock;
-	/// string matching is a fallback for nested/wrapped errors.
+	/// Returns Some(work) on success, None when block state was pruned or block is unknown,
+	/// or Err for other runtime API failures.
 	fn try_calculate_chain_work(
 		&self,
 		chain_head: &B::Header,
@@ -242,8 +245,8 @@ where
 			Err(e) => {
 				let is_pruned = is_state_pruned_error_raw(&e);
 				if is_pruned {
-					log::error!(
-						"Failed to get total work for chain with head #{}: {:?}",
+					log::warn!(
+						"Block state unavailable for chain head #{} (pruned or unknown): {:?}",
 						current_number,
 						e
 					);
@@ -254,7 +257,7 @@ where
 						current_number,
 						e
 					);
-					Err(ChainManagementError::StateUnavailable(format!(
+					Err(ChainManagementError::RuntimeApiError(format!(
 						"Failed to get total difficulty: {:?}",
 						e
 					))
@@ -724,6 +727,8 @@ where
 			leaves.len()
 		);
 
+		let mut skipped_pruned = 0u32;
+
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
 			log::debug!(
 				target: "qpow",
@@ -766,6 +771,7 @@ where
 			let chain_work = match self.try_calculate_chain_work(&header)? {
 				Some(work) => work,
 				None => {
+					skipped_pruned += 1;
 					log::warn!(
 						target: "qpow",
 						"🍴️ Skipping leaf #{} ({:?}) - block state was pruned (non-canonical fork). Adding to ignored chains.",
@@ -924,6 +930,14 @@ where
 					);
 				}
 			}
+		}
+
+		if skipped_pruned > 0 {
+			log::info!(
+				target: "qpow",
+				"🍴️ Skipped {} leaves with pruned state during best chain selection",
+				skipped_pruned
+			);
 		}
 
 		if leaves.len() > 1 {
