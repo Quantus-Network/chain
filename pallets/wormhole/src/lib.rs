@@ -436,19 +436,18 @@ pub mod pallet {
 					mint_account.clone().into(),
 					exit_account.clone().into(),
 					*exit_balance,
-				)?;
+				);
 			}
 
 			// Mint miner's portion of volume fee to block author
 			// The remaining portion (fee - miner_fee) is not minted, effectively burned
 			if !miner_fee.is_zero() {
-				if let Some(author) = frame_system::Pallet::<T>::digest()
-					.logs
-					.iter()
-					.find_map(|item| item.as_pre_runtime())
-					.and_then(|(_, data)| {
-						<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
-					}) {
+				let digest = frame_system::Pallet::<T>::digest();
+				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+					<T as frame_system::Config>::AccountId,
+					_,
+				>(digest.logs.iter().cloned())
+				{
 					<T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
 						miner_fee,
@@ -498,7 +497,7 @@ pub mod pallet {
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) -> DispatchResult {
+		) {
 			let current_count = TransferCount::<T>::get(&to);
 			TransferProof::<T>::insert(
 				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
@@ -522,8 +521,6 @@ pub mod pallet {
 					transfer_count: current_count,
 				});
 			}
-
-			Ok(())
 		}
 	}
 
@@ -535,16 +532,14 @@ pub mod pallet {
 			BalanceOf<T>,
 		> for Pallet<T>
 	{
-		type Error = DispatchError;
-
 		fn record_transfer_proof(
 			asset_id: Option<AssetIdOf<T>>,
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) -> Result<(), Self::Error> {
+		) {
 			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, from, to, amount)
+			Self::record_transfer(asset_id_value, from, to, amount);
 		}
 	}
 }

@@ -483,6 +483,7 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
 	type VolumeFee = HighSecurityVolumeFee;
+	type ProofRecorder = Wormhole;
 }
 
 parameter_types! {
@@ -647,7 +648,7 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 parameter_types! {
 	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
 	/// Minimum transfer amount for wormhole (10 QUAN = 10 * 10^12)
-	pub const WormholeMinimumTransferAmount: Balance = 10 * UNIT;
+	pub const WormholeMinimumTransferAmount: Balance = UNIT / 10;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)

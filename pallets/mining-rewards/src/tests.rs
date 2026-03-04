@@ -1,5 +1,6 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
+use qp_wormhole::derive_wormhole_account;
 use sp_runtime::{testing::Digest, Permill};
 
 #[test]
@@ -330,7 +331,7 @@ fn test_fees_and_rewards_to_miner() {
 	new_test_ext().execute_with(|| {
 		// Use a test preimage and derive the wormhole address
 		let test_preimage = [42u8; 32]; // Use a distinct preimage for this test
-		let miner_wormhole_address = wormhole_address_from_preimage(test_preimage);
+		let miner_wormhole_address = derive_wormhole_account(test_preimage);
 		let _ = Balances::deposit_creating(&miner_wormhole_address, 0); // Create account
 		let actual_initial_balance_after_creation = Balances::free_balance(&miner_wormhole_address);
 
@@ -381,6 +382,7 @@ fn test_fees_and_rewards_to_miner() {
 }
 
 #[test]
+#[ignore] // This test takes a very long time (~120M blocks simulation), run manually with --ignored
 fn test_emission_simulation_120m_blocks() {
 	new_test_ext().execute_with(|| {
 		// Add realistic initial supply similar to genesis

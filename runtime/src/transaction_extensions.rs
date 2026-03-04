@@ -186,7 +186,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	}
 
 	/// Record the transfer proof using the TransferProofRecorder trait
-	fn record_proof(details: TransferDetails) -> Result<(), TransactionValidityError> {
+	fn record_proof(details: TransferDetails) {
 		let asset_id = if details.asset_id == 0 { None } else { Some(details.asset_id) };
 
 		<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
@@ -194,8 +194,7 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 			details.from,
 			details.to,
 			details.amount,
-		)
-		.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Custom(100)))
+		);
 	}
 }
 
@@ -259,7 +258,7 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		// Only record proofs if the transaction succeeded
 		if result.is_ok() {
 			for details in pre {
-				Self::record_proof(details)?;
+				Self::record_proof(details);
 			}
 		}
 

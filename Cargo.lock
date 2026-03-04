@@ -6850,6 +6850,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-high-security",
  "qp-scheduler",
+ "qp-wormhole",
  "scale-info",
  "sp-arithmetic",
  "sp-core",
@@ -6964,6 +6965,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-high-security",
  "qp-scheduler",
+ "qp-wormhole",
  "scale-info",
  "sp-arithmetic",
  "sp-core",
@@ -8671,6 +8673,13 @@ dependencies = [
 [[package]]
 name = "qp-wormhole"
 version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "qp-poseidon",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-runtime",
+]
 
 [[package]]
 name = "qp-wormhole-aggregator"
