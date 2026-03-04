@@ -148,11 +148,14 @@ where
 		let best_number = *best_header.number();
 		log::debug!("Current best block number: {}", best_number);
 
-		let max_reorg_depth = self
-			.client
-			.runtime_api()
-			.get_max_reorg_depth(best_hash)
-			.expect("Failed to get max reorg depth");
+		let max_reorg_depth =
+			self.client.runtime_api().get_max_reorg_depth(best_hash).map_err(|e| {
+				log::error!("Failed to get max reorg depth: {:?}", e);
+				ChainManagementError::RuntimeApiError(format!(
+					"Failed to get max reorg depth: {:?}",
+					e
+				))
+			})?;
 
 		// Calculate how far back to finalize
 		let finalize_depth = max_reorg_depth.saturating_sub(1);
@@ -318,17 +321,13 @@ where
 
 		let mut best_header = None;
 		let mut best_work = U512::zero();
-		let mut skipped_pruned = 0u32;
 
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
 			log::debug!("Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
 
 			let (header, chain_work) = match self.evaluate_leaf(*leaf_hash)? {
 				Some(result) => result,
-				None => {
-					skipped_pruned += 1;
-					continue;
-				},
+				None => continue,
 			};
 
 			let header_number = *header.number();
@@ -361,13 +360,8 @@ where
 				header.hash(),
 				best_work
 			);
-		} else if skipped_pruned > 0 && skipped_pruned == leaves.len() as u32 {
-			log::warn!(
-				"No valid chain found: all {} leaves had pruned state (non-canonical forks)",
-				leaves.len()
-			);
 		} else {
-			log::error!("No valid chain found among the leaves");
+			log::warn!("No valid chain found among {} leaves", leaves.len());
 		}
 
 		best_header.ok_or(ChainManagementError::NoValidChain.into())
@@ -743,8 +737,6 @@ where
 			leaves.len()
 		);
 
-		let mut skipped_pruned = 0u32;
-
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
 			log::debug!(
 				target: "qpow",
@@ -771,20 +763,20 @@ where
 
 			let (header, chain_work) = match self.evaluate_leaf(*leaf_hash)? {
 				Some(result) => result,
-				None => {
-					skipped_pruned += 1;
-					continue;
-				},
+				None => continue,
 			};
 
 			let header_number = *header.number();
 			log::debug!(target: "qpow", "🍴️ Chain work for leaf #{}: {}", header_number, chain_work);
 
-			let max_reorg_depth = self
-				.client
-				.runtime_api()
-				.get_max_reorg_depth(best_header.hash())
-				.expect("Failed to get max reorg depth");
+			let max_reorg_depth =
+				self.client.runtime_api().get_max_reorg_depth(best_header.hash()).map_err(|e| {
+					log::error!(target: "qpow", "Failed to get max reorg depth: {:?}", e);
+					ChainManagementError::RuntimeApiError(format!(
+						"Failed to get max reorg depth: {:?}",
+						e
+					))
+				})?;
 			log::debug!(target: "qpow", "🍴️ Max reorg depth from runtime: {}", max_reorg_depth);
 
 			if chain_work >= best_work {
@@ -919,14 +911,6 @@ where
 					);
 				}
 			}
-		}
-
-		if skipped_pruned > 0 {
-			log::info!(
-				target: "qpow",
-				"🍴️ Skipped {} leaves with pruned state during best chain selection",
-				skipped_pruned
-			);
 		}
 
 		if leaves.len() > 1 {
