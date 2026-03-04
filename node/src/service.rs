@@ -221,7 +221,7 @@ async fn handle_external_mining(
 		}
 
 		// Seal is valid, submit it
-		if futures::executor::block_on(worker_handle.submit(seal.clone())) {
+		if worker_handle.submit(seal.clone()).await {
 			let mining_time = mining_start_time.elapsed().as_secs();
 			log::info!(
 				"🥇 Successfully mined and submitted a new block via external miner {} (mining time: {}s)",
@@ -290,7 +290,7 @@ async fn handle_local_mining(
 /// Submit a mined seal to the worker handle.
 ///
 /// Returns `true` if submission was successful, `false` otherwise.
-fn submit_mined_block(
+async fn submit_mined_block(
 	worker_handle: &MiningHandle<
 		Block,
 		FullClient,
@@ -301,7 +301,7 @@ fn submit_mined_block(
 	mining_start_time: &mut std::time::Instant,
 	source: &str,
 ) -> bool {
-	if futures::executor::block_on(worker_handle.submit(seal)) {
+	if worker_handle.submit(seal).await {
 		let mining_time = mining_start_time.elapsed().as_secs();
 		log::info!(
 			"🥇 Successfully mined and submitted a new block{} (mining time: {}s)",
@@ -374,7 +374,7 @@ async fn mining_loop(
 			.await;
 		} else if let Some(seal) = handle_local_mining(&client, &worker_handle).await {
 			// Local mining path
-			submit_mined_block(&worker_handle, seal, &mut mining_start_time, "");
+			submit_mined_block(&worker_handle, seal, &mut mining_start_time, "").await;
 		}
 
 		// Yield to let other async tasks run
