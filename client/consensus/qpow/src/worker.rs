@@ -76,7 +76,7 @@ pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLin
 	client: Arc<AC>,
 	justification_sync_link: Arc<L>,
 	build: Arc<Mutex<Option<MiningBuild<Block, Proof>>>>,
-	block_import: Arc<tokio::sync::Mutex<BoxBlockImport<Block>>>,
+	block_import: Arc<BoxBlockImport<Block>>,
 }
 
 impl<Block, AC, L, Proof> MiningHandle<Block, AC, L, Proof>
@@ -100,7 +100,7 @@ where
 			client,
 			justification_sync_link: Arc::new(justification_sync_link),
 			build: Arc::new(Mutex::new(None)),
-			block_import: Arc::new(tokio::sync::Mutex::new(block_import)),
+			block_import: Arc::new(block_import),
 		}
 	}
 
@@ -218,7 +218,7 @@ where
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
 		let header = import_block.post_header();
-		let import_result = self.block_import.lock().await.import_block(import_block).await;
+		let import_result = self.block_import.import_block(import_block).await;
 
 		match import_result {
 			Ok(res) => {

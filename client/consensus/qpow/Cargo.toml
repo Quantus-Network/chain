@@ -28,7 +28,6 @@ sp-core = { workspace = true, default-features = true }
 sp-inherents = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
 
 [features]
 default = ["std"]
