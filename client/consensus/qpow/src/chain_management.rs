@@ -179,6 +179,14 @@ where
 		Ok(total_work)
 	}
 
+	/// Returns true if the error indicates that block state was pruned/discarded.
+	/// Such blocks cannot be evaluated (e.g. get_total_work) when using ArchiveCanonical
+	/// pruning - non-canonical fork blocks have their state removed.
+	fn is_state_pruned_error(err: &sp_consensus::Error) -> bool {
+		let msg = format!("{:?}", err);
+		msg.contains("State already discarded") || msg.contains("UnknownBlock")
+	}
+
 	/// Method to find best chain when there's no current best header
 	async fn find_best_chain(
 		&self,
@@ -211,7 +219,18 @@ where
 			let header_number = *header.number();
 			log::debug!("Found header for leaf at height #{}", header_number);
 
-			let chain_work = self.calculate_chain_work(&header)?;
+			let chain_work = match self.calculate_chain_work(&header) {
+				Ok(work) => work,
+				Err(ref e) if Self::is_state_pruned_error(e) => {
+					log::debug!(
+						"Skipping leaf #{} ({:?}) - block state was pruned",
+						header_number,
+						leaf_hash
+					);
+					continue;
+				},
+				Err(e) => return Err(e),
+			};
 			log::debug!("Chain work for leaf #{}: {}", header_number, chain_work);
 
 			if chain_work > best_work {
@@ -586,7 +605,17 @@ where
 		);
 
 		let mut best_header = current_best.clone();
-		let mut best_work = self.calculate_chain_work(&current_best)?;
+		let mut best_work = match self.calculate_chain_work(&current_best) {
+			Ok(work) => work,
+			Err(ref e) if Self::is_state_pruned_error(e) => {
+				log::warn!(
+					target: "qpow",
+					"🍴️ Current best block state was pruned. Falling back to evaluating all leaves."
+				);
+				return self.find_best_chain(leaves).await;
+			},
+			Err(e) => return Err(e),
+		};
 		log::debug!(
 			target: "qpow",
 			"🍴️ Current best chain: {:?} with work: {:?}",
@@ -639,7 +668,20 @@ where
 			let header_number = *header.number();
 			log::debug!(target: "qpow", "🍴️ Found header for leaf at height #{}", header_number);
 
-			let chain_work = self.calculate_chain_work(&header)?;
+			let chain_work = match self.calculate_chain_work(&header) {
+				Ok(work) => work,
+				Err(ref e) if Self::is_state_pruned_error(e) => {
+					log::warn!(
+						target: "qpow",
+						"🍴️ Skipping leaf #{} ({:?}) - block state was pruned (non-canonical fork). Adding to ignored chains.",
+						header_number,
+						leaf_hash
+					);
+					let _ = self.add_ignored_chain(*leaf_hash);
+					continue;
+				},
+				Err(e) => return Err(e),
+			};
 			log::debug!(target: "qpow", "🍴️ Chain work for leaf #{}: {}", header_number, chain_work);
 
 			let max_reorg_depth = self
