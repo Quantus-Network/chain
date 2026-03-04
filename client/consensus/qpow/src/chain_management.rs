@@ -223,6 +223,51 @@ where
 		Ok(())
 	}
 
+	/// Evaluates a leaf: fetches header, gets chain work. Returns Some((header, work)) on success,
+	/// None when block state was pruned (leaf is added to ignored chains), or Err on failure.
+	fn evaluate_leaf(
+		&self,
+		leaf_hash: B::Hash,
+	) -> Result<Option<(B::Header, U512)>, ConsensusError> {
+		let header = self
+			.client
+			.header(leaf_hash)
+			.map_err(|e| {
+				log::error!(
+					target: "qpow",
+					"Blockchain error when getting header for leaf {:?}: {:?}",
+					leaf_hash,
+					e
+				);
+				ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
+			})?
+			.ok_or_else(|| {
+				log::error!("Missing header for leaf {:?}", leaf_hash);
+				ChainManagementError::ChainLookup(format!("Missing header for {:?}", leaf_hash))
+			})?;
+
+		match self.try_calculate_chain_work(&header)? {
+			Some(work) => Ok(Some((header, work))),
+			None => {
+				log::warn!(
+					target: "qpow",
+					"Skipping leaf #{} ({:?}) - block state was pruned. Adding to ignored chains.",
+					header.number(),
+					leaf_hash
+				);
+				if let Err(e) = self.add_ignored_chain(leaf_hash) {
+					log::warn!(
+						target: "qpow",
+						"Failed to add pruned leaf {:?} to ignored chains: {:?}",
+						leaf_hash,
+						e
+					);
+				}
+				Ok(None)
+			},
+		}
+	}
+
 	/// Returns Some(work) on success, None when block state was pruned or block is unknown,
 	/// or Err for other runtime API failures.
 	fn try_calculate_chain_work(
@@ -278,44 +323,15 @@ where
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
 			log::debug!("Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
 
-			let header = self
-				.client
-				.header(*leaf_hash)
-				.map_err(|e| {
-					log::error!(
-						"Blockchain error when getting header for leaf {:?}: {:?}",
-						leaf_hash,
-						e
-					);
-					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
-				})?
-				.ok_or_else(|| {
-					log::error!("Missing header for leaf {:?}", leaf_hash);
-					ChainManagementError::ChainLookup(format!("Missing header for {:?}", leaf_hash))
-				})?;
-
-			let header_number = *header.number();
-			log::debug!("Found header for leaf at height #{}", header_number);
-
-			let chain_work = match self.try_calculate_chain_work(&header)? {
-				Some(work) => work,
+			let (header, chain_work) = match self.evaluate_leaf(*leaf_hash)? {
+				Some(result) => result,
 				None => {
-					log::debug!(
-						"Skipping leaf #{} ({:?}) - block state was pruned. Adding to ignored chains.",
-						header_number,
-						leaf_hash
-					);
 					skipped_pruned += 1;
-					if let Err(e) = self.add_ignored_chain(*leaf_hash) {
-						log::warn!(
-							"Failed to add pruned leaf {:?} to ignored chains: {:?}",
-							leaf_hash,
-							e
-						);
-					}
 					continue;
 				},
 			};
+
+			let header_number = *header.number();
 			log::debug!("Chain work for leaf #{}: {}", header_number, chain_work);
 
 			if chain_work > best_work {
@@ -753,42 +769,15 @@ where
 				continue;
 			}
 
-			let header = self
-				.client
-				.header(*leaf_hash)
-				.map_err(|e| {
-					log::error!("🍴️ Blockchain error when getting header for leaf: {:?}", e);
-					ChainManagementError::ChainLookup(format!("Blockchain error: {:?}", e))
-				})?
-				.ok_or_else(|| {
-					log::error!("🍴️ Missing header for leaf hash: {:?}", leaf_hash);
-					ChainManagementError::ChainLookup(format!("Missing header for {:?}", leaf_hash))
-				})?;
-
-			let header_number = *header.number();
-			log::debug!(target: "qpow", "🍴️ Found header for leaf at height #{}", header_number);
-
-			let chain_work = match self.try_calculate_chain_work(&header)? {
-				Some(work) => work,
+			let (header, chain_work) = match self.evaluate_leaf(*leaf_hash)? {
+				Some(result) => result,
 				None => {
 					skipped_pruned += 1;
-					log::warn!(
-						target: "qpow",
-						"🍴️ Skipping leaf #{} ({:?}) - block state was pruned (non-canonical fork). Adding to ignored chains.",
-						header_number,
-						leaf_hash
-					);
-					if let Err(e) = self.add_ignored_chain(*leaf_hash) {
-						log::warn!(
-							target: "qpow",
-							"🍴️ Failed to add pruned leaf {:?} to ignored chains: {:?}",
-							leaf_hash,
-							e
-						);
-					}
 					continue;
 				},
 			};
+
+			let header_number = *header.number();
 			log::debug!(target: "qpow", "🍴️ Chain work for leaf #{}: {}", header_number, chain_work);
 
 			let max_reorg_depth = self
