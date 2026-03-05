@@ -219,14 +219,14 @@ where
 
 	async fn import_block(
 		&self,
-		mut block: BlockImportParams<B>,
+		mut block_import_params: BlockImportParams<B>,
 	) -> Result<ImportResult, Self::Error> {
-		let parent_hash = *block.header.parent_hash();
+		let parent_hash = *block_import_params.header.parent_hash();
 
-		if let Some(inner_body) = block.body.take() {
-			let check_block = B::new(block.header.clone(), inner_body);
+		if let Some(inner_body) = block_import_params.body.take() {
+			let check_block = B::new(block_import_params.header.clone(), inner_body);
 
-			if !block.state_action.skip_execution_checks() {
+			if !block_import_params.state_action.skip_execution_checks() {
 				self.check_inherents(
 					check_block.clone(),
 					parent_hash,
@@ -237,12 +237,12 @@ where
 				.await?;
 			}
 
-			block.body = Some(check_block.deconstruct().1);
+			block_import_params.body = Some(check_block.deconstruct().1);
 		}
 
-		let inner_seal = fetch_seal::<B>(block.post_digests.last(), block.header.hash())?;
+		let inner_seal = fetch_seal::<B>(block_import_params.post_digests.last(), block_import_params.header.hash())?;
 
-		let pre_hash = block.header.hash();
+		let pre_hash = block_import_params.header.hash();
 		let verified = qpow_verify::<B, C>(
 			&*self.client,
 			&BlockId::hash(parent_hash),
@@ -255,7 +255,7 @@ where
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
-		if block.fork_choice.is_none() {
+		if block_import_params.fork_choice.is_none() {
 			let info = self.client.info();
 			let incoming_difficulty =
 				self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_else(|e| {
@@ -274,34 +274,34 @@ where
 					U512::zero()
 				});
 			let is_best =
-				is_heavier(new_work, *block.header.number(), current_best_work, info.best_number);
-			block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
+				is_heavier(new_work, *block_import_params.header.number(), current_best_work, info.best_number);
+			block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 		}
 
 		// Log block import progress every LOGGING_FREQUENCY blocks
-		let block_number = block.header.number();
+		let block_number = block_import_params.header.number();
 		let block_number_u64: u64 = (*block_number).try_into().unwrap_or(0);
 		if block_number_u64 % LOGGING_FREQUENCY == 0 {
 			log::info!(
 				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
 				block_number_u64.saturating_sub(LOGGING_FREQUENCY),
 				block_number,
-				block.header.hash(),
-				block.header.extrinsics_root(),
-				block.header.state_root()
+				block_import_params.header.hash(),
+				block_import_params.header.extrinsics_root(),
+				block_import_params.header.state_root()
 			);
 		} else {
 			log::debug!(
 				target: "qpow",
 				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
 				block_number,
-				block.header.hash(),
-				block.header.extrinsics_root(),
-				block.header.state_root()
+				block_import_params.header.hash(),
+				block_import_params.header.extrinsics_root(),
+				block_import_params.header.state_root()
 			);
 		}
 
-		let result = self.inner.import_block(block).await.map_err(Into::into)?;
+		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
 
 		let info = self.client.info();
 		log::debug!(target: LOG_TARGET, "📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);
