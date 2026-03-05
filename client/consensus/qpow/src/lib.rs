@@ -268,7 +268,30 @@ where
 				is_heavier(new_work, *block.header.number(), current_best_work, info.best_number);
 			block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 		}
-
+		
+		// Log block import progress every LOGGING_FREQUENCY blocks
+		let block_number = block.header.number();
+		let block_number_u64: u64 = (*block_number).try_into().unwrap_or(0);
+		if block_number_u64 % LOGGING_FREQUENCY == 0 {
+			log::info!(
+				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number_u64.saturating_sub(LOGGING_FREQUENCY),
+				block_number,
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		} else {
+			log::debug!(
+				target: "qpow",
+				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
+				block_number,
+				block.header.hash(),
+				block.header.extrinsics_root(),
+				block.header.state_root()
+			);
+		}
+		
 		let result = self.inner.import_block(block).await.map_err(Into::into)?;
 
 		let info = self.client.info();
