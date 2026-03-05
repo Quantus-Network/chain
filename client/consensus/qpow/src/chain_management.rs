@@ -137,8 +137,6 @@ where
 		let best_hash = self.client.info().best_hash;
 		log::debug!("Current best hash: {:?}", best_hash);
 
-		// TODO: this check is redundant -- best_hash is never default after genesis,
-		// and line 175 already handles shallow chains. Remove in a follow-up.
 		if best_hash == Default::default() {
 			log::debug!("✓ No blocks to finalize - best hash is default");
 			return Ok(()); // No blocks to finalize
