@@ -240,7 +240,10 @@ where
 			block_import_params.body = Some(check_block.deconstruct().1);
 		}
 
-		let inner_seal = fetch_seal::<B>(block_import_params.post_digests.last(), block_import_params.header.hash())?;
+		let inner_seal = fetch_seal::<B>(
+			block_import_params.post_digests.last(),
+			block_import_params.header.hash(),
+		)?;
 
 		let pre_hash = block_import_params.header.hash();
 		let verified = qpow_verify::<B, C>(
@@ -273,8 +276,12 @@ where
 					log::warn!(target: LOG_TARGET, "Failed to get best chain work for {:?}: {e:?}", info.best_hash);
 					U512::zero()
 				});
-			let is_best =
-				is_heavier(new_work, *block_import_params.header.number(), current_best_work, info.best_number);
+			let is_best = is_heavier(
+				new_work,
+				*block_import_params.header.number(),
+				current_best_work,
+				info.best_number,
+			);
 			block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 		}
 
