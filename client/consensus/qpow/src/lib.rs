@@ -2,7 +2,7 @@ mod chain_management;
 mod worker;
 
 pub use chain_management::{
-	ChainManagement, ChainManagementError, HeaviestChain, get_chain_work, is_heavier,
+	get_chain_work, is_heavier, ChainManagement, ChainManagementError, HeaviestChain,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -266,10 +266,13 @@ where
 
 		if block.fork_choice.is_none() {
 			let info = self.client.info();
-			let incoming_difficulty = self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_default();
-			let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_default();
+			let incoming_difficulty =
+				self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_default();
+			let parent_work =
+				get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_default();
 			let new_work = parent_work.saturating_add(incoming_difficulty);
-			let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash).unwrap_or_default();
+			let current_best_work =
+				get_chain_work::<B, C>(&*self.client, info.best_hash).unwrap_or_default();
 			let is_best = is_heavier(new_work, block_number, current_best_work, info.best_number);
 
 			log::info!(
@@ -285,11 +288,7 @@ where
 		let result = self.inner.import_block(block).await.map_err(Into::into)?;
 
 		let info = self.client.info();
-		log::info!(
-			"📦 Canonical tip: #{} ({:?})",
-			info.best_number,
-			info.best_hash,
-		);
+		log::info!("📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash,);
 
 		Ok(result)
 	}

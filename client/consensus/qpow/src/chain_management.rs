@@ -83,8 +83,8 @@ pub fn is_heavier<N: PartialOrd>(
 	current_work: U512,
 	current_number: N,
 ) -> bool {
-	candidate_work > current_work
-		|| (candidate_work == current_work && candidate_number > current_number)
+	candidate_work > current_work ||
+		(candidate_work == current_work && candidate_number > current_number)
 }
 
 pub struct HeaviestChain<B, C, BE>
@@ -137,8 +137,9 @@ where
 		let best_hash = self.client.info().best_hash;
 		log::debug!("Current best hash: {:?}", best_hash);
 
-		// this is only on chain startup? Seems useless, we later on check for shallow chain anyway-N
-		if best_hash == Default::default() { 
+		// this is only on chain startup? Seems useless, we later on check for shallow chain
+		// anyway-N
+		if best_hash == Default::default() {
 			log::debug!("✓ No blocks to finalize - best hash is default");
 			return Ok(()); // No blocks to finalize
 		}
@@ -339,7 +340,8 @@ where
 			let header_number = *header.number();
 			log::debug!("Chain work for leaf #{}: {}", header_number, chain_work);
 
-			let current_best_number = best_header.as_ref().map(|h: &B::Header| *h.number()).unwrap_or_else(Zero::zero);
+			let current_best_number =
+				best_header.as_ref().map(|h: &B::Header| *h.number()).unwrap_or_else(Zero::zero);
 			if is_heavier(chain_work, header_number, best_work, current_best_number) {
 				log::debug!(
 					"Found new best chain candidate: #{} (hash: {:?}) with work: {}",
