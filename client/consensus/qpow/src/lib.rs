@@ -257,11 +257,8 @@ where
 
 		if block.fork_choice.is_none() {
 			let info = self.client.info();
-			let incoming_difficulty = self
-				.client
-				.runtime_api()
-				.get_difficulty(parent_hash)
-				.unwrap_or_else(|e| {
+			let incoming_difficulty =
+				self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_else(|e| {
 					log::warn!(target: LOG_TARGET, "Failed to get difficulty for {parent_hash:?}: {e:?}");
 					U512::zero()
 				});
