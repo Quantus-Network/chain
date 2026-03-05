@@ -11,24 +11,15 @@ use std::{fmt, marker::PhantomData, sync::Arc};
 
 const IGNORED_CHAINS_PREFIX: &[u8] = b"QPow:IgnoredChains:";
 
-/// Errors from chain management operations (best chain selection, finalization, etc.)
 #[derive(Debug)]
 pub enum ChainManagementError {
-	/// Blockchain/header lookup failed
 	ChainLookup(String),
-	/// Block state was unavailable (e.g. pruned)
 	StateUnavailable(String),
-	/// No valid chain could be selected from the leaves
 	NoValidChain,
-	/// No common ancestor found between chains
 	NoCommonAncestor,
-	/// Failed to add chain to ignored list
 	FailedToAddIgnoredChain(String),
-	/// Failed to fetch blockchain leaves
 	FailedToFetchLeaves(String),
-	/// Finalization failed
 	FinalizationFailed(String),
-	/// Runtime API call failed (e.g. get_total_work for reasons other than pruned state)
 	RuntimeApiError(String),
 }
 
@@ -63,9 +54,6 @@ impl From<ChainManagementError> for ConsensusError {
 	}
 }
 
-/// Returns true if the error indicates that block state was pruned/discarded or the block
-/// is unknown (e.g. never imported). Uses structural matching on ApiError::UnknownBlock.
-/// Note: UnknownBlock can also fire for blocks that were never imported, not just pruned.
 fn is_state_pruned_error_raw(err: &(dyn std::error::Error + 'static)) -> bool {
 	if let Some(api_err) = err.downcast_ref::<ApiError>() {
 		if matches!(api_err, ApiError::UnknownBlock(_)) {
@@ -76,6 +64,27 @@ fn is_state_pruned_error_raw(err: &(dyn std::error::Error + 'static)) -> bool {
 		return is_state_pruned_error_raw(source);
 	}
 	false
+}
+
+pub fn get_chain_work<B, C>(client: &C, at_hash: B::Hash) -> Result<U512, sp_consensus::Error>
+where
+	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B>,
+	C::Api: QPoWApi<B>,
+{
+	client.runtime_api().get_total_work(at_hash).map_err(|e| {
+		sp_consensus::Error::Other(format!("Failed to get total work: {:?}", e).into())
+	})
+}
+
+pub fn is_heavier<N: PartialOrd>(
+	candidate_work: U512,
+	candidate_number: N,
+	current_work: U512,
+	current_number: N,
+) -> bool {
+	candidate_work > current_work ||
+		(candidate_work == current_work && candidate_number > current_number)
 }
 
 pub struct HeaviestChain<B, C, BE>
@@ -226,8 +235,6 @@ where
 		Ok(())
 	}
 
-	/// Evaluates a leaf: fetches header, gets chain work. Returns Some((header, work)) on success,
-	/// None when block state was pruned (leaf is added to ignored chains), or Err on failure.
 	fn evaluate_leaf(
 		&self,
 		leaf_hash: B::Hash,
@@ -271,8 +278,6 @@ where
 		}
 	}
 
-	/// Returns Some(work) on success, None when block state was pruned or block is unknown,
-	/// or Err for other runtime API failures.
 	fn try_calculate_chain_work(
 		&self,
 		chain_head: &B::Header,
@@ -317,13 +322,13 @@ where
 
 	/// Method to find best chain when there's no current best header
 	async fn find_best_chain(&self, leaves: Vec<B::Hash>) -> Result<B::Header, ConsensusError> {
-		log::debug!("Finding best chain among {} leaves when no current best exists", leaves.len());
+		log::debug!(target: "qpow", "Finding best chain among {} leaves when no current best exists", leaves.len());
 
 		let mut best_header = None;
 		let mut best_work = U512::zero();
 
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
-			log::debug!("Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
+			log::debug!(target: "qpow", "Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
 
 			let (header, chain_work) = match self.evaluate_leaf(*leaf_hash)? {
 				Some(result) => result,
@@ -333,8 +338,11 @@ where
 			let header_number = *header.number();
 			log::debug!("Chain work for leaf #{}: {}", header_number, chain_work);
 
-			if chain_work > best_work {
+			let current_best_number =
+				best_header.as_ref().map(|h: &B::Header| *h.number()).unwrap_or_else(Zero::zero);
+			if is_heavier(chain_work, header_number, best_work, current_best_number) {
 				log::debug!(
+					target: "qpow",
 					"Found new best chain candidate: #{} (hash: {:?}) with work: {}",
 					header_number,
 					leaf_hash,
@@ -344,6 +352,7 @@ where
 				best_header = Some(header);
 			} else {
 				log::debug!(
+					target: "qpow",
 					"Leaf #{} (hash: {:?}) has less work ({}) than current best ({})",
 					header_number,
 					leaf_hash,
@@ -810,41 +819,11 @@ where
 						max_reorg_depth
 					);
 
-					// Tie breaking mechanism when chains have same amount of work
-					if chain_work == best_work {
-						let current_block_height = best_header.number();
-						let new_block_height = header.number();
-
+					if is_heavier(chain_work, *header.number(), best_work, *best_header.number()) {
 						log::debug!(
 							target: "qpow",
-							"🍴️ Chain work is equal, comparing block heights: current #{}, new #{}",
-							current_block_height,
-							new_block_height
-						);
-
-						// select the chain with more blocks when chains have equal work
-						if new_block_height > current_block_height {
-							log::debug!(
-								target: "qpow",
-								"🍴️ Switching to chain with more blocks: #{} > #{}",
-								new_block_height,
-								current_block_height
-							);
-							best_header = header;
-						} else {
-							log::debug!(
-								target: "qpow",
-								"🍴️ Keeping current chain as it has at least as many blocks: #{} >= #{}",
-								current_block_height,
-								new_block_height
-							);
-						}
-					} else {
-						log::debug!(
-							target: "qpow",
-							"🍴️ Switching to chain with more work: {} > {}",
-							chain_work,
-							best_work
+							"🍴️ Switching to heavier chain: work {} vs {}, height #{} vs #{}",
+							chain_work, best_work, header.number(), best_header.number()
 						);
 						best_work = chain_work;
 						best_header = header;
