@@ -11,6 +11,27 @@ use std::{marker::PhantomData, sync::Arc};
 
 const IGNORED_CHAINS_PREFIX: &[u8] = b"QPow:IgnoredChains:";
 
+pub fn get_chain_work<B, C>(client: &C, at_hash: B::Hash) -> Result<U512, sp_consensus::Error>
+where
+	B: BlockT<Hash = H256>,
+	C: ProvideRuntimeApi<B>,
+	C::Api: QPoWApi<B>,
+{
+	client.runtime_api().get_total_work(at_hash).map_err(|e| {
+		sp_consensus::Error::Other(format!("Failed to get total work: {:?}", e).into())
+	})
+}
+
+pub fn is_heavier<N: PartialOrd>(
+	candidate_work: U512,
+	candidate_number: N,
+	current_work: U512,
+	current_number: N,
+) -> bool {
+	candidate_work > current_work
+		|| (candidate_work == current_work && candidate_number > current_number)
+}
+
 pub struct HeaviestChain<B, C, BE>
 where
 	B: BlockT<Hash = H256>,
@@ -61,7 +82,8 @@ where
 		let best_hash = self.client.info().best_hash;
 		log::debug!("Current best hash: {:?}", best_hash);
 
-		if best_hash == Default::default() {
+		// this is only on chain startup? Seems useless, we later on check for shallow chain anyway-N
+		if best_hash == Default::default() { 
 			log::debug!("✓ No blocks to finalize - best hash is default");
 			return Ok(()); // No blocks to finalize
 		}
@@ -155,28 +177,15 @@ where
 	}
 
 	fn calculate_chain_work(&self, chain_head: &B::Header) -> Result<U512, sp_consensus::Error> {
-		// calculate cumulative work of a chain
-
-		let current_hash = chain_head.hash();
-		let current_number = *chain_head.number();
-
-		let total_work = self.client.runtime_api().get_total_work(current_hash).map_err(|e| {
-			log::error!(
-				"Failed to get total work for chain with head #{}: {:?}",
-				current_number,
-				e
-			);
-			sp_consensus::Error::Other(format!("Failed to get total difficulty {:?}", e).into())
-		})?;
-
+		let hash = chain_head.hash();
+		let work = get_chain_work::<B, C>(&*self.client, hash)?;
 		log::info!(
 			"⛏️ Total chain work: {:?} for chain with head at #{:?} hash: {:?}",
-			total_work,
-			current_number,
-			current_hash
+			work,
+			chain_head.number(),
+			hash
 		);
-
-		Ok(total_work)
+		Ok(work)
 	}
 
 	/// Method to find best chain when there's no current best header
@@ -214,7 +223,8 @@ where
 			let chain_work = self.calculate_chain_work(&header)?;
 			log::debug!("Chain work for leaf #{}: {}", header_number, chain_work);
 
-			if chain_work > best_work {
+			let current_best_number = best_header.as_ref().map(|h: &B::Header| *h.number()).unwrap_or_else(Zero::zero);
+			if is_heavier(chain_work, header_number, best_work, current_best_number) {
 				log::debug!(
 					"Found new best chain candidate: #{} (hash: {:?}) with work: {}",
 					header_number,
@@ -223,14 +233,6 @@ where
 				);
 				best_work = chain_work;
 				best_header = Some(header);
-			} else {
-				log::debug!(
-					"Leaf #{} (hash: {:?}) has less work ({}) than current best ({})",
-					header_number,
-					leaf_hash,
-					chain_work,
-					best_work
-				);
 			}
 		}
 
@@ -680,41 +682,11 @@ where
 						max_reorg_depth
 					);
 
-					// Tie breaking mechanism when chains have same amount of work
-					if chain_work == best_work {
-						let current_block_height = best_header.number();
-						let new_block_height = header.number();
-
+					if is_heavier(chain_work, *header.number(), best_work, *best_header.number()) {
 						log::debug!(
 							target: "qpow",
-							"🍴️ Chain work is equal, comparing block heights: current #{}, new #{}",
-							current_block_height,
-							new_block_height
-						);
-
-						// select the chain with more blocks when chains have equal work
-						if new_block_height > current_block_height {
-							log::debug!(
-								target: "qpow",
-								"🍴️ Switching to chain with more blocks: #{} > #{}",
-								new_block_height,
-								current_block_height
-							);
-							best_header = header;
-						} else {
-							log::debug!(
-								target: "qpow",
-								"🍴️ Keeping current chain as it has at least as many blocks: #{} >= #{}",
-								current_block_height,
-								new_block_height
-							);
-						}
-					} else {
-						log::debug!(
-							target: "qpow",
-							"🍴️ Switching to chain with more work: {} > {}",
-							chain_work,
-							best_work
+							"🍴️ Switching to heavier chain: work {} vs {}, height #{} vs #{}",
+							chain_work, best_work, header.number(), best_header.number()
 						);
 						best_work = chain_work;
 						best_header = header;

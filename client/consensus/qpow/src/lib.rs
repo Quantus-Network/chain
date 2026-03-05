@@ -1,7 +1,7 @@
 mod chain_management;
 mod worker;
 
-pub use chain_management::{ChainManagement, HeaviestChain};
+pub use chain_management::{ChainManagement, HeaviestChain, get_chain_work, is_heavier};
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
@@ -22,7 +22,9 @@ use sc_consensus::{
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
-use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
+use sp_consensus::{
+	BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle,
+};
 use sp_consensus_pow::POW_ENGINE_ID;
 
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
@@ -253,35 +255,41 @@ where
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
-		// Use default fork choice if not provided; avoid aux total difficulty bookkeeping
+		let source = match block.origin {
+			BlockOrigin::Own => "MINED",
+			_ => "NETWORK",
+		};
+		let block_hash = block.header.hash();
+		let block_number = *block.header.number();
+
 		if block.fork_choice.is_none() {
-			block.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-		}
+			let info = self.client.info();
+			let incoming_difficulty = self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_default();
+			let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_default();
+			let new_work = parent_work.saturating_add(incoming_difficulty);
+			let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash).unwrap_or_default();
+			let is_best = is_heavier(new_work, block_number, current_best_work, info.best_number);
 
-		// Log block import progress every LOGGING_FREQUENCY blocks
-		let block_number = block.header.number();
-		let block_number_u64: u64 = (*block_number).try_into().unwrap_or(0);
-		if block_number_u64 % LOGGING_FREQUENCY == 0 {
 			log::info!(
-				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block_number_u64.saturating_sub(LOGGING_FREQUENCY),
-				block_number,
-				block.header.hash(),
-				block.header.extrinsics_root(),
-				block.header.state_root()
+				"⚖️ [{source}] #{block_number} ({block_hash:?}) diff={incoming_difficulty} work={new_work} | best #{} ({:?}) work={current_best_work} | switch={}",
+				info.best_number,
+				info.best_hash,
+				if is_best { "YES" } else { "no" },
 			);
-		} else {
-			log::debug!(
-				target: "qpow",
-				"⛏️ Importing block #{}: {:?} - extrinsics_root={:?}, state_root={:?}",
-				block_number,
-				block.header.hash(),
-				block.header.extrinsics_root(),
-				block.header.state_root()
-			);
+
+			block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 		}
 
-		self.inner.import_block(block).await.map_err(Into::into)
+		let result = self.inner.import_block(block).await.map_err(Into::into)?;
+
+		let info = self.client.info();
+		log::info!(
+			"📦 Canonical tip: #{} ({:?})",
+			info.best_number,
+			info.best_hash,
+		);
+
+		Ok(result)
 	}
 }
 
