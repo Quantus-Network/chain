@@ -257,13 +257,25 @@ where
 
 		if block.fork_choice.is_none() {
 			let info = self.client.info();
-			let incoming_difficulty =
-				self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_default();
+			let incoming_difficulty = self
+				.client
+				.runtime_api()
+				.get_difficulty(parent_hash)
+				.unwrap_or_else(|e| {
+					log::warn!(target: LOG_TARGET, "Failed to get difficulty for {parent_hash:?}: {e:?}");
+					U512::zero()
+				});
 			let parent_work =
-				get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_default();
+				get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
+					log::warn!(target: LOG_TARGET, "Failed to get parent work for {parent_hash:?}: {e:?}");
+					U512::zero()
+				});
 			let new_work = parent_work.saturating_add(incoming_difficulty);
-			let current_best_work =
-				get_chain_work::<B, C>(&*self.client, info.best_hash).unwrap_or_default();
+			let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash)
+				.unwrap_or_else(|e| {
+					log::warn!(target: LOG_TARGET, "Failed to get best chain work for {:?}: {e:?}", info.best_hash);
+					U512::zero()
+				});
 			let is_best =
 				is_heavier(new_work, *block.header.number(), current_best_work, info.best_number);
 			block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
