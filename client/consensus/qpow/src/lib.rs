@@ -264,7 +264,6 @@ where
 			let new_work = parent_work.saturating_add(incoming_difficulty);
 			let current_best_work =
 				get_chain_work::<B, C>(&*self.client, info.best_hash).unwrap_or_default();
-			let is_best = is_heavier(new_work, block_number, current_best_work, info.best_number);
 			let is_best =
 				is_heavier(new_work, *block.header.number(), current_best_work, info.best_number);
 			block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
