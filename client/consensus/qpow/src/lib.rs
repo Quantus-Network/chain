@@ -24,9 +24,7 @@ use sc_consensus::{
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
-use sp_consensus::{
-	BlockOrigin, Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle,
-};
+use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
 use sp_consensus_pow::POW_ENGINE_ID;
 
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
@@ -257,13 +255,6 @@ where
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
-		let source = match block.origin {
-			BlockOrigin::Own => "MINED",
-			_ => "NETWORK",
-		};
-		let block_hash = block.header.hash();
-		let block_number = *block.header.number();
-
 		if block.fork_choice.is_none() {
 			let info = self.client.info();
 			let incoming_difficulty =
@@ -274,21 +265,15 @@ where
 			let current_best_work =
 				get_chain_work::<B, C>(&*self.client, info.best_hash).unwrap_or_default();
 			let is_best = is_heavier(new_work, block_number, current_best_work, info.best_number);
-
-			log::info!(
-				"⚖️ [{source}] #{block_number} ({block_hash:?}) diff={incoming_difficulty} work={new_work} | best #{} ({:?}) work={current_best_work} | switch={}",
-				info.best_number,
-				info.best_hash,
-				if is_best { "YES" } else { "no" },
-			);
-
+			let is_best =
+				is_heavier(new_work, *block.header.number(), current_best_work, info.best_number);
 			block.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 		}
 
 		let result = self.inner.import_block(block).await.map_err(Into::into)?;
 
 		let info = self.client.info();
-		log::info!("📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash,);
+		log::info!("📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);
 
 		Ok(result)
 	}
