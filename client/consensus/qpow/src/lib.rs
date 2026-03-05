@@ -264,11 +264,10 @@ where
 				log::warn!(target: LOG_TARGET, "Failed to get difficulty for {parent_hash:?}: {e:?}");
 				U512::zero()
 			});
-		let parent_work =
-			get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
-				log::warn!(target: LOG_TARGET, "Failed to get parent work for {parent_hash:?}: {e:?}");
-				U512::zero()
-			});
+		let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
+			log::warn!(target: LOG_TARGET, "Failed to get parent work for {parent_hash:?}: {e:?}");
+			U512::zero()
+		});
 		let new_work = parent_work.saturating_add(incoming_difficulty);
 		let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash)
 			.unwrap_or_else(|e| {
