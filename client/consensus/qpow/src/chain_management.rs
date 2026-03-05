@@ -361,6 +361,7 @@ where
 					chain_work,
 					best_work
 				);
+			}
 		}
 
 		if let Some(ref header) = best_header {
