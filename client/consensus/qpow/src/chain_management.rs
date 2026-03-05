@@ -324,13 +324,13 @@ where
 
 	/// Method to find best chain when there's no current best header
 	async fn find_best_chain(&self, leaves: Vec<B::Hash>) -> Result<B::Header, ConsensusError> {
-		log::debug!("Finding best chain among {} leaves when no current best exists", leaves.len());
+		log::debug!(target: "qpow", "Finding best chain among {} leaves when no current best exists", leaves.len());
 
 		let mut best_header = None;
 		let mut best_work = U512::zero();
 
 		for (idx, leaf_hash) in leaves.iter().enumerate() {
-			log::debug!("Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
+			log::debug!(target: "qpow", "Checking leaf [{}/{}]: {:?}", idx + 1, leaves.len(), leaf_hash);
 
 			let (header, chain_work) = match self.evaluate_leaf(*leaf_hash)? {
 				Some(result) => result,
@@ -344,6 +344,7 @@ where
 				best_header.as_ref().map(|h: &B::Header| *h.number()).unwrap_or_else(Zero::zero);
 			if is_heavier(chain_work, header_number, best_work, current_best_number) {
 				log::debug!(
+					target: "qpow",
 					"Found new best chain candidate: #{} (hash: {:?}) with work: {}",
 					header_number,
 					leaf_hash,
@@ -351,7 +352,15 @@ where
 				);
 				best_work = chain_work;
 				best_header = Some(header);
-			}
+			} else {
+				log::debug!(
+					target: "qpow",
+					"Leaf #{} (hash: {:?}) has less work ({}) than current best ({})",
+					header_number,
+					leaf_hash,
+					chain_work,
+					best_work
+				);
 		}
 
 		if let Some(ref header) = best_header {

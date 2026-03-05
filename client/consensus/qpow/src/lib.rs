@@ -272,7 +272,7 @@ where
 		let result = self.inner.import_block(block).await.map_err(Into::into)?;
 
 		let info = self.client.info();
-		log::info!("📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);
+		log::debug!(target: LOG_TARGET, "📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);
 
 		Ok(result)
 	}
