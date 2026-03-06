@@ -4,8 +4,12 @@
 FROM rust:bookworm AS builder
 
 # Install dependencies needed for building
+# clang-sys requires libclang - libclang-dev provides libclang-14.so in /usr/lib/x86_64-linux-gnu/
 RUN apt-get update && \
-    apt-get install -y cmake clang libclang-dev protobuf-compiler
+    apt-get install -y cmake clang libclang-dev protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu
 
 # Add wasm target for runtime compilation
 RUN rustup target add wasm32-unknown-unknown
