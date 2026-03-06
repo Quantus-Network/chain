@@ -2,9 +2,9 @@ mod chain_management;
 mod worker;
 
 pub use chain_management::{
-	finalize_canonical_at_depth, get_chain_work, get_cumulative_achieved_work,
-	initialize_genesis_achieved_work, is_heavier, store_cumulative_achieved_work,
-	ChainManagementError,
+	delete_cumulative_achieved_work, finalize_canonical_at_depth, get_chain_work,
+	get_cumulative_achieved_work, initialize_genesis_achieved_work, is_heavier,
+	store_cumulative_achieved_work, ChainManagementError,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -49,16 +49,12 @@ pub enum Error<B: BlockT> {
 	FailedPreliminaryVerify,
 	#[error("Rejecting block too far in future")]
 	TooFarInFuture,
-	#[error("Fetching best header failed using select chain: {0}")]
-	BestHeaderSelectChain(ConsensusError),
 	#[error("Fetching best header failed: {0}")]
 	BestHeader(sp_blockchain::Error),
 	#[error("Best header does not exist")]
 	NoBestHeader,
 	#[error("Block proposing error: {0}")]
 	BlockProposingError(String),
-	#[error("Fetch best hash failed via select chain: {0}")]
-	BestHashSelectChain(ConsensusError),
 	#[error("Error with block built on {0:?}: {1}")]
 	BlockBuiltError(B::Hash, ConsensusError),
 	#[error("Creating inherents failed: {0}")]
@@ -341,7 +337,25 @@ where
 			},
 		)?;
 
-		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
+		// Import the block. If import fails, clean up the achieved work entry we just stored
+		// to prevent stale aux data accumulation from repeated invalid submissions.
+		let result = match self.inner.import_block(block_import_params).await {
+			Ok(result) => result,
+			Err(e) => {
+				// Rollback: remove the achieved work entry for the failed import
+				if let Err(cleanup_err) =
+					delete_cumulative_achieved_work::<B, C>(&*self.client, block_hash)
+				{
+					log::warn!(
+						target: LOG_TARGET,
+						"Failed to clean up achieved work after failed import for {:?}: {:?}",
+						block_hash,
+						cleanup_err
+					);
+				}
+				return Err(e.into());
+			},
+		};
 
 		// Finalize blocks synchronously after import to ensure finalization happens
 		// before the next block is imported. This prunes competing forks that are

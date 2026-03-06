@@ -84,6 +84,22 @@ pub fn get_cumulative_achieved_work<B: BlockT, C: AuxStore>(
 	}
 }
 
+/// Delete cumulative achieved work for a block from auxiliary storage.
+/// Used to clean up entries for finalized blocks that no longer need fork choice data.
+pub fn delete_cumulative_achieved_work<B: BlockT, C: AuxStore>(
+	client: &C,
+	block_hash: B::Hash,
+) -> Result<(), sp_blockchain::Error> {
+	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	client.insert_aux(&[], &[&key[..]])?;
+	log::trace!(
+		target: "qpow",
+		"Deleted cumulative achieved work for block {:?}",
+		block_hash
+	);
+	Ok(())
+}
+
 /// Initialize the genesis block's achieved work if not already set.
 /// Genesis block has achieved work = 1 (no mining, but represents the start of the chain).
 /// This should be called during node startup.
@@ -146,10 +162,13 @@ pub fn is_heavier<N: PartialOrd>(
 /// Finalizes blocks that are `max_reorg_depth - 1` blocks behind the current best block.
 /// This should be called synchronously after each block import to ensure finalization
 /// happens before the next block is imported.
+///
+/// Also cleans up achieved work entries for blocks that are now deep enough in the
+/// finalized chain that they can never be involved in fork choice again.
 pub fn finalize_canonical_at_depth<B, C, BE>(client: &C) -> Result<(), ConsensusError>
 where
 	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + HeaderBackend<B> + Finalizer<B, BE>,
+	C: ProvideRuntimeApi<B> + HeaderBackend<B> + AuxStore + Finalizer<B, BE>,
 	C::Api: QPoWApi<B>,
 	BE: sc_client_api::Backend<B>,
 {
@@ -247,6 +266,23 @@ where
 	);
 
 	log::debug!("✓ Finalized block #{:?} ({:?})", finalize_number, finalize_hash);
+
+	// Clean up achieved work for the previously finalized block.
+	// Once a block is finalized and we've moved past it, its achieved work
+	// is no longer needed for fork choice decisions.
+	if last_finalized_before > Zero::zero() {
+		if let Ok(Some(old_finalized_hash)) = client.hash(last_finalized_before) {
+			if let Err(e) = delete_cumulative_achieved_work::<B, C>(client, old_finalized_hash) {
+				// Non-fatal: log warning but don't fail the finalization
+				log::warn!(
+					target: "qpow",
+					"Failed to clean up achieved work for old finalized block #{:?}: {:?}",
+					last_finalized_before,
+					e
+				);
+			}
+		}
+	}
 
 	Ok(())
 }
