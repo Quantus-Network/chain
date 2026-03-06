@@ -2,8 +2,9 @@ mod chain_management;
 mod worker;
 
 pub use chain_management::{
-	get_chain_work, get_cumulative_achieved_work, initialize_genesis_achieved_work, is_heavier,
-	store_cumulative_achieved_work, ChainManagement, ChainManagementError, HeaviestChain,
+	finalize_canonical_at_depth, get_chain_work, get_cumulative_achieved_work,
+	initialize_genesis_achieved_work, is_heavier, store_cumulative_achieved_work,
+	ChainManagementError, HeaviestChain,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -11,7 +12,7 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::traits::Block as BlockT;
-use std::{sync::Arc, time::Duration};
+use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::worker::UntilImportedOrTransaction;
 pub use crate::worker::{MiningBuild, MiningHandle, MiningMetadata, RebuildTrigger};
@@ -96,12 +97,13 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 }
 
 /// A block importer for PoW.
-pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP, const LOGGING_FREQUENCY: u64> {
+pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP, BE, const LOGGING_FREQUENCY: u64> {
 	inner: I,
 	select_chain: S,
 	client: Arc<C>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
+	_backend: PhantomData<BE>,
 }
 
 impl<
@@ -110,8 +112,9 @@ impl<
 		C: ProvideRuntimeApi<B>,
 		S: Clone,
 		CIDP,
+		BE,
 		const LOGGING_FREQUENCY: u64,
-	> Clone for PowBlockImport<B, I, C, S, CIDP, LOGGING_FREQUENCY>
+	> Clone for PowBlockImport<B, I, C, S, CIDP, BE, LOGGING_FREQUENCY>
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -120,12 +123,13 @@ impl<
 			client: self.client.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
+			_backend: PhantomData,
 		}
 	}
 }
 
-impl<B, I, C, S, CIDP, const LOGGING_FREQUENCY: u64>
-	PowBlockImport<B, I, C, S, CIDP, LOGGING_FREQUENCY>
+impl<B, I, C, S, CIDP, BE, const LOGGING_FREQUENCY: u64>
+	PowBlockImport<B, I, C, S, CIDP, BE, LOGGING_FREQUENCY>
 where
 	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
@@ -141,6 +145,7 @@ where
 	C::Api: QPoWApi<B>,
 	C::Api: BlockBuilderApi<B>,
 	CIDP: CreateInherentDataProviders<B, ()>,
+	BE: sc_client_api::Backend<B>,
 {
 	/// Create a new block import suitable to be used in PoW
 	pub fn new(
@@ -156,6 +161,7 @@ where
 			check_inherents_after,
 			select_chain,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
+			_backend: PhantomData,
 		}
 	}
 
@@ -194,8 +200,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<B, I, C, S, CIDP, const LOGGING_FREQUENCY: u64> BlockImport<B>
-	for PowBlockImport<B, I, C, S, CIDP, LOGGING_FREQUENCY>
+impl<B, I, C, S, CIDP, BE, const LOGGING_FREQUENCY: u64> BlockImport<B>
+	for PowBlockImport<B, I, C, S, CIDP, BE, LOGGING_FREQUENCY>
 where
 	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
@@ -208,9 +214,11 @@ where
 		+ HeaderBackend<B>
 		+ AuxStore
 		+ BlockOf
+		+ sc_client_api::Finalizer<B, BE>
 		+ 'static,
 	C::Api: BlockBuilderApi<B> + QPoWApi<B>,
 	CIDP: CreateInherentDataProviders<B, ()> + Send + Sync,
+	BE: sc_client_api::Backend<B> + 'static,
 {
 	type Error = ConsensusError;
 
@@ -342,6 +350,17 @@ where
 		}
 
 		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
+
+		// Finalize blocks synchronously after import to ensure finalization happens
+		// before the next block is imported. This prunes competing forks that are
+		// beyond max_reorg_depth.
+		if let Err(e) = finalize_canonical_at_depth::<B, C, BE>(&*self.client) {
+			log::warn!(
+				target: LOG_TARGET,
+				"Failed to finalize after block import: {:?}",
+				e
+			);
+		}
 
 		let info = self.client.info();
 		log::debug!(target: LOG_TARGET, "📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);

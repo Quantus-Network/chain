@@ -11,7 +11,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, MiningHandle};
+use sc_consensus_qpow::MiningHandle;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 #[cfg(feature = "tx-logging")]
@@ -533,6 +533,7 @@ pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 			InherentDataProviders = sp_timestamp::InherentDataProvider,
 		>,
 	>,
+	FullBackend,
 	LOG_FREQUENCY,
 >;
 
@@ -772,8 +773,8 @@ pub fn new_full<
 		);
 	}
 
-	// Start deterministic-depth finalization task
-	ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
+	// Note: Finalization is now handled synchronously in import_block,
+	// so we don't need a separate finalization task.
 
 	Ok(task_manager)
 }
