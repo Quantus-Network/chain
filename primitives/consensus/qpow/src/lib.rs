@@ -10,12 +10,6 @@ pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
 
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
-		/// calculate hash of header with nonce using Bitcoin-style double Poseidon2
-		fn get_nonce_distance(
-			block_hash: [u8; 32],  // 256-bit block hash
-			nonce: [u8; 64], // 512-bit nonce
-		) -> U512;
-
 		/// Get the max possible reorg depth
 		fn get_max_reorg_depth() -> u32;
 
@@ -25,9 +19,9 @@ sp_api::decl_runtime_apis! {
 		/// Get the current difficulty (max_distance / distance_threshold)
 		fn get_difficulty() -> U512;
 
-
-
-		/// Get total work
+		/// Get total work (sum of target difficulties, informational only)
+		/// Note: Chain selection uses achieved difficulty stored in client aux storage,
+		/// not this value.
 		fn get_total_work() -> U512;
 
 		/// Get block ema
@@ -43,6 +37,12 @@ sp_api::decl_runtime_apis! {
 
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
+
+		/// Verify nonce validity and return achieved difficulty in a single call.
+		/// Returns (is_valid, achieved_difficulty).
+		/// This avoids computing the nonce hash twice when both validation and
+		/// achieved difficulty are needed.
+		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
 	}
 }
 

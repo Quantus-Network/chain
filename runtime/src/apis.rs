@@ -146,8 +146,6 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
-
-
 		fn get_total_work() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_total_work()
 		}
@@ -172,11 +170,9 @@ impl_runtime_apis! {
 		fn get_max_difficulty() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_max_difficulty()
 		}
-		fn get_nonce_distance(
-			block_hash: [u8; 32],
-			nonce: [u8; 64]
-		) -> U512 {
-			pallet_qpow::Pallet::<Self>::get_nonce_hash(block_hash, nonce)
+
+		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512) {
+			pallet_qpow::Pallet::<Self>::verify_and_get_achieved_difficulty(block_hash, nonce)
 		}
 	}
 

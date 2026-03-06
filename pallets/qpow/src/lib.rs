@@ -26,7 +26,7 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{get_nonce_hash, is_valid_nonce};
+	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
@@ -377,6 +377,24 @@ pub mod pallet {
 		pub fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: NonceType) -> bool {
 			let (verify, _, _) = Self::verify_nonce_internal(block_hash, nonce);
 			verify
+		}
+
+		/// Verify nonce validity and return achieved difficulty in a single call.
+		/// This avoids computing the nonce hash twice when both validation and
+		/// achieved difficulty are needed during block import.
+		///
+		/// Note: This is called via runtime API from the client side. Runtime API
+		/// calls execute in a temporary context where state changes are discarded,
+		/// so we don't emit events here.
+		pub fn verify_and_get_achieved_difficulty(
+			block_hash: [u8; 32],
+			nonce: NonceType,
+		) -> (bool, U512) {
+			let (valid, _difficulty, hash_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
+			let achieved_difficulty = achieved_difficulty_from_hash(hash_achieved);
+
+			(valid, achieved_difficulty)
 		}
 
 		pub fn initial_difficulty() -> Difficulty {
