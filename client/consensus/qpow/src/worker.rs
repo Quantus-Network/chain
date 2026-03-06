@@ -218,10 +218,8 @@ where
 		import_block.state_action =
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
-		// Compute post_hash (with seal) for consistent achieved work storage
 		let block_number = *import_block.header.number();
-		let post_hash: Block::Hash = import_block.post_header().hash();
-		import_block.post_hash = Some(post_hash);
+		let post_hash = import_block.post_header().hash();
 		let import_result = self.block_import.import_block(import_block).await;
 
 		match import_result {

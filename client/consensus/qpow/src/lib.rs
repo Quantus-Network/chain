@@ -299,14 +299,11 @@ where
 		);
 		block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 
-		// Store the block hash for achieved work storage after successful import
-		// Must use post_hash (with seal) because that's how blocks are referenced:
-		// - parent_hash in child blocks is the post_hash of the parent
-		// - client.info().best_hash is the post_hash
-		// - headers retrieved from DB have the seal, so header.hash() = post_hash
-		let block_hash = block_import_params
-			.post_hash
-			.expect("post_hash must be set by extract_pow_seal");
+		// Get block hash (with seal) for achieved work storage.
+		// Must use the post-seal hash because that's how blocks are referenced:
+		// - parent_hash in child blocks references the post-seal hash
+		// - client.info().best_hash is the post-seal hash
+		let block_hash = block_import_params.post_header().hash();
 
 		// Log block import progress every LOGGING_FREQUENCY blocks
 		let block_number = block_import_params.header.number();
@@ -332,16 +329,17 @@ where
 		}
 
 		// Store cumulative achieved work BEFORE inner import, because inner import
-		// triggers notifications that call best_chain which needs this data
-		if let Err(e) = store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, new_work)
-		{
-			log::warn!(
-				target: LOG_TARGET,
-				"Failed to store cumulative achieved work for {:?}: {:?}",
-				block_hash,
-				e
-			);
-		}
+		// triggers notifications that call best_chain which needs this data.
+		// This MUST succeed - if it fails, subsequent blocks would read zero for
+		// this block's work, breaking the cumulative chain weight calculation.
+		store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, new_work).map_err(
+			|e| {
+				ConsensusError::ClientImport(format!(
+					"Failed to store cumulative achieved work for {:?}: {:?}",
+					block_hash, e
+				))
+			},
+		)?;
 
 		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
 
@@ -384,7 +382,6 @@ where
 	};
 
 	block.post_digests.push(seal_item);
-	block.post_hash = Some(hash);
 	Ok(block)
 }
 

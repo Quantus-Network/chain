@@ -19,13 +19,6 @@ sp_api::decl_runtime_apis! {
 		/// Get the current difficulty (max_distance / distance_threshold)
 		fn get_difficulty() -> U512;
 
-		/// Calculate the achieved difficulty for a given block hash and nonce.
-		/// Achieved difficulty = U512::MAX / hash(block_hash, nonce)
-		/// Higher achieved difficulty = more work done.
-		/// This is used for chain selection - a block that achieves a lower hash
-		/// (more work) contributes more to chain weight.
-		fn calculate_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> U512;
-
 		/// Get total work (sum of target difficulties, informational only)
 		/// Note: Chain selection uses achieved difficulty stored in client aux storage,
 		/// not this value.

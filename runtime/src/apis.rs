@@ -146,10 +146,6 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
-		fn calculate_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> U512 {
-			pallet_qpow::Pallet::<Self>::calculate_achieved_difficulty(block_hash, nonce)
-		}
-
 		fn get_total_work() -> U512 {
 			pallet_qpow::Pallet::<Self>::get_total_work()
 		}
