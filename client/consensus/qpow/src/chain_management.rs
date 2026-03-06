@@ -1,8 +1,9 @@
+use codec::{Decode, Encode};
 use futures::StreamExt;
 use primitive_types::{H256, U512};
 use sc_client_api::{AuxStore, BlockBackend, BlockchainEvents, Finalizer};
 use sc_service::TaskManager;
-use sp_api::{ApiError, ProvideRuntimeApi};
+use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{Backend, HeaderBackend};
 use sp_consensus::{Error as ConsensusError, SelectChain};
 use sp_consensus_qpow::QPoWApi;
@@ -10,6 +11,7 @@ use sp_runtime::traits::{Block as BlockT, Header, One, Zero};
 use std::{fmt, marker::PhantomData, sync::Arc};
 
 const IGNORED_CHAINS_PREFIX: &[u8] = b"QPow:IgnoredChains:";
+const ACHIEVED_WORK_PREFIX: &[u8] = b"QPow:AchievedWork:";
 
 #[derive(Debug)]
 pub enum ChainManagementError {
@@ -54,26 +56,98 @@ impl From<ChainManagementError> for ConsensusError {
 	}
 }
 
-fn is_state_pruned_error_raw(err: &(dyn std::error::Error + 'static)) -> bool {
-	if let Some(api_err) = err.downcast_ref::<ApiError>() {
-		if matches!(api_err, ApiError::UnknownBlock(_)) {
-			return true;
-		}
-	}
-	if let Some(source) = err.source() {
-		return is_state_pruned_error_raw(source);
-	}
-	false
+/// Store cumulative achieved work for a block in auxiliary storage.
+/// This is used for chain selection based on achieved difficulty.
+pub fn store_cumulative_achieved_work<B: BlockT, C: AuxStore>(
+	client: &C,
+	block_hash: B::Hash,
+	cumulative_work: U512,
+) -> Result<(), sp_blockchain::Error> {
+	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	client.insert_aux(&[(&key[..], &cumulative_work.encode()[..])], &[])?;
+	log::debug!(
+		target: "qpow",
+		"Stored cumulative achieved work {} for block {:?}",
+		cumulative_work,
+		block_hash
+	);
+	Ok(())
 }
 
+/// Get cumulative achieved work for a block from auxiliary storage.
+/// Returns U512::zero() if not found (e.g., for genesis block before initialization).
+pub fn get_cumulative_achieved_work<B: BlockT, C: AuxStore>(
+	client: &C,
+	block_hash: B::Hash,
+) -> Result<U512, sp_blockchain::Error> {
+	let key = [ACHIEVED_WORK_PREFIX, block_hash.as_ref()].concat();
+	match client.get_aux(&key)? {
+		Some(bytes) => {
+			let work = U512::decode(&mut &bytes[..]).map_err(|e| {
+				sp_blockchain::Error::Backend(format!(
+					"Failed to decode cumulative work for {:?}: {:?}",
+					block_hash, e
+				))
+			})?;
+			Ok(work)
+		},
+		None => {
+			log::trace!(
+				target: "qpow",
+				"No cumulative achieved work found for block {:?}, returning zero",
+				block_hash
+			);
+			Ok(U512::zero())
+		},
+	}
+}
+
+/// Initialize the genesis block's achieved work if not already set.
+/// Genesis block has achieved work = 1 (no mining, but represents the start of the chain).
+/// This should be called during node startup.
+pub fn initialize_genesis_achieved_work<B: BlockT, C: AuxStore + HeaderBackend<B>>(
+	client: &C,
+) -> Result<(), sp_blockchain::Error> {
+	// Get genesis hash
+	let genesis_hash = client
+		.hash(Zero::zero())?
+		.ok_or_else(|| sp_blockchain::Error::Backend("Genesis block not found".to_string()))?;
+
+	// Check if already initialized
+	let existing = get_cumulative_achieved_work::<B, C>(client, genesis_hash)?;
+	if existing != U512::zero() {
+		log::debug!(
+			target: "qpow",
+			"Genesis achieved work already initialized to {}",
+			existing
+		);
+		return Ok(());
+	}
+
+	// Initialize genesis achieved work to 1
+	let genesis_work = U512::one();
+	store_cumulative_achieved_work::<B, C>(client, genesis_hash, genesis_work)?;
+	log::info!(
+		target: "qpow",
+		"Initialized genesis block {:?} achieved work to {}",
+		genesis_hash,
+		genesis_work
+	);
+
+	Ok(())
+}
+
+/// Get chain work using achieved difficulty from auxiliary storage.
+/// This is the new chain selection metric based on actual work done.
 pub fn get_chain_work<B, C>(client: &C, at_hash: B::Hash) -> Result<U512, sp_consensus::Error>
 where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B>,
-	C::Api: QPoWApi<B>,
+	B: BlockT,
+	C: AuxStore,
 {
-	client.runtime_api().get_total_work(at_hash).map_err(|e| {
-		sp_consensus::Error::Other(format!("Failed to get total work: {:?}", e).into())
+	get_cumulative_achieved_work::<B, C>(client, at_hash).map_err(|e| {
+		sp_consensus::Error::Other(
+			format!("Failed to get cumulative achieved work: {:?}", e).into(),
+		)
 	})
 }
 
@@ -285,37 +359,38 @@ where
 		let current_hash = chain_head.hash();
 		let current_number = *chain_head.number();
 
-		match self.client.runtime_api().get_total_work(current_hash) {
+		// Use achieved work from aux storage instead of runtime's TotalWork
+		match get_cumulative_achieved_work::<B, C>(&*self.client, current_hash) {
 			Ok(total_work) => {
-				log::info!(
-					"⛏️ Total chain work: {:?} for chain with head at #{:?} hash: {:?}",
-					total_work,
-					current_number,
-					current_hash
-				);
-				Ok(Some(total_work))
-			},
-			Err(e) => {
-				let is_pruned = is_state_pruned_error_raw(&e);
-				if is_pruned {
+				if total_work == U512::zero() {
+					// No achieved work stored - this block hasn't been imported with the new logic
 					log::warn!(
-						"Block state unavailable for chain head #{} (pruned or unknown): {:?}",
+						"No achieved work found in aux storage for chain head #{} (hash: {:?})",
 						current_number,
-						e
+						current_hash
 					);
 					Ok(None)
 				} else {
-					log::error!(
-						"Failed to get total work for chain with head #{}: {:?}",
+					log::info!(
+						"⛏️ Total achieved work: {:?} for chain with head at #{:?} hash: {:?}",
+						total_work,
 						current_number,
-						e
+						current_hash
 					);
-					Err(ChainManagementError::RuntimeApiError(format!(
-						"Failed to get total difficulty: {:?}",
-						e
-					))
-					.into())
+					Ok(Some(total_work))
 				}
+			},
+			Err(e) => {
+				log::error!(
+					"Failed to get achieved work for chain with head #{}: {:?}",
+					current_number,
+					e
+				);
+				Err(ChainManagementError::ChainLookup(format!(
+					"Failed to get achieved work: {:?}",
+					e
+				))
+				.into())
 			},
 		}
 	}

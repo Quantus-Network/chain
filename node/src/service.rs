@@ -567,6 +567,12 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		)?;
 	let client = Arc::new(client);
 
+	// Initialize genesis block's achieved work if not already set.
+	// Genesis has achieved work = 1 (represents the start of the chain).
+	if let Err(e) = sc_consensus_qpow::initialize_genesis_achieved_work::<Block, _>(&*client) {
+		log::warn!(target: "qpow", "Failed to initialize genesis achieved work: {:?}", e);
+	}
+
 	let telemetry = telemetry.map(|(worker, telemetry)| {
 		task_manager.spawn_handle().spawn("telemetry", None, worker.run());
 		telemetry

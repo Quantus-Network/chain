@@ -2,14 +2,15 @@ mod chain_management;
 mod worker;
 
 pub use chain_management::{
-	get_chain_work, is_heavier, ChainManagement, ChainManagementError, HeaviestChain,
+	get_chain_work, get_cumulative_achieved_work, initialize_genesis_achieved_work, is_heavier,
+	store_cumulative_achieved_work, ChainManagement, ChainManagementError, HeaviestChain,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::Seal as RawSeal;
 use sp_consensus_qpow::QPoWApi;
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+use sp_runtime::traits::Block as BlockT;
 use std::{sync::Arc, time::Duration};
 
 use crate::worker::UntilImportedOrTransaction;
@@ -246,34 +247,48 @@ where
 		)?;
 
 		let pre_hash = block_import_params.header.hash();
-		let verified = qpow_verify::<B, C>(
-			&*self.client,
-			&BlockId::hash(parent_hash),
-			&pre_hash,
-			&inner_seal,
-		)?;
+
+		// Convert seal to nonce
+		let nonce: [u8; 64] = inner_seal
+			.as_slice()
+			.try_into()
+			.map_err(|_| Error::<B>::Runtime("Seal does not have exactly 64 bytes".to_string()))?;
+		let pre_hash_arr: [u8; 32] = pre_hash.0;
+
+		// Verify nonce and get achieved difficulty in a single call
+		// This avoids computing the nonce hash twice
+		let (verified, achieved_difficulty) = self
+			.client
+			.runtime_api()
+			.verify_and_get_achieved_difficulty(parent_hash, pre_hash_arr, nonce)
+			.map_err(|e| {
+				Error::<B>::Runtime(format!(
+					"API error in verify_and_get_achieved_difficulty: {:?}",
+					e
+				))
+			})?;
 
 		if !verified {
 			log::error!("Invalid Seal {:?} for parent hash {:?}", inner_seal, parent_hash);
 			return Err(Error::<B>::InvalidSeal.into());
 		}
 
-		let info = self.client.info();
-		let incoming_difficulty =
-			self.client.runtime_api().get_difficulty(parent_hash).unwrap_or_else(|e| {
-				log::warn!(target: LOG_TARGET, "Failed to get difficulty for {parent_hash:?}: {e:?}");
-				U512::zero()
-			});
+		// Get parent's cumulative achieved work from aux storage
 		let parent_work = get_chain_work::<B, C>(&*self.client, parent_hash).unwrap_or_else(|e| {
-			log::warn!(target: LOG_TARGET, "Failed to get parent work for {parent_hash:?}: {e:?}");
+			log::warn!(target: LOG_TARGET, "Failed to get parent achieved work for {parent_hash:?}: {e:?}");
 			U512::zero()
 		});
-		let new_work = parent_work.saturating_add(incoming_difficulty);
+
+		// Calculate new cumulative achieved work
+		let new_work = parent_work.saturating_add(achieved_difficulty);
+
+		let info = self.client.info();
 		let current_best_work = get_chain_work::<B, C>(&*self.client, info.best_hash)
 			.unwrap_or_else(|e| {
-				log::warn!(target: LOG_TARGET, "Failed to get best chain work for {:?}: {e:?}", info.best_hash);
+				log::warn!(target: LOG_TARGET, "Failed to get best chain achieved work for {:?}: {e:?}", info.best_hash);
 				U512::zero()
 			});
+
 		let is_best = is_heavier(
 			new_work,
 			*block_import_params.header.number(),
@@ -281,6 +296,9 @@ where
 			info.best_number,
 		);
 		block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
+
+		// Store the block hash now so we can store achieved work after successful import
+		let block_hash = block_import_params.header.hash();
 
 		// Log block import progress every LOGGING_FREQUENCY blocks
 		let block_number = block_import_params.header.number();
@@ -306,6 +324,17 @@ where
 		}
 
 		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
+
+		// Store cumulative achieved work in auxiliary storage after successful import
+		if let Err(e) = store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, new_work)
+		{
+			log::warn!(
+				target: LOG_TARGET,
+				"Failed to store cumulative achieved work for {:?}: {:?}",
+				block_hash,
+				e
+			);
+		}
 
 		let info = self.client.info();
 		log::debug!(target: LOG_TARGET, "📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);
@@ -564,15 +593,7 @@ fn fetch_seal<B: BlockT>(digest: Option<&DigestItem>, hash: B::Hash) -> Result<R
 	}
 }
 
-pub fn extract_block_hash<B: BlockT<Hash = H256>>(parent: &BlockId<B>) -> Result<H256, Error<B>> {
-	match parent {
-		BlockId::Hash(hash) => Ok(*hash),
-		BlockId::Number(_) =>
-			Err(Error::Runtime("Expected BlockId::Hash, but got BlockId::Number".into())),
-	}
-}
-
-// Helper functions to enable removal of QPowAlgorithm by using the client directly.
+// Helper function to get difficulty via runtime API
 pub fn qpow_get_difficulty<B, C>(client: &C, parent: B::Hash) -> Result<U512, Error<B>>
 where
 	B: BlockT<Hash = H256>,
@@ -583,52 +604,4 @@ where
 		.runtime_api()
 		.get_difficulty(parent)
 		.map_err(|_| Error::Runtime("Failed to fetch difficulty".into()))
-}
-
-pub fn qpow_verify<B, C>(
-	client: &C,
-	parent: &BlockId<B>,
-	pre_hash: &H256,
-	seal: &RawSeal,
-) -> Result<bool, Error<B>>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B>,
-	C::Api: QPoWApi<B>,
-{
-	// Convert seal to nonce [u8; 64]
-	let nonce: [u8; 64] = match seal.as_slice().try_into() {
-		Ok(arr) => arr,
-		Err(_) => return Err(Error::Runtime("Seal does not have exactly 64 bytes".to_string())),
-	};
-
-	let parent_hash = match extract_block_hash(parent) {
-		Ok(hash) => hash,
-		Err(_) => return Ok(false),
-	};
-
-	let pre_hash_arr = pre_hash.0;
-
-	let verified = client
-		.runtime_api()
-		.verify_nonce_on_import_block(parent_hash, pre_hash_arr, nonce)
-		.map_err(|e| Error::Runtime(format!("API error in verify_nonce: {:?}", e)))?;
-
-	let difficulty = client
-		.runtime_api()
-		.get_difficulty(parent_hash)
-		.map_err(|e| Error::Runtime(format!("API error getting difficulty: {:?}", e)))?;
-
-	if !verified {
-		warn!(
-            "Current block {:?} with parent_hash {:?} and nonce {:?} and difficulty {:?} failed to verify in runtime",
-            hex::encode(pre_hash_arr),
-            parent_hash,
-            nonce,
-            difficulty
-        );
-		return Ok(false);
-	}
-
-	Ok(true)
 }

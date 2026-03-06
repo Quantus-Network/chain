@@ -26,7 +26,7 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{get_nonce_hash, is_valid_nonce};
+	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
@@ -379,6 +379,28 @@ pub mod pallet {
 			verify
 		}
 
+		/// Verify nonce validity and return achieved difficulty in a single call.
+		/// This avoids computing the nonce hash twice when both validation and
+		/// achieved difficulty are needed during block import.
+		pub fn verify_and_get_achieved_difficulty(
+			block_hash: [u8; 32],
+			nonce: NonceType,
+		) -> (bool, U512) {
+			let (valid, _difficulty, hash_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
+			let achieved_difficulty = achieved_difficulty_from_hash(hash_achieved);
+
+			if valid {
+				Self::deposit_event(Event::ProofSubmitted {
+					nonce,
+					difficulty: _difficulty,
+					hash_achieved,
+				});
+			}
+
+			(valid, achieved_difficulty)
+		}
+
 		pub fn initial_difficulty() -> Difficulty {
 			T::InitialDifficulty::get()
 		}
@@ -420,6 +442,23 @@ pub mod pallet {
 
 		pub fn get_max_reorg_depth() -> u32 {
 			T::MaxReorgDepth::get()
+		}
+
+		/// Calculate the achieved difficulty for a given block hash and nonce.
+		/// Achieved difficulty = U512::MAX / nonce_hash
+		/// A lower nonce_hash means more work was done, resulting in higher achieved difficulty.
+		/// This is used for chain selection - blocks with better (lower) hashes contribute
+		/// more to chain weight than those that just barely meet the target.
+		pub fn calculate_achieved_difficulty(block_hash: [u8; 32], nonce: NonceType) -> U512 {
+			let hash_result = get_nonce_hash(block_hash, nonce);
+			achieved_difficulty_from_hash(hash_result)
+		}
+
+		/// Calculate achieved difficulty from a pre-computed nonce hash.
+		/// Use this when you already have the hash (e.g., from is_valid_nonce) to avoid
+		/// recomputing it.
+		pub fn achieved_difficulty_from_hash(nonce_hash: U512) -> U512 {
+			achieved_difficulty_from_hash(nonce_hash)
 		}
 	}
 }

@@ -261,3 +261,73 @@ fn test_bitcoin_style_pow_properties() {
 		}
 	});
 }
+
+#[test]
+fn test_calculate_achieved_difficulty() {
+	new_test_ext().execute_with(|| {
+		let block_hash = [0x42u8; 32];
+		let nonce = [0x13u8; 64];
+
+		// Get the nonce hash
+		let nonce_hash = QPow::get_nonce_hash(block_hash, nonce);
+		assert_ne!(nonce_hash, U512::zero(), "Nonce hash should not be zero");
+
+		// Calculate achieved difficulty
+		let achieved_diff = QPow::calculate_achieved_difficulty(block_hash, nonce);
+
+		// Achieved difficulty should be U512::MAX / nonce_hash
+		let expected = U512::MAX / nonce_hash;
+		assert_eq!(
+			achieved_diff, expected,
+			"Achieved difficulty should equal U512::MAX / nonce_hash"
+		);
+
+		// A lower nonce hash should result in higher achieved difficulty
+		// (more work done = smaller hash = higher difficulty)
+		let mut nonce2 = [0u8; 64];
+		let hash1 = QPow::get_nonce_hash(block_hash, nonce);
+		nonce2[0] = 1;
+		let hash2 = QPow::get_nonce_hash(block_hash, nonce2);
+
+		let diff1 = QPow::calculate_achieved_difficulty(block_hash, nonce);
+		let diff2 = QPow::calculate_achieved_difficulty(block_hash, nonce2);
+
+		// If hash1 < hash2, then diff1 > diff2 (inverse relationship)
+		if hash1 < hash2 {
+			assert!(diff1 > diff2, "Lower hash should yield higher achieved difficulty");
+		} else if hash1 > hash2 {
+			assert!(diff1 < diff2, "Higher hash should yield lower achieved difficulty");
+		}
+		// If equal (extremely unlikely), difficulties would be equal too
+	});
+}
+
+#[test]
+fn test_verify_and_get_achieved_difficulty() {
+	new_test_ext().execute_with(|| {
+		let block_hash = [1u8; 32];
+		let nonce = [2u8; 64];
+
+		// Call the combined function
+		let (valid, achieved_diff) = QPow::verify_and_get_achieved_difficulty(block_hash, nonce);
+
+		// Check that verify_nonce_on_import_block returns the same validity
+		let expected_valid = QPow::verify_nonce_on_import_block(block_hash, nonce);
+		assert_eq!(valid, expected_valid, "Validity should match verify_nonce_on_import_block");
+
+		// Achieved difficulty should match what we'd get from calculate_achieved_difficulty
+		let expected_diff = QPow::calculate_achieved_difficulty(block_hash, nonce);
+		assert_eq!(
+			achieved_diff, expected_diff,
+			"Achieved difficulty should match calculate_achieved_difficulty"
+		);
+
+		// Also verify it matches the formula: U512::MAX / nonce_hash
+		let nonce_hash = QPow::get_nonce_hash(block_hash, nonce);
+		let expected_from_hash = U512::MAX / nonce_hash;
+		assert_eq!(
+			achieved_diff, expected_from_hash,
+			"Achieved difficulty should equal U512::MAX / nonce_hash"
+		);
+	});
+}
