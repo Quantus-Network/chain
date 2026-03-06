@@ -297,8 +297,14 @@ where
 		);
 		block_import_params.fork_choice = Some(ForkChoiceStrategy::Custom(is_best));
 
-		// Store the block hash now so we can store achieved work after successful import
-		let block_hash = block_import_params.header.hash();
+		// Store the block hash for achieved work storage after successful import
+		// Must use post_hash (with seal) because that's how blocks are referenced:
+		// - parent_hash in child blocks is the post_hash of the parent
+		// - client.info().best_hash is the post_hash
+		// - headers retrieved from DB have the seal, so header.hash() = post_hash
+		let block_hash = block_import_params
+			.post_hash
+			.expect("post_hash must be set by extract_pow_seal");
 
 		// Log block import progress every LOGGING_FREQUENCY blocks
 		let block_number = block_import_params.header.number();
@@ -323,9 +329,8 @@ where
 			);
 		}
 
-		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
-
-		// Store cumulative achieved work in auxiliary storage after successful import
+		// Store cumulative achieved work BEFORE inner import, because inner import
+		// triggers notifications that call best_chain which needs this data
 		if let Err(e) = store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, new_work)
 		{
 			log::warn!(
@@ -335,6 +340,8 @@ where
 				e
 			);
 		}
+
+		let result = self.inner.import_block(block_import_params).await.map_err(Into::into)?;
 
 		let info = self.client.info();
 		log::debug!(target: LOG_TARGET, "📦 Canonical tip: #{} ({:?})", info.best_number, info.best_hash);

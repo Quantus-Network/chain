@@ -211,22 +211,22 @@ where
 		let seal = DigestItem::Seal(POW_ENGINE_ID, seal);
 		let (header, body) = build.proposal.block.deconstruct();
 
-		let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
+		let mut import_block: BlockImportParams<Block> =
+			BlockImportParams::new(BlockOrigin::Own, header);
 		import_block.post_digests.push(seal);
 		import_block.body = Some(body);
 		import_block.state_action =
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
-		let header = import_block.post_header();
+		// Compute post_hash (with seal) for consistent achieved work storage
+		let block_number = *import_block.header.number();
+		let post_hash: Block::Hash = import_block.post_header().hash();
+		import_block.post_hash = Some(post_hash);
 		let import_result = self.block_import.import_block(import_block).await;
 
 		match import_result {
 			Ok(res) => {
-				res.handle_justification(
-					&header.hash(),
-					*header.number(),
-					&self.justification_sync_link,
-				);
+				res.handle_justification(&post_hash, block_number, &self.justification_sync_link);
 
 				true
 			},

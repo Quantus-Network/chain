@@ -359,6 +359,13 @@ where
 		let current_hash = chain_head.hash();
 		let current_number = *chain_head.number();
 
+		log::debug!(
+			target: "qpow",
+			"Looking up achieved work for block #{} with hash {:?}",
+			current_number,
+			current_hash
+		);
+
 		// Use achieved work from aux storage instead of runtime's TotalWork
 		match get_cumulative_achieved_work::<B, C>(&*self.client, current_hash) {
 			Ok(total_work) => {
