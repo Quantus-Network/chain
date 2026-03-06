@@ -4,7 +4,7 @@ mod worker;
 pub use chain_management::{
 	finalize_canonical_at_depth, get_chain_work, get_cumulative_achieved_work,
 	initialize_genesis_achieved_work, is_heavier, store_cumulative_achieved_work,
-	ChainManagementError, HeaviestChain,
+	ChainManagementError,
 };
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
@@ -26,7 +26,7 @@ use sc_consensus::{
 };
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
-use sp_consensus::{Environment, Error as ConsensusError, Proposer, SelectChain, SyncOracle};
+use sp_consensus::{Environment, Error as ConsensusError, Proposer, SyncOracle};
 use sp_consensus_pow::POW_ENGINE_ID;
 
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
@@ -97,9 +97,8 @@ impl<B: BlockT> From<Error<B>> for ConsensusError {
 }
 
 /// A block importer for PoW.
-pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, S, CIDP, BE, const LOGGING_FREQUENCY: u64> {
+pub struct PowBlockImport<B: BlockT<Hash = H256>, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64> {
 	inner: I,
-	select_chain: S,
 	client: Arc<C>,
 	create_inherent_data_providers: Arc<CIDP>,
 	check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
@@ -110,16 +109,14 @@ impl<
 		B: BlockT<Hash = H256>,
 		I: Clone,
 		C: ProvideRuntimeApi<B>,
-		S: Clone,
 		CIDP,
 		BE,
 		const LOGGING_FREQUENCY: u64,
-	> Clone for PowBlockImport<B, I, C, S, CIDP, BE, LOGGING_FREQUENCY>
+	> Clone for PowBlockImport<B, I, C, CIDP, BE, LOGGING_FREQUENCY>
 {
 	fn clone(&self) -> Self {
 		Self {
 			inner: self.inner.clone(),
-			select_chain: self.select_chain.clone(),
 			client: self.client.clone(),
 			create_inherent_data_providers: self.create_inherent_data_providers.clone(),
 			check_inherents_after: self.check_inherents_after,
@@ -128,8 +125,8 @@ impl<
 	}
 }
 
-impl<B, I, C, S, CIDP, BE, const LOGGING_FREQUENCY: u64>
-	PowBlockImport<B, I, C, S, CIDP, BE, LOGGING_FREQUENCY>
+impl<B, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64>
+	PowBlockImport<B, I, C, CIDP, BE, LOGGING_FREQUENCY>
 where
 	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
@@ -152,14 +149,12 @@ where
 		inner: I,
 		client: Arc<C>,
 		check_inherents_after: <<B as BlockT>::Header as HeaderT>::Number,
-		select_chain: S,
 		create_inherent_data_providers: CIDP,
 	) -> Self {
 		Self {
 			inner,
 			client,
 			check_inherents_after,
-			select_chain,
 			create_inherent_data_providers: Arc::new(create_inherent_data_providers),
 			_backend: PhantomData,
 		}
@@ -200,13 +195,12 @@ where
 }
 
 #[async_trait::async_trait]
-impl<B, I, C, S, CIDP, BE, const LOGGING_FREQUENCY: u64> BlockImport<B>
-	for PowBlockImport<B, I, C, S, CIDP, BE, LOGGING_FREQUENCY>
+impl<B, I, C, CIDP, BE, const LOGGING_FREQUENCY: u64> BlockImport<B>
+	for PowBlockImport<B, I, C, CIDP, BE, LOGGING_FREQUENCY>
 where
 	B: BlockT<Hash = H256>,
 	I: BlockImport<B> + Send + Sync,
 	I::Error: Into<ConsensusError>,
-	S: SelectChain<B>,
 	C: ProvideRuntimeApi<B>
 		+ BlockBackend<B>
 		+ Send
@@ -447,10 +441,9 @@ const MAX_REBUILDS_PER_SEC: u32 = 2;
 /// time).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-pub fn start_mining_worker<Block, C, S, E, SO, L, CIDP, TxHash, TxStream>(
+pub fn start_mining_worker<Block, C, E, SO, L, CIDP, TxHash, TxStream>(
 	block_import: BoxBlockImport<Block>,
 	client: Arc<C>,
-	select_chain: S,
 	mut env: E,
 	sync_oracle: SO,
 	justification_sync_link: L,
@@ -464,11 +457,11 @@ where
 	C: BlockchainEvents<Block>
 		+ ProvideRuntimeApi<Block>
 		+ BlockBackend<Block>
+		+ HeaderBackend<Block>
 		+ Send
 		+ Sync
 		+ 'static,
 	C::Api: QPoWApi<Block>,
-	S: SelectChain<Block> + 'static,
 	E: Environment<Block> + Send + Sync + 'static,
 	E::Error: std::fmt::Debug,
 	E::Proposer: Proposer<Block>,
@@ -497,19 +490,28 @@ where
 				continue;
 			}
 
-			let best_header = match select_chain.best_chain().await {
-				Ok(x) => x,
+			let best_hash = client.info().best_hash;
+			let best_header = match client.header(best_hash) {
+				Ok(Some(header)) => header,
+				Ok(None) => {
+					warn!(
+						target: LOG_TARGET,
+						"Unable to pull new block for authoring. \
+						 Best header not found for hash: {:?}",
+						best_hash
+					);
+					continue;
+				},
 				Err(err) => {
 					warn!(
 						target: LOG_TARGET,
 						"Unable to pull new block for authoring. \
-						 Select best chain error: {}",
+						 Header lookup error: {}",
 						err
 					);
 					continue;
 				},
 			};
-			let best_hash = best_header.hash();
 
 			// Skip redundant block import triggers if we're already building on this hash.
 			// Initial and NewTransactions triggers should proceed to rebuild.

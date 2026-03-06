@@ -417,7 +417,6 @@ fn spawn_authority_tasks(
 	task_manager: &mut TaskManager,
 	client: Arc<FullClient>,
 	transaction_pool: Arc<sc_transaction_pool::TransactionPoolHandle<Block, FullClient>>,
-	select_chain: FullSelectChain,
 	pow_block_import: PowBlockImport,
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	prometheus_registry: Option<prometheus::Registry>,
@@ -456,7 +455,6 @@ fn spawn_authority_tasks(
 	let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
 		Box::new(pow_block_import),
 		client.clone(),
-		select_chain,
 		proposer,
 		sync_service.clone(),
 		sync_service.clone(),
@@ -520,12 +518,10 @@ pub(crate) type FullClient = sc_service::TFullClient<
 	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
-type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 	Block,
 	Arc<FullClient>,
 	FullClient,
-	FullSelectChain,
 	Box<
 		dyn sp_inherents::CreateInherentDataProviders<
 			Block,
@@ -540,7 +536,7 @@ pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 pub type Service = sc_service::PartialComponents<
 	FullClient,
 	FullBackend,
-	FullSelectChain,
+	(),
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
 	(PowBlockImport, Option<Telemetry>),
@@ -579,8 +575,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		telemetry
 	});
 
-	let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client));
-
 	let pool_options = TransactionPoolOptions::new_with_params(
 		36772, /* each tx is about 7300 bytes so if we have 268MB for the pool we can fit this
 		        * many txs */
@@ -616,7 +610,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		Arc::clone(&client),
 		Arc::clone(&client),
 		0, // check inherents starting at block 0
-		select_chain.clone(),
 		inherent_data_providers,
 	);
 
@@ -633,7 +626,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		task_manager,
 		import_queue,
 		keystore_container,
-		select_chain,
+		select_chain: (),
 		transaction_pool,
 		other: (pow_block_import, telemetry),
 	})
@@ -655,7 +648,7 @@ pub fn new_full<
 		mut task_manager,
 		import_queue,
 		keystore_container,
-		select_chain,
+		select_chain: _,
 		transaction_pool,
 		other: (pow_block_import, mut telemetry),
 	} = new_partial(&config)?;
@@ -749,7 +742,6 @@ pub fn new_full<
 			&mut task_manager,
 			client,
 			transaction_pool,
-			select_chain.clone(),
 			pow_block_import,
 			sync_service,
 			prometheus_registry,
@@ -763,7 +755,6 @@ pub fn new_full<
 			&mut task_manager,
 			client,
 			transaction_pool,
-			select_chain.clone(),
 			pow_block_import,
 			sync_service,
 			prometheus_registry,

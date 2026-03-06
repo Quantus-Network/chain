@@ -1,20 +1,18 @@
 use codec::{Decode, Encode};
 use primitive_types::{H256, U512};
-use sc_client_api::{AuxStore, BlockBackend, Finalizer};
+use sc_client_api::{AuxStore, Finalizer};
 use sp_api::ProvideRuntimeApi;
-use sp_blockchain::{Backend, HeaderBackend};
-use sp_consensus::{Error as ConsensusError, SelectChain};
+use sp_blockchain::HeaderBackend;
+use sp_consensus::Error as ConsensusError;
 use sp_consensus_qpow::QPoWApi;
 use sp_runtime::traits::{Block as BlockT, Header, Zero};
-use std::{fmt, marker::PhantomData, sync::Arc};
+use std::fmt;
 
 const ACHIEVED_WORK_PREFIX: &[u8] = b"QPow:AchievedWork:";
 
 #[derive(Debug)]
 pub enum ChainManagementError {
 	ChainLookup(String),
-	NoValidChain,
-	FailedToFetchLeaves(String),
 	FinalizationFailed(String),
 	RuntimeApiError(String),
 }
@@ -23,8 +21,6 @@ impl fmt::Display for ChainManagementError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::ChainLookup(msg) => write!(f, "Chain lookup error: {}", msg),
-			Self::NoValidChain => write!(f, "No valid chain found"),
-			Self::FailedToFetchLeaves(msg) => write!(f, "Failed to fetch leaves: {}", msg),
 			Self::FinalizationFailed(msg) => write!(f, "Finalization failed: {}", msg),
 			Self::RuntimeApiError(msg) => write!(f, "Runtime API error: {}", msg),
 		}
@@ -37,8 +33,6 @@ impl From<ChainManagementError> for ConsensusError {
 	fn from(err: ChainManagementError) -> Self {
 		match err {
 			ChainManagementError::ChainLookup(msg) => ConsensusError::ChainLookup(msg),
-			ChainManagementError::NoValidChain =>
-				ConsensusError::ChainLookup("No valid chain found".into()),
 			other => ConsensusError::Other(Box::new(other)),
 		}
 	}
@@ -255,77 +249,4 @@ where
 	log::debug!("✓ Finalized block #{:?} ({:?})", finalize_number, finalize_hash);
 
 	Ok(())
-}
-
-pub struct HeaviestChain<B, C, BE>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore,
-	BE: sc_client_api::Backend<B>,
-{
-	backend: Arc<BE>,
-	client: Arc<C>,
-	_phantom: PhantomData<B>,
-}
-
-impl<B, C, BE> Clone for HeaviestChain<B, C, BE>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore,
-	BE: sc_client_api::Backend<B>,
-{
-	fn clone(&self) -> Self {
-		Self {
-			backend: Arc::clone(&self.backend),
-			client: Arc::clone(&self.client),
-			_phantom: PhantomData,
-		}
-	}
-}
-
-impl<B, C, BE> HeaviestChain<B, C, BE>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore + Send + Sync + 'static,
-	C::Api: QPoWApi<B>,
-	BE: sc_client_api::Backend<B> + 'static,
-{
-	pub fn new(backend: Arc<BE>, client: Arc<C>) -> Self {
-		log::debug!("Creating new HeaviestChain instance");
-
-		Self { backend, client, _phantom: PhantomData }
-	}
-}
-
-#[async_trait::async_trait]
-impl<B, C, BE> SelectChain<B> for HeaviestChain<B, C, BE>
-where
-	B: BlockT<Hash = H256>,
-	C: ProvideRuntimeApi<B> + HeaderBackend<B> + BlockBackend<B> + AuxStore + Send + Sync + 'static,
-	C::Api: QPoWApi<B>,
-	BE: sc_client_api::Backend<B> + 'static,
-{
-	async fn leaves(&self) -> Result<Vec<B::Hash>, ConsensusError> {
-		self.backend.blockchain().leaves().map_err(|e| {
-			ChainManagementError::FailedToFetchLeaves(format!("Failed to fetch leaves: {:?}", e))
-				.into()
-		})
-	}
-
-	/// Returns the current best chain header.
-	///
-	/// Since finalization now happens synchronously during block import,
-	/// the client's best_hash is always authoritative. The fork choice is
-	/// determined during import based on achieved work, and finalization
-	/// prunes competing forks that are beyond max_reorg_depth.
-	async fn best_chain(&self) -> Result<B::Header, ConsensusError> {
-		let best_hash = self.client.info().best_hash;
-
-		self.client
-			.header(best_hash)
-			.map_err(|e| {
-				ChainManagementError::ChainLookup(format!("Failed to get best header: {:?}", e))
-			})?
-			.ok_or_else(|| ChainManagementError::NoValidChain.into())
-	}
 }
