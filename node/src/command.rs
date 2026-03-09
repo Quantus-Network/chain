@@ -715,11 +715,7 @@ mod tests {
 		.unwrap();
 
 		assert_eq!(master.address, TEST_ADDRESS);
-		assert_eq!(
-			child0.address, TEST_ADDRESS_HD_0,
-			"child0: '{}', child1: '{}'",
-			child0.address, child1.address
-		);
+		assert_eq!(child0.address, TEST_ADDRESS_HD_0);
 		assert_eq!(child1.address, TEST_ADDRESS_HD_1);
 	}
 }
