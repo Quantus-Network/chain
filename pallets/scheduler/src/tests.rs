@@ -3749,3 +3749,277 @@ fn last_processed_timestamp_initialization_and_update_works() {
 		);
 	});
 }
+
+// ============================================================================
+// Bug regression tests
+// ============================================================================
+
+/// BUG #1: Task is permanently lost when weight check fails after .take() in service_agenda.
+///
+/// In service_agenda, a task is `.take()`n from the agenda BEFORE the base weight check.
+/// If the weight check then fails, `break` runs and the task is dropped — permanently lost.
+/// This triggers when the first task uses almost all available weight, leaving less than
+/// `service_task_base` (4 ref_time units) for the next task's pre-check.
+#[test]
+fn bug_task_lost_on_weight_exhaustion_after_take() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		// Overhead consumed before the second task's base weight check:
+		//   service_agendas_base (1) + service_agenda_base(2) (514) +
+		//   service_task_base (4) + execute_dispatch_unsigned (128) + call1_weight
+		// = 647 + call1_weight
+		//
+		// For the second task's can_consume(service_task_base=4) to fail:
+		//   647 + call1_weight + 4 > max_weight.ref_time()
+		//   call1_weight > max_weight.ref_time() - 651
+		//
+		// For the first task's execute_dispatch to succeed:
+		//   519 + 128 + call1_weight <= max_weight.ref_time()
+		//   call1_weight <= max_weight.ref_time() - 647
+		let call1_weight = Weight::from_parts(max_weight.ref_time() - 648, 0);
+		let call1 = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: call1_weight });
+		let call2 =
+			RuntimeCall::Logger(LoggerCall::log { i: 69, weight: Weight::from_parts(10, 0) });
+
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call1).unwrap(),
+		));
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			128,
+			root(),
+			Preimage::bound(call2).unwrap(),
+		));
+
+		assert_eq!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(), 2);
+
+		run_to_block(4);
+		// First task executes.
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+
+		// The second task MUST still be in the agenda (postponed, not lost).
+		let agenda = Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4));
+		assert!(
+			agenda.iter().any(|s| s.is_some()),
+			"BUG: Second task was permanently lost from the agenda after weight exhaustion"
+		);
+
+		// The second task should execute in the next block.
+		run_to_block(5);
+		assert_eq!(
+			logger::log(),
+			vec![(root(), 42u32), (root(), 69u32)],
+			"BUG: Second task never executed — it was permanently destroyed"
+		);
+	});
+}
+
+/// BUG #2: do_cancel_named leaks Retries and preimage when called with origin=None.
+///
+/// The v3::Named trait and ScheduleNamed trait call do_cancel_named(None, id).
+/// The cleanup of Retries and Preimages::drop only runs inside the `if let Some(origin)` branch,
+/// so when origin is None these resources are leaked.
+#[test]
+fn bug_cancel_named_via_trait_leaks_retries() {
+	new_test_ext().execute_with(|| {
+		Threshold::<Test>::put((99, 100));
+
+		let call = RuntimeCall::Logger(LoggerCall::timed_log {
+			i: 42,
+			weight: Weight::from_parts(10, 0),
+		});
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		assert_ok!(Scheduler::set_retry_named(
+			root().into(),
+			[1u8; 32],
+			10,
+			BlockNumberOrTimestamp::BlockNumber(3)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Cancel via the trait path (origin = None), as other pallets would.
+		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
+
+		// The task slot should be cleared.
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))
+				.iter()
+				.all(|s| s.is_none()),
+			"Task slot should be None after cancel"
+		);
+
+		// Retries should also be cleaned up.
+		assert_eq!(
+			Retries::<Test>::iter().count(),
+			0,
+			"BUG: Retries entry leaked after do_cancel_named with origin=None"
+		);
+	});
+}
+
+/// BUG #3: Preimage leaks when periodic rescheduling hits a type mismatch in saturating_add.
+///
+/// If a periodic task's period is a Timestamp but the current execution time (`now`) is a
+/// BlockNumber (or vice versa), `now.saturating_add(&period)` returns Err. The code silently
+/// skips rescheduling without dropping the preimage, leaking it forever.
+/// This only manifests with lookup-based calls (large calls that use the preimage system).
+#[test]
+fn bug_preimage_leak_on_periodic_type_mismatch() {
+	new_test_ext().execute_with(|| {
+		// Use a large call so Preimage::bound returns Bounded::Lookup (not Inline).
+		let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![0; 1024] });
+		let bound = Preimage::bound(call).unwrap();
+		assert!(bound.lookup_needed(), "Call must use preimage lookup for this test");
+		let hash = bound.lookup_hash().expect("Lookup call must have a hash");
+
+		// The preimage is requested when the task is scheduled.
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			Some((BlockNumberOrTimestamp::Timestamp(3000u64), 3)),
+			127,
+			root(),
+			bound,
+		));
+		assert!(Preimage::is_requested(&hash), "Preimage should be requested after scheduling");
+
+		run_to_block(4);
+		// The call dispatches but the periodic reschedule fails silently (type mismatch).
+		assert_eq!(Agenda::<Test>::iter().count(), 0, "Task should not be rescheduled");
+
+		// The preimage should have been dropped since the task won't run again.
+		assert!(
+			!Preimage::is_requested(&hash),
+			"BUG: Preimage leaked — still requested after periodic reschedule type mismatch"
+		);
+	});
+}
+
+/// BUG #4: set_retry accepts a mismatched period type, causing silent retry failure.
+///
+/// A task scheduled at a block number can have a Timestamp retry period set on it.
+/// When the retry fires, `now.saturating_add(&period)` returns Err (BlockNumber + Timestamp),
+/// and the retry is silently lost without any event.
+#[test]
+fn bug_mismatched_retry_period_silently_fails() {
+	new_test_ext().execute_with(|| {
+		Threshold::<Test>::put((99, 100));
+
+		let call = RuntimeCall::Logger(LoggerCall::timed_log {
+			i: 42,
+			weight: Weight::from_parts(10, 0),
+		});
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		// Set a Timestamp-based retry period on a BlockNumber-based task. This is a type mismatch.
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			10,
+			BlockNumberOrTimestamp::Timestamp(3000u64)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Task fails at block 4 (threshold not met). The retry should fire, but the
+		// mismatched period means schedule_retry's saturating_add returns Err.
+		run_to_block(4);
+
+		// The retry config was consumed but no retry was actually scheduled.
+		assert_eq!(
+			Agenda::<Test>::iter().count(),
+			0,
+			"BUG: No retry was scheduled due to type mismatch, task is silently lost"
+		);
+
+		// There should be a RetryFailed event, but there won't be one because the code
+		// silently returns without emitting any event when saturating_add fails.
+		let events = System::events();
+		let has_retry_failed = events.iter().any(|e| {
+			matches!(
+				e.event,
+				RuntimeEvent::Scheduler(crate::Event::RetryFailed { .. })
+			)
+		});
+		assert!(
+			has_retry_failed,
+			"BUG: No RetryFailed event emitted when retry period type doesn't match task domain"
+		);
+	});
+}
+
+/// BUG #5: Permanently overweight tasks become zombies, re-processed every block forever.
+///
+/// When a task is permanently overweight, its preimage is dropped but the task is kept in
+/// the agenda as Some(task). Every subsequent block, the scheduler re-processes it, fails
+/// the preimage lookup, emits CallUnavailable, and puts it back — an infinite loop.
+#[test]
+fn bug_permanently_overweight_task_emits_events_every_block() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![]);
+
+		// Task is permanently overweight — it should be removed after the event.
+		let overweight_events_after_4 = System::events()
+			.iter()
+			.filter(|e| {
+				matches!(
+					e.event,
+					RuntimeEvent::Scheduler(crate::Event::PermanentlyOverweight { .. })
+				)
+			})
+			.count();
+		assert_eq!(overweight_events_after_4, 1);
+
+		// Run more blocks. The task should NOT keep emitting events.
+		run_to_block(7);
+
+		let unavailable_events = System::events()
+			.iter()
+			.filter(|e| {
+				matches!(
+					e.event,
+					RuntimeEvent::Scheduler(crate::Event::CallUnavailable { .. })
+				)
+			})
+			.count();
+		assert_eq!(
+			unavailable_events, 0,
+			"BUG: Zombie task keeps emitting CallUnavailable events every block"
+		);
+
+		// The agenda should be clean.
+		assert_eq!(
+			Agenda::<Test>::iter().count(),
+			0,
+			"BUG: Permanently overweight task still occupies the agenda"
+		);
+	});
+}
