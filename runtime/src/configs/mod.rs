@@ -461,7 +461,6 @@ parameter_types! {
 	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
 	pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
-	pub const MaxReversibleTransfers: u32 = 10;
 	pub const MaxInterceptorAccounts: u32 = 32;
 	/// Volume fee for reversed transactions from high-security accounts only (1% fee is burned)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
@@ -471,7 +470,6 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type SchedulerOrigin = OriginCaller;
 	type Scheduler = Scheduler;
 	type BlockNumberProvider = System;
-	type MaxPendingPerAccount = MaxReversibleTransfers;
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = TargetBlockTime;
@@ -572,34 +570,17 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 	}
 
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
-		#[cfg(feature = "runtime-benchmarks")]
-		{
-			// Production whitelist + remark for propose_high_security benchmark
-			matches!(
-				call,
+		matches!(
+			call,
+			RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_transfer { .. }
+			) | RuntimeCall::ReversibleTransfers(
+				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
+			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
 				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_transfer { .. }
-				) | RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
-				) | RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::cancel { .. }
-				) | RuntimeCall::System(frame_system::Call::remark { .. })
-			)
-		}
-
-		#[cfg(not(feature = "runtime-benchmarks"))]
-		{
-			matches!(
-				call,
-				RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_transfer { .. }
-				) | RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
-				) | RuntimeCall::ReversibleTransfers(
-					pallet_reversible_transfers::Call::cancel { .. }
+					pallet_reversible_transfers::Call::recover_funds { .. }
 				)
-			)
-		}
+		)
 	}
 
 	fn guardian(who: &AccountId) -> Option<AccountId> {

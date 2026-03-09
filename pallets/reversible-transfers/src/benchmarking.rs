@@ -122,7 +122,6 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), recipient_lookup, transfer_amount.into());
 
-		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
 		assert!(PendingTransfers::<T>::contains_key(tx_id));
 		// Check scheduler state (can be complex, checking count is simpler)
 		let execute_at = <T as pallet::Config>::BlockNumberProvider::current_block_number()
@@ -164,14 +163,12 @@ mod benchmarks {
 		)?;
 
 		// Ensure setup worked before benchmarking cancel
-		assert_eq!(AccountPendingIndex::<T>::get(&caller), 1);
 		assert!(PendingTransfers::<T>::contains_key(tx_id));
 
 		// Benchmark the cancel extrinsic
 		#[extrinsic_call]
 		_(RawOrigin::Signed(interceptor), tx_id);
 
-		assert_eq!(AccountPendingIndex::<T>::get(&caller), 0);
 		assert!(!PendingTransfers::<T>::contains_key(tx_id));
 		// Check scheduler cancelled (agenda item removed)
 		let task_name = ReversibleTransfers::<T>::make_schedule_id(&tx_id)?;
@@ -206,7 +203,6 @@ mod benchmarks {
 		)?;
 
 		// Ensure setup worked
-		assert_eq!(AccountPendingIndex::<T>::get(&owner), 1);
 		assert!(PendingTransfers::<T>::contains_key(tx_id));
 
 		let pallet_account = pallet_account::<T>();
@@ -216,7 +212,6 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(execute_origin, tx_id);
 
-		assert_eq!(AccountPendingIndex::<T>::get(&owner), 0);
 		assert!(!PendingTransfers::<T>::contains_key(tx_id));
 
 		Ok(())
