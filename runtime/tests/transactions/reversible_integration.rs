@@ -26,7 +26,7 @@ fn high_security_end_to_end_flow() {
 	ext.execute_with(|| {
         // Set block number to 1 so events are deposited
         System::set_block_number(1);
-        
+
         // Initial balances snapshot
         let hs_start = Balances::free_balance(high_security_account());
         let interceptor_start = Balances::free_balance(interceptor());
@@ -63,7 +63,7 @@ fn high_security_end_to_end_flow() {
                 }
             })
             .expect("TransactionScheduled event should be emitted");
-        
+
         // Verify the pending transfer exists
         assert!(
             pallet_reversible_transfers::PendingTransfers::<quantus_runtime::Runtime>::get(tx_id).is_some(),
@@ -342,7 +342,7 @@ fn chained_guardian_high_security_account_flow() {
 
 		// Step 7: Verify account 1 cannot cancel account 2's transfers (not its guardian)
 		System::reset_events();
-		
+
 		// Schedule another transfer from account 2
 		assert_ok!(ReversibleTransfers::schedule_transfer(
 			RuntimeOrigin::signed(account_2.clone()),
