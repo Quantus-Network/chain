@@ -1136,9 +1136,7 @@ fn root_calls_works() {
 			i: 42,
 			weight: Weight::from_parts(10, 0),
 		}));
-		assert_ok!(
-			Scheduler::schedule_named(RuntimeOrigin::root(), [1u8; 32], 4, 127, call,)
-		);
+		assert_ok!(Scheduler::schedule_named(RuntimeOrigin::root(), [1u8; 32], 4, 127, call,));
 		assert_ok!(Scheduler::schedule(RuntimeOrigin::root(), 4, 127, call2));
 		run_to_block(3);
 		// Scheduled calls are in the agenda.
@@ -1238,13 +1236,7 @@ fn should_check_origin() {
 			weight: Weight::from_parts(10, 0),
 		}));
 		assert_noop!(
-			Scheduler::schedule_named(
-				system::RawOrigin::Signed(2).into(),
-				[1u8; 32],
-				4,
-				127,
-				call
-			),
+			Scheduler::schedule_named(system::RawOrigin::Signed(2).into(), [1u8; 32], 4, 127, call),
 			BadOrigin
 		);
 		assert_noop!(
@@ -1569,9 +1561,14 @@ fn scheduler_v3_anon_cancel_works() {
 		let bound = Preimage::bound(call).unwrap();
 
 		// Schedule a call.
-		let address =
-			<Scheduler as Anon<_, _, _>>::schedule(DispatchTime::At(4), None, 127, root(), bound.clone())
-				.unwrap();
+		let address = <Scheduler as Anon<_, _, _>>::schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			bound.clone(),
+		)
+		.unwrap();
 		// Cancel the call.
 		assert_ok!(<Scheduler as Anon<_, _, _>>::cancel(address));
 		// It did not get executed.
@@ -1640,9 +1637,14 @@ fn scheduler_v3_anon_next_schedule_time_works() {
 		let bound = Preimage::bound(call).unwrap();
 
 		// Schedule a call.
-		let address =
-			<Scheduler as Anon<_, _, _>>::schedule(DispatchTime::At(4), None, 127, root(), bound.clone())
-				.unwrap();
+		let address = <Scheduler as Anon<_, _, _>>::schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			bound.clone(),
+		)
+		.unwrap();
 
 		run_to_block(3);
 		// Did not execute till block 3.
@@ -1673,9 +1675,14 @@ fn scheduler_v3_anon_reschedule_and_next_schedule_time_work() {
 		let bound = Preimage::bound(call).unwrap();
 
 		// Schedule a call.
-		let old_address =
-			<Scheduler as Anon<_, _, _>>::schedule(DispatchTime::At(4), None, 127, root(), bound.clone())
-				.unwrap();
+		let old_address = <Scheduler as Anon<_, _, _>>::schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			bound.clone(),
+		)
+		.unwrap();
 
 		run_to_block(3);
 		// Did not execute till block 3.
@@ -1712,8 +1719,14 @@ fn scheduler_v3_anon_schedule_agenda_overflows() {
 
 		// Schedule the maximal number allowed per block.
 		for _ in 0..max {
-			<Scheduler as Anon<_, _, _>>::schedule(DispatchTime::At(4), None, 127, root(), bound.clone())
-				.unwrap();
+			<Scheduler as Anon<_, _, _>>::schedule(
+				DispatchTime::At(4),
+				None,
+				127,
+				root(),
+				bound.clone(),
+			)
+			.unwrap();
 		}
 
 		// One more time and it errors.
