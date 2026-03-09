@@ -60,9 +60,8 @@ fn fill_schedule<T: Config>(
 	let origin: <T as Config>::PalletsOrigin = frame_system::RawOrigin::Root.into();
 	for i in 0..n {
 		let call = make_call::<T>(None);
-		let period = Some((BlockNumberOrTimestamp::BlockNumber((i + 100).into()), 100));
 		let name = u32_to_name(i);
-		Scheduler::<T>::do_schedule_named(name, t, period, 0, origin.clone(), call)?;
+		Scheduler::<T>::do_schedule_named(name, t, 0, origin.clone(), call)?;
 	}
 	ensure!(
 		Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == n as usize,
@@ -76,23 +75,18 @@ fn u32_to_name(i: u32) -> TaskName {
 }
 
 fn make_task<T: Config>(
-	periodic: bool,
 	named: bool,
 	signed: bool,
 	maybe_lookup_len: Option<u32>,
 	priority: Priority,
 ) -> ScheduledOf<T> {
 	let call = make_call::<T>(maybe_lookup_len);
-	let maybe_periodic = match periodic {
-		true => Some((BlockNumberOrTimestamp::BlockNumber(100u32.into()), 100)),
-		false => None,
-	};
 	let maybe_id = match named {
 		true => Some(u32_to_name(0)),
 		false => None,
 	};
 	let origin = make_origin::<T>(signed);
-	Scheduled { maybe_id, priority, call, maybe_periodic, origin, _phantom: PhantomData }
+	Scheduled { maybe_id, priority, call, origin, _phantom: PhantomData }
 }
 
 fn bounded<T: Config>(len: u32) -> Option<BoundedCallOf<T>> {
@@ -161,54 +155,31 @@ benchmarks! {
 		assert_eq!(executed, 0);
 	}
 
-	// `service_task` when the task is a non-periodic, non-named, non-fetched call which is not
-	// dispatched (e.g. due to being overweight).
 	service_task_base {
 		let now = BLOCK_NUMBER.into();
-		let task = make_task::<T>(false, false, false, None, 0);
-		// prevent any tasks from actually being executed as we only want the surrounding weight.
+		let task = make_task::<T>(false, false, None, 0);
 		let mut counter = WeightMeter::with_limit(Weight::zero());
 	}: {
 		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
 	} verify {
-		//assert_eq!(result, Ok(()));
 	}
 
-	// `service_task` when the task is a non-periodic, non-named, fetched call (with a known
-	// preimage length) and which is not dispatched (e.g. due to being overweight).
 	#[pov_mode = MaxEncodedLen {
-		// Use measured PoV size for the Preimages since we pass in a length witness.
 		Preimage::PreimageFor: Measured
 	}]
 	service_task_fetched {
 		let s in (BoundedInline::bound() as u32) .. (T::Preimages::MAX_LENGTH as u32);
 		let now = BLOCK_NUMBER.into();
-		let task = make_task::<T>(false, false, false, Some(s), 0);
-		// prevent any tasks from actually being executed as we only want the surrounding weight.
+		let task = make_task::<T>(false, false, Some(s), 0);
 		let mut counter = WeightMeter::with_limit(Weight::zero());
 	}: {
 		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
 	} verify {
 	}
 
-	// `service_task` when the task is a non-periodic, named, non-fetched call which is not
-	// dispatched (e.g. due to being overweight).
 	service_task_named {
 		let now = BLOCK_NUMBER.into();
-		let task = make_task::<T>(false, true, false, None, 0);
-		// prevent any tasks from actually being executed as we only want the surrounding weight.
-		let mut counter = WeightMeter::with_limit(Weight::zero());
-	}: {
-		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
-	} verify {
-	}
-
-	// `service_task` when the task is a periodic, non-named, non-fetched call which is not
-	// dispatched (e.g. due to being overweight).
-	service_task_periodic {
-		let now = BLOCK_NUMBER.into();
-		let task = make_task::<T>(true, false, false, None, 0);
-		// prevent any tasks from actually being executed as we only want the surrounding weight.
+		let task = make_task::<T>(true, false, None, 0);
 		let mut counter = WeightMeter::with_limit(Weight::zero());
 	}: {
 		let result = Scheduler::<T>::service_task(&mut counter, BlockNumberOrTimestamp::BlockNumber(now), BlockNumberOrTimestamp::BlockNumber(now), 0, true, task);
@@ -240,13 +211,11 @@ benchmarks! {
 	schedule {
 		let s in 0 .. (T::MaxScheduledPerBlock::get() - 1);
 		let when = BLOCK_NUMBER.into();
-		let periodic = Some((BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one()), 100));
 		let priority = 0;
-		// Essentially a no-op call.
 		let call = Box::new(SystemCall::set_storage { items: vec![] }.into());
 
 		fill_schedule::<T>(when, s)?;
-	}: _(RawOrigin::Root, when, periodic, priority, call)
+	}: _(RawOrigin::Root, when, priority, call)
 	verify {
 		ensure!(
 			Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == (s + 1) as usize,
@@ -283,13 +252,11 @@ benchmarks! {
 		let s in 0 .. (T::MaxScheduledPerBlock::get() - 1);
 		let id = u32_to_name(s);
 		let when = BLOCK_NUMBER.into();
-		let periodic = Some((BlockNumberOrTimestamp::BlockNumber(BlockNumberFor::<T>::one()), 100));
 		let priority = 0;
-		// Essentially a no-op call.
 		let call = Box::new(SystemCall::set_storage { items: vec![] }.into());
 
 		fill_schedule::<T>(when, s)?;
-	}: _(RawOrigin::Root, id, when, periodic, priority, call)
+	}: _(RawOrigin::Root, id, when, priority, call)
 	verify {
 		ensure!(
 			Agenda::<T>::get(BlockNumberOrTimestamp::BlockNumber(when)).len() == (s + 1) as usize,

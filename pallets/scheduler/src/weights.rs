@@ -56,7 +56,6 @@ pub trait WeightInfo {
 	fn service_task_base() -> Weight;
 	fn service_task_fetched(s: u32, ) -> Weight;
 	fn service_task_named() -> Weight;
-	fn service_task_periodic() -> Weight;
 	fn execute_dispatch_signed() -> Weight;
 	fn execute_dispatch_unsigned() -> Weight;
 	fn schedule(s: u32, ) -> Weight;
@@ -133,13 +132,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 3_000_000 picoseconds.
 		Weight::from_parts(4_000_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
-	fn service_task_periodic() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `0`
-		//  Estimated: `0`
-		// Minimum execution time: 2_000_000 picoseconds.
-		Weight::from_parts(3_000_000, 0)
 	}
 	fn execute_dispatch_signed() -> Weight {
 		// Proof Size summary in bytes:
@@ -361,13 +353,6 @@ impl WeightInfo for () {
 		// Minimum execution time: 3_000_000 picoseconds.
 		Weight::from_parts(4_000_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
-	fn service_task_periodic() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `0`
-		//  Estimated: `0`
-		// Minimum execution time: 2_000_000 picoseconds.
-		Weight::from_parts(3_000_000, 0)
 	}
 	fn execute_dispatch_signed() -> Weight {
 		// Proof Size summary in bytes:

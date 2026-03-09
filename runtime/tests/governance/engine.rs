@@ -216,7 +216,6 @@ mod tests {
 			assert_ok!(Scheduler::schedule(
 				RuntimeOrigin::root(),
 				when,
-				None,
 				127,
 				Box::new(transfer_call),
 			));
