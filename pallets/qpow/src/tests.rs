@@ -142,10 +142,6 @@ fn test_difficulty_adjustment() {
 		// Difficulty should be tracked
 		let current_difficulty = QPow::get_difficulty();
 		assert!(current_difficulty > U512::zero());
-
-		// Total work should accumulate
-		let total_work = QPow::get_total_work();
-		assert!(total_work > U512::zero());
 	});
 }
 
@@ -173,10 +169,6 @@ fn test_difficulty_storage_and_retrieval() {
 
 		// 4. Simulate adjustment period
 		run_to_block(2);
-
-		// 5. Verify work accumulation
-		let total_work = QPow::get_total_work();
-		assert!(total_work > U512::zero(), "Total work should accumulate");
 	});
 }
 

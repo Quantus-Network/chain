@@ -19,11 +19,6 @@ sp_api::decl_runtime_apis! {
 		/// Get the current difficulty (max_distance / distance_threshold)
 		fn get_difficulty() -> U512;
 
-		/// Get total work (sum of target difficulties, informational only)
-		/// Note: Chain selection uses achieved difficulty stored in client aux storage,
-		/// not this value.
-		fn get_total_work() -> U512;
-
 		/// Get block ema
 		fn get_block_time_ema() -> u64;
 

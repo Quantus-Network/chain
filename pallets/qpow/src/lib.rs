@@ -50,9 +50,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, Difficulty, ValueQuery>;
 
-	#[pallet::storage]
-	pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
-
 	// Exponential Moving Average of block times (in milliseconds)
 	#[pallet::storage]
 	pub type BlockTimeEma<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
@@ -110,9 +107,6 @@ pub mod pallet {
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
-
-			// Initialize the total work with the genesis block's difficulty
-			<TotalWork<T>>::put(WorkValue::one());
 		}
 	}
 
@@ -201,18 +195,6 @@ pub mod pallet {
 			let last_time = <LastBlockTime<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
-
-			// Update TotalWork
-			let old_total_work = <TotalWork<T>>::get();
-			let current_work = Self::get_difficulty();
-			let new_total_work = old_total_work.saturating_add(current_work);
-			<TotalWork<T>>::put(new_total_work);
-			log::debug!(target: "qpow",
-				"Total work: now={}, last_time={}, diff={}",
-				new_total_work,
-				old_total_work,
-				new_total_work - old_total_work
-			);
 
 			// Only calculate block time if we're past the genesis block
 			if current_block_number > One::one() {
@@ -418,10 +400,6 @@ pub mod pallet {
 
 		pub fn get_max_difficulty() -> Difficulty {
 			U512::MAX
-		}
-
-		pub fn get_total_work() -> WorkValue {
-			<TotalWork<T>>::get()
 		}
 
 		pub fn get_block_time_ema() -> u64 {
