@@ -26,7 +26,7 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{get_nonce_hash, is_valid_nonce};
+	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
@@ -49,9 +49,6 @@ pub mod pallet {
 
 	#[pallet::storage]
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, Difficulty, ValueQuery>;
-
-	#[pallet::storage]
-	pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
 
 	// Exponential Moving Average of block times (in milliseconds)
 	#[pallet::storage]
@@ -110,9 +107,6 @@ pub mod pallet {
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
-
-			// Initialize the total work with the genesis block's difficulty
-			<TotalWork<T>>::put(WorkValue::one());
 		}
 	}
 
@@ -201,18 +195,6 @@ pub mod pallet {
 			let last_time = <LastBlockTime<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
-
-			// Update TotalWork
-			let old_total_work = <TotalWork<T>>::get();
-			let current_work = Self::get_difficulty();
-			let new_total_work = old_total_work.saturating_add(current_work);
-			<TotalWork<T>>::put(new_total_work);
-			log::debug!(target: "qpow",
-				"Total work: now={}, last_time={}, diff={}",
-				new_total_work,
-				old_total_work,
-				new_total_work - old_total_work
-			);
 
 			// Only calculate block time if we're past the genesis block
 			if current_block_number > One::one() {
@@ -379,6 +361,24 @@ pub mod pallet {
 			verify
 		}
 
+		/// Verify nonce validity and return achieved difficulty in a single call.
+		/// This avoids computing the nonce hash twice when both validation and
+		/// achieved difficulty are needed during block import.
+		///
+		/// Note: This is called via runtime API from the client side. Runtime API
+		/// calls execute in a temporary context where state changes are discarded,
+		/// so we don't emit events here.
+		pub fn verify_and_get_achieved_difficulty(
+			block_hash: [u8; 32],
+			nonce: NonceType,
+		) -> (bool, U512) {
+			let (valid, _difficulty, hash_achieved) =
+				Self::verify_nonce_internal(block_hash, nonce);
+			let achieved_difficulty = achieved_difficulty_from_hash(hash_achieved);
+
+			(valid, achieved_difficulty)
+		}
+
 		pub fn initial_difficulty() -> Difficulty {
 			T::InitialDifficulty::get()
 		}
@@ -400,10 +400,6 @@ pub mod pallet {
 
 		pub fn get_max_difficulty() -> Difficulty {
 			U512::MAX
-		}
-
-		pub fn get_total_work() -> WorkValue {
-			<TotalWork<T>>::get()
 		}
 
 		pub fn get_block_time_ema() -> u64 {

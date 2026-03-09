@@ -49,6 +49,17 @@ pub fn get_nonce_hash(
 	result
 }
 
+/// Calculate achieved difficulty from a pre-computed nonce hash.
+/// Achieved difficulty = U512::MAX / nonce_hash
+/// A lower nonce_hash means more work was done, resulting in higher achieved difficulty.
+pub fn achieved_difficulty_from_hash(nonce_hash: U512) -> U512 {
+	if nonce_hash == U512::zero() {
+		// Perfect hash (virtually impossible) = maximum difficulty
+		return U512::MAX;
+	}
+	U512::MAX / nonce_hash
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

@@ -26,7 +26,6 @@ mod benchmarks {
 
 		// Set up storage state
 		<CurrentDifficulty<T>>::put(initial_difficulty);
-		<TotalWork<T>>::put(U512::from(100000u64));
 
 		// Set timestamp
 		let now = 100000u64;
