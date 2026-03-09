@@ -866,11 +866,14 @@ pub mod pallet {
 		/// Remove expired proposals and return deposits to proposers
 		///
 		/// Can only be called by signers of the multisig.
-		/// Only removes Active proposals that have expired (past expiry block).
+		/// Removes Active or Approved proposals that have expired (past expiry block).
 		/// Executed and Cancelled proposals are automatically cleaned up immediately.
 		///
+		/// Approved+expired proposals can become stuck if proposer is unavailable (e.g. lost
+		/// keys, compromise). Allowing any signer to remove them prevents permanent deposit
+		/// lockup and enables multisig dissolution.
+		///
 		/// The deposit is always returned to the original proposer, not the caller.
-		/// This allows any signer to help clean up storage even if proposer is inactive.
 		#[pallet::call_index(4)]
 		#[pallet::weight(<T as Config>::WeightInfo::remove_expired(T::MaxCallSize::get()))]
 		pub fn remove_expired(
@@ -887,9 +890,14 @@ pub mod pallet {
 			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
 				.ok_or(Error::<T>::ProposalNotFound)?;
 
-			// Only Active proposals can be manually removed (Executed/Cancelled already
-			// auto-removed)
-			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
+			// Active or Approved proposals can be removed when expired (Executed/Cancelled
+			// are auto-removed). Approved+expired would otherwise be stuck if proposer
+			// unavailable.
+			ensure!(
+				proposal.status == ProposalStatus::Active ||
+					proposal.status == ProposalStatus::Approved,
+				Error::<T>::ProposalNotActive,
+			);
 
 			// Check if expired
 			let current_block = frame_system::Pallet::<T>::block_number();
@@ -918,10 +926,10 @@ pub mod pallet {
 		///
 		/// This is a batch operation that removes all expired proposals where:
 		/// - Caller is the proposer
-		/// - Proposal is Active and past expiry block
+		/// - Proposal is Active or Approved and past expiry block
 		///
 		/// Note: Executed and Cancelled proposals are automatically cleaned up immediately,
-		/// so only Active+Expired proposals need manual cleanup.
+		/// so only Active+Expired and Approved+Expired proposals need manual cleanup.
 		///
 		/// Returns all proposal deposits to the proposer in a single transaction.
 		#[pallet::call_index(5)]
@@ -1226,9 +1234,10 @@ pub mod pallet {
 						total_iterated += 1; // Count every proposal we iterate through
 						total_call_bytes += proposal.call.len() as u32;
 
-						// Only proposer's expired active proposals
+						// Only proposer's expired proposals (Active or Approved)
 						if proposal.proposer == *proposer &&
-							proposal.status == ProposalStatus::Active &&
+							(proposal.status == ProposalStatus::Active ||
+								proposal.status == ProposalStatus::Approved) &&
 							current_block > proposal.expiry
 						{
 							Some((proposal_id, proposal.proposer, proposal.deposit))
