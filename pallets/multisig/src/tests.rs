@@ -23,13 +23,9 @@ impl HighSecurityInspector<AccountId32, RuntimeCall> for MockHighSecurity {
 		false
 	}
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
-		// For testing, remarks exactly equal to "safe" are whitelisted
-		// For benchmarks, reversible-transfers cancel is whitelisted
 		match call {
-			RuntimeCall::System(frame_system::Call::remark { remark }) => {
-				// Check if remark is exactly "safe"
-				remark.as_slice() == b"safe"
-			},
+			RuntimeCall::System(frame_system::Call::remark { remark }) =>
+				remark.as_slice() == b"safe",
 			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
 				..
 			}) => true,

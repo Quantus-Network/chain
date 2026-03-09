@@ -222,9 +222,7 @@ mod benchmarks {
 	}
 
 	/// Benchmark `propose` for high-security multisigs.
-	/// Uses signer1/signer2 so multisig address matches genesis (ReversibleTransfers::
-	/// initial_high_security_accounts) or mock's HighSecurity (unit tests).
-	/// Uses a real whitelisted call (cancel with dummy tx_id) so HS path accepts it.
+	/// Uses signer1/signer2 so multisig address matches genesis or mock's HighSecurity.
 	#[benchmark]
 	fn propose_high_security(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
@@ -239,8 +237,6 @@ mod benchmarks {
 		);
 		set_block::<T>(100);
 
-		// Use a real whitelisted call: cancel with a dummy tx_id
-		// The tx_id doesn't need to exist since we're only benchmarking propose, not execute
 		let whitelisted_call =
 			pallet_reversible_transfers::Call::<T>::cancel { tx_id: Default::default() };
 		let runtime_call: <T as Config>::RuntimeCall = whitelisted_call.into();
