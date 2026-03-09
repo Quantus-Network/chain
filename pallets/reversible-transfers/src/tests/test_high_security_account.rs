@@ -7,6 +7,12 @@ use crate::{
 };
 use frame_support::{assert_err, assert_ok};
 use pallet_balances::TotalIssuance;
+use crate::{
+	HoldReason,
+};
+use frame_support::{
+	traits::fungible::InspectHold,
+};
 
 // NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
 // external pallets (Proxy). They are covered by integration tests in runtime.
@@ -106,6 +112,89 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 			TotalIssuance::<Test>::get(),
 			initial_total_issuance - expected_fee,
 			"Volume fee should be burned from total issuance"
+		);
+	});
+}
+
+// --- Known issues tracked for future fix (require AccountId → PendingTransfers index) ---
+
+#[test]
+#[ignore = "recover_funds does not yet cancel pending transfers or release holds"]
+fn recover_funds_includes_held_pending_amounts() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs_user = alice();
+		let guardian = bob();
+		let dest = charlie();
+		let amount = 500;
+
+		let initial_hs_balance = Balances::free_balance(&hs_user);
+		let initial_guardian_balance = Balances::free_balance(&guardian);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(hs_user.clone()),
+			dest.clone(),
+			amount,
+		));
+
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&hs_user
+			),
+			amount
+		);
+
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			hs_user.clone()
+		));
+
+		assert_eq!(
+			Balances::free_balance(&guardian),
+			initial_guardian_balance + initial_hs_balance,
+			"Guardian should receive ALL funds including held amounts"
+		);
+
+		assert_eq!(
+			Balances::balance_on_hold(
+				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
+				&hs_user
+			),
+			0,
+			"No holds should remain after recovery"
+		);
+	});
+}
+
+#[test]
+#[ignore = "recover_funds does not yet cancel pending transfers or release holds"]
+fn recover_funds_cancels_pending_transfers() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs_user = alice();
+		let guardian = bob();
+		let dest = charlie();
+		let amount = 500;
+
+		let call = transfer_call(dest.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(hs_user.clone(), &call);
+
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(hs_user.clone()),
+			dest.clone(),
+			amount,
+		));
+		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
+
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			hs_user.clone()
+		));
+
+		assert!(
+			ReversibleTransfers::pending_dispatches(tx_id).is_none(),
+			"Pending transfers should be cancelled after recovery"
 		);
 	});
 }

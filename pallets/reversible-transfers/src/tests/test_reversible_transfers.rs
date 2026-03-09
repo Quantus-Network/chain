@@ -1992,3 +1992,35 @@ fn cancelled_reversible_transfer_does_not_record_proof() {
 		);
 	});
 }
+
+
+#[test]
+fn validate_delay_accepts_delay_equal_to_minimum() {
+	new_test_ext().execute_with(|| {
+		let user = charlie();
+		let interceptor = dave();
+		let delay = BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get());
+
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(user),
+			delay,
+			interceptor,
+		));
+	});
+}
+
+#[test]
+fn validate_delay_accepts_timestamp_equal_to_minimum() {
+	new_test_ext().execute_with(|| {
+		let user = charlie();
+		let interceptor = dave();
+		let delay = BlockNumberOrTimestamp::Timestamp(MinDelayPeriodMoment::get());
+
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(user),
+			delay,
+			interceptor,
+		));
+	});
+}
+
