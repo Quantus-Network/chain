@@ -3,9 +3,9 @@ use crate::{
 		mock::*,
 		test_reversible_transfers::{calculate_tx_id, transfer_call},
 	},
-	Event, HoldReason,
+	Event,
 };
-use frame_support::{assert_err, assert_ok, traits::fungible::InspectHold};
+use frame_support::{assert_err, assert_ok};
 use pallet_balances::TotalIssuance;
 
 // NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
