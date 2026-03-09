@@ -699,6 +699,177 @@ fn remove_expired_fails_for_non_signer() {
 }
 
 #[test]
+fn remove_expired_works_for_approved_expired_proposal() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		let expiry = 100;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			call.clone(),
+			expiry
+		));
+
+		let proposal_id = get_last_proposal_id(&multisig_address);
+
+		// Charlie approves → status becomes Approved
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		let proposal = Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		// Move past expiry - proposal can no longer be executed
+		System::set_block_number(expiry + 1);
+
+		// Any signer (charlie, not proposer) can remove expired Approved proposal
+		// This unblocks deposits and enables multisig dissolution when proposer unavailable
+		assert_ok!(Multisig::remove_expired(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Proposal should be gone
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+
+		// Deposit returned to proposer (bob)
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+#[test]
+fn claim_deposits_works_for_approved_expired_proposals() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Bob creates 2 proposals
+		for i in 0..2 {
+			let call = make_call(vec![i as u8; 32]);
+			assert_ok!(Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				call,
+				100
+			));
+		}
+
+		// Charlie approves both → Approved
+		for proposal_id in 0..=1 {
+			assert_ok!(Multisig::approve(
+				RuntimeOrigin::signed(charlie()),
+				multisig_address.clone(),
+				proposal_id
+			));
+		}
+
+		// Move past expiry
+		System::set_block_number(201);
+
+		// Bob (proposer) claims deposits from expired Approved proposals
+		assert_ok!(Multisig::claim_deposits(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone()
+		));
+
+		// All deposits returned
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+
+		// Proposals removed
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
+		assert!(Proposals::<Test>::get(&multisig_address, 1).is_none());
+	});
+}
+
+#[test]
+fn remove_expired_unblocks_undecodable_approved_proposal() {
+	// Non-high-security multisig can have proposals with invalid call bytes.
+	// Execute fails with InvalidCall, proposal stays. After expiry, remove_expired unblocks.
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+		// Non-high-security (not account 100), so no decode at propose
+		assert!(!MockHighSecurity::is_high_security(&multisig_address));
+
+		// Invalid call bytes - will fail decode at execute
+		let undecodable_call = vec![0xff; 32];
+		let expiry = 100;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			undecodable_call,
+			expiry
+		));
+
+		let proposal_id = get_last_proposal_id(&multisig_address);
+
+		// Charlie approves → Approved
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Execute fails (InvalidCall) - proposal stays in storage
+		assert_err_ignore_postinfo(
+			Multisig::execute(RuntimeOrigin::signed(bob()), multisig_address.clone(), proposal_id),
+			Error::<Test>::InvalidCall.into(),
+		);
+		assert!(Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+
+		// Move past expiry
+		System::set_block_number(expiry + 1);
+
+		// Any signer can remove expired Approved proposal (even with undecodable call)
+		assert_ok!(Multisig::remove_expired(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+#[test]
 fn claim_deposits_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);

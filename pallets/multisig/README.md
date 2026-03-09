@@ -148,7 +148,7 @@ Dispatches an **Approved** proposal. Can be called by any signer of the multisig
 **Economic Costs:** Weight depends on call size (charged upfront for MaxCallSize, refunded for actual size).
 
 ### 6. Remove Expired
-Manually removes a single expired **Active** proposal from storage. Only signers can call this. Deposit is returned to the original proposer.
+Manually removes a single expired **Active or Approved** proposal from storage. Only signers can call this. Deposit is returned to the original proposer.
 
 **Required Parameters:**
 - `multisig_address: AccountId` - Target multisig (REQUIRED)
@@ -156,10 +156,10 @@ Manually removes a single expired **Active** proposal from storage. Only signers
 
 **Validation:**
 - Caller must be a signer of the multisig
-- Proposal must exist and be Active
+- Proposal must exist and be Active or Approved
 - Must be expired (current_block > expiry)
 
-**Note:** Executed/Cancelled proposals are removed immediately when executed/cancelled. This extrinsic only applies to **Active** proposals that are past expiry.
+**Note:** Executed/Cancelled proposals are removed immediately when executed/cancelled. This extrinsic applies to **Active+Expired** and **Approved+Expired** proposals. Approved+expired proposals would otherwise be stuck if the proposer is unavailable (e.g. lost keys); any signer can remove them to unblock deposits and enable multisig dissolution.
 
 **Economic Effects:**
 - ProposalDeposit returned to **original proposer** (not caller)
@@ -176,12 +176,12 @@ Batch cleanup operation to recover all caller's expired proposal deposits.
 
 **Validation:**
 - Only cleans proposals where caller is proposer
-- Only removes Active+Expired proposals (Executed/Cancelled already auto-removed)
+- Only removes Active+Expired and Approved+Expired proposals (Executed/Cancelled already auto-removed)
 - Must be expired (current_block > expiry)
 
 **Behavior:**
 - Iterates through ALL proposals in the multisig
-- Removes all that match: proposer=caller AND expired AND status=Active
+- Removes all that match: proposer=caller AND expired AND (status=Active OR status=Approved)
 - No iteration limits - cleans all in one call
 
 **Economic Effects:**
@@ -485,7 +485,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 
 ### Storage Cleanup
 - No auto-cleanup in `propose()` (predictable weight; proposer must free slots via cleanup)
-- Manual cleanup via `remove_expired()`: any signer can remove a single expired Active proposal (deposit → proposer)
+- Manual cleanup via `remove_expired()`: any signer can remove a single expired Active or Approved proposal (deposit → proposer)
 - Batch cleanup via `claim_deposits()`: proposer recovers all their expired proposal deposits at once and frees per-signer quota
 
 ### Economic Attacks
