@@ -44,8 +44,9 @@ where
 
 #[benchmarks(
 	where
-	T: Config + pallet_balances::Config,
+	T: Config + pallet_balances::Config + pallet_reversible_transfers::Config,
 	BalanceOf2<T>: From<u128>,
+	<T as Config>::RuntimeCall: From<pallet_reversible_transfers::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
@@ -208,7 +209,8 @@ mod benchmarks {
 		set_block::<T>(100);
 
 		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
-		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
+		let runtime_call: <T as Config>::RuntimeCall = new_call.into();
+		let encoded_call = runtime_call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
@@ -222,7 +224,7 @@ mod benchmarks {
 	/// Benchmark `propose` for high-security multisigs.
 	/// Uses signer1/signer2 so multisig address matches genesis (ReversibleTransfers::
 	/// initial_high_security_accounts) or mock's HighSecurity (unit tests).
-	/// Uses whitelisted call (remark "safe") so HS path accepts it.
+	/// Uses a real whitelisted call (cancel with dummy tx_id) so HS path accepts it.
 	#[benchmark]
 	fn propose_high_security(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
@@ -237,8 +239,12 @@ mod benchmarks {
 		);
 		set_block::<T>(100);
 
-		let new_call = frame_system::Call::<T>::remark { remark: b"safe".to_vec() };
-		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
+		// Use a real whitelisted call: cancel with a dummy tx_id
+		// The tx_id doesn't need to exist since we're only benchmarking propose, not execute
+		let whitelisted_call =
+			pallet_reversible_transfers::Call::<T>::cancel { tx_id: Default::default() };
+		let runtime_call: <T as Config>::RuntimeCall = whitelisted_call.into();
+		let encoded_call = runtime_call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]

@@ -153,10 +153,6 @@ pub mod pallet {
 		/// Block number provider for scheduling.
 		type BlockNumberProvider: BlockNumberProvider<BlockNumber = BlockNumberFor<Self>>;
 
-		/// Maximum pending reversible transactions allowed per account. Used for BoundedVec.
-		#[pallet::constant]
-		type MaxPendingPerAccount: Get<u32>;
-
 		/// Maximum number of accounts an interceptor can intercept for. Used for BoundedVec.
 		#[pallet::constant]
 		type MaxInterceptorAccounts: Get<u32>;
@@ -228,37 +224,6 @@ pub mod pallet {
 	pub type PendingTransfers<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::Hash, PendingTransferOf<T>, OptionQuery>;
 
-	/// Indexes pending transaction IDs per account for efficient lookup and cancellation.
-	/// Also enforces the maximum pending transactions limit per account.
-	#[pallet::storage]
-	#[pallet::getter(fn account_pending_index)]
-	pub type AccountPendingIndex<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
-
-	/// Maps sender accounts to their list of pending transaction IDs.
-	/// This allows users to query all their outgoing pending transfers.
-	#[pallet::storage]
-	#[pallet::getter(fn pending_transfers_by_sender)]
-	pub type PendingTransfersBySender<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		BoundedVec<T::Hash, T::MaxPendingPerAccount>,
-		ValueQuery,
-	>;
-
-	/// Maps recipient accounts to their list of pending incoming transaction IDs.
-	/// This allows users to query all their incoming pending transfers.
-	#[pallet::storage]
-	#[pallet::getter(fn pending_transfers_by_recipient)]
-	pub type PendingTransfersByRecipient<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		BoundedVec<T::Hash, T::MaxPendingPerAccount>,
-		ValueQuery,
-	>;
-
 	/// Maps interceptor accounts to the list of accounts they can intercept for.
 	/// This allows the UI to efficiently query all accounts for which a given account is an
 	/// interceptor.
@@ -320,8 +285,6 @@ pub mod pallet {
 		PendingTxNotFound,
 		/// The caller is not the original submitter of the transaction they are trying to cancel.
 		NotOwner,
-		/// The account has reached the maximum number of pending reversible transactions.
-		TooManyPendingTransactions,
 		/// The specified delay period is below the configured minimum.
 		DelayTooShort,
 		/// Failed to schedule the transaction execution with the scheduler pallet.
@@ -635,8 +598,8 @@ pub mod pallet {
 					None
 				};
 
-			// Remove transfer from all storage (handles indexes, account count, etc.)
-			Self::transfer_removed(&pending.from, *tx_id, &pending);
+			// Remove transfer from storage
+			PendingTransfers::<T>::remove(tx_id);
 
 			let post_info =
 				call.dispatch(frame_system::RawOrigin::Signed(pending.from.clone()).into());
@@ -663,58 +626,6 @@ pub mod pallet {
 				tx_id.clone().as_ref().try_into().map_err(|_| Error::<T>::InvalidCall)?;
 
 			Ok(task_name)
-		}
-
-		/// Called when a new transfer is added - updates all storage indexes
-		fn transfer_added(
-			sender: &T::AccountId,
-			recipient: &T::AccountId,
-			tx_id: T::Hash,
-			pending_transfer: PendingTransferOf<T>,
-		) -> DispatchResult {
-			// Store the pending transfer
-			PendingTransfers::<T>::insert(tx_id, pending_transfer);
-
-			// Update account pending count
-			AccountPendingIndex::<T>::mutate(sender, |count| {
-				*count = count.saturating_add(1);
-			});
-
-			// Add to sender's pending list
-			PendingTransfersBySender::<T>::try_mutate(sender, |list| {
-				list.try_push(tx_id).map_err(|_| Error::<T>::TooManyPendingTransactions)
-			})?;
-
-			// Add to recipient's pending list
-			PendingTransfersByRecipient::<T>::try_mutate(recipient, |list| {
-				list.try_push(tx_id).map_err(|_| Error::<T>::TooManyPendingTransactions)
-			})?;
-
-			Ok(())
-		}
-
-		/// Called when a transfer is removed - cleans up all storage indexes
-		fn transfer_removed(
-			sender: &T::AccountId,
-			tx_id: T::Hash,
-			pending_transfer: &PendingTransferOf<T>,
-		) {
-			// Update account pending count (always decrement for each removed instance)
-			AccountPendingIndex::<T>::mutate(sender, |count| {
-				*count = count.saturating_sub(1);
-			});
-
-			PendingTransfers::<T>::remove(tx_id);
-
-			// Clean up sender index
-			PendingTransfersBySender::<T>::mutate(sender, |list| {
-				list.retain(|&x| x != tx_id);
-			});
-
-			// Clean up recipient index efficiently using stored recipient
-			PendingTransfersByRecipient::<T>::mutate(&pending_transfer.to, |list| {
-				list.retain(|&x| x != tx_id);
-			});
 		}
 
 		/// Internal logic to schedule a transfer with a given delay.
@@ -748,13 +659,6 @@ pub mod pallet {
 			log::debug!(target: "reversible-transfers", "Reversible transfer scheduled with delay: {delay:?}");
 			log::debug!(target: "reversible-transfers", "Reversible transfer tx_id: {tx_id:?}");
 
-			// Check if the account can accommodate another pending transaction
-			let current_count = AccountPendingIndex::<T>::get(&from);
-			ensure!(
-				current_count < T::MaxPendingPerAccount::get(),
-				Error::<T>::TooManyPendingTransactions
-			);
-
 			let dispatch_time = match delay {
 				BlockNumberOrTimestamp::BlockNumber(blocks) => DispatchTime::At(
 					<T as pallet::Config>::BlockNumberProvider::current_block_number()
@@ -782,8 +686,8 @@ pub mod pallet {
 
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
 
-			// Add transfer to all storage (handles indexes, account count, etc.)
-			Self::transfer_added(&from, &recipient, tx_id, new_pending)?;
+			// Store the pending transfer
+			PendingTransfers::<T>::insert(tx_id, new_pending);
 
 			let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
@@ -863,8 +767,8 @@ pub mod pallet {
 				pending.from.clone()
 			};
 
-			// Remove transfer from all storage (handles indexes, account count, etc.)
-			Self::transfer_removed(&pending.from, tx_id, &pending);
+			// Remove transfer from storage
+			PendingTransfers::<T>::remove(tx_id);
 
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
 

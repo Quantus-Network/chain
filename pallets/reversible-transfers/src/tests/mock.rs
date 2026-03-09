@@ -250,7 +250,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Scheduler = Scheduler;
 	type BlockNumberProvider = System;
-	type MaxPendingPerAccount = MaxReversibleTransfers;
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = MinDelayPeriodMoment;
