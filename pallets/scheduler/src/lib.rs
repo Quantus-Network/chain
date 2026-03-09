@@ -1032,7 +1032,7 @@ impl<T: Config> Pallet<T> {
 
 		// Process up to `max` tasks in priority order.
 		for (agenda_index, _) in ordered.into_iter().take(max as usize) {
-			// Take the task out of the agenda slot, leaving None. 
+			// Take the task out of the agenda slot, leaving None.
 			let task = match agenda[agenda_index as usize].take() {
 				None => continue, // we already filtered out empty slots, this never happens.
 				Some(t) => t,
@@ -1054,7 +1054,7 @@ impl<T: Config> Pallet<T> {
 
 			// Execute the task.
 			let result = Self::service_task(weight, now, when, agenda_index, *executed == 0, task);
-			
+
 			// Put the task back in the agenda if it was not executed.
 			agenda[agenda_index as usize] = match result {
 				// Preimage not available -- slot may contain Some(task) to retry later,
@@ -1190,7 +1190,7 @@ impl<T: Config> Pallet<T> {
 					match now.saturating_add(&period) {
 						Ok(wake) => match Self::place_task(wake, task) {
 							Ok(new_address) =>
-								// Carry the retry config forward to the new address.
+							// Carry the retry config forward to the new address.
 								if let Some(retry_config) = maybe_retry_config {
 									Retries::<T>::insert(new_address, retry_config);
 								},
