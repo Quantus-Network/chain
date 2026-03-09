@@ -144,7 +144,7 @@ where
 	PalletsOrigin: Clone,
 {
 	/// Create a new task to be used for retry attempts of the original one. The cloned task will
-	/// have the same `priority`, `call` and `origin`, but will always be non-periodic and unnamed.
+	/// have the same `priority`, `call` and `origin`, but will always be unnamed.
 	pub fn as_retry(&self) -> Self {
 		Self {
 			maybe_id: None,
@@ -490,10 +490,9 @@ pub mod pallet {
 		/// succeeds.
 		///
 		/// Tasks which need to be scheduled for a retry are still subject to weight metering and
-		/// agenda space, same as a regular task. If a periodic task fails, it will be scheduled
-		/// normally while the task is retrying.
+		/// agenda space, same as a regular task.
 		///
-		/// Tasks scheduled as a result of a retry for a periodic task are unnamed, non-periodic
+		/// Tasks scheduled as a result of a retry are unnamed
 		/// clones of the original task. Their retry configuration will be derived from the
 		/// original task's configuration, but will have a lower value for `remaining` than the
 		/// original `total_retries`.
@@ -527,10 +526,9 @@ pub mod pallet {
 		/// it succeeds.
 		///
 		/// Tasks which need to be scheduled for a retry are still subject to weight metering and
-		/// agenda space, same as a regular task. If a periodic task fails, it will be scheduled
-		/// normally while the task is retrying.
+		/// agenda space, same as a regular task.
 		///
-		/// Tasks scheduled as a result of a retry for a periodic task are unnamed, non-periodic
+		/// Tasks scheduled as a result of a retry are unnamed
 		/// clones of the original task. Their retry configuration will be derived from the
 		/// original task's configuration, but will have a lower value for `remaining` than the
 		/// original `total_retries`.
@@ -1030,7 +1028,6 @@ impl<T: Config> Pallet<T> {
 	/// This involves:
 	/// - removing and potentially replacing the `Lookup` entry for the task.
 	/// - realizing the task's call which can include a preimage lookup.
-	/// - Rescheduling the task for execution in a later agenda if periodic.
 	/// Execute a single scheduled task. Returns Ok(()) on successful dispatch, or Err with
 	/// the task back (Some) for retry / postponement, or None if permanently removed.
 	fn service_task(
@@ -1042,7 +1039,7 @@ impl<T: Config> Pallet<T> {
 		task: ScheduledOf<T>,
 	) -> Result<(), (ServiceTaskError, Option<ScheduledOf<T>>)> {
 		// Eagerly remove the name->address lookup. If the task succeeds or gets rescheduled
-		// periodically, the new address will be re-inserted by place_task. If it fails,
+		// via a retry, the new address will be re-inserted by place_task. If it fails,
 		// the name is freed.
 		if let Some(ref id) = task.maybe_id {
 			Lookup::<T>::remove(id);
