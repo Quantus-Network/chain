@@ -552,10 +552,10 @@ pub mod pallet {
 		fn validate_delay(delay: &BlockNumberOrTimestampOf<T>) -> DispatchResult {
 			match delay {
 				BlockNumberOrTimestamp::BlockNumber(x) => {
-					ensure!(*x > T::MinDelayPeriodBlocks::get(), Error::<T>::DelayTooShort)
+					ensure!(*x >= T::MinDelayPeriodBlocks::get(), Error::<T>::DelayTooShort)
 				},
 				BlockNumberOrTimestamp::Timestamp(t) => {
-					ensure!(*t > T::MinDelayPeriodMoment::get(), Error::<T>::DelayTooShort)
+					ensure!(*t >= T::MinDelayPeriodMoment::get(), Error::<T>::DelayTooShort)
 				},
 			}
 			Ok(())
@@ -788,7 +788,7 @@ pub mod pallet {
 			};
 			// For assets, burn held funds (fee) and transfer remaining to interceptor
 			// For native balances, burn held funds (fee) and transfer remaining to interceptor
-			if let Ok((call, _)) = T::Preimages::peek::<RuntimeCallOf<T>>(&pending.call) {
+			if let Ok((call, _)) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
 					call.clone().try_into()
 				{
