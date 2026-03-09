@@ -27,16 +27,9 @@ sp_api::decl_runtime_apis! {
 
 		// Get last block mining time
 		fn get_last_block_duration() -> u64;
-
 		fn get_chain_height() -> u32;
-
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
-
-		/// Verify nonce validity and return achieved difficulty in a single call.
-		/// Returns (is_valid, achieved_difficulty).
-		/// This avoids computing the nonce hash twice when both validation and
-		/// achieved difficulty are needed.
 		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
 	}
 }
