@@ -137,10 +137,12 @@ impl GlobalTrackConfig {
 pub struct CommunityTracksInfo;
 
 impl CommunityTracksInfo {
-	/// Creates the base track configurations with production values
-	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] {
+	/// Creates the base track configurations with production values.
+	/// Only one track (Signed) - RawOrigin::None removed to fix F-04 (inherent-only call
+	/// vulnerability).
+	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
 		[
-			// Track 0: Signed Track (authenticated proposals)
+			// Track 0: Signed Track (authenticated proposals, incl. System::remark for signaling)
 			pallet_referenda::Track {
 				id: 0,
 				info: pallet_referenda::TrackInfo {
@@ -163,29 +165,6 @@ impl CommunityTracksInfo {
 					},
 				},
 			},
-			pallet_referenda::Track {
-                id: 1,
-                info:             // Track 1: Signaling Track (non-binding community opinions)
-                pallet_referenda::TrackInfo {
-                    name: str_array("signaling"),
-                    max_deciding: 20, // High throughput for community proposals
-                    decision_deposit: 100 * UNIT, // Low deposit requirement
-                    prepare_period: 6 * HOURS, // Short preparation time
-                    decision_period: 5 * DAYS, // Standard voting period
-                    confirm_period: 3 * HOURS, // Minimal confirmation period
-                    min_enactment_period: 1, // 1 Block - immediate "execution" (just for record-keeping)
-                    min_approval: pallet_referenda::Curve::LinearDecreasing {
-                        length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(50),
-                        ceil: Perbill::from_percent(60),
-                    },
-                    min_support: pallet_referenda::Curve::LinearDecreasing {
-                        length: Perbill::from_percent(100),
-                        floor: Perbill::from_percent(1),
-                        ceil: Perbill::from_percent(10),
-                    },
-				},
-			},
 		]
 	}
 }
@@ -198,13 +177,13 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 	) -> impl Iterator<Item = alloc::borrow::Cow<'static, Track<Self::Id, Balance, BlockNumber>>> {
 		// Static tracks with production values
 		lazy_static! {
-			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] =
+			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
 				CommunityTracksInfo::create_community_tracks();
 		}
 
 		// Test tracks with fast governance timing
 		lazy_static! {
-			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 2] = {
+			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] = {
 				let base_tracks = CommunityTracksInfo::create_community_tracks();
 				let mut test_tracks = base_tracks.clone();
 
@@ -228,17 +207,16 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
-		// Check for system origins (like None for track 1, Root for track 0)
+		// RawOrigin::None rejected - F-04 fix (inherent-only call vulnerability)
 		if let Some(system_origin) = id.as_system_ref() {
 			match system_origin {
-				frame_system::RawOrigin::None => return Ok(1),
+				frame_system::RawOrigin::None => return Err(()),
 				frame_system::RawOrigin::Root => return Ok(0),
 				_ => {},
 			}
 		}
 
-		// Fallback for general signed users (catches frame_system::RawOrigin::Signed too, if not
-		// Root)
+		// Signed users use track 0
 		if let Some(_signer) = id.as_signed() {
 			return Ok(0);
 		}
@@ -317,14 +295,14 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 		if let Some(system_origin) = id.as_system_ref() {
 			match system_origin {
 				frame_system::RawOrigin::Root => return Ok(0), // Root can use track 0
-				frame_system::RawOrigin::None => return Ok(2), // None origin uses track 2
+				frame_system::RawOrigin::None => return Err(()), // F-04 fix: None rejected
 				_ => {},
 			}
 		}
 
-		// Check for signed origins - simplified version
+		// Signed members use track 0 (same as Root)
 		if let Some(_signer) = id.as_signed() {
-			return Ok(1);
+			return Ok(0);
 		}
 		Err(())
 	}
