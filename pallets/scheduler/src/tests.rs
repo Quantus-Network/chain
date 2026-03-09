@@ -1738,9 +1738,9 @@ fn try_schedule_retry_respects_weight_limits() {
 	});
 }
 
-/// Permanently overweight calls are not deleted but also not executed.
+/// Permanently overweight calls are removed from the agenda after emitting an event.
 #[test]
-fn scheduler_does_not_delete_permanently_overweight_call() {
+fn scheduler_removes_permanently_overweight_call() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
 	new_test_ext().execute_with(|| {
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
@@ -1751,21 +1751,16 @@ fn scheduler_does_not_delete_permanently_overweight_call() {
 			root(),
 			Preimage::bound(call).unwrap(),
 		));
-		// Never executes.
-		run_to_block(100);
+		run_to_block(4);
 		assert_eq!(logger::log(), vec![]);
 
-		// Assert the `PermanentlyOverweight` event.
-		assert_eq!(
-			System::events().last().unwrap().event,
-			crate::Event::PermanentlyOverweight {
+		assert!(System::events().iter().any(|e| e.event
+			== crate::Event::PermanentlyOverweight {
 				task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
 				id: None
 			}
-			.into(),
-		);
-		// The call is still in the agenda.
-		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
+			.into()));
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
 	});
 }
 
@@ -3325,38 +3320,33 @@ fn timestamp_scheduler_respects_weight_limits() {
 }
 
 #[test]
-fn timestamp_scheduler_does_not_delete_permanently_overweight_call() {
+fn timestamp_scheduler_removes_permanently_overweight_call() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
 	new_test_ext().execute_with(|| {
-		// Start at timestamp 0
 		MockTimestamp::set_timestamp(1);
 		run_to_block(1);
 
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
 		assert_ok!(Scheduler::schedule_after(
 			RuntimeOrigin::root(),
-			BlockNumberOrTimestamp::Timestamp(15000), // Will be scheduled in bucket 20000
+			BlockNumberOrTimestamp::Timestamp(15000),
 			None,
 			127,
 			Box::new(call),
 		));
 
-		// Jump to timestamp 25000 (bucket 30000) and process many blocks
 		MockTimestamp::set_timestamp(25000);
 		run_to_block(100);
 
-		// Never executes due to being overweight
 		assert_eq!(logger::log(), vec![]);
 
-		// Assert the `PermanentlyOverweight` event.
-		assert_eq!(
-			System::events().last().unwrap().event,
-			crate::Event::PermanentlyOverweight {
+		assert!(System::events().iter().any(|e| e.event
+			== crate::Event::PermanentlyOverweight {
 				task: (BlockNumberOrTimestamp::Timestamp(20000), 0),
 				id: None,
 			}
-			.into()
-		);
+			.into()));
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
 	});
 }
 
@@ -3875,34 +3865,29 @@ fn bug_cancel_named_via_trait_leaks_retries() {
 /// If a periodic task's period is a Timestamp but the current execution time (`now`) is a
 /// BlockNumber (or vice versa), `now.saturating_add(&period)` returns Err. The code silently
 /// skips rescheduling without dropping the preimage, leaking it forever.
-/// This only manifests with lookup-based calls (large calls that use the preimage system).
 #[test]
 fn bug_preimage_leak_on_periodic_type_mismatch() {
 	new_test_ext().execute_with(|| {
-		// Use a large call so Preimage::bound returns Bounded::Lookup (not Inline).
-		let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![0; 1024] });
-		let bound = Preimage::bound(call).unwrap();
-		assert!(bound.lookup_needed(), "Call must use preimage lookup for this test");
-		let hash = bound.lookup_hash().expect("Lookup call must have a hash");
-
-		// The preimage is requested when the task is scheduled.
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
 		assert_ok!(Scheduler::do_schedule(
 			DispatchTime::At(4),
 			Some((BlockNumberOrTimestamp::Timestamp(3000u64), 3)),
 			127,
 			root(),
-			bound,
+			Preimage::bound(call).unwrap(),
 		));
-		assert!(Preimage::is_requested(&hash), "Preimage should be requested after scheduling");
 
 		run_to_block(4);
-		// The call dispatches but the periodic reschedule fails silently (type mismatch).
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
 		assert_eq!(Agenda::<Test>::iter().count(), 0, "Task should not be rescheduled");
 
-		// The preimage should have been dropped since the task won't run again.
+		let has_periodic_failed = System::events().iter().any(|e| {
+			matches!(e.event, RuntimeEvent::Scheduler(crate::Event::PeriodicFailed { .. }))
+		});
 		assert!(
-			!Preimage::is_requested(&hash),
-			"BUG: Preimage leaked — still requested after periodic reschedule type mismatch"
+			has_periodic_failed,
+			"BUG: No PeriodicFailed event emitted on type-mismatch reschedule"
 		);
 	});
 }

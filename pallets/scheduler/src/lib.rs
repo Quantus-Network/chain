@@ -78,7 +78,7 @@ use frame_support::{
 	dispatch::{DispatchResult, GetDispatchInfo, Parameter, RawOrigin},
 	ensure,
 	traits::{
-		schedule::{self, DispatchTime as DispatchBlock, MaybeHashed},
+		schedule::{self, DispatchTime as DispatchBlock},
 		Bounded, CallerTrait, EnsureOrigin, Get, IsType, OriginTrait, PrivilegeCmp, QueryPreimage,
 		StorageVersion, StorePreimage, Time,
 	},
@@ -104,9 +104,6 @@ pub type PeriodicIndex = u32;
 pub type TaskAddress<BlockNumber, Moment> = (BlockNumberOrTimestamp<BlockNumber, Moment>, u32);
 /// Task address of Config.
 pub type TaskAddressOf<T> = TaskAddress<BlockNumberFor<T>, <T as Config>::Moment>;
-
-pub type CallOrHashOf<T> =
-	MaybeHashed<<T as Config>::RuntimeCall, <T as frame_system::Config>::Hash>;
 
 pub type BoundedCallOf<T> =
 	Bounded<<T as Config>::RuntimeCall, <T as frame_system::Config>::Hashing>;
@@ -308,9 +305,6 @@ pub mod pallet {
 	>;
 
 	/// Lookup from a name to the block number and index of the task.
-	///
-	/// For v3 -> v4 the previously unbounded identities are Blake2-256 hashed to form the v4
-	/// identities.
 	#[pallet::storage]
 	pub(crate) type Lookup<T: Config> = StorageMap<_, Twox64Concat, TaskName, TaskAddressOf<T>>;
 
@@ -837,6 +831,8 @@ impl<T: Config> Pallet<T> {
 					if let Some(s) = agenda.get_mut(i) {
 						if let (Some(ref o), Some(ref s)) = (origin, s.borrow()) {
 							Self::ensure_privilege(o, &s.origin)?;
+						}
+						if let Some(ref s) = s {
 							Retries::<T>::remove((when, index));
 							T::Preimages::drop(&s.call);
 						}
@@ -1022,8 +1018,6 @@ impl<T: Config> Pallet<T> {
 		log::debug!(target: "scheduler", "service_agenda: iterating over items: {:?}", ordered.len());
 		// Items which we know can be executed and have postponed for execution in a later block.
 		let mut postponed = (ordered.len() as u32).saturating_sub(max);
-		// Items which we don't know can ever be executed.
-		let mut dropped = 0;
 
 		for (agenda_index, _) in ordered.into_iter().take(max as usize) {
 			let task = match agenda[agenda_index as usize].take() {
@@ -1036,15 +1030,13 @@ impl<T: Config> Pallet<T> {
 				task.maybe_periodic.is_some(),
 			);
 			if !weight.can_consume(base_weight) {
+				agenda[agenda_index as usize] = Some(task);
 				postponed += 1;
 				break;
 			}
 			let result = Self::service_task(weight, now, when, agenda_index, *executed == 0, task);
 			agenda[agenda_index as usize] = match result {
-				Err((Unavailable, slot)) => {
-					dropped += 1;
-					slot
-				},
+				Err((Unavailable, slot)) => slot,
 				Err((Overweight, slot)) => {
 					postponed += 1;
 					slot
@@ -1055,7 +1047,7 @@ impl<T: Config> Pallet<T> {
 				},
 			};
 		}
-		if postponed > 0 || dropped > 0 {
+		if agenda.iter().any(|s| s.is_some()) {
 			Agenda::<T>::insert(when, agenda);
 		} else {
 			Agenda::<T>::remove(when);
@@ -1090,11 +1082,8 @@ impl<T: Config> Pallet<T> {
 					id: task.maybe_id,
 				});
 
-				// It was not available when we needed it, so we don't need to have requested it
-				// anymore.
 				T::Preimages::drop(&task.call);
 
-				// We don't know why `peek` failed, thus we most account here for the "full weight".
 				let _ = weight.try_consume(T::WeightInfo::service_task(
 					task.call.lookup_len().map(|x| x as usize),
 					task.maybe_id.is_some(),
@@ -1118,7 +1107,7 @@ impl<T: Config> Pallet<T> {
 					task: (when, agenda_index),
 					id: task.maybe_id,
 				});
-				Err((Unavailable, Some(task)))
+				Err((Unavailable, None))
 			},
 			Err(()) => Err((Overweight, Some(task))),
 			Ok(result) => {
@@ -1143,23 +1132,27 @@ impl<T: Config> Pallet<T> {
 					} else {
 						task.maybe_periodic = None;
 					}
-					let wake = now.saturating_add(&period);
-					if let Ok(wake) = wake {
-						match Self::place_task(wake, task) {
+					match now.saturating_add(&period) {
+						Ok(wake) => match Self::place_task(wake, task) {
 							Ok(new_address) =>
 								if let Some(retry_config) = maybe_retry_config {
 									Retries::<T>::insert(new_address, retry_config);
 								},
 							Err((_, task)) => {
-								// TODO: Leave task in storage somewhere for it to be rescheduled
-								// manually.
 								T::Preimages::drop(&task.call);
 								Self::deposit_event(Event::PeriodicFailed {
 									task: (when, agenda_index),
 									id: task.maybe_id,
 								});
 							},
-						}
+						},
+						Err(_) => {
+							T::Preimages::drop(&task.call);
+							Self::deposit_event(Event::PeriodicFailed {
+								task: (when, agenda_index),
+								id: task.maybe_id,
+							});
+						},
 					}
 				} else {
 					T::Preimages::drop(&task.call);
@@ -1237,24 +1230,25 @@ impl<T: Config> Pallet<T> {
 			Some(n) => n,
 			None => return,
 		};
-		let wake = now.saturating_add(&period);
-		if let Ok(wake) = wake {
-			match Self::place_task(wake, task.as_retry()) {
+		match now.saturating_add(&period) {
+			Ok(wake) => match Self::place_task(wake, task.as_retry()) {
 				Ok(address) => {
-					// Reinsert the retry config to the new address of the task after it was
-					// placed.
 					Retries::<T>::insert(address, RetryConfig { total_retries, remaining, period });
 				},
 				Err((_, task)) => {
-					// TODO: Leave task in storage somewhere for it to be
-					// rescheduled manually.
 					T::Preimages::drop(&task.call);
 					Self::deposit_event(Event::RetryFailed {
 						task: (when, agenda_index),
 						id: task.maybe_id,
 					});
 				},
-			}
+			},
+			Err(_) => {
+				Self::deposit_event(Event::RetryFailed {
+					task: (when, agenda_index),
+					id: task.maybe_id,
+				});
+			},
 		}
 	}
 
