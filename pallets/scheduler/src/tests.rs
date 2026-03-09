@@ -1738,9 +1738,9 @@ fn try_schedule_retry_respects_weight_limits() {
 	});
 }
 
-/// Permanently overweight calls are not deleted but also not executed.
+/// Permanently overweight calls are removed from the agenda after emitting an event.
 #[test]
-fn scheduler_does_not_delete_permanently_overweight_call() {
+fn scheduler_removes_permanently_overweight_call() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
 	new_test_ext().execute_with(|| {
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
@@ -1751,21 +1751,16 @@ fn scheduler_does_not_delete_permanently_overweight_call() {
 			root(),
 			Preimage::bound(call).unwrap(),
 		));
-		// Never executes.
-		run_to_block(100);
+		run_to_block(4);
 		assert_eq!(logger::log(), vec![]);
 
-		// Assert the `PermanentlyOverweight` event.
-		assert_eq!(
-			System::events().last().unwrap().event,
+		assert!(System::events().iter().any(|e| e.event ==
 			crate::Event::PermanentlyOverweight {
 				task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
 				id: None
 			}
-			.into(),
-		);
-		// The call is still in the agenda.
-		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))[0].is_some());
+			.into()));
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
 	});
 }
 
@@ -3325,38 +3320,33 @@ fn timestamp_scheduler_respects_weight_limits() {
 }
 
 #[test]
-fn timestamp_scheduler_does_not_delete_permanently_overweight_call() {
+fn timestamp_scheduler_removes_permanently_overweight_call() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
 	new_test_ext().execute_with(|| {
-		// Start at timestamp 0
 		MockTimestamp::set_timestamp(1);
 		run_to_block(1);
 
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
 		assert_ok!(Scheduler::schedule_after(
 			RuntimeOrigin::root(),
-			BlockNumberOrTimestamp::Timestamp(15000), // Will be scheduled in bucket 20000
+			BlockNumberOrTimestamp::Timestamp(15000),
 			None,
 			127,
 			Box::new(call),
 		));
 
-		// Jump to timestamp 25000 (bucket 30000) and process many blocks
 		MockTimestamp::set_timestamp(25000);
 		run_to_block(100);
 
-		// Never executes due to being overweight
 		assert_eq!(logger::log(), vec![]);
 
-		// Assert the `PermanentlyOverweight` event.
-		assert_eq!(
-			System::events().last().unwrap().event,
+		assert!(System::events().iter().any(|e| e.event ==
 			crate::Event::PermanentlyOverweight {
 				task: (BlockNumberOrTimestamp::Timestamp(20000), 0),
 				id: None,
 			}
-			.into()
-		);
+			.into()));
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
 	});
 }
 
@@ -3746,6 +3736,245 @@ fn last_processed_timestamp_initialization_and_update_works() {
 			LastProcessedTimestamp::<Test>::get(),
 			Some(normalized_time_2),
 			"Should advance to the new normalized time"
+		);
+	});
+}
+
+/// When the first task consumes nearly all weight, remaining tasks must be preserved
+/// in the agenda for processing in a subsequent block.
+#[test]
+fn weight_exhaustion_preserves_remaining_tasks() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		// Overhead consumed before the second task's base weight check:
+		//   service_agendas_base (1) + service_agenda_base(2) (514) +
+		//   service_task_base (4) + execute_dispatch_unsigned (128) + call1_weight
+		// = 647 + call1_weight
+		//
+		// For the second task's can_consume(service_task_base=4) to fail:
+		//   647 + call1_weight + 4 > max_weight.ref_time()
+		//   call1_weight > max_weight.ref_time() - 651
+		//
+		// For the first task's execute_dispatch to succeed:
+		//   519 + 128 + call1_weight <= max_weight.ref_time()
+		//   call1_weight <= max_weight.ref_time() - 647
+		let call1_weight = Weight::from_parts(max_weight.ref_time() - 648, 0);
+		let call1 = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: call1_weight });
+		let call2 =
+			RuntimeCall::Logger(LoggerCall::log { i: 69, weight: Weight::from_parts(10, 0) });
+
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call1).unwrap(),
+		));
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			128,
+			root(),
+			Preimage::bound(call2).unwrap(),
+		));
+
+		assert_eq!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4)).len(), 2);
+
+		run_to_block(4);
+		// First task executes.
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+
+		// The second task MUST still be in the agenda (postponed, not lost).
+		let agenda = Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4));
+		assert!(
+			agenda.iter().any(|s| s.is_some()),
+			"Second task must remain in the agenda after weight exhaustion"
+		);
+
+		// The second task should execute in the next block.
+		run_to_block(5);
+		assert_eq!(
+			logger::log(),
+			vec![(root(), 42u32), (root(), 69u32)],
+			"Second task should execute in the following block"
+		);
+	});
+}
+
+/// Cancelling a named task without an explicit origin (as trait callers do)
+/// must still clean up retries and preimage references.
+#[test]
+fn cancel_named_without_origin_cleans_up_retries() {
+	new_test_ext().execute_with(|| {
+		Threshold::<Test>::put((99, 100));
+
+		let call =
+			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		assert_ok!(Scheduler::set_retry_named(
+			root().into(),
+			[1u8; 32],
+			10,
+			BlockNumberOrTimestamp::BlockNumber(3)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Cancel via the trait path (origin = None), as other pallets would.
+		assert_ok!(Scheduler::do_cancel_named(None, [1u8; 32]));
+
+		// The task slot should be cleared.
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4))
+				.iter()
+				.all(|s| s.is_none()),
+			"Task slot should be None after cancel"
+		);
+
+		// Retries should also be cleaned up.
+		assert_eq!(
+			Retries::<Test>::iter().count(),
+			0,
+			"Retries must be cleaned up after cancel with origin=None"
+		);
+	});
+}
+
+/// A periodic task whose period type mismatches the execution domain (e.g. Timestamp period
+/// on a BlockNumber task) emits PeriodicFailed and does not leave orphaned agenda entries.
+#[test]
+fn periodic_type_mismatch_emits_failure_event() {
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			Some((BlockNumberOrTimestamp::Timestamp(3000u64), 3)),
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+		assert_eq!(Agenda::<Test>::iter().count(), 0, "Task should not be rescheduled");
+
+		let has_periodic_failed = System::events().iter().any(|e| {
+			matches!(e.event, RuntimeEvent::Scheduler(crate::Event::PeriodicFailed { .. }))
+		});
+		assert!(
+			has_periodic_failed,
+			"PeriodicFailed event must be emitted on type-mismatch reschedule"
+		);
+	});
+}
+
+/// A retry whose period type mismatches the task domain (e.g. Timestamp retry period on a
+/// BlockNumber task) emits RetryFailed rather than silently dropping the retry.
+#[test]
+fn mismatched_retry_period_emits_failure_event() {
+	new_test_ext().execute_with(|| {
+		Threshold::<Test>::put((99, 100));
+
+		let call =
+			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		// Set a Timestamp-based retry period on a BlockNumber-based task. This is a type mismatch.
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			10,
+			BlockNumberOrTimestamp::Timestamp(3000u64)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Task fails at block 4 (threshold not met). The retry should fire, but the
+		// mismatched period means schedule_retry's saturating_add returns Err.
+		run_to_block(4);
+
+		// The retry config was consumed but no retry was actually scheduled.
+		assert_eq!(
+			Agenda::<Test>::iter().count(),
+			0,
+			"No retry should be scheduled when period type mismatches"
+		);
+
+		// There should be a RetryFailed event, but there won't be one because the code
+		// silently returns without emitting any event when saturating_add fails.
+		let events = System::events();
+		let has_retry_failed = events
+			.iter()
+			.any(|e| matches!(e.event, RuntimeEvent::Scheduler(crate::Event::RetryFailed { .. })));
+		assert!(
+			has_retry_failed,
+			"RetryFailed event must be emitted when retry period type mismatches"
+		);
+	});
+}
+
+/// A permanently overweight task is removed from the agenda after emitting
+/// PermanentlyOverweight, and does not linger or emit further events.
+#[test]
+fn permanently_overweight_task_is_removed() {
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		));
+
+		run_to_block(4);
+		assert_eq!(logger::log(), vec![]);
+
+		// Task is permanently overweight — it should be removed after the event.
+		let overweight_events_after_4 = System::events()
+			.iter()
+			.filter(|e| {
+				matches!(
+					e.event,
+					RuntimeEvent::Scheduler(crate::Event::PermanentlyOverweight { .. })
+				)
+			})
+			.count();
+		assert_eq!(overweight_events_after_4, 1);
+
+		// Run more blocks. The task should NOT keep emitting events.
+		run_to_block(7);
+
+		let unavailable_events = System::events()
+			.iter()
+			.filter(|e| {
+				matches!(e.event, RuntimeEvent::Scheduler(crate::Event::CallUnavailable { .. }))
+			})
+			.count();
+		assert_eq!(
+			unavailable_events, 0,
+			"No CallUnavailable events after PermanentlyOverweight removal"
+		);
+
+		// The agenda should be clean.
+		assert_eq!(
+			Agenda::<Test>::iter().count(),
+			0,
+			"Agenda must be empty after permanently overweight task is removed"
 		);
 	});
 }
