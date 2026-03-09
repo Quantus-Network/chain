@@ -1993,7 +1993,6 @@ fn cancelled_reversible_transfer_does_not_record_proof() {
 	});
 }
 
-
 #[test]
 fn validate_delay_accepts_delay_equal_to_minimum() {
 	new_test_ext().execute_with(|| {
@@ -2023,4 +2022,3 @@ fn validate_delay_accepts_timestamp_equal_to_minimum() {
 		));
 	});
 }
-

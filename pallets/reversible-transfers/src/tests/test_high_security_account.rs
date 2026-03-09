@@ -3,16 +3,10 @@ use crate::{
 		mock::*,
 		test_reversible_transfers::{calculate_tx_id, transfer_call},
 	},
-	Event,
+	Event, HoldReason,
 };
-use frame_support::{assert_err, assert_ok};
+use frame_support::{assert_err, assert_ok, traits::fungible::InspectHold};
 use pallet_balances::TotalIssuance;
-use crate::{
-	HoldReason,
-};
-use frame_support::{
-	traits::fungible::InspectHold,
-};
 
 // NOTE: Many of the high security / reversibility behaviors are enforced via SignedExtension or
 // external pallets (Proxy). They are covered by integration tests in runtime.
