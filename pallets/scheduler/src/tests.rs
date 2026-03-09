@@ -3740,18 +3740,10 @@ fn last_processed_timestamp_initialization_and_update_works() {
 	});
 }
 
-// ============================================================================
-// Bug regression tests
-// ============================================================================
-
-/// BUG #1: Task is permanently lost when weight check fails after .take() in service_agenda.
-///
-/// In service_agenda, a task is `.take()`n from the agenda BEFORE the base weight check.
-/// If the weight check then fails, `break` runs and the task is dropped — permanently lost.
-/// This triggers when the first task uses almost all available weight, leaving less than
-/// `service_task_base` (4 ref_time units) for the next task's pre-check.
+/// When the first task consumes nearly all weight, remaining tasks must be preserved
+/// in the agenda for processing in a subsequent block.
 #[test]
-fn bug_task_lost_on_weight_exhaustion_after_take() {
+fn weight_exhaustion_preserves_remaining_tasks() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
 	new_test_ext().execute_with(|| {
 		// Overhead consumed before the second task's base weight check:
@@ -3796,7 +3788,7 @@ fn bug_task_lost_on_weight_exhaustion_after_take() {
 		let agenda = Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(4));
 		assert!(
 			agenda.iter().any(|s| s.is_some()),
-			"BUG: Second task was permanently lost from the agenda after weight exhaustion"
+			"Second task must remain in the agenda after weight exhaustion"
 		);
 
 		// The second task should execute in the next block.
@@ -3804,18 +3796,15 @@ fn bug_task_lost_on_weight_exhaustion_after_take() {
 		assert_eq!(
 			logger::log(),
 			vec![(root(), 42u32), (root(), 69u32)],
-			"BUG: Second task never executed — it was permanently destroyed"
+			"Second task should execute in the following block"
 		);
 	});
 }
 
-/// BUG #2: do_cancel_named leaks Retries and preimage when called with origin=None.
-///
-/// The v3::Named trait and ScheduleNamed trait call do_cancel_named(None, id).
-/// The cleanup of Retries and Preimages::drop only runs inside the `if let Some(origin)` branch,
-/// so when origin is None these resources are leaked.
+/// Cancelling a named task without an explicit origin (as trait callers do)
+/// must still clean up retries and preimage references.
 #[test]
-fn bug_cancel_named_via_trait_leaks_retries() {
+fn cancel_named_without_origin_cleans_up_retries() {
 	new_test_ext().execute_with(|| {
 		Threshold::<Test>::put((99, 100));
 
@@ -3855,18 +3844,15 @@ fn bug_cancel_named_via_trait_leaks_retries() {
 		assert_eq!(
 			Retries::<Test>::iter().count(),
 			0,
-			"BUG: Retries entry leaked after do_cancel_named with origin=None"
+			"Retries must be cleaned up after cancel with origin=None"
 		);
 	});
 }
 
-/// BUG #3: Preimage leaks when periodic rescheduling hits a type mismatch in saturating_add.
-///
-/// If a periodic task's period is a Timestamp but the current execution time (`now`) is a
-/// BlockNumber (or vice versa), `now.saturating_add(&period)` returns Err. The code silently
-/// skips rescheduling without dropping the preimage, leaking it forever.
+/// A periodic task whose period type mismatches the execution domain (e.g. Timestamp period
+/// on a BlockNumber task) emits PeriodicFailed and does not leave orphaned agenda entries.
 #[test]
-fn bug_preimage_leak_on_periodic_type_mismatch() {
+fn periodic_type_mismatch_emits_failure_event() {
 	new_test_ext().execute_with(|| {
 		let call =
 			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
@@ -3887,18 +3873,15 @@ fn bug_preimage_leak_on_periodic_type_mismatch() {
 		});
 		assert!(
 			has_periodic_failed,
-			"BUG: No PeriodicFailed event emitted on type-mismatch reschedule"
+			"PeriodicFailed event must be emitted on type-mismatch reschedule"
 		);
 	});
 }
 
-/// BUG #4: set_retry accepts a mismatched period type, causing silent retry failure.
-///
-/// A task scheduled at a block number can have a Timestamp retry period set on it.
-/// When the retry fires, `now.saturating_add(&period)` returns Err (BlockNumber + Timestamp),
-/// and the retry is silently lost without any event.
+/// A retry whose period type mismatches the task domain (e.g. Timestamp retry period on a
+/// BlockNumber task) emits RetryFailed rather than silently dropping the retry.
 #[test]
-fn bug_mismatched_retry_period_silently_fails() {
+fn mismatched_retry_period_emits_failure_event() {
 	new_test_ext().execute_with(|| {
 		Threshold::<Test>::put((99, 100));
 
@@ -3931,7 +3914,7 @@ fn bug_mismatched_retry_period_silently_fails() {
 		assert_eq!(
 			Agenda::<Test>::iter().count(),
 			0,
-			"BUG: No retry was scheduled due to type mismatch, task is silently lost"
+			"No retry should be scheduled when period type mismatches"
 		);
 
 		// There should be a RetryFailed event, but there won't be one because the code
@@ -3945,18 +3928,15 @@ fn bug_mismatched_retry_period_silently_fails() {
 		});
 		assert!(
 			has_retry_failed,
-			"BUG: No RetryFailed event emitted when retry period type doesn't match task domain"
+			"RetryFailed event must be emitted when retry period type mismatches"
 		);
 	});
 }
 
-/// BUG #5: Permanently overweight tasks become zombies, re-processed every block forever.
-///
-/// When a task is permanently overweight, its preimage is dropped but the task is kept in
-/// the agenda as Some(task). Every subsequent block, the scheduler re-processes it, fails
-/// the preimage lookup, emits CallUnavailable, and puts it back — an infinite loop.
+/// A permanently overweight task is removed from the agenda after emitting
+/// PermanentlyOverweight, and does not linger or emit further events.
 #[test]
-fn bug_permanently_overweight_task_emits_events_every_block() {
+fn permanently_overweight_task_is_removed() {
 	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
 	new_test_ext().execute_with(|| {
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
@@ -3997,14 +3977,14 @@ fn bug_permanently_overweight_task_emits_events_every_block() {
 			.count();
 		assert_eq!(
 			unavailable_events, 0,
-			"BUG: Zombie task keeps emitting CallUnavailable events every block"
+			"No CallUnavailable events after PermanentlyOverweight removal"
 		);
 
 		// The agenda should be clean.
 		assert_eq!(
 			Agenda::<Test>::iter().count(),
 			0,
-			"BUG: Permanently overweight task still occupies the agenda"
+			"Agenda must be empty after permanently overweight task is removed"
 		);
 	});
 }
