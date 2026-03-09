@@ -326,8 +326,6 @@ where
 
 		// Store cumulative achieved work BEFORE inner import, because inner import
 		// triggers notifications that call best_chain which needs this data.
-		// This MUST succeed - if it fails, subsequent blocks would read zero for
-		// this block's work, breaking the cumulative chain weight calculation.
 		store_cumulative_achieved_work::<B, C>(&*self.client, block_hash, new_work).map_err(
 			|e| {
 				ConsensusError::ClientImport(format!(
@@ -357,9 +355,7 @@ where
 			},
 		};
 
-		// Finalize blocks synchronously after import to ensure finalization happens
-		// before the next block is imported. This prunes competing forks that are
-		// beyond max_reorg_depth.
+		// Finalization prunes competing forks that are beyond max_reorg_depth.
 		if let Err(e) = finalize_canonical_at_depth::<B, C, BE>(&*self.client) {
 			log::warn!(
 				target: LOG_TARGET,
