@@ -1754,8 +1754,8 @@ fn scheduler_removes_permanently_overweight_call() {
 		run_to_block(4);
 		assert_eq!(logger::log(), vec![]);
 
-		assert!(System::events().iter().any(|e| e.event
-			== crate::Event::PermanentlyOverweight {
+		assert!(System::events().iter().any(|e| e.event ==
+			crate::Event::PermanentlyOverweight {
 				task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
 				id: None
 			}
@@ -3340,8 +3340,8 @@ fn timestamp_scheduler_removes_permanently_overweight_call() {
 
 		assert_eq!(logger::log(), vec![]);
 
-		assert!(System::events().iter().any(|e| e.event
-			== crate::Event::PermanentlyOverweight {
+		assert!(System::events().iter().any(|e| e.event ==
+			crate::Event::PermanentlyOverweight {
 				task: (BlockNumberOrTimestamp::Timestamp(20000), 0),
 				id: None,
 			}
@@ -3808,10 +3808,8 @@ fn cancel_named_without_origin_cleans_up_retries() {
 	new_test_ext().execute_with(|| {
 		Threshold::<Test>::put((99, 100));
 
-		let call = RuntimeCall::Logger(LoggerCall::timed_log {
-			i: 42,
-			weight: Weight::from_parts(10, 0),
-		});
+		let call =
+			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
 		assert_ok!(Scheduler::do_schedule_named(
 			[1u8; 32],
 			DispatchTime::At(4),
@@ -3885,10 +3883,8 @@ fn mismatched_retry_period_emits_failure_event() {
 	new_test_ext().execute_with(|| {
 		Threshold::<Test>::put((99, 100));
 
-		let call = RuntimeCall::Logger(LoggerCall::timed_log {
-			i: 42,
-			weight: Weight::from_parts(10, 0),
-		});
+		let call =
+			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
 		assert_ok!(Scheduler::do_schedule(
 			DispatchTime::At(4),
 			None,
@@ -3920,12 +3916,9 @@ fn mismatched_retry_period_emits_failure_event() {
 		// There should be a RetryFailed event, but there won't be one because the code
 		// silently returns without emitting any event when saturating_add fails.
 		let events = System::events();
-		let has_retry_failed = events.iter().any(|e| {
-			matches!(
-				e.event,
-				RuntimeEvent::Scheduler(crate::Event::RetryFailed { .. })
-			)
-		});
+		let has_retry_failed = events
+			.iter()
+			.any(|e| matches!(e.event, RuntimeEvent::Scheduler(crate::Event::RetryFailed { .. })));
 		assert!(
 			has_retry_failed,
 			"RetryFailed event must be emitted when retry period type mismatches"
@@ -3969,10 +3962,7 @@ fn permanently_overweight_task_is_removed() {
 		let unavailable_events = System::events()
 			.iter()
 			.filter(|e| {
-				matches!(
-					e.event,
-					RuntimeEvent::Scheduler(crate::Event::CallUnavailable { .. })
-				)
+				matches!(e.event, RuntimeEvent::Scheduler(crate::Event::CallUnavailable { .. }))
 			})
 			.count();
 		assert_eq!(
