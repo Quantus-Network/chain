@@ -178,6 +178,7 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const MaxPendingPerAccount: u32 = 16;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 }
 
@@ -208,6 +209,7 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type MaxPendingPerAccount = MaxPendingPerAccount;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = MockProofRecorder;
 }

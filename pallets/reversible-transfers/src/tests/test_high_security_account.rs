@@ -109,3 +109,135 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 		);
 	});
 }
+
+#[test]
+fn recover_funds_cancels_all_pending_transfers() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs_user = alice();
+		let guardian = bob();
+		let dest = charlie();
+
+		let initial_hs_balance = Balances::free_balance(&hs_user);
+		let initial_guardian_balance = Balances::free_balance(&guardian);
+		let initial_total_issuance = TotalIssuance::<Test>::get();
+
+		// Schedule multiple transfers
+		let amount1 = 10_000u128;
+		let amount2 = 20_000u128;
+
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(hs_user.clone()),
+			dest.clone(),
+			amount1
+		));
+
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(hs_user.clone()),
+			dest.clone(),
+			amount2
+		));
+
+		// Verify pending transfers exist
+		let pending = crate::PendingTransfersBySender::<Test>::get(&hs_user);
+		assert_eq!(pending.len(), 2, "Should have 2 pending transfers");
+
+		// Now recover all funds
+		assert_ok!(ReversibleTransfers::recover_funds(
+			RuntimeOrigin::signed(guardian.clone()),
+			hs_user.clone()
+		));
+
+		// Verify all pending transfers were cancelled
+		let pending_after = crate::PendingTransfersBySender::<Test>::get(&hs_user);
+		assert_eq!(pending_after.len(), 0, "All pending transfers should be cancelled");
+
+		// Verify hs_user is drained
+		assert_eq!(Balances::free_balance(&hs_user), 0, "HS user should be drained");
+
+		// Calculate expected amounts:
+		// - Volume fee (1%) is burned for each cancelled transfer
+		// - Remaining goes to guardian
+		let fee1 = amount1 / 100; // 100
+		let fee2 = amount2 / 100; // 200
+		let total_fees = fee1 + fee2; // 300
+		let remaining_from_cancels = (amount1 - fee1) + (amount2 - fee2); // 9900 + 19800 = 29700
+		let free_balance_after_holds = initial_hs_balance - amount1 - amount2;
+
+		// Guardian receives: remaining from cancelled transfers + free balance
+		let expected_guardian_balance =
+			initial_guardian_balance + remaining_from_cancels + free_balance_after_holds;
+		assert_eq!(
+			Balances::free_balance(&guardian),
+			expected_guardian_balance,
+			"Guardian should receive all funds minus volume fees"
+		);
+
+		// Total issuance should decrease by the volume fees burned
+		assert_eq!(
+			TotalIssuance::<Test>::get(),
+			initial_total_issuance - total_fees,
+			"Volume fees should be burned"
+		);
+
+		// Verify events were emitted for each cancelled transfer
+		let events = System::events();
+		let cancel_events: Vec<_> = events
+			.iter()
+			.filter(|e| {
+				matches!(
+					e.event,
+					RuntimeEvent::ReversibleTransfers(Event::TransactionCancelled { .. })
+				)
+			})
+			.collect();
+		assert_eq!(
+			cancel_events.len(),
+			2,
+			"Should emit TransactionCancelled for each pending transfer"
+		);
+
+		// Verify FundsRecovered event
+		System::assert_has_event(
+			Event::FundsRecovered { account: hs_user.clone(), guardian: guardian.clone() }.into(),
+		);
+	});
+}
+
+#[test]
+fn too_many_pending_transactions_error() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let hs_user = alice();
+		let dest = charlie();
+		let amount = 100u128;
+
+		// Schedule MaxPendingPerAccount transfers (16)
+		// Need to advance block number between batches to avoid scheduler max per block limit
+		for i in 0..16 {
+			// Advance block every 8 transfers to stay under scheduler's MaxScheduledPerBlock (10)
+			if i > 0 && i % 8 == 0 {
+				System::set_block_number(System::block_number() + 1);
+			}
+			assert_ok!(ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(hs_user.clone()),
+				dest.clone(),
+				amount
+			));
+		}
+
+		// Verify we have 16 pending
+		let pending = crate::PendingTransfersBySender::<Test>::get(&hs_user);
+		assert_eq!(pending.len(), 16, "Should have 16 pending transfers");
+
+		// The 17th should fail
+		assert_err!(
+			ReversibleTransfers::schedule_transfer(
+				RuntimeOrigin::signed(hs_user.clone()),
+				dest.clone(),
+				amount
+			),
+			crate::Error::<Test>::TooManyPendingTransactions
+		);
+	});
+}

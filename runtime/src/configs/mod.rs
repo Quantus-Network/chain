@@ -462,6 +462,7 @@ parameter_types! {
 	pub const DefaultDelay: BlockNumberOrTimestamp<BlockNumber, Moment> = BlockNumberOrTimestamp::BlockNumber(DAYS);
 	pub const MinDelayPeriodBlocks: BlockNumber = 2;
 	pub const MaxInterceptorAccounts: u32 = 32;
+	pub const MaxPendingPerAccount: u32 = 16;
 	/// Volume fee for reversed transactions from high-security accounts only (1% fee is burned)
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 }
@@ -480,6 +481,7 @@ impl pallet_reversible_transfers::Config for Runtime {
 	type Moment = Moment;
 	type TimeProvider = Timestamp;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type MaxPendingPerAccount = MaxPendingPerAccount;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = Wormhole;
 }
