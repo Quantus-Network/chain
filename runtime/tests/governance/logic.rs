@@ -242,7 +242,7 @@ mod tests {
 	#[test]
 	fn referendum_fails_with_insufficient_turnout() {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
-			// Test for track 1 (signed) where support is enabled
+			// Test for track 0 (signed) where support is enabled
 			let proposer = TestCommons::account_id(1);
 			let voter = TestCommons::account_id(2);
 
@@ -341,10 +341,10 @@ mod tests {
 				len: encoded_call.len() as u32,
 			};
 
-			// Submit referendum
+			// Submit referendum (Signed origin - track 0)
 			assert_ok!(Referenda::submit(
 				RuntimeOrigin::signed(proposer.clone()),
-				Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
 				bounded_call,
 				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
@@ -392,10 +392,10 @@ mod tests {
 			let balance_after_preimage = Balances::free_balance(&proposer);
 			let preimage_cost = initial_balance - balance_after_preimage;
 
-			// Submit referendum
+			// Submit referendum (Signed origin - track 0)
 			assert_ok!(Referenda::submit(
 				RuntimeOrigin::signed(proposer.clone()),
-				Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
 				bounded_call,
 				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
@@ -474,7 +474,7 @@ mod tests {
 	//Tracks tests
 
 	#[test]
-	fn signaling_track_referendum_works() {
+	fn signed_track_remark_referendum_works() {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
 			let proposer = TestCommons::account_id(1);
 			let voter1 = TestCommons::account_id(2);
@@ -485,7 +485,7 @@ mod tests {
 			Balances::make_free_balance_be(&voter1, 50000 * UNIT);
 			Balances::make_free_balance_be(&voter2, 50000 * UNIT);
 
-			// Create a non-binding signaling proposal
+			// Create remark proposal (community opinion - same use case as former signaling)
 			let proposal = RuntimeCall::System(frame_system::Call::remark {
 				remark:
 					b"Community signal: We support adding more educational resources for developers"
@@ -506,20 +506,19 @@ mod tests {
 				len: encoded_call.len() as u32,
 			};
 
-			// Use None origin for signaling
+			// Use Signed origin (track 0)
 			assert_ok!(Referenda::submit(
 				RuntimeOrigin::signed(proposer.clone()),
-				Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
 				bounded_call,
 				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
-			// Check referendum is using track 2
 			let referendum_index = 0;
 			let info =
 				pallet_referenda::ReferendumInfoFor::<Runtime>::get(referendum_index).unwrap();
 			if let pallet_referenda::ReferendumInfo::Ongoing(status) = info {
-				assert_eq!(status.track, 1, "Referendum should be on signaling track (1)");
+				assert_eq!(status.track, 0, "Referendum should be on signed track (0)");
 			} else {
 				panic!("Referendum should be ongoing");
 			}
@@ -555,8 +554,8 @@ mod tests {
 				}
 			));
 
-			// Get the actual track configuration (track 1 = signaling)
-			let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap();
+			// Get the actual track configuration (track 0 = signed)
+			let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
 			let prepare_period = track_info.prepare_period;
 			let decision_period = track_info.decision_period;
 			let confirm_period = track_info.confirm_period;
@@ -590,7 +589,7 @@ mod tests {
 	}
 
 	#[test]
-	fn concurrent_tracks_referendum_works() {
+	fn concurrent_referenda_works() {
 		TestCommons::new_fast_governance_test_ext().execute_with(|| {
 			let proposer = TestCommons::account_id(1);
 			let voter = TestCommons::account_id(2);
@@ -599,95 +598,76 @@ mod tests {
 			Balances::make_free_balance_be(&proposer, 50000 * UNIT);
 			Balances::make_free_balance_be(&voter, 50000 * UNIT);
 
-			// Create two proposals, one for each track
-
-			// Signed track proposal (track 0)
-			let signed_proposal = RuntimeCall::System(frame_system::Call::remark {
-				remark: b"Signed track proposal".to_vec(),
+			// Create two proposals for track 0 (both Signed origin)
+			let proposal1 = RuntimeCall::System(frame_system::Call::remark {
+				remark: b"First proposal".to_vec(),
 			});
-			let signed_encoded = signed_proposal.encode();
-			let signed_hash = <Runtime as frame_system::Config>::Hashing::hash(&signed_encoded);
-
-			// Signaling track proposal (track 1)
-			let signal_proposal = RuntimeCall::System(frame_system::Call::remark {
-				remark: b"Signaling track proposal".to_vec(),
+			let proposal2 = RuntimeCall::System(frame_system::Call::remark {
+				remark: b"Second proposal".to_vec(),
 			});
-			let signal_encoded = signal_proposal.encode();
-			let signal_hash = <Runtime as frame_system::Config>::Hashing::hash(&signal_encoded);
+			let encoded1 = proposal1.encode();
+			let encoded2 = proposal2.encode();
+			let hash1 = <Runtime as frame_system::Config>::Hashing::hash(&encoded1);
+			let hash2 = <Runtime as frame_system::Config>::Hashing::hash(&encoded2);
 
 			// Store preimages
 			assert_ok!(Preimage::note_preimage(
 				RuntimeOrigin::signed(proposer.clone()),
-				signed_encoded.clone()
+				encoded1.clone()
 			));
-
 			assert_ok!(Preimage::note_preimage(
 				RuntimeOrigin::signed(proposer.clone()),
-				signal_encoded.clone()
+				encoded2.clone()
 			));
 
-			// Submit referenda for each track
-
-			// Signed track (0)
+			// Submit both referenda on track 0 (Signed origin)
 			assert_ok!(Referenda::submit(
 				RuntimeOrigin::signed(proposer.clone()),
 				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
-				frame_support::traits::Bounded::Lookup {
-					hash: signed_hash,
-					len: signed_encoded.len() as u32
-				},
+				frame_support::traits::Bounded::Lookup { hash: hash1, len: encoded1.len() as u32 },
 				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
-			// Signaling track (1)
 			assert_ok!(Referenda::submit(
 				RuntimeOrigin::signed(proposer.clone()),
-				Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
-				frame_support::traits::Bounded::Lookup {
-					hash: signal_hash,
-					len: signal_encoded.len() as u32
-				},
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(proposer.clone()))),
+				frame_support::traits::Bounded::Lookup { hash: hash2, len: encoded2.len() as u32 },
 				frame_support::traits::schedule::DispatchTime::After(0u32)
 			));
 
-			// Check each referendum is on the correct track
-			let signed_idx = 0;
-			let signal_idx = 1;
+			let idx1 = 0;
+			let idx2 = 1;
 
-			let signed_info =
-				pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-			let signal_info =
-				pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
-
-			match signed_info {
+			// Both referenda on track 0
+			let info1 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(idx1).unwrap();
+			let info2 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(idx2).unwrap();
+			match info1 {
 				pallet_referenda::ReferendumInfo::Ongoing(status) => {
-					assert_eq!(status.track, 0, "Signed referendum should be on track 0");
+					assert_eq!(status.track, 0, "Referendum 1 should be on track 0");
 				},
-				_ => panic!("Signed referendum should be ongoing"),
+				_ => panic!("Referendum 1 should be ongoing"),
+			}
+			match info2 {
+				pallet_referenda::ReferendumInfo::Ongoing(status) => {
+					assert_eq!(status.track, 0, "Referendum 2 should be on track 0");
+				},
+				_ => panic!("Referendum 2 should be ongoing"),
 			}
 
-			match signal_info {
-				pallet_referenda::ReferendumInfo::Ongoing(status) => {
-					assert_eq!(status.track, 1, "Signaling referendum should be on track 1");
-				},
-				_ => panic!("Signaling referendum should be ongoing"),
-			}
-
-			// Place decision deposits for all
+			// Place decision deposits
 			assert_ok!(Referenda::place_decision_deposit(
 				RuntimeOrigin::signed(proposer.clone()),
-				signed_idx
+				idx1
 			));
-
 			assert_ok!(Referenda::place_decision_deposit(
 				RuntimeOrigin::signed(proposer.clone()),
-				signal_idx
+				idx2
 			));
 
-			// Vote on all referenda
+			// Vote on both
 			assert_ok!(ConvictionVoting::vote(
 				RuntimeOrigin::signed(voter.clone()),
-				signed_idx,
+				idx1,
 				Standard {
 					vote: Vote {
 						aye: true,
@@ -696,10 +676,9 @@ mod tests {
 					balance: 10000 * UNIT,
 				}
 			));
-
 			assert_ok!(ConvictionVoting::vote(
 				RuntimeOrigin::signed(voter.clone()),
-				signal_idx,
+				idx2,
 				Standard {
 					vote: Vote {
 						aye: true,
@@ -709,81 +688,42 @@ mod tests {
 				}
 			));
 
-			// Get the prepare periods for each track dynamically
-			let signed_track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap(); // Track 0: signed
-			let signal_track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap(); // Track 1: signaling
+			let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
+			let prepare = track_info.prepare_period;
 
-			let signed_prepare = signed_track_info.prepare_period;
-			let signal_prepare = signal_track_info.prepare_period;
+			// Advance past prepare period
+			TestCommons::run_to_block(prepare + 1);
 
-			// Advance to signal prepare completion (shortest)
-			TestCommons::run_to_block(signal_prepare + 1);
-
-			// Check signal referendum moved to deciding phase
-			let signal_info =
-				pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
-			match signal_info {
+			// Both should be in deciding phase
+			let info1 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(idx1).unwrap();
+			let info2 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(idx2).unwrap();
+			match info1 {
 				pallet_referenda::ReferendumInfo::Ongoing(status) => {
-					assert!(
-						status.deciding.is_some(),
-						"Signal referendum should be in deciding phase"
-					);
+					assert!(status.deciding.is_some(), "Referendum 1 should be in deciding phase");
 				},
-				_ => panic!("Signal referendum should be ongoing"),
+				_ => panic!("Referendum 1 should be ongoing"),
+			}
+			match info2 {
+				pallet_referenda::ReferendumInfo::Ongoing(status) => {
+					assert!(status.deciding.is_some(), "Referendum 2 should be in deciding phase");
+				},
+				_ => panic!("Referendum 2 should be ongoing"),
 			}
 
-			// Check signed referendum not yet in deciding phase (only relevant for
-			// production-governance-tests)
-			#[cfg(feature = "production-governance-tests")]
-			let signed_info = pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
+			// Advance through decision + confirm periods
+			let total = prepare + track_info.decision_period + track_info.confirm_period + 1;
+			TestCommons::run_to_block(total);
 
-			#[cfg(feature = "production-governance-tests")]
-			match signed_info {
-				pallet_referenda::ReferendumInfo::Ongoing(status) => {
-					assert!(
-						status.deciding.is_none(),
-						"Signed referendum should not yet be in deciding phase"
-					);
-				},
-				_ => panic!("Signed referendum should be ongoing"),
-			}
-
-			// Advance to signed prepare completion
-			TestCommons::run_to_block(signed_prepare + 1);
-
-			// Check signed referendum moved to deciding phase
-			let signed_info =
-				pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-			match signed_info {
-				pallet_referenda::ReferendumInfo::Ongoing(status) => {
-					assert!(
-						status.deciding.is_some(),
-						"Signed referendum should now be in deciding phase"
-					);
-				},
-				_ => panic!("Signed referendum should be ongoing"),
-			}
-
-			// Advance through all decision periods to confirm all pass
-			let longest_process = signed_prepare +
-				signed_track_info.decision_period +
-				signed_track_info.confirm_period +
-				1; // Signed track has longest periods
-			TestCommons::run_to_block(longest_process);
-
-			// Verify all referenda passed
-			let signed_final =
-				pallet_referenda::ReferendumInfoFor::<Runtime>::get(signed_idx).unwrap();
-			let signal_final =
-				pallet_referenda::ReferendumInfoFor::<Runtime>::get(signal_idx).unwrap();
-
+			// Both should be approved
+			let final1 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(idx1).unwrap();
+			let final2 = pallet_referenda::ReferendumInfoFor::<Runtime>::get(idx2).unwrap();
 			assert!(
-				matches!(signed_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-				"Signed referendum should be approved"
+				matches!(final1, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+				"Referendum 1 should be approved"
 			);
 			assert!(
-				matches!(signal_final, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
-				"Signal referendum should be approved"
+				matches!(final2, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+				"Referendum 2 should be approved"
 			);
 		});
 	}
@@ -796,15 +736,15 @@ mod tests {
 			// Set up sufficient balance
 			Balances::make_free_balance_be(&proposer, 5000 * UNIT);
 
-			// Get max_deciding for signaling track dynamically
-			let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(1).unwrap(); // Track 1 = signaling
+			// Get max_deciding for track 0 (signed) dynamically
+			let track_info = <Runtime as pallet_referenda::Config>::Tracks::info(0).unwrap();
 			let max_deciding = track_info.max_deciding;
 
-			// Create max_deciding + 1 signaling referenda
+			// Create max_deciding + 1 referenda on track 0 (Signed origin)
 			for i in 0..max_deciding + 1 {
 				// Create proposal
 				let proposal = RuntimeCall::System(frame_system::Call::remark {
-					remark: format!("Signaling proposal {}", i).into_bytes(),
+					remark: format!("Proposal {}", i).into_bytes(),
 				});
 
 				// Create and submit referendum
@@ -821,10 +761,12 @@ mod tests {
 					len: encoded_call.len() as u32,
 				};
 
-				// Submit with None origin for signaling track
+				// Submit with Signed origin (track 0)
 				assert_ok!(Referenda::submit(
 					RuntimeOrigin::signed(proposer.clone()),
-					Box::new(OriginCaller::system(frame_system::RawOrigin::None)),
+					Box::new(OriginCaller::system(frame_system::RawOrigin::Signed(
+						proposer.clone()
+					))),
 					bounded_call,
 					frame_support::traits::schedule::DispatchTime::After(0u32)
 				));
@@ -857,7 +799,7 @@ mod tests {
 			);
 
 			// Check that one referendum is queued
-			let track_queue = pallet_referenda::TrackQueue::<Runtime>::get(1); // Track 1 = signaling
+			let track_queue = pallet_referenda::TrackQueue::<Runtime>::get(0); // Track 0 = signed
 			assert_eq!(track_queue.len(), 1, "One referendum should be queued");
 		});
 	}
