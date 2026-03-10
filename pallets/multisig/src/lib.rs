@@ -666,8 +666,6 @@ pub mod pallet {
 				},
 			);
 
-			DissolveApprovals::<T>::remove(&multisig_address);
-
 			Self::deposit_event(Event::ProposalCreated {
 				multisig_address: multisig_address.clone(),
 				proposer,
