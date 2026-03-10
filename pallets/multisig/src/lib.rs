@@ -631,13 +631,11 @@ pub mod pallet {
 			let proposal_id = Multisigs::<T>::try_mutate(
 				&multisig_address,
 				|maybe_multisig| -> Result<u32, DispatchError> {
-					let multisig =
-						maybe_multisig.as_mut().ok_or(Error::<T>::MultisigNotFound)?;
+					let multisig = maybe_multisig.as_mut().ok_or(Error::<T>::MultisigNotFound)?;
 					let nonce = multisig.proposal_nonce;
 					multisig.proposal_nonce = nonce.saturating_add(1);
 					multisig.active_proposals = multisig.active_proposals.saturating_add(1);
-					let count =
-						multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
+					let count = multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
 					multisig
 						.proposals_per_signer
 						.try_insert(proposer.clone(), count.saturating_add(1))
@@ -739,10 +737,6 @@ pub mod pallet {
 			// Calculate actual weight based on real call size
 			let actual_call_size = proposal.call.len() as u32;
 			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
-
-			if proposal.status != ProposalStatus::Active {
-				return Self::err_with_weight(Error::<T>::ProposalNotActive, 2);
-			}
 
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
