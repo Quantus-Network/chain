@@ -219,7 +219,11 @@ mod benchmarks {
 
 	#[benchmark]
 	fn recover_funds(n: Linear<0, 16>) -> Result<(), BenchmarkError> {
-		assert_eq!(T::MaxPendingPerAccount::get(), 16, "Linear upper bound must match MaxPendingPerAccount");
+		assert_eq!(
+			T::MaxPendingPerAccount::get(),
+			16,
+			"Linear upper bound must match MaxPendingPerAccount"
+		);
 
 		let account: T::AccountId = whitelisted_caller();
 		let guardian: T::AccountId = benchmark_account("guardian", 0, SEED);
@@ -235,12 +239,9 @@ mod benchmarks {
 		for i in 0..n {
 			if i > 0 && i % 8 == 0 {
 				let bn = frame_system::Pallet::<T>::block_number();
-				frame_system::Pallet::<T>::set_block_number(
-					bn + BlockNumberFor::<T>::one(),
-				);
+				frame_system::Pallet::<T>::set_block_number(bn + BlockNumberFor::<T>::one());
 			}
-			let lookup =
-				<T as frame_system::Config>::Lookup::unlookup(recipient.clone());
+			let lookup = <T as frame_system::Config>::Lookup::unlookup(recipient.clone());
 			ReversibleTransfers::<T>::do_schedule_transfer(
 				RawOrigin::Signed(account.clone()).into(),
 				lookup,
