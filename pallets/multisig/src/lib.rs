@@ -10,7 +10,7 @@
 //! - Propose transactions for multisig approval
 //! - Approve proposed transactions
 //! - Execute transactions once threshold is reached (automatic)
-//! - Auto-cleanup of proposer's expired proposals on propose()
+//! - Cleanup of expired proposals via claim_deposits() and remove_expired()
 //! - Per-signer proposal limits for filibuster protection
 //!
 //! ## Data Structures
@@ -509,10 +509,8 @@ pub mod pallet {
 		/// - A deposit (refundable - returned immediately on execution/cancellation)
 		/// - A fee (non-refundable, burned immediately)
 		///
-		/// **Auto-cleanup:** Before creating a new proposal, ALL proposer's expired
-		/// proposals are automatically removed. This is the primary cleanup mechanism.
-		///
-		/// **For threshold=1:** If the multisig threshold is 1, the proposal executes immediately.
+		/// **For threshold=1:** The proposal is created with `Approved` status immediately
+		/// and can be executed via `execute()` without additional approvals.
 		///
 		/// **Weight:** Charged upfront for worst-case (high-security path with decode).
 		/// Refunded to actual cost on success based on whether HS path was taken.
@@ -576,12 +574,8 @@ pub mod pallet {
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
-			// Check total proposals in storage limit
-			// Users must call claim_deposits() or remove_expired() to free space
-			let total_proposals_in_storage =
-				Proposals::<T>::iter_prefix(&multisig_address).count() as u32;
 			ensure!(
-				total_proposals_in_storage < T::MaxTotalProposalsInStorage::get(),
+				multisig_data.active_proposals < T::MaxTotalProposalsInStorage::get(),
 				Error::<T>::TooManyProposalsInStorage
 			);
 
@@ -595,9 +589,6 @@ pub mod pallet {
 				proposer_current_count < max_proposals_per_signer,
 				Error::<T>::TooManyProposalsPerSigner
 			);
-
-			// Check call size
-			ensure!(call.len() as u32 <= T::MaxCallSize::get(), Error::<T>::CallTooLarge);
 
 			// Validate expiry is in the future
 			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
@@ -635,59 +626,51 @@ pub mod pallet {
 			let bounded_call: BoundedCallOf<T> =
 				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
 
-			// Get and increment proposal nonce for unique ID
-			let proposal_id = Multisigs::<T>::mutate(&multisig_address, |maybe_multisig| {
-				if let Some(multisig) = maybe_multisig {
-					let nonce = multisig.proposal_nonce;
-					multisig.proposal_nonce = multisig.proposal_nonce.saturating_add(1);
-					nonce
-				} else {
-					0 // Should never happen due to earlier check
-				}
-			});
+			let threshold_met = 1 >= multisig_data.threshold;
 
-			// Create proposal with proposer as first approval
+			let proposal_id = Multisigs::<T>::try_mutate(
+				&multisig_address,
+				|maybe_multisig| -> Result<u32, DispatchError> {
+					let multisig = maybe_multisig.as_mut().ok_or(Error::<T>::MultisigNotFound)?;
+					let nonce = multisig.proposal_nonce;
+					multisig.proposal_nonce = nonce.saturating_add(1);
+					multisig.active_proposals = multisig.active_proposals.saturating_add(1);
+					let count = multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
+					multisig
+						.proposals_per_signer
+						.try_insert(proposer.clone(), count.saturating_add(1))
+						.map_err(|_| Error::<T>::TooManySigners)?;
+					Ok(nonce)
+				},
+			)?;
+
 			let mut approvals = BoundedApprovalsOf::<T>::default();
 			let _ = approvals.try_push(proposer.clone());
 
-			let proposal = ProposalData {
-				proposer: proposer.clone(),
-				call: bounded_call,
-				expiry,
-				approvals,
-				deposit,
-				status: ProposalStatus::Active,
-			};
+			Proposals::<T>::insert(
+				&multisig_address,
+				proposal_id,
+				ProposalData {
+					proposer: proposer.clone(),
+					call: bounded_call,
+					expiry,
+					approvals,
+					deposit,
+					status: if threshold_met {
+						ProposalStatus::Approved
+					} else {
+						ProposalStatus::Active
+					},
+				},
+			);
 
-			// Store proposal with nonce as key (simple and efficient)
-			Proposals::<T>::insert(&multisig_address, proposal_id, proposal);
-
-			// Increment proposal counters
-			Multisigs::<T>::mutate(&multisig_address, |maybe_data| {
-				if let Some(ref mut data) = maybe_data {
-					data.active_proposals = data.active_proposals.saturating_add(1);
-					let count = data.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
-					let _ = data
-						.proposals_per_signer
-						.try_insert(proposer.clone(), count.saturating_add(1));
-				}
-			});
-
-			// Emit event
 			Self::deposit_event(Event::ProposalCreated {
 				multisig_address: multisig_address.clone(),
 				proposer,
 				proposal_id,
 			});
 
-			// Check if threshold is reached immediately (threshold=1 case)
-			// Proposer is already counted as first approval
-			if 1 >= multisig_data.threshold {
-				Proposals::<T>::mutate(&multisig_address, proposal_id, |maybe_proposal| {
-					if let Some(ref mut p) = maybe_proposal {
-						p.status = ProposalStatus::Approved;
-					}
-				});
+			if threshold_met {
 				Self::deposit_event(Event::ProposalReadyToExecute {
 					multisig_address: multisig_address.clone(),
 					proposal_id,
@@ -755,13 +738,11 @@ pub mod pallet {
 			let actual_call_size = proposal.call.len() as u32;
 			let actual_weight = <T as Config>::WeightInfo::approve(actual_call_size);
 
-			// Check if not expired (2 reads already performed)
 			let current_block = frame_system::Pallet::<T>::block_number();
 			if current_block > proposal.expiry {
 				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
 			}
 
-			// Check if already approved (2 reads already performed)
 			if proposal.approvals.contains(&approver) {
 				return Self::err_with_weight(Error::<T>::AlreadyApproved, 2);
 			}
@@ -945,8 +926,8 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let caller = ensure_signed(origin)?;
 
-			// Cleanup ALL caller's expired proposals
-			// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes)
+			Self::ensure_is_signer(&multisig_address, &caller)?;
+
 			let (cleaned, total_proposals_iterated, total_call_bytes) =
 				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
 
