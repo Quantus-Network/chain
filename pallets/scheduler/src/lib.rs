@@ -1269,7 +1269,10 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		assert!(maybe_periodic.is_none(), "Periodic scheduling is not supported for schedule named");
+		assert!(
+			maybe_periodic.is_none(),
+			"Periodic scheduling is not supported for schedule named"
+		);
 		Self::do_schedule_named(id, when.into(), priority, origin, call)
 	}
 
