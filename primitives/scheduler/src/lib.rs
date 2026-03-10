@@ -16,11 +16,6 @@ use sp_runtime::{
 	DispatchError, RuntimeDebug,
 };
 
-/// Information relating to the period of a scheduled task. First item is the length of the
-/// period and the second is the number of times it should be executed in total before the task
-/// is considered finished and removed.
-pub type Period<BlockNumber, Moment> = (BlockNumberOrTimestamp<BlockNumber, Moment>, u32);
-
 /// Error type for incompatible types in saturating_add
 #[derive(Debug, PartialEq, Eq)]
 pub struct IncompatibleTypesError;
@@ -142,20 +137,16 @@ pub trait ScheduleNamed<BlockNumber, Moment, Call, Origin> {
 	/// The type of the hash function used for hashing.
 	type Hasher: Hash;
 
-	/// Schedule a task with a name, dispatch time, and optional periodicity.
 	fn schedule_named(
 		id: TaskName,
 		when: DispatchTime<BlockNumber, Moment>,
-		maybe_periodic: Option<Period<BlockNumber, Moment>>,
 		priority: schedule::Priority,
 		origin: Origin,
 		call: Bounded<Call, Self::Hasher>,
 	) -> Result<Self::Address, DispatchError>;
 
-	/// Schedule a task with a name, dispatch time, and optional periodicity.
 	fn cancel_named(id: TaskName) -> Result<(), DispatchError>;
 
-	/// Reschedule a task with a name, dispatch time, and optional periodicity.
 	fn reschedule_named(
 		id: TaskName,
 		when: DispatchTime<BlockNumber, Moment>,

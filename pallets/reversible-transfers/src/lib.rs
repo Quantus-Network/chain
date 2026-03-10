@@ -756,7 +756,6 @@ pub mod pallet {
 			T::Scheduler::schedule_named(
 				schedule_id,
 				dispatch_time,
-				None,
 				Default::default(),
 				frame_support::dispatch::RawOrigin::Signed(Self::account_id()).into(),
 				bounded_call,
