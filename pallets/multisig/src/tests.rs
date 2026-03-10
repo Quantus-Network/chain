@@ -925,6 +925,41 @@ fn claim_deposits_works() {
 	});
 }
 
+#[test]
+fn claim_deposits_fails_for_non_signer() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			make_call(vec![1, 2, 3]),
+			100
+		));
+
+		System::set_block_number(201);
+
+		assert_noop!(
+			Multisig::claim_deposits(RuntimeOrigin::signed(dave()), multisig_address.clone()),
+			Error::<Test>::NotASigner
+		);
+
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Balances::reserved_balance(bob()), 100);
+	});
+}
+
 // ==================== HELPER FUNCTION TESTS ====================
 
 #[test]
