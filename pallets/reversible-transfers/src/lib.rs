@@ -488,8 +488,13 @@ pub mod pallet {
 		/// This is an emergency function for when the high security account may be compromised.
 		/// It cancels all pending transfers first (applying volume fees), then transfers
 		/// the remaining free balance to the guardian.
+		///
+		/// Weight: worst-case assumes MaxPendingPerAccount cancellations plus transfer_all.
 		#[pallet::call_index(7)]
-		#[pallet::weight(<T as Config>::WeightInfo::recover_funds())]
+		#[pallet::weight(
+			<T as Config>::WeightInfo::recover_funds()
+				.saturating_add(<T as Config>::WeightInfo::cancel().saturating_mul(T::MaxPendingPerAccount::get().into()))
+		)]
 		#[allow(clippy::useless_conversion)]
 		pub fn recover_funds(
 			origin: OriginFor<T>,
@@ -502,13 +507,29 @@ pub mod pallet {
 
 			ensure!(who == high_security_account_data.interceptor, Error::<T>::InvalidReverser);
 
-			// Cancel all pending transfers for this account (volume fee applies to each)
-			let pending_tx_ids = PendingTransfersBySender::<T>::take(&account);
-			for tx_id in pending_tx_ids.iter() {
-				if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
-					// strict_scheduler=false: ignore scheduler errors during recovery
-					// apply_fee=true: volume fee applies to high-security cancellations
-					Self::do_cancel_transfer(&who, *tx_id, &pending, &who, true, false)?;
+			// Cancel all pending transfers (volume fee applies to each)
+			// take() clears the sender index in one operation
+			for tx_id in PendingTransfersBySender::<T>::take(&account).iter() {
+				if let Some(pending) = PendingTransfers::<T>::take(tx_id) {
+					// Ignore scheduler errors (task may have already executed)
+					let schedule_id = Self::make_schedule_id(tx_id).ok();
+					if let Some(id) = schedule_id {
+						let _ = T::Scheduler::cancel_named(id);
+					}
+
+					// Log and continue on fund release errors (emergency path)
+					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+						log::warn!(
+							"Failed to release held funds for tx {:?} during recovery: {:?}",
+							tx_id,
+							e
+						);
+					}
+
+					Self::deposit_event(Event::TransactionCancelled {
+						who: who.clone(),
+						tx_id: *tx_id,
+					});
 				}
 			}
 
@@ -805,41 +826,18 @@ pub mod pallet {
 				(pending.from.clone(), false)
 			};
 
-			Self::do_cancel_transfer(who, tx_id, &pending, &recipient, apply_fee, true)
-		}
-
-		/// Core cancellation logic shared by cancel and recover_funds.
-		/// - `who`: account to attribute the cancellation to (for event)
-		/// - `tx_id`: transaction ID being cancelled
-		/// - `pending`: the pending transfer data
-		/// - `recipient`: where remaining funds go after fee
-		/// - `apply_fee`: whether to apply volume fee
-		/// - `strict_scheduler`: if true, error on scheduler cancel failure; if false, ignore
-		fn do_cancel_transfer(
-			who: &T::AccountId,
-			tx_id: T::Hash,
-			pending: &PendingTransferOf<T>,
-			recipient: &T::AccountId,
-			apply_fee: bool,
-			strict_scheduler: bool,
-		) -> DispatchResult {
-			// Remove transfer from storage
+			// Remove from storage
 			PendingTransfers::<T>::remove(tx_id);
-
-			// Remove from sender's pending list
 			PendingTransfersBySender::<T>::mutate(&pending.from, |list| {
 				list.retain(|id| *id != tx_id);
 			});
 
-			// Cancel the scheduled task
+			// Cancel scheduler (must succeed for normal cancel)
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
-			let scheduler_result = T::Scheduler::cancel_named(schedule_id);
-			if strict_scheduler {
-				scheduler_result.map_err(|_| Error::<T>::CancellationFailed)?;
-			}
+			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// Release held funds (burn fee if applicable, transfer remainder to recipient)
-			Self::release_held_funds_with_fee(pending, recipient, apply_fee)?;
+			// Release funds (must succeed for normal cancel)
+			Self::release_held_funds_with_fee(&pending, &recipient, apply_fee)?;
 
 			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
