@@ -157,6 +157,10 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxInterceptorAccounts: Get<u32>;
 
+		/// Maximum pending reversible transactions allowed per account.
+		#[pallet::constant]
+		type MaxPendingPerAccount: Get<u32>;
+
 		/// The default delay period for reversible transactions if none is specified.
 		///
 		/// NOTE: default delay is always in blocks.
@@ -224,6 +228,17 @@ pub mod pallet {
 	pub type PendingTransfers<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::Hash, PendingTransferOf<T>, OptionQuery>;
 
+	/// Maps sender accounts to their list of pending transaction IDs.
+	#[pallet::storage]
+	#[pallet::getter(fn pending_transfers_by_sender)]
+	pub type PendingTransfersBySender<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		BoundedVec<T::Hash, T::MaxPendingPerAccount>,
+		ValueQuery,
+	>;
+
 	/// Maps interceptor accounts to the list of accounts they can intercept for.
 	/// This allows the UI to efficiently query all accounts for which a given account is an
 	/// interceptor.
@@ -285,6 +300,8 @@ pub mod pallet {
 		PendingTxNotFound,
 		/// The caller is not the original submitter of the transaction they are trying to cancel.
 		NotOwner,
+		/// The account has reached the maximum number of pending reversible transactions.
+		TooManyPendingTransactions,
 		/// The specified delay period is below the configured minimum.
 		DelayTooShort,
 		/// Failed to schedule the transaction execution with the scheduler pallet.
@@ -469,8 +486,10 @@ pub mod pallet {
 		/// account by transferring the entire balance to themselves.
 		///
 		/// This is an emergency function for when the high security account may be compromised.
+		/// It cancels all pending transfers first (applying volume fees), then transfers
+		/// the remaining free balance to the guardian.
 		#[pallet::call_index(7)]
-		#[pallet::weight(<T as Config>::WeightInfo::recover_funds())]
+		#[pallet::weight(<T as Config>::WeightInfo::recover_funds(T::MaxPendingPerAccount::get()))]
 		#[allow(clippy::useless_conversion)]
 		pub fn recover_funds(
 			origin: OriginFor<T>,
@@ -483,17 +502,42 @@ pub mod pallet {
 
 			ensure!(who == high_security_account_data.interceptor, Error::<T>::InvalidReverser);
 
+			let mut num_cancelled: u64 = 0;
+
+			for tx_id in PendingTransfersBySender::<T>::take(&account).iter() {
+				if let Some(pending) = PendingTransfers::<T>::take(tx_id) {
+					let schedule_id = Self::make_schedule_id(tx_id).ok();
+					if let Some(id) = schedule_id {
+						let _ = T::Scheduler::cancel_named(id);
+					}
+
+					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+						log::warn!(
+							"Failed to release held funds for tx {:?} during recovery: {:?}",
+							tx_id,
+							e
+						);
+					}
+
+					num_cancelled = num_cancelled.saturating_add(1);
+					Self::deposit_event(Event::TransactionCancelled {
+						who: who.clone(),
+						tx_id: *tx_id,
+					});
+				}
+			}
+
 			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_all {
 				dest: T::Lookup::unlookup(who.clone()),
 				keep_alive: false,
 			}
 			.into();
 
-			let result = call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into());
+			call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into())?;
 
 			Self::deposit_event(Event::FundsRecovered { account, guardian: who });
 
-			result
+			Ok(Some(<T as Config>::WeightInfo::recover_funds(num_cancelled as u32)).into())
 		}
 	}
 
@@ -601,6 +645,11 @@ pub mod pallet {
 			// Remove transfer from storage
 			PendingTransfers::<T>::remove(tx_id);
 
+			// Remove from sender's pending list
+			PendingTransfersBySender::<T>::mutate(&pending.from, |list| {
+				list.retain(|id| id != tx_id);
+			});
+
 			let post_info =
 				call.dispatch(frame_system::RawOrigin::Signed(pending.from.clone()).into());
 
@@ -689,6 +738,11 @@ pub mod pallet {
 			// Store the pending transfer
 			PendingTransfers::<T>::insert(tx_id, new_pending);
 
+			// Add to sender's pending list
+			PendingTransfersBySender::<T>::try_mutate(&from, |list| {
+				list.try_push(tx_id).map_err(|_| Error::<T>::TooManyPendingTransactions)
+			})?;
+
 			let bounded_call = T::Preimages::bound(Call::<T>::execute_transfer { tx_id }.into())?;
 
 			// Schedule the `do_execute` call
@@ -752,41 +806,50 @@ pub mod pallet {
 
 		/// Cancels a previously scheduled transaction. Internal logic used by `cancel` extrinsic.
 		fn cancel_transfer(who: &T::AccountId, tx_id: T::Hash) -> DispatchResult {
-			// Retrieve owner from storage to verify ownership
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
-
 			let high_security_account_data = HighSecurityAccounts::<T>::get(&pending.from);
 
-			// if high-security account, interceptor is third party, else it is owner
-			let interceptor = if let Some(ref data) = high_security_account_data {
+			// Determine recipient and apply fee based on account type
+			let (recipient, apply_fee) = if let Some(ref data) = high_security_account_data {
 				ensure!(who == &data.interceptor, Error::<T>::InvalidReverser);
-				data.interceptor.clone()
+				(data.interceptor.clone(), true)
 			} else {
 				ensure!(who == &pending.from, Error::<T>::NotOwner);
-				pending.from.clone()
+				(pending.from.clone(), false)
 			};
 
-			// Remove transfer from storage
+			// Remove from storage
 			PendingTransfers::<T>::remove(tx_id);
+			PendingTransfersBySender::<T>::mutate(&pending.from, |list| {
+				list.retain(|id| *id != tx_id);
+			});
 
+			// Cancel scheduler (must succeed for normal cancel)
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
-
-			// Cancel the scheduled task
 			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
 
-			// Calculate volume fee only for high-security accounts
-			let (fee_amount, remaining_amount) = if high_security_account_data.is_some() {
+			// Release funds (must succeed for normal cancel)
+			Self::release_held_funds_with_fee(&pending, &recipient, apply_fee)?;
+
+			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
+			Ok(())
+		}
+
+		/// Releases held funds from a pending transfer, optionally applying volume fee.
+		/// Burns the fee portion and transfers the remainder to the recipient.
+		fn release_held_funds_with_fee(
+			pending: &PendingTransferOf<T>,
+			recipient: &T::AccountId,
+			apply_fee: bool,
+		) -> DispatchResult {
+			let (fee_amount, remaining_amount) = if apply_fee {
 				let volume_fee = T::VolumeFee::get();
-				// unchecked ok because volume_fee < 1 so overflow impossible
 				let fee = volume_fee * pending.amount;
-				let remaining = pending.amount.saturating_sub(fee);
-				(fee, remaining)
+				(fee, pending.amount.saturating_sub(fee))
 			} else {
-				// No fee for regular accounts
 				(Zero::zero(), pending.amount)
 			};
-			// For assets, burn held funds (fee) and transfer remaining to interceptor
-			// For native balances, burn held funds (fee) and transfer remaining to interceptor
+
 			if let Ok((call, _)) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call) {
 				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
 					call.clone().try_into()
@@ -794,8 +857,8 @@ pub mod pallet {
 					let reason = Self::asset_hold_reason();
 					let asset_id = id.into();
 
-					// Burn fee amount if fee_amount > 0
-					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::burn_held(
+					// Burn fee amount
+					<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::burn_held(
 						asset_id.clone(),
 						&reason,
 						&pending.from,
@@ -804,19 +867,18 @@ pub mod pallet {
 						Fortitude::Polite,
 					)?;
 
-					// Transfer remaining amount to interceptor
-					let _ = <AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+					// Transfer remaining amount to recipient
+					<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
 						asset_id,
 						&reason,
 						&pending.from,
-						&interceptor,
+						recipient,
 						remaining_amount,
 						Precision::Exact,
 						Restriction::Free,
 						Fortitude::Polite,
 					)?;
-				}
-				if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
+				} else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
 					call.clone().try_into()
 				{
 					// Burn fee amount
@@ -828,11 +890,11 @@ pub mod pallet {
 						Fortitude::Polite,
 					)?;
 
-					// Transfer remaining amount to interceptor
+					// Transfer remaining amount to recipient
 					pallet_balances::Pallet::<T>::transfer_on_hold(
 						&HoldReason::ScheduledTransfer.into(),
 						&pending.from,
-						&interceptor,
+						recipient,
 						remaining_amount,
 						Precision::Exact,
 						Restriction::Free,
@@ -841,7 +903,6 @@ pub mod pallet {
 				}
 			}
 
-			Self::deposit_event(Event::TransactionCancelled { who: who.clone(), tx_id });
 			Ok(())
 		}
 	}
