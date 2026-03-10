@@ -1211,6 +1211,11 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
+use schedule::v3::TaskName;
+
+// Shims for Substrate's v3 scheduler traits, required by pallet_referenda (external crate).
+// Periodic scheduling is intentionally unsupported -- these impls exist solely to satisfy the
+// trait bounds. Once pallet_referenda is forked locally, these can be removed entirely.
 impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
 	for Pallet<T>
 {
@@ -1219,11 +1224,12 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 
 	fn schedule(
 		when: DispatchBlock<BlockNumberFor<T>>,
-		_maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+		maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
 		priority: schedule::Priority,
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
+		assert!(maybe_periodic.is_none(), "Periodic scheduling is not supported");
 		Self::do_schedule(when.into(), priority, origin, call)
 	}
 
@@ -1249,8 +1255,6 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 	}
 }
 
-use schedule::v3::TaskName;
-
 impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
 	for Pallet<T>
 {
@@ -1260,11 +1264,12 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 	fn schedule_named(
 		id: TaskName,
 		when: DispatchBlock<BlockNumberFor<T>>,
-		_maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
+		maybe_periodic: Option<schedule::Period<BlockNumberFor<T>>>,
 		priority: schedule::Priority,
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
+		assert!(maybe_periodic.is_none(), "Periodic scheduling is not supported for schedule named");
 		Self::do_schedule_named(id, when.into(), priority, origin, call)
 	}
 
