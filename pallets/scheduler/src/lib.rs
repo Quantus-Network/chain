@@ -88,7 +88,7 @@ use frame_system::{
 	pallet_prelude::BlockNumberFor,
 	{self as system},
 };
-use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, Period, ScheduleNamed};
+use qp_scheduler::{BlockNumberOrTimestamp, DispatchTime, ScheduleNamed};
 use scale_info::TypeInfo;
 use sp_runtime::{
 	traits::{BadOrigin, Dispatchable, One, Saturating, Zero},
@@ -132,11 +132,9 @@ pub struct Scheduled<Name, Call, BlockNumber, PalletsOrigin, AccountId, Moment> 
 	priority: schedule::Priority,
 	/// The call to be dispatched.
 	call: Call,
-	/// If the call is periodic, then this points to the information concerning that.
-	maybe_periodic: Option<Period<BlockNumber, Moment>>,
 	/// The origin with which to dispatch the call.
 	origin: PalletsOrigin,
-	_phantom: PhantomData<AccountId>,
+	_phantom: PhantomData<(AccountId, BlockNumber, Moment)>,
 }
 
 impl<Name, Call, BlockNumber, PalletsOrigin, AccountId, Moment>
@@ -146,13 +144,12 @@ where
 	PalletsOrigin: Clone,
 {
 	/// Create a new task to be used for retry attempts of the original one. The cloned task will
-	/// have the same `priority`, `call` and `origin`, but will always be non-periodic and unnamed.
+	/// have the same `priority`, `call` and `origin`, but will always be unnamed.
 	pub fn as_retry(&self) -> Self {
 		Self {
 			maybe_id: None,
 			priority: self.priority,
 			call: self.call.clone(),
-			maybe_periodic: None,
 			origin: self.origin.clone(),
 			_phantom: Default::default(),
 		}
@@ -169,7 +166,7 @@ pub type ScheduledOf<T> = Scheduled<
 >;
 
 pub(crate) trait MarginalWeightInfo: WeightInfo {
-	fn service_task(maybe_lookup_len: Option<usize>, named: bool, periodic: bool) -> Weight {
+	fn service_task(maybe_lookup_len: Option<usize>, named: bool) -> Weight {
 		let base = Self::service_task_base();
 		let mut total = match maybe_lookup_len {
 			None => base,
@@ -177,9 +174,6 @@ pub(crate) trait MarginalWeightInfo: WeightInfo {
 		};
 		if named {
 			total.saturating_accrue(Self::service_task_named().saturating_sub(base));
-		}
-		if periodic {
-			total.saturating_accrue(Self::service_task_periodic().saturating_sub(base));
 		}
 		total
 	}
@@ -329,8 +323,6 @@ pub mod pallet {
 		RetryCancelled { task: TaskAddressOf<T>, id: Option<TaskName> },
 		/// The call for the provided hash was not found so the task has been aborted.
 		CallUnavailable { task: TaskAddressOf<T>, id: Option<TaskName> },
-		/// The given task was unable to be renewed since the agenda is full at that block.
-		PeriodicFailed { task: TaskAddressOf<T>, id: Option<TaskName> },
 		/// The given task was unable to be retried since the agenda is full at that block or there
 		/// was not enough weight to reschedule it.
 		RetryFailed { task: TaskAddressOf<T>, id: Option<TaskName> },
@@ -389,13 +381,11 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Anonymously schedule a task.
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::schedule(T::MaxScheduledPerBlock::get()))]
 		pub fn schedule(
 			origin: OriginFor<T>,
 			when: BlockNumberFor<T>,
-			maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 			priority: schedule::Priority,
 			call: Box<<T as Config>::RuntimeCall>,
 		) -> DispatchResult {
@@ -403,7 +393,6 @@ pub mod pallet {
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
 			Self::do_schedule(
 				DispatchTime::At(when),
-				maybe_periodic,
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
@@ -425,14 +414,12 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Schedule a named task.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::schedule_named(T::MaxScheduledPerBlock::get()))]
 		pub fn schedule_named(
 			origin: OriginFor<T>,
 			id: TaskName,
 			when: BlockNumberFor<T>,
-			maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 			priority: schedule::Priority,
 			call: Box<<T as Config>::RuntimeCall>,
 		) -> DispatchResult {
@@ -441,7 +428,6 @@ pub mod pallet {
 			Self::do_schedule_named(
 				id,
 				DispatchTime::At(when),
-				maybe_periodic,
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
@@ -459,13 +445,11 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Anonymously schedule a task after a delay.
 		#[pallet::call_index(4)]
 		#[pallet::weight(<T as Config>::WeightInfo::schedule(T::MaxScheduledPerBlock::get()))]
 		pub fn schedule_after(
 			origin: OriginFor<T>,
 			after: BlockNumberOrTimestamp<BlockNumberFor<T>, T::Moment>,
-			maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 			priority: schedule::Priority,
 			call: Box<<T as Config>::RuntimeCall>,
 		) -> DispatchResult {
@@ -473,7 +457,6 @@ pub mod pallet {
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
 			Self::do_schedule(
 				DispatchTime::After(after),
-				maybe_periodic,
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
@@ -481,14 +464,12 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Schedule a named task after a delay.
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::schedule_named(T::MaxScheduledPerBlock::get()))]
 		pub fn schedule_named_after(
 			origin: OriginFor<T>,
 			id: TaskName,
 			after: BlockNumberOrTimestamp<BlockNumberFor<T>, T::Moment>,
-			maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 			priority: schedule::Priority,
 			call: Box<<T as Config>::RuntimeCall>,
 		) -> DispatchResult {
@@ -497,7 +478,6 @@ pub mod pallet {
 			Self::do_schedule_named(
 				id,
 				DispatchTime::After(after),
-				maybe_periodic,
 				priority,
 				origin.caller().clone(),
 				T::Preimages::bound(*call)?,
@@ -510,10 +490,9 @@ pub mod pallet {
 		/// succeeds.
 		///
 		/// Tasks which need to be scheduled for a retry are still subject to weight metering and
-		/// agenda space, same as a regular task. If a periodic task fails, it will be scheduled
-		/// normally while the task is retrying.
+		/// agenda space, same as a regular task.
 		///
-		/// Tasks scheduled as a result of a retry for a periodic task are unnamed, non-periodic
+		/// Tasks scheduled as a result of a retry are unnamed
 		/// clones of the original task. Their retry configuration will be derived from the
 		/// original task's configuration, but will have a lower value for `remaining` than the
 		/// original `total_retries`.
@@ -547,10 +526,9 @@ pub mod pallet {
 		/// it succeeds.
 		///
 		/// Tasks which need to be scheduled for a retry are still subject to weight metering and
-		/// agenda space, same as a regular task. If a periodic task fails, it will be scheduled
-		/// normally while the task is retrying.
+		/// agenda space, same as a regular task.
 		///
-		/// Tasks scheduled as a result of a retry for a periodic task are unnamed, non-periodic
+		/// Tasks scheduled as a result of a retry are unnamed
 		/// clones of the original task. Their retry configuration will be derived from the
 		/// original task's configuration, but will have a lower value for `remaining` than the
 		/// original `total_retries`.
@@ -700,35 +678,17 @@ impl<T: Config> Pallet<T> {
 
 	fn do_schedule(
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-		maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 		priority: schedule::Priority,
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
 		let when = Self::resolve_time(when)?;
-
 		let lookup_hash = call.lookup_hash();
-
-		// sanitize maybe_periodic
-		let maybe_periodic = maybe_periodic
-			.filter(|p| p.1 > 1 && !p.0.is_zero())
-			// Remove one from the number of repetitions since we will schedule one now.
-			.map(|(p, c)| (p, c - 1));
-		let task = Scheduled {
-			maybe_id: None,
-			priority,
-			call,
-			maybe_periodic,
-			origin,
-			_phantom: PhantomData,
-		};
+		let task = Scheduled { maybe_id: None, priority, call, origin, _phantom: PhantomData };
 		let res = Self::place_task(when, task).map_err(|x| x.0)?;
-
 		if let Some(hash) = lookup_hash {
-			// Request the call to be made available.
 			T::Preimages::request(&hash);
 		}
-
 		Ok(res)
 	}
 
@@ -785,41 +745,21 @@ impl<T: Config> Pallet<T> {
 	fn do_schedule_named(
 		id: TaskName,
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-		maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 		priority: schedule::Priority,
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
-		// ensure id it is unique
 		if Lookup::<T>::contains_key(&id) {
 			return Err(Error::<T>::FailedToSchedule.into());
 		}
-
 		let when = Self::resolve_time(when)?;
-
 		let lookup_hash = call.lookup_hash();
-
-		// sanitize maybe_periodic
-		let maybe_periodic = maybe_periodic
-			.filter(|p| p.1 > 1 && !p.0.is_zero())
-			// Remove one from the number of repetitions since we will schedule one now.
-			.map(|(p, c)| (p, c - 1));
-
-		let task = Scheduled {
-			maybe_id: Some(id),
-			priority,
-			call,
-			maybe_periodic,
-			origin,
-			_phantom: Default::default(),
-		};
+		let task =
+			Scheduled { maybe_id: Some(id), priority, call, origin, _phantom: Default::default() };
 		let res = Self::place_task(when, task).map_err(|x| x.0)?;
-
 		if let Some(hash) = lookup_hash {
-			// Request the call to be made available.
 			T::Preimages::request(&hash);
 		}
-
 		Ok(res)
 	}
 
@@ -1038,11 +978,9 @@ impl<T: Config> Pallet<T> {
 				Some(t) => t,
 			};
 
-			// Compute this task's base weight (varies by preimage lookup, name, periodicity).
 			let base_weight = T::WeightInfo::service_task(
 				task.call.lookup_len().map(|x| x as usize),
 				task.maybe_id.is_some(),
-				task.maybe_periodic.is_some(),
 			);
 
 			// If the block can't afford even the base cost, put the task back and stop.
@@ -1090,7 +1028,6 @@ impl<T: Config> Pallet<T> {
 	/// This involves:
 	/// - removing and potentially replacing the `Lookup` entry for the task.
 	/// - realizing the task's call which can include a preimage lookup.
-	/// - Rescheduling the task for execution in a later agenda if periodic.
 	/// Execute a single scheduled task. Returns Ok(()) on successful dispatch, or Err with
 	/// the task back (Some) for retry / postponement, or None if permanently removed.
 	fn service_task(
@@ -1099,10 +1036,10 @@ impl<T: Config> Pallet<T> {
 		when: BlockNumberOrTimestampOf<T>,
 		agenda_index: u32,
 		is_first: bool,
-		mut task: ScheduledOf<T>,
+		task: ScheduledOf<T>,
 	) -> Result<(), (ServiceTaskError, Option<ScheduledOf<T>>)> {
 		// Eagerly remove the name->address lookup. If the task succeeds or gets rescheduled
-		// periodically, the new address will be re-inserted by place_task. If it fails,
+		// via a retry, the new address will be re-inserted by place_task. If it fails,
 		// the name is freed.
 		if let Some(ref id) = task.maybe_id {
 			Lookup::<T>::remove(id);
@@ -1126,25 +1063,18 @@ impl<T: Config> Pallet<T> {
 				let _ = weight.try_consume(T::WeightInfo::service_task(
 					task.call.lookup_len().map(|x| x as usize),
 					task.maybe_id.is_some(),
-					task.maybe_periodic.is_some(),
 				));
 
 				return Err((Unavailable, Some(task)));
 			},
 		};
 
-		// Charge the weight for servicing this task (lookup, name handling, periodic logic).
 		let _ = weight.try_consume(T::WeightInfo::service_task(
 			lookup_len.map(|x| x as usize),
 			task.maybe_id.is_some(),
-			task.maybe_periodic.is_some(),
 		));
 
-		// Attempt to dispatch the call. execute_dispatch checks whether the call's weight
-		// fits in the remaining block weight before dispatching.
 		match Self::execute_dispatch(weight, task.origin.clone(), call) {
-			// Too heavy and this is the first task in the block -- if even an empty block
-			// can't fit it, it will never execute. Remove it permanently.
 			Err(()) if is_first => {
 				T::Preimages::drop(&task.call);
 				Self::deposit_event(Event::PermanentlyOverweight {
@@ -1153,14 +1083,9 @@ impl<T: Config> Pallet<T> {
 				});
 				Err((Unavailable, None))
 			},
-			// Too heavy but not first -- a future block with less prior work might fit it.
 			Err(()) => Err((Overweight, Some(task))),
-
-			// Dispatch succeeded (result may still be a dispatch error like "threshold not met").
 			Ok(result) => {
 				let failed = result.is_err();
-				// Take the retry config (removes it from storage). We'll re-insert it at
-				// the new address if the task gets rescheduled.
 				let maybe_retry_config = Retries::<T>::take((when, agenda_index));
 
 				Self::deposit_event(Event::Dispatched {
@@ -1169,54 +1094,13 @@ impl<T: Config> Pallet<T> {
 					result,
 				});
 
-				// If the dispatch returned an error and a retry is configured, schedule
-				// a retry attempt at the retry period offset.
-				match maybe_retry_config {
-					Some(retry_config) if failed => {
+				if let Some(retry_config) = maybe_retry_config {
+					if failed {
 						Self::schedule_retry(weight, now, when, agenda_index, &task, retry_config);
-					},
-					_ => {},
+					}
 				}
 
-				// Handle periodic rescheduling: if this task repeats, compute the next
-				// wake time and place a new copy in the agenda.
-				if let &Some((period, count)) = &task.maybe_periodic {
-					if count > 1 {
-						task.maybe_periodic = Some((period, count - 1));
-					} else {
-						// Last repetition -- clear periodicity so it won't repeat again.
-						task.maybe_periodic = None;
-					}
-					match now.saturating_add(&period) {
-						Ok(wake) => match Self::place_task(wake, task) {
-							Ok(new_address) =>
-							// Carry the retry config forward to the new address.
-								if let Some(retry_config) = maybe_retry_config {
-									Retries::<T>::insert(new_address, retry_config);
-								},
-							Err((_, task)) => {
-								// Agenda at the target time is full.
-								T::Preimages::drop(&task.call);
-								Self::deposit_event(Event::PeriodicFailed {
-									task: (when, agenda_index),
-									id: task.maybe_id,
-								});
-							},
-						},
-						// Period type mismatches execution domain (e.g. Timestamp period
-						// on a BlockNumber task). Cannot compute next wake time.
-						Err(_) => {
-							T::Preimages::drop(&task.call);
-							Self::deposit_event(Event::PeriodicFailed {
-								task: (when, agenda_index),
-								id: task.maybe_id,
-							});
-						},
-					}
-				} else {
-					// Non-periodic task -- release the preimage reference.
-					T::Preimages::drop(&task.call);
-				}
+				T::Preimages::drop(&task.call);
 				Ok(())
 			},
 		}
@@ -1327,6 +1211,11 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
+use schedule::v3::TaskName;
+
+// Shims for Substrate's v3 scheduler traits, required by pallet_referenda (external crate).
+// Periodic scheduling is intentionally unsupported -- these impls exist solely to satisfy the
+// trait bounds. Once pallet_referenda is forked locally, these can be removed entirely.
 impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
 	for Pallet<T>
 {
@@ -1340,13 +1229,8 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		let periodic = if let Some(periodic) = maybe_periodic {
-			Some((BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1))
-		} else {
-			None
-		};
-
-		Self::do_schedule(when.into(), periodic, priority, origin, call)
+		assert!(maybe_periodic.is_none(), "Periodic scheduling is not supported");
+		Self::do_schedule(when.into(), priority, origin, call)
 	}
 
 	fn cancel((when, index): Self::Address) -> Result<(), DispatchError> {
@@ -1371,8 +1255,6 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 	}
 }
 
-use schedule::v3::TaskName;
-
 impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
 	for Pallet<T>
 {
@@ -1387,12 +1269,11 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		let periodic = if let Some(periodic) = maybe_periodic {
-			Some((BlockNumberOrTimestamp::BlockNumber(periodic.0), periodic.1))
-		} else {
-			None
-		};
-		Self::do_schedule_named(id, when.into(), periodic, priority, origin, call)
+		assert!(
+			maybe_periodic.is_none(),
+			"Periodic scheduling is not supported for schedule named"
+		);
+		Self::do_schedule_named(id, when.into(), priority, origin, call)
 	}
 
 	fn cancel_named(id: TaskName) -> Result<(), DispatchError> {
@@ -1429,12 +1310,11 @@ impl<T: Config>
 	fn schedule_named(
 		id: TaskName,
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
-		maybe_periodic: Option<Period<BlockNumberFor<T>, T::Moment>>,
 		priority: schedule::Priority,
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		Self::do_schedule_named(id, when, maybe_periodic, priority, origin, call)
+		Self::do_schedule_named(id, when, priority, origin, call)
 	}
 
 	fn cancel_named(id: TaskName) -> Result<(), DispatchError> {

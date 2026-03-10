@@ -165,9 +165,6 @@ impl WeightInfo for TestWeightInfo {
 	fn service_task_base() -> Weight {
 		Weight::from_parts(0b0000_0100, 0)
 	}
-	fn service_task_periodic() -> Weight {
-		Weight::from_parts(0b0000_1100, 0)
-	}
 	fn service_task_named() -> Weight {
 		Weight::from_parts(0b0001_0100, 0)
 	}
