@@ -488,7 +488,6 @@ pub mod pallet {
 		/// This is an emergency function for when the high security account may be compromised.
 		/// It cancels all pending transfers first (applying volume fees), then transfers
 		/// the remaining free balance to the guardian.
-		///
 		#[pallet::call_index(7)]
 		#[pallet::weight(<T as Config>::WeightInfo::recover_funds(T::MaxPendingPerAccount::get()))]
 		#[allow(clippy::useless_conversion)]
@@ -879,8 +878,7 @@ pub mod pallet {
 						Restriction::Free,
 						Fortitude::Polite,
 					)?;
-				}
-				else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
+				} else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
 					call.clone().try_into()
 				{
 					// Burn fee amount
