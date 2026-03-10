@@ -489,12 +489,8 @@ pub mod pallet {
 		/// It cancels all pending transfers first (applying volume fees), then transfers
 		/// the remaining free balance to the guardian.
 		///
-		/// Weight: worst-case assumes MaxPendingPerAccount cancellations plus transfer_all.
 		#[pallet::call_index(7)]
-		#[pallet::weight(
-			<T as Config>::WeightInfo::recover_funds()
-				.saturating_add(<T as Config>::WeightInfo::cancel().saturating_mul(T::MaxPendingPerAccount::get().into()))
-		)]
+		#[pallet::weight(<T as Config>::WeightInfo::recover_funds(T::MaxPendingPerAccount::get()))]
 		#[allow(clippy::useless_conversion)]
 		pub fn recover_funds(
 			origin: OriginFor<T>,
@@ -507,17 +503,15 @@ pub mod pallet {
 
 			ensure!(who == high_security_account_data.interceptor, Error::<T>::InvalidReverser);
 
-			// Cancel all pending transfers (volume fee applies to each)
-			// take() clears the sender index in one operation
+			let mut num_cancelled: u64 = 0;
+
 			for tx_id in PendingTransfersBySender::<T>::take(&account).iter() {
 				if let Some(pending) = PendingTransfers::<T>::take(tx_id) {
-					// Ignore scheduler errors (task may have already executed)
 					let schedule_id = Self::make_schedule_id(tx_id).ok();
 					if let Some(id) = schedule_id {
 						let _ = T::Scheduler::cancel_named(id);
 					}
 
-					// Log and continue on fund release errors (emergency path)
 					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
 						log::warn!(
 							"Failed to release held funds for tx {:?} during recovery: {:?}",
@@ -526,6 +520,7 @@ pub mod pallet {
 						);
 					}
 
+					num_cancelled = num_cancelled.saturating_add(1);
 					Self::deposit_event(Event::TransactionCancelled {
 						who: who.clone(),
 						tx_id: *tx_id,
@@ -533,18 +528,17 @@ pub mod pallet {
 				}
 			}
 
-			// Transfer remaining free balance
 			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_all {
 				dest: T::Lookup::unlookup(who.clone()),
 				keep_alive: false,
 			}
 			.into();
 
-			let result = call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into());
+			call.dispatch(frame_system::RawOrigin::Signed(account.clone()).into())?;
 
 			Self::deposit_event(Event::FundsRecovered { account, guardian: who });
 
-			result
+			Ok(Some(<T as Config>::WeightInfo::recover_funds(num_cancelled as u32)).into())
 		}
 	}
 
@@ -886,7 +880,7 @@ pub mod pallet {
 						Fortitude::Polite,
 					)?;
 				}
-				if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
+				else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
 					call.clone().try_into()
 				{
 					// Burn fee amount

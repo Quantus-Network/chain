@@ -7,7 +7,7 @@ use frame_benchmarking::{account as benchmark_account, v2::*, BenchmarkError};
 use frame_support::traits::{fungible::Mutate, Get};
 use frame_system::RawOrigin;
 use sp_runtime::{
-	traits::{BlockNumberProvider, Hash, StaticLookup},
+	traits::{BlockNumberProvider, Hash, One, StaticLookup},
 	Saturating,
 };
 
@@ -218,18 +218,40 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn recover_funds() -> Result<(), BenchmarkError> {
+	fn recover_funds(n: Linear<0, 16>) -> Result<(), BenchmarkError> {
+		assert_eq!(T::MaxPendingPerAccount::get(), 16, "Linear upper bound must match MaxPendingPerAccount");
+
 		let account: T::AccountId = whitelisted_caller();
 		let guardian: T::AccountId = benchmark_account("guardian", 0, SEED);
+		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 
-		fund_account::<T>(&account, BalanceOf::<T>::from(10000u128));
+		fund_account::<T>(&account, BalanceOf::<T>::from(1_000_000u128));
 		fund_account::<T>(&guardian, BalanceOf::<T>::from(10000u128));
 
 		let delay = T::DefaultDelay::get();
 		setup_high_security_account::<T>(account.clone(), delay, guardian.clone());
 
+		let transfer_amount: BalanceOf<T> = 100u128.into();
+		for i in 0..n {
+			if i > 0 && i % 8 == 0 {
+				let bn = frame_system::Pallet::<T>::block_number();
+				frame_system::Pallet::<T>::set_block_number(
+					bn + BlockNumberFor::<T>::one(),
+				);
+			}
+			let lookup =
+				<T as frame_system::Config>::Lookup::unlookup(recipient.clone());
+			ReversibleTransfers::<T>::do_schedule_transfer(
+				RawOrigin::Signed(account.clone()).into(),
+				lookup,
+				transfer_amount,
+			)?;
+		}
+
 		#[extrinsic_call]
 		_(RawOrigin::Signed(guardian.clone()), account.clone());
+
+		assert_eq!(PendingTransfersBySender::<T>::get(&account).len(), 0);
 
 		Ok(())
 	}
