@@ -399,22 +399,42 @@ pub mod pallet {
 			//   - Burning: decreases total issuance by burn_amount
 			//   - Net change: +sum(output_amounts) - burn_amount
 			let burn_rate = T::VolumeFeesBurnRate::get();
-			let burn_amount_u128 = burn_rate * total_fee_u128;
+			let mut burn_amount_u128 = burn_rate * total_fee_u128;
 			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
 			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
+
+			// Mint miner's portion of volume fee to block author
+			// If no author is found, add to burn amount instead of silently losing it
+			if !miner_fee.is_zero() {
+				let digest = frame_system::Pallet::<T>::digest();
+				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+					<T as frame_system::Config>::AccountId,
+					_,
+				>(digest.logs.iter().cloned())
+				{
+					<T::Currency as Unbalanced<_>>::increase_balance(
+						&author,
+						miner_fee,
+						frame_support::traits::tokens::Precision::Exact,
+					)?;
+				} else {
+					// No block author found - add miner fee to burn amount
+					log::warn!(
+						"No block author found, burning miner fee of {:?} instead",
+						miner_fee
+					);
+					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
+				}
+			}
+
+			// Burn the total burn amount (base burn + any orphaned miner fee)
 			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
-			log::debug!(
-				"Fee calculation done: miner_fee={:?}, burn_amount={:?}",
-				miner_fee,
-				burn_amount
-			);
-
 			if !burn_amount.is_zero() {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
 				<T::Currency as Unbalanced<_>>::set_total_issuance(
@@ -422,7 +442,7 @@ pub mod pallet {
 				);
 			}
 
-			// Second pass: process transfers and record proofs
+			// Process transfers and record proofs
 			for (exit_account, exit_balance) in &processed_accounts {
 				// Native token transfer - mint tokens to the exit account
 				<T::Currency as Unbalanced<_>>::increase_balance(
@@ -438,23 +458,6 @@ pub mod pallet {
 					exit_account.clone().into(),
 					*exit_balance,
 				);
-			}
-
-			// Mint miner's portion of volume fee to block author
-			// The remaining portion (fee - miner_fee) is not minted, effectively burned
-			if !miner_fee.is_zero() {
-				let digest = frame_system::Pallet::<T>::digest();
-				if let Some(author) = qp_wormhole::extract_author_from_digest::<
-					<T as frame_system::Config>::AccountId,
-					_,
-				>(digest.logs.iter().cloned())
-				{
-					<T::Currency as Unbalanced<_>>::increase_balance(
-						&author,
-						miner_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					)?;
-				}
 			}
 
 			Ok(())
