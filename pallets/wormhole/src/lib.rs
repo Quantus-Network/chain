@@ -284,7 +284,8 @@ pub mod pallet {
 				Error::<T>::InvalidPublicInputs
 			);
 
-			// Check all nullifiers haven't been used (don't mark yet - do that after ZK verification)
+			// Check all nullifiers haven't been used (don't mark yet - do that after ZK
+			// verification)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
@@ -475,7 +476,8 @@ pub mod pallet {
 					}
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						// Use reduced priority to prevent spam from blocking legitimate transactions
+						// Use reduced priority to prevent spam from blocking legitimate
+						// transactions
 						.priority(TransactionPriority::MAX / 2)
 						.longevity(5)
 						.propagate(true)
