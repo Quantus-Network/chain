@@ -67,7 +67,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
-			fungibles::{self, Mutate as FungiblesMutate},
+			fungibles::{self},
 			Currency,
 		},
 	};
@@ -226,6 +226,8 @@ pub mod pallet {
 		InvalidVolumeFeeRate,
 		/// Transfer amount is below the minimum required
 		TransferAmountBelowMinimum,
+		/// Only native asset (asset_id = 0) is supported in this version
+		NonNativeAssetNotSupported,
 	}
 
 	#[pallet::call]
@@ -297,8 +299,9 @@ pub mod pallet {
 				Error::<T>::InvalidPublicInputs
 			);
 
-			// Extract asset_id from aggregated public inputs
-			let asset_id: AssetIdOf<T> = aggregated_inputs.asset_id.into();
+			// Verify the proof is for native asset only (asset_id = 0)
+			// Non-native assets are not supported in this version
+			ensure!(aggregated_inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 
 			// Verify the volume fee rate matches our configured rate
 			ensure!(
@@ -412,27 +415,16 @@ pub mod pallet {
 
 			// Second pass: process transfers and record proofs
 			for (exit_account, exit_balance) in &processed_accounts {
-				// Handle native (asset_id = 0) or asset transfers
-				if asset_id == AssetIdOf::<T>::default() {
-					// Native token transfer - mint tokens to the exit account
-					<T::Currency as Unbalanced<_>>::increase_balance(
-						exit_account,
-						*exit_balance,
-						frame_support::traits::tokens::Precision::Exact,
-					)?;
-				} else {
-					// Asset transfer
-					let asset_balance: AssetBalanceOf<T> = (*exit_balance).into();
-					<T::Assets as FungiblesMutate<_>>::mint_into(
-						asset_id.clone(),
-						exit_account,
-						asset_balance,
-					)?;
-				}
+				// Native token transfer - mint tokens to the exit account
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					exit_account,
+					*exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
+				)?;
 
 				// Record transfer proof for the minted tokens
 				Self::record_transfer(
-					asset_id.clone(),
+					AssetIdOf::<T>::default(),
 					mint_account.clone().into(),
 					exit_account.clone().into(),
 					*exit_balance,
@@ -463,7 +455,6 @@ pub mod pallet {
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T>
 	where
-		AssetIdOf<T>: Default + From<u32> + Clone + ToFelts,
 		BalanceOf<T>: Default + ToFelts,
 		AssetBalanceOf<T>: Into<BalanceOf<T>> + From<BalanceOf<T>>,
 	{
