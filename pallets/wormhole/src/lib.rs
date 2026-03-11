@@ -208,16 +208,10 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		InvalidProof,
-		ProofDeserializationFailed,
-		VerificationFailed,
 		InvalidPublicInputs,
 		NullifierAlreadyUsed,
 		VerifierNotAvailable,
-		InvalidStorageRoot,
-		StorageRootMismatch,
 		BlockNotFound,
-		InvalidBlockNumber,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
