@@ -66,9 +66,7 @@ pub mod pallet {
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
-			fungible::{Mutate, Unbalanced},
-			fungibles::{self, Mutate as FungiblesMutate},
-			Currency,
+			Currency, fungible::{Inspect as FungibleInspect, Mutate, Unbalanced}, fungibles::{self, Mutate as FungiblesMutate}
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -403,11 +401,11 @@ pub mod pallet {
 				burn_amount
 			);
 
-			// Burn the burned portion by reducing total issuance
-			// This offsets the supply increase from minting exit amounts + miner_fee
-			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
 			if !burn_amount.is_zero() {
-				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
+				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
+				<T::Currency as Unbalanced<_>>::set_total_issuance(
+					current.saturating_sub(burn_amount),
+				);
 			}
 
 			// Second pass: process transfers and record proofs
