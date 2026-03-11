@@ -253,32 +253,23 @@ pub mod pallet {
 				Error::<T>::AggregatedProofDeserializationFailed
 			})?;
 
-			// Verify the aggregated proof
-			verifier.verify(proof.clone()).map_err(|e| {
-				log::error!("Aggregated proof verification failed: {:?}", e);
-				Error::<T>::AggregatedVerificationFailed
-			})?;
-
 			// Parse aggregated public inputs
 			let aggregated_inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
 				log::error!("Failed to parse aggregated public inputs: {:?}", e);
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
 
-			// Verify all nullifiers haven't been used and then mark them as used
-			let mut nullifier_list = Vec::<[u8; 32]>::new();
-			for nullifier in &aggregated_inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
-				UsedNullifiers::<T>::insert(nullifier_bytes, true);
-				nullifier_list.push(nullifier_bytes);
-			}
+			// === Cheap checks first (before expensive ZK verification) ===
+
+			// Verify the proof is for native asset only (asset_id = 0)
+			// Non-native assets are not supported in this version
+			ensure!(aggregated_inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+
+			// Verify the volume fee rate matches our configured rate
+			ensure!(
+				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
 
 			// Convert block number from u32 to BlockNumberFor<T>
 			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
@@ -299,15 +290,33 @@ pub mod pallet {
 				Error::<T>::InvalidPublicInputs
 			);
 
-			// Verify the proof is for native asset only (asset_id = 0)
-			// Non-native assets are not supported in this version
-			ensure!(aggregated_inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+			// Check all nullifiers haven't been used (don't mark yet - do that after ZK verification)
+			let mut nullifier_list = Vec::<[u8; 32]>::new();
+			for nullifier in &aggregated_inputs.nullifiers {
+				let nullifier_bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
+				nullifier_list.push(nullifier_bytes);
+			}
 
-			// Verify the volume fee rate matches our configured rate
-			ensure!(
-				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
-				Error::<T>::InvalidVolumeFeeRate
-			);
+			// === Expensive ZK verification ===
+
+			verifier.verify(proof.clone()).map_err(|e| {
+				log::error!("Aggregated proof verification failed: {:?}", e);
+				Error::<T>::AggregatedVerificationFailed
+			})?;
+
+			// === State modifications (only after all checks pass) ===
+
+			// Mark nullifiers as used
+			for nullifier_bytes in &nullifier_list {
+				UsedNullifiers::<T>::insert(nullifier_bytes, true);
+			}
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
@@ -469,7 +478,8 @@ pub mod pallet {
 					}
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(TransactionPriority::MAX)
+						// Use reduced priority to prevent spam from blocking legitimate transactions
+						.priority(TransactionPriority::MAX / 2)
 						.longevity(5)
 						.propagate(true)
 						.build()
