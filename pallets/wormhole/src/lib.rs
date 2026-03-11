@@ -66,7 +66,9 @@ pub mod pallet {
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
-			Currency, fungible::{Inspect as FungibleInspect, Mutate, Unbalanced}, fungibles::{self, Mutate as FungiblesMutate}
+			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
+			fungibles::{self, Mutate as FungiblesMutate},
+			Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
