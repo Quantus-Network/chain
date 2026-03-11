@@ -3,7 +3,10 @@ mod wormhole_tests {
 	use crate::mock::*;
 	use frame_support::{
 		assert_ok,
-		traits::fungible::{Inspect, Mutate},
+		traits::{
+			fungible::{Inspect, Mutate, Unbalanced},
+			Currency,
+		},
 	};
 	use qp_wormhole::derive_wormhole_account;
 	use sp_core::crypto::AccountId32;
@@ -185,6 +188,46 @@ mod wormhole_tests {
 		let address2 = derive_wormhole_account(preimage);
 
 		assert_eq!(address1, address2, "Same preimage should produce same wormhole address");
+	}
+
+	#[test]
+	fn set_total_issuance_reduces_supply() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let initial_mint = 1000 * UNIT;
+			let burn_amount = 100 * UNIT;
+
+			assert_ok!(Balances::mint_into(&alice, initial_mint));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			let current = <Balances as Inspect<AccountId>>::total_issuance();
+			<Balances as Unbalanced<AccountId>>::set_total_issuance(
+				current.saturating_sub(burn_amount),
+			);
+
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(issuance_after, issuance_before - burn_amount);
+		});
+	}
+
+	#[test]
+	fn currency_burn_drop_is_noop_regression() {
+		new_test_ext().execute_with(|| {
+			let alice = account_id(1);
+			let initial_mint = 1000 * UNIT;
+			let burn_amount = 100 * UNIT;
+
+			assert_ok!(Balances::mint_into(&alice, initial_mint));
+			let issuance_before = <Balances as Inspect<AccountId>>::total_issuance();
+
+			let _ = <Balances as Currency<AccountId>>::burn(burn_amount);
+
+			let issuance_after = <Balances as Inspect<AccountId>>::total_issuance();
+			assert_eq!(
+				issuance_after, issuance_before,
+				"Currency::burn + drop should be a no-op (PositiveImbalance re-adds on drop)"
+			);
+		});
 	}
 
 	#[test]
