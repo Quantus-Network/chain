@@ -240,7 +240,7 @@ pub mod pallet {
 									T::ProofRecorder::record_transfer_proof(
 										None, // Native token
 										mint_account,
-										treasury.clone(),
+										treasury,
 										reward,
 									);
 									Self::deposit_event(Event::MinerRewardRedirected {
@@ -265,7 +265,7 @@ pub mod pallet {
 							T::ProofRecorder::record_transfer_proof(
 								None, // Native token
 								mint_account,
-								treasury.clone(),
+								treasury,
 								reward,
 							);
 							Self::deposit_event(Event::TreasuryRewarded { reward });
