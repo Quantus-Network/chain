@@ -213,9 +213,7 @@ impl Verify for DilithiumSignatureScheme {
 		if account != *signer {
 			return false;
 		}
-		let result =
-			verify(sig_public.public().as_ref(), msg.get(), sig_public.signature().as_ref());
-		result
+		verify(sig_public.public().as_ref(), msg.get(), sig_public.signature().as_ref())
 	}
 }
 
@@ -252,8 +250,9 @@ impl DilithiumPair {
 		let keypair = crate::pair::generate(seed)?;
 		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
 	}
-	pub fn public(&self) -> DilithiumPublic {
-		DilithiumPublic::from_slice(&self.public).expect("Valid public key bytes")
+
+	pub fn secret_bytes(&self) -> &[u8] {
+		&self.secret
 	}
 }
 
@@ -262,7 +261,7 @@ impl alloc::fmt::Debug for DilithiumSignatureWithPublic {
 	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
 		write!(
 			f,
-			"ResonanceSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
+			"DilithiumSignatureWithPublic {{ signature: {:?}, public: {:?} }}",
 			self.signature(),
 			self.public()
 		)
@@ -270,7 +269,7 @@ impl alloc::fmt::Debug for DilithiumSignatureWithPublic {
 
 	#[cfg(not(feature = "std"))]
 	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-		write!(f, "ResonanceSignatureWithPublic")
+		write!(f, "DilithiumSignatureWithPublic")
 	}
 }
 
