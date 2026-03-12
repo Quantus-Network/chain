@@ -6811,6 +6811,7 @@ dependencies = [
  "qp-poseidon",
  "qp-wormhole",
  "scale-info",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-io",
  "sp-runtime",
