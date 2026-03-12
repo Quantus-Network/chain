@@ -284,8 +284,7 @@ pub mod pallet {
 				Error::<T>::InvalidPublicInputs
 			);
 
-			// Check all nullifiers haven't been used (don't mark yet - do that after ZK
-			// verification)
+			// Check and mark nullifiers as used (catches replays and duplicates within proof)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
@@ -296,6 +295,7 @@ pub mod pallet {
 					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
 					Error::<T>::NullifierAlreadyUsed
 				);
+				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 				nullifier_list.push(nullifier_bytes);
 			}
 
@@ -306,13 +306,7 @@ pub mod pallet {
 				Error::<T>::AggregatedVerificationFailed
 			})?;
 
-			// === State modifications (only after all checks pass) ===
-
-			// Mark nullifiers as used
-			for nullifier_bytes in &nullifier_list {
-				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 			}
-
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
 
