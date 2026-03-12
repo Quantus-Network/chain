@@ -125,8 +125,8 @@ fn multiple_blocks_accumulate_rewards() {
 		let current_supply_block1 = Balances::total_issuance();
 		let total_block1_reward =
 			(MaxSupply::get() - current_supply_block1) / EmissionDivisor::get();
-		let miner_block1_reward = total_block1_reward -
-			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block1_reward);
+		let miner_block1_reward = total_block1_reward
+			- Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block1_reward);
 
 		MiningRewards::on_finalize(1);
 
@@ -140,8 +140,8 @@ fn multiple_blocks_accumulate_rewards() {
 		let current_supply_block2 = Balances::total_issuance();
 		let total_block2_reward =
 			(MaxSupply::get() - current_supply_block2) / EmissionDivisor::get();
-		let miner_block2_reward = total_block2_reward -
-			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block2_reward);
+		let miner_block2_reward = total_block2_reward
+			- Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block2_reward);
 
 		MiningRewards::on_finalize(2);
 
@@ -167,8 +167,8 @@ fn different_miners_get_different_rewards() {
 		let current_supply_block1 = Balances::total_issuance();
 		let total_block1_reward =
 			(MaxSupply::get() - current_supply_block1) / EmissionDivisor::get();
-		let miner_block1_reward = total_block1_reward -
-			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block1_reward);
+		let miner_block1_reward = total_block1_reward
+			- Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block1_reward);
 
 		MiningRewards::on_finalize(1);
 
@@ -185,8 +185,8 @@ fn different_miners_get_different_rewards() {
 		let current_supply_block2 = Balances::total_issuance();
 		let total_block2_reward =
 			(MaxSupply::get() - current_supply_block2) / EmissionDivisor::get();
-		let miner_block2_reward = total_block2_reward -
-			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block2_reward);
+		let miner_block2_reward = total_block2_reward
+			- Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block2_reward);
 
 		MiningRewards::on_finalize(2);
 
@@ -220,8 +220,8 @@ fn transaction_fees_collector_works() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let miner_block_reward = total_block_reward -
-			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
+		let miner_block_reward = total_block_reward
+			- Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 
 		// Reward miner
 		set_miner_digest(miner());
@@ -250,8 +250,8 @@ fn block_lifecycle_works() {
 		// Calculate expected rewards with treasury portion
 		let current_supply = Balances::total_issuance();
 		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let miner_block_reward = total_block_reward -
-			Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
+		let miner_block_reward = total_block_reward
+			- Permill::from_percent(u32::from(Treasury::portion())).mul_floor(total_block_reward);
 
 		// 3. on_finalize - should reward the miner
 		set_miner_digest(miner());

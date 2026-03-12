@@ -110,6 +110,11 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn integrity_test() {
+			assert!(!T::EmissionDivisor::get().is_zero(), "EmissionDivisor must be non-zero");
+			assert!(!T::MaxSupply::get().is_zero(), "MaxSupply must be non-zero");
+		}
+
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
 			// Return weight consumed for on finalize hook
 			<T as crate::pallet::Config>::WeightInfo::on_finalize_rewarded_miner()
