@@ -116,9 +116,16 @@ pub mod pallet {
 		}
 
 		fn on_finalize(_block_number: BlockNumberFor<T>) {
-			// Calculate dynamic block reward based on remaining supply
+			// Take collected fees first - needed for accurate supply calculation below.
+			let tx_fees = <CollectedFees<T>>::take();
+
+			// Calculate dynamic block reward based on remaining supply.
+			// Note: Transaction fees were burned when the NegativeImbalance was dropped
+			// (during transaction execution), so we add them back to get the true
+			// current supply before re-minting them to the miner. This prevents the
+			// block reward calculation from being slightly inflated by the burned fees.
 			let max_supply = T::MaxSupply::get();
-			let current_supply = T::Currency::total_issuance();
+			let current_supply = T::Currency::total_issuance().saturating_add(tx_fees);
 			let emission_divisor = T::EmissionDivisor::get();
 
 			let remaining_supply = max_supply.saturating_sub(current_supply);
@@ -139,8 +146,6 @@ pub mod pallet {
 			let treasury_reward =
 				Permill::from_percent(u32::from(treasury_portion)).mul_floor(total_reward);
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
-
-			let tx_fees = <CollectedFees<T>>::take();
 
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
