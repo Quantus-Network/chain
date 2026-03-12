@@ -42,6 +42,8 @@ impl Pair for DilithiumPair {
 	type Signature = DilithiumSignatureWithPublic;
 	type ProofOfPossession = DilithiumSignatureWithPublic;
 
+	// Trait implementation but we don't support it - use hdwallet in qp-rusty-crystals instead.
+	// This will throw an error when called.
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
 		_path_iter: Iter,
@@ -51,6 +53,7 @@ impl Pair for DilithiumPair {
 			"Pair::derive() is not supported for Dilithium. \
 			 Use qp_rusty_crystals_hdwallet::derive_key_from_mnemonic() for HD key derivation."
 		);
+		// SoftKeyInPath is the only error available for this trait definition.
 		Err(DeriveError::SoftKeyInPath)
 	}
 
