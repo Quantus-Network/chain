@@ -40,7 +40,9 @@ pub struct DilithiumPair {
 
 impl alloc::fmt::Debug for DilithiumPair {
 	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
-		f.debug_struct("DilithiumPair").field("public", &self.public).finish_non_exhaustive()
+		f.debug_struct("DilithiumPair")
+			.field("public", &self.public)
+			.finish_non_exhaustive()
 	}
 }
 
