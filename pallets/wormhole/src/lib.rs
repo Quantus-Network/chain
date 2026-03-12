@@ -306,7 +306,6 @@ pub mod pallet {
 				Error::<T>::AggregatedVerificationFailed
 			})?;
 
-			}
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
 
