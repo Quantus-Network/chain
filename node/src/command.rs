@@ -17,7 +17,7 @@ use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::{
 	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
-	H256,
+	Pair, H256,
 };
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
@@ -80,7 +80,7 @@ pub fn generate_quantus_key(
 							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 						raw_address: format!("0x{}", hex::encode(account_id)),
 						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
 						seed_hex: "N/A (derived from mnemonic)".to_string(),
 						secret_phrase: words_to_print,
 						inner_hash: None,
@@ -146,7 +146,7 @@ pub fn generate_quantus_key(
 							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 						raw_address: format!("0x{}", hex::encode(account_id)),
 						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
 						seed_hex: "N/A (derived from mnemonic)".to_string(),
 						secret_phrase: words_to_print,
 						inner_hash: None,
@@ -165,7 +165,7 @@ pub fn generate_quantus_key(
 				address: account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
 				seed_hex: format!("0x{}", hex::encode(&seed_for_pair)),
 				secret_phrase: words_to_print,
 				inner_hash: None,

@@ -42,13 +42,25 @@ impl Pair for DilithiumPair {
 	type Signature = DilithiumSignatureWithPublic;
 	type ProofOfPossession = DilithiumSignatureWithPublic;
 
+	// Dilithium doesn't support path-based derivation - use hdwallet in qp-rusty-crystals instead.
+	// However, an empty path is a valid no-op that returns self unchanged.
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
-		_path_iter: Iter,
+		path_iter: Iter,
 		seed: Option<<DilithiumPair as Pair>::Seed>,
 	) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-		// TODO: derive child keys from path
-		Ok((self.clone(), seed))
+		// Check if any junctions are present - empty path is a no-op
+		let mut path_iter = path_iter.peekable();
+		if path_iter.peek().is_none() {
+			return Ok((self.clone(), seed));
+		}
+
+		log::error!(
+			"Pair::derive() is not supported for Dilithium. \
+			 Use qp_rusty_crystals_hdwallet::derive_key_from_mnemonic() for HD key derivation."
+		);
+		// SoftKeyInPath is the only error available for this trait definition.
+		Err(DeriveError::SoftKeyInPath)
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
