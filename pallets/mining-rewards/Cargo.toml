@@ -26,7 +26,7 @@ pallet-treasury = { path = "../treasury", default-features = false }
 qp-poseidon.workspace = true
 qp-wormhole.workspace = true
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
-sp-consensus-pow.workspace = true
+sp-consensus-qpow.workspace = true
 sp-runtime.workspace = true
 
 [dev-dependencies]
@@ -52,7 +52,7 @@ std = [
 	"qp-poseidon/std",
 	"qp-wormhole/std",
 	"scale-info/std",
-	"sp-consensus-pow/std",
+	"sp-consensus-qpow/std",
 	"sp-runtime/std",
 ]
 try-runtime = [

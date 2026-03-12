@@ -5,7 +5,7 @@ extern crate alloc;
 
 use codec::Decode;
 use qp_poseidon::{PoseidonHasher, ToFelts};
-pub use sp_consensus_pow::POW_ENGINE_ID;
+use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::generic::DigestItem;
 
 /// Trait for recording transfer proofs in the wormhole pallet.

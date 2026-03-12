@@ -6811,7 +6811,7 @@ dependencies = [
  "qp-poseidon",
  "qp-wormhole",
  "scale-info",
- "sp-consensus-pow",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -8674,7 +8674,7 @@ version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
  "qp-poseidon",
- "sp-consensus-pow",
+ "sp-consensus-qpow",
  "sp-core",
  "sp-runtime",
 ]
@@ -9983,7 +9983,6 @@ dependencies = [
  "sp-block-builder",
  "sp-blockchain",
  "sp-consensus",
- "sp-consensus-pow",
  "sp-consensus-qpow",
  "sp-core",
  "sp-inherents",
@@ -11654,22 +11653,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp-consensus-pow"
-version = "0.41.0"
-dependencies = [
- "parity-scale-codec",
- "sp-api",
- "sp-core",
- "sp-runtime",
-]
-
-[[package]]
 name = "sp-consensus-qpow"
 version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "scale-info",
  "sp-api",
  "sp-runtime",
 ]

@@ -7,7 +7,7 @@ use crate::Pallet as MiningRewards;
 use frame_benchmarking::v2::*;
 use frame_support::traits::fungible::{Inspect, Mutate};
 use frame_system::{pallet_prelude::BlockNumberFor, Pallet as SystemPallet};
-use sp_consensus_pow::POW_ENGINE_ID;
+use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::generic::{Digest, DigestItem};
 
 #[benchmarks]

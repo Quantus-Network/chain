@@ -30,8 +30,7 @@ use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::{BlockOrigin, Proposal};
-use sp_consensus_pow::{Seal, POW_ENGINE_ID};
-use sp_consensus_qpow::QPoWApi;
+use sp_consensus_qpow::{QPoWApi, Seal, POW_ENGINE_ID};
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
 	DigestItem,

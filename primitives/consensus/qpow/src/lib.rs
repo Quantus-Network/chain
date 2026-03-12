@@ -1,12 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-use codec::{Decode, Encode};
-use scale_info::TypeInfo;
 extern crate alloc;
 use alloc::vec::Vec;
 use primitive_types::U512;
+use sp_runtime::ConsensusEngineId;
 
-/// Engine ID for QPoW consensus.
-pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
+pub const POW_ENGINE_ID: ConsensusEngineId = [b'p', b'o', b'w', b'_'];
+
+pub type Seal = Vec<u8>;
 
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
@@ -32,14 +32,4 @@ sp_api::decl_runtime_apis! {
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
 	}
-}
-
-#[derive(Debug, Encode, Decode, TypeInfo)]
-pub enum Error {
-	/// Invalid proof submitted
-	InvalidProof,
-	/// Arithmetic calculation error
-	ArithmeticError,
-	/// Other error occurred
-	Other(Vec<u8>),
 }
