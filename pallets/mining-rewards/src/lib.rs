@@ -21,7 +21,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect, Mutate},
-			Defensive, Get, Imbalance, OnUnbalanced,
+			Get, Imbalance, OnUnbalanced,
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -97,6 +97,13 @@ pub mod pallet {
 		/// Rewards were sent to Treasury when no miner was specified
 		TreasuryRewarded {
 			/// Total reward (base + fees)
+			reward: BalanceOf<T>,
+		},
+		/// Miner reward was redirected to treasury due to mint failure
+		MinerRewardRedirected {
+			/// The miner who should have received the reward
+			miner: T::AccountId,
+			/// The reward amount redirected to treasury
 			reward: BalanceOf<T>,
 		},
 	}
@@ -197,32 +204,70 @@ pub mod pallet {
 			}
 
 			let mint_account = T::MintingAccount::get();
+			let treasury = T::Treasury::account_id();
 
 			match maybe_miner {
 				Some(miner) => {
-					let _ = T::Currency::mint_into(&miner, reward).defensive();
-
-					T::ProofRecorder::record_transfer_proof(
-						None, // Native token
-						mint_account.clone(),
-						miner.clone(),
-						reward,
-					);
-
-					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
+					match T::Currency::mint_into(&miner, reward) {
+						Ok(_) => {
+							T::ProofRecorder::record_transfer_proof(
+								None, // Native token
+								mint_account,
+								miner.clone(),
+								reward,
+							);
+							Self::deposit_event(Event::MinerRewarded { miner, reward });
+						},
+						Err(e) => {
+							log::warn!(
+								target: "mining-rewards",
+								"Failed to mint {:?} to miner {:?}: {:?}, redirecting to treasury",
+								reward, miner, e
+							);
+							// Fallback: redirect to treasury
+							match T::Currency::mint_into(&treasury, reward) {
+								Ok(_) => {
+									T::ProofRecorder::record_transfer_proof(
+										None, // Native token
+										mint_account,
+										treasury.clone(),
+										reward,
+									);
+									Self::deposit_event(Event::MinerRewardRedirected {
+										miner,
+										reward,
+									});
+								},
+								Err(e2) => {
+									log::error!(
+										target: "mining-rewards",
+										"Failed to redirect {:?} to treasury: {:?}",
+										reward, e2
+									);
+								},
+							}
+						},
+					}
 				},
 				None => {
-					let treasury = T::Treasury::account_id();
-					let _ = T::Currency::mint_into(&treasury, reward).defensive();
-
-					T::ProofRecorder::record_transfer_proof(
-						None, // Native token
-						mint_account.clone(),
-						treasury.clone(),
-						reward,
-					);
-
-					Self::deposit_event(Event::TreasuryRewarded { reward });
+					match T::Currency::mint_into(&treasury, reward) {
+						Ok(_) => {
+							T::ProofRecorder::record_transfer_proof(
+								None, // Native token
+								mint_account,
+								treasury.clone(),
+								reward,
+							);
+							Self::deposit_event(Event::TreasuryRewarded { reward });
+						},
+						Err(e) => {
+							log::error!(
+								target: "mining-rewards",
+								"Failed to mint {:?} to treasury: {:?}",
+								reward, e
+							);
+						},
+					}
 				},
 			};
 		}
