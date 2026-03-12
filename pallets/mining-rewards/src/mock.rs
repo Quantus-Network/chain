@@ -5,7 +5,7 @@ use frame_support::{
 	traits::{ConstU32, Everything, Hooks},
 };
 use qp_wormhole::derive_wormhole_account;
-use sp_consensus_pow::POW_ENGINE_ID;
+use qp_wormhole::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
 	testing::H256,

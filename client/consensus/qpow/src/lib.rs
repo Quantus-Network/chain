@@ -9,8 +9,7 @@ pub use chain_management::{
 use primitive_types::{H256, U512};
 use sc_client_api::BlockBackend;
 use sp_api::ProvideRuntimeApi;
-use sp_consensus_pow::Seal as RawSeal;
-use sp_consensus_qpow::QPoWApi;
+use sp_consensus_qpow::{QPoWApi, Seal as RawSeal};
 use sp_runtime::traits::Block as BlockT;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
@@ -27,7 +26,7 @@ use sc_consensus::{
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_consensus::{Environment, Error as ConsensusError, Proposer, SyncOracle};
-use sp_consensus_pow::POW_ENGINE_ID;
+use sp_consensus_qpow::POW_ENGINE_ID;
 
 use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::{

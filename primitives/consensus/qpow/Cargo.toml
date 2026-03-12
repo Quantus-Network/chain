@@ -11,7 +11,6 @@ version = "0.1.0"
 [dependencies]
 codec = { default-features = false, workspace = true }
 primitive-types = { default-features = false, workspace = true }
-scale-info = { default-features = false, workspace = true }
 sp-api = { default-features = false, workspace = true }
 sp-runtime = { default-features = false, workspace = true }
 
@@ -20,7 +19,6 @@ default = ["std"]
 std = [
 	"codec/std",
 	"primitive-types/std",
-	"scale-info/std",
 	"sp-api/std",
 	"sp-runtime/std",
 ]
