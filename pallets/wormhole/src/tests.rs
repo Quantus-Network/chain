@@ -60,30 +60,6 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	fn record_transfer_emits_asset_transferred_event() {
-		new_test_ext().execute_with(|| {
-			let alice = account_id(1);
-			let bob = account_id(2);
-			let asset_id = 1u32;
-			let amount = 10 * UNIT;
-
-			System::set_block_number(1);
-			Wormhole::record_transfer(asset_id, alice.clone(), bob.clone(), amount);
-
-			System::assert_last_event(
-				crate::Event::<Test>::AssetTransferred {
-					asset_id,
-					from: alice,
-					to: bob,
-					amount,
-					transfer_count: 0,
-				}
-				.into(),
-			);
-		});
-	}
-
-	#[test]
 	fn balance_transfer_with_record_transfer_works() {
 		new_test_ext().execute_with(|| {
 			let alice = account_id(1);

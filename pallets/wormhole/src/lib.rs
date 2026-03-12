@@ -67,7 +67,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
-			fungibles::{self, Mutate as FungiblesMutate},
+			fungibles::{self},
 			Currency,
 		},
 	};
@@ -208,16 +208,10 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		InvalidProof,
-		ProofDeserializationFailed,
-		VerificationFailed,
 		InvalidPublicInputs,
 		NullifierAlreadyUsed,
 		VerifierNotAvailable,
-		InvalidStorageRoot,
-		StorageRootMismatch,
 		BlockNotFound,
-		InvalidBlockNumber,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
@@ -226,6 +220,8 @@ pub mod pallet {
 		InvalidVolumeFeeRate,
 		/// Transfer amount is below the minimum required
 		TransferAmountBelowMinimum,
+		/// Only native asset (asset_id = 0) is supported in this version
+		NonNativeAssetNotSupported,
 	}
 
 	#[pallet::call]
@@ -251,32 +247,23 @@ pub mod pallet {
 				Error::<T>::AggregatedProofDeserializationFailed
 			})?;
 
-			// Verify the aggregated proof
-			verifier.verify(proof.clone()).map_err(|e| {
-				log::error!("Aggregated proof verification failed: {:?}", e);
-				Error::<T>::AggregatedVerificationFailed
-			})?;
-
 			// Parse aggregated public inputs
 			let aggregated_inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
 				log::error!("Failed to parse aggregated public inputs: {:?}", e);
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
 
-			// Verify all nullifiers haven't been used and then mark them as used
-			let mut nullifier_list = Vec::<[u8; 32]>::new();
-			for nullifier in &aggregated_inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
-				UsedNullifiers::<T>::insert(nullifier_bytes, true);
-				nullifier_list.push(nullifier_bytes);
-			}
+			// === Cheap checks first (before expensive ZK verification) ===
+
+			// Verify the proof is for native asset only (asset_id = 0)
+			// Non-native assets are not supported in this version
+			ensure!(aggregated_inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+
+			// Verify the volume fee rate matches our configured rate
+			ensure!(
+				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
 
 			// Convert block number from u32 to BlockNumberFor<T>
 			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
@@ -297,14 +284,27 @@ pub mod pallet {
 				Error::<T>::InvalidPublicInputs
 			);
 
-			// Extract asset_id from aggregated public inputs
-			let asset_id: AssetIdOf<T> = aggregated_inputs.asset_id.into();
+			// Check and mark nullifiers as used (catches replays and duplicates within proof)
+			let mut nullifier_list = Vec::<[u8; 32]>::new();
+			for nullifier in &aggregated_inputs.nullifiers {
+				let nullifier_bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
+				UsedNullifiers::<T>::insert(nullifier_bytes, true);
+				nullifier_list.push(nullifier_bytes);
+			}
 
-			// Verify the volume fee rate matches our configured rate
-			ensure!(
-				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
-				Error::<T>::InvalidVolumeFeeRate
-			);
+			// === Expensive ZK verification ===
+
+			verifier.verify(proof.clone()).map_err(|e| {
+				log::error!("Aggregated proof verification failed: {:?}", e);
+				Error::<T>::AggregatedVerificationFailed
+			})?;
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
@@ -387,60 +387,15 @@ pub mod pallet {
 			//   - Burning: decreases total issuance by burn_amount
 			//   - Net change: +sum(output_amounts) - burn_amount
 			let burn_rate = T::VolumeFeesBurnRate::get();
-			let burn_amount_u128 = burn_rate * total_fee_u128;
+			let mut burn_amount_u128 = burn_rate * total_fee_u128;
 			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
 			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
-			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-			log::debug!(
-				"Fee calculation done: miner_fee={:?}, burn_amount={:?}",
-				miner_fee,
-				burn_amount
-			);
-
-			if !burn_amount.is_zero() {
-				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
-				<T::Currency as Unbalanced<_>>::set_total_issuance(
-					current.saturating_sub(burn_amount),
-				);
-			}
-
-			// Second pass: process transfers and record proofs
-			for (exit_account, exit_balance) in &processed_accounts {
-				// Handle native (asset_id = 0) or asset transfers
-				if asset_id == AssetIdOf::<T>::default() {
-					// Native token transfer - mint tokens to the exit account
-					<T::Currency as Unbalanced<_>>::increase_balance(
-						exit_account,
-						*exit_balance,
-						frame_support::traits::tokens::Precision::Exact,
-					)?;
-				} else {
-					// Asset transfer
-					let asset_balance: AssetBalanceOf<T> = (*exit_balance).into();
-					<T::Assets as FungiblesMutate<_>>::mint_into(
-						asset_id.clone(),
-						exit_account,
-						asset_balance,
-					)?;
-				}
-
-				// Record transfer proof for the minted tokens
-				Self::record_transfer(
-					asset_id.clone(),
-					mint_account.clone().into(),
-					exit_account.clone().into(),
-					*exit_balance,
-				);
-			}
 
 			// Mint miner's portion of volume fee to block author
-			// The remaining portion (fee - miner_fee) is not minted, effectively burned
+			// If no author is found, add to burn amount instead of silently losing it
 			if !miner_fee.is_zero() {
 				let digest = frame_system::Pallet::<T>::digest();
 				if let Some(author) = qp_wormhole::extract_author_from_digest::<
@@ -453,7 +408,44 @@ pub mod pallet {
 						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
 					)?;
+				} else {
+					// No block author found - add miner fee to burn amount
+					log::warn!(
+						"No block author found, burning miner fee of {:?} instead",
+						miner_fee
+					);
+					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
 				}
+			}
+
+			// Burn the total burn amount (base burn + any orphaned miner fee)
+			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+			if !burn_amount.is_zero() {
+				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
+				<T::Currency as Unbalanced<_>>::set_total_issuance(
+					current.saturating_sub(burn_amount),
+				);
+			}
+
+			// Process transfers and record proofs
+			for (exit_account, exit_balance) in &processed_accounts {
+				// Native token transfer - mint tokens to the exit account
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					exit_account,
+					*exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
+				)?;
+
+				// Record transfer proof for the minted tokens
+				Self::record_transfer(
+					AssetIdOf::<T>::default(),
+					mint_account.clone().into(),
+					exit_account.clone().into(),
+					*exit_balance,
+				);
 			}
 
 			Ok(())
@@ -463,7 +455,6 @@ pub mod pallet {
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T>
 	where
-		AssetIdOf<T>: Default + From<u32> + Clone + ToFelts,
 		BalanceOf<T>: Default + ToFelts,
 		AssetBalanceOf<T>: Into<BalanceOf<T>> + From<BalanceOf<T>>,
 	{
@@ -478,7 +469,9 @@ pub mod pallet {
 					}
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(TransactionPriority::MAX)
+						// Use reduced priority to prevent spam from blocking legitimate
+						// transactions
+						.priority(TransactionPriority::MAX / 2)
 						.longevity(5)
 						.propagate(true)
 						.build()
