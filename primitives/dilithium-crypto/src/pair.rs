@@ -45,10 +45,13 @@ impl Pair for DilithiumPair {
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
 		_path_iter: Iter,
-		seed: Option<<DilithiumPair as Pair>::Seed>,
+		_seed: Option<<DilithiumPair as Pair>::Seed>,
 	) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-		// TODO: derive child keys from path
-		Ok((self.clone(), seed))
+		log::error!(
+			"Pair::derive() is not supported for Dilithium. \
+			 Use qp_rusty_crystals_hdwallet::derive_key_from_mnemonic() for HD key derivation."
+		);
+		Err(DeriveError::SoftKeyInPath)
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
