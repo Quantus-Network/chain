@@ -8809,7 +8809,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.4.7-banana-leaf"
+version = "0.4.8-buah-naga"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -8869,7 +8869,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.4.7-banana-leaf"
+version = "0.4.8-buah-naga"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
