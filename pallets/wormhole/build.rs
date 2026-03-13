@@ -4,9 +4,7 @@
 //! This ensures the binaries are always consistent with the circuit crate version and
 //! eliminates the need to commit large binary files to the repository.
 
-use std::env;
-use std::path::Path;
-use std::time::Instant;
+use std::{env, path::Path, time::Instant};
 
 fn main() {
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
