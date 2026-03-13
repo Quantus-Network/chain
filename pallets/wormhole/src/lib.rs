@@ -11,8 +11,6 @@ pub use pallet::*;
 pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
 use qp_wormhole_verifier::WormholeVerifier;
 
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -23,8 +21,8 @@ pub use weights::*;
 
 lazy_static! {
 	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
-		let verifier_bytes = include_bytes!("../aggregated_verifier.bin");
-		let common_bytes = include_bytes!("../aggregated_common.bin");
+		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_verifier.bin"));
+		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_common.bin"));
 		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
 	};
 }
