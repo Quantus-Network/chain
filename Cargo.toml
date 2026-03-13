@@ -155,11 +155,21 @@ qp-poseidon-core = { version = "1.1.0", package = "qp-poseidon-core", default-fe
 ] }
 qp-rusty-crystals-dilithium = { version = "2.1.0", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "2.1.0" }
-qp-wormhole-circuit = { version = "1.0.7", default-features = false }
-qp-wormhole-circuit-builder = { version = "1.0.7", default-features = false }
-qp-wormhole-prover = { version = "1.0.7", default-features = false }
-qp-wormhole-verifier = { version = "1.0.7", default-features = false }
-qp-zk-circuits-common = { version = "1.0.7", default-features = false }
+# qp-wormhole-circuit = { version = "1.0.7", default-features = false }
+# qp-wormhole-circuit-builder = { version = "1.0.7", default-features = false }
+# qp-wormhole-prover = { version = "1.0.7", default-features = false }
+# qp-wormhole-verifier = { version = "1.0.7", default-features = false }
+# qp-zk-circuits-common = { version = "1.0.7", default-features = false }
+qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "refactor/sep-prover-and-circuit-build", package = "qp-wormhole-circuit", default-features = false }
+qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "refactor/sep-prover-and-circuit-build", package = "qp-wormhole-circuit-builder" }
+qp-wormhole-prover = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "refactor/sep-prover-and-circuit-build", package = "qp-wormhole-prover", default-features = false }
+qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "refactor/sep-prover-and-circuit-build", package = "qp-wormhole-verifier", default-features = false }
+# qp-wormhole-aggregator = { git = "https://github.com/Quantus-Network/qp-zk-circuits", package = "qp-wormhole-aggregator", branch = "refactor/sep-prover-and-circuit-build", default-features = false, features = ["rayon", "std"] }
+# qp-wormhole-aggregator = { path = "../zk-circuits/wormhole/aggregator", package = "qp-wormhole-aggregator", default-features = false, features = ["rayon", "std"] }
+# qp-wormhole-inputs = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "refactor/sep-prover-and-circuit-build", package = "qp-wormhole-inputs", default-features = false, features = ["std"] }
+qp-zk-circuits-common = { git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "refactor/sep-prover-and-circuit-build", package = "qp-zk-circuits-common", default-features = false }
+
+
 
 # polkadot-sdk dependencies
 frame-benchmarking = { version = "45.0.3", default-features = false }
@@ -247,3 +257,12 @@ panic = "unwind"
 codegen-units = 1
 inherits = "release"
 lto = true
+
+# Optimize build scripts and their dependencies in dev mode.
+# This is critical for pallet-wormhole's build.rs which generates ZK circuits.
+# Without this, circuit generation takes ~10 minutes instead of ~12 seconds.
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release.build-override]
+opt-level = 3

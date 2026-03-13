@@ -100,7 +100,6 @@ substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
 
 [build-dependencies]
-qp-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
 
@@ -111,7 +110,6 @@ std = [
 	"hex/std",
 	"log/std",
 	"qp-dilithium-crypto/std",
-	"qp-wormhole-verifier/std",
 	"quantus-runtime/std",
 	"rand/std",
 	"sc-consensus-qpow/std",
