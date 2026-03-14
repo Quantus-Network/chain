@@ -388,7 +388,9 @@ pub mod pallet {
 		}
 
 		pub fn get_min_difficulty() -> Difficulty {
-			// This value must be related to clamp value such that min_difficulty = ceil(1000 / clamp)
+			// This value is related to clamp value, 
+			// ie, if clamp is 10% this value must be at least 10
+			// 1000 is safe for clamp values >= 0.01%
 			U512::from(1000u64)
 		}
 
