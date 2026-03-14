@@ -253,8 +253,18 @@ impl DilithiumPair {
 
 	/// Create DilithiumPair from raw public and secret key bytes.
 	/// Use when reconstructing a pair from stored/serialized key material (e.g. wallet restore).
+	///
+	/// Verifies that the public key corresponds to the secret by signing a test message and
+	/// verifying it. Rejects mismatched or corrupted key pairs that would otherwise cause
+	/// non-obvious signature verification failures downstream.
 	pub fn from_raw(public: &[u8], secret: &[u8]) -> Result<Self, Error> {
 		let keypair = crate::pair::create_keypair(public, secret)?;
+		// Verify public corresponds to secret (create_keypair only deserializes, does not validate)
+		const VALIDATION_MSG: &[u8] = b"qp_dilithium_crypto::from_raw_validation";
+		let sig = keypair.sign(VALIDATION_MSG, None, None).map_err(|_| Error::InvalidSecretKey)?;
+		if !keypair.verify(VALIDATION_MSG, sig.as_ref(), None) {
+			return Err(Error::InvalidPublicKey);
+		}
 		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
 	}
 
