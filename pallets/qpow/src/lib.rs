@@ -254,8 +254,8 @@ pub mod pallet {
 
 			// ratio = target/observed scaled to permille, clamped to [1000-clamp, 1000+clamp]
 			// the entire calculation is run x 1000, then divided by 1000 at the end
-			let ratio_permille = ((target_block_time as u128).saturating_mul(one_thousand)
-				/ observed_block_time as u128)
+			let ratio_permille = ((target_block_time as u128).saturating_mul(one_thousand) /
+				observed_block_time as u128)
 				.min(one_thousand + clamp)
 				.max(one_thousand.saturating_sub(clamp));
 			log::debug!(target: "qpow", "💧 Clamped ratio (permille): {}", ratio_permille);
