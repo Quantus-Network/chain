@@ -104,6 +104,12 @@ taplo format --config taplo.toml
 cargo fmt --all --check
 ```
 
+## Deepwiki 
+
+Got a technical question about the codebase? Feel free to ask it on our DeepWiki page: 
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Quantus-Network/chain)
+
 ## Embedded Docs
 
 ---
