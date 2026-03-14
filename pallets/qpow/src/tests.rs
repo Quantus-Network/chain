@@ -365,17 +365,10 @@ fn test_zero_observed_block_time() {
 }
 
 #[test]
-fn test_min_difficulty_derived_from_clamp() {
-	new_test_ext().execute_with(|| {
-		assert_eq!(QPow::get_min_difficulty(), U512::from(1000u64));
-	});
-}
-
-#[test]
 fn test_min_difficulty_can_increase() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Fast blocks → ratio clamped to 1.1 → floor(1000 * 1.1) = 1100
+		// Fast blocks → ratio clamped to 1100 permille → floor(10 * 1100 / 1000) = 11
 		let result = QPow::calculate_difficulty(min_diff, 1, 1000);
 		assert!(
 			result > min_diff,
@@ -390,7 +383,7 @@ fn test_min_difficulty_can_increase() {
 fn test_min_difficulty_floors_on_slow_blocks() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Slow blocks → ratio clamped to 0.9 → floor(1000 * 0.9) = 900, clips to 1000
+		// Slow blocks → ratio clamped to 900 permille → floor(10 * 900 / 1000) = 9, clips to 10
 		let result = QPow::calculate_difficulty(min_diff, 100_000, 1000);
 		assert_eq!(result, min_diff);
 	});

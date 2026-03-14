@@ -22,12 +22,11 @@ pub mod pallet {
 	use core::ops::Shr;
 	use frame_support::{
 		pallet_prelude::*,
-		sp_runtime::{traits::One, SaturatedConversion, Saturating},
+		sp_runtime::{traits::One, SaturatedConversion},
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
 	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
-	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
 	pub type NonceType = [u8; 64];
@@ -58,8 +57,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type InitialDifficulty: Get<U512>;
 
+		/// Difficulty adjustment clamp in permille (e.g. 100 = 10%)
 		#[pallet::constant]
-		type DifficultyAdjustPercentClamp: Get<FixedU128>;
+		type DifficultyAdjustClampPermille: Get<u32>;
 
 		#[pallet::constant]
 		type TargetBlockTime: Get<BlockDuration>;
@@ -249,27 +249,23 @@ pub mod pallet {
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
 			let observed_block_time = observed_block_time.max(1);
-			let clamp = T::DifficultyAdjustPercentClamp::get(); // 10%
-			let one = FixedU128::one();
-			let ratio =
-				FixedU128::from_rational(target_block_time as u128, observed_block_time as u128)
-					.min(one.saturating_add(clamp))
-					.max(one.saturating_sub(clamp));
-			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
+			let clamp = T::DifficultyAdjustClampPermille::get() as u128;
+			let one_thousand = 1000u128;
 
-			let ratio_512 = U512::from(ratio.into_inner());
+			// ratio = target/observed scaled to permille, clamped to [1000-clamp, 1000+clamp]
+			// the entire calculation is run x 1000, then divided by 1000 at the end
+			let ratio_permille = ((target_block_time as u128).saturating_mul(one_thousand) /
+				observed_block_time as u128)
+				.min(one_thousand + clamp)
+				.max(one_thousand.saturating_sub(clamp));
+			log::debug!(target: "qpow", "💧 Clamped ratio (permille): {}", ratio_permille);
+
 			let max_difficulty = Self::get_max_difficulty();
-
-			// For Bitcoin-style difficulty adjustment:
-			// If observed_time > target_time (slow blocks), difficulty should decrease
-			// If observed_time < target_time (fast blocks), difficulty should increase
-			// new_difficulty = current_difficulty * target_time / observed_time
-			let mut adjusted = match current_difficulty.checked_mul(ratio_512) {
+			let mut adjusted = match current_difficulty.checked_mul(U512::from(ratio_permille)) {
 				Some(numerator) => {
-					// unchecked division, we know the denominator is not zero
-					let result = numerator / U512::from(one.into_inner());
+					let result = numerator / U512::from(1000u64);
 					log::debug!(target: "qpow",
-					    "Difficulty calculation: current={:x}, target_time={}, observed_time={}, new={:x}",
+						"Difficulty calculation: current={:x}, target_time={}, observed_time={}, new={:x}",
 						current_difficulty.low_u32() as u16, target_block_time, observed_block_time, result.low_u32() as u16);
 					result
 				},
