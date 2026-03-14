@@ -154,7 +154,7 @@ impl pallet_qpow::Config for Runtime {
 	type DifficultyAdjustPercentClamp = DifficultyAdjustPercentClamp;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
-	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
+
 	type WeightInfo = ();
 	type EmaAlpha = ConstU32<100>; // out of 1000, last_block_time * alpha + (previous_ema * (1 - alpha)) on moving average
 }

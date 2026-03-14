@@ -190,7 +190,7 @@ fn different_miners_get_different_rewards() {
 
 		MiningRewards::on_finalize(2);
 
-		println!("Balnce {}", Balances::free_balance(miner()));
+		println!("Balance {}", Balances::free_balance(miner()));
 
 		// Check second miner balance
 		assert_eq!(

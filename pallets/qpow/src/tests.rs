@@ -1,5 +1,6 @@
 use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
+use pallet_timestamp;
 use primitive_types::U512;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
 
@@ -111,7 +112,7 @@ fn test_difficulty_bounds() {
 		let max_difficulty = QPow::get_max_difficulty();
 		let initial_difficulty = QPow::initial_difficulty();
 
-		assert_eq!(min_difficulty, U512::from(1u64));
+		assert_eq!(min_difficulty, U512::from(1000u64));
 		assert!(max_difficulty > initial_difficulty);
 		assert!(initial_difficulty > min_difficulty);
 	});
@@ -127,6 +128,12 @@ fn run_to_block(n: u64) {
 		System::on_initialize(System::block_number());
 		QPow::on_initialize(System::block_number());
 	}
+}
+
+fn run_block(block_num: u64, timestamp: u64) {
+	System::set_block_number(block_num);
+	pallet_timestamp::Pallet::<Test>::set_timestamp(timestamp);
+	QPow::on_finalize(block_num);
 }
 
 #[test]
@@ -310,5 +317,93 @@ fn test_verify_and_get_achieved_difficulty() {
 			achieved_diff, expected_from_hash,
 			"Achieved difficulty should equal U512::MAX / nonce_hash"
 		);
+	});
+}
+
+#[test]
+fn test_difficulty_recovers_after_sleep() {
+	new_test_ext().execute_with(|| {
+		let target = <Test as Config>::TargetBlockTime::get();
+
+		for i in 1u64..=10 {
+			run_block(i, i * target);
+		}
+
+		let pre_sleep = QPow::get_difficulty();
+		assert_eq!(pre_sleep, U512::from(1_000_000u64));
+
+		// Simulate laptop sleep: 1-hour gap between blocks
+		run_block(11, 10 * target + 3_600_000);
+
+		// 20 normal blocks after waking
+		for i in 12u64..=31 {
+			run_block(i, 10 * target + 3_600_000 + (i - 11) * target);
+		}
+
+		let recovered = QPow::get_difficulty();
+		// EMA smoothing limits the spike, but alpha=500 is aggressive so recovery
+		// takes many blocks. 20 normal blocks bring difficulty to ~18% of pre-sleep.
+		assert!(
+			recovered > pre_sleep / 10,
+			"Difficulty should stay above 10% after sleep. Pre: {}, Post: {}",
+			pre_sleep.low_u64(),
+			recovered.low_u64()
+		);
+	});
+}
+
+#[test]
+fn test_zero_observed_block_time() {
+	new_test_ext().execute_with(|| {
+		let difficulty = U512::from(1_000_000u64);
+		let result = QPow::calculate_difficulty(difficulty, 0, 1000);
+		let min = QPow::get_min_difficulty();
+		let max = QPow::get_max_difficulty();
+		assert!(result >= min);
+		assert!(result <= max);
+	});
+}
+
+#[test]
+fn test_min_difficulty_derived_from_clamp() {
+	new_test_ext().execute_with(|| {
+		assert_eq!(QPow::get_min_difficulty(), U512::from(1000u64));
+	});
+}
+
+#[test]
+fn test_min_difficulty_can_increase() {
+	new_test_ext().execute_with(|| {
+		let min_diff = QPow::get_min_difficulty();
+		// Fast blocks → ratio clamped to 1.1 → floor(1000 * 1.1) = 1100
+		let result = QPow::calculate_difficulty(min_diff, 1, 1000);
+		assert!(
+			result > min_diff,
+			"Min difficulty must be able to increase: {} should be > {}",
+			result.low_u64(),
+			min_diff.low_u64()
+		);
+	});
+}
+
+#[test]
+fn test_min_difficulty_floors_on_slow_blocks() {
+	new_test_ext().execute_with(|| {
+		let min_diff = QPow::get_min_difficulty();
+		// Slow blocks → ratio clamped to 0.9 → floor(1000 * 0.9) = 900, clips to 1000
+		let result = QPow::calculate_difficulty(min_diff, 100_000, 1000);
+		assert_eq!(result, min_diff);
+	});
+}
+
+#[test]
+fn test_difficulty_below_min_clips_up() {
+	new_test_ext().execute_with(|| {
+		let min_diff = QPow::get_min_difficulty();
+		// Starting at 1 (below min), any result clips to min_difficulty
+		let result_fast = QPow::calculate_difficulty(U512::from(1u64), 1, 1000);
+		let result_slow = QPow::calculate_difficulty(U512::from(1u64), 100_000, 1000);
+		assert_eq!(result_fast, min_diff);
+		assert_eq!(result_slow, min_diff);
 	});
 }
