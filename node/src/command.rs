@@ -226,15 +226,15 @@ impl SubstrateCli for Cli {
 		Ok(match id {
 			"dev" =>
 				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"dirac_live_spec" =>
-				Box::new(chain_spec::dirac_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"dirac" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
-				"chain-specs/dirac.json"
-			))?) as Box<dyn sc_service::ChainSpec>,
 			"heisenberg_live_spec" =>
 				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
+			))?) as Box<dyn sc_service::ChainSpec>,
+			"planck_live_spec" =>
+				Box::new(chain_spec::planck_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"planck" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
+				"chain-specs/planck.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
 			path =>
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)

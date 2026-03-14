@@ -1,5 +1,5 @@
 use quantus_runtime::{
-	genesis_config_presets::{DIRAC_RUNTIME_PRESET, HEISENBERG_RUNTIME_PRESET},
+	genesis_config_presets::{HEISENBERG_RUNTIME_PRESET, PLANCK_RUNTIME_PRESET},
 	WASM_BINARY,
 };
 use sc_service::{ChainType, Properties};
@@ -65,11 +65,11 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	.build())
 }
 
-/// Configure a new chain spec for the dirac testnet.
-pub fn dirac_chain_spec() -> Result<ChainSpec, String> {
+/// Planck network - same genesis as heisenberg (root and treasury).
+pub fn planck_chain_spec() -> Result<ChainSpec, String> {
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(12));
-	properties.insert("tokenSymbol".into(), json!("QU"));
+	properties.insert("tokenSymbol".into(), json!("PLK"));
 	properties.insert("ss58Format".into(), json!(189));
 
 	let telemetry_endpoints = TelemetryEndpoints::new(vec![(
@@ -78,26 +78,20 @@ pub fn dirac_chain_spec() -> Result<ChainSpec, String> {
 	)])
 	.expect("Telemetry endpoints config is valid; qed");
 
-	let boot_nodes = vec![
-		"/dns/a1-p2p-dirac.quantus.cat/tcp/30333/p2p/QmUpQe7KmRW9WiKamEJm1ocJjx38x5TECTtgcvvhAovebA"
-			.parse()
-			.unwrap(),
-		"/dns/a2-p2p-dirac.quantus.cat/tcp/30333/p2p/QmV2q5givrE3Dxhu7Fv21MkZ5T3CdFWnmxt8ktweRYJ9AE"
-			.parse()
-			.unwrap(),
-		"/ip4/72.61.118.55/tcp/30333/p2p/QmXkZyXejhpJ6FG9sPG2CYtpyvtpgADKLY5k24jY8DQYwh"
-			.parse()
-			.unwrap(),
-	];
+	// Boot nodes: empty for new network, add when available
+	let boot_nodes = vec![];
 
-	Ok(ChainSpec::builder(WASM_BINARY.ok_or_else(|| "Dirac wasm not available".to_string())?, None)
-		.with_name("Quantus Dirac Testnet")
-		.with_id("dirac")
-		.with_protocol_id("dirac")
-		.with_boot_nodes(boot_nodes)
-		.with_telemetry_endpoints(telemetry_endpoints)
-		.with_chain_type(ChainType::Live)
-		.with_genesis_config_preset_name(DIRAC_RUNTIME_PRESET)
-		.with_properties(properties)
-		.build())
+	Ok(ChainSpec::builder(
+		WASM_BINARY.ok_or_else(|| "Runtime wasm not available".to_string())?,
+		None,
+	)
+	.with_name("Planck")
+	.with_id("planck")
+	.with_protocol_id("planck")
+	.with_boot_nodes(boot_nodes)
+	.with_telemetry_endpoints(telemetry_endpoints)
+	.with_chain_type(ChainType::Live)
+	.with_genesis_config_preset_name(PLANCK_RUNTIME_PRESET)
+	.with_properties(properties)
+	.build())
 }

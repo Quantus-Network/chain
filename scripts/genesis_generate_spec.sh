@@ -10,12 +10,12 @@ set -e
 if [ -z "$1" ] || [ -z "$2" ]; then
   echo "❌ Error: Missing parameters."
   echo "Usage: $0 <release_tag> <profile>"
-  echo "Example: $0 v0.1.1-nibbler-snack dirac"
   echo "Example: $0 v0.1.1-nibbler-snack heisenberg"
+  echo "Example: $0 v0.1.1-nibbler-snack planck"
   echo ""
   echo "Available profiles:"
-  echo "  - dirac: Dirac testnet"
   echo "  - heisenberg: Heisenberg testnet"
+  echo "  - planck: Planck network"
   echo ""
   echo "Naming convention:"
   echo "  profile -> profile_live_spec (for execution)"
@@ -28,9 +28,9 @@ RELEASE_TAG=$1
 PROFILE=$2
 
 # Dynamic generation based on naming convention
-PROFILE_SPEC="${PROFILE}_live_spec"                                    # dirac -> dirac_live_spec
-OUTPUT_FILE="node/src/chain-specs/${PROFILE//_/-}.json"               # dirac -> dirac.json
-CHAIN_ID="$PROFILE"                                                    # dirac -> dirac
+PROFILE_SPEC="${PROFILE}_live_spec"                                    # planck -> planck_live_spec
+OUTPUT_FILE="node/src/chain-specs/${PROFILE//_/-}.json"               # planck -> planck.json
+CHAIN_ID="$PROFILE"                                                    # planck -> planck
 
 echo "🔧 Generating initial chain spec from '$PROFILE'..."
 echo "📁 Output file: $OUTPUT_FILE"
