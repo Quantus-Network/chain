@@ -8,7 +8,7 @@ use primitive_types::U512;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
-	BuildStorage, FixedU128,
+	BuildStorage,
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -70,14 +70,13 @@ impl pallet_timestamp::Config for Test {
 
 parameter_types! {
 	pub const TestInitialDifficulty: U512 = U512([1000000, 0, 0, 0, 0, 0, 0, 0]);
-	pub const TestDifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
 }
 
 impl pallet_qpow::Config for Test {
 	type WeightInfo = ();
 	type EmaAlpha = ConstU32<500>;
 	type InitialDifficulty = TestInitialDifficulty;
-	type DifficultyAdjustPercentClamp = TestDifficultyAdjustPercentClamp;
+	type DifficultyAdjustClampPermille = ConstU32<100>; // 10%
 	type TargetBlockTime = ConstU64<1000>;
 	type MaxReorgDepth = ConstU32<10>;
 }
