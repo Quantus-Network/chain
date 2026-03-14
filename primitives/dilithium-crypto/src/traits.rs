@@ -251,6 +251,13 @@ impl DilithiumPair {
 		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
 	}
 
+	/// Create DilithiumPair from raw public and secret key bytes.
+	/// Use when reconstructing a pair from stored/serialized key material (e.g. wallet restore).
+	pub fn from_raw(public: &[u8], secret: &[u8]) -> Result<Self, Error> {
+		let keypair = crate::pair::create_keypair(public, secret)?;
+		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
+	}
+
 	pub fn secret_bytes(&self) -> &[u8] {
 		&self.secret
 	}
