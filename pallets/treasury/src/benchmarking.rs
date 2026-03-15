@@ -3,7 +3,11 @@
 use super::*;
 use frame_benchmarking::v2::*;
 
-#[benchmarks]
+#[benchmarks(
+	where
+	T: Config,
+	T::AccountId: From<[u8; 32]> + PartialEq,
+)]
 mod benchmarks {
 	use super::*;
 	use frame_system::RawOrigin;
@@ -21,7 +25,7 @@ mod benchmarks {
 
 	#[benchmark]
 	fn set_treasury_portion() -> Result<(), BenchmarkError> {
-		let portion: u8 = 50;
+		let portion = sp_runtime::Permill::from_percent(50);
 		let root: <T as frame_system::Config>::RuntimeOrigin = RawOrigin::Root.into();
 
 		#[extrinsic_call]
