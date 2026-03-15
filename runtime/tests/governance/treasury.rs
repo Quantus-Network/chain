@@ -24,8 +24,8 @@ mod tests {
 		.unwrap();
 
 		pallet_treasury::GenesisConfig::<Runtime> {
-			treasury_account: treasury_account_id(),
-			treasury_portion: Permill::from_percent(50),
+			treasury_account: Some(treasury_account_id()),
+			treasury_portion: Some(Permill::from_percent(50)),
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();

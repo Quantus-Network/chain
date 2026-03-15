@@ -44,18 +44,21 @@ pub mod pallet {
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
-		pub treasury_account: T::AccountId,
-		pub treasury_portion: Permill,
+		pub treasury_account: Option<T::AccountId>,
+		pub treasury_portion: Option<Permill>,
 	}
 
 	impl<T: Config> Default for GenesisConfig<T>
 	where
 		T::AccountId: From<[u8; 32]>,
 	{
-		/// Placeholder for tests/chain-spec defaults. Production must set treasury_account
-		/// explicitly.
+		/// Default for test runtimes and chain specs that omit treasury.
+		/// Production uses genesis_config_presets which set treasury explicitly.
 		fn default() -> Self {
-			Self { treasury_account: [1u8; 32].into(), treasury_portion: Permill::from_percent(50) }
+			Self {
+				treasury_account: Some([1u8; 32].into()),
+				treasury_portion: Some(Permill::from_percent(50)),
+			}
 		}
 	}
 
@@ -65,11 +68,19 @@ pub mod pallet {
 		T::AccountId: From<[u8; 32]> + PartialEq,
 	{
 		fn build(&self) {
-			assert!(self.treasury_portion <= Permill::one(), "Treasury portion must be <= 100%");
+			let account = self
+				.treasury_account
+				.as_ref()
+				.expect("Treasury account must be set in genesis; chain is misconfigured");
+			let portion = self
+				.treasury_portion
+				.as_ref()
+				.expect("Treasury portion must be set in genesis; chain is misconfigured");
+			assert!(*portion <= Permill::one(), "Treasury portion must be <= 100%");
 			let zero: T::AccountId = [0u8; 32].into();
-			assert!(self.treasury_account != zero, "Treasury account must not be zero address");
-			TreasuryAccount::<T>::put(self.treasury_account.clone());
-			TreasuryPortion::<T>::put(self.treasury_portion);
+			assert!(account != &zero, "Treasury account must not be zero address");
+			TreasuryAccount::<T>::put(account.clone());
+			TreasuryPortion::<T>::put(*portion);
 		}
 	}
 
@@ -116,30 +127,12 @@ pub mod pallet {
 		InvalidTreasuryAccount,
 	}
 
-	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		#[cfg(test)]
-		fn integrity_test() {
-			// TreasuryAccount and TreasuryPortion are storage; they cannot be validated here
-			// (integrity_test runs without storage). Both require genesis. If genesis doesn't run,
-			// account_id() and portion() will panic when called.
-		}
-	}
-
-	impl<T: Config> Pallet<T>
-	where
-		T::AccountId: From<[u8; 32]> + PartialEq,
-	{
-		/// Get the treasury account. Panics if not configured or zero (chain misconfigured).
+	impl<T: Config> Pallet<T> {
+		/// Get the treasury account. Panics if not configured (chain misconfigured).
+		/// Zero-address check is done in genesis build and set_treasury_account only.
 		pub fn account_id() -> T::AccountId {
-			let account = TreasuryAccount::<T>::get()
-				.expect("Treasury account must be set in genesis; chain is misconfigured");
-			let zero: T::AccountId = [0u8; 32].into();
-			assert!(
-				account != zero,
-				"Treasury account must not be zero address; funds would be permanently locked"
-			);
-			account
+			TreasuryAccount::<T>::get()
+				.expect("Treasury account must be set in genesis; chain is misconfigured")
 		}
 
 		/// Get the treasury portion (Permill). Panics if not configured (chain misconfigured).
@@ -151,10 +144,7 @@ pub mod pallet {
 
 	/// Implements `Get<AccountId>` for use as runtime config parameter.
 	pub struct TreasuryAccountGetter<T>(core::marker::PhantomData<T>);
-	impl<T: Config> frame_support::traits::Get<T::AccountId> for TreasuryAccountGetter<T>
-	where
-		T::AccountId: From<[u8; 32]> + PartialEq,
-	{
+	impl<T: Config> frame_support::traits::Get<T::AccountId> for TreasuryAccountGetter<T> {
 		fn get() -> T::AccountId {
 			Pallet::<T>::account_id()
 		}
@@ -162,10 +152,7 @@ pub mod pallet {
 
 	/// Implements `Get<Permill>` for use as runtime config parameter.
 	pub struct TreasuryPortionGetter<T>(core::marker::PhantomData<T>);
-	impl<T: Config> frame_support::traits::Get<Permill> for TreasuryPortionGetter<T>
-	where
-		T::AccountId: From<[u8; 32]> + PartialEq,
-	{
+	impl<T: Config> frame_support::traits::Get<Permill> for TreasuryPortionGetter<T> {
 		fn get() -> Permill {
 			Pallet::<T>::portion()
 		}
@@ -183,10 +170,7 @@ mod benchmarking;
 
 pub use pallet::*;
 
-impl<T: pallet::Config> TreasuryProvider for pallet::Pallet<T>
-where
-	T::AccountId: From<[u8; 32]> + PartialEq,
-{
+impl<T: pallet::Config> TreasuryProvider for pallet::Pallet<T> {
 	type AccountId = T::AccountId;
 	fn account_id() -> Self::AccountId {
 		pallet::Pallet::<T>::account_id()

@@ -4,6 +4,7 @@ use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 };
+use pallet_treasury::TreasuryProvider;
 use qp_wormhole::derive_wormhole_account;
 use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::{
@@ -13,12 +14,13 @@ use sp_runtime::{
 	BuildStorage, DigestItem,
 };
 
-// Configure a mock runtime to test the pallet
+// Configure a mock runtime to test the pallet.
+// Treasury is mocked via TreasuryProvider - no need for full pallet in construct_runtime,
+// which avoids genesis config complexity when test_genesis_config_builds runs.
 frame_support::construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		Balances: pallet_balances,
-		Treasury: pallet_treasury,
 		MiningRewards: pallet_mining_rewards,
 	}
 );
@@ -91,8 +93,17 @@ parameter_types! {
 	pub const Unit: u128 = UNIT;
 }
 
-impl pallet_treasury::Config for Test {
-	type WeightInfo = ();
+// Mock TreasuryProvider - mining-rewards only needs account_id() and portion().
+pub struct MockTreasury;
+pub type Treasury = MockTreasury;
+impl pallet_treasury::TreasuryProvider for MockTreasury {
+	type AccountId = sp_core::crypto::AccountId32;
+	fn account_id() -> Self::AccountId {
+		sp_core::crypto::AccountId32::new([1u8; 32])
+	}
+	fn portion() -> sp_runtime::Permill {
+		sp_runtime::Permill::from_percent(50)
+	}
 }
 
 // Mock proof recorder that does nothing
@@ -116,7 +127,7 @@ impl pallet_mining_rewards::Config for Test {
 	type WeightInfo = ();
 	type MaxSupply = MaxSupply;
 	type EmissionDivisor = EmissionDivisor;
-	type Treasury = Treasury;
+	type Treasury = MockTreasury;
 	type MintingAccount = MintingAccount;
 	type Unit = Unit;
 }
@@ -143,24 +154,17 @@ pub fn miner2() -> sp_core::crypto::AccountId32 {
 	derive_wormhole_account(miner_preimage_2())
 }
 
-fn treasury_account() -> sp_core::crypto::AccountId32 {
-	sp_core::crypto::AccountId32::new([1u8; 32])
-}
-
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(miner(), ExistentialDeposit::get()), (miner2(), ExistentialDeposit::get())],
+		balances: vec![
+			(miner(), ExistentialDeposit::get()),
+			(miner2(), ExistentialDeposit::get()),
+			(MockTreasury::account_id(), ExistentialDeposit::get()),
+		],
 		dev_accounts: None,
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
-
-	pallet_treasury::GenesisConfig::<Test> {
-		treasury_account: treasury_account(),
-		treasury_portion: sp_runtime::Permill::from_percent(50),
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

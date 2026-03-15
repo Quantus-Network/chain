@@ -80,9 +80,12 @@ pub fn new_test_ext_with_treasury(
 ) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
-	pallet_treasury::GenesisConfig::<Test> { treasury_account, treasury_portion }
-		.assimilate_storage(&mut t)
-		.unwrap();
+	pallet_treasury::GenesisConfig::<Test> {
+		treasury_account: Some(treasury_account),
+		treasury_portion: Some(treasury_portion),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| frame_system::Pallet::<Test>::set_block_number(1));

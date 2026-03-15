@@ -106,8 +106,8 @@ fn genesis_template(
 		balances: BalancesConfig { balances, dev_accounts: None },
 		sudo: SudoConfig { key: Some(root.clone()) },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
-			treasury_account: treasury.account,
-			treasury_portion: treasury.portion,
+			treasury_account: Some(treasury.account),
+			treasury_portion: Some(treasury.portion),
 		},
 		assets: AssetsConfig {
 			// We need to initialize and reserve the first asset id for the native token transfers

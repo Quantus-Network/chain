@@ -1,5 +1,6 @@
 use crate::{mock::*, weights::WeightInfo, Event};
 use frame_support::traits::{Currency, Hooks};
+use pallet_treasury::TreasuryProvider;
 use qp_wormhole::derive_wormhole_account;
 use sp_runtime::testing::Digest;
 
