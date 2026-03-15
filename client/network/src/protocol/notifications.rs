@@ -30,5 +30,5 @@ pub(crate) use self::service::ProtocolHandle;
 mod behaviour;
 mod handler;
 mod service;
-mod tests;
+// tests/ (conformance with litep2p) removed - this fork is libp2p-only
 mod upgrade;
