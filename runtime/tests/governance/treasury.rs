@@ -7,7 +7,7 @@ mod tests {
 	use quantus_runtime::{
 		configs::TreasuryPalletId, AccountId, Runtime, System, TreasuryPallet, UNIT,
 	};
-	use sp_runtime::{traits::AccountIdConversion, BuildStorage};
+	use sp_runtime::{traits::AccountIdConversion, BuildStorage, Permill};
 
 	fn treasury_account_id() -> AccountId {
 		TreasuryPalletId::get().into_account_truncating()
@@ -25,7 +25,7 @@ mod tests {
 
 		pallet_treasury::GenesisConfig::<Runtime> {
 			treasury_account: treasury_account_id(),
-			treasury_portion: 50,
+			treasury_portion: Permill::from_percent(50),
 		}
 		.assimilate_storage(&mut t)
 		.unwrap();
@@ -39,7 +39,7 @@ mod tests {
 	fn genesis_sets_treasury_config() {
 		new_test_ext().execute_with(|| {
 			assert_eq!(TreasuryPallet::account_id(), treasury_account_id());
-			assert_eq!(TreasuryPallet::portion(), 50);
+			assert_eq!(TreasuryPallet::portion(), Permill::from_percent(50));
 		});
 	}
 
@@ -72,16 +72,23 @@ mod tests {
 	#[test]
 	fn set_treasury_portion_works() {
 		new_test_ext().execute_with(|| {
-			assert_ok!(TreasuryPallet::set_treasury_portion(RawOrigin::Root.into(), 30));
-			assert_eq!(TreasuryPallet::portion(), 30);
+			assert_ok!(TreasuryPallet::set_treasury_portion(
+				RawOrigin::Root.into(),
+				Permill::from_percent(30)
+			));
+			assert_eq!(TreasuryPallet::portion(), Permill::from_percent(30));
 		});
 	}
 
 	#[test]
-	fn set_treasury_portion_rejects_invalid() {
+	fn set_treasury_portion_accepts_100_percent() {
 		new_test_ext().execute_with(|| {
-			let result = TreasuryPallet::set_treasury_portion(RawOrigin::Root.into(), 101);
-			assert!(result.is_err(), "set_treasury_portion(101) should fail");
+			// 100% is the upper bound
+			assert_ok!(TreasuryPallet::set_treasury_portion(
+				RawOrigin::Root.into(),
+				Permill::one()
+			));
+			assert_eq!(TreasuryPallet::portion(), Permill::one());
 		});
 	}
 }

@@ -27,7 +27,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use pallet_treasury::TreasuryProvider;
 	use qp_wormhole::TransferProofRecorder;
-	use sp_runtime::{traits::Saturating, Permill};
+	use sp_runtime::traits::Saturating;
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -146,10 +146,9 @@ pub mod pallet {
 				.checked_div(&emission_divisor)
 				.unwrap_or_else(BalanceOf::<T>::zero);
 
-			// Split the reward between treasury and miner (portion is 0-100)
+			// Split the reward between treasury and miner
 			let treasury_portion = T::Treasury::portion();
-			let treasury_reward =
-				Permill::from_percent(u32::from(treasury_portion)).mul_floor(total_reward);
+			let treasury_reward = treasury_portion.mul_floor(total_reward);
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
 
 			// Extract miner ID from the pre-runtime digest

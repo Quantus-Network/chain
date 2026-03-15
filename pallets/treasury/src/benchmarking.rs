@@ -21,7 +21,7 @@ mod benchmarks {
 
 	#[benchmark]
 	fn set_treasury_portion() -> Result<(), BenchmarkError> {
-		let portion: u8 = 50;
+		let portion = sp_runtime::Permill::from_percent(50);
 		let root: <T as frame_system::Config>::RuntimeOrigin = RawOrigin::Root.into();
 
 		#[extrinsic_call]

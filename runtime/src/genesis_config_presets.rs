@@ -77,12 +77,12 @@ fn heisenberg_treasury_account() -> AccountId {
 /// Total supply used for genesis (same portion% goes to treasury at genesis as in pallet).
 const GENESIS_SUPPLY: u128 = 21_000_000;
 
-/// Treasury genesis params per profile. Initial balance = (portion)% of GENESIS_SUPPLY (same as
+/// Treasury genesis params per profile. Initial balance = portion of GENESIS_SUPPLY (same as
 /// pallet portion).
 #[derive(Clone)]
 struct TreasuryGenesis {
 	account: AccountId,
-	portion: u8,
+	portion: Permill,
 }
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
@@ -99,8 +99,7 @@ fn genesis_template(
 		.collect::<Vec<_>>();
 
 	let total_supply_raw = GENESIS_SUPPLY.saturating_mul(UNIT);
-	let treasury_balance =
-		Permill::from_percent(u32::from(treasury.portion)).mul_floor(total_supply_raw);
+	let treasury_balance = treasury.portion.mul_floor(total_supply_raw);
 	balances.push((treasury.account.clone(), treasury_balance));
 
 	let config = RuntimeGenesisConfig {
@@ -154,7 +153,10 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
 		};
 
-		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 30 };
+		let treasury = TreasuryGenesis {
+			account: development_treasury_account(),
+			portion: Permill::from_percent(30),
+		};
 		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
 			endowed_accounts,
 			crystal_alice().into_account(),
@@ -167,7 +169,10 @@ pub fn development_config_genesis() -> Value {
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
-		let treasury = TreasuryGenesis { account: development_treasury_account(), portion: 30 };
+		let treasury = TreasuryGenesis {
+			account: development_treasury_account(),
+			portion: Permill::from_percent(30),
+		};
 		genesis_template(endowed_accounts, crystal_alice().into_account(), treasury)
 	}
 }
@@ -179,7 +184,10 @@ pub fn heisenberg_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	let treasury = TreasuryGenesis { account: heisenberg_treasury_account(), portion: 30 };
+	let treasury = TreasuryGenesis {
+		account: heisenberg_treasury_account(),
+		portion: Permill::from_percent(30),
+	};
 	genesis_template(endowed_accounts, heisenberg_root_account(), treasury)
 }
 
@@ -189,8 +197,10 @@ pub fn dirac_config_genesis() -> Value {
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
-	let treasury =
-		TreasuryGenesis { account: TreasuryPalletId::get().into_account_truncating(), portion: 30 };
+	let treasury = TreasuryGenesis {
+		account: TreasuryPalletId::get().into_account_truncating(),
+		portion: Permill::from_percent(30),
+	};
 	genesis_template(endowed_accounts, dirac_root_account(), treasury)
 }
 

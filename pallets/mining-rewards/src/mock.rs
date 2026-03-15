@@ -160,7 +160,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_treasury::GenesisConfig::<Test> {
 		treasury_account: treasury_account(),
-		treasury_portion: 50,
+		treasury_portion: sp_runtime::Permill::from_percent(50),
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
