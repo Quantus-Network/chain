@@ -3,7 +3,11 @@
 use super::*;
 use frame_benchmarking::v2::*;
 
-#[benchmarks]
+#[benchmarks(
+	where
+	T: Config,
+	T::AccountId: From<[u8; 32]> + PartialEq,
+)]
 mod benchmarks {
 	use super::*;
 	use frame_system::RawOrigin;
