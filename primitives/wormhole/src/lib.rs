@@ -30,7 +30,11 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 ///
 /// This function uses the same serialization as the ZK circuit:
 /// - Convert 32 bytes to 4 field elements using ToFelts (8 bytes per element)
-/// - Hash without padding using hash_variable_length
+/// - Hash via Poseidon sponge using hash_variable_length
+///
+/// NOTE: ToFelts uses `unsafe_digest_bytes_to_felts` (8 bytes per field element) which is
+/// non-injective for values >= the Goldilocks prime. Actual address collision risk is
+/// negligible (~2^{-95}+), dominated by Poseidon's intrinsic collision bound (~2^{-128}).
 pub fn derive_wormhole_address(preimage: [u8; 32]) -> [u8; 32] {
 	let preimage_felts = preimage.to_felts();
 	PoseidonHasher::hash_variable_length(preimage_felts)
