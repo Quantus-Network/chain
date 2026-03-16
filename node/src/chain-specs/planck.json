@@ -3,7 +3,8 @@
   "id": "planck",
   "chainType": "Live",
   "bootNodes": [
-    "/ip4/127.0.0.1/tcp/30333/p2p/Qmc1E7549WqJ4oZXQNjnHMQAdCA8anfRCiXH8xTJ5yrs8y"
+    "/dns/a1-p2p-planck.quantus.cat/tcp/30333/p2p/QmQ4AywkRZuv2L4XKb71Y3erk2DpQPNUTmMS2LGEEr5q8r",
+    "/dns/a2-p2p-planck.quantus.cat/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic"
   ],
   "telemetryEndpoints": [
     [
