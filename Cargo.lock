@@ -8439,7 +8439,7 @@ dependencies = [
 
 [[package]]
 name = "qp-dilithium-crypto"
-version = "0.3.0"
+version = "0.2.5"
 dependencies = [
  "env_logger",
  "log",
@@ -8808,7 +8808,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.4.8-buah-naga"
+version = "0.4.9-jeruk-kintamani"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -8867,7 +8867,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.4.8-buah-naga"
+version = "0.4.9-jeruk-kintamani"
 dependencies = [
  "env_logger",
  "frame-benchmarking",

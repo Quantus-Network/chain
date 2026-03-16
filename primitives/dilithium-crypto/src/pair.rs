@@ -314,4 +314,26 @@ mod tests {
 			"Different seeds should produce different public keys"
 		);
 	}
+
+	#[test]
+	fn test_from_raw_matching_keys_succeeds() {
+		let seed = [0u8; 32];
+		let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
+		let public = pair.public().as_ref().to_vec();
+		let secret = pair.secret_bytes().to_vec();
+		let restored =
+			DilithiumPair::from_raw(&public, &secret).expect("Matching keys should succeed");
+		assert_eq!(restored.public().as_ref(), pair.public().as_ref());
+	}
+
+	#[test]
+	fn test_from_raw_mismatched_keys_fails() {
+		let seed1 = [0u8; 32];
+		let seed2 = [1u8; 32];
+		let pair1 = DilithiumPair::from_seed(&seed1).expect("Failed to create pair1");
+		let pair2 = DilithiumPair::from_seed(&seed2).expect("Failed to create pair2");
+		// Swap: pair1's secret with pair2's public - should fail validation
+		let result = DilithiumPair::from_raw(pair2.public().as_ref(), pair1.secret_bytes());
+		assert!(result.is_err(), "Mismatched public/secret should be rejected");
+	}
 }
