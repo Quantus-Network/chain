@@ -78,8 +78,14 @@ pub fn planck_chain_spec() -> Result<ChainSpec, String> {
 	)])
 	.expect("Telemetry endpoints config is valid; qed");
 
-	// Boot nodes: empty for new network, add when available
-	let boot_nodes = vec![];
+	let boot_nodes = vec![
+		"/dns/a1-p2p-planck.quantus.cat/tcp/30333/p2p/QmQ4AywkRZuv2L4XKb71Y3erk2DpQPNUTmMS2LGEEr5q8r"
+			.parse()
+			.unwrap(),
+		"/dns/a2-p2p-planck.quantus.cat/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic"
+			.parse()
+			.unwrap(),
+	];
 
 	Ok(ChainSpec::builder(
 		WASM_BINARY.ok_or_else(|| "Runtime wasm not available".to_string())?,
