@@ -1924,10 +1924,8 @@ mod tests {
 		state_version = StateVersion::V1;
 		{
 			let mut trie = TrieDBMutBuilderV1::from_existing(&mut mdb, &mut root).build();
-			trie.insert(b"foo222", vec![5u8; 100].as_slice())
-				.expect("insert failed");
-			trie.insert(b"foo", vec![1u8; 1000].as_slice())
-				.expect("insert failed");
+			trie.insert(b"foo222", vec![5u8; 100].as_slice()).expect("insert failed");
+			trie.insert(b"foo", vec![1u8; 1000].as_slice()).expect("insert failed");
 		}
 		let remote_proof = check_proof(mdb.clone(), root, state_version);
 		// nodes foo is replaced by its hashed value form.
