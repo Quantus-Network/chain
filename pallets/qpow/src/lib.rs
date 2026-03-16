@@ -374,9 +374,10 @@ pub mod pallet {
 		) -> (bool, U512) {
 			let (valid, _difficulty, hash_achieved) =
 				Self::verify_nonce_internal(block_hash, nonce);
-			let achieved_difficulty = achieved_difficulty_from_hash(hash_achieved);
-
-			(valid, achieved_difficulty)
+			if !valid {
+				return (false, U512::zero());
+			}
+			(true, achieved_difficulty_from_hash(hash_achieved))
 		}
 
 		pub fn initial_difficulty() -> Difficulty {

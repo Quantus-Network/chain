@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate alloc;
 use primitive_types::U512;
 
 // Bitcoin-style validation logic with double Poseidon2 hashing
@@ -15,7 +14,7 @@ pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -
 
 	let hash_result = get_nonce_hash(block_hash, nonce);
 	log::debug!(target: "math", "hash_result = {:x}, difficulty = {:x}",
-		hash_result.low_u32() as u16, difficulty.low_u32() as u16);
+		hash_result.low_u64(), difficulty.low_u64());
 
 	// In Bitcoin-style PoW, we check if hash < target
 	// Where target = max_target / difficulty
@@ -44,7 +43,7 @@ pub fn get_nonce_hash(
 	let result = U512::from_big_endian(&second_hash);
 
 	log::debug!(target: "math", "hash = {:x} block_hash = {}, nonce = {:?}",
-		result.low_u32() as u16, hex::encode(block_hash), nonce);
+		result.low_u64(), hex::encode(block_hash), nonce);
 
 	result
 }
@@ -100,5 +99,129 @@ mod tests {
 		// With difficulty 1, target is U512::MAX, so any non-zero hash should be valid
 		assert!(is_valid);
 		assert_ne!(hash, U512::zero());
+	}
+
+	#[test]
+	fn test_zero_difficulty_rejected() {
+		let block_hash = [1u8; 32];
+		let nonce = [1u8; 64];
+		let (is_valid, hash) = is_valid_nonce(block_hash, nonce, U512::zero());
+		assert!(!is_valid);
+		assert_eq!(hash, U512::zero());
+	}
+
+	#[test]
+	fn test_max_difficulty_rejects() {
+		let block_hash = [1u8; 32];
+		let nonce = [1u8; 64];
+		let (is_valid, _) = is_valid_nonce(block_hash, nonce, U512::MAX);
+		assert!(!is_valid);
+	}
+
+	#[test]
+	fn test_achieved_difficulty_from_hash_zero_returns_max() {
+		assert_eq!(achieved_difficulty_from_hash(U512::zero()), U512::MAX);
+	}
+
+	#[test]
+	fn test_achieved_difficulty_from_hash_one_returns_max() {
+		assert_eq!(achieved_difficulty_from_hash(U512::one()), U512::MAX);
+	}
+
+	#[test]
+	fn test_achieved_difficulty_from_hash_known_value() {
+		let hash = U512::from(1000u64);
+		assert_eq!(achieved_difficulty_from_hash(hash), U512::MAX / hash);
+	}
+
+	#[test]
+	fn test_boundary_hash_equal_to_target_is_invalid() {
+		let block_hash = [1u8; 32];
+		let nonce = [1u8; 64];
+		let hash = get_nonce_hash(block_hash, nonce);
+
+		let difficulty = U512::MAX / hash;
+		let target = U512::MAX / difficulty;
+
+		if target == hash {
+			let (is_valid, _) = is_valid_nonce(block_hash, nonce, difficulty);
+			assert!(!is_valid, "hash == target must be invalid (strict less-than)");
+		}
+	}
+
+	#[test]
+	fn test_valid_nonce_achieved_difficulty_consistency() {
+		let block_hash = [1u8; 32];
+		let nonce = [1u8; 64];
+		let hash = get_nonce_hash(block_hash, nonce);
+
+		let achieved = achieved_difficulty_from_hash(hash);
+		let difficulty = achieved / 2;
+		assert!(difficulty > U512::zero());
+
+		let (is_valid, returned_hash) = is_valid_nonce(block_hash, nonce, difficulty);
+		assert!(is_valid);
+		assert!(
+			achieved_difficulty_from_hash(returned_hash) >= difficulty,
+			"achieved difficulty must be >= stated difficulty when nonce is valid"
+		);
+	}
+}
+
+#[cfg(test)]
+mod proptests {
+	use super::*;
+	use proptest::prelude::*;
+
+	fn arb_u512() -> impl Strategy<Value = U512> {
+		prop::array::uniform8(any::<u64>()).prop_map(U512)
+	}
+
+	fn arb_nonzero_u512() -> impl Strategy<Value = U512> {
+		arb_u512().prop_filter("must be nonzero", |v| *v != U512::zero())
+	}
+
+	fn arb_nonce() -> impl Strategy<Value = [u8; 64]> {
+		(prop::array::uniform32(any::<u8>()), prop::array::uniform32(any::<u8>()))
+			.prop_map(|(a, b)| {
+				let mut nonce = [0u8; 64];
+				nonce[..32].copy_from_slice(&a);
+				nonce[32..].copy_from_slice(&b);
+				nonce
+			})
+	}
+
+	proptest! {
+		#[test]
+		fn achieved_difficulty_inverse(hash in arb_nonzero_u512()) {
+			let achieved = achieved_difficulty_from_hash(hash);
+			prop_assert!(achieved > U512::zero());
+			prop_assert_eq!(achieved, U512::MAX / hash);
+		}
+
+		#[test]
+		fn is_valid_nonce_deterministic(
+			block_hash in prop::array::uniform32(any::<u8>()),
+			nonce in arb_nonce(),
+			difficulty in arb_nonzero_u512(),
+		) {
+			let (v1, h1) = is_valid_nonce(block_hash, nonce, difficulty);
+			let (v2, h2) = is_valid_nonce(block_hash, nonce, difficulty);
+			prop_assert_eq!(v1, v2);
+			prop_assert_eq!(h1, h2);
+		}
+
+		#[test]
+		fn valid_nonce_implies_achieved_gte_difficulty(
+			block_hash in prop::array::uniform32(any::<u8>()),
+			nonce in arb_nonce(),
+			difficulty in arb_nonzero_u512(),
+		) {
+			let (valid, hash) = is_valid_nonce(block_hash, nonce, difficulty);
+			if valid {
+				let achieved = achieved_difficulty_from_hash(hash);
+				prop_assert!(achieved >= difficulty);
+			}
+		}
 	}
 }

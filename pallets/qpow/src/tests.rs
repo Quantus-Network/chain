@@ -303,12 +303,15 @@ fn test_verify_and_get_achieved_difficulty() {
 		let expected_valid = QPow::verify_nonce_on_import_block(block_hash, nonce);
 		assert_eq!(valid, expected_valid, "Validity should match verify_nonce_on_import_block");
 
-		// Verify achieved difficulty matches the formula: U512::MAX / nonce_hash
-		let nonce_hash = QPow::get_nonce_hash(block_hash, nonce);
-		let expected_from_hash = U512::MAX / nonce_hash;
-		assert_eq!(
-			achieved_diff, expected_from_hash,
-			"Achieved difficulty should equal U512::MAX / nonce_hash"
-		);
+		if valid {
+			let nonce_hash = QPow::get_nonce_hash(block_hash, nonce);
+			let expected_from_hash = U512::MAX / nonce_hash;
+			assert_eq!(
+				achieved_diff, expected_from_hash,
+				"Achieved difficulty should equal U512::MAX / nonce_hash"
+			);
+		} else {
+			assert_eq!(achieved_diff, U512::zero(), "Invalid nonce should yield zero achieved difficulty");
+		}
 	});
 }
