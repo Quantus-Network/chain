@@ -1577,12 +1577,6 @@ mod tests {
 		}
 	}
 
-	fn test_compact(remote_proof: StorageProof, _remote_root: &sp_core::H256) -> StorageProof {
-		// Simply return the original storage proof since we're not using compact proofs for the
-		// zk-circuit
-		remote_proof
-	}
-
 	#[test]
 	fn prove_read_and_proof_check_works() {
 		prove_read_and_proof_check_works_inner(StateVersion::V0);
@@ -1597,7 +1591,6 @@ mod tests {
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let remote_root = remote_backend.storage_root(std::iter::empty(), state_version).0;
 		let remote_proof = prove_read(remote_backend, &[b"value2"]).unwrap();
-		let remote_proof = test_compact(remote_proof, &remote_root);
 		// check proof locally
 		let local_result1 =
 			read_proof_check::<BlakeTwo256, _>(remote_root, remote_proof.clone(), &[b"value2"])
@@ -1614,7 +1607,6 @@ mod tests {
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let remote_root = remote_backend.storage_root(std::iter::empty(), state_version).0;
 		let remote_proof = prove_child_read(remote_backend, child_info, &[b"value3"]).unwrap();
-		let remote_proof = test_compact(remote_proof, &remote_root);
 		let local_result1 = read_child_proof_check::<BlakeTwo256, _>(
 			remote_root,
 			remote_proof.clone(),
@@ -1722,9 +1714,8 @@ mod tests {
 			}
 		}
 
-		let storage_proof = backend.extract_proof().expect("Failed to extract proof");
 		println!("Proof generated, attempting compact conversion...");
-		let _remote_proof = test_compact(storage_proof, &trie_root);
+		let _storage_proof = backend.extract_proof().expect("Failed to extract proof");
 	}
 
 	#[test]
@@ -1807,9 +1798,8 @@ mod tests {
 			}
 
 			let storage_proof = backend.extract_proof().expect("Failed to extract proof");
-			let remote_proof = test_compact(storage_proof, &trie_root);
 			let proof_check =
-				create_proof_check_backend::<BlakeTwo256>(trie_root, remote_proof).unwrap();
+				create_proof_check_backend::<BlakeTwo256>(trie_root, storage_proof).unwrap();
 
 			for (child_info, key, expected) in queries {
 				assert_eq!(
@@ -1930,20 +1920,15 @@ mod tests {
 		// check full values in proof
 		assert!(remote_proof.encode().len() > 800);
 		assert!(remote_proof.encoded_size() > 800);
-		let _root1 = root;
 
-		// do switch
 		state_version = StateVersion::V1;
 		{
 			let mut trie = TrieDBMutBuilderV1::from_existing(&mut mdb, &mut root).build();
-			trie.insert(b"foo222", vec![5u8; 100].as_slice()) // inner hash
+			trie.insert(b"foo222", vec![5u8; 100].as_slice())
 				.expect("insert failed");
-			// update with same value do change
-			trie.insert(b"foo", vec![1u8; 1000].as_slice()) // inner hash
+			trie.insert(b"foo", vec![1u8; 1000].as_slice())
 				.expect("insert failed");
 		}
-		let _root3 = root;
-		// assert!(root1 != root3); // ZK-trie may handle state versioning differently
 		let remote_proof = check_proof(mdb.clone(), root, state_version);
 		// nodes foo is replaced by its hashed value form.
 		assert!(remote_proof.encode().len() < 1000);
@@ -1989,64 +1974,6 @@ mod tests {
 		}
 
 		assert_eq!(nb_loop, 13);
-	}
-
-	#[allow(dead_code)]
-	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
-		// this root will be queried
-		let child_info1 = ChildInfo::new_default(b"sub1");
-		// this root will not be include in proof
-		let child_info2 = ChildInfo::new_default(b"sub2");
-		// this root will be include in proof
-		let child_info3 = ChildInfo::new_default(b"sub");
-		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
-		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
-		let (remote_root, transaction) = remote_backend.full_storage_root(
-			std::iter::empty(),
-			vec![
-				(
-					&child_info1,
-					vec![
-						// a inner hashable node
-						(&b"k"[..], Some(&long_vec[..])),
-						// need to ensure this is not an inline node
-						// otherwise we do not know what is accessed when
-						// storing proof.
-						(&b"key1"[..], Some(&vec![5u8; 32][..])),
-						(&b"key2"[..], Some(&b"val3"[..])),
-					]
-					.into_iter(),
-				),
-				(
-					&child_info2,
-					vec![(&b"key3"[..], Some(&b"val4"[..])), (&b"key4"[..], Some(&b"val5"[..]))]
-						.into_iter(),
-				),
-				(
-					&child_info3,
-					vec![(&b"key5"[..], Some(&b"val6"[..])), (&b"key6"[..], Some(&b"val7"[..]))]
-						.into_iter(),
-				),
-			]
-			.into_iter(),
-			state_version,
-		);
-		let mut remote_storage = remote_backend.backend_storage().clone();
-		remote_storage.consolidate(transaction);
-		let remote_backend = TrieBackendBuilder::new(remote_storage, remote_root).build();
-		let remote_proof = prove_child_read(remote_backend, &child_info1, &[b"key1"]).unwrap();
-		let size = remote_proof.encoded_size();
-		let remote_proof = test_compact(remote_proof, &remote_root);
-		let local_result1 = read_child_proof_check::<BlakeTwo256, _>(
-			remote_root,
-			remote_proof,
-			&child_info1,
-			&[b"key1"],
-		)
-		.unwrap();
-		assert_eq!(local_result1.len(), 1);
-		assert_eq!(local_result1.get(&b"key1"[..]), Some(&Some(vec![5u8; 32])));
-		size
 	}
 
 	#[test]

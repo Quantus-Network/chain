@@ -435,7 +435,7 @@ where
 		let overlay = self.overlay.clear_child_storage(child_info);
 		let (maybe_cursor, backend, loops) =
 			self.limit_remove_from_backend(Some(child_info), None, maybe_limit, maybe_cursor);
-		MultiRemovalResults { maybe_cursor, backend, unique: overlay + backend, loops }
+		MultiRemovalResults { maybe_cursor, backend, unique: overlay.saturating_add(backend), loops }
 	}
 
 	fn clear_prefix(
@@ -463,7 +463,7 @@ where
 		let overlay = self.overlay.clear_prefix(prefix);
 		let (maybe_cursor, backend, loops) =
 			self.limit_remove_from_backend(None, Some(prefix), maybe_limit, maybe_cursor);
-		MultiRemovalResults { maybe_cursor, backend, unique: overlay + backend, loops }
+		MultiRemovalResults { maybe_cursor, backend, unique: overlay.saturating_add(backend), loops }
 	}
 
 	fn clear_child_prefix(
@@ -489,7 +489,7 @@ where
 			maybe_limit,
 			maybe_cursor,
 		);
-		MultiRemovalResults { maybe_cursor, backend, unique: overlay + backend, loops }
+		MultiRemovalResults { maybe_cursor, backend, unique: overlay.saturating_add(backend), loops }
 	}
 
 	fn storage_append(&mut self, key: Vec<u8>, value: Vec<u8>) {
