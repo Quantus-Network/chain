@@ -54,7 +54,6 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-reversible-transfers",
 	"pallet-reversible-transfers?/runtime-benchmarks",
-	"qp-high-security/runtime-benchmarks",
 	"qp-scheduler",
 	"sp-runtime/runtime-benchmarks",
 ]

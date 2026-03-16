@@ -9,14 +9,6 @@ publish = false
 repository.workspace = true
 version = "0.1.0"
 
-[dependencies]
-codec = { workspace = true }
-scale-info = { workspace = true }
-
 [features]
 default = ["std"]
-runtime-benchmarks = []
-std = [
-	"codec/std",
-	"scale-info/std",
-]
+std = []
