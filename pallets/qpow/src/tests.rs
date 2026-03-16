@@ -311,7 +311,11 @@ fn test_verify_and_get_achieved_difficulty() {
 				"Achieved difficulty should equal U512::MAX / nonce_hash"
 			);
 		} else {
-			assert_eq!(achieved_diff, U512::zero(), "Invalid nonce should yield zero achieved difficulty");
+			assert_eq!(
+				achieved_diff,
+				U512::zero(),
+				"Invalid nonce should yield zero achieved difficulty"
+			);
 		}
 	});
 }

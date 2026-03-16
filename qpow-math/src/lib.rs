@@ -182,13 +182,14 @@ mod proptests {
 	}
 
 	fn arb_nonce() -> impl Strategy<Value = [u8; 64]> {
-		(prop::array::uniform32(any::<u8>()), prop::array::uniform32(any::<u8>()))
-			.prop_map(|(a, b)| {
+		(prop::array::uniform32(any::<u8>()), prop::array::uniform32(any::<u8>())).prop_map(
+			|(a, b)| {
 				let mut nonce = [0u8; 64];
 				nonce[..32].copy_from_slice(&a);
 				nonce[32..].copy_from_slice(&b);
 				nonce
-			})
+			},
+		)
 	}
 
 	proptest! {
