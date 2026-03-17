@@ -21,8 +21,6 @@ use crate::{node_header::NodeKind, trie_constants};
 use alloc::vec::Vec;
 use hash_db::Hasher;
 
-const MAX_INLINE_THRESHOLD: usize = 31;
-
 /// Codec-flavored TrieStream.
 #[derive(Default, Clone)]
 pub struct TrieStream {
@@ -193,21 +191,8 @@ impl trie_root::TrieStream for TrieStream {
 
 	fn append_substream<H: Hasher>(&mut self, other: Self) {
 		let data = other.out();
-		match data.len() {
-			0..=MAX_INLINE_THRESHOLD => {
-				// Encode length as 8-byte little-endian, then the data
-				let length_bytes = (data.len() as u64).to_le_bytes();
-				self.buffer.extend_from_slice(&length_bytes);
-				self.buffer.extend_from_slice(&data);
-			},
-			_ => {
-				let hash = H::hash(&data);
-				// Encode length as 8-byte little-endian, then the hash
-				let length_bytes = (hash.as_ref().len() as u64).to_le_bytes();
-				self.buffer.extend_from_slice(&length_bytes);
-				self.buffer.extend_from_slice(hash.as_ref());
-			},
-		}
+		let hash = H::hash(&data);
+		self.buffer.extend_from_slice(hash.as_ref());
 	}
 
 	fn out(self) -> Vec<u8> {

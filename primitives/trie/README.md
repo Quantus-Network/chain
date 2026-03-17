@@ -62,11 +62,13 @@ child = [child_length][inlined_or_hashed_child]...
 
 **ZK-Trie Node:**
 ```
-[8_byte_header][felt_aligned_bitmap][felt_aligned_nibbles][felt_aligned_value][felt_aligned_children...]
-child = [8_byte_child_length][hashed_child]...
+branch = [8_byte_header][aligned_partial_key_bytes][8_byte_bitmap][optional_value_bytes][children...]
+leaf   = [8_byte_header][aligned_partial_key_bytes][value_bytes]
+null   = [8_byte_header]
+child  = [32_byte_child_hash]
 ```
 
-Note that there are no inlined children in ZK-Trie nodes. This is because the minimum size for a child node is now 32 bytes, the same size as the hash. The 8_byte_child_length could be removed in principle because the child hashes are all the same lengths, but to maintain consistency with the standard node structure, we left it in.
+Branch children are canonical hashed references only. Emitted trie nodes never inline children, and there is no 8-byte child-length prefix in branch child slots. Inline branch and leaf values keep their existing `8-byte little-endian length || felt-aligned bytes` encoding in this format fork. Hashed values remain raw 32-byte hashes in the value slot.
 
 ## Usage
 
@@ -134,6 +136,8 @@ The felt-alignment increases storage / memory requirements. Storage proofs are ~
 We consider this overhead acceptable for ZK applications where proof generation efficiency is more important than storage optimization.
 
 ## Migration from Standard sp-trie
+
+This fork is consensus-breaking. Both the trie node bytes and the trie-node Poseidon preimage mapping change, so every affected trie root changes across the cutover.
 
 ### Clean Migration (Recommended)
 

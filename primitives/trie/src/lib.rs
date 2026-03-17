@@ -826,6 +826,8 @@ mod tests {
 	use crate::node_header::NodeHeader;
 	use codec::{Compact, Decode, Encode};
 	use hash_db::{HashDB, Hasher};
+	use qp_poseidon_core::zktrie::{encode_zktrie_node_hybrid, try_hash_zktrie_node_hybrid};
+	use serde::Deserialize;
 	use sp_core::Blake2Hasher;
 	use trie_db::{DBValue, NodeCodec as NodeCodecT, Trie, TrieMut};
 	use trie_standardmap::{Alphabet, StandardMap, ValueMode};
@@ -834,6 +836,19 @@ mod tests {
 	type LayoutV1 = super::LayoutV1<Blake2Hasher>;
 
 	type MemoryDBMeta<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue>;
+
+	#[derive(Deserialize)]
+	struct SharedVector {
+		name: String,
+		kind: String,
+		raw_node_hex: String,
+		prefix_bytes_len: usize,
+		prefix_felts_len: usize,
+		total_felts_len: usize,
+		child_hashes_hex: Vec<String>,
+		child_ordinals: Vec<usize>,
+		node_hash_hex: String,
+	}
 
 	pub fn create_trie<L: TrieLayout>(
 		data: &[(&[u8], &[u8])],
@@ -1359,14 +1374,13 @@ mod tests {
 
 						*child_refs_checked += 1;
 
-						// Skip over this child reference
-						cursor += 8; // 8-byte length prefix
+						// Child references are canonical hashed edges only.
 						match child {
 							Some(trie_db::node::NodeHandlePlan::Hash(_)) => {
 								cursor += <L::Hash as trie_db::Hasher>::LENGTH;
 							},
-							Some(trie_db::node::NodeHandlePlan::Inline(range)) => {
-								cursor += range.end - range.start;
+							Some(trie_db::node::NodeHandlePlan::Inline(_)) => {
+								panic!("branch children must decode as hashed references");
 							},
 							None => {},
 						}
@@ -1473,9 +1487,8 @@ mod tests {
 		let trie = LayoutV1::trie_root_unhashed(input);
 		println!("trie: {:#x?}", trie);
 
-		// With 8-byte aligned values, children are now 32 bytes and get hashed
-		// Just verify the structure rather than exact hash values
-		assert_eq!(trie.len(), 96); // 8 (header) + 8 (bitmap) + 8 (length) + 32 (hash) + 8 (length) + 32 (hash)
+		// Children are canonical raw 32-byte hashes with no per-child length prefix.
+		assert_eq!(trie.len(), 80); // 8 (header) + 8 (bitmap) + 32 (hash) + 32 (hash)
 
 		// Check header: branch with no value, nibble_count=0, type=2
 		assert_eq!(&trie[0..8], &[0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x20]);
@@ -1483,11 +1496,149 @@ mod tests {
 		// Check bitmap: slots 1 & 4 are taken
 		assert_eq!(&trie[8..16], &[0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
-		// Check first child is hash reference (32 bytes)
-		assert_eq!(&trie[16..24], &[32, 0, 0, 0, 0, 0, 0, 0]);
+		assert_eq!(trie[16..48].len(), 32);
+		assert_eq!(trie[48..80].len(), 32);
+	}
 
-		// Check second child is hash reference (32 bytes)
-		assert_eq!(&trie[56..64], &[32, 0, 0, 0, 0, 0, 0, 0]);
+	#[test]
+	fn branch_child_refs_are_raw_hashes_without_length_prefix() {
+		use trie_db::{node::NodePlan, NodeCodec as NodeCodecT};
+
+		let child_a = Blake2Hasher::hash(b"child-a");
+		let child_b = Blake2Hasher::hash(b"child-b");
+		let encoded = NodeCodec::<Blake2Hasher>::branch_node_nibbled(
+			[].into_iter(),
+			0,
+			(0..16).map(|i| match i {
+				1 => Some(trie_db::ChildReference::Hash(child_a)),
+				4 => Some(trie_db::ChildReference::Hash(child_b)),
+				_ => None,
+			}),
+			None,
+		);
+
+		assert_eq!(encoded.len(), 8 + 8 + 32 + 32);
+		assert_eq!(&encoded[16..48], child_a.as_ref());
+		assert_eq!(&encoded[48..80], child_b.as_ref());
+		assert_ne!(&encoded[16..24], &32u64.to_le_bytes());
+
+		let decoded = NodeCodec::<Blake2Hasher>::decode_plan(&encoded).unwrap();
+		let NodePlan::NibbledBranch { children, .. } = decoded else {
+			panic!("expected branch");
+		};
+		assert!(matches!(children[1], Some(trie_db::node::NodeHandlePlan::Hash(_))));
+		assert!(matches!(children[4], Some(trie_db::node::NodeHandlePlan::Hash(_))));
+	}
+
+	#[test]
+	fn branch_inline_children_are_canonicalized_to_hashes() {
+		use trie_db::{node::NodePlan, NodeCodec as NodeCodecT};
+
+		let inline_child = NodeCodec::<Blake2Hasher>::leaf_node(
+			[0xaa].into_iter(),
+			2,
+			trie_db::node::Value::Inline(&[0xbb]),
+		);
+		let inline_hash = Blake2Hasher::hash(&inline_child);
+		let mut inline_child_buf = <Blake2Hasher as Hasher>::Out::default();
+		inline_child_buf.as_mut()[..inline_child.len()].copy_from_slice(&inline_child);
+		let inline_ref: trie_db::ChildReference<<Blake2Hasher as Hasher>::Out> =
+			trie_db::ChildReference::Inline(inline_child_buf, inline_child.len());
+		let children: Vec<Option<trie_db::ChildReference<<Blake2Hasher as Hasher>::Out>>> =
+			(0..16)
+				.map(|i| match i {
+					7 => Some(inline_ref),
+					_ => None,
+				})
+				.collect();
+		let encoded = NodeCodec::<Blake2Hasher>::branch_node_nibbled(
+			[].into_iter(),
+			0,
+			children.into_iter(),
+			None,
+		);
+
+		assert_eq!(encoded.len(), 8 + 8 + 32);
+		assert_eq!(&encoded[16..48], inline_hash.as_ref());
+
+		let decoded = NodeCodec::<Blake2Hasher>::decode_plan(&encoded).unwrap();
+		let NodePlan::NibbledBranch { children, .. } = decoded else {
+			panic!("expected branch");
+		};
+		assert!(matches!(children[7], Some(trie_db::node::NodeHandlePlan::Hash(_))));
+	}
+
+	#[test]
+	fn append_substream_emits_raw_child_hash_only() {
+		use trie_root::TrieStream as _;
+
+		let mut parent = TrieStream::new();
+		let mut child = TrieStream::new();
+		child.append_leaf(&[0xa, 0xb], trie_root::Value::Inline(b"v"));
+		let child_bytes = child.clone().out();
+		let child_hash = Blake2Hasher::hash(&child_bytes);
+
+		parent.append_substream::<Blake2Hasher>(child);
+		assert_eq!(parent.as_raw(), child_hash.as_ref());
+	}
+
+	#[test]
+	fn malformed_branch_child_payload_is_rejected() {
+		use trie_db::NodeCodec as NodeCodecT;
+
+		let child = Blake2Hasher::hash(b"child");
+		let mut encoded = NodeCodec::<Blake2Hasher>::branch_node_nibbled(
+			[].into_iter(),
+			0,
+			(0..16).map(|i| match i {
+				0 => Some(trie_db::ChildReference::Hash(child)),
+				_ => None,
+			}),
+			None,
+		);
+		encoded.pop();
+
+		assert!(NodeCodec::<Blake2Hasher>::decode_plan(&encoded).is_err());
+	}
+
+	#[test]
+	fn shared_hybrid_vectors_match_workspace_fixture() {
+		let vectors: Vec<SharedVector> = serde_json::from_str(include_str!(
+			concat!(env!("CARGO_MANIFEST_DIR"), "/../../../HYBRID_ZKTRIE_HASH_VECTORS.json")
+		))
+		.unwrap();
+
+		for vector in vectors {
+			let raw = hex::decode(&vector.raw_node_hex).unwrap();
+			let encoded = encode_zktrie_node_hybrid(&raw).unwrap();
+			let hash = try_hash_zktrie_node_hybrid(&raw).unwrap();
+			let parsed = qp_poseidon_core::zktrie::parse_zktrie_node(&raw).unwrap();
+			let child_hashes = (0..parsed.child_count)
+				.map(|i| {
+					hex::encode(
+						&raw[parsed.prefix_bytes_len + i * 32..parsed.prefix_bytes_len + (i + 1) * 32],
+					)
+				})
+				.collect::<Vec<_>>();
+
+			assert_eq!(encoded.prefix_bytes_len, vector.prefix_bytes_len, "{}", vector.name);
+			assert_eq!(encoded.prefix_felts_len, vector.prefix_felts_len, "{}", vector.name);
+			assert_eq!(encoded.total_felts_len, vector.total_felts_len, "{}", vector.name);
+			assert_eq!(hex::encode(hash), vector.node_hash_hex, "{}", vector.name);
+			assert_eq!(child_hashes, vector.child_hashes_hex, "{}", vector.name);
+
+			match vector.kind.as_str() {
+				"leaf" => {
+					assert!(vector.child_ordinals.is_empty(), "{}", vector.name);
+					assert_eq!(parsed.child_count, 0, "{}", vector.name);
+				},
+				"branch" => {
+					assert_eq!(vector.child_ordinals, vec![0], "{}", vector.name);
+					assert_eq!(parsed.child_count, 1, "{}", vector.name);
+				},
+				other => panic!("unexpected vector kind {other}"),
+			}
+		}
 	}
 
 	#[test]

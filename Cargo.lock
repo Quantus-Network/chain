@@ -8580,8 +8580,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon"
 version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce4d91f0077b30ec888423fb7549bea6ee6fa6cbbbfe67eaeea38e101e0f630d"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=custom-zk-trie-node-encoder#144c0cf0c17a9c9794fab8411bd05de9b3b625d7"
 dependencies = [
  "log",
  "p3-field",
@@ -8612,8 +8611,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon-core"
 version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dcdc2b94d265b986711f5f44eea860c96c9e7b25aaa999f7aa024437c0dcd5f"
+source = "git+https://github.com/Quantus-Network/poseidon-resonance?branch=custom-zk-trie-node-encoder#144c0cf0c17a9c9794fab8411bd05de9b3b625d7"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -12171,14 +12169,18 @@ dependencies = [
  "foldhash 0.1.5",
  "hash-db",
  "hashbrown 0.15.5",
+ "hex",
  "log",
  "memory-db",
  "nohash-hasher",
  "parity-scale-codec",
  "parking_lot 0.12.4",
+ "qp-poseidon-core",
  "rand 0.8.5",
  "scale-info",
  "schnellru",
+ "serde",
+ "serde_json",
  "sp-core",
  "sp-externalities",
  "sp-runtime",
