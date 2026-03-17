@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod wormhole_tests {
 	use crate::mock::*;
+	use codec::Encode;
 	use frame_support::{
 		assert_ok,
 		traits::{
@@ -8,8 +9,25 @@ mod wormhole_tests {
 			Currency,
 		},
 	};
+	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole::derive_wormhole_account;
 	use sp_core::crypto::AccountId32;
+
+	/// Compute the expected leaf_inputs_hash for a transfer.
+	/// This must match the computation in record_transfer.
+	fn compute_leaf_inputs_hash(
+		asset_id: u32,
+		transfer_count: u64,
+		from: &AccountId,
+		to: &AccountId,
+		amount: Balance,
+	) -> [u8; 32] {
+		let full_data: (u32, u64, AccountId, AccountId, Balance) =
+			(asset_id, transfer_count, from.clone(), to.clone(), amount);
+		PoseidonHasher::hash_storage::<(u32, u64, AccountId, AccountId, Balance)>(
+			&full_data.encode(),
+		)
+	}
 
 	#[test]
 	fn record_transfer_creates_proof_and_increments_count() {
@@ -22,8 +40,15 @@ mod wormhole_tests {
 			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-			// Storage key uses (to, transfer_count), value is the leaf_inputs_hash
-			assert!(Wormhole::transfer_proof((bob.clone(), count_before)).is_some());
+
+			// Verify the stored hash matches the expected leaf_inputs_hash
+			let expected_hash = compute_leaf_inputs_hash(0u32, count_before, &alice, &bob, amount);
+			let stored_hash = Wormhole::transfer_proof((bob.clone(), count_before))
+				.expect("transfer proof should exist");
+			assert_eq!(
+				stored_hash, expected_hash,
+				"stored hash should match expected leaf_inputs_hash"
+			);
 
 			// Second transfer increments count again
 			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
@@ -79,8 +104,15 @@ mod wormhole_tests {
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-			// Storage key uses (to, transfer_count), value is the leaf_inputs_hash
-			assert!(Wormhole::transfer_proof((bob, count_before)).is_some());
+
+			// Verify the stored hash matches the expected leaf_inputs_hash
+			let expected_hash = compute_leaf_inputs_hash(0u32, count_before, &alice, &bob, amount);
+			let stored_hash =
+				Wormhole::transfer_proof((bob, count_before)).expect("transfer proof should exist");
+			assert_eq!(
+				stored_hash, expected_hash,
+				"stored hash should match expected leaf_inputs_hash"
+			);
 		});
 	}
 
