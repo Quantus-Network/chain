@@ -2,10 +2,6 @@
 
 extern crate alloc;
 
-use core::marker::PhantomData;
-
-use codec::{Decode, MaxEncodedLen};
-use frame_support::StorageHasher;
 use lazy_static::lazy_static;
 pub use pallet::*;
 pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
@@ -16,7 +12,6 @@ mod mock;
 #[cfg(test)]
 mod tests;
 pub mod weights;
-use sp_metadata_ir::StorageHasherIR;
 pub use weights::*;
 
 lazy_static! {
@@ -38,28 +33,11 @@ pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static s
 /// converting from circuit amounts to on-chain amounts.
 pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
-// We use a generic struct so we can pass the specific Key type to the hasher
-pub struct PoseidonStorageHasher<Key>(PhantomData<Key>);
-
-impl<Key: Decode + ToFelts + 'static> StorageHasher for PoseidonStorageHasher<Key> {
-	// We are lying here, but maybe it's ok because it's just metadata
-	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
-	type Output = [u8; 32];
-
-	fn hash(x: &[u8]) -> Self::Output {
-		PoseidonCore::hash_storage::<Key>(x)
-	}
-
-	fn max_len<K: MaxEncodedLen>() -> usize {
-		32
-	}
-}
-
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::{PoseidonStorageHasher, ToFelts, WeightInfo};
+	use crate::{PoseidonCore, ToFelts, WeightInfo};
 	use alloc::vec::Vec;
-	use codec::Decode;
+	use codec::{Decode, Encode};
 	use frame_support::{
 		dispatch::DispatchResult,
 		pallet_prelude::*,
@@ -88,13 +66,25 @@ pub mod pallet {
 	pub type AssetBalanceOf<T> = <<T as Config>::Assets as fungibles::Inspect<
 		<T as frame_system::Config>::AccountId,
 	>>::Balance;
-	pub type TransferProofKey<T> = (
+
+	/// Key for TransferProof storage - uniquely identifies a transfer.
+	/// Uses (to, transfer_count) since transfer_count is atomic per recipient.
+	/// This is hashed with Blake2_256 to form the storage key suffix.
+	pub type TransferProofKey<T> = (<T as Config>::WormholeAccountId, <T as Config>::TransferCount);
+
+	/// Full transfer data including amount - used to compute the leaf_inputs_hash via Poseidon2.
+	/// This is what the ZK circuit verifies.
+	pub type TransferProofData<T> = (
 		AssetIdOf<T>,
 		<T as Config>::TransferCount,
 		<T as Config>::WormholeAccountId,
 		<T as Config>::WormholeAccountId,
 		BalanceOf<T>,
 	);
+
+	/// The leaf_inputs_hash stored as the value in TransferProof storage.
+	/// This is the Poseidon2 hash of TransferProofData, verified by the ZK circuit.
+	pub type LeafInputsHash = [u8; 32];
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -165,16 +155,19 @@ pub mod pallet {
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
-	/// Transfer proofs for wormhole transfers (both native and assets)
+	/// Transfer proofs for wormhole transfers (both native and assets).
+	///
+	/// Storage key: Twox128("Wormhole") || Twox128("TransferProof") || Blake2_256(to,
+	/// transfer_count) Storage value: leaf_inputs_hash (Poseidon2 hash of full transfer data)
+	///
+	/// The key uses only (to, transfer_count) since transfer_count is atomic per recipient.
+	/// The ZK circuit verifies that the leaf_inputs_hash in the value section matches
+	/// the Poseidon2 hash of all transfer details (asset_id, count, from, to, amount),
+	/// providing full 256-bit security.
 	#[pallet::storage]
 	#[pallet::getter(fn transfer_proof)]
-	pub type TransferProof<T: Config> = StorageMap<
-		_,
-		PoseidonStorageHasher<TransferProofKey<T>>,
-		TransferProofKey<T>,
-		(),
-		OptionQuery,
-	>;
+	pub type TransferProof<T: Config> =
+		StorageMap<_, Blake2_256, TransferProofKey<T>, LeafInputsHash, OptionQuery>;
 
 	/// Transfer count for all wormhole transfers
 	#[pallet::storage]
@@ -490,10 +483,20 @@ pub mod pallet {
 			amount: BalanceOf<T>,
 		) {
 			let current_count = TransferCount::<T>::get(&to);
-			TransferProof::<T>::insert(
-				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
-				(),
-			);
+
+			// Storage key uses Blake2_256 hash of (to, transfer_count)
+			// This is unique since transfer_count is atomic per recipient
+			let key: TransferProofKey<T> = (to.clone(), current_count);
+
+			// Storage value is the Poseidon2 hash of the full transfer data (leaf_inputs_hash)
+			// This matches what the ZK circuit computes and verifies
+			let full_data: TransferProofData<T> =
+				(asset_id.clone(), current_count, from.clone(), to.clone(), amount);
+			let encoded_data = full_data.encode();
+			let leaf_inputs_hash =
+				PoseidonCore::hash_storage::<TransferProofData<T>>(&encoded_data);
+
+			TransferProof::<T>::insert(key, leaf_inputs_hash);
 			TransferCount::<T>::insert(&to, current_count.saturating_add(T::TransferCount::one()));
 
 			if asset_id == AssetIdOf::<T>::default() {

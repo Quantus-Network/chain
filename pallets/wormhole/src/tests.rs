@@ -22,14 +22,8 @@ mod wormhole_tests {
 			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-			assert!(Wormhole::transfer_proof((
-				0u32,
-				count_before,
-				alice.clone(),
-				bob.clone(),
-				amount
-			))
-			.is_some());
+			// Storage key uses (to, transfer_count), value is the leaf_inputs_hash
+			assert!(Wormhole::transfer_proof((bob.clone(), count_before)).is_some());
 
 			// Second transfer increments count again
 			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
@@ -85,7 +79,8 @@ mod wormhole_tests {
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-			assert!(Wormhole::transfer_proof((0u32, count_before, alice, bob, amount)).is_some());
+			// Storage key uses (to, transfer_count), value is the leaf_inputs_hash
+			assert!(Wormhole::transfer_proof((bob, count_before)).is_some());
 		});
 	}
 
