@@ -28,6 +28,7 @@ members = [
 	"primitives/wormhole",
 	"qpow-math",
 	"runtime",
+	"testing/submit-transfer",
 ]
 resolver = "2"
 

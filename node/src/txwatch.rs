@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+const LOG_TARGET: &str = "txwatch";
+
 use codec::{Decode, Encode};
 use futures::StreamExt;
 use jsonrpsee::{
@@ -15,6 +17,7 @@ use jsonrpsee::{
 };
 use quantus_runtime::{opaque::Block, AccountId, Balance, RuntimeCall, UncheckedExtrinsic};
 use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
+use sp_runtime::traits::LazyExtrinsic;
 use serde::{Deserialize, Serialize};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::{generic::Preamble, MultiAddress};
@@ -72,6 +75,7 @@ where
 		};
 
 		let pool = self.pool.clone();
+		log::info!(target: LOG_TARGET, "Watching address {}", &address[..12.min(address.len())]);
 		let sink = pending.accept().await?;
 
 		jsonrpsee::tokio::spawn(async move {
@@ -84,14 +88,21 @@ where
 				}
 
 				let notifications = {
-					let Some(in_pool_tx) = pool.ready_transaction(&tx_hash) else { continue };
-					let encoded = Encode::encode(in_pool_tx.data());
-					drop(in_pool_tx);
+					let encoded = if let Some(tx) = pool.ready_transaction(&tx_hash) {
+						Encode::encode(tx.data())
+					} else {
+						let found = pool
+							.ready()
+							.find(|tx| *tx.hash() == tx_hash)
+							.map(|tx| Encode::encode(tx.data()));
+						let Some(data) = found else { continue };
+						data
+					};
 
-					let Ok(opaque_bytes) = Vec::<u8>::decode(&mut &encoded[..]) else {
+					let Ok(inner_bytes) = Vec::<u8>::decode(&mut &encoded[..]) else {
 						continue;
 					};
-					let Ok(uxt) = UncheckedExtrinsic::decode(&mut &opaque_bytes[..]) else {
+					let Ok(uxt) = UncheckedExtrinsic::decode_unprefixed(&inner_bytes) else {
 						continue;
 					};
 
@@ -116,6 +127,8 @@ where
 				};
 
 				for notification in notifications {
+					log::info!(target: LOG_TARGET, "Transfer detected: {} -> watched addr, amount={}, asset={:?}",
+						&notification.from[..12.min(notification.from.len())], notification.amount, notification.asset_id);
 					let Ok(msg) = SubscriptionMessage::from_json(&notification) else {
 						continue;
 					};
