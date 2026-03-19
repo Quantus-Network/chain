@@ -1,26 +1,32 @@
 //! RPC subscription for watching incoming transfers to an address via the tx pool.
 //!
-//! Designed for POS (Point of Sale) systems that need to detect when a payment
-//! has been submitted. Transactions in the pool have already been validated
-//! (signature checked), so acceptance into the pool confirms authenticity.
+//! A single background decoder task processes each pool import once, then fans
+//! out to all active subscribers via a broadcast channel.  This keeps the cost
+//! at O(M) decodes regardless of how many subscriptions exist.
 
-use std::sync::Arc;
-
-const LOG_TARGET: &str = "txwatch";
+use std::sync::{
+	atomic::{AtomicUsize, Ordering},
+	Arc,
+};
 
 use codec::{Decode, Encode};
 use futures::StreamExt;
 use jsonrpsee::{
 	core::{async_trait, SubscriptionResult},
 	proc_macros::rpc,
+	tokio::sync::broadcast,
 	PendingSubscriptionSink, SubscriptionMessage,
 };
 use quantus_runtime::{opaque::Block, AccountId, Balance, RuntimeCall, UncheckedExtrinsic};
 use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
-use sp_runtime::traits::LazyExtrinsic;
 use serde::{Deserialize, Serialize};
 use sp_core::crypto::Ss58Codec;
-use sp_runtime::{generic::Preamble, MultiAddress};
+use sp_runtime::{generic::Preamble, traits::LazyExtrinsic, MultiAddress};
+
+const LOG_TARGET: &str = "txwatch";
+const MAX_SUBSCRIPTIONS: usize = 32;
+const MAX_BATCH_DEPTH: usize = 4;
+const BROADCAST_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferNotification {
@@ -40,26 +46,108 @@ pub trait TxWatchApi {
 	async fn watch_address(&self, address: String) -> SubscriptionResult;
 }
 
-pub struct TxWatch<P> {
-	pool: Arc<P>,
+#[derive(Debug)]
+struct DecodedPoolTx {
+	tx_hash: String,
+	sender: Option<AccountId>,
+	transfers: Vec<(AccountId, Balance, Option<u32>)>,
 }
 
-impl<P> TxWatch<P> {
-	pub fn new(pool: Arc<P>) -> Self {
-		Self { pool }
+struct SubGuard(Arc<AtomicUsize>);
+
+impl Drop for SubGuard {
+	fn drop(&mut self) {
+		self.0.fetch_sub(1, Ordering::Relaxed);
+	}
+}
+
+pub struct TxWatch {
+	tx: broadcast::Sender<Arc<DecodedPoolTx>>,
+	active_subs: Arc<AtomicUsize>,
+}
+
+impl TxWatch {
+	pub fn new<P>(pool: Arc<P>) -> Self
+	where
+		P: TransactionPool<Block = Block> + 'static,
+	{
+		let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+		let sender = tx.clone();
+
+		jsonrpsee::tokio::spawn(async move {
+			let stream = pool.import_notification_stream();
+			futures::pin_mut!(stream);
+
+			while let Some(tx_hash) = stream.next().await {
+				if sender.receiver_count() == 0 {
+					continue;
+				}
+
+				let encoded = if let Some(tx) = pool.ready_transaction(&tx_hash) {
+					Encode::encode(tx.data())
+				} else {
+					let found = pool
+						.ready()
+						.find(|tx| *tx.hash() == tx_hash)
+						.map(|tx| Encode::encode(tx.data()));
+					let Some(data) = found else { continue };
+					data
+				};
+
+				let Ok(inner_bytes) = Vec::<u8>::decode(&mut &encoded[..]) else {
+					continue;
+				};
+				let Ok(uxt) = UncheckedExtrinsic::decode_unprefixed(&inner_bytes) else {
+					continue;
+				};
+
+				let sender_account = match &uxt.preamble {
+					Preamble::Signed(addr, _, _) => match addr {
+						MultiAddress::Id(id) => Some(id.clone()),
+						_ => None,
+					},
+					_ => None,
+				};
+
+				let transfers = extract_all_transfers(&uxt.function, 0);
+				if transfers.is_empty() {
+					continue;
+				}
+
+				let _ = sender.send(Arc::new(DecodedPoolTx {
+					tx_hash: format!("{:?}", tx_hash),
+					sender: sender_account,
+					transfers,
+				}));
+			}
+		});
+
+		Self { tx, active_subs: Arc::new(AtomicUsize::new(0)) }
 	}
 }
 
 #[async_trait]
-impl<P> TxWatchApiServer for TxWatch<P>
-where
-	P: TransactionPool<Block = Block> + 'static,
-{
+impl TxWatchApiServer for TxWatch {
 	async fn watch_address(
 		&self,
 		pending: PendingSubscriptionSink,
 		address: String,
 	) -> SubscriptionResult {
+		let prev = self.active_subs.fetch_add(1, Ordering::Relaxed);
+		if prev >= MAX_SUBSCRIPTIONS {
+			self.active_subs.fetch_sub(1, Ordering::Relaxed);
+			pending
+				.reject(jsonrpsee::types::error::ErrorObject::owned(
+					5001,
+					format!("Too many subscriptions (max {MAX_SUBSCRIPTIONS})"),
+					None::<()>,
+				))
+				.await;
+			return Ok(());
+		}
+
+		let guard = SubGuard(self.active_subs.clone());
+
 		let target = match AccountId::from_ss58check(&address) {
 			Ok(a) => a,
 			Err(_) => {
@@ -74,67 +162,54 @@ where
 			},
 		};
 
-		let pool = self.pool.clone();
 		log::info!(target: LOG_TARGET, "Watching address {}", &address[..12.min(address.len())]);
 		let sink = pending.accept().await?;
+		let mut rx = self.tx.subscribe();
 
 		jsonrpsee::tokio::spawn(async move {
-			let stream = pool.import_notification_stream();
-			futures::pin_mut!(stream);
-
-			while let Some(tx_hash) = stream.next().await {
-				if sink.is_closed() {
-					break;
-				}
-
-				let notifications = {
-					let encoded = if let Some(tx) = pool.ready_transaction(&tx_hash) {
-						Encode::encode(tx.data())
-					} else {
-						let found = pool
-							.ready()
-							.find(|tx| *tx.hash() == tx_hash)
-							.map(|tx| Encode::encode(tx.data()));
-						let Some(data) = found else { continue };
-						data
-					};
-
-					let Ok(inner_bytes) = Vec::<u8>::decode(&mut &encoded[..]) else {
-						continue;
-					};
-					let Ok(uxt) = UncheckedExtrinsic::decode_unprefixed(&inner_bytes) else {
-						continue;
-					};
-
-					let sender = match &uxt.preamble {
-						Preamble::Signed(addr, _, _) => match addr {
-							MultiAddress::Id(id) => Some(id.to_ss58check()),
-							_ => None,
-						},
-						_ => None,
-					};
-
-					let tx_hash_str = format!("{:?}", tx_hash);
-					extract_transfers_to(&uxt.function, &target)
-						.into_iter()
-						.map(|(amount, asset_id)| TransferNotification {
-							tx_hash: tx_hash_str.clone(),
-							from: sender.clone().unwrap_or_default(),
-							amount: amount.to_string(),
-							asset_id,
-						})
-						.collect::<Vec<_>>()
-				};
-
-				for notification in notifications {
-					log::info!(target: LOG_TARGET, "Transfer detected: {} -> watched addr, amount={}, asset={:?}",
-						&notification.from[..12.min(notification.from.len())], notification.amount, notification.asset_id);
-					let Ok(msg) = SubscriptionMessage::from_json(&notification) else {
-						continue;
-					};
-					if sink.send(msg).await.is_err() {
-						return;
-					}
+			let _guard = guard;
+			loop {
+				match rx.recv().await {
+					Ok(decoded) => {
+						if sink.is_closed() {
+							break;
+						}
+						for (dest, amount, asset_id) in &decoded.transfers {
+							if dest != &target {
+								continue;
+							}
+							let notification = TransferNotification {
+								tx_hash: decoded.tx_hash.clone(),
+								from: decoded
+									.sender
+									.as_ref()
+									.map(|s| s.to_ss58check())
+									.unwrap_or_default(),
+								amount: amount.to_string(),
+								asset_id: *asset_id,
+							};
+							log::info!(
+								target: LOG_TARGET,
+								"Transfer detected: {} -> watched addr, amount={}, asset={:?}",
+								&notification.from[..12.min(notification.from.len())],
+								notification.amount,
+								notification.asset_id
+							);
+							let Ok(msg) = SubscriptionMessage::from_json(&notification) else {
+								continue;
+							};
+							if sink.send(msg).await.is_err() {
+								return;
+							}
+						}
+					},
+					Err(broadcast::error::RecvError::Lagged(n)) => {
+						log::warn!(
+							target: LOG_TARGET,
+							"Subscriber lagged, skipped {n} transactions"
+						);
+					},
+					Err(broadcast::error::RecvError::Closed) => break,
 				}
 			}
 		});
@@ -143,38 +218,53 @@ where
 	}
 }
 
-pub(crate) fn extract_transfers_to(
+fn extract_all_transfers(
 	call: &RuntimeCall,
-	target: &AccountId,
-) -> Vec<(Balance, Option<u32>)> {
+	depth: usize,
+) -> Vec<(AccountId, Balance, Option<u32>)> {
+	if depth > MAX_BATCH_DEPTH {
+		return Vec::new();
+	}
 	let mut results = Vec::new();
 	match call {
-		RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value }) |
-		RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { dest, value }) => {
-			if matches!(dest, MultiAddress::Id(id) if id == target) {
-				results.push((*value, None));
+		RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value })
+		| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { dest, value }) => {
+			if let MultiAddress::Id(id) = dest {
+				results.push((id.clone(), *value, None));
 			}
 		},
-		RuntimeCall::Assets(pallet_assets::Call::transfer { id, target: dest, amount }) |
-		RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
+		RuntimeCall::Assets(pallet_assets::Call::transfer { id, target: dest, amount })
+		| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
 			id,
 			target: dest,
 			amount,
 		}) => {
-			if matches!(dest, MultiAddress::Id(d) if d == target) {
-				results.push((*amount, Some(id.0)));
+			if let MultiAddress::Id(d) = dest {
+				results.push((d.clone(), *amount, Some(id.0)));
 			}
 		},
-		RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
-		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
-		RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
+		RuntimeCall::Utility(pallet_utility::Call::batch { calls })
+		| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+		| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
 			for inner in calls {
-				results.extend(extract_transfers_to(inner, target));
+				results.extend(extract_all_transfers(inner, depth + 1));
 			}
 		},
 		_ => {},
 	}
 	results
+}
+
+#[cfg(test)]
+pub(crate) fn extract_transfers_to(
+	call: &RuntimeCall,
+	target: &AccountId,
+) -> Vec<(Balance, Option<u32>)> {
+	extract_all_transfers(call, 0)
+		.into_iter()
+		.filter(|(dest, _, _)| dest == target)
+		.map(|(_, amount, asset_id)| (amount, asset_id))
+		.collect()
 }
 
 #[cfg(test)]
@@ -380,5 +470,34 @@ mod tests {
 		};
 		let json = serde_json::to_value(&n_asset).unwrap();
 		assert_eq!(json["asset_id"], 42);
+	}
+
+	#[test]
+	fn batch_depth_is_capped() {
+		fn nest(depth: usize, inner: RuntimeCall) -> RuntimeCall {
+			if depth == 0 {
+				return inner;
+			}
+			batch(vec![nest(depth - 1, inner)])
+		}
+		let deep = nest(MAX_BATCH_DEPTH, native_transfer(&merchant(), UNIT));
+		assert_eq!(extract_transfers_to(&deep, &merchant()), vec![(UNIT, None)]);
+
+		let too_deep = nest(MAX_BATCH_DEPTH + 1, native_transfer(&merchant(), UNIT));
+		assert!(extract_transfers_to(&too_deep, &merchant()).is_empty());
+	}
+
+	#[test]
+	fn extract_all_transfers_returns_all_destinations() {
+		let call = batch(vec![
+			native_transfer(&merchant(), 10 * UNIT),
+			native_transfer(&other(), 20 * UNIT),
+			asset_transfer(5, &customer(), 300),
+		]);
+		let all = extract_all_transfers(&call, 0);
+		assert_eq!(all.len(), 3);
+		assert_eq!(all[0], (merchant(), 10 * UNIT, None));
+		assert_eq!(all[1], (other(), 20 * UNIT, None));
+		assert_eq!(all[2], (customer(), 300, Some(5)));
 	}
 }
