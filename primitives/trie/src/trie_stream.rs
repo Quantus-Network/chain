@@ -193,21 +193,25 @@ impl trie_root::TrieStream for TrieStream {
 
 	fn append_substream<H: Hasher>(&mut self, other: Self) {
 		let data = other.out();
-		match data.len() {
-			0..=MAX_INLINE_THRESHOLD => {
-				// Encode length as 8-byte little-endian, then the data
-				let length_bytes = (data.len() as u64).to_le_bytes();
-				self.buffer.extend_from_slice(&length_bytes);
-				self.buffer.extend_from_slice(&data);
-			},
-			_ => {
-				let hash = H::hash(&data);
-				// Encode length as 8-byte little-endian, then the hash
-				let length_bytes = (hash.as_ref().len() as u64).to_le_bytes();
-				self.buffer.extend_from_slice(&length_bytes);
-				self.buffer.extend_from_slice(hash.as_ref());
-			},
-		}
+		log::debug!(
+			target: "zk-trie",
+			"append_substream: data.len()={}, MAX_INLINE_THRESHOLD={}",
+			data.len(), MAX_INLINE_THRESHOLD
+		);
+		// With felt-aligned encoding, all nodes exceed the inline threshold
+		// so children are always stored as 32-byte hashes (no length prefix)
+		debug_assert!(
+			data.len() > MAX_INLINE_THRESHOLD,
+			"Node too small ({} bytes) - would be inlined but inline children not supported",
+			data.len()
+		);
+		let hash = H::hash(&data);
+		log::debug!(
+			target: "zk-trie",
+			"append_substream: hashing {} bytes -> hash={:02x?}",
+			data.len(), hash.as_ref()
+		);
+		self.buffer.extend_from_slice(hash.as_ref());
 	}
 
 	fn out(self) -> Vec<u8> {
