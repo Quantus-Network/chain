@@ -239,7 +239,6 @@ sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
-trie-db = { path = "./vendor/trie-db" }
 qp-poseidon = { path = "../qp-poseidon/substrate" }
 qp-poseidon-core = { path = "../qp-poseidon/core" }
 qp-zk-circuits-common = { path = "../qp-zk-circuits/common" }
@@ -248,6 +247,7 @@ qp-wormhole-circuit = { path = "../qp-zk-circuits/wormhole/circuit" }
 qp-wormhole-circuit-builder = { path = "../qp-zk-circuits/wormhole/circuit-builder" }
 qp-wormhole-prover = { path = "../qp-zk-circuits/wormhole/prover" }
 qp-wormhole-verifier = { path = "../qp-zk-circuits/wormhole/verifier" }
+trie-db = { path = "./primitives/trie-db" }
 
 [profile.release]
 opt-level = 3
