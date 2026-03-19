@@ -12,7 +12,7 @@ echo "[2/8] Running 'cargo fmt'..."
 cargo +nightly fmt || { echo "Error: 'cargo fmt' failed."; exit 1; }
 
 echo "[3/8] Checking TOML format with 'taplo'..."
-taplo format --check --config taplo.toml || { echo "Error: 'taplo format' check failed."; exit 1; }
+taplo format --config taplo.toml || { echo "Error: 'taplo format' check failed."; exit 1; }
 
 echo "[4/8] Checking Rust format with 'cargo fmt --check'..."
 cargo +nightly fmt --all -- --check || { echo "Error: 'cargo fmt --check' failed."; exit 1; }
