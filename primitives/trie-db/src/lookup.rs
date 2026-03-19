@@ -45,8 +45,7 @@ where
 {
 	/// Load the given value.
 	///
-	/// This will access the `db` if the value is not already in memory, but then it will put it
-	/// into the given `cache` as `NodeOwned::Value`.
+	/// This accesses the `db` for external (hashed) values.
 	///
 	/// Returns the bytes representing the value.
 	fn load_value(
@@ -95,7 +94,6 @@ where
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
 		full_key: &[u8],
-		cache: &mut dyn crate::TrieCache<L::Codec>,
 		db: &dyn HashDBRef<L::Hash, DBValue>,
 		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 	) -> Result<(Bytes, TrieHash<L>), TrieHash<L>, CError<L>> {
@@ -108,31 +106,19 @@ where
 				Ok((value.clone(), hash))
 			},
 			ValueOwned::Node(hash) => {
-				let node = cache.get_or_insert_node(hash, &mut || {
-					let value = db
-						.get(&hash, prefix)
-						.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
-
-					Ok(NodeOwned::Value(value.into(), hash))
-				})?;
-
-				let value = node
-					.data()
-					.expect(
-						"We are caching a `NodeOwned::Value` for a value node \
-						hash and this cached node has always data attached; qed",
-					)
-					.clone();
+				let value = db
+					.get(&hash, prefix)
+					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
 				if let Some(recorder) = recorder {
 					recorder.record(TrieAccess::Value {
 						hash,
-						value: value.as_ref().into(),
+						value: value.as_slice().into(),
 						full_key,
 					});
 				}
 
-				Ok((value, hash))
+				Ok((value.into(), hash))
 			},
 		}
 	}
@@ -178,11 +164,12 @@ where
 			let mut get_owned_node = |depth: i32| {
 				let data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
-					None =>
+					None => {
 						return Err(Box::new(match depth {
 							0 => TrieError::InvalidStateRoot(hash),
 							_ => TrieError::IncompleteDatabase(hash),
-						})),
+						}))
+					},
 				};
 
 				let decoded = match L::Codec::decode(&data[..]) {
@@ -265,7 +252,7 @@ where
 							return Ok(None)
 						}
 					},
-					NodeOwned::Branch(children, value) =>
+					NodeOwned::Branch(children, value) => {
 						if partial.is_empty() {
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
@@ -287,7 +274,8 @@ where
 									return Ok(None)
 								},
 							}
-						},
+						}
+					},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						// Not enough remainder key to continue the search.
 						if partial.len() < slice.len() {
@@ -452,7 +440,7 @@ where
 				nibble_key,
 				full_key,
 				cache,
-				|value, _, full_key, _, _, recorder| match value {
+				|value, _, full_key, _, recorder| match value {
 					ValueOwned::Inline(value, hash) => {
 						if let Some(recoder) = recorder.as_mut() {
 							// We can record this as `InlineValue`, even we are just returning
@@ -474,8 +462,9 @@ where
 			)?;
 
 			match &hash_and_value {
-				Some((hash, Some(value))) =>
-					cache.cache_value_for_key(full_key, (value.clone(), *hash).into()),
+				Some((hash, Some(value))) => {
+					cache.cache_value_for_key(full_key, (value.clone(), *hash).into())
+				},
 				Some((hash, None)) => cache.cache_value_for_key(full_key, (*hash).into()),
 				None => cache.cache_value_for_key(full_key, CachedValue::NonExisting),
 			}
@@ -535,7 +524,6 @@ where
 					ValueOwned::Node(*hash),
 					nibble_key.original_data_as_prefix(),
 					full_key,
-					cache,
 					self.db,
 					&mut self.recorder,
 				)?;
@@ -544,7 +532,7 @@ where
 
 				Some(data.0)
 			},
-			Some(CachedValue::Existing { data, hash, .. }) =>
+			Some(CachedValue::Existing { data, hash, .. }) => {
 				if let Some(data) = data.upgrade() {
 					// inline is either when no limit defined or when content
 					// is less than the limit.
@@ -562,7 +550,8 @@ where
 					Some(data)
 				} else {
 					lookup_data(&mut self, cache)?
-				},
+				}
+			},
 			None => lookup_data(&mut self, cache)?,
 		};
 
@@ -580,7 +569,6 @@ where
 			ValueOwned<TrieHash<L>>,
 			Prefix,
 			&[u8],
-			&mut dyn crate::TrieCache<L::Codec>,
 			&dyn HashDBRef<L::Hash, DBValue>,
 			&mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 		) -> Result<R, TrieHash<L>, CError<L>>,
@@ -594,11 +582,12 @@ where
 			let mut node = cache.get_or_insert_node(hash, &mut || {
 				let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
-					None =>
+					None => {
 						return Err(Box::new(match depth {
 							0 => TrieError::InvalidStateRoot(hash),
 							_ => TrieError::IncompleteDatabase(hash),
-						})),
+						}))
+					},
 				};
 
 				let decoded = match L::Codec::decode(&node_data[..]) {
@@ -615,14 +604,13 @@ where
 			// without incrementing the depth.
 			loop {
 				let next_node = match node {
-					NodeOwned::Leaf(slice, value) =>
+					NodeOwned::Leaf(slice, value) => {
 						return if partial == *slice {
 							let value = (*value).clone();
 							load_value_owned(
 								value,
 								nibble_key.original_data_as_prefix(),
 								full_key,
-								cache,
 								self.db,
 								&mut self.recorder,
 							)
@@ -631,8 +619,9 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							Ok(None)
-						},
-					NodeOwned::Extension(slice, item) =>
+						}
+					},
+					NodeOwned::Extension(slice, item) => {
 						if partial.starts_with_vec(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
@@ -640,16 +629,16 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
-						},
-					NodeOwned::Branch(children, value) =>
+							return Ok(None);
+						}
+					},
+					NodeOwned::Branch(children, value) => {
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
 								load_value_owned(
 									value,
 									nibble_key.original_data_as_prefix(),
 									full_key,
-									cache,
 									self.db,
 									&mut self.recorder,
 								)
@@ -672,7 +661,8 @@ where
 									return Ok(None)
 								},
 							}
-						},
+						}
+					},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
@@ -686,7 +676,6 @@ where
 									value,
 									nibble_key.original_data_as_prefix(),
 									full_key,
-									cache,
 									self.db,
 									&mut self.recorder,
 								)
@@ -767,11 +756,12 @@ where
 		for depth in 0.. {
 			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 				Some(value) => value,
-				None =>
+				None => {
 					return Err(Box::new(match depth {
 						0 => TrieError::InvalidStateRoot(hash),
 						_ => TrieError::IncompleteDatabase(hash),
-					})),
+					}))
+				},
 			};
 
 			self.record(|| TrieAccess::EncodedNode {
@@ -789,7 +779,7 @@ where
 				};
 
 				let next_node = match decoded {
-					Node::Leaf(slice, value) =>
+					Node::Leaf(slice, value) => {
 						return if slice == partial {
 							load_value(
 								value,
@@ -804,8 +794,9 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							Ok(None)
-						},
-					Node::Extension(slice, item) =>
+						}
+					},
+					Node::Extension(slice, item) => {
 						if partial.starts_with(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
@@ -813,9 +804,10 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
-						},
-					Node::Branch(children, value) =>
+							return Ok(None);
+						}
+					},
+					Node::Branch(children, value) => {
 						if partial.is_empty() {
 							return if let Some(val) = value {
 								load_value(
@@ -845,7 +837,8 @@ where
 									return Ok(None)
 								},
 							}
-						},
+						}
+					},
 					Node::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
