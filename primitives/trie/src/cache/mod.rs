@@ -675,13 +675,14 @@ impl<H: Hasher> ValueCache<'_, H> {
 		stats.local_fetch_attempts.fetch_add(1, Ordering::Relaxed);
 
 		match self {
-			Self::Fresh(map) =>
+			Self::Fresh(map) => {
 				if let Some(value) = map.get(key) {
 					stats.local_hits.fetch_add(1, Ordering::Relaxed);
 					Some(value)
 				} else {
 					None
-				},
+				}
+			},
 			Self::ForStorageRoot {
 				local_value_cache,
 				shared_value_cache_access,
@@ -992,6 +993,47 @@ mod tests {
 			.unwrap()
 			.clone();
 		assert_eq!(Bytes::from(new_value), cached_data.data().flatten().unwrap());
+	}
+
+	#[test]
+	fn poisoned_node_value_cache_is_ignored_for_hashed_values() {
+		let mut db = MemoryDB::new(&0u64.to_le_bytes());
+		let mut root = Default::default();
+
+		let system_number_key = vec![
+			0x26, 0xaa, 0x39, 0x4e, 0xea, 0x56, 0x30, 0xe0, 0x7c, 0x48, 0xae, 0x0c, 0x95, 0x58,
+			0xce, 0xf7, 0x02, 0xa5, 0xc1, 0xb1, 0x9a, 0xb7, 0xa0, 0x4f, 0x53, 0x6c, 0x51, 0x9a,
+			0xca, 0x49, 0x83, 0xac,
+		];
+		let expected_value = vec![0x01, 0x00, 0x00, 0x00];
+
+		{
+			let mut trie = TrieDBMutBuilder::<Layout>::new(&mut db, &mut root).build();
+			trie.insert(&system_number_key, &expected_value).expect("insert works");
+		}
+
+		let value_hash = {
+			let trie = TrieDBBuilder::<Layout>::new(&db, &root).build();
+			trie.get_hash(&system_number_key)
+				.expect("get_hash works")
+				.expect("value hash exists")
+		};
+
+		let shared_cache = Cache::new(CACHE_SIZE, None);
+		shared_cache.write_lock_inner().unwrap().node_cache_mut().lru.insert(
+			value_hash,
+			trie_db::node::NodeOwned::Value(Bytes::from(vec![0x01, 0x00]), value_hash),
+		);
+
+		let local_cache = shared_cache.local_cache_untrusted();
+		let mut cache = local_cache.as_trie_db_cache(root);
+		let trie = TrieDBBuilder::<Layout>::new(&db, &root).with_cache(&mut cache).build();
+
+		assert_eq!(
+			trie.get(&system_number_key).expect("lookup works").expect("value exists"),
+			expected_value,
+			"lookup must return DB value, not stale node-cache value"
+		);
 	}
 
 	#[test]
