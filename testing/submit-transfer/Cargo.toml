@@ -1,8 +1,8 @@
 [package]
-name = "submit-transfer"
-version = "0.1.0"
 edition.workspace = true
+name = "submit-transfer"
 publish = false
+version = "0.1.0"
 
 [lints]
 workspace = true

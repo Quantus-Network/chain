@@ -227,29 +227,26 @@ fn extract_all_transfers(
 	}
 	let mut results = Vec::new();
 	match call {
-		RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value })
-		| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { dest, value }) => {
+		RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { dest, value }) |
+		RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { dest, value }) =>
 			if let MultiAddress::Id(id) = dest {
 				results.push((id.clone(), *value, None));
-			}
-		},
-		RuntimeCall::Assets(pallet_assets::Call::transfer { id, target: dest, amount })
-		| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
+			},
+		RuntimeCall::Assets(pallet_assets::Call::transfer { id, target: dest, amount }) |
+		RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive {
 			id,
 			target: dest,
 			amount,
-		}) => {
+		}) =>
 			if let MultiAddress::Id(d) = dest {
 				results.push((d.clone(), *amount, Some(id.0)));
-			}
-		},
-		RuntimeCall::Utility(pallet_utility::Call::batch { calls })
-		| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
-		| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
+			},
+		RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+		RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+		RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
 			for inner in calls {
 				results.extend(extract_all_transfers(inner, depth + 1));
-			}
-		},
+			},
 		_ => {},
 	}
 	results

@@ -42,24 +42,20 @@ fn main() {
 
 	let genesis_resp = rpc("chain_getBlockHash", json!([0]));
 	let genesis_hash_hex = genesis_resp["result"].as_str().expect("genesis hash");
-	let genesis_hash = sp_core::H256::from_slice(
-		&hex::decode(genesis_hash_hex.trim_start_matches("0x")).unwrap(),
-	);
+	let genesis_hash =
+		sp_core::H256::from_slice(&hex::decode(genesis_hash_hex.trim_start_matches("0x")).unwrap());
 
 	let best_resp = rpc("chain_getBlockHash", json!([]));
 	let best_hash_hex = best_resp["result"].as_str().expect("best hash");
-	let best_hash = sp_core::H256::from_slice(
-		&hex::decode(best_hash_hex.trim_start_matches("0x")).unwrap(),
-	);
+	let best_hash =
+		sp_core::H256::from_slice(&hex::decode(best_hash_hex.trim_start_matches("0x")).unwrap());
 
 	let header_resp = rpc("chain_getHeader", json!([best_hash_hex]));
 	let best_number_hex = header_resp["result"]["number"].as_str().expect("block number");
 	let best_number = u32::from_str_radix(best_number_hex.trim_start_matches("0x"), 16).unwrap();
 
-	let nonce_resp = rpc(
-		"system_accountNextIndex",
-		json!([alice_account.to_ss58check_with_version(ss58)]),
-	);
+	let nonce_resp =
+		rpc("system_accountNextIndex", json!([alice_account.to_ss58check_with_version(ss58)]));
 	let nonce = nonce_resp["result"].as_u64().expect("nonce") as u32;
 
 	println!("Genesis: {genesis_hash_hex}");
