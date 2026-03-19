@@ -9,6 +9,7 @@ mod miner_server;
 mod prometheus;
 mod rpc;
 mod service;
+mod txwatch;
 #[cfg(test)]
 mod tests;
 
