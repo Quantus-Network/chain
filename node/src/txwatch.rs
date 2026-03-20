@@ -1,8 +1,8 @@
 //! RPC subscription for watching incoming transfers to an address via the tx pool.
 //!
 //! A single background decoder task processes each pool import once, then fans
-//! out to all active subscribers via a broadcast channel.  This keeps the cost
-//! at O(M) decodes regardless of how many subscriptions exist.
+//! out to all active listeners via a broadcast channel.  This keeps the cost
+//! at O(M) decodes regardless of how many listeners exist.
 //!
 //! **Integrator note:** notifications reflect mempool/ready-queue visibility, not
 //! block inclusion or finality — transactions can still be dropped or replaced.
@@ -29,7 +29,7 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::{generic::Preamble, traits::LazyExtrinsic, MultiAddress};
 
 const LOG_TARGET: &str = "txwatch";
-const MAX_SUBSCRIPTIONS: usize = 32;
+const MAX_LISTENERS: usize = 32;
 const MAX_BATCH_DEPTH: usize = 4;
 const BROADCAST_CAPACITY: usize = 256;
 
@@ -54,21 +54,21 @@ pub trait TxWatchApi {
 #[derive(Debug)]
 struct DecodedPoolTx {
 	tx_hash: String,
-	sender: Option<AccountId>,
+	from: Option<AccountId>,
 	transfers: Vec<(AccountId, Balance, Option<u32>)>,
 }
 
-struct SubGuard(Arc<AtomicUsize>);
+struct ListenerGuard(Arc<AtomicUsize>);
 
-impl Drop for SubGuard {
+impl Drop for ListenerGuard {
 	fn drop(&mut self) {
 		self.0.fetch_sub(1, Ordering::Relaxed);
 	}
 }
 
 pub struct TxWatch {
-	tx: broadcast::Sender<Arc<DecodedPoolTx>>,
-	active_subs: Arc<AtomicUsize>,
+	broadcast: broadcast::Sender<Arc<DecodedPoolTx>>,
+	active_listeners: Arc<AtomicUsize>,
 }
 
 impl TxWatch {
@@ -76,25 +76,25 @@ impl TxWatch {
 	where
 		P: TransactionPool<Block = Block> + 'static,
 	{
-		let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-		let sender = tx.clone();
+		let (broadcast, _) = broadcast::channel(BROADCAST_CAPACITY);
+		let fanout = broadcast.clone();
 
 		jsonrpsee::tokio::spawn(async move {
 			let stream = pool.import_notification_stream();
 			futures::pin_mut!(stream);
 
 			while let Some(tx_hash) = stream.next().await {
-				if sender.receiver_count() == 0 {
+				if fanout.receiver_count() == 0 {
 					continue;
 				}
 
-				let encoded = if let Some(tx) = pool.ready_transaction(&tx_hash) {
-					Encode::encode(tx.data())
+				let encoded = if let Some(in_pool) = pool.ready_transaction(&tx_hash) {
+					Encode::encode(in_pool.data())
 				} else {
 					let found = pool
 						.ready()
-						.find(|tx| *tx.hash() == tx_hash)
-						.map(|tx| Encode::encode(tx.data()));
+						.find(|in_pool| *in_pool.hash() == tx_hash)
+						.map(|in_pool| Encode::encode(in_pool.data()));
 					let Some(data) = found else {
 						log::trace!(target: LOG_TARGET, "Tx {:?} not found in ready queue (future or already finalized)", tx_hash);
 						continue;
@@ -109,7 +109,7 @@ impl TxWatch {
 					continue;
 				};
 
-				let sender_account = match &uxt.preamble {
+				let from_account = match &uxt.preamble {
 					Preamble::Signed(addr, _, _) => match addr {
 						MultiAddress::Id(id) => Some(id.clone()),
 						other => {
@@ -125,15 +125,15 @@ impl TxWatch {
 					continue;
 				}
 
-				let _ = sender.send(Arc::new(DecodedPoolTx {
+				let _ = fanout.send(Arc::new(DecodedPoolTx {
 					tx_hash: format!("{:?}", tx_hash),
-					sender: sender_account,
+					from: from_account,
 					transfers,
 				}));
 			}
 		});
 
-		Self { tx, active_subs: Arc::new(AtomicUsize::new(0)) }
+		Self { broadcast, active_listeners: Arc::new(AtomicUsize::new(0)) }
 	}
 }
 
@@ -144,20 +144,20 @@ impl TxWatchApiServer for TxWatch {
 		pending: PendingSubscriptionSink,
 		address: String,
 	) -> SubscriptionResult {
-		let prev = self.active_subs.fetch_add(1, Ordering::Relaxed);
-		if prev >= MAX_SUBSCRIPTIONS {
-			self.active_subs.fetch_sub(1, Ordering::Relaxed);
+		let prev = self.active_listeners.fetch_add(1, Ordering::Relaxed);
+		if prev >= MAX_LISTENERS {
+			self.active_listeners.fetch_sub(1, Ordering::Relaxed);
 			pending
 				.reject(jsonrpsee::types::error::ErrorObject::owned(
 					5010,
-					format!("Too many subscriptions (max {MAX_SUBSCRIPTIONS})"),
+					format!("Too many listeners (max {MAX_LISTENERS})"),
 					None::<()>,
 				))
 				.await;
 			return Ok(());
 		}
 
-		let guard = SubGuard(self.active_subs.clone());
+		let guard = ListenerGuard(self.active_listeners.clone());
 
 		let target = match AccountId::from_ss58check(&address) {
 			Ok(a) => a,
@@ -175,12 +175,12 @@ impl TxWatchApiServer for TxWatch {
 
 		log::info!(target: LOG_TARGET, "Watching address {}", &address[..12.min(address.len())]);
 		let sink = pending.accept().await?;
-		let mut rx = self.tx.subscribe();
+		let mut listener_rx = self.broadcast.subscribe();
 
 		jsonrpsee::tokio::spawn(async move {
 			let _guard = guard;
 			loop {
-				match rx.recv().await {
+				match listener_rx.recv().await {
 					Ok(decoded) => {
 						if sink.is_closed() {
 							break;
@@ -192,9 +192,9 @@ impl TxWatchApiServer for TxWatch {
 							let notification = TransferNotification {
 								tx_hash: decoded.tx_hash.clone(),
 								from: decoded
-									.sender
+									.from
 									.as_ref()
-									.map(|s| s.to_ss58check())
+									.map(|a| a.to_ss58check())
 									.unwrap_or_default(),
 								amount: amount.to_string(),
 								asset_id: *asset_id,
@@ -217,7 +217,7 @@ impl TxWatchApiServer for TxWatch {
 					Err(broadcast::error::RecvError::Lagged(n)) => {
 						log::warn!(
 							target: LOG_TARGET,
-							"Subscriber lagged, skipped {n} transactions"
+							"Listener lagged, skipped {n} transactions"
 						);
 					},
 					Err(broadcast::error::RecvError::Closed) => break,
