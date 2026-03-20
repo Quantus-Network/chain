@@ -90,7 +90,10 @@ impl TxWatch {
 						.ready()
 						.find(|tx| *tx.hash() == tx_hash)
 						.map(|tx| Encode::encode(tx.data()));
-					let Some(data) = found else { continue };
+					let Some(data) = found else {
+						log::trace!(target: LOG_TARGET, "Tx {:?} not found in ready queue (future or already finalized)", tx_hash);
+						continue;
+					};
 					data
 				};
 
@@ -104,7 +107,10 @@ impl TxWatch {
 				let sender_account = match &uxt.preamble {
 					Preamble::Signed(addr, _, _) => match addr {
 						MultiAddress::Id(id) => Some(id.clone()),
-						_ => None,
+						other => {
+							log::debug!(target: LOG_TARGET, "Unsupported MultiAddress variant: {:?}", other);
+							None
+						},
 					},
 					_ => None,
 				};
@@ -138,7 +144,7 @@ impl TxWatchApiServer for TxWatch {
 			self.active_subs.fetch_sub(1, Ordering::Relaxed);
 			pending
 				.reject(jsonrpsee::types::error::ErrorObject::owned(
-					5001,
+					5010,
 					format!("Too many subscriptions (max {MAX_SUBSCRIPTIONS})"),
 					None::<()>,
 				))
@@ -153,7 +159,7 @@ impl TxWatchApiServer for TxWatch {
 			Err(_) => {
 				pending
 					.reject(jsonrpsee::types::error::ErrorObject::owned(
-						5002,
+						5011,
 						"Invalid SS58 address",
 						None::<()>,
 					))

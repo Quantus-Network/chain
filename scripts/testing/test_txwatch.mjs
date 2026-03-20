@@ -7,7 +7,7 @@
 // This script:
 //   1. Subscribes to watch Bob's address for incoming transfers
 //   2. Verifies the subscription is active and RPC methods are registered
-//   3. Waits for a transfer (submit one externally, or see the Rust test)
+//   3. Waits for a transfer (run scripts/testing/submit_transfer.sh in another terminal)
 
 const WS_URL = "ws://127.0.0.1:9944";
 

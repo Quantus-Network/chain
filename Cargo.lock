@@ -12499,23 +12499,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "submit-transfer"
-version = "0.1.0"
-dependencies = [
- "frame-metadata-hash-extension",
- "frame-system",
- "hex",
- "pallet-balances",
- "pallet-transaction-payment",
- "parity-scale-codec",
- "qp-dilithium-crypto",
- "quantus-runtime",
- "serde_json",
- "sp-core",
- "sp-runtime",
-]
-
-[[package]]
 name = "substrate-bip39"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
