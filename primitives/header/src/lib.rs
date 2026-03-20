@@ -150,7 +150,7 @@ where
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
 		// parent_hash : 32 bytes → 4 felts
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+		felts.extend(unsafe_digest_bytes_to_felts(
 			self.parent_hash.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
@@ -160,17 +160,17 @@ where
 		felts.push(Goldilocks::from_int(number.as_u32() as u64));
 
 		// state_root : 32 bytes → 4 felts
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+		felts.extend(unsafe_digest_bytes_to_felts(
 			self.state_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// extrinsics_root : 32 bytes → 4 felts
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+		felts.extend(unsafe_digest_bytes_to_felts(
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
 		// digest – injective encoding
-		felts.extend(injective_bytes_to_felts::<Goldilocks>(&self.digest.encode()));
+		felts.extend(injective_bytes_to_felts(&self.digest.encode()));
 
 		let poseidon_hash: [u8; 32] = hash_variable_length(felts);
 		poseidon_hash.into()
@@ -275,17 +275,17 @@ mod tests {
 				let extrinsics_root = header.extrinsics_root.as_bytes();
 				let digest = header.digest.encode();
 
-				felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				felts.extend(unsafe_digest_bytes_to_felts(
 					parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
 				));
 				felts.push(Goldilocks::from_int(number as u64));
-				felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				felts.extend(unsafe_digest_bytes_to_felts(
 					state_root.try_into().expect("State root expected to equal 32 bytes"),
 				));
-				felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				felts.extend(unsafe_digest_bytes_to_felts(
 					extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
 				));
-				felts.extend(injective_bytes_to_felts::<Goldilocks>(&digest));
+				felts.extend(injective_bytes_to_felts(&digest));
 
 				return hash_variable_length(felts);
 			}
