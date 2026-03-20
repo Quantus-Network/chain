@@ -3,6 +3,11 @@
 //! A single background decoder task processes each pool import once, then fans
 //! out to all active subscribers via a broadcast channel.  This keeps the cost
 //! at O(M) decodes regardless of how many subscriptions exist.
+//!
+//! **Integrator note:** notifications reflect mempool/ready-queue visibility, not
+//! block inclusion or finality — transactions can still be dropped or replaced.
+//! A `from` field of `""` means the sender used a non-`Id` MultiAddress variant
+//! or the extrinsic was unsigned.
 
 use std::sync::{
 	atomic::{AtomicUsize, Ordering},

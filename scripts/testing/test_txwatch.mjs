@@ -3,6 +3,7 @@
 // Usage: node scripts/testing/test_txwatch.mjs
 //
 // Requires a dev node running on ws://127.0.0.1:9944
+// Requires Node >= 21 for global WebSocket (or install the 'ws' package)
 //
 // This script:
 //   1. Subscribes to watch Bob's address for incoming transfers
