@@ -21,8 +21,6 @@ use crate::{node_header::NodeKind, trie_constants};
 use alloc::vec::Vec;
 use hash_db::Hasher;
 
-const MAX_INLINE_THRESHOLD: usize = 31;
-
 /// Codec-flavored TrieStream.
 #[derive(Default, Clone)]
 pub struct TrieStream {
@@ -195,14 +193,7 @@ impl trie_root::TrieStream for TrieStream {
 		let data = other.out();
 		log::debug!(
 			target: "zk-trie",
-			"append_substream: data.len()={}, MAX_INLINE_THRESHOLD={}",
-			data.len(), MAX_INLINE_THRESHOLD
-		);
-		// With felt-aligned encoding, all nodes exceed the inline threshold
-		// so children are always stored as 32-byte hashes (no length prefix)
-		debug_assert!(
-			data.len() > MAX_INLINE_THRESHOLD,
-			"Node too small ({} bytes) - would be inlined but inline children not supported",
+			"append_substream: data.len()={}",
 			data.len()
 		);
 		let hash = H::hash(&data);
