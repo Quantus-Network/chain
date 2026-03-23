@@ -2,7 +2,8 @@
 
 use primitive_types::U512;
 
-// Bitcoin-style validation logic with double Poseidon2 hashing
+/// Validate a nonce against the target difficulty using Poseidon2 PoW.
+/// Returns (is_valid, hash) where is_valid is true if hash < target.
 pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -> (bool, U512) {
 	if difficulty == U512::zero() {
 		log::error!(
@@ -25,22 +26,21 @@ pub fn is_valid_nonce(block_hash: [u8; 32], nonce: [u8; 64], difficulty: U512) -
 	(hash_result < target, hash_result)
 }
 
-// Bitcoin-style double hashing with Poseidon2
+// Single Poseidon2 hash with double squeeze for PoW
 pub fn get_nonce_hash(
 	block_hash: [u8; 32], // 256-bit block_hash
 	nonce: [u8; 64],      // 512-bit nonce
 ) -> U512 {
-	// Concatenate block hash + nonce (like Bitcoin does with header + nonce)
+	// Concatenate block hash + nonce
 	let mut input = [0u8; 96]; // 32 + 64 bytes
 	input[..32].copy_from_slice(&block_hash);
 	input[32..96].copy_from_slice(&nonce);
 
-	// Double hash with Poseidon2 (like Bitcoin's double SHA256)
-	let first_hash = qp_poseidon_core::hash_squeeze_twice(&input);
-	let second_hash = qp_poseidon_core::hash_squeeze_twice(&first_hash);
+	// Single hash with double squeeze (512-bit output)
+	let hash = qp_poseidon_core::hash_squeeze_twice(&input);
 
 	// Convert to U512 for difficulty comparison
-	let result = U512::from_big_endian(&second_hash);
+	let result = U512::from_big_endian(&hash);
 
 	log::debug!(target: "math", "hash = {:x} block_hash = {}, nonce = {:?}",
 		result.low_u64(), hex::encode(block_hash), nonce);
@@ -57,6 +57,36 @@ pub fn achieved_difficulty_from_hash(nonce_hash: U512) -> U512 {
 		return U512::MAX;
 	}
 	U512::MAX / nonce_hash
+}
+
+/// Mine a range of nonces starting from start_nonce.
+/// Returns Some((nonce, hash)) if a valid nonce is found, None otherwise.
+pub fn mine_range(
+	block_hash: [u8; 32],
+	start_nonce: [u8; 64],
+	steps: u64,
+	difficulty: U512,
+) -> Option<([u8; 64], U512)> {
+	if difficulty == U512::zero() {
+		return None;
+	}
+
+	let max_target = U512::MAX;
+	let target = max_target / difficulty;
+	let mut nonce = U512::from_big_endian(&start_nonce);
+
+	for _ in 0..steps {
+		let nonce_bytes = nonce.to_big_endian();
+		let hash = get_nonce_hash(block_hash, nonce_bytes);
+
+		if hash < target {
+			return Some((nonce_bytes, hash));
+		}
+
+		nonce = nonce.saturating_add(U512::from(1u64));
+	}
+
+	None
 }
 
 #[cfg(test)]
