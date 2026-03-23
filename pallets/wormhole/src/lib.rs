@@ -406,8 +406,7 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_aggregated_proof { proof_bytes } => {
-					Self::pre_validate_proof(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
+					Self::pre_validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
 						.priority(TransactionPriority::MAX / 2)
@@ -425,10 +424,7 @@ pub mod pallet {
 		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
 		fn pre_validate_proof(
 			proof_bytes: &[u8],
-		) -> Result<
-			(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs),
-			Error<T>,
-		> {
+		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
 			let verifier = crate::get_aggregated_verifier()
 				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
@@ -455,7 +451,10 @@ pub mod pallet {
 					.as_ref()
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(!UsedNullifiers::<T>::contains_key(bytes), Error::<T>::NullifierAlreadyUsed);
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
 			}
 			Ok((proof, inputs))
 		}
