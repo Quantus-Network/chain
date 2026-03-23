@@ -4,7 +4,8 @@
 extern crate alloc;
 
 use codec::Decode;
-use qp_poseidon::{PoseidonHasher, ToFelts};
+use qp_poseidon::PoseidonHasher;
+use qp_poseidon_core::serialization::unsafe_digest_bytes_to_felts;
 use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::generic::DigestItem;
 
@@ -28,16 +29,11 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 /// The preimage is the "first_hash" from wormhole derivation: `first_hash = hash(salt + secret)`.
 /// The wormhole address is: `address = hash(first_hash)`.
 ///
-/// This function uses the same serialization as the ZK circuit:
-/// - Convert 32 bytes to 4 field elements using ToFelts (8 bytes per element)
-/// - Hash via Poseidon sponge using hash_variable_length
-///
-/// NOTE: ToFelts uses `unsafe_digest_bytes_to_felts` (8 bytes per field element) which is
-/// non-injective for values >= the Goldilocks prime. Actual address collision risk is
-/// negligible (~2^{-95}+), dominated by Poseidon's intrinsic collision bound (~2^{-128}).
+/// The preimage (first_hash) is the serialization of 4 field elements (Poseidon output),
+/// so we decode it back to 4 felts using 8 bytes/felt encoding before hashing again.
 pub fn derive_wormhole_address(preimage: [u8; 32]) -> [u8; 32] {
-	let preimage_felts = preimage.to_felts();
-	PoseidonHasher::hash_variable_length(preimage_felts)
+	let preimage_felts = unsafe_digest_bytes_to_felts(&preimage);
+	PoseidonHasher::hash_variable_length(preimage_felts.to_vec())
 }
 
 /// Derive a wormhole AccountId32 from a 32-byte preimage.

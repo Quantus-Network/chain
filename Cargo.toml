@@ -238,7 +238,7 @@ sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 trie-db = { path = "./primitives/trie-db" }
 
-# Quantus dependencies - git branches for CI
+# Quantus dependencies
 qp-poseidon = { git = "https://github.com/Quantus-Network/qp-poseidon.git", branch = "illuzen/injectivity" }
 qp-poseidon-core = { git = "https://github.com/Quantus-Network/qp-poseidon.git", branch = "illuzen/injectivity" }
 qp-poseidon-constants = { git = "https://github.com/Quantus-Network/qp-poseidon-constants.git", tag = "v1.1.0" }
@@ -252,8 +252,8 @@ qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits
 qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
 qp-wormhole-prover = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
 qp-wormhole-verifier = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
-qp-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/bump-poseidon" }
-qp-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/bump-poseidon" }
+qp-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/injective-wormhole" }
+qp-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/injective-wormhole" }
 
 [profile.release]
 opt-level = 3
