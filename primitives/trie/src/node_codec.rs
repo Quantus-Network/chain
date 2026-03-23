@@ -167,20 +167,12 @@ where
 					if bitmap.value_at(i) {
 						// Children are always 32-byte hashes (no length prefix)
 						let range = input.take(H::LENGTH)?;
-						// Check if this is a zero hash (sentinel for "omitted from proof")
-						let is_zero_hash = data[range.clone()].iter().all(|&b| b == 0);
 						log::debug!(
 							target: "zk-trie",
 							"Branch child[{}]: range={:?}, is_zero_hash={}, data={:02x?}",
 							i, range, is_zero_hash, &data[range.clone()]
 						);
-						if is_zero_hash {
-							// Zero hash = child exists but omitted from proof
-							// Represent as inline with length 0 so verifier knows not to look it up
-							children[i] = Some(NodeHandlePlan::Inline(range.start..range.start));
-						} else {
-							children[i] = Some(NodeHandlePlan::Hash(range));
-						}
+						children[i] = Some(NodeHandlePlan::Hash(range));
 					}
 				}
 				let plan = NibbleSlicePlan::new(partial.clone(), partial_padding);
