@@ -229,8 +229,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			let (proof, aggregated_inputs) = Self::pre_validate_proof(&proof_bytes)
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			let (proof, aggregated_inputs) = Self::pre_validate_proof(&proof_bytes)?;
 
 			// Mark nullifiers as used (pre_validate_proof only checks existence)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
@@ -407,7 +406,8 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_aggregated_proof { proof_bytes } => {
-					Self::pre_validate_proof(proof_bytes)?;
+					Self::pre_validate_proof(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
 						.priority(TransactionPriority::MAX / 2)
@@ -427,40 +427,35 @@ pub mod pallet {
 			proof_bytes: &[u8],
 		) -> Result<
 			(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs),
-			InvalidTransaction,
+			Error<T>,
 		> {
-			if proof_bytes.is_empty() {
-				return Err(InvalidTransaction::Custom(2));
-			}
-			let verifier =
-				crate::get_aggregated_verifier().map_err(|_| InvalidTransaction::Custom(3))?;
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,
 			)
-			.map_err(|_| InvalidTransaction::Custom(4))?;
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
 			let inputs = parse_aggregated_public_inputs(&proof)
-				.map_err(|_| InvalidTransaction::Custom(5))?;
-			if inputs.asset_id != 0 {
-				return Err(InvalidTransaction::Custom(6));
-			}
-			if inputs.volume_fee_bps != T::VolumeFeeRateBps::get() {
-				return Err(InvalidTransaction::Custom(7));
-			}
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+			ensure!(
+				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
 			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-			if block_hash == T::Hash::default() {
-				return Err(InvalidTransaction::Custom(8));
-			}
-			if block_hash.as_ref() != inputs.block_data.block_hash.as_ref() {
-				return Err(InvalidTransaction::Custom(9));
-			}
+			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
+			ensure!(
+				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
 			for nullifier in &inputs.nullifiers {
-				let bytes: [u8; 32] =
-					(*nullifier).as_ref().try_into().map_err(|_| InvalidTransaction::Custom(10))?;
-				if UsedNullifiers::<T>::contains_key(bytes) {
-					return Err(InvalidTransaction::Custom(11));
-				}
+				let bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(!UsedNullifiers::<T>::contains_key(bytes), Error::<T>::NullifierAlreadyUsed);
 			}
 			Ok((proof, inputs))
 		}
