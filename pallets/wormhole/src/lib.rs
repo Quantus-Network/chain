@@ -432,8 +432,8 @@ pub mod pallet {
 			if proof_bytes.is_empty() {
 				return Err(InvalidTransaction::Custom(2));
 			}
-			let verifier = crate::get_aggregated_verifier()
-				.map_err(|_| InvalidTransaction::Custom(3))?;
+			let verifier =
+				crate::get_aggregated_verifier().map_err(|_| InvalidTransaction::Custom(3))?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,
@@ -456,10 +456,8 @@ pub mod pallet {
 				return Err(InvalidTransaction::Custom(9));
 			}
 			for nullifier in &inputs.nullifiers {
-				let bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| InvalidTransaction::Custom(10))?;
+				let bytes: [u8; 32] =
+					(*nullifier).as_ref().try_into().map_err(|_| InvalidTransaction::Custom(10))?;
 				if UsedNullifiers::<T>::contains_key(bytes) {
 					return Err(InvalidTransaction::Custom(11));
 				}
