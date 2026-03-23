@@ -10,47 +10,47 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
-name = "trie-db"
-version = "0.30.0"
 authors = ["Parity Technologies <admin@parity.io>"]
-build = false
-autolib = false
+autobenches = false
 autobins = false
 autoexamples = false
+autolib = false
 autotests = false
-autobenches = false
+build = false
 description = "Merkle-Patricia Trie generic over key hasher and node encoding"
-readme = false
+edition = "2018"
 license = "Apache-2.0"
+name = "trie-db"
+readme = false
 repository = "https://github.com/paritytech/trie"
+version = "0.30.0"
 
 [lib]
 name = "trie_db"
 path = "src/lib.rs"
 
 [dependencies.hash-db]
-version = "0.16.0"
 default-features = false
+version = "0.16.0"
 
 [dependencies.log]
 version = "0.4"
 
 [dependencies.rustc-hex]
-version = "2.1.0"
-optional = true
 default-features = false
+optional = true
+version = "2.1.0"
 
 [dependencies.smallvec]
-version = "1.0.0"
 features = [
-    "union",
-    "const_new",
+	"const_new",
+	"union",
 ]
+version = "1.0.0"
 
 [features]
 default = ["std"]
 std = [
-    "hash-db/std",
-    "rustc-hex",
+	"hash-db/std",
+	"rustc-hex",
 ]

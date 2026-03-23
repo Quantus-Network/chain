@@ -21,8 +21,8 @@ sp-runtime.workspace = true
 default = ["std"]
 std = [
 	"codec/std",
-	"qp-poseidon/std",
 	"qp-poseidon-core/std",
+	"qp-poseidon/std",
 	"sp-consensus-qpow/std",
 	"sp-core",
 	"sp-runtime/std",
