@@ -169,8 +169,8 @@ where
 						let range = input.take(H::LENGTH)?;
 						log::debug!(
 							target: "zk-trie",
-							"Branch child[{}]: range={:?}, is_zero_hash={}, data={:02x?}",
-							i, range, is_zero_hash, &data[range.clone()]
+							"Branch child[{}]: range={:?}, data={:02x?}",
+							i, range, &data[range.clone()]
 						);
 						children[i] = Some(NodeHandlePlan::Hash(range));
 					}
