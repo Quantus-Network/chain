@@ -1435,10 +1435,6 @@ mod tests {
 		}
 	}
 
-	fn to_u64_le_bytes(n: u8) -> [u8; 8] {
-		(n as u64).to_le_bytes()
-	}
-
 	#[allow(dead_code)]
 	fn to_compact(n: u8) -> u8 {
 		Compact(n).encode()[0]

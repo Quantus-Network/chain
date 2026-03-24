@@ -68,7 +68,7 @@ mod tests {
 
 		// Step 3: Derive AccountId and create extrinsic
 		// Use injective encoding for account ID derivation (collision-resistant)
-		let account_id = PoseidonHasher::hash_padded(&pk_bytes).into();
+		let account_id = PoseidonHasher::hash_for_circuit(&pk_bytes).into();
 		let id = Address::Id(account_id);
 		println!("Payload AccountId: {:?}", &id);
 		let signed_extra: SignedExtra = ();
@@ -154,7 +154,7 @@ mod tests {
 		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
 		// Use injective encoding for account ID derivation (collision-resistant)
-		let account_id = PoseidonHasher::hash_padded(&pk_bytes).into();
+		let account_id = PoseidonHasher::hash_for_circuit(&pk_bytes).into();
 		let id = Address::Id(account_id);
 		let signed_extra: SignedExtra = ();
 
@@ -225,7 +225,7 @@ mod tests {
 
 		// Create a second account
 		// Use injective encoding for account ID derivation (collision-resistant)
-		let account_id_2 = PoseidonHasher::hash_padded(&[0u8; PUB_KEY_BYTES]).into();
+		let account_id_2 = PoseidonHasher::hash_for_circuit(&[0u8; PUB_KEY_BYTES]).into();
 		let id_2 = Address::Id(account_id_2);
 		let signed_extra: SignedExtra = ();
 
@@ -285,7 +285,7 @@ mod tests {
 			DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
 		// Use injective encoding for account ID derivation (collision-resistant)
-		let account_id = PoseidonHasher::hash_padded(&pk_bytes).into();
+		let account_id = PoseidonHasher::hash_for_circuit(&pk_bytes).into();
 		let id = Address::Id(account_id);
 		let signed_extra: SignedExtra = ();
 
