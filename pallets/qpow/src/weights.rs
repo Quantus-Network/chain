@@ -51,52 +51,52 @@ use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_qpow`.
 pub trait WeightInfo {
-	fn on_finalize_max_history() -> Weight;
+	fn on_finalize() -> Weight;
 }
 
 /// Weights for `pallet_qpow` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `QPoW::CurrentDifficulty` (r:1 w:1)
+	/// Storage: `QPoW::CurrentDifficulty` (r:2 w:1)
 	/// Proof: `QPoW::CurrentDifficulty` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
 	/// Storage: `Timestamp::Now` (r:1 w:0)
 	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockTime` (r:1 w:1)
 	/// Proof: `QPoW::LastBlockTime` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::TotalWork` (r:1 w:1)
-	/// Proof: `QPoW::TotalWork` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
+	/// Storage: `QPoW::BlockTimeEma` (r:1 w:1)
+	/// Proof: `QPoW::BlockTimeEma` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockDuration` (r:0 w:1)
 	/// Proof: `QPoW::LastBlockDuration` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	fn on_finalize_max_history() -> Weight {
+	fn on_finalize() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `707`
-		//  Estimated: `23445`
-		// Minimum execution time: 213_000_000 picoseconds.
-		Weight::from_parts(217_000_000, 23445)
-			.saturating_add(T::DbWeight::get().reads(16_u64))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
+		//  Measured:  `680`
+		//  Estimated: `1549`
+		// Minimum execution time: 106_000_000 picoseconds.
+		Weight::from_parts(109_000_000, 1549)
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
 }
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Storage: `QPoW::CurrentDifficulty` (r:1 w:1)
+	/// Storage: `QPoW::CurrentDifficulty` (r:2 w:1)
 	/// Proof: `QPoW::CurrentDifficulty` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
 	/// Storage: `Timestamp::Now` (r:1 w:0)
 	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockTime` (r:1 w:1)
 	/// Proof: `QPoW::LastBlockTime` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::TotalWork` (r:1 w:1)
-	/// Proof: `QPoW::TotalWork` (`max_values`: Some(1), `max_size`: Some(64), added: 559, mode: `MaxEncodedLen`)
+	/// Storage: `QPoW::BlockTimeEma` (r:1 w:1)
+	/// Proof: `QPoW::BlockTimeEma` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockDuration` (r:0 w:1)
 	/// Proof: `QPoW::LastBlockDuration` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	fn on_finalize_max_history() -> Weight {
+	fn on_finalize() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `707`
-		//  Estimated: `23445`
-		// Minimum execution time: 213_000_000 picoseconds.
-		Weight::from_parts(217_000_000, 23445)
-			.saturating_add(RocksDbWeight::get().reads(16_u64))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
+		//  Measured:  `680`
+		//  Estimated: `1549`
+		// Minimum execution time: 106_000_000 picoseconds.
+		Weight::from_parts(109_000_000, 1549)
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
 }
