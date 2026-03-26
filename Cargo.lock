@@ -8594,6 +8594,7 @@ dependencies = [
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
+ "qp-poseidon-constants",
  "qp-poseidon-core 1.2.0",
  "scale-info",
  "serde",
