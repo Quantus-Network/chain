@@ -24,8 +24,6 @@ members = [
 	"primitives/hash-db",
 	"primitives/header",
 	"primitives/memory-db",
-	"primitives/qp-poseidon/core",
-	"primitives/qp-poseidon/substrate",
 	"primitives/scheduler",
 	"primitives/state-machine",
 	"primitives/trie",
@@ -251,9 +249,9 @@ qp-plonky2 = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch
 qp-plonky2-core = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
 qp-plonky2-field = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
 qp-plonky2-verifier = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
-qp-poseidon = { path = "./primitives/qp-poseidon/substrate" }
+qp-poseidon = { path = "../qp-poseidon/substrate" }
 qp-poseidon-constants = { git = "https://github.com/Quantus-Network/qp-poseidon-constants.git", tag = "v1.1.0" }
-qp-poseidon-core = { path = "./primitives/qp-poseidon/core" }
+qp-poseidon-core = { path = "../qp-poseidon/core" }
 qp-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/new-poseidon-api" }
 qp-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/new-poseidon-api" }
 qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
