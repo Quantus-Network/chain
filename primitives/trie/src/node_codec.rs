@@ -274,7 +274,7 @@ where
 				}
 			},
 			Value::Node(hash) => {
-				debug_assert!(hash.len() == H::LENGTH);
+				assert_eq!(hash.len(), H::LENGTH, "leaf value hash length mismatch");
 				output.extend_from_slice(hash);
 			},
 		}
@@ -330,7 +330,7 @@ where
 				}
 			},
 			Some(Value::Node(hash)) => {
-				debug_assert!(hash.len() == H::LENGTH);
+				assert_eq!(hash.len(), H::LENGTH, "branch value hash length mismatch");
 				output.extend_from_slice(hash);
 			},
 			None => (),
@@ -340,8 +340,7 @@ where
 			children.map(|maybe_child| {
 				let result = match maybe_child.borrow() {
 					Some(ChildReference::Hash(h)) => {
-						// Children are always 32-byte hashes (no length prefix)
-						debug_assert!(h.as_ref().len() == H::LENGTH);
+						assert_eq!(h.as_ref().len(), H::LENGTH, "child hash length mismatch");
 						log::debug!(
 							target: "zk-trie",
 							"branch_node_nibbled: encoding child[{}] as Hash, len={}, hash={:02x?}",
@@ -350,17 +349,8 @@ where
 						output.extend_from_slice(h.as_ref());
 						true
 					},
-					&Some(ChildReference::Inline(inline_data, len)) => {
-						// Inline children: hash the inline data, then store the 32-byte hash
-						// (no length prefix, children are always hashes now)
-						let child_hash = H::hash(&inline_data.as_ref()[..len]);
-						log::debug!(
-							target: "zk-trie",
-							"branch_node_nibbled: encoding child[{}] as Inline->Hash, inline_len={}, hash={:02x?}",
-							child_idx, len, child_hash.as_ref()
-						);
-						output.extend_from_slice(child_hash.as_ref());
-						true
+					&Some(ChildReference::Inline(_, len)) => {
+						panic!("inline children unsupported (child[{child_idx}], {len} bytes); all children must be hashed");
 					},
 					None => false,
 				};
