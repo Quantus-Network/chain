@@ -1849,7 +1849,7 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:?}", ToHex(&encoded_root[..]));
 
-				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
+				*self.root = self.db.insert_node(EMPTY_PREFIX, &encoded_root);
 
 				self.cache_node(*self.root, &encoded_root, full_key);
 
@@ -1990,21 +1990,22 @@ where
 							};
 							node.into_encoded(commit_child)
 						};
-						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded);
+					let max_inline = L::MAX_INLINE_NODE
+						.map(|m| m as usize)
+						.unwrap_or(L::Hash::LENGTH);
+					if encoded.len() >= max_inline {
+						let hash = self.db.insert_node(prefix.as_prefix(), &encoded);
 
-							self.cache_node(hash, &encoded, full_key);
+						self.cache_node(hash, &encoded, full_key);
 
-							ChildReference::Hash(hash)
-						} else {
-							// it's a small value, so we cram it into a `TrieHash<L>`
-							// and tag with length
-							let mut h = <TrieHash<L>>::default();
-							let len = encoded.len();
-							h.as_mut()[..len].copy_from_slice(&encoded[..len]);
+						ChildReference::Hash(hash)
+					} else {
+						let mut h = <TrieHash<L>>::default();
+						let len = encoded.len();
+						h.as_mut()[..len].copy_from_slice(&encoded[..len]);
 
-							ChildReference::Inline(h, len)
-						}
+						ChildReference::Inline(h, len)
+					}
 					},
 				}
 			},

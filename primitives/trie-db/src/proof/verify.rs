@@ -255,7 +255,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		self.value = if L::MAX_INLINE_VALUE.map_or(true, |max| max as usize > value.len()) {
 			Some(Value::Inline(value))
 		} else {
-			let hash = L::Hash::hash(value);
+			let hash = <L::Hash as Hasher>::hash_value(value);
 			self.next_value_hash = Some(hash);
 			// will be replace on encode
 			None
@@ -454,7 +454,7 @@ where
 					hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
 					ChildReference::Inline(hash, node_data.len())
 				} else {
-					let hash = L::Hash::hash(&node_data);
+					let hash = <L::Hash as Hasher>::hash_node(&node_data);
 					ChildReference::Hash(hash)
 				};
 

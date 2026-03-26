@@ -1,0 +1,19 @@
+[package]
+name = "memory-db"
+version = "0.34.0"
+edition = "2018"
+license = "Apache-2.0"
+description = "In-memory implementation of hash-db (local fork with TrieHasher)."
+
+[lib]
+name = "memory_db"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = ["hash-db/std"]
+
+[dependencies]
+foldhash = { version = "0.1.5", default-features = false }
+hash-db = { path = "../hash-db", default-features = false }
+hashbrown = "0.15.3"

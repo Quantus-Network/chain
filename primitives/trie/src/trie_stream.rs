@@ -19,7 +19,7 @@
 
 use crate::{node_header::NodeKind, trie_constants};
 use alloc::vec::Vec;
-use hash_db::Hasher;
+use hash_db::TrieHasher;
 
 /// Codec-flavored TrieStream.
 #[derive(Default, Clone)]
@@ -189,14 +189,14 @@ impl trie_root::TrieStream for TrieStream {
 		debug_assert!(false, "trie stream codec only for no extension trie");
 	}
 
-	fn append_substream<H: Hasher>(&mut self, other: Self) {
+	fn append_substream<H: TrieHasher>(&mut self, other: Self) {
 		let data = other.out();
 		log::debug!(
 			target: "zk-trie",
 			"append_substream: data.len()={}",
 			data.len()
 		);
-		let hash = H::hash(&data);
+		let hash = H::hash_node(&data);
 		log::debug!(
 			target: "zk-trie",
 			"append_substream: hashing {} bytes -> hash={:02x?}",

@@ -52,7 +52,7 @@ use core::{hash::BuildHasher, marker::PhantomData};
 pub use error::Error;
 /// Various re-exports from the `hash-db` crate.
 pub use hash_db::{HashDB as HashDBT, EMPTY_PREFIX};
-use hash_db::{Hasher, Prefix};
+use hash_db::{Hasher, Prefix, TrieHasher};
 /// Various re-exports from the `memory-db` crate.
 pub use memory_db::{prefixed_key, HashKey, KeyFunction, PrefixedKey};
 /// The Substrate format implementation of `NodeCodec`.
@@ -90,11 +90,12 @@ const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
-	H: Hasher,
+	H: TrieHasher,
 {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = true;
 	const MAX_INLINE_VALUE: Option<u32> = Some(FELT_ALIGNED_MAX_INLINE_VALUE);
+	const MAX_INLINE_NODE: Option<u32> = Some(0);
 
 	type Hash = H;
 	type Codec = NodeCodec<Self::Hash>;
@@ -102,7 +103,7 @@ where
 
 impl<H> TrieConfiguration for LayoutV0<H>
 where
-	H: Hasher,
+	H: TrieHasher,
 {
 	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
 	where
@@ -143,11 +144,12 @@ where
 
 impl<H> TrieLayout for LayoutV1<H>
 where
-	H: Hasher,
+	H: TrieHasher,
 {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = true;
 	const MAX_INLINE_VALUE: Option<u32> = Some(FELT_ALIGNED_MAX_INLINE_VALUE);
+	const MAX_INLINE_NODE: Option<u32> = Some(0);
 
 	type Hash = H;
 	type Codec = NodeCodec<Self::Hash>;
@@ -155,7 +157,7 @@ where
 
 impl<H> TrieConfiguration for LayoutV1<H>
 where
-	H: Hasher,
+	H: TrieHasher,
 {
 	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
 	where
@@ -212,16 +214,16 @@ pub trait ProofSizeProvider {
 /// TrieDB error over `TrieConfiguration` trait.
 pub type TrieError<L> = trie_db::TrieError<TrieHash<L>, CError<L>>;
 /// Reexport from `hash_db`, with genericity set for `Hasher` trait.
-pub trait AsHashDB<H: Hasher>: hash_db::AsHashDB<H, trie_db::DBValue> {}
-impl<H: Hasher, T: hash_db::AsHashDB<H, trie_db::DBValue>> AsHashDB<H> for T {}
+pub trait AsHashDB<H: TrieHasher>: hash_db::AsHashDB<H, trie_db::DBValue> {}
+impl<H: TrieHasher, T: hash_db::AsHashDB<H, trie_db::DBValue>> AsHashDB<H> for T {}
 /// Reexport from `hash_db`, with genericity set for `Hasher` trait.
 pub type HashDB<'a, H> = dyn hash_db::HashDB<H, trie_db::DBValue> + 'a;
 /// ZK-trie compatible prefixed memory database with correct default initialization
-pub struct PrefixedMemoryDB<H: Hasher, RS = RandomState>(
+pub struct PrefixedMemoryDB<H: TrieHasher, RS = RandomState>(
 	memory_db::MemoryDB<H, memory_db::PrefixedKey<H>, trie_db::DBValue, RS>,
 );
 
-impl<H: Hasher, RS: BuildHasher + Default> PrefixedMemoryDB<H, RS> {
+impl<H: TrieHasher, RS: BuildHasher + Default> PrefixedMemoryDB<H, RS> {
 	pub fn new(prefix: &[u8]) -> Self {
 		Self(memory_db::MemoryDB::new(prefix))
 	}
@@ -240,32 +242,32 @@ impl<H: Hasher, RS: BuildHasher + Default> PrefixedMemoryDB<H, RS> {
 	}
 }
 
-impl<H: Hasher> Clone for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> Clone for PrefixedMemoryDB<H> {
 	fn clone(&self) -> Self {
 		Self(self.0.clone())
 	}
 }
 
-impl<H: Hasher> Default for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> Default for PrefixedMemoryDB<H> {
 	fn default() -> Self {
 		Self::new(&0u64.to_le_bytes())
 	}
 }
 
-impl<H: Hasher> core::ops::Deref for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> core::ops::Deref for PrefixedMemoryDB<H> {
 	type Target = memory_db::MemoryDB<H, memory_db::PrefixedKey<H>, trie_db::DBValue, RandomState>;
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
 
-impl<H: Hasher> core::ops::DerefMut for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> core::ops::DerefMut for PrefixedMemoryDB<H> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.0
 	}
 }
 
-impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> hash_db::AsHashDB<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, trie_db::DBValue> {
 		&self.0
 	}
@@ -275,7 +277,7 @@ impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
 	}
 }
 
-impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for &PrefixedMemoryDB<H> {
+impl<H: TrieHasher> hash_db::AsHashDB<H, trie_db::DBValue> for &PrefixedMemoryDB<H> {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, trie_db::DBValue> {
 		&self.0
 	}
@@ -285,7 +287,7 @@ impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for &PrefixedMemoryDB<H> 
 	}
 }
 
-impl<H: Hasher> hash_db::HashDB<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> hash_db::HashDB<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
 	fn get(&self, key: &H::Out, prefix: hash_db::Prefix) -> Option<trie_db::DBValue> {
 		hash_db::HashDB::get(&self.0, key, prefix)
 	}
@@ -307,7 +309,7 @@ impl<H: Hasher> hash_db::HashDB<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
 	}
 }
 
-impl<H: Hasher> hash_db::HashDBRef<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
+impl<H: TrieHasher> hash_db::HashDBRef<H, trie_db::DBValue> for PrefixedMemoryDB<H> {
 	fn get(&self, key: &H::Out, prefix: hash_db::Prefix) -> Option<trie_db::DBValue> {
 		hash_db::HashDBRef::get(&self.0, key, prefix)
 	}
@@ -318,11 +320,11 @@ impl<H: Hasher> hash_db::HashDBRef<H, trie_db::DBValue> for PrefixedMemoryDB<H> 
 }
 
 /// ZK-trie compatible memory database with correct default initialization
-pub struct MemoryDB<H: Hasher, RS = RandomState>(
+pub struct MemoryDB<H: TrieHasher, RS = RandomState>(
 	memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>,
 );
 
-impl<H: Hasher> MemoryDB<H> {
+impl<H: TrieHasher> MemoryDB<H> {
 	pub fn new(prefix: &[u8]) -> Self {
 		Self(memory_db::MemoryDB::new(prefix))
 	}
@@ -336,32 +338,32 @@ impl<H: Hasher> MemoryDB<H> {
 	}
 }
 
-impl<H: Hasher> Clone for MemoryDB<H> {
+impl<H: TrieHasher> Clone for MemoryDB<H> {
 	fn clone(&self) -> Self {
 		Self(self.0.clone())
 	}
 }
 
-impl<H: Hasher> Default for MemoryDB<H> {
+impl<H: TrieHasher> Default for MemoryDB<H> {
 	fn default() -> Self {
 		Self::new(&0u64.to_le_bytes())
 	}
 }
 
-impl<H: Hasher, RS> core::ops::Deref for MemoryDB<H, RS> {
+impl<H: TrieHasher, RS> core::ops::Deref for MemoryDB<H, RS> {
 	type Target = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>;
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
 
-impl<H: Hasher> core::ops::DerefMut for MemoryDB<H> {
+impl<H: TrieHasher> core::ops::DerefMut for MemoryDB<H> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.0
 	}
 }
 
-impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for MemoryDB<H> {
+impl<H: TrieHasher> hash_db::AsHashDB<H, trie_db::DBValue> for MemoryDB<H> {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, trie_db::DBValue> {
 		&self.0
 	}
@@ -371,7 +373,7 @@ impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for MemoryDB<H> {
 	}
 }
 
-impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for &MemoryDB<H> {
+impl<H: TrieHasher> hash_db::AsHashDB<H, trie_db::DBValue> for &MemoryDB<H> {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, trie_db::DBValue> {
 		&self.0
 	}
@@ -381,7 +383,7 @@ impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for &MemoryDB<H> {
 	}
 }
 
-impl<H: Hasher> hash_db::HashDB<H, trie_db::DBValue> for MemoryDB<H> {
+impl<H: TrieHasher> hash_db::HashDB<H, trie_db::DBValue> for MemoryDB<H> {
 	fn get(&self, key: &H::Out, prefix: hash_db::Prefix) -> Option<trie_db::DBValue> {
 		hash_db::HashDB::get(&self.0, key, prefix)
 	}
@@ -403,7 +405,7 @@ impl<H: Hasher> hash_db::HashDB<H, trie_db::DBValue> for MemoryDB<H> {
 	}
 }
 
-impl<H: Hasher> hash_db::HashDBRef<H, trie_db::DBValue> for MemoryDB<H> {
+impl<H: TrieHasher> hash_db::HashDBRef<H, trie_db::DBValue> for MemoryDB<H> {
 	fn get(&self, key: &H::Out, prefix: hash_db::Prefix) -> Option<trie_db::DBValue> {
 		hash_db::HashDBRef::get(&self.0, key, prefix)
 	}
@@ -753,7 +755,7 @@ impl<'a, DB: ?Sized, H> KeySpacedDBMut<'a, DB, H> {
 impl<'a, DB, H, T> hash_db::HashDBRef<H, T> for KeySpacedDB<'a, DB, H>
 where
 	DB: hash_db::HashDBRef<H, T> + ?Sized,
-	H: Hasher,
+	H: TrieHasher,
 	T: From<&'static [u8]>,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
@@ -770,7 +772,7 @@ where
 impl<'a, DB, H, T> hash_db::HashDB<H, T> for KeySpacedDBMut<'a, DB, H>
 where
 	DB: hash_db::HashDB<H, T>,
-	H: Hasher,
+	H: TrieHasher,
 	T: Default + PartialEq<T> + for<'b> From<&'b [u8]> + Clone + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
@@ -802,7 +804,7 @@ where
 impl<'a, DB, H, T> hash_db::AsHashDB<H, T> for KeySpacedDBMut<'a, DB, H>
 where
 	DB: hash_db::HashDB<H, T>,
-	H: Hasher,
+	H: TrieHasher,
 	T: Default + PartialEq<T> + for<'b> From<&'b [u8]> + Clone + Send + Sync,
 {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, T> {

@@ -23,7 +23,7 @@ use crate::{
 };
 use alloc::{collections::BTreeMap, vec::Vec};
 use codec::Codec;
-use hash_db::Hasher;
+use hash_db::TrieHasher;
 use sp_core::storage::{ChildInfo, StateVersion, Storage};
 use sp_trie::{empty_trie_root, LayoutV1, PrefixedMemoryDB};
 
@@ -36,14 +36,14 @@ use alloc::collections::BTreeMap as MapType;
 /// Create a new empty instance of in-memory backend.
 pub fn new_in_mem<H>() -> TrieBackend<PrefixedMemoryDB<H>, H>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: Codec + Ord,
 {
 	// V1 is same as V0 for an empty trie.
 	TrieBackendBuilder::new(PrefixedMemoryDB::default(), empty_trie_root::<LayoutV1<H>>()).build()
 }
 
-impl<H: Hasher> TrieBackend<PrefixedMemoryDB<H>, H>
+impl<H: TrieHasher> TrieBackend<PrefixedMemoryDB<H>, H>
 where
 	H::Out: Codec + Ord,
 {
@@ -97,7 +97,7 @@ where
 	}
 }
 
-impl<H: Hasher> Clone for TrieBackend<PrefixedMemoryDB<H>, H>
+impl<H: TrieHasher> Clone for TrieBackend<PrefixedMemoryDB<H>, H>
 where
 	H::Out: Codec + Ord,
 {
@@ -108,7 +108,7 @@ where
 
 impl<H> Default for TrieBackend<PrefixedMemoryDB<H>, H>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: Codec + Ord,
 {
 	fn default() -> Self {
@@ -116,7 +116,7 @@ where
 	}
 }
 
-impl<H: Hasher> From<(MapType<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>>, StateVersion)>
+impl<H: TrieHasher> From<(MapType<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>>, StateVersion)>
 	for TrieBackend<PrefixedMemoryDB<H>, H>
 where
 	H::Out: Codec + Ord,
@@ -139,7 +139,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<H: Hasher> From<(Storage, StateVersion)> for TrieBackend<PrefixedMemoryDB<H>, H>
+impl<H: TrieHasher> From<(Storage, StateVersion)> for TrieBackend<PrefixedMemoryDB<H>, H>
 where
 	H::Out: Codec + Ord,
 {
@@ -154,7 +154,7 @@ where
 	}
 }
 
-impl<H: Hasher> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)>
+impl<H: TrieHasher> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)>
 	for TrieBackend<PrefixedMemoryDB<H>, H>
 where
 	H::Out: Codec + Ord,
@@ -166,7 +166,7 @@ where
 	}
 }
 
-impl<H: Hasher> From<(Vec<(Option<ChildInfo>, StorageCollection)>, StateVersion)>
+impl<H: TrieHasher> From<(Vec<(Option<ChildInfo>, StorageCollection)>, StateVersion)>
 	for TrieBackend<PrefixedMemoryDB<H>, H>
 where
 	H::Out: Codec + Ord,

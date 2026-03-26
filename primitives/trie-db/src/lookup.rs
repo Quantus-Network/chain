@@ -396,7 +396,7 @@ where
 								recoder.record(TrieAccess::InlineValue { full_key });
 							}
 
-							L::Hash::hash(&v)
+							<L::Hash as Hasher>::hash_value(&v)
 						},
 						Value::Node(hash_bytes) => {
 							if let Some(recoder) = recorder.as_mut() {

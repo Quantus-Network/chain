@@ -22,7 +22,7 @@ use crate::{error::Error, trie_constants};
 use alloc::{borrow::Borrow, vec::Vec};
 use codec::{Decode, Encode, Input};
 use core::{marker::PhantomData, ops::Range};
-use hash_db::Hasher;
+use hash_db::{Hasher, TrieHasher};
 use trie_db::{
 	nibble_ops,
 	node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan},
@@ -83,7 +83,7 @@ pub struct NodeCodec<H>(PhantomData<H>);
 
 impl<H> NodeCodecT for NodeCodec<H>
 where
-	H: Hasher,
+	H: TrieHasher,
 {
 	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
 	type Error = Error<H::Out>;
@@ -91,14 +91,14 @@ where
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		let empty_node = <Self as NodeCodecT>::empty_node();
-		let hash_result = H::hash(empty_node);
+		let hash_result = H::hash_node(empty_node);
 		log::debug!(target: "zk-trie", "NodeCodec::hashed_null_node: empty_node={:02x?}, hash={:02x?}", empty_node, hash_result.as_ref());
 		hash_result
 	}
 
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
 		// Log the hash of the data being decoded so we can verify it matches the lookup key
-		let data_hash = H::hash(data);
+		let data_hash = H::hash_node(data);
 		log::debug!(target: "zk-trie", "NodeCodec::decode_plan called with data_len={}, data_hash={:02x?}", data.len(), data_hash.as_ref());
 
 		// Handle empty data
@@ -349,9 +349,12 @@ where
 						output.extend_from_slice(h.as_ref());
 						true
 					},
-					&Some(ChildReference::Inline(_, len)) => {
-						panic!("inline children unsupported (child[{child_idx}], {len} bytes); all children must be hashed");
-					},
+				&Some(ChildReference::Inline(_, 0)) => {
+					false
+				},
+				&Some(ChildReference::Inline(_, len)) => {
+					panic!("inline children unsupported (child[{child_idx}], {len} bytes); all children must be hashed");
+				},
 					None => false,
 				};
 				child_idx += 1;

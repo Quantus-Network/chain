@@ -35,7 +35,7 @@
 //! [`LocalTrieCache`] the actual memory usage could be above the allowed maximum.
 
 use crate::{Error, NodeCodec};
-use hash_db::Hasher;
+use hash_db::{Hasher, TrieHasher};
 use metrics::{HitStatsSnapshot, TrieHitStatsSnapshot};
 use nohash_hasher::BuildNoHashHasher;
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
@@ -770,7 +770,7 @@ impl<'a, H: Hasher> TrieCache<'a, H> {
 	}
 }
 
-impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
+impl<'a, H: TrieHasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 	fn get_or_insert_node(
 		&mut self,
 		hash: H::Out,

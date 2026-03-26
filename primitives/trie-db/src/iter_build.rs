@@ -380,13 +380,14 @@ where
 		is_root: bool,
 	) -> ChildReference<TrieHash<T>> {
 		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
+		let max_inline = T::MAX_INLINE_NODE.map(|m| m as usize).unwrap_or(<T::Hash as Hasher>::LENGTH);
+		if !is_root && len < max_inline {
 			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len)
 		}
-		let hash = self.db.insert(prefix, &encoded_node[..]);
+		let hash = self.db.insert_node(prefix, &encoded_node[..]);
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -418,13 +419,14 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		is_root: bool,
 	) -> ChildReference<TrieHash<T>> {
 		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
+		let max_inline = T::MAX_INLINE_NODE.map(|m| m as usize).unwrap_or(<T::Hash as Hasher>::LENGTH);
+		if !is_root && len < max_inline {
 			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len)
 		}
-		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
+		let hash = <T::Hash as Hasher>::hash_node(encoded_node.as_slice());
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -432,7 +434,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		<T::Hash as Hasher>::hash(value)
+		<T::Hash as Hasher>::hash_value(value)
 	}
 }
 
@@ -476,14 +478,15 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 		println!("Encoded node: {:x?}", &encoded_node);
 		println!("	with prefix: {:x?}", &p);
 		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
+		let max_inline = T::MAX_INLINE_NODE.map(|m| m as usize).unwrap_or(<T::Hash as Hasher>::LENGTH);
+		if !is_root && len < max_inline {
 			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			println!("	inline len {}", len);
 			return ChildReference::Inline(h, len)
 		}
-		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
+		let hash = <T::Hash as Hasher>::hash_node(encoded_node.as_slice());
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -493,7 +496,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
 		println!("Hashed node: {:x?}", &value);
-		<T::Hash as Hasher>::hash(value)
+		<T::Hash as Hasher>::hash_value(value)
 	}
 }
 
@@ -505,13 +508,14 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 		is_root: bool,
 	) -> ChildReference<<T::Hash as Hasher>::Out> {
 		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
+		let max_inline = T::MAX_INLINE_NODE.map(|m| m as usize).unwrap_or(<T::Hash as Hasher>::LENGTH);
+		if !is_root && len < max_inline {
 			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len)
 		}
-		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
+		let hash = <T::Hash as Hasher>::hash_node(encoded_node.as_slice());
 
 		if is_root {
 			self.root = Some(encoded_node);
@@ -520,6 +524,6 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		<T::Hash as Hasher>::hash(value)
+		<T::Hash as Hasher>::hash_value(value)
 	}
 }

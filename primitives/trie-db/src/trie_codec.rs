@@ -518,7 +518,7 @@ where
 				.as_ref()
 				.map(|value| db.insert(prefix.as_prefix(), value));
 			let node_data = last_entry.encode_node(hash.as_ref().map(|h| h.as_ref()));
-			let node_hash = db.insert(prefix.as_prefix(), node_data.as_ref());
+			let node_hash = db.insert_node(prefix.as_prefix(), node_data.as_ref());
 
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;

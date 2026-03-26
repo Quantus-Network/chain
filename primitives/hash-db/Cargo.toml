@@ -1,0 +1,10 @@
+[package]
+name = "hash-db"
+version = "0.16.0"
+edition = "2018"
+license = "Apache-2.0"
+description = "Trait for hash-keyed databases (local fork with TrieHasher)."
+
+[features]
+default = ["std"]
+std = []

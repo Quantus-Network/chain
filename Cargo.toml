@@ -21,10 +21,15 @@ members = [
 	"pallets/wormhole",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
+	"primitives/hash-db",
 	"primitives/header",
+	"primitives/memory-db",
+	"primitives/qp-poseidon/core",
+	"primitives/qp-poseidon/substrate",
 	"primitives/scheduler",
 	"primitives/state-machine",
 	"primitives/trie",
+	"primitives/trie-root",
 	"primitives/wormhole",
 	"qpow-math",
 	"runtime",
@@ -64,7 +69,7 @@ fnv = { version = "1.0.6" }
 foldhash = { version = "0.1.5", default-features = false }
 futures = { version = "0.3.31" }
 futures-timer = { version = "3.0.2" }
-hash-db = { version = "0.16.0", default-features = false }
+hash-db = { version = "0.16.0", default-features = false, path = "primitives/hash-db" }
 hashbrown = "0.15.3"
 hex = { version = "0.4.3", default-features = false }
 ip_network = { version = "0.4.1" }
@@ -77,7 +82,7 @@ libp2p = { version = "0.54.1" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_1" }
 linked_hash_set = { version = "0.1.4" }
 log = { version = "0.4.22", default-features = false }
-memory-db = { version = "0.34.0", default-features = false }
+memory-db = { version = "0.34.0", default-features = false, path = "primitives/memory-db" }
 mockall = { version = "0.13.1" }
 multistream-select = { version = "0.13.0" }
 names = { version = "0.14.0", default-features = false }
@@ -120,7 +125,7 @@ tokio-util = { version = "0.7.13", default-features = false }
 tracing = { version = "0.1.37", default-features = false }
 trie-bench = { version = "0.42.0" }
 trie-db = { version = "0.30.0", default-features = false }
-trie-root = { version = "0.18.0", default-features = false }
+trie-root = { version = "0.18.0", default-features = false, path = "primitives/trie-root" }
 trie-standardmap = { version = "0.16.0" }
 unsigned-varint = { version = "0.7.2" }
 uuid = { version = "1.7.0", features = ["serde", "v4"] }
@@ -236,16 +241,19 @@ sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
+hash-db = { path = "./primitives/hash-db" }
+memory-db = { path = "./primitives/memory-db" }
 trie-db = { path = "./primitives/trie-db" }
+trie-root = { path = "./primitives/trie-root" }
 
 # Quantus dependencies - git branches for testnet
 qp-plonky2 = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
 qp-plonky2-core = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
 qp-plonky2-field = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
 qp-plonky2-verifier = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
-qp-poseidon = { git = "https://github.com/Quantus-Network/qp-poseidon.git", branch = "illuzen/injective-to-felts" }
+qp-poseidon = { path = "./primitives/qp-poseidon/substrate" }
 qp-poseidon-constants = { git = "https://github.com/Quantus-Network/qp-poseidon-constants.git", tag = "v1.1.0" }
-qp-poseidon-core = { git = "https://github.com/Quantus-Network/qp-poseidon.git", branch = "illuzen/injective-to-felts" }
+qp-poseidon-core = { path = "./primitives/qp-poseidon/core" }
 qp-rusty-crystals-dilithium = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/new-poseidon-api" }
 qp-rusty-crystals-hdwallet = { git = "https://github.com/Quantus-Network/qp-rusty-crystals.git", branch = "illuzen/new-poseidon-api" }
 qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }

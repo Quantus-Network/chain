@@ -18,7 +18,7 @@
 use alloc::{collections::btree_set::BTreeSet, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::iter::{DoubleEndedIterator, IntoIterator};
-use hash_db::{HashDB, Hasher};
+use hash_db::{HashDB, Hasher, TrieHasher};
 use scale_info::TypeInfo;
 
 // // Note that `LayoutV1` usage here (proof compaction) is compatible
@@ -102,12 +102,12 @@ impl StorageProof {
 	}
 
 	/// Creates a [`MemoryDB`](crate::MemoryDB) from `Self`.
-	pub fn into_memory_db<H: Hasher>(self) -> crate::MemoryDB<H> {
+	pub fn into_memory_db<H: TrieHasher>(self) -> crate::MemoryDB<H> {
 		self.into()
 	}
 
 	/// Creates a [`MemoryDB`](crate::MemoryDB) from `Self` reference.
-	pub fn to_memory_db<H: Hasher>(&self) -> crate::MemoryDB<H> {
+	pub fn to_memory_db<H: TrieHasher>(&self) -> crate::MemoryDB<H> {
 		self.into()
 	}
 
@@ -155,13 +155,13 @@ impl StorageProof {
 	}
 }
 
-impl<H: Hasher> From<StorageProof> for crate::MemoryDB<H> {
+impl<H: TrieHasher> From<StorageProof> for crate::MemoryDB<H> {
 	fn from(proof: StorageProof) -> Self {
 		From::from(&proof)
 	}
 }
 
-impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
+impl<H: TrieHasher> From<&StorageProof> for crate::MemoryDB<H> {
 	fn from(proof: &StorageProof) -> Self {
 		let mut db = crate::MemoryDB::new(&0u64.to_le_bytes());
 		proof.iter_nodes().for_each(|n| {
@@ -213,7 +213,7 @@ impl CompactProof {
 	/// `expected_root` is the expected root of this compact proof.
 	///
 	/// Returns the memory db and the root of the trie.
-	pub fn to_memory_db<H: Hasher>(
+	pub fn to_memory_db<H: TrieHasher>(
 		&self,
 		expected_root: Option<&H::Out>,
 	) -> Result<(crate::MemoryDB<H>, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>>

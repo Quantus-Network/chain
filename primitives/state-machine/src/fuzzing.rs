@@ -22,7 +22,7 @@ use crate::ext::StorageAppend;
 use arbitrary::Arbitrary;
 #[cfg(test)]
 use codec::Encode;
-use hash_db::Hasher;
+use hash_db::{Hasher, TrieHasher};
 use sp_core::{storage::StateVersion, traits::Externalities};
 #[cfg(test)]
 use sp_runtime::traits::BlakeTwo256;
@@ -86,7 +86,7 @@ impl SimpleOverlay {
 		value: Vec<u8>,
 		backend: &mut TrieBackend<PrefixedMemoryDB<H>, H>,
 	) where
-		H: Hasher,
+		H: TrieHasher,
 		H::Out: codec::Decode + codec::Encode + 'static,
 	{
 		let current_value = self
@@ -130,7 +130,7 @@ impl SimpleOverlay {
 	}
 }
 
-struct FuzzAppendState<H: Hasher> {
+struct FuzzAppendState<H: TrieHasher> {
 	key: Vec<u8>,
 
 	// reference simple implementation
@@ -147,7 +147,7 @@ struct FuzzAppendState<H: Hasher> {
 
 impl<H> FuzzAppendState<H>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: codec::Decode + codec::Encode + 'static,
 {
 	fn process_item(&mut self, item: FuzzAppendItem) {
@@ -289,7 +289,7 @@ fn fuzz_scenarii() {
 /// Test append operation for a given fuzzing payload.
 pub fn fuzz_append<H>(payload: FuzzAppendPayload)
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: codec::Decode + codec::Encode + 'static,
 {
 	let FuzzAppendPayload(to_fuzz, initial) = payload;

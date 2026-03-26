@@ -23,7 +23,7 @@ use crate::{
 	backend::Backend, IndexOperation, IterArgs, OverlayedChanges, StorageKey, StorageValue,
 };
 use codec::{Compact, CompactLen, Decode, Encode};
-use hash_db::Hasher;
+use hash_db::TrieHasher;
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::storage::{
@@ -92,7 +92,7 @@ impl<B: error::Error, E: error::Error> error::Error for Error<B, E> {
 /// Wraps a read-only backend, call executor, and current overlayed changes.
 pub struct Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	B: 'a + Backend<H>,
 {
 	/// The overlayed changes to write to.
@@ -108,7 +108,7 @@ where
 
 impl<'a, H, B> Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	B: Backend<H>,
 {
 	/// Create a new `Ext`.
@@ -136,7 +136,7 @@ where
 #[cfg(test)]
 impl<'a, H, B> Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: Ord + 'static,
 	B: 'a + Backend<H>,
 {
@@ -160,7 +160,7 @@ where
 
 impl<'a, H, B> Externalities for Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: Ord + 'static + codec::Codec,
 	B: Backend<H>,
 {
@@ -199,7 +199,7 @@ where
 		let result = self
 			.overlay
 			.storage(key)
-			.map(|x| x.map(|x| H::hash(x)))
+			.map(|x| x.map(|x| H::hash_value(x)))
 			.unwrap_or_else(|| self.backend.storage_hash(key).expect(EXT_NOT_ALLOWED_TO_FAIL));
 
 		trace!(
@@ -239,7 +239,7 @@ where
 		let result = self
 			.overlay
 			.child_storage(child_info, key)
-			.map(|x| x.map(|x| H::hash(x)))
+			.map(|x| x.map(|x| H::hash_value(x)))
 			.unwrap_or_else(|| {
 				self.backend.child_storage_hash(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 			});
@@ -670,7 +670,7 @@ where
 
 impl<'a, H, B> Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: Ord + 'static + codec::Codec,
 	B: Backend<H>,
 {
@@ -797,7 +797,7 @@ impl<'a> StorageAppend<'a> {
 #[cfg(not(feature = "std"))]
 impl<'a, H, B> ExtensionStore for Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	H::Out: Ord + 'static + codec::Codec,
 	B: Backend<H>,
 {
@@ -824,7 +824,7 @@ where
 #[cfg(feature = "std")]
 impl<'a, H, B> ExtensionStore for Ext<'a, H, B>
 where
-	H: Hasher,
+	H: TrieHasher,
 	B: 'a + Backend<H>,
 {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
