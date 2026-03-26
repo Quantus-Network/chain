@@ -42,7 +42,6 @@ mod rstd {
 use self::rstd::*;
 
 pub use hash_db::Hasher;
-use hash_db::TrieHasher;
 
 /// Different possible value to use for node encoding.
 #[derive(Clone)]
@@ -54,7 +53,7 @@ pub enum Value<'a> {
 }
 
 impl<'a> Value<'a> {
-	fn new<H: TrieHasher>(value: &'a [u8], threshold: Option<u32>) -> Value<'a> {
+	fn new<H: Hasher>(value: &'a [u8], threshold: Option<u32>) -> Value<'a> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
 				Value::Node(H::hash_value(value).as_ref().to_vec())
@@ -91,7 +90,7 @@ pub trait TrieStream {
 	/// Append an Extension node
 	fn append_extension(&mut self, key: &[u8]);
 	/// Append a Branch of Extension substream
-	fn append_substream<H: TrieHasher>(&mut self, other: Self);
+	fn append_substream<H: Hasher>(&mut self, other: Self);
 	/// Return the finished `TrieStream` as a vector of bytes.
 	fn out(self) -> Vec<u8>;
 }
@@ -126,7 +125,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	trie_root_inner::<H, S, I, A, B>(input, false, threshold)
@@ -137,7 +136,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	// first put elements into btree to sort them and to remove duplicates
@@ -174,7 +173,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	trie_root_inner::<H, S, I, A, B>(input, true, threshold)
@@ -189,7 +188,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	unhashed_trie_inner::<H, S, I, A, B>(input, false, threshold)
@@ -204,7 +203,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	// first put elements into btree to sort them and to remove duplicates
@@ -240,7 +239,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	unhashed_trie_inner::<H, S, I, A, B>(input, true, threshold)
@@ -268,7 +267,7 @@ where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord,
 	S: TrieStream,
 {
@@ -286,7 +285,7 @@ fn build_trie<H, S, A, B>(
 ) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	match input.len() {
@@ -401,7 +400,7 @@ fn build_trie_trampoline<H, S, A, B>(
 ) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieStream,
 {
 	let mut substream = S::new();

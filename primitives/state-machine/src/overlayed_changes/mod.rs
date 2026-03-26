@@ -24,7 +24,7 @@ use self::changeset::OverlayedChangeSet;
 use crate::{backend::Backend, stats::StateMachineStats, BackendTransaction, DefaultError};
 use alloc::{collections::btree_set::BTreeSet, vec::Vec};
 use codec::{Decode, Encode};
-use hash_db::TrieHasher;
+use hash_db::Hasher;
 pub use offchain::OffchainOverlayedChanges;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
@@ -91,7 +91,7 @@ impl Extrinsics {
 /// The set of changes that are overlaid onto the backend.
 ///
 /// It allows changes to be modified using nestable transactions.
-pub struct OverlayedChanges<H: TrieHasher> {
+pub struct OverlayedChanges<H: Hasher> {
 	/// Top level storage changes.
 	top: OverlayedChangeSet,
 	/// Child storage changes. The map key is the child storage key without the common prefix.
@@ -110,7 +110,7 @@ pub struct OverlayedChanges<H: TrieHasher> {
 	storage_transaction_cache: Option<StorageTransactionCache<H>>,
 }
 
-impl<H: TrieHasher> Default for OverlayedChanges<H> {
+impl<H: Hasher> Default for OverlayedChanges<H> {
 	fn default() -> Self {
 		Self {
 			top: Default::default(),
@@ -124,7 +124,7 @@ impl<H: TrieHasher> Default for OverlayedChanges<H> {
 	}
 }
 
-impl<H: TrieHasher> Clone for OverlayedChanges<H> {
+impl<H: Hasher> Clone for OverlayedChanges<H> {
 	fn clone(&self) -> Self {
 		Self {
 			top: self.top.clone(),
@@ -138,7 +138,7 @@ impl<H: TrieHasher> Clone for OverlayedChanges<H> {
 	}
 }
 
-impl<H: TrieHasher> core::fmt::Debug for OverlayedChanges<H> {
+impl<H: Hasher> core::fmt::Debug for OverlayedChanges<H> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("OverlayedChanges")
 			.field("top", &self.top)
@@ -177,7 +177,7 @@ pub enum IndexOperation {
 ///
 /// This contains all the changes to the storage and transactions to apply theses changes to the
 /// backend.
-pub struct StorageChanges<H: TrieHasher> {
+pub struct StorageChanges<H: Hasher> {
 	/// All changes to the main storage.
 	///
 	/// A value of `None` means that it was deleted.
@@ -199,7 +199,7 @@ pub struct StorageChanges<H: TrieHasher> {
 }
 
 #[cfg(feature = "std")]
-impl<H: TrieHasher> StorageChanges<H> {
+impl<H: Hasher> StorageChanges<H> {
 	/// Deconstruct into the inner values
 	pub fn into_inner(
 		self,
@@ -222,7 +222,7 @@ impl<H: TrieHasher> StorageChanges<H> {
 	}
 }
 
-impl<H: TrieHasher> Default for StorageChanges<H> {
+impl<H: Hasher> Default for StorageChanges<H> {
 	fn default() -> Self {
 		Self {
 			main_storage_changes: Default::default(),
@@ -239,20 +239,20 @@ impl<H: TrieHasher> Default for StorageChanges<H> {
 /// Storage transactions are calculated as part of the `storage_root`.
 /// These transactions can be reused for importing the block into the
 /// storage. So, we cache them to not require a recomputation of those transactions.
-struct StorageTransactionCache<H: TrieHasher> {
+struct StorageTransactionCache<H: Hasher> {
 	/// Contains the changes for the main and the child storages as one transaction.
 	transaction: BackendTransaction<H>,
 	/// The storage root after applying the transaction.
 	transaction_storage_root: H::Out,
 }
 
-impl<H: TrieHasher> StorageTransactionCache<H> {
+impl<H: Hasher> StorageTransactionCache<H> {
 	fn into_inner(self) -> (BackendTransaction<H>, H::Out) {
 		(self.transaction, self.transaction_storage_root)
 	}
 }
 
-impl<H: TrieHasher> Clone for StorageTransactionCache<H> {
+impl<H: Hasher> Clone for StorageTransactionCache<H> {
 	fn clone(&self) -> Self {
 		Self {
 			transaction: self.transaction.clone(),
@@ -261,7 +261,7 @@ impl<H: TrieHasher> Clone for StorageTransactionCache<H> {
 	}
 }
 
-impl<H: TrieHasher> core::fmt::Debug for StorageTransactionCache<H> {
+impl<H: Hasher> core::fmt::Debug for StorageTransactionCache<H> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let mut debug = f.debug_struct("StorageTransactionCache");
 
@@ -275,7 +275,7 @@ impl<H: TrieHasher> core::fmt::Debug for StorageTransactionCache<H> {
 	}
 }
 
-impl<H: TrieHasher> OverlayedChanges<H> {
+impl<H: Hasher> OverlayedChanges<H> {
 	/// Whether no changes are contained in the top nor in any of the child changes.
 	pub fn is_empty(&self) -> bool {
 		self.top.is_empty() && self.children.is_empty()
@@ -772,7 +772,7 @@ impl<H: TrieHasher> OverlayedChanges<H> {
 }
 
 #[cfg(feature = "std")]
-impl<H: TrieHasher> From<sp_core::storage::Storage> for OverlayedChanges<H> {
+impl<H: Hasher> From<sp_core::storage::Storage> for OverlayedChanges<H> {
 	fn from(storage: sp_core::storage::Storage) -> Self {
 		Self {
 			top: storage.top.into(),

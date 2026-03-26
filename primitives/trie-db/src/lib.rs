@@ -83,7 +83,7 @@ pub use crate::{
 	node_codec::{NodeCodec, Partial},
 	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
 };
-pub use hash_db::{HashDB, HashDBRef, Hasher, TrieHasher};
+pub use hash_db::{HashDB, HashDBRef, Hasher};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -531,7 +531,7 @@ pub trait TrieLayout {
 	const MAX_INLINE_NODE: Option<u32> = None;
 
 	/// Hasher to use for this trie.
-	type Hash: TrieHasher;
+	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut = <Self::Hash as Hasher>::Out>;
 }

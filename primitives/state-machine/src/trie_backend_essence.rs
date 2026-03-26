@@ -28,7 +28,7 @@ use alloc::sync::Arc;
 use alloc::{boxed::Box, vec::Vec};
 use codec::Codec;
 use core::marker::PhantomData;
-use hash_db::{self, AsHashDB, HashDB, HashDBRef, Hasher, Prefix, TrieHasher};
+use hash_db::{self, AsHashDB, HashDB, HashDBRef, Hasher, Prefix};
 #[cfg(feature = "std")]
 use parking_lot::RwLock;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
@@ -59,7 +59,7 @@ macro_rules! format {
 type Result<V> = core::result::Result<V, crate::DefaultError>;
 
 /// Patricia trie-based storage trait.
-pub trait Storage<H: TrieHasher>: Send + Sync {
+pub trait Storage<H: Hasher>: Send + Sync {
 	/// Get a trie node.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>>;
 }
@@ -86,7 +86,7 @@ enum IterState {
 /// A raw iterator over the storage.
 pub struct RawIter<S, H, C, R>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	stop_on_incomplete_database: bool,
 	skip_if_first: Option<StorageKey>,
@@ -99,7 +99,7 @@ where
 
 impl<S, H, C, R> RawIter<S, H, C, R>
 where
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieBackendStorage<H>,
 	H::Out: Codec + Ord,
 	C: TrieCacheProvider<H> + Send + Sync,
@@ -143,7 +143,7 @@ where
 
 impl<S, H, C, R> Default for RawIter<S, H, C, R>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	fn default() -> Self {
 		Self {
@@ -160,7 +160,7 @@ where
 
 impl<S, H, C, R> StorageIterator<H> for RawIter<S, H, C, R>
 where
-	H: TrieHasher,
+	H: Hasher,
 	S: TrieBackendStorage<H>,
 	H::Out: Codec + Ord,
 	C: TrieCacheProvider<H> + Send + Sync,
@@ -207,7 +207,7 @@ where
 }
 
 /// Patricia trie-based pairs storage essence.
-pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: TrieHasher, C, R> {
+pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: Hasher, C, R> {
 	storage: S,
 	root: H::Out,
 	empty: H::Out,
@@ -217,7 +217,7 @@ pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: TrieHasher, C, R> {
 	pub(crate) recorder: Option<R>,
 }
 
-impl<S: TrieBackendStorage<H>, H: TrieHasher, C, R> TrieBackendEssence<S, H, C, R> {
+impl<S: TrieBackendStorage<H>, H: Hasher, C, R> TrieBackendEssence<S, H, C, R> {
 	/// Create new trie-based backend.
 	pub fn new(storage: S, root: H::Out) -> Self {
 		Self::new_with_cache(storage, root, None)
@@ -290,7 +290,7 @@ impl<S: TrieBackendStorage<H>, H: TrieHasher, C, R> TrieBackendEssence<S, H, C, 
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: TrieHasher, C: TrieCacheProvider<H>, R: TrieRecorderProvider<H>>
+impl<S: TrieBackendStorage<H>, H: Hasher, C: TrieCacheProvider<H>, R: TrieRecorderProvider<H>>
 	TrieBackendEssence<S, H, C, R>
 {
 	/// Call the given closure passing it the recorder and the cache.
@@ -359,7 +359,7 @@ impl<S: TrieBackendStorage<H>, H: TrieHasher, C: TrieCacheProvider<H>, R: TrieRe
 
 impl<H> TrieBackendStorage<H> for sp_trie::PrefixedMemoryDB<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
 		Ok(hash_db::HashDB::get(self, key, prefix))
@@ -368,7 +368,7 @@ where
 
 impl<H> TrieBackendStorage<H> for sp_trie::MemoryDB<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
 		Ok(hash_db::HashDB::get(self, key, prefix))
@@ -377,7 +377,7 @@ where
 
 impl<
 		S: TrieBackendStorage<H>,
-		H: TrieHasher,
+		H: Hasher,
 		C: TrieCacheProvider<H> + Send + Sync,
 		R: TrieRecorderProvider<H> + Send + Sync,
 	> TrieBackendEssence<S, H, C, R>
@@ -734,12 +734,12 @@ where
 	}
 }
 
-pub(crate) struct Ephemeral<'a, S: 'a + TrieBackendStorage<H>, H: 'a + TrieHasher> {
+pub(crate) struct Ephemeral<'a, S: 'a + TrieBackendStorage<H>, H: 'a + Hasher> {
 	storage: &'a S,
 	overlay: &'a mut PrefixedMemoryDB<H>,
 }
 
-impl<'a, S: 'a + TrieBackendStorage<H>, H: 'a + TrieHasher> AsHashDB<H, DBValue>
+impl<'a, S: 'a + TrieBackendStorage<H>, H: 'a + Hasher> AsHashDB<H, DBValue>
 	for Ephemeral<'a, S, H>
 {
 	fn as_hash_db<'b>(&'b self) -> &'b (dyn HashDB<H, DBValue> + 'b) {
@@ -750,13 +750,13 @@ impl<'a, S: 'a + TrieBackendStorage<H>, H: 'a + TrieHasher> AsHashDB<H, DBValue>
 	}
 }
 
-impl<'a, S: TrieBackendStorage<H>, H: TrieHasher> Ephemeral<'a, S, H> {
+impl<'a, S: TrieBackendStorage<H>, H: Hasher> Ephemeral<'a, S, H> {
 	pub fn new(storage: &'a S, overlay: &'a mut PrefixedMemoryDB<H>) -> Self {
 		Ephemeral { storage, overlay }
 	}
 }
 
-impl<'a, S: 'a + TrieBackendStorage<H>, H: TrieHasher> hash_db::HashDB<H, DBValue>
+impl<'a, S: 'a + TrieBackendStorage<H>, H: Hasher> hash_db::HashDB<H, DBValue>
 	for Ephemeral<'a, S, H>
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<DBValue> {
@@ -785,7 +785,7 @@ impl<'a, S: 'a + TrieBackendStorage<H>, H: TrieHasher> hash_db::HashDB<H, DBValu
 	}
 }
 
-impl<'a, S: 'a + TrieBackendStorage<H>, H: TrieHasher> HashDBRef<H, DBValue> for Ephemeral<'a, S, H> {
+impl<'a, S: 'a + TrieBackendStorage<H>, H: Hasher> HashDBRef<H, DBValue> for Ephemeral<'a, S, H> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<DBValue> {
 		HashDB::get(self, key, prefix)
 	}
@@ -796,12 +796,12 @@ impl<'a, S: 'a + TrieBackendStorage<H>, H: TrieHasher> HashDBRef<H, DBValue> for
 }
 
 /// Key-value pairs storage that is used by trie backend essence.
-pub trait TrieBackendStorage<H: TrieHasher>: Send + Sync {
+pub trait TrieBackendStorage<H: Hasher>: Send + Sync {
 	/// Get the value stored at key.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>>;
 }
 
-impl<T: TrieBackendStorage<H>, H: TrieHasher> TrieBackendStorage<H> for &T {
+impl<T: TrieBackendStorage<H>, H: Hasher> TrieBackendStorage<H> for &T {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
 		(*self).get(key, prefix)
 	}
@@ -809,7 +809,7 @@ impl<T: TrieBackendStorage<H>, H: TrieHasher> TrieBackendStorage<H> for &T {
 
 // This implementation is used by normal storage trie clients.
 #[cfg(feature = "std")]
-impl<H: TrieHasher> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
+impl<H: Hasher> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
 		Storage::<H>::get(std::ops::Deref::deref(self), key, prefix)
 	}
@@ -817,7 +817,7 @@ impl<H: TrieHasher> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
 
 impl<H, KF> TrieBackendStorage<H> for sp_trie::GenericMemoryDB<H, KF>
 where
-	H: TrieHasher,
+	H: Hasher,
 	KF: sp_trie::KeyFunction<H> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
@@ -827,7 +827,7 @@ where
 
 impl<
 		S: TrieBackendStorage<H>,
-		H: TrieHasher,
+		H: Hasher,
 		C: TrieCacheProvider<H> + Send + Sync,
 		R: TrieRecorderProvider<H> + Send + Sync,
 	> AsHashDB<H, DBValue> for TrieBackendEssence<S, H, C, R>
@@ -843,7 +843,7 @@ impl<
 
 impl<
 		S: TrieBackendStorage<H>,
-		H: TrieHasher,
+		H: Hasher,
 		C: TrieCacheProvider<H> + Send + Sync,
 		R: TrieRecorderProvider<H> + Send + Sync,
 	> HashDB<H, DBValue> for TrieBackendEssence<S, H, C, R>
@@ -880,7 +880,7 @@ impl<
 
 impl<
 		S: TrieBackendStorage<H>,
-		H: TrieHasher,
+		H: Hasher,
 		C: TrieCacheProvider<H> + Send + Sync,
 		R: TrieRecorderProvider<H> + Send + Sync,
 	> HashDBRef<H, DBValue> for TrieBackendEssence<S, H, C, R>

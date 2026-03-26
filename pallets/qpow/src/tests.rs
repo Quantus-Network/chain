@@ -76,14 +76,12 @@ fn test_poseidon_double_hash() {
 		let block_hash = [0x42u8; 32];
 		let nonce = [0x24u8; 64];
 
-		// Manually verify double Poseidon2 hashing
 		let mut input = [0u8; 96];
 		input[..32].copy_from_slice(&block_hash);
 		input[32..96].copy_from_slice(&nonce);
 
-		let first_hash = qp_poseidon_core::hash_squeeze_twice(&input);
-		let second_hash = qp_poseidon_core::hash_squeeze_twice(&first_hash);
-		let expected = U512::from_big_endian(&second_hash);
+		let hash = qp_poseidon_core::hash_squeeze_twice(&input);
+		let expected = U512::from_big_endian(&hash);
 
 		let actual = get_nonce_hash(block_hash, nonce);
 		assert_eq!(actual, expected);

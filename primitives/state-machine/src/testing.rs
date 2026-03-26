@@ -27,7 +27,7 @@ use crate::{
 	TrieBackendBuilder,
 };
 
-use hash_db::{HashDB, TrieHasher};
+use hash_db::{HashDB, Hasher};
 use sp_core::{
 	offchain::testing::TestPersistentOffchainDB,
 	storage::{
@@ -41,7 +41,7 @@ use sp_trie::{PrefixedMemoryDB, StorageProof};
 /// Simple HashMap-based Externalities impl.
 pub struct TestExternalities<H>
 where
-	H: TrieHasher + 'static,
+	H: Hasher + 'static,
 	H::Out: codec::Codec + Ord,
 {
 	/// The overlay changed storage.
@@ -57,7 +57,7 @@ where
 
 impl<H> TestExternalities<H>
 where
-	H: TrieHasher + 'static,
+	H: Hasher + 'static,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// Get externalities implementation.
@@ -282,7 +282,7 @@ where
 	}
 }
 
-impl<H: TrieHasher> std::fmt::Debug for TestExternalities<H>
+impl<H: Hasher> std::fmt::Debug for TestExternalities<H>
 where
 	H::Out: Ord + codec::Codec,
 {
@@ -298,7 +298,7 @@ where
 
 impl<H> TestExternalities<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// This doesn't test if they are in the same state, only if they contains the
@@ -308,7 +308,7 @@ where
 	}
 }
 
-impl<H: TrieHasher> Default for TestExternalities<H>
+impl<H: Hasher> Default for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -318,7 +318,7 @@ where
 	}
 }
 
-impl<H: TrieHasher> From<Storage> for TestExternalities<H>
+impl<H: Hasher> From<Storage> for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -327,7 +327,7 @@ where
 	}
 }
 
-impl<H: TrieHasher> From<(Storage, StateVersion)> for TestExternalities<H>
+impl<H: Hasher> From<(Storage, StateVersion)> for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -338,7 +338,7 @@ where
 
 impl<H> sp_externalities::ExtensionStore for TestExternalities<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + codec::Codec,
 {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
@@ -367,7 +367,7 @@ where
 
 impl<H> sp_externalities::ExternalitiesExt for TestExternalities<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + codec::Codec,
 {
 	fn extension<T: Any + Extension>(&mut self) -> Option<&mut T> {

@@ -22,7 +22,7 @@
 
 use crate::{GenericMemoryDB, KeyFunction, NodeCodec, StorageProof};
 use codec::Encode;
-use hash_db::{Hasher, TrieHasher};
+use hash_db::Hasher;
 use parking_lot::{Mutex, MutexGuard};
 use std::{
 	collections::{HashMap, HashSet},
@@ -54,12 +54,12 @@ impl<H> Default for IgnoredNodes<H> {
 
 impl<H: Eq + std::hash::Hash + Clone> IgnoredNodes<H> {
 	/// Initialize from the given storage proof.
-	pub fn from_storage_proof<H2: trie_db::TrieHasher<Out = H>>(proof: &StorageProof) -> Self {
+	pub fn from_storage_proof<H2: Hasher<Out = H>>(proof: &StorageProof) -> Self {
 		Self { nodes: proof.iter_nodes().map(|n| H2::hash_node(&n)).collect() }
 	}
 
 	/// Initialize from the given memory db.
-	pub fn from_memory_db<H2: trie_db::TrieHasher<Out = H>, KF: KeyFunction<H2>>(
+	pub fn from_memory_db<H2: Hasher<Out = H>, KF: KeyFunction<H2>>(
 		mut memory_db: GenericMemoryDB<H2, KF>,
 	) -> Self {
 		Self {
@@ -132,7 +132,7 @@ impl<H> Default for RecorderInner<H> {
 /// Owns the recorded data. Is used to transform data into a storage
 /// proof and to provide transaction support. The `as_trie_recorder` method provides a
 /// [`trie_db::TrieDB`] compatible recorder that implements the actual recording logic.
-pub struct Recorder<H: TrieHasher> {
+pub struct Recorder<H: Hasher> {
 	inner: Arc<Mutex<RecorderInner<H::Out>>>,
 	/// The estimated encoded size of the storage proof this recorder will produce.
 	///
@@ -140,13 +140,13 @@ pub struct Recorder<H: TrieHasher> {
 	encoded_size_estimation: Arc<AtomicUsize>,
 }
 
-impl<H: TrieHasher> Default for Recorder<H> {
+impl<H: Hasher> Default for Recorder<H> {
 	fn default() -> Self {
 		Self { inner: Default::default(), encoded_size_estimation: Arc::new(0.into()) }
 	}
 }
 
-impl<H: TrieHasher> Clone for Recorder<H> {
+impl<H: Hasher> Clone for Recorder<H> {
 	fn clone(&self) -> Self {
 		Self {
 			inner: self.inner.clone(),
@@ -155,7 +155,7 @@ impl<H: TrieHasher> Clone for Recorder<H> {
 	}
 }
 
-impl<H: TrieHasher> Recorder<H> {
+impl<H: Hasher> Recorder<H> {
 	/// Create a new recorder with the given ignored nodes.
 	pub fn with_ignored_nodes(ignored_nodes: IgnoredNodes<H::Out>) -> Self {
 		Self {
@@ -294,21 +294,21 @@ impl<H: TrieHasher> Recorder<H> {
 	}
 }
 
-impl<H: TrieHasher> crate::ProofSizeProvider for Recorder<H> {
+impl<H: Hasher> crate::ProofSizeProvider for Recorder<H> {
 	fn estimate_encoded_size(&self) -> usize {
 		Recorder::estimate_encoded_size(self)
 	}
 }
 
 /// The [`TrieRecorder`](trie_db::TrieRecorder) implementation.
-pub struct TrieRecorder<'a, H: TrieHasher> {
+pub struct TrieRecorder<'a, H: Hasher> {
 	inner: MutexGuard<'a, RecorderInner<H::Out>>,
 	storage_root: H::Out,
 	encoded_size_estimation: Arc<AtomicUsize>,
 	_phantom: PhantomData<H>,
 }
 
-impl<H: TrieHasher> crate::TrieRecorderProvider<H> for Recorder<H> {
+impl<H: Hasher> crate::TrieRecorderProvider<H> for Recorder<H> {
 	type Recorder<'a>
 		= TrieRecorder<'a, H>
 	where
@@ -323,7 +323,7 @@ impl<H: TrieHasher> crate::TrieRecorderProvider<H> for Recorder<H> {
 	}
 }
 
-impl<'a, H: TrieHasher> TrieRecorder<'a, H> {
+impl<'a, H: Hasher> TrieRecorder<'a, H> {
 	/// Update the recorded keys entry for the given `full_key`.
 	fn update_recorded_keys(&mut self, full_key: &[u8], access: RecordedForKey) {
 		let inner = self.inner.deref_mut();
@@ -367,7 +367,7 @@ impl<'a, H: TrieHasher> TrieRecorder<'a, H> {
 	}
 }
 
-impl<'a, H: TrieHasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
+impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 	fn record(&mut self, access: TrieAccess<H::Out>) {
 		let mut encoded_size_update = 0;
 

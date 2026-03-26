@@ -28,7 +28,7 @@ use crate::{
 use codec::Codec;
 #[cfg(feature = "std")]
 use hash_db::HashDB;
-use hash_db::TrieHasher;
+use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, StateVersion};
 #[cfg(feature = "std")]
 use sp_trie::{
@@ -44,7 +44,7 @@ use trie_db::TrieCache as TrieCacheT;
 use trie_db::{node::NodeOwned, CachedValue};
 
 /// A provider of trie caches that are compatible with [`trie_db::TrieDB`].
-pub trait TrieCacheProvider<H: TrieHasher> {
+pub trait TrieCacheProvider<H: Hasher> {
 	/// Cache type that implements [`trie_db::TrieCache`].
 	type Cache<'a>: TrieCacheT<sp_trie::NodeCodec<H>> + 'a
 	where
@@ -72,7 +72,7 @@ pub trait TrieCacheProvider<H: TrieHasher> {
 }
 
 #[cfg(feature = "std")]
-impl<H: TrieHasher> TrieCacheProvider<H> for LocalTrieCache<H> {
+impl<H: Hasher> TrieCacheProvider<H> for LocalTrieCache<H> {
 	type Cache<'a>
 		= TrieCache<'a, H>
 	where
@@ -92,7 +92,7 @@ impl<H: TrieHasher> TrieCacheProvider<H> for LocalTrieCache<H> {
 }
 
 #[cfg(feature = "std")]
-impl<H: TrieHasher> TrieCacheProvider<H> for &LocalTrieCache<H> {
+impl<H: Hasher> TrieCacheProvider<H> for &LocalTrieCache<H> {
 	type Cache<'a>
 		= TrieCache<'a, H>
 	where
@@ -121,7 +121,7 @@ pub struct UnimplementedCacheProvider<H> {
 }
 
 #[cfg(not(feature = "std"))]
-impl<H: TrieHasher> trie_db::TrieCache<NodeCodec<H>> for UnimplementedCacheProvider<H> {
+impl<H: Hasher> trie_db::TrieCache<NodeCodec<H>> for UnimplementedCacheProvider<H> {
 	fn lookup_value_for_key(&mut self, _key: &[u8]) -> Option<&CachedValue<H::Out>> {
 		unimplemented!()
 	}
@@ -144,7 +144,7 @@ impl<H: TrieHasher> trie_db::TrieCache<NodeCodec<H>> for UnimplementedCacheProvi
 }
 
 #[cfg(not(feature = "std"))]
-impl<H: TrieHasher> TrieCacheProvider<H> for UnimplementedCacheProvider<H> {
+impl<H: Hasher> TrieCacheProvider<H> for UnimplementedCacheProvider<H> {
 	type Cache<'a>
 		= UnimplementedCacheProvider<H>
 	where
@@ -173,7 +173,7 @@ pub struct UnimplementedRecorderProvider<H> {
 }
 
 #[cfg(not(feature = "std"))]
-impl<H: TrieHasher> trie_db::TrieRecorder<H::Out> for UnimplementedRecorderProvider<H> {
+impl<H: Hasher> trie_db::TrieRecorder<H::Out> for UnimplementedRecorderProvider<H> {
 	fn record<'a>(&mut self, _access: trie_db::TrieAccess<'a, H::Out>) {
 		unimplemented!()
 	}
@@ -184,7 +184,7 @@ impl<H: TrieHasher> trie_db::TrieRecorder<H::Out> for UnimplementedRecorderProvi
 }
 
 #[cfg(not(feature = "std"))]
-impl<H: TrieHasher> TrieRecorderProvider<H> for UnimplementedRecorderProvider<H> {
+impl<H: Hasher> TrieRecorderProvider<H> for UnimplementedRecorderProvider<H> {
 	type Recorder<'a>
 		= UnimplementedRecorderProvider<H>
 	where
@@ -214,7 +214,7 @@ type DefaultRecorder<H> = UnimplementedRecorderProvider<H>;
 /// Builder for creating a [`TrieBackend`].
 pub struct TrieBackendBuilder<
 	S: TrieBackendStorage<H>,
-	H: TrieHasher,
+	H: Hasher,
 	C = DefaultCache<H>,
 	R = DefaultRecorder<H>,
 > {
@@ -227,7 +227,7 @@ pub struct TrieBackendBuilder<
 impl<S, H> TrieBackendBuilder<S, H>
 where
 	S: TrieBackendStorage<H>,
-	H: TrieHasher,
+	H: Hasher,
 {
 	/// Create a new builder instance.
 	pub fn new(storage: S, root: H::Out) -> Self {
@@ -238,7 +238,7 @@ where
 impl<S, H, C, R> TrieBackendBuilder<S, H, C, R>
 where
 	S: TrieBackendStorage<H>,
-	H: TrieHasher,
+	H: Hasher,
 {
 	/// Create a new builder instance.
 	pub fn new_with_cache(storage: S, root: H::Out, cache: C) -> Self {
@@ -307,7 +307,7 @@ where
 /// A cached iterator.
 struct CachedIter<S, H, C, R>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	last_key: alloc::vec::Vec<u8>,
 	iter: RawIter<S, H, C, R>,
@@ -315,7 +315,7 @@ where
 
 impl<S, H, C, R> Default for CachedIter<S, H, C, R>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	fn default() -> Self {
 		Self { last_key: Default::default(), iter: Default::default() }
@@ -341,7 +341,7 @@ fn access_cache<T, R>(cell: &CacheCell<T>, callback: impl FnOnce(&mut T) -> R) -
 /// Patricia trie-based backend. Transaction type is an overlay of changes to commit.
 pub struct TrieBackend<
 	S: TrieBackendStorage<H>,
-	H: TrieHasher,
+	H: Hasher,
 	C = DefaultCache<H>,
 	R = DefaultRecorder<H>,
 > {
@@ -351,7 +351,7 @@ pub struct TrieBackend<
 
 impl<
 		S: TrieBackendStorage<H>,
-		H: TrieHasher,
+		H: Hasher,
 		C: TrieCacheProvider<H> + Send + Sync,
 		R: TrieRecorderProvider<H> + Send + Sync,
 	> TrieBackend<S, H, C, R>
@@ -401,7 +401,7 @@ where
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: TrieHasher, C: TrieCacheProvider<H>, R: TrieRecorderProvider<H>>
+impl<S: TrieBackendStorage<H>, H: Hasher, C: TrieCacheProvider<H>, R: TrieRecorderProvider<H>>
 	core::fmt::Debug for TrieBackend<S, H, C, R>
 {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -411,7 +411,7 @@ impl<S: TrieBackendStorage<H>, H: TrieHasher, C: TrieCacheProvider<H>, R: TrieRe
 
 impl<
 		S: TrieBackendStorage<H>,
-		H: TrieHasher,
+		H: Hasher,
 		C: TrieCacheProvider<H> + Send + Sync,
 		R: TrieRecorderProvider<H> + Send + Sync,
 	> Backend<H> for TrieBackend<S, H, C, R>
@@ -542,7 +542,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<S: TrieBackendStorage<H>, H: TrieHasher, C> AsTrieBackend<H, C> for TrieBackend<S, H, C> {
+impl<S: TrieBackendStorage<H>, H: Hasher, C> AsTrieBackend<H, C> for TrieBackend<S, H, C> {
 	type TrieBackendStorage = S;
 
 	fn as_trie_backend(&self) -> &TrieBackend<S, H, C> {
@@ -559,7 +559,7 @@ pub fn create_proof_check_backend<H>(
 	proof: StorageProof,
 ) -> Result<TrieBackend<MemoryDB<H>, H>, Box<dyn crate::Error>>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Codec,
 {
 	let db = proof.into_memory_db();

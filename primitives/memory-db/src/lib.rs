@@ -22,7 +22,7 @@ extern crate alloc;
 use core::hash::BuildHasher;
 use hash_db::{
 	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, MaybeDebug, PlainDB, PlainDBRef,
-	Prefix, TrieHasher,
+	Prefix,
 };
 #[cfg(feature = "std")]
 use std::{
@@ -484,7 +484,7 @@ where
 
 impl<H, KF, T, S> HashDB<H, T> for MemoryDB<H, KF, T, S>
 where
-	H: KeyHasher + TrieHasher,
+	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	S: BuildHasher + Default + Send + Sync,
@@ -574,7 +574,7 @@ where
 
 impl<H, KF, T, S> HashDBRef<H, T> for MemoryDB<H, KF, T, S>
 where
-	H: KeyHasher + TrieHasher,
+	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	S: BuildHasher + Default + Send + Sync,
@@ -605,7 +605,7 @@ where
 
 impl<H, KF, T, S> AsHashDB<H, T> for MemoryDB<H, KF, T, S>
 where
-	H: KeyHasher + TrieHasher,
+	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	S: BuildHasher + Default + Send + Sync,

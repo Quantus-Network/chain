@@ -85,10 +85,6 @@ pub trait Hasher: Sync + Send {
 	}
 }
 
-/// Alias kept for call-site clarity — every `Hasher` is a `TrieHasher`.
-pub trait TrieHasher: Hasher {}
-impl<H: Hasher> TrieHasher for H {}
-
 /// Trait modelling a plain datastore whose key is a fixed type.
 /// The caller should ensure that a key only corresponds to
 /// one value.
@@ -141,7 +137,7 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-pub trait HashDB<H: TrieHasher, T>: Send + Sync + AsHashDB<H, T> {
+pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -154,7 +150,7 @@ pub trait HashDB<H: TrieHasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// is considered dead.
 	fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out;
 
-	/// Insert an encoded trie node, hashing via `TrieHasher::hash_node`.
+	/// Insert an encoded trie node, hashing via `Hasher::hash_node`.
 	fn insert_node(&mut self, prefix: Prefix, encoded_node: &[u8]) -> H::Out {
 		self.insert(prefix, encoded_node)
 	}
@@ -169,7 +165,7 @@ pub trait HashDB<H: TrieHasher, T>: Send + Sync + AsHashDB<H, T> {
 }
 
 /// Trait for immutable reference of HashDB.
-pub trait HashDBRef<H: TrieHasher, T> {
+pub trait HashDBRef<H: Hasher, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -178,7 +174,7 @@ pub trait HashDBRef<H: TrieHasher, T> {
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: TrieHasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		HashDB::get(*self, key, prefix)
 	}
@@ -187,7 +183,7 @@ impl<'a, H: TrieHasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	}
 }
 
-impl<'a, H: TrieHasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		HashDB::get(*self, key, prefix)
 	}
@@ -197,7 +193,7 @@ impl<'a, H: TrieHasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 }
 
 /// Upcast trait for HashDB.
-pub trait AsHashDB<H: TrieHasher, T> {
+pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
 	fn as_hash_db(&self) -> &dyn HashDB<H, T>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
@@ -217,7 +213,7 @@ pub trait AsPlainDB<K, V> {
 // implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats
 // the point of the trait.
-impl<'a, H: TrieHasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
+impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
 	fn as_hash_db(&self) -> &dyn HashDB<H, T> {
 		&**self
 	}

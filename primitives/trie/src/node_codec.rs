@@ -22,7 +22,7 @@ use crate::{error::Error, trie_constants};
 use alloc::{borrow::Borrow, vec::Vec};
 use codec::{Decode, Encode, Input};
 use core::{marker::PhantomData, ops::Range};
-use hash_db::{Hasher, TrieHasher};
+use hash_db::Hasher;
 use trie_db::{
 	nibble_ops,
 	node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan},
@@ -83,7 +83,7 @@ pub struct NodeCodec<H>(PhantomData<H>);
 
 impl<H> NodeCodecT for NodeCodec<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
 	type Error = Error<H::Out>;

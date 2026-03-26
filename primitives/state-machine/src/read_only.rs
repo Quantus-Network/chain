@@ -23,7 +23,7 @@ use core::{
 	any::{Any, TypeId},
 	marker::PhantomData,
 };
-use hash_db::TrieHasher;
+use hash_db::Hasher;
 use sp_core::{
 	storage::{ChildInfo, StateVersion, TrackedStorageKey},
 	traits::Externalities,
@@ -33,7 +33,7 @@ use sp_externalities::MultiRemovalResults;
 /// Trait for inspecting state in any backend.
 ///
 /// Implemented for any backend.
-pub trait InspectState<H: TrieHasher, B: Backend<H>> {
+pub trait InspectState<H: Hasher, B: Backend<H>> {
 	/// Inspect state with a closure.
 	///
 	/// Self will be set as read-only externalities and inspection
@@ -43,7 +43,7 @@ pub trait InspectState<H: TrieHasher, B: Backend<H>> {
 	fn inspect_state<F: FnOnce() -> R, R>(&self, f: F) -> R;
 }
 
-impl<H: TrieHasher, B: Backend<H>> InspectState<H, B> for B
+impl<H: Hasher, B: Backend<H>> InspectState<H, B> for B
 where
 	H::Out: Encode,
 {
@@ -57,18 +57,18 @@ where
 /// To be used in test for state inspection. Will panic if something writes
 /// to the storage.
 #[derive(Debug)]
-pub struct ReadOnlyExternalities<'a, H: TrieHasher, B: 'a + Backend<H>> {
+pub struct ReadOnlyExternalities<'a, H: Hasher, B: 'a + Backend<H>> {
 	backend: &'a B,
 	_phantom: PhantomData<H>,
 }
 
-impl<'a, H: TrieHasher, B: 'a + Backend<H>> From<&'a B> for ReadOnlyExternalities<'a, H, B> {
+impl<'a, H: Hasher, B: 'a + Backend<H>> From<&'a B> for ReadOnlyExternalities<'a, H, B> {
 	fn from(backend: &'a B) -> Self {
 		ReadOnlyExternalities { backend, _phantom: PhantomData }
 	}
 }
 
-impl<'a, H: TrieHasher, B: 'a + Backend<H>> ReadOnlyExternalities<'a, H, B>
+impl<'a, H: Hasher, B: 'a + Backend<H>> ReadOnlyExternalities<'a, H, B>
 where
 	H::Out: Encode,
 {
@@ -80,7 +80,7 @@ where
 	}
 }
 
-impl<'a, H: TrieHasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<'a, H, B>
+impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<'a, H, B>
 where
 	H::Out: Encode,
 {
@@ -220,7 +220,7 @@ where
 	}
 }
 
-impl<'a, H: TrieHasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore
+impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore
 	for ReadOnlyExternalities<'a, H, B>
 {
 	fn extension_by_type_id(&mut self, _type_id: TypeId) -> Option<&mut dyn Any> {

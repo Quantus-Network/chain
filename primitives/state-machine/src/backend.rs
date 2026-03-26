@@ -26,7 +26,7 @@ use crate::{
 use alloc::vec::Vec;
 use codec::Encode;
 use core::marker::PhantomData;
-use hash_db::TrieHasher;
+use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, StateVersion, TrackedStorageKey};
 #[cfg(feature = "std")]
 use sp_core::traits::RuntimeCode;
@@ -62,7 +62,7 @@ pub struct IterArgs<'a> {
 /// A trait for a raw storage iterator.
 pub trait StorageIterator<H>
 where
-	H: TrieHasher,
+	H: Hasher,
 {
 	/// The state backend over which the iterator is iterating.
 	type Backend;
@@ -89,7 +89,7 @@ where
 /// An iterator over storage keys and values.
 pub struct PairsIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H>,
 {
 	backend: Option<&'a I::Backend>,
@@ -99,7 +99,7 @@ where
 
 impl<'a, H, I> Iterator for PairsIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H>,
 {
 	type Item = Result<(Vec<u8>, Vec<u8>), <I as StorageIterator<H>>::Error>;
@@ -110,7 +110,7 @@ where
 
 impl<'a, H, I> Default for PairsIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H> + Default,
 {
 	fn default() -> Self {
@@ -124,7 +124,7 @@ where
 
 impl<'a, H, I> PairsIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H> + Default,
 {
 	#[cfg(feature = "std")]
@@ -136,7 +136,7 @@ where
 /// An iterator over storage keys.
 pub struct KeysIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H>,
 {
 	backend: Option<&'a I::Backend>,
@@ -146,7 +146,7 @@ where
 
 impl<'a, H, I> Iterator for KeysIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H>,
 {
 	type Item = Result<Vec<u8>, <I as StorageIterator<H>>::Error>;
@@ -157,7 +157,7 @@ where
 
 impl<'a, H, I> Default for KeysIter<'a, H, I>
 where
-	H: TrieHasher,
+	H: Hasher,
 	I: StorageIterator<H> + Default,
 {
 	fn default() -> Self {
@@ -179,7 +179,7 @@ pub type BackendTransaction<H> = PrefixedMemoryDB<H>;
 /// to it.
 ///
 /// The clone operation (if implemented) should be cheap.
-pub trait Backend<H: TrieHasher>: core::fmt::Debug {
+pub trait Backend<H: Hasher>: core::fmt::Debug {
 	/// An error type when fetching data is not possible.
 	type Error: super::Error;
 
@@ -384,7 +384,7 @@ pub trait Backend<H: TrieHasher>: core::fmt::Debug {
 
 /// Something that can be converted into a [`TrieBackend`].
 #[cfg(feature = "std")]
-pub trait AsTrieBackend<H: TrieHasher, C = sp_trie::cache::LocalTrieCache<H>> {
+pub trait AsTrieBackend<H: Hasher, C = sp_trie::cache::LocalTrieCache<H>> {
 	/// Type of trie backend storage.
 	type TrieBackendStorage: TrieBackendStorage<H>;
 
@@ -400,7 +400,7 @@ pub struct BackendRuntimeCode<'a, B, H> {
 }
 
 #[cfg(feature = "std")]
-impl<'a, B: Backend<H>, H: TrieHasher> sp_core::traits::FetchRuntimeCode
+impl<'a, B: Backend<H>, H: Hasher> sp_core::traits::FetchRuntimeCode
 	for BackendRuntimeCode<'a, B, H>
 {
 	fn fetch_runtime_code(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
@@ -413,7 +413,7 @@ impl<'a, B: Backend<H>, H: TrieHasher> sp_core::traits::FetchRuntimeCode
 }
 
 #[cfg(feature = "std")]
-impl<'a, B: Backend<H>, H: TrieHasher> BackendRuntimeCode<'a, B, H>
+impl<'a, B: Backend<H>, H: Hasher> BackendRuntimeCode<'a, B, H>
 where
 	H::Out: Encode,
 {

@@ -23,7 +23,7 @@ use crate::{
 	backend::Backend, IndexOperation, IterArgs, OverlayedChanges, StorageKey, StorageValue,
 };
 use codec::{Compact, CompactLen, Decode, Encode};
-use hash_db::TrieHasher;
+use hash_db::Hasher;
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::storage::{
@@ -92,7 +92,7 @@ impl<B: error::Error, E: error::Error> error::Error for Error<B, E> {
 /// Wraps a read-only backend, call executor, and current overlayed changes.
 pub struct Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	B: 'a + Backend<H>,
 {
 	/// The overlayed changes to write to.
@@ -108,7 +108,7 @@ where
 
 impl<'a, H, B> Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	B: Backend<H>,
 {
 	/// Create a new `Ext`.
@@ -136,7 +136,7 @@ where
 #[cfg(test)]
 impl<'a, H, B> Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + 'static,
 	B: 'a + Backend<H>,
 {
@@ -160,7 +160,7 @@ where
 
 impl<'a, H, B> Externalities for Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 	B: Backend<H>,
 {
@@ -670,7 +670,7 @@ where
 
 impl<'a, H, B> Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 	B: Backend<H>,
 {
@@ -797,7 +797,7 @@ impl<'a> StorageAppend<'a> {
 #[cfg(not(feature = "std"))]
 impl<'a, H, B> ExtensionStore for Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 	B: Backend<H>,
 {
@@ -824,7 +824,7 @@ where
 #[cfg(feature = "std")]
 impl<'a, H, B> ExtensionStore for Ext<'a, H, B>
 where
-	H: TrieHasher,
+	H: Hasher,
 	B: 'a + Backend<H>,
 {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
@@ -864,6 +864,7 @@ mod tests {
 	use super::*;
 	use crate::InMemoryBackend;
 	use codec::{Decode, Encode};
+	use hash_db::Hasher;
 	use sp_core::{
 		map,
 		storage::{Storage, StorageChild},
