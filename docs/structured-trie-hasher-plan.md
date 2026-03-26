@@ -1,4 +1,4 @@
-# Structured Trie Hasher: Implementation Plan
+# Structured Trie Hasher
 
 ## Problem
 
@@ -14,7 +14,7 @@ as a sequence of 8-byte felt-sized chunks.
 
 ## Goal
 
-Introduce a `TrieHasher` trait that lets the hasher distinguish between **encoded trie nodes**
+Extend the `Hasher` trait so the hasher can distinguish between **encoded trie nodes**
 and **raw storage values**, enabling `PoseidonHasher` to:
 
 - **Skip the injective encoder for nodes** — directly interpret 8-byte chunks as Goldilocks felts
@@ -24,23 +24,36 @@ This eliminates encoding constraints from every trie node hash in the ZK circuit
 
 ## Trait Design
 
-### New trait in `hash-db`
+### Extended `Hasher` trait in `hash-db`
 
 ```rust
-pub trait TrieHasher: Hasher {
-    /// Hash a fully encoded trie node (leaf, branch, or empty).
-    /// The implementation may assume the input is felt-aligned.
-    fn hash_node(encoded_node: &[u8]) -> Self::Out;
+pub trait Hasher: Sync + Send {
+    type Out: AsRef<[u8]> + AsMut<[u8]> + Default + ...;
+    type StdHasher: Sync + Send + Default + hash::Hasher;
+    const LENGTH: usize;
 
-    /// Hash a raw storage value that exceeded the inline threshold.
-    fn hash_value(value: &[u8]) -> Self::Out;
+    fn hash(x: &[u8]) -> Self::Out;
+
+    fn hash_node(encoded_node: &[u8]) -> Self::Out {
+        Self::hash(encoded_node)
+    }
+
+    fn hash_value(value: &[u8]) -> Self::Out {
+        Self::hash(value)
+    }
 }
 ```
 
 **Why this shape:**
 
-- `TrieHasher: Hasher` — superset, not replacement. All non-trie code that only needs
-  `Hasher` compiles unchanged.
+- **Methods on `Hasher` itself, not a separate trait** — `hash_node` and `hash_value` are added
+  directly to the existing `Hasher` trait with default implementations that delegate to `hash`.
+  This means every existing `Hasher` impl (e.g. `Blake2Hasher`) works without changes. Only
+  `PoseidonHasher` overrides them.
+- **No separate `TrieHasher` trait** — an earlier iteration introduced a `TrieHasher: Hasher`
+  supertrait, but this added complexity (orphan rule issues, extra imports, redundant bounds)
+  with no benefit. Since the defaults delegate to `hash`, putting the methods directly on
+  `Hasher` is strictly simpler.
 - **Two methods, not per-node-type methods** — the earlier idea of `hash_leaf(partial, value)` /
   `hash_branch(partial, children, value)` would require threading individual fields through every
   encoding path. Instead, `hash_node` receives the already-encoded bytes. Since we control both
@@ -50,16 +63,14 @@ pub trait TrieHasher: Hasher {
 ### Extended `HashDB` trait
 
 ```rust
-pub trait HashDB<H: TrieHasher, T>: Send + Sync + AsHashDB<H, T> {
+pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
     fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
     fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
     fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out;
     fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T);
     fn remove(&mut self, key: &H::Out, prefix: Prefix);
 
-    /// Insert an encoded trie node, hashing with `TrieHasher::hash_node`.
     fn insert_node(&mut self, prefix: Prefix, encoded_node: &[u8]) -> H::Out {
-        // Default: same as insert (backward compatible)
         self.insert(prefix, encoded_node)
     }
 }
@@ -67,6 +78,20 @@ pub trait HashDB<H: TrieHasher, T>: Send + Sync + AsHashDB<H, T> {
 
 The default `insert_node` delegates to `insert`, so all existing `HashDB` impls compile.
 Only `memory-db` overrides it to route through `hash_node`.
+
+### `MAX_INLINE_NODE` on `TrieLayout`
+
+```rust
+pub trait TrieLayout {
+    const MAX_INLINE_VALUE: Option<u32>;
+    const MAX_INLINE_NODE: Option<u32> = None;
+    // ...
+}
+```
+
+Controls the child inlining threshold. `None` preserves the upstream default (`Hash::LENGTH`).
+`Some(0)` forces all children to be hashed, which is required by our codec (it panics on
+inline children). Both `LayoutV0` and `LayoutV1` set this to `Some(0)`.
 
 ## Call Site Inventory
 
@@ -76,7 +101,7 @@ Every `H::hash(&[u8])` call in the trie stack falls into exactly 3 categories:
 |----------|-------------|--------|
 | **Encoded trie node** | Full encoded node bytes (leaf, branch, empty, root) | → `hash_node` / `insert_node` |
 | **Storage value** | Raw value bytes exceeding inline threshold | → `hash_value` / `insert` |
-| **Sentinel** | Null key / empty marker (fixed small input) | → `Hasher::hash` (base trait) |
+| **Sentinel** | Null key / empty marker (fixed small input) | → `Hasher::hash` (unchanged) |
 
 ## Changes Per Crate
 
@@ -86,12 +111,8 @@ Every `H::hash(&[u8])` call in the trie stack falls into exactly 3 categories:
 
 | Change | Detail |
 |--------|--------|
-| Add `TrieHasher` trait | As shown above, extends `Hasher` |
-| Update `HashDB` trait bound | `H: Hasher` → `H: TrieHasher` |
-| Add `insert_node` default method | On `HashDB` with fallback to `insert` |
-| Update `HashDBRef`, `AsHashDB` | Same bound change: `H: Hasher` → `H: TrieHasher` |
-
-**Estimated diff:** ~25 lines
+| Add `hash_node` / `hash_value` to `Hasher` | Default impls delegate to `hash` |
+| Add `insert_node` default method on `HashDB` | Delegates to `insert` |
 
 ### 2. `memory-db` (local fork)
 
@@ -99,163 +120,79 @@ Every `H::hash(&[u8])` call in the trie stack falls into exactly 3 categories:
 
 | Change | Detail |
 |--------|--------|
-| Bound change | `H: KeyHasher` → `H: KeyHasher + TrieHasher` where needed |
-| `HashDB::insert` impl (line 541) | Change `H::hash(value)` → `H::hash_value(value)` |
-| Add `HashDB::insert_node` override | Calls `H::hash_node(value)` then `emplace` |
-| `from_null_node` (line 317) | Keep as `H::hash(null_key)` — sentinel, uses base trait |
+| `HashDB::insert` impl | `H::hash(value)` → `H::hash_value(value)` |
+| `HashDB::insert_node` override | Calls `H::hash_node(encoded_node)` then `emplace` |
+| `from_null_node` | Unchanged — sentinel, uses base `Hasher::hash` |
 
-**Estimated diff:** ~30 lines
-
-### 3. `trie-root` (needs local patch or fork)
+### 3. `trie-root` (local fork)
 
 **Files:** `src/lib.rs`
 
-| Line | Current | Change to | Reason |
-|------|---------|-----------|--------|
-| 59 | `H::hash(value)` | `H::hash_value(value)` | Hashing a value that exceeded threshold |
-| 166 | `H::hash(&stream.out())` | `H::hash_node(&stream.out())` | Hashing the root node encoding |
-| Trait bounds | `H: Hasher` | `H: TrieHasher` | On `trie_root_inner`, `trie_root_no_extension`, `unhashed_trie_no_extension`, `sec_trie_root` |
-
-**Estimated diff:** ~15 lines
+| Current | Change to | Reason |
+|---------|-----------|--------|
+| `H::hash(value)` | `H::hash_value(value)` | Value that exceeded threshold |
+| `H::hash(&stream.out())` | `H::hash_node(&stream.out())` | Root node encoding |
 
 ### 4. `trie-db` (local, at `primitives/trie-db`)
 
-#### `iter_build.rs` — `ProcessEncodedNode` impls
+**`iter_build.rs`** — 4 `ProcessEncodedNode` impls updated:
+- `self.db.insert` → `self.db.insert_node` for encoded nodes
+- `Hasher::hash(node)` → `Hasher::hash_node(node)` for in-memory root calculation
+- `Hasher::hash(value)` → `Hasher::hash_value(value)` for inner hashed values
+- Inline threshold checks use `T::MAX_INLINE_NODE` instead of hardcoded `Hash::LENGTH`
 
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 389 | `self.db.insert(prefix, &encoded_node)` | `self.db.insert_node(prefix, &encoded_node)` | `TrieBuilder::process` — encoded node |
-| 397 | `self.db.insert(prefix, value)` | (unchanged) | `TrieBuilder::process_inner_hashed_value` — value |
-| 427 | `<T::Hash as Hasher>::hash(encoded_node.as_slice())` | `<T::Hash as TrieHasher>::hash_node(encoded_node.as_slice())` | `TrieRoot::process` — encoded node |
-| 435 | `<T::Hash as Hasher>::hash(value)` | `<T::Hash as TrieHasher>::hash_value(value)` | `TrieRoot::process_inner_hashed_value` — value |
-| 486 | `<T::Hash as Hasher>::hash(encoded_node.as_slice())` | `<T::Hash as TrieHasher>::hash_node(...)` | `TrieRootPrint::process` — encoded node |
-| 496 | `<T::Hash as Hasher>::hash(value)` | `<T::Hash as TrieHasher>::hash_value(value)` | `TrieRootPrint::process_inner_hashed_value` — value |
-| 514 | `<T::Hash as Hasher>::hash(encoded_node.as_slice())` | `<T::Hash as TrieHasher>::hash_node(...)` | `TrieRootUnhashed::process` — encoded node |
-| 523 | `<T::Hash as Hasher>::hash(value)` | `<T::Hash as TrieHasher>::hash_value(value)` | `TrieRootUnhashed::process_inner_hashed_value` — value |
+**`triedbmut.rs`** — 2 insert sites:
+- Root node and child node insertions → `insert_node`
+- Inline threshold uses `L::MAX_INLINE_NODE`
 
-#### `triedbmut.rs` — `commit` / `commit_child`
+**`trie_codec.rs`** — 1 site: `db.insert` → `db.insert_node` for encoded nodes
 
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 1837 | `self.db.insert(k.as_prefix(), value)` | (unchanged) | Hashing a storage value |
-| 1852 | `self.db.insert(EMPTY_PREFIX, &encoded_root)` | `self.db.insert_node(EMPTY_PREFIX, &encoded_root)` | Hashing the encoded root node |
-| 1977 | `self.db.insert(prefix.as_prefix(), value)` | (unchanged) | Hashing a storage value |
-| 1994 | `self.db.insert(prefix.as_prefix(), &encoded)` | `self.db.insert_node(prefix.as_prefix(), &encoded)` | Hashing an encoded child node |
+**`proof/verify.rs`** — 2 sites: `hash(value)` → `hash_value`, `hash(node)` → `hash_node`
 
-#### `trie_codec.rs`
+**`node.rs`** — 1 site: inline value → `hash_value`
 
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 519 | `db.insert(...)` for attached value | (unchanged) | Value |
-| 521 | `db.insert(...)` for encoded node | `db.insert_node(...)` | Node |
-
-#### `proof/verify.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 258 | `H::hash(value)` | `H::hash_value(value)` | Value exceeding inline threshold |
-| 457 | `H::hash(node_data)` | `H::hash_node(node_data)` | Encoded node during proof unwind |
-
-#### `node.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 134 | `L::Hash::hash(data)` | `L::Hash::hash_value(data)` | Inline value → `ValueOwned` |
-
-#### `lookup.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 411 | `L::Hash::hash(v)` | `L::Hash::hash_value(v)` | Inline value Merkle hash |
-
-#### Trait bounds
-
-All `H: Hasher` bounds on `TrieLayout`, `TrieConfiguration`, and related types change
-to `H: TrieHasher`.
-
-#### `fatdb*.rs` / `sectriedb*.rs`
-
-Not used in this codebase. For completeness: these hash user keys and should use
-`H::hash()` (base trait). No change needed — they already use base `Hasher::hash`.
-
-**Estimated diff in trie-db:** ~60 lines
+**`lib.rs`** — Added `MAX_INLINE_NODE` constant to `TrieLayout`
 
 ### 5. `sp-trie` (local, at `primitives/trie`)
 
-#### `node_codec.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 86 | `H: Hasher` | `H: TrieHasher` | Bound on `NodeCodec<H>` |
-| 94 | `H::hash(empty_node)` | `H::hash_node(empty_node)` | Hashing the empty node encoding |
-
-#### `lib.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 93, 146 | `H: Hasher` on `LayoutV0`, `LayoutV1` | `H: TrieHasher` | Layout bounds |
-| 105, 156 | `H: Hasher` on `TrieConfiguration` impls | `H: TrieHasher` | Same |
-
-#### `recorder.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 58 | `Hasher::hash(&n)` | `Hasher::hash_node(&n)` | Proof nodes are encoded trie nodes |
-| 70 | `Hasher::hash(&data)` | `Hasher::hash_node(&data)` | DB entries are encoded trie nodes |
-
-**Estimated diff:** ~20 lines
+| File | Change |
+|------|--------|
+| `lib.rs` | `LayoutV0`/`LayoutV1` set `MAX_INLINE_NODE: Some(0)` |
+| `node_codec.rs` | `hash` → `hash_node`; handle `Inline(_, 0)` sentinel for compact proofs |
+| `recorder.rs` | `hash` → `hash_node` for proof nodes |
+| `trie_stream.rs` | `hash` → `hash_node` |
 
 ### 6. `sp-state-machine` (local, at `primitives/state-machine`)
 
-#### `ext.rs`
+| File | Change |
+|------|--------|
+| `ext.rs` | `storage_hash` / `child_storage_hash` → `hash_value` |
+| All files | Mechanical — no bound changes needed since `hash_node`/`hash_value` are on `Hasher` |
 
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 95, 111, 139, 163, 673, 800, 827 | `H: Hasher` bounds | `H: TrieHasher` | Bound propagation |
-| 202 | `H::hash(x)` | `H::hash_value(x)` | `storage_hash` — hashing a storage value |
-| 242 | `H::hash(x)` | `H::hash_value(x)` | `child_storage_hash` — hashing a storage value |
-
-#### `trie_backend_essence.rs`
-
-| Lines | Current | Change to | Reason |
-|-------|---------|-----------|--------|
-| 231, 249 | `H::hash(&[0u8])` | (unchanged) | Sentinel — uses base `Hasher::hash` |
-| All `H: Hasher` bounds | | `H: TrieHasher` | Bound propagation |
-
-#### `basic.rs`
-
-Currently hardcodes `Blake2Hasher`. Implement `TrieHasher` for `Blake2Hasher` (trivially —
-all methods delegate to `Blake2Hasher::hash`). No logic changes needed.
-
-#### Other files
-
-`in_memory_backend.rs`, `overlayed_changes/mod.rs`, `backend.rs`, `testing.rs`,
-`read_only.rs`, `fuzzing.rs` — bound changes only (`H: Hasher` → `H: TrieHasher`).
-
-**Estimated diff:** ~40 lines
-
-### 7. `PoseidonHasher` (the optimization)
+### 7. `PoseidonHasher` (companion PR in `qp-poseidon`)
 
 ```rust
-impl TrieHasher for PoseidonHasher {
+impl Hasher for PoseidonHasher {
+    // ... existing type/const defs ...
+
+    fn hash(x: &[u8]) -> H256 {
+        H256::from_slice(&Self::hash_for_circuit(x))
+    }
+
     fn hash_node(encoded_node: &[u8]) -> H256 {
-        // Node codec guarantees 8-byte alignment.
-        // Each 8-byte chunk is one Goldilocks felt — no encoding overhead.
         let felts: Vec<Goldilocks> = encoded_node
             .chunks(8)
             .map(|chunk| {
                 let mut buf = [0u8; 8];
                 buf[..chunk.len()].copy_from_slice(chunk);
-                Goldilocks::from_canonical_u64(u64::from_le_bytes(buf))
+                Goldilocks::from_u64(u64::from_le_bytes(buf))
             })
             .collect();
-        hash_variable_length(felts).into()
+        H256::from_slice(&hash_to_bytes(&felts))
     }
 
     fn hash_value(value: &[u8]) -> H256 {
-        // Arbitrary bytes — must use injective encoding for safety.
-        let felts = injective_bytes_to_felts::<Goldilocks>(value);
-        hash_variable_length(felts).into()
+        H256::from_slice(&Self::hash_for_circuit(value))
     }
 }
 ```
@@ -265,60 +202,32 @@ it treats each 8-byte chunk as a native field element. The ZK circuit for node h
 becomes: load felts directly from witness → feed into Poseidon2 sponge. No range checks,
 no length separators, no byte packing logic.
 
-**Estimated diff:** ~20 lines
+`hash_value` delegates to `hash_for_circuit` (injective encoding) since storage values
+are arbitrary bytes.
 
-### 8. `Blake2Hasher` (backward compat for tests)
+### 8. `Blake2Hasher`
 
-```rust
-impl TrieHasher for Blake2Hasher {
-    fn hash_node(encoded_node: &[u8]) -> H256 {
-        Blake2Hasher::hash(encoded_node)
-    }
-
-    fn hash_value(value: &[u8]) -> H256 {
-        Blake2Hasher::hash(value)
-    }
-}
-```
-
-Trivial delegation. Ensures all tests using `Blake2Hasher` continue to work.
-
-**Estimated diff:** ~10 lines
-
-## Implementation Order
-
-```
-Step 1: hash-db          — add TrieHasher trait, update HashDB bounds
-Step 2: memory-db        — implement insert_node, route through hash_node/hash_value
-Step 3: trie-root        — update 2 call sites + bounds
-Step 4: trie-db          — update ~15 call sites + bounds
-Step 5: sp-trie          — update NodeCodec, layouts, recorder
-Step 6: sp-state-machine — update bounds + ext.rs call sites
-Step 7: Blake2Hasher     — trivial TrieHasher impl (unblocks tests)
-Step 8: PoseidonHasher   — the real optimization
-```
-
-Steps 1–7 are mechanical. Step 8 is the payoff.
-
-Each step should compile and pass tests before proceeding to the next.
+No changes needed. The default `hash_node`/`hash_value` implementations on `Hasher`
+delegate to `Blake2Hasher::hash`, so all tests using `Blake2Hasher` work without any
+additional code.
 
 ## What Does NOT Change
 
 | Component | Why unchanged |
 |-----------|---------------|
-| `frame_system::Config::Hashing` | Pallets use `T::Hashing::hash()` (base `Hasher` trait) |
+| `frame_system::Config::Hashing` | Pallets use `T::Hashing::hash()` (base `Hasher::hash`) |
 | `qp-header` | Already has its own bespoke felt-aligned hashing via `Header::hash(&self)` |
 | Wormhole pallet | Uses `PoseidonCore::hash_storage`, independent of trie hasher |
 | PoW / mining | Uses `hash_squeeze_twice`, unrelated |
 | Block import / consensus | Uses header hashing via `qp-header` |
-| Host functions (`sp_io`) | Upstream, calls into state machine which carries the generic `H: TrieHasher` |
+| Host functions (`sp_io`) | Upstream, calls into state machine which carries the generic `H: Hasher` |
 
 ## Risk Assessment
 
 ### Consensus-breaking change
 
-This changes trie node hashes and therefore every state root. **Requires genesis reset or
-coordinated migration.** Pre-mainnet, genesis reset is presumably acceptable.
+This changes trie node hashes and therefore every state root. **Requires genesis reset.**
+Pre-mainnet, genesis reset is acceptable.
 
 ### Correctness of `hash_node`
 
@@ -328,9 +237,6 @@ alignment on all node encodings. Existing tests provide coverage:
 - `random_test_8_byte_alignment` — random trie alignment over 20 seeds
 - `storage_proof_8_byte_alignment_test` — random data + edge cases + non-inclusion proofs
 - `child_reference_8_byte_boundary_test` — branch node child positioning
-
-A new test should be added: round-trip verification that `hash_node(encode(node))` matches
-the expected Poseidon output for known test vectors.
 
 ### Proof verification
 
@@ -344,7 +250,7 @@ both sides benefit.
 - 64-byte node → injective encoding → ~10–12 felts + length overhead
 - Circuit: range checks per felt + length separator constraints + Poseidon sponge
 
-**Proposed path** (`PoseidonHasher::hash_node` with direct loading):
+**New path** (`PoseidonHasher::hash_node` with direct loading):
 - 64-byte node → 8 felts (direct 8-byte chunks)
 - Circuit: Poseidon sponge only
 
@@ -352,16 +258,95 @@ For every trie node hash verified in a block proof (typically 10–20+ nodes per
 access, multiplied by all storage accesses in the block), the injective encoding constraints
 are eliminated entirely. The savings compound across the entire block proof.
 
-## Total Estimated Diff
+---
 
-| Crate | Lines changed |
-|-------|---------------|
-| hash-db | ~25 |
-| memory-db | ~30 |
-| trie-root | ~15 |
-| trie-db | ~60 |
-| sp-trie | ~20 |
-| sp-state-machine | ~40 |
-| PoseidonHasher | ~20 |
-| Blake2Hasher | ~10 |
-| **Total** | **~220 lines** |
+## Addendum: Deviations from the Original Plan
+
+The original plan (preserved below as reference) proposed a specific architecture that was
+refined during implementation. Here are the changes and why they were made.
+
+### 1. No separate `TrieHasher` trait
+
+**Plan said:** Add a `pub trait TrieHasher: Hasher` with `hash_node` and `hash_value` methods.
+Change all `H: Hasher` bounds across the stack to `H: TrieHasher`.
+
+**What was implemented:** `hash_node` and `hash_value` were added directly to the `Hasher`
+trait as default methods. No `TrieHasher` trait exists.
+
+**Why:** The separate trait caused cascading problems:
+- **Orphan rules:** `Blake2Hasher` is defined in `sp-core`, so implementing `TrieHasher`
+  (defined in `hash-db`) for it required either forking `sp-core` or placing the impl in
+  `sp-trie`, which triggered Rust's orphan rule (E0117).
+- **Cyclic dependencies:** Attempting to add `sp-core` as an optional dep of `hash-db`
+  (to impl `TrieHasher` for `Blake2Hasher` there) created a dependency cycle since `sp-core`
+  depends on `hash-db`.
+- **Unnecessary complexity:** Since the default implementations just delegate to `hash`,
+  putting the methods on `Hasher` directly means every existing `Hasher` impl automatically
+  gets correct behavior. Only `PoseidonHasher` overrides them. No bound changes needed anywhere.
+
+This eliminated ~100 lines of bound changes across `sp-state-machine` and simplified the
+entire diff.
+
+### 2. No `Blake2Hasher` implementation needed
+
+**Plan said:** Implement `TrieHasher for Blake2Hasher` with trivial delegation to `hash`.
+
+**What was implemented:** Nothing. The defaults on `Hasher` handle this automatically.
+
+**Why:** With methods directly on `Hasher`, the default `hash_node`/`hash_value` delegate
+to `Self::hash`. `Blake2Hasher` gets this for free.
+
+### 3. `PoseidonHasher` overrides are on `impl Hasher`, not a separate impl block
+
+**Plan said:** `impl TrieHasher for PoseidonHasher { ... }` as a separate impl block.
+
+**What was implemented:** `hash_node` and `hash_value` are overridden directly inside
+`impl Hasher for PoseidonHasher { ... }`.
+
+**Why:** There is no `TrieHasher` trait. The methods live on `Hasher`, so the overrides
+go in the `Hasher` impl. This is also cleaner — one impl block per type.
+
+### 4. Added `MAX_INLINE_NODE` to `TrieLayout`
+
+**Plan did not mention this.**
+
+**What was implemented:** A new `const MAX_INLINE_NODE: Option<u32> = None` on `TrieLayout`,
+set to `Some(0)` in both `LayoutV0` and `LayoutV1`.
+
+**Why:** The chain's codec panics on inline children (`ChildReference::Inline` with non-zero
+length). The upstream `trie-db` inlines children smaller than `Hash::LENGTH` (32 bytes).
+The existing `MAX_INLINE_VALUE` already forced all values to be hashed, but there was no
+equivalent for children. Adding `MAX_INLINE_NODE` and checking it at all 5 inline-decision
+sites (`triedbmut.rs` + 4 in `iter_build.rs`) fixed pre-existing test failures.
+
+### 5. Codec handles `Inline(_, 0)` sentinel
+
+**Plan did not mention this.**
+
+**What was implemented:** `node_codec.rs` `branch_node_nibbled` now treats
+`ChildReference::Inline(_, 0)` as absent (bitmap bit = false) instead of panicking.
+
+**Why:** The proof generator uses `Inline(zero, 0)` as a sentinel meaning "this child
+hash is omitted from the compact proof." With the codec's strict no-inline-children policy,
+this sentinel was triggering the panic. The zero-length case is semantically "absent" and
+needs to pass through without encoding any child data.
+
+### 6. `hash_value` delegates to `hash_for_circuit`, not `injective_bytes_to_felts` directly
+
+**Plan said:** `hash_value` would call `injective_bytes_to_felts` then hash the felts.
+
+**What was implemented:** `hash_value` delegates to `Self::hash_for_circuit(value)`,
+which is the existing padded injective encoding path.
+
+**Why:** `hash_for_circuit` already wraps the injective encoding with the correct padding
+and length handling used everywhere else. Calling it directly avoids duplicating that logic.
+
+### 7. `Goldilocks::from_u64` instead of `from_canonical_u64`
+
+**Plan said:** `Goldilocks::from_canonical_u64(u64::from_le_bytes(buf))`.
+
+**What was implemented:** `Goldilocks::from_u64(u64::from_le_bytes(buf))`.
+
+**Why:** The `p3-field` crate (v0.3.0) generates `from_u64` via a macro on the
+`PrimeCharacteristicRing` trait. `from_canonical_u64` does not exist on `Goldilocks`
+in this version. Both perform modular reduction, which is correct for felt-aligned data.
