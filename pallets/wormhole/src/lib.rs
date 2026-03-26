@@ -48,7 +48,10 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F};
+	use qp_wormhole_verifier::{
+		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, D,
+		F,
+	};
 	use sp_runtime::{
 		traits::{MaybeDisplay, Saturating, Zero},
 		transaction_validity::{
@@ -226,72 +229,21 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			let verifier = crate::get_aggregated_verifier()
-				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			let (proof, aggregated_inputs) = Self::pre_validate_proof(&proof_bytes)?;
 
-			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
-				proof_bytes,
-				&verifier.circuit_data.common,
-			)
-			.map_err(|e| {
-				log::error!("Failed to deserialize aggregated proof: {:?}", e);
-				Error::<T>::AggregatedProofDeserializationFailed
-			})?;
-
-			// Parse aggregated public inputs
-			let aggregated_inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
-				log::error!("Failed to parse aggregated public inputs: {:?}", e);
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-
-			// === Cheap checks first (before expensive ZK verification) ===
-
-			// Verify the proof is for native asset only (asset_id = 0)
-			// Non-native assets are not supported in this version
-			ensure!(aggregated_inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
-
-			// Verify the volume fee rate matches our configured rate
-			ensure!(
-				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
-				Error::<T>::InvalidVolumeFeeRate
-			);
-
-			// Convert block number from u32 to BlockNumberFor<T>
-			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
-
-			// Get the block hash for the specified block number
-			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-
-			// Validate that the block exists by checking if it's not the default hash
-			// The default hash (all zeros) indicates the block doesn't exist
-			// If we don't check this a malicious prover can set the block_hash to 0
-			// and block_number in the future and this check will pass
-			let default_hash = T::Hash::default();
-			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
-
-			// Ensure that the block hash from storage matches the one in public inputs
-			ensure!(
-				block_hash.as_ref() == aggregated_inputs.block_data.block_hash.as_ref(),
-				Error::<T>::InvalidPublicInputs
-			);
-
-			// Check and mark nullifiers as used (catches replays and duplicates within proof)
+			// Mark nullifiers as used (pre_validate_proof only checks existence)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
 					.as_ref()
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
 				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 				nullifier_list.push(nullifier_bytes);
 			}
 
-			// === Expensive ZK verification ===
-
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
 			verifier.verify(proof.clone()).map_err(|e| {
 				log::error!("Aggregated proof verification failed: {:?}", e);
 				Error::<T>::AggregatedVerificationFailed
@@ -454,14 +406,9 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_aggregated_proof { proof_bytes } => {
-					// Basic validation: check proof bytes are not empty
-					if proof_bytes.is_empty() {
-						return InvalidTransaction::Custom(2).into();
-					}
+					Self::pre_validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						// Use reduced priority to prevent spam from blocking legitimate
-						// transactions
 						.priority(TransactionPriority::MAX / 2)
 						.longevity(5)
 						.propagate(true)
@@ -472,10 +419,46 @@ pub mod pallet {
 		}
 	}
 
-	// Helper functions for recording transfer proofs
 	impl<T: Config> Pallet<T> {
-		/// Record a transfer proof
-		/// This should be called by transaction extensions or other runtime components
+		/// Pre-validate an aggregated proof (all cheap checks, no ZK verification).
+		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
+		fn pre_validate_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes.to_vec(),
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
+			let inputs = parse_aggregated_public_inputs(&proof)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+			ensure!(
+				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
+			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
+			ensure!(
+				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
+			}
+			Ok((proof, inputs))
+		}
+
 		pub fn record_transfer(
 			asset_id: AssetIdOf<T>,
 			from: <T as Config>::WormholeAccountId,

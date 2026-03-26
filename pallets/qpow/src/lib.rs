@@ -120,12 +120,12 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		// TODO: update this
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-			<T as crate::Config>::WeightInfo::on_finalize_max_history()
+			<T as crate::Config>::WeightInfo::on_finalize()
 		}
 
-		/// Called at the end of each block.
+		/// Called at the end of each block to adjust mining difficulty based on
+		/// observed block times using Exponential Moving Average (EMA).
 		fn on_finalize(block_number: BlockNumberFor<T>) {
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
