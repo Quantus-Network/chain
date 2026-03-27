@@ -147,7 +147,7 @@ sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-qp-plonky2 = { version = "1.1.3", default-features = false }
+qp-plonky2 = { version = "1.1.6", default-features = false }
 qp-poseidon = { version = "1.3.0", default-features = false }
 qp-poseidon-core = { version = "1.3.0", default-features = false }
 qp-rusty-crystals-dilithium = { version = "2.4.0", default-features = false }
@@ -239,10 +239,6 @@ sp-trie = { path = "./primitives/trie" }
 trie-db = { path = "./primitives/trie-db" }
 
 # Quantus dependencies - git branches for testnet
-qp-plonky2 = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
-qp-plonky2-core = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
-qp-plonky2-field = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
-qp-plonky2-verifier = { git = "https://github.com/Quantus-Network/qp-plonky2.git", branch = "illuzen/new-rate" }
 qp-wormhole-circuit = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
 qp-wormhole-circuit-builder = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
 qp-wormhole-inputs = { git = "https://github.com/Quantus-Network/qp-zk-circuits.git", branch = "illuzen/non-injectivity" }
