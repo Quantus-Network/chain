@@ -8696,8 +8696,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03c66cc0ce72900e6da4d5143a314354b57cd2042c3778fc98986fda7d64e749"
 dependencies = [
  "anyhow",
  "hex",
@@ -8713,8 +8714,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae1662471daf34834323319ec34ed06c227fd50e9633de5a8907e72a551c8100"
 dependencies = [
  "anyhow",
  "hex",
@@ -8725,8 +8727,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2c8f9d4ae15adca403bafcd28d9ae818f9cc170213baf41eb81302bc06fdf9f"
 dependencies = [
  "anyhow",
  "clap",
@@ -8738,16 +8741,18 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e135f57e925293c283b1ff5ef8b8f797df1a92bff7f243d7a891d400342d809d"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e72881e0028ab19a77edf80012fed3efc88d1cb7e7175f37666329163e2aaf"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -8758,8 +8763,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50f1e0aa5a0706a01ed202b9ec69effd6e2cc9739c2fe552ad19f0c44013335c"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -8768,8 +8774,9 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18aac166a5a456d908157b9c1ca55b41d455dda8d66218ecff14f06308fd5887"
 dependencies = [
  "anyhow",
  "hex",
