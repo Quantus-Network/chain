@@ -916,7 +916,7 @@ version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90dbd31c98227229239363921e60fcf5e558e43ec69094d46fc4996f08d1d5bc"
 dependencies = [
- "bitcoin_hashes 0.13.0",
+ "bitcoin_hashes 0.14.0",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "serde",
@@ -4284,7 +4284,7 @@ dependencies = [
  "hyper 1.7.0",
  "libc",
  "pin-project-lite 0.2.16",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tokio 1.47.1",
  "tower-service",
  "tracing",
@@ -8593,7 +8593,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon"
 version = "1.2.0"
-source = "git+https://github.com/Quantus-Network/qp-poseidon.git?branch=illuzen%2Finjective-to-felts#84c10220d0170475e23ed6eba503b8b5dfedadb9"
+source = "git+https://github.com/Quantus-Network/qp-poseidon.git?branch=illuzen%2Finjective-to-felts#88df3891f2d554af65ded378daa44d5b1aaeeff7"
 dependencies = [
  "log",
  "p3-field",
@@ -8624,7 +8624,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon-core"
 version = "1.2.0"
-source = "git+https://github.com/Quantus-Network/qp-poseidon.git?branch=illuzen%2Finjective-to-felts#84c10220d0170475e23ed6eba503b8b5dfedadb9"
+source = "git+https://github.com/Quantus-Network/qp-poseidon.git?branch=illuzen%2Finjective-to-felts#88df3891f2d554af65ded378daa44d5b1aaeeff7"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -8637,7 +8637,7 @@ dependencies = [
 [[package]]
 name = "qp-rusty-crystals-dilithium"
 version = "2.2.0"
-source = "git+https://github.com/Quantus-Network/qp-rusty-crystals.git?branch=illuzen%2Fnew-poseidon-api#141d1e28b28419068f00d15b23de19c71d3adbfa"
+source = "git+https://github.com/Quantus-Network/qp-rusty-crystals.git?branch=illuzen%2Fnew-poseidon-api#f178c2a9f5c5bb48e2303e1a346d84075bab9e32"
 dependencies = [
  "zeroize",
 ]
@@ -8645,7 +8645,7 @@ dependencies = [
 [[package]]
 name = "qp-rusty-crystals-hdwallet"
 version = "2.2.0"
-source = "git+https://github.com/Quantus-Network/qp-rusty-crystals.git?branch=illuzen%2Fnew-poseidon-api#141d1e28b28419068f00d15b23de19c71d3adbfa"
+source = "git+https://github.com/Quantus-Network/qp-rusty-crystals.git?branch=illuzen%2Fnew-poseidon-api#f178c2a9f5c5bb48e2303e1a346d84075bab9e32"
 dependencies = [
  "bip39",
  "getrandom 0.2.17",
@@ -8686,7 +8686,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-aggregator"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
  "hex",
@@ -8703,7 +8703,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
  "hex",
@@ -8715,7 +8715,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-circuit-builder"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
  "clap",
@@ -8728,7 +8728,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-inputs"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
 ]
@@ -8736,7 +8736,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-prover"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -8748,7 +8748,7 @@ dependencies = [
 [[package]]
 name = "qp-wormhole-verifier"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -8758,7 +8758,7 @@ dependencies = [
 [[package]]
 name = "qp-zk-circuits-common"
 version = "1.1.1"
-source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#8feb644263c14dbaeecc0ae3e0c5ff927ea0209b"
+source = "git+https://github.com/Quantus-Network/qp-zk-circuits.git?branch=illuzen%2Fnon-injectivity#42b350db2c1856aa6ed02c9cd6b5e07062b7eedf"
 dependencies = [
  "anyhow",
  "hex",
@@ -8989,7 +8989,7 @@ dependencies = [
  "quinn-udp 0.5.14",
  "rustc-hash 2.1.1",
  "rustls 0.23.32",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "thiserror 2.0.18",
  "tokio 1.47.1",
  "tracing",
@@ -9057,7 +9057,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.0",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -14403,7 +14403,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -275,14 +275,14 @@ mod tests {
 				let extrinsics_root = header.extrinsics_root.as_bytes();
 				let digest = header.digest.encode();
 
-				felts.extend(bytes_to_digest(
+				felts.extend(bytes_to_digest::<Goldilocks>(
 					parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
 				));
 				felts.push(Goldilocks::from_int(number as u64));
-				felts.extend(bytes_to_digest(
+				felts.extend(bytes_to_digest::<Goldilocks>(
 					state_root.try_into().expect("State root expected to equal 32 bytes"),
 				));
-				felts.extend(bytes_to_digest(
+				felts.extend(bytes_to_digest::<Goldilocks>(
 					extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
 				));
 				felts.extend(bytes_to_felts(&digest));
