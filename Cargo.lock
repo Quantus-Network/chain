@@ -884,7 +884,7 @@ dependencies = [
  "bitflags 2.9.4",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "regex",
@@ -6903,7 +6903,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
  "qpow-math",
  "scale-info",
  "sp-arithmetic",
@@ -7182,7 +7182,7 @@ dependencies = [
  "qp-header",
  "qp-plonky2",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
  "qp-wormhole",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
@@ -8341,8 +8341,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.12.1",
+ "heck 0.5.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -8361,8 +8361,8 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.12.1",
+ "heck 0.5.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph 0.8.3",
@@ -8394,7 +8394,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -8407,7 +8407,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -8481,7 +8481,7 @@ dependencies = [
  "p3-goldilocks",
  "parity-scale-codec",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
  "scale-info",
  "serde",
  "serde_json",
@@ -8592,15 +8592,16 @@ dependencies = [
 
 [[package]]
 name = "qp-poseidon"
-version = "1.2.0"
-source = "git+https://github.com/Quantus-Network/qp-poseidon.git?branch=illuzen%2Finjective-to-felts#88df3891f2d554af65ded378daa44d5b1aaeeff7"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fff621514286f594da6b0a1c81849ae1d6d6013e4619c9382eb0498043689a6"
 dependencies = [
  "log",
  "p3-field",
  "p3-goldilocks",
  "parity-scale-codec",
  "qp-poseidon-constants",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
  "scale-info",
  "serde",
  "sp-core",
@@ -8612,7 +8613,8 @@ dependencies = [
 [[package]]
 name = "qp-poseidon-constants"
 version = "1.1.0"
-source = "git+https://github.com/Quantus-Network/qp-poseidon-constants.git?tag=v1.1.0#46916523e57f5412574fc0d9546032f70a66d23e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300d8b01e4a492b202e739ab5f73215b261905911020cc0f74a22109365e3bd7"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -8625,6 +8627,20 @@ dependencies = [
 name = "qp-poseidon-core"
 version = "1.2.0"
 source = "git+https://github.com/Quantus-Network/qp-poseidon.git?branch=illuzen%2Finjective-to-felts#88df3891f2d554af65ded378daa44d5b1aaeeff7"
+dependencies = [
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "qp-poseidon-constants",
+ "rand_chacha 0.9.0",
+]
+
+[[package]]
+name = "qp-poseidon-core"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "905129f9f25cdcfcb5108f23f15d185c9ce0c7698c1b362d55c67da4a0a321cd"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -8652,7 +8668,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "hmac 0.12.1",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.2.0",
  "qp-rusty-crystals-dilithium",
  "serde",
  "serde_json",
@@ -8677,7 +8693,7 @@ version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
  "qp-poseidon",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
  "sp-consensus-qpow",
  "sp-core",
  "sp-runtime",
@@ -8764,7 +8780,7 @@ dependencies = [
  "hex",
  "qp-plonky2",
  "qp-poseidon-constants",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
  "qp-wormhole-inputs",
  "rand 0.8.5",
  "serde",
@@ -8778,7 +8794,7 @@ dependencies = [
  "log",
  "primitive-types 0.13.1",
  "proptest",
- "qp-poseidon-core",
+ "qp-poseidon-core 1.3.0",
 ]
 
 [[package]]
@@ -14403,7 +14419,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
