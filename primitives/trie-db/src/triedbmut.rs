@@ -27,7 +27,7 @@ use crate::{
 	TrieLayout, TrieMut, TrieRecorder,
 };
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDB, Prefix, EMPTY_PREFIX};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -157,12 +157,7 @@ impl<L: TrieLayout> Value<L> {
 		) -> ChildReference<TrieHash<L>>,
 	{
 		if let Value::NewNode(hash, value) = self {
-			let new_hash =
-				if let ChildReference::Hash(hash) = f(NodeToEncode::Node(&value), partial, None) {
-					hash
-				} else {
-					unreachable!("Value node can never be inlined; qed")
-				};
+			let ChildReference(new_hash) = f(NodeToEncode::Node(&value), partial, None);
 			if let Some(h) = hash.as_ref() {
 				debug_assert!(h == &new_hash);
 			} else {
@@ -560,14 +555,12 @@ enum Stored<L: TrieLayout> {
 	Cached(Node<L>, TrieHash<L>),
 }
 
-/// Used to build a collection of child nodes from a collection of `NodeHandle`s
-#[derive(Clone, Copy)]
+/// A reference to a child node, always stored as a hash.
+///
+/// In ZK-friendly tries, all children are referenced by hash (never inlined).
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum ChildReference<HO> {
-	// `HO` is e.g. `H256`, i.e. the output of a `Hasher`
-	Hash(HO),
-	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
-}
+pub struct ChildReference<HO>(pub HO);
 
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
 where
@@ -583,15 +576,16 @@ where
 					return Err(data.to_vec());
 				}
 				hash.as_mut().copy_from_slice(data);
-				Ok(ChildReference::Hash(hash))
+				Ok(ChildReference(hash))
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let mut hash = HO::default();
-				if data.len() > hash.as_ref().len() {
-					return Err(data.to_vec());
-				}
-				hash.as_mut()[..data.len()].copy_from_slice(data);
-				Ok(ChildReference::Inline(hash, data.len()))
+				// ZK tries don't support inline children - all children must be hashed.
+				// If we encounter inline data, the trie data is incompatible.
+				panic!(
+					"inline child nodes are not supported in ZK tries; \
+					 all children must be referenced by hash (found {} bytes of inline data)",
+					data.len()
+				);
 			},
 		}
 	}
@@ -1842,7 +1836,7 @@ where
 							let value_hash = self.db.insert(k.as_prefix(), value);
 							self.cache_value(k.inner(), value, value_hash);
 							k.drop_lasts(mov);
-							ChildReference::Hash(value_hash)
+							ChildReference(value_hash)
 						},
 						NodeToEncode::TrieNode(child) => {
 							let result = self.commit_child(child, &mut k);
@@ -1958,10 +1952,10 @@ where
 		prefix: &mut NibbleVec,
 	) -> ChildReference<TrieHash<L>> {
 		match handle {
-			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
+			NodeHandle::Hash(hash) => ChildReference(hash),
 			NodeHandle::InMemory(storage_handle) => {
 				match self.storage.destroy(storage_handle) {
-					Stored::Cached(_, hash) => ChildReference::Hash(hash),
+					Stored::Cached(_, hash) => ChildReference(hash),
 					Stored::New(node) => {
 						// Reconstructs the full key
 						let full_key = self.cache.as_ref().and_then(|_| {
@@ -1984,7 +1978,7 @@ where
 										self.cache_value(prefix.inner(), value, value_hash);
 
 										prefix.drop_lasts(mov);
-										ChildReference::Hash(value_hash)
+										ChildReference(value_hash)
 									},
 									NodeToEncode::TrieNode(node_handle) => {
 										let result = self.commit_child(node_handle, prefix);
@@ -2000,7 +1994,7 @@ where
 
 						self.cache_node(hash, &encoded, full_key);
 
-						ChildReference::Hash(hash)
+						ChildReference(hash)
 					},
 				}
 			},

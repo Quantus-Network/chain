@@ -208,7 +208,7 @@ where
 						// (descendent), but not the other way around.
 						if !slice.starts_with_slice(&partial) {
 							self.record(|| TrieAccess::NonExisting { full_key });
-							return Ok(None)
+							return Ok(None);
 						}
 
 						if partial.len() != slice.len() {
@@ -218,7 +218,7 @@ where
 						let res = is_inline
 							.then(|| MerkleValue::Node(node_data))
 							.unwrap_or_else(|| MerkleValue::Hash(hash));
-						return Ok(Some(res))
+						return Ok(Some(res));
 					},
 					NodeOwned::Extension(slice, item) => {
 						if partial.len() < slice.len() {
@@ -234,7 +234,7 @@ where
 								Ok(Some(res))
 							} else {
 								Ok(None)
-							}
+							};
 						}
 
 						// Remainder of the provided key is longer than the extension slice,
@@ -248,7 +248,7 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						}
 					},
 					NodeOwned::Branch(children, value) =>
@@ -259,7 +259,7 @@ where
 							let res = is_inline
 								.then(|| MerkleValue::Node(node_data))
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
-							return Ok(Some(res))
+							return Ok(Some(res));
 						} else {
 							match children.get(partial.at(0) as usize) {
 								Some(x) => {
@@ -270,7 +270,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						},
@@ -288,14 +288,14 @@ where
 								Ok(Some(res))
 							} else {
 								Ok(None)
-							}
+							};
 						}
 
 						// Partial key is longer or equal than the branch slice.
 						// Ensure partial key starts with the branch slice.
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
-							return Ok(None)
+							return Ok(None);
 						}
 
 						// Partial key starts with the branch slice.
@@ -307,7 +307,7 @@ where
 							let res = is_inline
 								.then(|| MerkleValue::Node(node_data))
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
-							return Ok(Some(res))
+							return Ok(Some(res));
 						} else {
 							match children.get(partial.at(slice.len()) as usize) {
 								Some(x) => {
@@ -318,7 +318,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						}
@@ -326,7 +326,7 @@ where
 					NodeOwned::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(None)
+						return Ok(None);
 					},
 					NodeOwned::Value(_, _) => {
 						unreachable!(
@@ -341,7 +341,7 @@ where
 				match next_node {
 					NodeHandleOwned::Hash(new_hash) => {
 						hash = *new_hash;
-						break
+						break;
 					},
 					NodeHandleOwned::Inline(inline_node) => {
 						node = &inline_node;
@@ -608,7 +608,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children.get(partial.at(0) as usize) {
 								Some(x) => {
@@ -619,7 +619,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						},
@@ -627,7 +627,7 @@ where
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						}
 
 						if partial.len() == slice.len() {
@@ -644,7 +644,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children.get(partial.at(slice.len()) as usize) {
 								Some(x) => {
@@ -655,7 +655,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						}
@@ -663,7 +663,7 @@ where
 					NodeOwned::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(None)
+						return Ok(None);
 					},
 					NodeOwned::Value(_, _) => {
 						unreachable!(
@@ -678,7 +678,7 @@ where
 				match next_node {
 					NodeHandleOwned::Hash(new_hash) => {
 						hash = *new_hash;
-						break
+						break;
 					},
 					NodeHandleOwned::Inline(inline_node) => {
 						node = &inline_node;
@@ -780,7 +780,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -791,7 +791,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						},
@@ -799,7 +799,7 @@ where
 						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						}
 
 						if partial.len() == slice.len() {
@@ -817,7 +817,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -828,7 +828,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						}
@@ -836,7 +836,7 @@ where
 					Node::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(None)
+						return Ok(None);
 					},
 				};
 
@@ -845,7 +845,7 @@ where
 					NodeHandle::Hash(data) => {
 						hash = decode_hash::<L::Hash>(data)
 							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
-						break
+						break;
 					},
 					NodeHandle::Inline(data) => {
 						node_data = data;

@@ -384,7 +384,7 @@ where
 		if is_root {
 			self.root = Some(hash);
 		};
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, prefix: Prefix, value: &[u8]) -> TrieHash<T> {
@@ -416,7 +416,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		if is_root {
 			self.root = Some(hash);
 		};
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
@@ -469,7 +469,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 			self.root = Some(hash);
 		};
 		println!("	hashed to {:x?}", hash.as_ref());
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
@@ -491,7 +491,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 		if is_root {
 			self.root = Some(encoded_node);
 		};
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {

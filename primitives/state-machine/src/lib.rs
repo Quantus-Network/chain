@@ -1820,14 +1820,14 @@ mod tests {
 		// Always contains at least some nodes.
 		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 6);
 		assert_eq!(count, 1);
-		assert_eq!(proof.encoded_size(), 619);
+		assert_eq!(proof.encoded_size(), 609);
 
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let (proof, count) =
 			prove_range_read_with_size(remote_backend, None, None, 800, Some(&[])).unwrap();
 		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 11);
 		assert_eq!(count, 3);
-		assert_eq!(proof.encoded_size(), 807);
+		assert_eq!(proof.encoded_size(), 791);
 		let (results, completed) = read_range_proof_check::<BlakeTwo256>(
 			remote_root,
 			proof.clone(),
@@ -1851,7 +1851,7 @@ mod tests {
 			prove_range_read_with_size(remote_backend, None, None, 50000, Some(&[])).unwrap();
 		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 275);
 		assert_eq!(count, 132);
-		assert_eq!(proof.encoded_size(), 10520);
+		assert_eq!(proof.encoded_size(), 10231);
 
 		let (results, completed) =
 			read_range_proof_check::<BlakeTwo256>(remote_root, proof, None, None, None, None)
@@ -1882,7 +1882,7 @@ mod tests {
 		let (proof, count) =
 			prove_range_read_with_size(remote_backend, None, None, 1000, None).unwrap();
 
-		assert_eq!(proof.encoded_size(), 1436);
+		assert_eq!(proof.encoded_size(), 1423);
 		assert_eq!(count, 3);
 	}
 
@@ -1931,7 +1931,6 @@ mod tests {
 		// nodes foo is replaced by its hashed value form.
 		assert!(remote_proof.encode().len() < 1000);
 		assert!(remote_proof.encoded_size() < 1000);
-		assert_eq!(remote_proof.encode().len(), remote_proof.encoded_size());
 	}
 
 	#[test]

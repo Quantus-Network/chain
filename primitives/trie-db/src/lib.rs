@@ -50,7 +50,6 @@ pub use iterator::TrieDBNodeDoubleEndedIterator;
 use node::NodeOwned;
 
 pub mod node;
-pub mod proof;
 pub mod recorder;
 pub mod sectriedb;
 pub mod sectriedbmut;

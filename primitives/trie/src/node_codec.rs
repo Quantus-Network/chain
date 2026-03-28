@@ -339,7 +339,7 @@ where
 		Bitmap::encode(
 			children.map(|maybe_child| {
 				let result = match maybe_child.borrow() {
-					Some(ChildReference::Hash(h)) => {
+					Some(ChildReference(h)) => {
 						assert_eq!(h.as_ref().len(), H::LENGTH, "child hash length mismatch");
 						log::debug!(
 							target: "zk-trie",
@@ -348,9 +348,6 @@ where
 						);
 						output.extend_from_slice(h.as_ref());
 						true
-					},
-					&Some(ChildReference::Inline(_, len)) => {
-						panic!("inline children unsupported (child[{child_idx}], {len} bytes); all children must be hashed");
 					},
 					None => false,
 				};
