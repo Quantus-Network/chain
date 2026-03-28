@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use qp_poseidon::PoseidonHasher;
 use sp_core::{
 	crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
-	ByteArray, Hasher, H256,
+	ByteArray, H256,
 };
 use sp_runtime::{
 	traits::{IdentifyAccount, Verify},
@@ -113,7 +113,8 @@ impl<const N: usize, SubTag> alloc::fmt::Debug for WrappedPublicBytes<N, SubTag>
 impl IdentifyAccount for DilithiumPublic {
 	type AccountId = AccountId32;
 	fn into_account(self) -> Self::AccountId {
-		AccountId32::new(PoseidonHasher::hash(self.0.as_slice()).0)
+		// Use injective encoding for account ID derivation (collision-resistant for security)
+		AccountId32::new(PoseidonHasher::hash_for_circuit(self.0.as_slice()))
 	}
 }
 
@@ -230,8 +231,9 @@ impl IdentifyAccount for DilithiumSigner {
 	type AccountId = AccountId32;
 
 	fn into_account(self) -> AccountId32 {
+		// Use injective encoding for account ID derivation (collision-resistant for security)
 		let Self::Dilithium(who) = self;
-		PoseidonHasher::hash(who.as_ref()).0.into()
+		PoseidonHasher::hash_for_circuit(who.as_ref()).into()
 	}
 }
 
@@ -270,6 +272,10 @@ impl DilithiumPair {
 
 	pub fn secret_bytes(&self) -> &[u8] {
 		&self.secret
+	}
+
+	pub fn public_bytes(&self) -> &[u8] {
+		&self.public
 	}
 }
 

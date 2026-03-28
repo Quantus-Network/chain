@@ -12,6 +12,7 @@ version = "0.1.0"
 [dependencies]
 codec = { workspace = true, default-features = false }
 qp-poseidon.workspace = true
+qp-poseidon-core.workspace = true
 sp-consensus-qpow.workspace = true
 sp-core = { workspace = true, optional = true }
 sp-runtime.workspace = true
@@ -20,6 +21,7 @@ sp-runtime.workspace = true
 default = ["std"]
 std = [
 	"codec/std",
+	"qp-poseidon-core/std",
 	"qp-poseidon/std",
 	"sp-consensus-qpow/std",
 	"sp-core",

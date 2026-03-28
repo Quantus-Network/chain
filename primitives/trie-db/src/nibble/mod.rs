@@ -16,9 +16,6 @@
 
 use crate::{node::NodeKey, rstd::cmp};
 
-pub use self::leftnibbleslice::LeftNibbleSlice;
-
-mod leftnibbleslice;
 mod nibbleslice;
 mod nibblevec;
 
@@ -95,7 +92,7 @@ pub mod nibble_ops {
 		let upper_bound = cmp::min(v1.len(), v2.len());
 		for a in 0..upper_bound {
 			if v1[a] != v2[a] {
-				return a * NIBBLE_PER_BYTE + left_common(v1[a], v2[a])
+				return a * NIBBLE_PER_BYTE + left_common(v1[a], v2[a]);
 			}
 		}
 		upper_bound * NIBBLE_PER_BYTE

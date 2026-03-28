@@ -1,9 +1,6 @@
 use codec::{Decode, Encode};
 use sp_core::{Blake2Hasher, H256};
-use sp_trie::{
-	generate_trie_proof, LayoutV0, MemoryDB, StorageProof, TrieConfiguration, TrieDBMutBuilder,
-	TrieMut,
-};
+use sp_trie::{LayoutV0, MemoryDB, StorageProof, TrieConfiguration, TrieDBMutBuilder, TrieMut};
 use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,9 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		}
 	}
 
-	// Generate storage proof for some keys
-	let proof_keys = vec![b"key1".to_vec(), b"key3".to_vec(), b"test_key".to_vec()];
-	let proof = generate_trie_proof::<LayoutV0<Blake2Hasher>, _, _, _>(&db, root, &proof_keys)?;
+	// NOTE: generate_trie_proof has been removed - Quantus uses ZK proofs.
+	// Instead, collect raw trie nodes from the database as a StorageProof.
+	let proof_nodes: Vec<Vec<u8>> = db.clone().drain().map(|(_, (data, _))| data).collect();
+	let proof = StorageProof::new(proof_nodes);
 
 	// Create valid delta order (insertions and updates)
 	let valid_delta: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![

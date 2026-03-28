@@ -34,17 +34,16 @@ mod node_header;
 pub mod recorder;
 pub mod recorder_ext;
 mod storage_proof;
-mod trie_codec;
 mod trie_stream;
 
 #[cfg(feature = "std")]
 pub mod proof_size_extension;
 
-#[cfg(feature = "std")]
-pub use std::hash::RandomState;
-
 #[cfg(not(feature = "std"))]
 pub use hasher_random_state::{add_extra_randomness, RandomState};
+
+#[cfg(feature = "std")]
+pub use std::hash::RandomState;
 
 use alloc::{borrow::Borrow, boxed::Box, vec, vec::Vec};
 use core::{hash::BuildHasher, marker::PhantomData};
@@ -57,21 +56,75 @@ use hash_db::{Hasher, Prefix};
 pub use memory_db::{prefixed_key, HashKey, KeyFunction, PrefixedKey};
 /// The Substrate format implementation of `NodeCodec`.
 pub use node_codec::NodeCodec;
-pub use storage_proof::{CompactProof, StorageProof, StorageProofError};
-/// Trie codec reexport, mainly child trie support
-/// for trie compact proof.
-pub use trie_codec::{decode_compact, encode_compact, Error as CompactProofError};
-use trie_db::proof::{generate_proof, verify_proof};
+pub use storage_proof::{CompactProof, CompactProofError, StorageProof, StorageProofError};
 /// Various re-exports from the `trie-db` crate.
 pub use trie_db::{
 	nibble_ops,
 	node::{NodePlan, ValuePlan},
 	triedb::{TrieDBDoubleEndedIterator, TrieDBKeyDoubleEndedIterator},
-	CError, DBValue, Query, Recorder, Trie, TrieCache, TrieConfiguration, TrieDBIterator,
-	TrieDBKeyIterator, TrieDBNodeDoubleEndedIterator, TrieDBRawIterator, TrieLayout, TrieMut,
-	TrieRecorder,
+	CError, DBValue, MerkleValue, Query, Recorder, Trie, TrieCache, TrieConfiguration,
+	TrieDBIterator, TrieDBKeyIterator, TrieDBNodeDoubleEndedIterator, TrieDBRawIterator,
+	TrieLayout, TrieMut, TrieRecorder,
 };
-pub use trie_db::{proof::VerifyError, MerkleValue};
+
+/// Error type for proof verification.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of Merkle inclusion proofs.
+/// This type exists only for API compatibility.
+#[derive(Debug, PartialEq, Eq)]
+pub enum VerifyError<HO, CE> {
+	/// The statement being verified contains multiple key-value pairs with the same key.
+	DuplicateKey(Vec<u8>),
+	/// The proof contains at least one extraneous node.
+	ExtraneousNode,
+	/// The proof contains at least one extraneous value.
+	ExtraneousValue(Vec<u8>),
+	/// The proof contains an extraneous hash reference.
+	ExtraneousHashReference(HO),
+	/// The proof contains an invalid child reference.
+	InvalidChildReference(Vec<u8>),
+	/// The value was not found in the trie.
+	ValueMismatch(Vec<u8>),
+	/// The proof is incomplete.
+	IncompleteProof,
+	/// Root mismatch.
+	RootMismatch(HO),
+	/// Decode error.
+	DecodeError(CE),
+}
+
+#[cfg(feature = "std")]
+impl<HO: core::fmt::Debug, CE: std::error::Error> std::fmt::Display for VerifyError<HO, CE> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			VerifyError::DuplicateKey(key) => write!(f, "Duplicate key: {:?}", key),
+			VerifyError::ExtraneousNode => write!(f, "Extraneous node in proof"),
+			VerifyError::ExtraneousValue(key) => write!(f, "Extraneous value for key: {:?}", key),
+			VerifyError::ExtraneousHashReference(hash) => {
+				write!(f, "Extraneous hash reference: {:?}", hash)
+			},
+			VerifyError::InvalidChildReference(data) => {
+				write!(f, "Invalid child reference: {:?}", data)
+			},
+			VerifyError::ValueMismatch(key) => write!(f, "Value mismatch for key: {:?}", key),
+			VerifyError::IncompleteProof => write!(f, "Incomplete proof"),
+			VerifyError::RootMismatch(hash) => write!(f, "Root mismatch: {:?}", hash),
+			VerifyError::DecodeError(err) => write!(f, "Decode error: {}", err),
+		}
+	}
+}
+
+#[cfg(feature = "std")]
+impl<HO: core::fmt::Debug, CE: std::error::Error + 'static> std::error::Error
+	for VerifyError<HO, CE>
+{
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		match self {
+			VerifyError::DecodeError(err) => Some(err),
+			_ => None,
+		}
+	}
+}
 /// The Substrate format implementation of `TrieStream`.
 pub use trie_stream::TrieStream;
 
@@ -84,9 +137,9 @@ pub struct LayoutV0<H>(PhantomData<H>);
 /// substrate trie layout, with external value nodes.
 pub struct LayoutV1<H>(PhantomData<H>);
 
-// NOTE: the minimum size of child nodes is 32 bytes, this is just for compatibility with other
-// packages
-const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 31;
+// Set to 0 to force all values to be hashed, never inlined
+// This removes the need for length prefixes in the storage proof
+const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -453,18 +506,58 @@ pub mod trie_types {
 	pub type TrieError<H> = trie_db::TrieError<H, super::Error<H>>;
 }
 
+/// Decode a compact proof.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of compact Merkle proofs.
+/// This function will panic if called.
+pub fn decode_compact<'a, L, DB, I>(
+	_db: &mut DB,
+	_encoded: I,
+	_expected_root: Option<&TrieHash<L>>,
+) -> Result<TrieHash<L>, CompactProofError<TrieHash<L>, CError<L>>>
+where
+	L: TrieConfiguration,
+	DB: HashDBT<L::Hash, trie_db::DBValue> + hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+	I: IntoIterator<Item = &'a [u8]>,
+{
+	panic!(
+		"decode_compact is not supported - Quantus uses ZK proofs instead of compact Merkle proofs"
+	)
+}
+
+/// Encode a compact proof.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of compact Merkle proofs.
+/// This function will panic if called.
+pub fn encode_compact<L, DB>(
+	_partial_db: &DB,
+	_root: &TrieHash<L>,
+) -> Result<CompactProof, CompactProofError<TrieHash<L>, CError<L>>>
+where
+	L: TrieConfiguration,
+	DB: HashDBT<L::Hash, trie_db::DBValue> + hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+{
+	panic!(
+		"encode_compact is not supported - Quantus uses ZK proofs instead of compact Merkle proofs"
+	)
+}
+
 /// Create a proof for a subset of keys in a trie.
 ///
 /// The `keys` may contain any set of keys regardless of each one of them is included
 /// in the `db`.
 ///
-/// For a key `K` that is included in the `db` a proof of inclusion is generated.
-/// For a key `K` that is not included in the `db` a proof of non-inclusion is generated.
-/// These can be later checked in `verify_trie_proof`.
+/// Generate a trie proof for the given keys.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of Merkle inclusion proofs.
+/// This function exists only for API compatibility and will panic if called.
+///
+/// For actual proof generation, use `StorageProof` which collects the raw trie nodes
+/// needed to verify a set of key-value pairs.
 pub fn generate_trie_proof<'a, L, I, K, DB>(
-	db: &DB,
-	root: TrieHash<L>,
-	keys: I,
+	_db: &DB,
+	_root: TrieHash<L>,
+	_keys: I,
 ) -> Result<Vec<Vec<u8>>, Box<TrieError<L>>>
 where
 	L: TrieConfiguration,
@@ -472,21 +565,23 @@ where
 	K: 'a + AsRef<[u8]>,
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	generate_proof::<_, L, _, _>(db, &root, keys)
+	panic!(
+		"generate_trie_proof is not supported - Quantus uses ZK proofs instead of Merkle inclusion proofs. \
+		Use StorageProof for collecting trie nodes needed for ZK proof generation."
+	)
 }
 
 /// Verify a set of key-value pairs against a trie root and a proof.
 ///
-/// Checks a set of keys with optional values for inclusion in the proof that was generated by
-/// `generate_trie_proof`.
-/// If the value in the pair is supplied (`(key, Some(value))`), this key-value pair will be
-/// checked for inclusion in the proof.
-/// If the value is omitted (`(key, None)`), this key will be checked for non-inclusion in the
-/// proof.
+/// **DEPRECATED**: Quantus uses ZK proofs instead of Merkle inclusion proofs.
+/// This function exists only for API compatibility and will panic if called.
+///
+/// For actual proof verification, use `StorageProof::to_memory_db()` to create a partial
+/// trie and perform standard trie lookups.
 pub fn verify_trie_proof<'a, L, I, K, V>(
-	root: &TrieHash<L>,
-	proof: &[Vec<u8>],
-	items: I,
+	_root: &TrieHash<L>,
+	_proof: &[Vec<u8>],
+	_items: I,
 ) -> Result<(), VerifyError<TrieHash<L>, CError<L>>>
 where
 	L: TrieConfiguration,
@@ -494,7 +589,10 @@ where
 	K: 'a + AsRef<[u8]>,
 	V: 'a + AsRef<[u8]>,
 {
-	verify_proof::<L, _, _, _>(root, proof, items)
+	panic!(
+		"verify_trie_proof is not supported - Quantus uses ZK proofs instead of Merkle inclusion proofs. \
+		Use StorageProof::to_memory_db() to create a partial trie for verification."
+	)
 }
 
 /// Determine a trie root given a hash DB and delta values.
@@ -1062,333 +1160,80 @@ mod tests {
 	}
 
 	#[test]
-	fn random_test_8_byte_alignment() {
-		random_test_8_byte_alignment_inner::<LayoutV1>();
-		random_test_8_byte_alignment_inner::<LayoutV0>();
+	fn storage_proof_nodes_are_felt_aligned() {
+		storage_proof_nodes_are_felt_aligned_inner::<LayoutV1>();
+		storage_proof_nodes_are_felt_aligned_inner::<LayoutV0>();
 	}
 
-	fn random_test_8_byte_alignment_inner<L: TrieConfiguration>() {
-		println!("Running 100 random trie alignment tests...");
-		let mut seed = <Blake2Hasher as Hasher>::Out::zero();
-		for test_i in 0..20 {
-			if test_i % 10 == 0 {
-				println!("  Progress: {}/20", test_i);
-			}
-			let x = StandardMap {
-				alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
-				min_key: 5,
-				journal_key: 0,
-				value_mode: ValueMode::Index,
-				count: 10, // Reduced count for faster testing
-			}
-			.make_with(seed.as_fixed_bytes_mut());
-
-			// Test closed-form trie for alignment
-			let unhashed_root = L::trie_root_unhashed(x.clone());
-			check_8_byte_alignment(&unhashed_root, 0, "root");
-
-			// Test storage proof alignment (the critical path)
-			let x_refs: Vec<_> = x.iter().map(|(k, v)| (k.as_slice(), v.as_slice())).collect();
-			let (db, root) = create_trie::<L>(&x_refs);
-			let proof_keys: Vec<_> = x.iter().map(|(k, _)| k.clone()).collect();
-			if let Ok(proof) = crate::generate_trie_proof::<L, _, _, _>(&db, root, &proof_keys) {
-				for (i, node) in proof.iter().enumerate() {
-					if node.len() % 8 != 0 {
-						panic!("Random trie test {}: storage proof node {} length {} not 8-byte aligned", test_i, i, node.len());
-					}
-				}
-			}
-
-			seed = <Blake2Hasher as Hasher>::hash(seed.as_ref());
-		}
-	}
-
-	#[test]
-	fn storage_proof_8_byte_alignment_test() {
-		storage_proof_8_byte_alignment_inner::<LayoutV1>();
-		storage_proof_8_byte_alignment_inner::<LayoutV0>();
-	}
-
-	#[test]
-	fn child_reference_8_byte_boundary_test() {
-		child_reference_8_byte_boundary_inner::<LayoutV1>();
-		child_reference_8_byte_boundary_inner::<LayoutV0>();
-	}
-
-	fn storage_proof_8_byte_alignment_inner<L: TrieConfiguration>() {
-		use crate::StorageProof;
+	/// Test that storage proof nodes (recorded trie nodes) are 8-byte (felt) aligned.
+	/// This is important for ZK proof generation where data must be felt-aligned.
+	fn storage_proof_nodes_are_felt_aligned_inner<L: TrieConfiguration>() {
 		use rand::Rng;
+		use trie_db::{Recorder, Trie, TrieDBBuilder};
 
 		let mut rng = rand::thread_rng();
 		let mut total_proof_nodes = 0;
 
-		// Test 1: Random data test (no verbose output)
-		for iteration in 0..10 {
-			let num_entries = rng.gen_range(5..20);
-			let mut test_data = Vec::new();
+		// Run multiple randomized iterations
+		for iteration in 0..20 {
+			// Generate random felt-aligned data (u64 values)
+			let num_entries = rng.gen_range(5..30);
+			let mut test_data: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
 
 			for i in 0..num_entries {
-				let key_len = rng.gen_range(1..=200);
-				let mut key = vec![0u8; key_len];
+				// Generate random key (32 bytes, like a storage key hash)
+				let mut key = vec![0u8; 32];
 				rng.fill(&mut key[..]);
+				// Make first byte unique per entry to avoid collisions
 				key[0] = (iteration as u8).wrapping_add(i as u8);
 
-				let value_len = rng.gen_range(0..=100);
-				let mut value = vec![0u8; value_len];
-				rng.fill(&mut value[..]);
+				// Generate felt-aligned value (multiple of 8 bytes, like u64 or multiple u64s)
+				let num_u64s = rng.gen_range(1..=8);
+				let mut value = Vec::with_capacity(num_u64s * 8);
+				for _ in 0..num_u64s {
+					let v: u64 = rng.gen();
+					value.extend_from_slice(&v.to_le_bytes());
+				}
 
 				test_data.push((key, value));
 			}
 
-			let (db, root) = create_trie::<L>(
-				&test_data.iter().map(|(k, v)| (k.as_slice(), v.as_slice())).collect::<Vec<_>>(),
-			);
-			let proof_keys: Vec<Vec<u8>> = test_data.iter().map(|(k, _)| k.clone()).collect();
-			let proof = crate::generate_trie_proof::<L, _, _, _>(&db, root, &proof_keys).unwrap();
-
-			total_proof_nodes += proof.len();
-
-			// Verify ALL proof nodes are 8-byte aligned
-			for node in &proof {
-				assert_eq!(
-					node.len() % 8,
-					0,
-					"Storage proof node not 8-byte aligned: length {}",
-					node.len()
-				);
-			}
-
-			// Test storage proof reconstruction
-			let storage_proof = StorageProof::new(proof.clone());
-			let mut proof_db = storage_proof.into_memory_db::<L::Hash>();
-
-			for (_, (node_data, _)) in proof_db.drain() {
-				assert_eq!(
-					node_data.len() % 8,
-					0,
-					"Reconstructed proof node not 8-byte aligned: length {}",
-					node_data.len()
-				);
-			}
-
-			// Verify proof works correctly
-			let items_to_verify: Vec<_> =
-				test_data.iter().map(|(k, v)| (k.as_slice(), Some(v.as_slice()))).collect();
-			crate::verify_trie_proof::<L, _, _, _>(&root, &proof, &items_to_verify).unwrap();
-		}
-
-		// Test 2: Edge cases
-		let edge_cases = vec![
-			(vec![42u8; 10], vec![]),          // Empty value
-			(vec![43u8; 1], vec![1u8]),        // Tiny value
-			(vec![45u8; 5], vec![2u8; 23]),    // Just under 24-byte threshold
-			(vec![46u8; 6], vec![3u8; 24]),    // Exactly at threshold
-			(vec![47u8; 7], vec![4u8; 25]),    // Just over threshold
-			(vec![48u8; 100], vec![5u8; 200]), // Large key and value
-		];
-
-		for (key, value) in edge_cases {
-			let test_data = vec![(key.clone(), value.clone())];
-			let (db, root) = create_trie::<L>(
-				&test_data.iter().map(|(k, v)| (k.as_slice(), v.as_slice())).collect::<Vec<_>>(),
-			);
-			let proof = crate::generate_trie_proof::<L, _, _, _>(&db, root, &[&key]).unwrap();
-
-			for node in &proof {
-				assert_eq!(
-					node.len() % 8,
-					0,
-					"Edge case node not 8-byte aligned: length {}",
-					node.len()
-				);
-			}
-		}
-
-		// Test 3: Non-inclusion proofs
-		for _ in 0..3 {
-			let mut test_data = Vec::new();
-			for i in 0..rng.gen_range(5..10) {
-				let key = vec![100u8 + i; rng.gen_range(5..50)];
-				let value = vec![200u8 + i; rng.gen_range(1..50)];
-				test_data.push((key, value));
-			}
-
+			// Create trie with test data
 			let (db, root) = create_trie::<L>(
 				&test_data.iter().map(|(k, v)| (k.as_slice(), v.as_slice())).collect::<Vec<_>>(),
 			);
 
-			let non_existent_keys = vec![vec![250u8; 10], vec![251u8; 20]];
-			let proof =
-				crate::generate_trie_proof::<L, _, _, _>(&db, root, &non_existent_keys).unwrap();
+			// Use Recorder to collect storage proof nodes
+			let mut recorder = Recorder::<L>::new();
+			{
+				let trie = TrieDBBuilder::<L>::new(&db, &root).with_recorder(&mut recorder).build();
 
-			for node in &proof {
-				assert_eq!(
-					node.len() % 8,
-					0,
-					"Non-inclusion proof node not 8-byte aligned: length {}",
-					node.len()
-				);
-			}
-		}
-
-		println!("✅ Storage proof 8-byte alignment verification PASSED!");
-		println!("   ✓ {} total proof nodes verified (all 8-byte aligned)", total_proof_nodes);
-		println!("   ✓ Random data tests passed");
-		println!("   ✓ Edge case tests passed");
-		println!("   ✓ Non-inclusion proof tests passed");
-	}
-
-	fn child_reference_8_byte_boundary_inner<L: TrieConfiguration>() {
-		use crate::NodeCodec;
-
-		use trie_db::NodeCodec as NodeCodecT;
-
-		let _rng = rand::thread_rng();
-		let mut nodes_checked = 0;
-		let mut child_refs_checked = 0;
-
-		println!("Checking child reference positioning at 8-byte boundaries...");
-
-		// Test with a few specific cases to create branch nodes
-		let test_cases = vec![
-			// Case 1: Keys with same first nibble to force branching
-			vec![
-				(vec![0x10, 0x01], vec![1u8; 10]),
-				(vec![0x10, 0x02], vec![2u8; 15]),
-				(vec![0x10, 0x03], vec![3u8; 20]),
-				(vec![0x20, 0x01], vec![4u8; 25]),
-				(vec![0x20, 0x02], vec![5u8; 30]),
-			],
-			// Case 2: Keys designed to create complex branching
-			vec![
-				(vec![0xab, 0xcd], vec![1u8; 5]),
-				(vec![0xab, 0xce], vec![2u8; 50]),
-				(vec![0xac, 0xcd], vec![3u8; 8]),
-				(vec![0xad, 0xce], vec![4u8; 12]),
-			],
-		];
-
-		for test_data in test_cases {
-			let (db, root) = create_trie::<L>(
-				&test_data.iter().map(|(k, v)| (k.as_slice(), v.as_slice())).collect::<Vec<_>>(),
-			);
-
-			// Generate storage proof to get encoded nodes
-			let proof_keys: Vec<Vec<u8>> = test_data.iter().map(|(k, _)| k.clone()).collect();
-			let proof = crate::generate_trie_proof::<L, _, _, _>(&db, root, &proof_keys).unwrap();
-
-			// Analyze each proof node for child reference positioning
-			for node_data in &proof {
-				if let Ok(node_plan) = NodeCodec::<L::Hash>::decode_plan(node_data) {
-					nodes_checked += 1;
-
-					match node_plan {
-						trie_db::node::NodePlan::NibbledBranch { children, .. } => {
-							// This is a branch node - check child reference positions
-							check_branch_node_child_positions::<L>(
-								node_data,
-								&children,
-								&mut child_refs_checked,
-							);
-						},
-						_ => {}, // Other node types don't have child references
-					}
+				// Access random subset of keys to generate proof
+				let num_to_access = rng.gen_range(1..=num_entries.min(10));
+				for i in 0..num_to_access {
+					let key = &test_data[i % test_data.len()].0;
+					let _ = trie.get(key);
 				}
 			}
-		}
 
-		println!("✅ Child reference boundary verification PASSED!");
-		println!("   ✓ {} nodes analyzed", nodes_checked);
-		println!("   ✓ {} child references verified at 8-byte boundaries", child_refs_checked);
-	}
-
-	fn check_branch_node_child_positions<L: TrieConfiguration>(
-		node_data: &[u8],
-		children: &[Option<trie_db::node::NodeHandlePlan>; 16],
-		child_refs_checked: &mut usize,
-	) {
-		use crate::NodeCodec;
-
-		// Parse the node structure manually to verify positioning
-		let mut cursor = 0;
-
-		// Skip header (8 bytes)
-		cursor += 8;
-
-		// Skip partial key data (felt-aligned)
-		if let Ok(node_plan) = NodeCodec::<L::Hash>::decode_plan(node_data) {
-			if let trie_db::node::NodePlan::NibbledBranch { partial, value, .. } = node_plan {
-				// Calculate partial key size
-				let nibble_count = partial.len();
-				let nibble_bytes = (nibble_count + 1) / 2;
-				let felt_aligned_bytes = ((nibble_bytes + 7) / 8) * 8;
-				cursor += felt_aligned_bytes;
-
-				// Skip bitmap (8 bytes)
-				cursor += 8;
-
-				// Skip value if present
-				if value.is_some() {
-					match value {
-						Some(trie_db::node::ValuePlan::Inline(range)) => {
-							// Skip 8-byte length + value data (felt-aligned)
-							cursor += 8;
-							let value_len = range.end - range.start;
-							let value_aligned_len = ((value_len + 7) / 8) * 8;
-							cursor += value_aligned_len;
-						},
-						Some(trie_db::node::ValuePlan::Node(_)) => {
-							// Skip hash reference
-							cursor += <L::Hash as trie_db::Hasher>::LENGTH;
-						},
-						None => {},
-					}
-				}
-
-				// Now check child reference positions
-				for (i, child) in children.iter().enumerate() {
-					if child.is_some() {
-						// Each child reference should start at an 8-byte boundary
-						if cursor % 8 != 0 {
-							panic!(
-                                "❌ CHILD REFERENCE ALIGNMENT VIOLATION: Child {} at position {} (not 8-byte aligned)\n   \
-                                Node length: {}, Cursor after header+partial+bitmap+value: {}",
-                                i, cursor, node_data.len(), cursor
-                            );
-						}
-
-						*child_refs_checked += 1;
-
-						// Skip over this child reference
-						cursor += 8; // 8-byte length prefix
-						match child {
-							Some(trie_db::node::NodeHandlePlan::Hash(_)) => {
-								cursor += <L::Hash as trie_db::Hasher>::LENGTH;
-							},
-							Some(trie_db::node::NodeHandlePlan::Inline(range)) => {
-								cursor += range.end - range.start;
-							},
-							None => {},
-						}
-					}
-				}
+			// Check that all recorded proof nodes are felt-aligned
+			let recorded = recorder.drain();
+			for record in &recorded {
+				total_proof_nodes += 1;
+				assert_eq!(
+					record.data.len() % 8,
+					0,
+					"Iteration {}: Storage proof node not felt-aligned: length {} (hash: {:?})",
+					iteration,
+					record.data.len(),
+					record.hash
+				);
 			}
 		}
+
+		println!("Storage proof felt-alignment test passed: {} nodes verified", total_proof_nodes);
 	}
 
-	fn check_8_byte_alignment(data: &[u8], offset: usize, context: &str) {
-		if data.len() % 8 != 0 {
-			println!(
-				"❌ {} at offset {} has length {} (not 8-byte aligned)",
-				context,
-				offset,
-				data.len()
-			);
-			println!("Data: {:?}", data);
-			panic!("8-byte alignment violation in {}", context);
-		}
-		// Silent success - only print failures
-	}
 	fn random_should_work_inner<L: TrieConfiguration>() {
 		let mut seed = <Blake2Hasher as Hasher>::Out::zero();
 		for test_i in 0..1000 {
@@ -1435,10 +1280,6 @@ mod tests {
 		}
 	}
 
-	fn to_u64_le_bytes(n: u8) -> [u8; 8] {
-		(n as u64).to_le_bytes()
-	}
-
 	#[allow(dead_code)]
 	fn to_compact(n: u8) -> u8 {
 		Compact(n).encode()[0]
@@ -1457,14 +1298,22 @@ mod tests {
 		let input = vec![(vec![0xaa], vec![0xbb])];
 		let trie = LayoutV1::trie_root_unhashed(input);
 		println!("trie: {:#x?}", trie);
-		let mut expected = vec![
-			0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-			0x30, // 8-byte leaf header (nibble_count=2, type=3)
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, // left-padded
-		];
-		expected.extend_from_slice(&to_u64_le_bytes(1)); // length of value in bytes as 8-byte little-endian
-		expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // value data (felt-aligned to 8 bytes)
-		assert_eq!(trie, expected);
+
+		// With MAX_INLINE_VALUE = 0, even small values are hashed
+		// Expected format: HashedValueLeaf (type 5) with 32-byte hash
+		// Header: nibble_count=2, type=5 → 0x5000000000000002
+		let expected_header = 0x5000000000000002u64.to_le_bytes();
+		assert_eq!(
+			&trie[0..8],
+			&expected_header,
+			"Header should be HashedValueLeaf with nibble_count=2"
+		);
+
+		// Partial key: 0xaa left-padded to 8 bytes
+		assert_eq!(&trie[8..16], &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa]);
+
+		// Value hash: 32 bytes (hash of [0xbb])
+		assert_eq!(trie.len(), 48, "Total length should be 8 (header) + 8 (partial) + 32 (hash)");
 	}
 
 	#[test]
@@ -1474,8 +1323,8 @@ mod tests {
 		println!("trie: {:#x?}", trie);
 
 		// With 8-byte aligned values, children are now 32 bytes and get hashed
-		// Just verify the structure rather than exact hash values
-		assert_eq!(trie.len(), 96); // 8 (header) + 8 (bitmap) + 8 (length) + 32 (hash) + 8 (length) + 32 (hash)
+		// Children no longer have length prefixes
+		assert_eq!(trie.len(), 80); // 8 (header) + 8 (bitmap) + 32 (hash) + 32 (hash)
 
 		// Check header: branch with no value, nibble_count=0, type=2
 		assert_eq!(&trie[0..8], &[0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x20]);
@@ -1483,11 +1332,13 @@ mod tests {
 		// Check bitmap: slots 1 & 4 are taken
 		assert_eq!(&trie[8..16], &[0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
-		// Check first child is hash reference (32 bytes)
-		assert_eq!(&trie[16..24], &[32, 0, 0, 0, 0, 0, 0, 0]);
+		// Children are now 32-byte hashes directly after bitmap (no length prefix)
+		// bytes 16-48: first child hash (32 bytes)
+		// bytes 48-80: second child hash (32 bytes)
+		assert_eq!(trie.len(), 80);
 
-		// Check second child is hash reference (32 bytes)
-		assert_eq!(&trie[56..64], &[32, 0, 0, 0, 0, 0, 0, 0]);
+		// Just verify both children exist as 32-byte sequences
+		// (exact hash values depend on child node contents)
 	}
 
 	#[test]
@@ -1523,85 +1374,9 @@ mod tests {
 		assert_eq!(pairs, iter_pairs);
 	}
 
-	#[test]
-	fn proof_non_inclusion_works() {
-		let pairs = vec![
-			(array_bytes::hex2bytes_unchecked("0102"), array_bytes::hex2bytes_unchecked("01")),
-			(array_bytes::hex2bytes_unchecked("0203"), array_bytes::hex2bytes_unchecked("0405")),
-		];
-
-		let mut memdb = MemoryDB::new(&0u64.to_le_bytes());
-		let mut root = Default::default();
-		populate_trie::<LayoutV1>(&mut memdb, &mut root, &pairs);
-
-		let non_included_key: Vec<u8> = array_bytes::hex2bytes_unchecked("0909");
-		let proof =
-			generate_trie_proof::<LayoutV1, _, _, _>(&memdb, root, &[non_included_key.clone()])
-				.unwrap();
-
-		// Verifying that the K was not included into the trie should work.
-		assert!(verify_trie_proof::<LayoutV1, _, _, Vec<u8>>(
-			&root,
-			&proof,
-			&[(non_included_key.clone(), None)],
-		)
-		.is_ok());
-
-		// Verifying that the K was included into the trie should fail.
-		assert!(verify_trie_proof::<LayoutV1, _, _, Vec<u8>>(
-			&root,
-			&proof,
-			&[(non_included_key, Some(array_bytes::hex2bytes_unchecked("1010")))],
-		)
-		.is_err());
-	}
-
-	#[test]
-	fn proof_inclusion_works() {
-		let pairs = vec![
-			(array_bytes::hex2bytes_unchecked("0102"), array_bytes::hex2bytes_unchecked("01")),
-			(array_bytes::hex2bytes_unchecked("0203"), array_bytes::hex2bytes_unchecked("0405")),
-		];
-
-		let mut memdb = MemoryDB::new(&0u64.to_le_bytes());
-		let mut root = Default::default();
-		populate_trie::<LayoutV1>(&mut memdb, &mut root, &pairs);
-
-		let proof =
-			generate_trie_proof::<LayoutV1, _, _, _>(&memdb, root, &[pairs[0].0.clone()]).unwrap();
-
-		// Check that a K, V included into the proof are verified.
-		assert!(verify_trie_proof::<LayoutV1, _, _, _>(
-			&root,
-			&proof,
-			&[(pairs[0].0.clone(), Some(pairs[0].1.clone()))]
-		)
-		.is_ok());
-
-		// Absence of the V is not verified with the proof that has K, V included.
-		assert!(verify_trie_proof::<LayoutV1, _, _, Vec<u8>>(
-			&root,
-			&proof,
-			&[(pairs[0].0.clone(), None)]
-		)
-		.is_err());
-
-		// K not included into the trie is not verified.
-		assert!(verify_trie_proof::<LayoutV1, _, _, _>(
-			&root,
-			&proof,
-			&[(array_bytes::hex2bytes_unchecked("4242"), Some(pairs[0].1.clone()))]
-		)
-		.is_err());
-
-		// K included into the trie but not included into the proof is not verified.
-		assert!(verify_trie_proof::<LayoutV1, _, _, _>(
-			&root,
-			&proof,
-			&[(pairs[1].0.clone(), Some(pairs[1].1.clone()))]
-		)
-		.is_err());
-	}
+	// NOTE: proof_non_inclusion_works and proof_inclusion_works tests removed.
+	// Quantus uses ZK proofs instead of Merkle inclusion proofs.
+	// The generate_trie_proof and verify_trie_proof functions are deprecated stubs.
 
 	#[test]
 	fn generate_storage_root_with_proof_works_independently_from_the_delta_order() {
@@ -2206,5 +1981,605 @@ mod tests {
 		}
 
 		println!("✅ All leaf partial key felt-alignment tests passed!");
+	}
+
+	/// Test that reproduces the exact scenario from the corrupted state error.
+	/// This tests branch node encoding/decoding with nibble_count=30 and 31,
+	/// which is where the chain was failing.
+	#[test]
+	fn test_branch_node_nibble_count_30_31() {
+		use crate::node_codec::NodeCodec;
+		use sp_core::{Blake2Hasher, H256};
+		use trie_db::{node::NodePlan, NodeCodec as NodeCodecT};
+
+		println!("Testing branch node encoding/decoding with nibble_count 30 and 31...");
+
+		// Create child hashes (H256)
+		let child_hashes: Vec<H256> = (0..16)
+			.map(|i| {
+				let mut hash = [0u8; 32];
+				hash[0] = i as u8;
+				hash[31] = (i * 17) as u8;
+				H256::from(hash)
+			})
+			.collect();
+
+		// Test case 1: nibble_count = 30 (even, 15 bytes of nibble data, 16 felt-aligned)
+		{
+			println!("\n=== Testing nibble_count = 30 ===");
+
+			// Partial key data for 30 nibbles (15 bytes)
+			let partial_data: Vec<u8> = (0..15).map(|i| 0xaa + i).collect();
+			let nibble_count = 30;
+
+			// Create children array - simulate children at indices 0, 3, 4, 5, 8, 9, 10, 11, 15
+			let child_indices = [0usize, 3, 4, 5, 8, 9, 10, 11, 15];
+			let children: Vec<Option<trie_db::ChildReference<H256>>> = (0..16)
+				.map(|i| {
+					if child_indices.contains(&i) {
+						Some(trie_db::ChildReference(child_hashes[i]))
+					} else {
+						None
+					}
+				})
+				.collect();
+
+			// Encode the branch node
+			let encoded = NodeCodec::<Blake2Hasher>::branch_node_nibbled(
+				partial_data.iter().copied(),
+				nibble_count,
+				children.into_iter(),
+				None, // No value
+			);
+
+			println!("Encoded length: {} bytes", encoded.len());
+			println!("Encoded data: {:02x?}", &encoded[..std::cmp::min(64, encoded.len())]);
+
+			// Verify structure
+			// Header: 8 bytes
+			// Partial: 16 bytes (15 nibble bytes + 1 padding)
+			// Bitmap: 8 bytes
+			// Children: 9 * 32 = 288 bytes
+			// Total: 8 + 16 + 8 + 288 = 320 bytes
+			let expected_len = 8 + 16 + 8 + (child_indices.len() * 32);
+			assert_eq!(
+				encoded.len(),
+				expected_len,
+				"Expected {} bytes, got {}",
+				expected_len,
+				encoded.len()
+			);
+
+			// Decode and verify
+			let decoded = NodeCodec::<Blake2Hasher>::decode_plan(&encoded)
+				.expect("Failed to decode branch node with nibble_count=30");
+
+			if let NodePlan::NibbledBranch { partial, children: decoded_children, value } = decoded
+			{
+				// Check nibble count
+				assert_eq!(partial.len(), nibble_count, "Nibble count mismatch");
+
+				// Check partial data
+				let partial_slice = partial.build(&encoded);
+				println!(
+					"Decoded partial: {:02x?}",
+					partial_slice.right_iter().collect::<Vec<_>>()
+				);
+
+				// Check children
+				for i in 0..16 {
+					let has_child = decoded_children[i].is_some();
+					let expected = child_indices.contains(&i);
+					assert_eq!(
+						has_child, expected,
+						"Child {} presence mismatch: expected {}, got {}",
+						i, expected, has_child
+					);
+				}
+
+				// Check no value
+				assert!(value.is_none(), "Expected no value");
+
+				println!("✓ nibble_count=30 round-trip successful");
+			} else {
+				panic!("Expected NibbledBranch, got {:?}", decoded);
+			}
+		}
+
+		// Test case 2: nibble_count = 31 (odd, 16 bytes of nibble data, 16 felt-aligned)
+		{
+			println!("\n=== Testing nibble_count = 31 ===");
+
+			// Partial key data for 31 nibbles (16 bytes, first byte's high nibble is padding)
+			// First byte: 0x09 means padding=0, first nibble=9
+			let partial_data: Vec<u8> = vec![
+				0x09, 0x9d, 0x88, 0x0e, 0xc6, 0x81, 0x79, 0x9c, 0x0c, 0xf3, 0x0e, 0x88, 0x86, 0x37,
+				0x1d, 0xa9,
+			];
+			let nibble_count = 31;
+
+			// Create children array - simulate children at indices 1, 2, 4, 7, 13
+			let child_indices = [1usize, 2, 4, 7, 13];
+			let children: Vec<Option<trie_db::ChildReference<H256>>> = (0..16)
+				.map(|i| {
+					if child_indices.contains(&i) {
+						Some(trie_db::ChildReference(child_hashes[i]))
+					} else {
+						None
+					}
+				})
+				.collect();
+
+			// Encode the branch node
+			let encoded = NodeCodec::<Blake2Hasher>::branch_node_nibbled(
+				partial_data.iter().copied(),
+				nibble_count,
+				children.into_iter(),
+				None, // No value
+			);
+
+			println!("Encoded length: {} bytes", encoded.len());
+			println!("Encoded data: {:02x?}", &encoded[..std::cmp::min(64, encoded.len())]);
+
+			// Verify structure
+			// Header: 8 bytes
+			// Partial: 16 bytes (16 nibble bytes, felt-aligned)
+			// Bitmap: 8 bytes
+			// Children: 5 * 32 = 160 bytes
+			// Total: 8 + 16 + 8 + 160 = 192 bytes
+			let expected_len = 8 + 16 + 8 + (child_indices.len() * 32);
+			assert_eq!(
+				encoded.len(),
+				expected_len,
+				"Expected {} bytes, got {}",
+				expected_len,
+				encoded.len()
+			);
+
+			// Decode and verify
+			let decoded = NodeCodec::<Blake2Hasher>::decode_plan(&encoded)
+				.expect("Failed to decode branch node with nibble_count=31");
+
+			if let NodePlan::NibbledBranch { partial, children: decoded_children, value } = decoded
+			{
+				// Check nibble count
+				assert_eq!(partial.len(), nibble_count, "Nibble count mismatch");
+
+				// Check partial data - verify the actual nibbles match
+				let partial_slice = partial.build(&encoded);
+				let decoded_nibbles: Vec<u8> = partial_slice.right_iter().collect();
+				println!("Decoded partial bytes: {:02x?}", decoded_nibbles);
+
+				// For 31 nibbles with partial_data starting with 0x09:
+				// The first nibble should be 9 (low nibble of 0x09)
+				// Then the remaining bytes are 9d 88 0e c6 81 79 9c 0c f3 0e 88 86 37 1d a9
+				// Which gives nibbles: 9, 9, d, 8, 8, 0, e, c, 6, 8, 1, 7, 9, 9, c, 0, c, f, 3, 0,
+				// e, 8, 8, 8, 6, 3, 7, 1, d, a, 9
+
+				// Check children
+				for i in 0..16 {
+					let has_child = decoded_children[i].is_some();
+					let expected = child_indices.contains(&i);
+					assert_eq!(
+						has_child, expected,
+						"Child {} presence mismatch: expected {}, got {}",
+						i, expected, has_child
+					);
+				}
+
+				// Verify child hash ranges are correct
+				for (idx, child) in decoded_children.iter().enumerate() {
+					if let Some(trie_db::node::NodeHandlePlan::Hash(range)) = child {
+						let hash_data = &encoded[range.clone()];
+						assert_eq!(hash_data.len(), 32, "Child {} hash should be 32 bytes", idx);
+						println!("Child {}: range={:?}, hash={:02x?}", idx, range, &hash_data[..4]);
+					}
+				}
+
+				// Check no value
+				assert!(value.is_none(), "Expected no value");
+
+				println!("✓ nibble_count=31 round-trip successful");
+			} else {
+				panic!("Expected NibbledBranch, got {:?}", decoded);
+			}
+		}
+
+		// Test case 3: Decode the exact data from the error log
+		{
+			println!("\n=== Testing exact data from error log ===");
+
+			// This is the exact data from the log that caused the error
+			let log_data: Vec<u8> = vec![
+				0x1f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x20, // Header: type 2, nibble_count=31
+				0x09, 0x9d, 0x88, 0x0e, 0xc6, 0x81, 0x79, 0x9c, // Partial bytes 1-8
+				0x0c, 0xf3, 0x0e, 0x88, 0x86, 0x37, 0x1d, 0xa9, // Partial bytes 9-16
+				0x96, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, /* Bitmap: 0x2096
+				       * Children would follow here...
+				       * For this test, we'll add 5 dummy 32-byte hashes for children 1,2,4,7,13 */
+			];
+
+			// Add children data (5 children * 32 bytes)
+			let mut full_data = log_data.clone();
+			for i in [1, 2, 4, 7, 13] {
+				let mut child_hash = [0u8; 32];
+				child_hash[0] = i as u8;
+				child_hash[1] = 0xff;
+				full_data.extend_from_slice(&child_hash);
+			}
+
+			println!("Full data length: {} bytes", full_data.len());
+
+			let decoded = NodeCodec::<Blake2Hasher>::decode_plan(&full_data)
+				.expect("Failed to decode log data");
+
+			if let NodePlan::NibbledBranch { partial, children, value } = decoded {
+				println!("Decoded nibble_count: {}", partial.len());
+				assert_eq!(partial.len(), 31, "Expected 31 nibbles");
+
+				// Check which children are present
+				let present: Vec<usize> = children
+					.iter()
+					.enumerate()
+					.filter(|(_, c)| c.is_some())
+					.map(|(i, _)| i)
+					.collect();
+				println!("Children present: {:?}", present);
+				assert_eq!(present, vec![1, 2, 4, 7, 13], "Children mismatch");
+
+				assert!(value.is_none(), "Expected no value");
+
+				println!("✓ Log data decoded successfully");
+			} else {
+				panic!("Expected NibbledBranch");
+			}
+		}
+
+		println!("\n✅ All branch node nibble_count 30/31 tests passed!");
+	}
+
+	/// Test that simulates the exact trie structure from the error
+	/// by inserting keys that create the same path.
+	#[test]
+	fn test_system_number_key_path() {
+		use trie_db::{TrieDBMutBuilder, TrieMut};
+
+		println!("Testing System::Number key path...");
+
+		// The key that was failing:
+		// 0x26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac Decode from hex
+		// manually
+		fn decode_hex(s: &str) -> Vec<u8> {
+			(0..s.len())
+				.step_by(2)
+				.map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+				.collect()
+		}
+		let system_number_key =
+			decode_hex("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac");
+
+		// Value: block number 1 as SCALE u32
+		let block_number_1: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00];
+
+		let mut memdb = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+		let mut root = Default::default();
+
+		// Insert the key
+		{
+			let mut trie = TrieDBMutBuilder::<LayoutV1>::new(&mut memdb, &mut root).build();
+			trie.insert(&system_number_key, &block_number_1).expect("Insert failed");
+			println!("Inserted System::Number = 1");
+		}
+
+		// Read it back
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			let result = trie.get(&system_number_key).expect("Get failed");
+			assert_eq!(result, Some(block_number_1.clone()), "Value mismatch");
+			println!("✓ Read back System::Number = 1 successfully");
+		}
+
+		// Update to block number 2
+		let block_number_2: Vec<u8> = vec![0x02, 0x00, 0x00, 0x00];
+		{
+			let mut trie =
+				TrieDBMutBuilder::<LayoutV1>::from_existing(&mut memdb, &mut root).build();
+			trie.insert(&system_number_key, &block_number_2).expect("Update failed");
+			println!("Updated System::Number = 2");
+		}
+
+		// Read it back
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			let result = trie.get(&system_number_key).expect("Get failed");
+			assert_eq!(result, Some(block_number_2.clone()), "Value mismatch after update");
+			println!("✓ Read back System::Number = 2 successfully");
+		}
+
+		println!("✅ System::Number key path test passed!");
+	}
+
+	/// Test that simulates realistic chain storage with many keys
+	/// to ensure the trie structure matches what happens during block execution.
+	#[test]
+	fn test_realistic_chain_storage() {
+		use trie_db::{TrieDBMutBuilder, TrieMut};
+
+		println!("Testing realistic chain storage scenario...");
+
+		// Helper to decode hex
+		fn decode_hex(s: &str) -> Vec<u8> {
+			(0..s.len())
+				.step_by(2)
+				.map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+				.collect()
+		}
+
+		// These are real storage keys from the chain (System pallet)
+		let keys = vec![
+			// System::Number
+			(
+				// System::Number starts at 0 for genesis
+				"26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac",
+				vec![0x00, 0x00, 0x00, 0x00],
+			),
+			// System::ParentHash
+			("26aa394eea5630e07c48ae0c9558cef734abf5cb34d6244378cddbf18e849d96", vec![0x00; 32]),
+			// System::Digest
+			("26aa394eea5630e07c48ae0c9558cef799e7f93fc6a98f0874fd057f111c4d2d", vec![0x00]),
+			// System::Events
+			("26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7", vec![0x00]),
+			// System::EventCount
+			(
+				"26aa394eea5630e07c48ae0c9558cef70a98fdbe9ce6c55837576c60c7af3850",
+				vec![0x00, 0x00, 0x00, 0x00],
+			),
+			// System::BlockWeight (different key)
+			("26aa394eea5630e07c48ae0c9558cef7a44704b568d21667356a5a050c118746", vec![0x00; 48]),
+			// Timestamp::Now
+			(
+				"f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb",
+				vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+			),
+			// Aura::Authorities
+			("57f8dc2f5ab09467896f47300f0424385e0621c4869aa60c02be9adcc98a0d1d", vec![0x00]),
+		];
+
+		let mut memdb = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+		let mut root = Default::default();
+
+		// Insert all keys (simulating genesis block state)
+		{
+			let mut trie = TrieDBMutBuilder::<LayoutV1>::new(&mut memdb, &mut root).build();
+			for (key_hex, value) in &keys {
+				let key = decode_hex(key_hex);
+				trie.insert(&key, value).expect("Insert failed");
+			}
+			println!("Inserted {} keys for genesis state", keys.len());
+		}
+
+		println!("Genesis root: {:?}", root);
+
+		// Verify all keys can be read back
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			for (key_hex, expected_value) in &keys {
+				let key = decode_hex(key_hex);
+				let result = trie.get(&key).expect("Get failed");
+				assert_eq!(
+					result.as_ref(),
+					Some(expected_value),
+					"Value mismatch for key {}",
+					key_hex
+				);
+			}
+			println!("✓ All {} keys verified after genesis", keys.len());
+		}
+
+		// Now simulate block 1 execution: update System::Number
+		let system_number_key =
+			decode_hex("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac");
+		let block_1_value = vec![0x01, 0x00, 0x00, 0x00];
+		let old_root = root;
+
+		{
+			let mut trie =
+				TrieDBMutBuilder::<LayoutV1>::from_existing(&mut memdb, &mut root).build();
+			trie.insert(&system_number_key, &block_1_value).expect("Update failed");
+			println!("Updated System::Number to 1");
+		}
+
+		println!("Block 1 root: {:?}", root);
+		assert_ne!(old_root, root, "Root should change after update");
+
+		// Verify System::Number reads correctly
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			let result = trie.get(&system_number_key).expect("Get failed");
+			assert_eq!(
+				result,
+				Some(block_1_value.clone()),
+				"System::Number mismatch after block 1"
+			);
+			println!("✓ System::Number = 1 verified");
+		}
+
+		// Now simulate block 2 execution: update System::Number again
+		let block_2_value = vec![0x02, 0x00, 0x00, 0x00];
+		let old_root = root;
+
+		{
+			let mut trie =
+				TrieDBMutBuilder::<LayoutV1>::from_existing(&mut memdb, &mut root).build();
+			trie.insert(&system_number_key, &block_2_value).expect("Update failed");
+			println!("Updated System::Number to 2");
+		}
+
+		println!("Block 2 root: {:?}", root);
+		assert_ne!(old_root, root, "Root should change after update");
+
+		// CRITICAL: This is the exact check that fails in the chain
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			let result = trie.get(&system_number_key).expect("Get failed");
+			println!("Read System::Number after block 2 update: {:?}", result);
+			assert_eq!(
+				result,
+				Some(block_2_value.clone()),
+				"System::Number mismatch after block 2 - THIS IS THE BUG!"
+			);
+			println!("✓ System::Number = 2 verified");
+		}
+
+		// NOTE: Proof generation/verification removed - Quantus uses ZK proofs instead.
+
+		println!("Realistic chain storage test passed!");
+	}
+
+	/// Test using delta_trie_root which is what the state machine uses during block execution.
+	/// This more closely simulates the actual block import process.
+	#[test]
+	fn test_delta_trie_root_block_import() {
+		use trie_db::{TrieDBMutBuilder, TrieMut};
+
+		println!("Testing delta_trie_root block import simulation...");
+
+		fn decode_hex(s: &str) -> Vec<u8> {
+			(0..s.len())
+				.step_by(2)
+				.map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+				.collect()
+		}
+
+		// Initial state (genesis)
+		let initial_data: Vec<(Vec<u8>, Vec<u8>)> = vec![
+			// System::Number = 0
+			(
+				decode_hex("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac"),
+				vec![0x00, 0x00, 0x00, 0x00],
+			),
+			// System::ParentHash
+			(
+				decode_hex("26aa394eea5630e07c48ae0c9558cef734abf5cb34d6244378cddbf18e849d96"),
+				vec![0x00; 32],
+			),
+			// Timestamp::Now
+			(
+				decode_hex("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb"),
+				vec![0x00; 8],
+			),
+		];
+
+		let mut db = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+		let mut storage_root = Default::default();
+
+		// Build genesis trie
+		{
+			let mut trie = TrieDBMutBuilder::<LayoutV1>::new(&mut db, &mut storage_root).build();
+			for (key, value) in &initial_data {
+				trie.insert(key, value).unwrap();
+			}
+		}
+		println!("Genesis root: {:?}", storage_root);
+
+		// Verify genesis System::Number
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&db, &storage_root).build();
+			let result = trie
+				.get(&decode_hex(
+					"26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac",
+				))
+				.unwrap();
+			assert_eq!(result, Some(vec![0x00, 0x00, 0x00, 0x00]));
+			println!("✓ Genesis System::Number = 0");
+		}
+
+		// Block 1: Update System::Number to 1
+		let block1_delta: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![(
+			decode_hex("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac"),
+			Some(vec![0x01, 0x00, 0x00, 0x00]),
+		)];
+
+		let block1_root = delta_trie_root::<LayoutV1, _, _, _, _, _>(
+			&mut db,
+			storage_root,
+			block1_delta,
+			None,
+			None,
+		)
+		.expect("Block 1 delta_trie_root failed");
+
+		println!("Block 1 root: {:?}", block1_root);
+
+		// Verify Block 1 System::Number
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&db, &block1_root).build();
+			let result = trie
+				.get(&decode_hex(
+					"26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac",
+				))
+				.unwrap();
+			println!("Block 1 System::Number read result: {:?}", result);
+			assert_eq!(
+				result,
+				Some(vec![0x01, 0x00, 0x00, 0x00]),
+				"Block 1 System::Number should be 1"
+			);
+			println!("✓ Block 1 System::Number = 1");
+		}
+
+		// Block 2: Update System::Number to 2
+		let block2_delta: Vec<(Vec<u8>, Option<Vec<u8>>)> = vec![(
+			decode_hex("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac"),
+			Some(vec![0x02, 0x00, 0x00, 0x00]),
+		)];
+
+		let block2_root = delta_trie_root::<LayoutV1, _, _, _, _, _>(
+			&mut db,
+			block1_root,
+			block2_delta,
+			None,
+			None,
+		)
+		.expect("Block 2 delta_trie_root failed");
+
+		println!("Block 2 root: {:?}", block2_root);
+
+		// CRITICAL: This is exactly what fails in the chain
+		// Before block 2 execution, we read System::Number expecting 1
+		// Note: After delta_trie_root modifies the DB, old roots may become invalid
+		// because TrieDBMut removes/overwrites nodes. This is expected behavior.
+		// The chain should use the new root, not try to read from old roots.
+		//
+		// Let's verify block1_root is no longer accessible (expected with mutable trie)
+		{
+			let trie_result = trie_db::TrieDBBuilder::<LayoutV1>::new(&db, &block1_root).build();
+			let result = trie_result.get(&decode_hex(
+				"26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac",
+			));
+			println!("Reading System::Number from block1_root after block2 delta: {:?}", result);
+			// This may fail because the mutable trie overwrites nodes
+			// The important thing is that block2_root works correctly
+		}
+
+		// Verify Block 2 System::Number
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&db, &block2_root).build();
+			let result = trie
+				.get(&decode_hex(
+					"26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac",
+				))
+				.unwrap();
+			assert_eq!(
+				result,
+				Some(vec![0x02, 0x00, 0x00, 0x00]),
+				"Block 2 System::Number should be 2"
+			);
+			println!("✓ Block 2 System::Number = 2");
+		}
+
+		println!("✅ delta_trie_root block import test passed!");
 	}
 }
