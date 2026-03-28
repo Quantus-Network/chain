@@ -12,6 +12,7 @@ members = [
 	"client/network",
 	"miner-api",
 	"node",
+	"pallets/frame-system",
 	"pallets/mining-rewards",
 	"pallets/multisig",
 	"pallets/qpow",
@@ -233,6 +234,7 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
+frame-system = { path = "./pallets/frame-system" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_1" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }

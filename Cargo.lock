@@ -3445,10 +3445,9 @@ dependencies = [
 [[package]]
 name = "frame-system"
 version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c883a6b18af7be0fc756f8221927e9a58bbe3d3f950de1f5d377af9fbdcdcac"
 dependencies = [
  "cfg-if",
+ "criterion",
  "docify",
  "frame-support",
  "log",
