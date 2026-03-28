@@ -21,10 +21,6 @@ use core::iter::{DoubleEndedIterator, IntoIterator};
 use hash_db::{HashDB, Hasher};
 use scale_info::TypeInfo;
 
-// // Note that `LayoutV1` usage here (proof compaction) is compatible
-// // with `LayoutV0`.
-// use crate::LayoutV1 as Layout;
-
 /// Error associated with the `storage_proof` module.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, Debug, TypeInfo)]
 pub enum StorageProofError {
@@ -125,33 +121,39 @@ impl StorageProof {
 		Self { trie_nodes }
 	}
 
-	/// Encode as a compact proof with default trie layout.
+	/// Returns the encoded size of the proof.
+	pub fn encoded_size(&self) -> usize {
+		self.trie_nodes.iter().map(|n| n.len()).sum()
+	}
+
+	/// Returns the encoded size as a compact proof.
+	///
+	/// **DEPRECATED**: Returns `None` since Quantus doesn't support compact proofs.
+	pub fn encoded_compact_size<H: Hasher>(self, _root: H::Out) -> Option<usize> {
+		// Compact proofs are not supported in Quantus - return None
+		None
+	}
+
+	/// Convert into a compact proof.
+	///
+	/// **DEPRECATED**: Quantus uses ZK proofs. This returns a stub CompactProof
+	/// that wraps the storage proof nodes but is not actually compact-encoded.
 	pub fn into_compact_proof<H: Hasher>(
 		self,
 		_root: H::Out,
-	) -> Result<CompactProof, crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
-		// Since CompactProof now wraps StorageProof, just create a CompactProof directly
+	) -> Result<CompactProof, CompactProofError<H::Out, crate::Error<H::Out>>> {
 		Ok(CompactProof::from_storage_proof(self))
 	}
 
-	/// Encode as a compact proof with default trie layout.
+	/// Convert to a compact proof.
+	///
+	/// **DEPRECATED**: Quantus uses ZK proofs. This returns a stub CompactProof
+	/// that wraps the storage proof nodes but is not actually compact-encoded.
 	pub fn to_compact_proof<H: Hasher>(
 		&self,
 		_root: H::Out,
-	) -> Result<CompactProof, crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
-		// Since CompactProof now wraps StorageProof, just create a CompactProof directly
+	) -> Result<CompactProof, CompactProofError<H::Out, crate::Error<H::Out>>> {
 		Ok(CompactProof::from_storage_proof(self.clone()))
-	}
-
-	/// Returns the estimated encoded size of the compact proof.
-	///
-	/// Running this operation is a slow operation (build the whole compact proof) and should only
-	/// be in non sensitive path.
-	///
-	/// Return `None` on error.
-	pub fn encoded_compact_size<H: Hasher>(self, root: H::Out) -> Option<usize> {
-		let compact_proof = self.into_compact_proof::<H>(root);
-		compact_proof.ok().map(|p| p.encoded_size())
 	}
 }
 
@@ -171,60 +173,70 @@ impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
 	}
 }
 
-/// Storage proof in compact form.
+/// Error for compact proof operations.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of compact Merkle proofs.
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub enum CompactProofError<H, CodecError> {
+	/// Root mismatch.
+	#[cfg_attr(feature = "std", error("Invalid root {0:x?}, expected {1:x?}"))]
+	RootMismatch(H, H),
+	/// Incomplete proof.
+	#[cfg_attr(feature = "std", error("Missing nodes in the proof"))]
+	IncompleteProof,
+	/// Trie error.
+	#[cfg_attr(feature = "std", error("Trie error: {0:?}"))]
+	TrieError(alloc::boxed::Box<trie_db::TrieError<H, CodecError>>),
+}
+
+/// Compact proof stub for API compatibility.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of compact Merkle proofs.
+/// This type exists only for API compatibility with external crates.
+/// It should not be used for actual proof operations - all methods will panic.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, TypeInfo)]
 pub struct CompactProof {
+	/// Raw encoded nodes (not actually compact-encoded).
 	pub encoded_nodes: Vec<Vec<u8>>,
 }
 
 impl CompactProof {
-	/// Create a new CompactProof from a StorageProof (internal wrapper approach).
+	/// Create from a StorageProof.
+	///
+	/// **DEPRECATED**: This creates a stub that stores raw nodes, not compact-encoded.
 	pub(crate) fn from_storage_proof(storage_proof: StorageProof) -> Self {
-		// Convert StorageProof nodes to the encoded_nodes format to maintain API compatibility
 		Self { encoded_nodes: storage_proof.into_iter_nodes().collect() }
 	}
 
-	/// Return an iterator on the compact encoded nodes.
+	/// Return an iterator on the encoded nodes.
 	pub fn iter_compact_encoded_nodes(&self) -> impl Iterator<Item = &[u8]> {
 		self.encoded_nodes.iter().map(Vec::as_slice)
 	}
 
-	/// Returns the estimated encoded size of the compact proof.
+	/// Returns the encoded size of the compact proof.
 	pub fn encoded_size(&self) -> usize {
 		self.encoded_nodes.iter().map(|n| n.len()).sum()
 	}
 
-	/// Decode to a full storage_proof.
-	pub fn to_storage_proof<H: Hasher>(
-		&self,
-		expected_root: Option<&H::Out>,
-	) -> Result<(StorageProof, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>> {
-		// Since CompactProof now just wraps StorageProof data, convert back to StorageProof
-		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
-
-		match expected_root {
-			Some(root) => Ok((storage_proof, *root)),
-			None => Ok((storage_proof, H::Out::default())),
-		}
-	}
-
-	/// Convert self into a [`MemoryDB`](crate::MemoryDB).
+	/// Decode to a storage proof and memory DB.
 	///
-	/// `expected_root` is the expected root of this compact proof.
-	///
-	/// Returns the memory db and the root of the trie.
+	/// **DEPRECATED**: This is a stub that panics. Quantus uses ZK proofs.
 	pub fn to_memory_db<H: Hasher>(
 		&self,
-		expected_root: Option<&H::Out>,
-	) -> Result<(crate::MemoryDB<H>, H::Out), crate::CompactProofError<H::Out, crate::Error<H::Out>>>
-	{
-		let storage_proof = StorageProof::new(self.encoded_nodes.clone());
-		let db = storage_proof.to_memory_db::<H>();
+		_expected_root: Option<&H::Out>,
+	) -> Result<(crate::MemoryDB<H>, H::Out), CompactProofError<H::Out, crate::Error<H::Out>>> {
+		panic!("CompactProof::to_memory_db is not supported - Quantus uses ZK proofs instead of compact Merkle proofs")
+	}
 
-		match expected_root {
-			Some(root) => Ok((db, *root)),
-			None => Ok((db, H::Out::default())),
-		}
+	/// Encode from storage proof.
+	///
+	/// **DEPRECATED**: This is a stub that panics. Quantus uses ZK proofs.
+	pub fn to_storage_proof<H: Hasher>(
+		&self,
+		_expected_root: Option<&H::Out>,
+	) -> Result<(StorageProof, H::Out), CompactProofError<H::Out, crate::Error<H::Out>>> {
+		panic!("CompactProof::to_storage_proof is not supported - Quantus uses ZK proofs instead of compact Merkle proofs")
 	}
 }
 
@@ -233,7 +245,6 @@ pub mod tests {
 	use super::*;
 	use crate::{tests::create_storage_proof, StorageProof};
 
-	type Hasher = sp_core::Blake2Hasher;
 	type Layout = crate::LayoutV1<sp_core::Blake2Hasher>;
 
 	const TEST_DATA: &[(&[u8], &[u8])] =
@@ -246,12 +257,5 @@ pub mod tests {
 			StorageProof::new_with_duplicate_nodes_check(raw_proof),
 			Err(StorageProofError::DuplicateNodes)
 		));
-	}
-
-	#[test]
-	fn invalid_compact_proof_does_not_panic_when_decoding() {
-		let invalid_proof = CompactProof { encoded_nodes: vec![vec![135]] };
-		let result = invalid_proof.to_memory_db::<Hasher>(None);
-		assert!(result.is_ok()); // Should not panic, even with invalid data
 	}
 }

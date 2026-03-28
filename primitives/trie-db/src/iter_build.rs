@@ -379,18 +379,12 @@ where
 		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<TrieHash<T>> {
-		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
-			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
-
-			return ChildReference::Inline(h, len)
-		}
+		// Always hash children, never inline - required for ZK trie compatibility
 		let hash = self.db.insert(prefix, &encoded_node[..]);
 		if is_root {
 			self.root = Some(hash);
 		};
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, prefix: Prefix, value: &[u8]) -> TrieHash<T> {
@@ -417,18 +411,12 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<TrieHash<T>> {
-		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
-			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
-
-			return ChildReference::Inline(h, len)
-		}
+		// Always hash children, never inline - required for ZK trie compatibility
 		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
 		if is_root {
 			self.root = Some(hash);
 		};
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
@@ -475,20 +463,13 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 	) -> ChildReference<TrieHash<T>> {
 		println!("Encoded node: {:x?}", &encoded_node);
 		println!("	with prefix: {:x?}", &p);
-		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
-			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
-
-			println!("	inline len {}", len);
-			return ChildReference::Inline(h, len)
-		}
+		// Always hash children, never inline - required for ZK trie compatibility
 		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
 		if is_root {
 			self.root = Some(hash);
 		};
 		println!("	hashed to {:x?}", hash.as_ref());
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
@@ -504,19 +485,13 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<<T::Hash as Hasher>::Out> {
-		let len = encoded_node.len();
-		if !is_root && len < <T::Hash as Hasher>::LENGTH {
-			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
-
-			return ChildReference::Inline(h, len)
-		}
+		// Always hash children, never inline - required for ZK trie compatibility
 		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
 
 		if is_root {
 			self.root = Some(encoded_node);
 		};
-		ChildReference::Hash(hash)
+		ChildReference(hash)
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {

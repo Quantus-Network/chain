@@ -45,8 +45,7 @@ where
 {
 	/// Load the given value.
 	///
-	/// This will access the `db` if the value is not already in memory, but then it will put it
-	/// into the given `cache` as `NodeOwned::Value`.
+	/// This accesses the `db` for external (hashed) values.
 	///
 	/// Returns the bytes representing the value.
 	fn load_value(
@@ -95,7 +94,6 @@ where
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
 		full_key: &[u8],
-		cache: &mut dyn crate::TrieCache<L::Codec>,
 		db: &dyn HashDBRef<L::Hash, DBValue>,
 		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 	) -> Result<(Bytes, TrieHash<L>), TrieHash<L>, CError<L>> {
@@ -108,31 +106,19 @@ where
 				Ok((value.clone(), hash))
 			},
 			ValueOwned::Node(hash) => {
-				let node = cache.get_or_insert_node(hash, &mut || {
-					let value = db
-						.get(&hash, prefix)
-						.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
-
-					Ok(NodeOwned::Value(value.into(), hash))
-				})?;
-
-				let value = node
-					.data()
-					.expect(
-						"We are caching a `NodeOwned::Value` for a value node \
-						hash and this cached node has always data attached; qed",
-					)
-					.clone();
+				let value = db
+					.get(&hash, prefix)
+					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
 				if let Some(recorder) = recorder {
 					recorder.record(TrieAccess::Value {
 						hash,
-						value: value.as_ref().into(),
+						value: value.as_slice().into(),
 						full_key,
 					});
 				}
 
-				Ok((value, hash))
+				Ok((value.into(), hash))
 			},
 		}
 	}
@@ -222,7 +208,7 @@ where
 						// (descendent), but not the other way around.
 						if !slice.starts_with_slice(&partial) {
 							self.record(|| TrieAccess::NonExisting { full_key });
-							return Ok(None)
+							return Ok(None);
 						}
 
 						if partial.len() != slice.len() {
@@ -232,7 +218,7 @@ where
 						let res = is_inline
 							.then(|| MerkleValue::Node(node_data))
 							.unwrap_or_else(|| MerkleValue::Hash(hash));
-						return Ok(Some(res))
+						return Ok(Some(res));
 					},
 					NodeOwned::Extension(slice, item) => {
 						if partial.len() < slice.len() {
@@ -248,7 +234,7 @@ where
 								Ok(Some(res))
 							} else {
 								Ok(None)
-							}
+							};
 						}
 
 						// Remainder of the provided key is longer than the extension slice,
@@ -262,7 +248,7 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						}
 					},
 					NodeOwned::Branch(children, value) =>
@@ -273,7 +259,7 @@ where
 							let res = is_inline
 								.then(|| MerkleValue::Node(node_data))
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
-							return Ok(Some(res))
+							return Ok(Some(res));
 						} else {
 							match children.get(partial.at(0) as usize) {
 								Some(x) => {
@@ -284,7 +270,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						},
@@ -302,14 +288,14 @@ where
 								Ok(Some(res))
 							} else {
 								Ok(None)
-							}
+							};
 						}
 
 						// Partial key is longer or equal than the branch slice.
 						// Ensure partial key starts with the branch slice.
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
-							return Ok(None)
+							return Ok(None);
 						}
 
 						// Partial key starts with the branch slice.
@@ -321,7 +307,7 @@ where
 							let res = is_inline
 								.then(|| MerkleValue::Node(node_data))
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
-							return Ok(Some(res))
+							return Ok(Some(res));
 						} else {
 							match children.get(partial.at(slice.len()) as usize) {
 								Some(x) => {
@@ -332,7 +318,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						}
@@ -340,7 +326,7 @@ where
 					NodeOwned::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(None)
+						return Ok(None);
 					},
 					NodeOwned::Value(_, _) => {
 						unreachable!(
@@ -355,7 +341,7 @@ where
 				match next_node {
 					NodeHandleOwned::Hash(new_hash) => {
 						hash = *new_hash;
-						break
+						break;
 					},
 					NodeHandleOwned::Inline(inline_node) => {
 						node = &inline_node;
@@ -452,7 +438,7 @@ where
 				nibble_key,
 				full_key,
 				cache,
-				|value, _, full_key, _, _, recorder| match value {
+				|value, _, full_key, _, recorder| match value {
 					ValueOwned::Inline(value, hash) => {
 						if let Some(recoder) = recorder.as_mut() {
 							// We can record this as `InlineValue`, even we are just returning
@@ -499,7 +485,7 @@ where
 		let trie_nodes_recorded =
 			self.recorder.as_ref().map(|r| r.trie_nodes_recorded_for_key(full_key));
 
-		let (value_cache_allowed, value_recording_required) = match trie_nodes_recorded {
+		let (value_cache_allowed, _) = match trie_nodes_recorded {
 			// If we already have the trie nodes recorded up to the value, we are allowed
 			// to use the value cache.
 			Some(RecordedForKey::Value) | None => (true, false),
@@ -528,41 +514,8 @@ where
 		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()
 		{
 			Some(CachedValue::NonExisting) => None,
-			Some(CachedValue::ExistingHash(hash)) => {
-				let data = Self::load_owned_value(
-					// If we only have the hash cached, this can only be a value node.
-					// For inline nodes we cache them directly as `CachedValue::Existing`.
-					ValueOwned::Node(*hash),
-					nibble_key.original_data_as_prefix(),
-					full_key,
-					cache,
-					self.db,
-					&mut self.recorder,
-				)?;
-
-				cache.cache_value_for_key(full_key, data.clone().into());
-
-				Some(data.0)
-			},
-			Some(CachedValue::Existing { data, hash, .. }) =>
-				if let Some(data) = data.upgrade() {
-					// inline is either when no limit defined or when content
-					// is less than the limit.
-					let is_inline =
-						L::MAX_INLINE_VALUE.map_or(true, |max| max as usize > data.as_ref().len());
-					if value_recording_required && !is_inline {
-						// As a value is only raw data, we can directly record it.
-						self.record(|| TrieAccess::Value {
-							hash: *hash,
-							value: data.as_ref().into(),
-							full_key,
-						});
-					}
-
-					Some(data)
-				} else {
-					lookup_data(&mut self, cache)?
-				},
+			Some(CachedValue::ExistingHash(_)) | Some(CachedValue::Existing { .. }) =>
+				lookup_data(&mut self, cache)?,
 			None => lookup_data(&mut self, cache)?,
 		};
 
@@ -580,7 +533,6 @@ where
 			ValueOwned<TrieHash<L>>,
 			Prefix,
 			&[u8],
-			&mut dyn crate::TrieCache<L::Codec>,
 			&dyn HashDBRef<L::Hash, DBValue>,
 			&mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 		) -> Result<R, TrieHash<L>, CError<L>>,
@@ -622,7 +574,6 @@ where
 								value,
 								nibble_key.original_data_as_prefix(),
 								full_key,
-								cache,
 								self.db,
 								&mut self.recorder,
 							)
@@ -640,7 +591,7 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						},
 					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
@@ -649,7 +600,6 @@ where
 									value,
 									nibble_key.original_data_as_prefix(),
 									full_key,
-									cache,
 									self.db,
 									&mut self.recorder,
 								)
@@ -658,7 +608,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children.get(partial.at(0) as usize) {
 								Some(x) => {
@@ -669,7 +619,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						},
@@ -677,7 +627,7 @@ where
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						}
 
 						if partial.len() == slice.len() {
@@ -686,7 +636,6 @@ where
 									value,
 									nibble_key.original_data_as_prefix(),
 									full_key,
-									cache,
 									self.db,
 									&mut self.recorder,
 								)
@@ -695,7 +644,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children.get(partial.at(slice.len()) as usize) {
 								Some(x) => {
@@ -706,7 +655,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						}
@@ -714,7 +663,7 @@ where
 					NodeOwned::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(None)
+						return Ok(None);
 					},
 					NodeOwned::Value(_, _) => {
 						unreachable!(
@@ -729,7 +678,7 @@ where
 				match next_node {
 					NodeHandleOwned::Hash(new_hash) => {
 						hash = *new_hash;
-						break
+						break;
 					},
 					NodeHandleOwned::Inline(inline_node) => {
 						node = &inline_node;
@@ -813,7 +762,7 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
@@ -831,7 +780,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -842,7 +791,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						},
@@ -850,7 +799,7 @@ where
 						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(None)
+							return Ok(None);
 						}
 
 						if partial.len() == slice.len() {
@@ -868,7 +817,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 
 								Ok(None)
-							}
+							};
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -879,7 +828,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(None)
+									return Ok(None);
 								},
 							}
 						}
@@ -887,7 +836,7 @@ where
 					Node::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(None)
+						return Ok(None);
 					},
 				};
 
@@ -896,7 +845,7 @@ where
 					NodeHandle::Hash(data) => {
 						hash = decode_hash::<L::Hash>(data)
 							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
-						break
+						break;
 					},
 					NodeHandle::Inline(data) => {
 						node_data = data;

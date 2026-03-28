@@ -67,20 +67,18 @@ where
 {
 	/// Returns `self` as a [`ChildReference`].
 	///
+	/// Convert to a child reference (hash).
+	///
 	/// # Panic
 	///
-	/// This function panics if `self == Self::Inline(_)` and the inline node encoded length is
-	/// greater then the length of the hash.
+	/// This function panics if `self == Self::Inline(_)` since ZK tries don't support inline nodes.
 	fn as_child_reference<C: NodeCodec<HashOut = H>>(&self) -> ChildReference<H> {
 		match self {
-			NodeHandleOwned::Hash(h) => ChildReference::Hash(*h),
-			NodeHandleOwned::Inline(n) => {
-				let encoded = n.to_encoded::<C>();
-				let mut store = H::default();
-				assert!(store.as_ref().len() > encoded.len(), "Invalid inline node handle");
-
-				store.as_mut()[..encoded.len()].copy_from_slice(&encoded);
-				ChildReference::Inline(store, encoded.len())
+			NodeHandleOwned::Hash(h) => ChildReference(*h),
+			NodeHandleOwned::Inline(_) => {
+				panic!(
+					"inline child nodes are not supported in ZK tries; all children must be hashed"
+				);
 			},
 		}
 	}
@@ -99,7 +97,7 @@ impl<H> NodeHandleOwned<H> {
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
 pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 	if data.len() != H::LENGTH {
-		return None
+		return None;
 	}
 	let mut hash = H::Out::default();
 	hash.as_mut().copy_from_slice(data);
@@ -120,7 +118,7 @@ impl<'a> Value<'a> {
 	pub(crate) fn new_inline(value: &'a [u8], threshold: Option<u32>) -> Option<Self> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
-				return None
+				return None;
 			} else {
 				Some(Value::Inline(value))
 			}
@@ -154,7 +152,7 @@ pub enum ValueOwned<H> {
 
 impl<H: AsRef<[u8]> + Copy> ValueOwned<H> {
 	/// Returns self as [`Value`].
-	pub fn as_value(&self) -> Value {
+	pub fn as_value(&self) -> Value<'_> {
 		match self {
 			Self::Inline(data, _) => Value::Inline(&data),
 			Self::Node(hash) => Value::Node(hash.as_ref()),
@@ -228,7 +226,7 @@ impl Node<'_> {
 							}
 							Ok(())
 						})
-						.collect::<Result<_, _, _>>()?;
+						.collect::<Result<(), _, _>>()?;
 					childs_owned
 				} else {
 					Vec::with_capacity(0)
@@ -256,7 +254,7 @@ impl Node<'_> {
 							}
 							Ok(())
 						})
-						.collect::<Result<_, _, _>>()?;
+						.collect::<Result<(), _, _>>()?;
 					childs_owned
 				} else {
 					Vec::with_capacity(0)
@@ -384,17 +382,18 @@ where
 								*returned = true;
 								Some((None, child))
 							},
-						Self::Array(childs, index) =>
+						Self::Array(childs, index) => {
 							if *index >= childs.allocated_len() {
-								break None
+								break None;
 							} else {
 								*index += 1;
 
 								// Ignore non-existing childs.
 								if let Some(ref child) = childs.get(*index - 1) {
-									break Some((Some(*index as u8 - 1), child))
+									break Some((Some(*index as u8 - 1), child));
 								}
-							},
+							}
+						},
 					}
 				}
 			}
@@ -670,7 +669,7 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	}
 
 	/// Construct a `Node` by borrowing data from this struct.
-	pub fn node(&self) -> Node {
+	pub fn node(&self) -> Node<'_> {
 		self.plan.build(self.data.borrow())
 	}
 }

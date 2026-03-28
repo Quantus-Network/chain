@@ -651,7 +651,7 @@ impl<H: Hasher> OverlayedChanges<H> {
 		H::Out: Ord + Encode,
 	{
 		if let Some(cache) = &self.storage_transaction_cache {
-			return (cache.transaction_storage_root, true)
+			return (cache.transaction_storage_root, true);
 		}
 
 		let delta = self.top.changes_mut().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
@@ -696,7 +696,7 @@ impl<H: Hasher> OverlayedChanges<H> {
 				// V1 is equivalent to V0 on empty root.
 				.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
 
-			return Ok((root, true))
+			return Ok((root, true));
 		}
 
 		let root = if let Some((changes, info)) = self.child_changes_mut(storage_key) {
@@ -1007,7 +1007,7 @@ mod tests {
 
 		{
 			let mut ext = Ext::new(&mut overlay, &backend, None);
-			let root = "39efe1c12dcaa055fc20afa679abd2946f42661177d55072d771de7abbb72516";
+			let root = "c8b9deddb44274f79beb69e97de29e2b9af44cfaa1e194fe05ed214f2d0113f0";
 
 			assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
 			// Calling a second time should use it from the cache
@@ -1018,7 +1018,7 @@ mod tests {
 		overlay.set_storage(b"doug2".to_vec(), Some(b"yes".to_vec()));
 
 		let mut ext = Ext::new(&mut overlay, &backend, None);
-		let root = "312a9a151868c8b9c3a3f03b8a5b44ba9bcdcec5adbfab9259fa81f1b133f0b9";
+		let root = "296e735bc62e3d66e6161cc198fb2de24b0743ec8405c0f6eb0f192ada2c46f7";
 		assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
 	}
 
@@ -1039,8 +1039,8 @@ mod tests {
 
 		{
 			let mut ext = Ext::new(&mut overlay, &backend, None);
-			let child_root = "e573c26fa86bbbd8736af193a9db0fb21a4bb1c3706573364b6ce38c6ee9f6bb";
-			let root = "490ee3bfc2b69730a64994113704f4307cf16306c0c7d5df9ba561e83af0bd22";
+			let child_root = "1ec01a90ffabba719ec10f8de864787c3ad89248821a4b173fabca01a0f5c6dc";
+			let root = "1d9d35a9112f15fc6b20d8d14ef7fb753437d35fe41510ba67c85dfcfa921d52";
 
 			assert_eq!(
 				bytes2hex("", &ext.child_storage_root(child_info, state_version)),
