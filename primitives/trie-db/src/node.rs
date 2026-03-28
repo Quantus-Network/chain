@@ -99,7 +99,7 @@ impl<H> NodeHandleOwned<H> {
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
 pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 	if data.len() != H::LENGTH {
-		return None
+		return None;
 	}
 	let mut hash = H::Out::default();
 	hash.as_mut().copy_from_slice(data);
@@ -120,7 +120,7 @@ impl<'a> Value<'a> {
 	pub(crate) fn new_inline(value: &'a [u8], threshold: Option<u32>) -> Option<Self> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
-				return None
+				return None;
 			} else {
 				Some(Value::Inline(value))
 			}
@@ -384,17 +384,18 @@ where
 								*returned = true;
 								Some((None, child))
 							},
-						Self::Array(childs, index) =>
+						Self::Array(childs, index) => {
 							if *index >= childs.allocated_len() {
-								break None
+								break None;
 							} else {
 								*index += 1;
 
 								// Ignore non-existing childs.
 								if let Some(ref child) = childs.get(*index - 1) {
-									break Some((Some(*index as u8 - 1), child))
+									break Some((Some(*index as u8 - 1), child));
 								}
-							},
+							}
+						},
 					}
 				}
 			}

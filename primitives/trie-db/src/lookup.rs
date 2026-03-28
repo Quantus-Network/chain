@@ -164,12 +164,11 @@ where
 			let mut get_owned_node = |depth: i32| {
 				let data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
-					None => {
+					None =>
 						return Err(Box::new(match depth {
 							0 => TrieError::InvalidStateRoot(hash),
 							_ => TrieError::IncompleteDatabase(hash),
-						}))
-					},
+						})),
 				};
 
 				let decoded = match L::Codec::decode(&data[..]) {
@@ -252,7 +251,7 @@ where
 							return Ok(None)
 						}
 					},
-					NodeOwned::Branch(children, value) => {
+					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
@@ -274,8 +273,7 @@ where
 									return Ok(None)
 								},
 							}
-						}
-					},
+						},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						// Not enough remainder key to continue the search.
 						if partial.len() < slice.len() {
@@ -462,9 +460,8 @@ where
 			)?;
 
 			match &hash_and_value {
-				Some((hash, Some(value))) => {
-					cache.cache_value_for_key(full_key, (value.clone(), *hash).into())
-				},
+				Some((hash, Some(value))) =>
+					cache.cache_value_for_key(full_key, (value.clone(), *hash).into()),
 				Some((hash, None)) => cache.cache_value_for_key(full_key, (*hash).into()),
 				None => cache.cache_value_for_key(full_key, CachedValue::NonExisting),
 			}
@@ -517,9 +514,8 @@ where
 		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()
 		{
 			Some(CachedValue::NonExisting) => None,
-			Some(CachedValue::ExistingHash(_)) | Some(CachedValue::Existing { .. }) => {
-				lookup_data(&mut self, cache)?
-			},
+			Some(CachedValue::ExistingHash(_)) | Some(CachedValue::Existing { .. }) =>
+				lookup_data(&mut self, cache)?,
 			None => lookup_data(&mut self, cache)?,
 		};
 
@@ -550,12 +546,11 @@ where
 			let mut node = cache.get_or_insert_node(hash, &mut || {
 				let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
-					None => {
+					None =>
 						return Err(Box::new(match depth {
 							0 => TrieError::InvalidStateRoot(hash),
 							_ => TrieError::IncompleteDatabase(hash),
-						}))
-					},
+						})),
 				};
 
 				let decoded = match L::Codec::decode(&node_data[..]) {
@@ -572,7 +567,7 @@ where
 			// without incrementing the depth.
 			loop {
 				let next_node = match node {
-					NodeOwned::Leaf(slice, value) => {
+					NodeOwned::Leaf(slice, value) =>
 						return if partial == *slice {
 							let value = (*value).clone();
 							load_value_owned(
@@ -587,9 +582,8 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							Ok(None)
-						}
-					},
-					NodeOwned::Extension(slice, item) => {
+						},
+					NodeOwned::Extension(slice, item) =>
 						if partial.starts_with_vec(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
@@ -598,9 +592,8 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							return Ok(None);
-						}
-					},
-					NodeOwned::Branch(children, value) => {
+						},
+					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
 								load_value_owned(
@@ -629,8 +622,7 @@ where
 									return Ok(None)
 								},
 							}
-						}
-					},
+						},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
@@ -724,12 +716,11 @@ where
 		for depth in 0.. {
 			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 				Some(value) => value,
-				None => {
+				None =>
 					return Err(Box::new(match depth {
 						0 => TrieError::InvalidStateRoot(hash),
 						_ => TrieError::IncompleteDatabase(hash),
-					}))
-				},
+					})),
 			};
 
 			self.record(|| TrieAccess::EncodedNode {
@@ -747,7 +738,7 @@ where
 				};
 
 				let next_node = match decoded {
-					Node::Leaf(slice, value) => {
+					Node::Leaf(slice, value) =>
 						return if slice == partial {
 							load_value(
 								value,
@@ -762,9 +753,8 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							Ok(None)
-						}
-					},
-					Node::Extension(slice, item) => {
+						},
+					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
@@ -773,9 +763,8 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							return Ok(None);
-						}
-					},
-					Node::Branch(children, value) => {
+						},
+					Node::Branch(children, value) =>
 						if partial.is_empty() {
 							return if let Some(val) = value {
 								load_value(
@@ -805,8 +794,7 @@ where
 									return Ok(None)
 								},
 							}
-						}
-					},
+						},
 					Node::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });

@@ -265,7 +265,7 @@ where
 				(recorded_nodes.peek(), stack_iter.peek())
 			{
 				if next_entry.node_hash != Some(next_record.hash) {
-					break
+					break;
 				}
 				recorded_nodes.next();
 				stack_iter.next();
@@ -319,7 +319,7 @@ where
 								return Err(Box::new(TrieError::InvalidHash(
 									<TrieHash<L>>::default(),
 									data.to_vec(),
-								)))
+								)));
 							}
 							StackEntry::new(child_prefix, data.to_vec(), None, None)?
 						},
@@ -343,7 +343,7 @@ where
 						the value was found by traversing recorded nodes, so there must be none \
 						remaining"
 					);
-					break
+					break;
 				},
 				Step::FoundValue(value) => {
 					assert_eq!(
@@ -362,7 +362,7 @@ where
 						the value was found by traversing recorded nodes, so there must be none \
 						remaining"
 					);
-					break
+					break;
 				},
 			}
 		}
@@ -471,7 +471,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	if !key.contains(&partial, prefix_len) {
-		return Ok(Step::FoundValue(None))
+		return Ok(Step::FoundValue(None));
 	}
 
 	if key.len() == prefix_len + partial.len() {
@@ -482,11 +482,11 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 			},
 			Some(ValuePlan::Node(..)) => {
 				*omit_value = true;
-				return resolve_value::<C>(recorded_nodes)
+				return resolve_value::<C>(recorded_nodes);
 			},
 			None => None,
 		};
-		return Ok(Step::FoundValue(value))
+		return Ok(Step::FoundValue(value));
 	}
 
 	let new_index = key.at(prefix_len + partial.len()).expect(
@@ -531,7 +531,7 @@ fn unwind_stack<C: NodeCodec>(
 			Some(key) if key.starts_with(&entry.prefix) => {
 				// Stop if the key lies below this entry in the trie.
 				stack.push(entry);
-				break
+				break;
 			},
 			_ => {
 				// Pop and finalize node from the stack.

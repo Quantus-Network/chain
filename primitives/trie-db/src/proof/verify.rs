@@ -55,20 +55,24 @@ pub enum Error<HO, CE> {
 impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO, CE> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
 		match self {
-			Error::DuplicateKey(key) =>
-				write!(f, "Duplicate key in input statement: key={:?}", key),
+			Error::DuplicateKey(key) => {
+				write!(f, "Duplicate key in input statement: key={:?}", key)
+			},
 			Error::ExtraneousNode => write!(f, "Extraneous node found in proof"),
-			Error::ExtraneousValue(key) =>
-				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key),
+			Error::ExtraneousValue(key) => {
+				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key)
+			},
 			Error::ExtraneousHashReference(hash) => write!(
 				f,
 				"Extraneous hash reference found in proof should have been omitted: hash={:?}",
 				hash
 			),
-			Error::InvalidChildReference(data) =>
-				write!(f, "Invalid child reference exceeds hash length: {:?}", data),
-			Error::ValueMismatch(key) =>
-				write!(f, "Expected value was not found in the trie: key={:?}", key),
+			Error::InvalidChildReference(data) => {
+				write!(f, "Invalid child reference exceeds hash length: {:?}", data)
+			},
+			Error::ValueMismatch(key) => {
+				write!(f, "Expected value was not found in the trie: key={:?}", key)
+			},
 			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
 			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
 			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
@@ -243,7 +247,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 			NodeHandle::Hash(data) => {
 				let mut hash = TrieHash::<L>::default();
 				if data.len() != hash.as_ref().len() {
-					return Err(Error::InvalidChildReference(data.to_vec()))
+					return Err(Error::InvalidChildReference(data.to_vec()));
 				}
 				hash.as_mut().copy_from_slice(data);
 				Err(Error::ExtraneousHashReference(hash))
@@ -278,7 +282,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 							if let Some(value) = value {
 								self.set_value(value);
 							} else {
-								return Err(Error::ValueMismatch(key_bytes.to_vec()))
+								return Err(Error::ValueMismatch(key_bytes.to_vec()));
 							},
 						ValueMatch::MatchesBranch =>
 							if let Some(value) = value {
@@ -288,7 +292,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 							},
 						ValueMatch::NotFound =>
 							if value.is_some() {
-								return Err(Error::ValueMismatch(key_bytes.to_vec()))
+								return Err(Error::ValueMismatch(key_bytes.to_vec()));
 							},
 						ValueMatch::NotOmitted =>
 							return Err(Error::ExtraneousValue(key_bytes.to_vec())),
@@ -296,10 +300,10 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 					}
 
 					items_iter.next();
-					continue
+					continue;
 				}
 			}
-			break Step::UnwindStack
+			break Step::UnwindStack;
 		};
 		Ok(step)
 	}
@@ -410,13 +414,13 @@ where
 	items.sort();
 
 	if items.is_empty() {
-		return if proof.is_empty() { Ok(()) } else { Err(Error::ExtraneousNode) }
+		return if proof.is_empty() { Ok(()) } else { Err(Error::ExtraneousNode) };
 	}
 
 	// Check for duplicates.
 	for i in 1..items.len() {
 		if items[i].0 == items[i - 1].0 {
-			return Err(Error::DuplicateKey(items[i].0.to_vec()))
+			return Err(Error::DuplicateKey(items[i].0.to_vec()));
 		}
 	}
 
@@ -448,7 +452,7 @@ where
 
 				let child_ref = if is_inline {
 					if node_data.len() > L::Hash::LENGTH {
-						return Err(Error::InvalidChildReference(node_data))
+						return Err(Error::InvalidChildReference(node_data));
 					}
 					let mut hash = <TrieHash<L>>::default();
 					hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
@@ -464,17 +468,18 @@ where
 					last_entry.child_index += 1;
 				} else {
 					if proof_iter.next().is_some() {
-						return Err(Error::ExtraneousNode)
+						return Err(Error::ExtraneousNode);
 					}
 					let computed_root = match child_ref {
 						ChildReference::Hash(hash) => hash,
-						ChildReference::Inline(_, _) =>
-							panic!("the bottom item on the stack has is_inline = false; qed"),
+						ChildReference::Inline(_, _) => {
+							panic!("the bottom item on the stack has is_inline = false; qed")
+						},
 					};
 					if computed_root != *root {
-						return Err(Error::RootMismatch(computed_root))
+						return Err(Error::RootMismatch(computed_root));
 					}
-					break
+					break;
 				}
 			},
 		}

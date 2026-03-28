@@ -64,7 +64,6 @@ mod iterator;
 mod lookup;
 mod nibble;
 mod node_codec;
-mod trie_codec;
 
 pub use self::{
 	fatdb::{FatDB, FatDBIterator},
@@ -81,7 +80,6 @@ pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},
 	iterator::{TrieDBNodeIterator, TrieDBRawIterator},
 	node_codec::{NodeCodec, Partial},
-	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
 };
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 
@@ -120,10 +118,12 @@ where
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			TrieError::InvalidStateRoot(ref root) => write!(f, "Invalid state root: {:?}", root),
-			TrieError::IncompleteDatabase(ref missing) =>
-				write!(f, "Database missing expected key: {:?}", missing),
-			TrieError::ValueAtIncompleteKey(ref bytes, ref extra) =>
-				write!(f, "Value found in trie at incomplete key {:?} + {:?}", bytes, extra),
+			TrieError::IncompleteDatabase(ref missing) => {
+				write!(f, "Database missing expected key: {:?}", missing)
+			},
+			TrieError::ValueAtIncompleteKey(ref bytes, ref extra) => {
+				write!(f, "Value found in trie at incomplete key {:?} + {:?}", bytes, extra)
+			},
 			TrieError::DecoderError(ref hash, ref decoder_err) => {
 				write!(f, "Decoding failed for hash {:?}; err: {:?}", hash, decoder_err)
 			},

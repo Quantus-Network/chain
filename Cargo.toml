@@ -25,6 +25,7 @@ members = [
 	"primitives/scheduler",
 	"primitives/state-machine",
 	"primitives/trie",
+	"primitives/trie-db",
 	"primitives/wormhole",
 	"qpow-math",
 	"runtime",
