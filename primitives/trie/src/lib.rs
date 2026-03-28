@@ -34,17 +34,16 @@ mod node_header;
 pub mod recorder;
 pub mod recorder_ext;
 mod storage_proof;
-mod trie_codec;
 mod trie_stream;
 
 #[cfg(feature = "std")]
 pub mod proof_size_extension;
 
-#[cfg(feature = "std")]
-pub use std::hash::RandomState;
-
 #[cfg(not(feature = "std"))]
 pub use hasher_random_state::{add_extra_randomness, RandomState};
+
+#[cfg(feature = "std")]
+pub use std::hash::RandomState;
 
 use alloc::{borrow::Borrow, boxed::Box, vec, vec::Vec};
 use core::{hash::BuildHasher, marker::PhantomData};
@@ -57,21 +56,18 @@ use hash_db::{Hasher, Prefix};
 pub use memory_db::{prefixed_key, HashKey, KeyFunction, PrefixedKey};
 /// The Substrate format implementation of `NodeCodec`.
 pub use node_codec::NodeCodec;
-pub use storage_proof::{CompactProof, StorageProof, StorageProofError};
-/// Trie codec reexport, mainly child trie support
-/// for trie compact proof.
-pub use trie_codec::{decode_compact, encode_compact, Error as CompactProofError};
+pub use storage_proof::{CompactProof, CompactProofError, StorageProof, StorageProofError};
 use trie_db::proof::{generate_proof, verify_proof};
 /// Various re-exports from the `trie-db` crate.
 pub use trie_db::{
 	nibble_ops,
 	node::{NodePlan, ValuePlan},
+	proof::VerifyError,
 	triedb::{TrieDBDoubleEndedIterator, TrieDBKeyDoubleEndedIterator},
-	CError, DBValue, Query, Recorder, Trie, TrieCache, TrieConfiguration, TrieDBIterator,
-	TrieDBKeyIterator, TrieDBNodeDoubleEndedIterator, TrieDBRawIterator, TrieLayout, TrieMut,
-	TrieRecorder,
+	CError, DBValue, MerkleValue, Query, Recorder, Trie, TrieCache, TrieConfiguration,
+	TrieDBIterator, TrieDBKeyIterator, TrieDBNodeDoubleEndedIterator, TrieDBRawIterator,
+	TrieLayout, TrieMut, TrieRecorder,
 };
-pub use trie_db::{proof::VerifyError, MerkleValue};
 /// The Substrate format implementation of `TrieStream`.
 pub use trie_stream::TrieStream;
 
@@ -453,6 +449,42 @@ pub mod trie_types {
 	pub type TrieError<H> = trie_db::TrieError<H, super::Error<H>>;
 }
 
+/// Decode a compact proof.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of compact Merkle proofs.
+/// This function will panic if called.
+pub fn decode_compact<'a, L, DB, I>(
+	_db: &mut DB,
+	_encoded: I,
+	_expected_root: Option<&TrieHash<L>>,
+) -> Result<TrieHash<L>, CompactProofError<TrieHash<L>, CError<L>>>
+where
+	L: TrieConfiguration,
+	DB: HashDBT<L::Hash, trie_db::DBValue> + hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+	I: IntoIterator<Item = &'a [u8]>,
+{
+	panic!(
+		"decode_compact is not supported - Quantus uses ZK proofs instead of compact Merkle proofs"
+	)
+}
+
+/// Encode a compact proof.
+///
+/// **DEPRECATED**: Quantus uses ZK proofs instead of compact Merkle proofs.
+/// This function will panic if called.
+pub fn encode_compact<L, DB>(
+	_partial_db: &DB,
+	_root: &TrieHash<L>,
+) -> Result<CompactProof, CompactProofError<TrieHash<L>, CError<L>>>
+where
+	L: TrieConfiguration,
+	DB: HashDBT<L::Hash, trie_db::DBValue> + hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+{
+	panic!(
+		"encode_compact is not supported - Quantus uses ZK proofs instead of compact Merkle proofs"
+	)
+}
+
 /// Create a proof for a subset of keys in a trie.
 ///
 /// The `keys` may contain any set of keys regardless of each one of them is included
@@ -460,7 +492,7 @@ pub mod trie_types {
 ///
 /// For a key `K` that is included in the `db` a proof of inclusion is generated.
 /// For a key `K` that is not included in the `db` a proof of non-inclusion is generated.
-/// These can be later checked in `verify_trie_proof`.
+/// These proofs are combined into a single proof.
 pub fn generate_trie_proof<'a, L, I, K, DB>(
 	db: &DB,
 	root: TrieHash<L>,
