@@ -8926,6 +8926,7 @@ dependencies = [
  "qp-header",
  "qp-high-security",
  "qp-poseidon",
+ "qp-poseidon-core",
  "qp-scheduler",
  "qp-wormhole",
  "qp-wormhole-verifier",
