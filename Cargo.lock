@@ -8598,8 +8598,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon"
 version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fff621514286f594da6b0a1c81849ae1d6d6013e4619c9382eb0498043689a6"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=illuzen%2Fcompact-storage-hasher#5396ec63d7214695226132095e637bd5c31c16b8"
 dependencies = [
  "log",
  "p3-field",
@@ -8631,8 +8630,7 @@ dependencies = [
 [[package]]
 name = "qp-poseidon-core"
 version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "905129f9f25cdcfcb5108f23f15d185c9ce0c7698c1b362d55c67da4a0a321cd"
+source = "git+https://github.com/Quantus-Network/qp-poseidon?branch=illuzen%2Fcompact-storage-hasher#5396ec63d7214695226132095e637bd5c31c16b8"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
