@@ -8465,6 +8465,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "qp-poseidon",
+ "qp-poseidon-core",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
  "scale-info",

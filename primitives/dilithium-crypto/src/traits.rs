@@ -5,7 +5,7 @@ use super::types::{
 
 use crate::{DilithiumSignature, DilithiumSignatureWithPublic};
 use alloc::vec::Vec;
-use qp_poseidon::PoseidonHasher;
+use qp_poseidon_core::hash_bytes;
 use sp_core::{
 	crypto::{Derive, Public, PublicBytes, Signature, SignatureBytes},
 	ByteArray, H256,
@@ -114,7 +114,7 @@ impl IdentifyAccount for DilithiumPublic {
 	type AccountId = AccountId32;
 	fn into_account(self) -> Self::AccountId {
 		// Use injective encoding for account ID derivation (collision-resistant for security)
-		AccountId32::new(PoseidonHasher::hash_for_circuit(self.0.as_slice()))
+		AccountId32::new(hash_bytes(self.0.as_slice()))
 	}
 }
 
@@ -233,7 +233,7 @@ impl IdentifyAccount for DilithiumSigner {
 	fn into_account(self) -> AccountId32 {
 		// Use injective encoding for account ID derivation (collision-resistant for security)
 		let Self::Dilithium(who) = self;
-		PoseidonHasher::hash_for_circuit(who.as_ref()).into()
+		hash_bytes(who.as_ref()).into()
 	}
 }
 
