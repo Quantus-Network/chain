@@ -9,7 +9,7 @@ use sp_runtime::traits;
 use sp_trie::StorageProof;
 
 #[cfg(feature = "std")]
-pub const WASM_BINARY: Option<&[u8]> = Some(&[]);
+pub const WASM_BINARY: Option<&[u8]> = None;
 
 #[derive(Decode, Clone)]
 #[cfg_attr(feature = "std", derive(codec::Encode))]
