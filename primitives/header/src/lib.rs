@@ -7,8 +7,8 @@ use codec::{Codec, Decode, DecodeWithMemTracking, Encode};
 use p3_field::integers::QuotientMap;
 use p3_goldilocks::Goldilocks;
 use qp_poseidon_core::{
-	hash_variable_length,
-	serialization::{injective_bytes_to_felts, unsafe_digest_bytes_to_felts},
+	hash_to_bytes,
+	serialization::{bytes_to_digest, bytes_to_felts},
 };
 use scale_info::TypeInfo;
 use sp_core::U256;
@@ -146,11 +146,11 @@ where
 	/// Convenience helper for computing the hash of the header without having
 	/// to import the trait.
 	pub fn hash(&self) -> Hash::Output {
-		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts for injective digest encoding
+		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
-		// parent_hash : 32 bytes → 4 felts
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+		// parent_hash : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
+		felts.extend(bytes_to_digest::<Goldilocks>(
 			self.parent_hash.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
@@ -159,20 +159,20 @@ where
 		let number = self.number.into();
 		felts.push(Goldilocks::from_int(number.as_u32() as u64));
 
-		// state_root : 32 bytes → 4 felts
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+		// state_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
+		felts.extend(bytes_to_digest::<Goldilocks>(
 			self.state_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
-		// extrinsics_root : 32 bytes → 4 felts
-		felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+		// extrinsics_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
+		felts.extend(bytes_to_digest::<Goldilocks>(
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
-		// digest – injective encoding
-		felts.extend(injective_bytes_to_felts::<Goldilocks>(&self.digest.encode()));
+		// digest – injective encoding (4 bytes/felt + terminator)
+		felts.extend(bytes_to_felts(&self.digest.encode()));
 
-		let poseidon_hash: [u8; 32] = hash_variable_length(felts);
+		let poseidon_hash: [u8; 32] = hash_to_bytes(&felts);
 		poseidon_hash.into()
 	}
 }
@@ -266,7 +266,7 @@ mod tests {
 		if let Ok(header) = Header::<u32, PoseidonHasher>::decode(&mut y) {
 			// Only treat this as a header if we consumed the entire input.
 			if y.is_empty() {
-				let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hashout fields + 1 u32 + 28 felts
+				let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts
 				let mut felts = Vec::with_capacity(max_encoded_felts);
 
 				let parent_hash = header.parent_hash.as_bytes();
@@ -275,23 +275,23 @@ mod tests {
 				let extrinsics_root = header.extrinsics_root.as_bytes();
 				let digest = header.digest.encode();
 
-				felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				felts.extend(bytes_to_digest::<Goldilocks>(
 					parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
 				));
 				felts.push(Goldilocks::from_int(number as u64));
-				felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				felts.extend(bytes_to_digest::<Goldilocks>(
 					state_root.try_into().expect("State root expected to equal 32 bytes"),
 				));
-				felts.extend(unsafe_digest_bytes_to_felts::<Goldilocks>(
+				felts.extend(bytes_to_digest::<Goldilocks>(
 					extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
 				));
-				felts.extend(injective_bytes_to_felts::<Goldilocks>(&digest));
+				felts.extend(bytes_to_felts(&digest));
 
-				return hash_variable_length(felts);
+				return hash_to_bytes(&felts);
 			}
 		}
 		// Fallback: canonical bytes hashing for non-header data
-		PoseidonHasher::hash_padded(x)
+		PoseidonHasher::hash_for_circuit(x)
 	}
 
 	#[test]

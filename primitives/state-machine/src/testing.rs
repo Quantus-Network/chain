@@ -169,7 +169,7 @@ where
 
 			if key.len() < hash_len {
 				log::warn!("Invalid key in `from_raw_snapshot`: {key:?}");
-				continue
+				continue;
 			}
 
 			hash.as_mut().copy_from_slice(&key[(key.len() - hash_len)..]);
@@ -398,7 +398,7 @@ mod tests {
 		ext.set_storage(b"dog".to_vec(), b"puppy".to_vec());
 		ext.set_storage(b"dogglesworth".to_vec(), b"cat".to_vec());
 		let root = array_bytes::hex_n_into_unchecked::<_, H256, 32>(
-			"0xbfdbda87ebd9db7e6aa2c5ae8cc423ca20a3b832ee728dedafc262b3d32e11b8",
+			"0x4a294d305b089df17e4a867a470c4f6c0a1a0c433c885dc1763aa1c63554d1e9",
 		);
 		assert_eq!(H256::from_slice(ext.storage_root(Default::default()).as_slice()), root);
 	}

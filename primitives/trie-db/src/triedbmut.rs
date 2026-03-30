@@ -27,7 +27,7 @@ use crate::{
 	TrieLayout, TrieMut, TrieRecorder,
 };
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDB, Prefix, EMPTY_PREFIX};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -157,12 +157,7 @@ impl<L: TrieLayout> Value<L> {
 		) -> ChildReference<TrieHash<L>>,
 	{
 		if let Value::NewNode(hash, value) = self {
-			let new_hash =
-				if let ChildReference::Hash(hash) = f(NodeToEncode::Node(&value), partial, None) {
-					hash
-				} else {
-					unreachable!("Value node can never be inlined; qed")
-				};
+			let ChildReference(new_hash) = f(NodeToEncode::Node(&value), partial, None);
 			if let Some(h) = hash.as_ref() {
 				debug_assert!(h == &new_hash);
 			} else {
@@ -173,8 +168,9 @@ impl<L: TrieLayout> Value<L> {
 			Value::Inline(value) => EncodedValue::Inline(&value),
 			Value::Node(hash) => EncodedValue::Node(hash.as_ref()),
 			Value::NewNode(Some(hash), _value) => EncodedValue::Node(hash.as_ref()),
-			Value::NewNode(None, _value) =>
-				unreachable!("New external value are always added before encoding anode"),
+			Value::NewNode(None, _value) => {
+				unreachable!("New external value are always added before encoding anode")
+			},
 		};
 		value
 	}
@@ -201,7 +197,7 @@ impl<L: TrieLayout> Value<L> {
 
 					value
 				} else {
-					return Err(Box::new(TrieError::IncompleteDatabase(hash.clone())))
+					return Err(Box::new(TrieError::IncompleteDatabase(hash.clone())));
 				},
 		}))
 	}
@@ -263,13 +259,16 @@ where
 	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			Self::Empty => write!(fmt, "Empty"),
-			Self::Leaf((ref a, ref b), ref c) =>
-				write!(fmt, "Leaf({:?}, {:?})", (a, ToHex(&*b)), c),
-			Self::Extension((ref a, ref b), ref c) =>
-				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c),
+			Self::Leaf((ref a, ref b), ref c) => {
+				write!(fmt, "Leaf({:?}, {:?})", (a, ToHex(&*b)), c)
+			},
+			Self::Extension((ref a, ref b), ref c) => {
+				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c)
+			},
 			Self::Branch(ref a, ref b) => write!(fmt, "Branch({:?}, {:?}", a, b),
-			Self::NibbledBranch((ref a, ref b), ref c, ref d) =>
-				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d),
+			Self::NibbledBranch((ref a, ref b), ref c, ref d) => {
+				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d)
+			},
 		}
 	}
 }
@@ -439,8 +438,9 @@ impl<L: TrieLayout> Node<L> {
 
 				Node::NibbledBranch(k.into(), children, val.as_ref().map(Into::into))
 			},
-			NodeOwned::Value(_, _) =>
-				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value."),
+			NodeOwned::Value(_, _) => {
+				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value.")
+			},
 		}
 	}
 
@@ -555,14 +555,12 @@ enum Stored<L: TrieLayout> {
 	Cached(Node<L>, TrieHash<L>),
 }
 
-/// Used to build a collection of child nodes from a collection of `NodeHandle`s
-#[derive(Clone, Copy)]
+/// A reference to a child node, always stored as a hash.
+///
+/// In ZK-friendly tries, all children are referenced by hash (never inlined).
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum ChildReference<HO> {
-	// `HO` is e.g. `H256`, i.e. the output of a `Hasher`
-	Hash(HO),
-	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
-}
+pub struct ChildReference<HO>(pub HO);
 
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
 where
@@ -575,18 +573,19 @@ where
 			EncodedNodeHandle::Hash(data) => {
 				let mut hash = HO::default();
 				if data.len() != hash.as_ref().len() {
-					return Err(data.to_vec())
+					return Err(data.to_vec());
 				}
 				hash.as_mut().copy_from_slice(data);
-				Ok(ChildReference::Hash(hash))
+				Ok(ChildReference(hash))
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let mut hash = HO::default();
-				if data.len() > hash.as_ref().len() {
-					return Err(data.to_vec())
-				}
-				hash.as_mut()[..data.len()].copy_from_slice(data);
-				Ok(ChildReference::Inline(hash, data.len()))
+				// ZK tries don't support inline children - all children must be hashed.
+				// If we encounter inline data, the trie data is incompatible.
+				panic!(
+					"inline child nodes are not supported in ZK tries; \
+					 all children must be referenced by hash (found {} bytes of inline data)",
+					data.len()
+				);
 			},
 		}
 	}
@@ -865,7 +864,7 @@ where
 							.as_mut()
 							.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
 					}
-					.look_up(full_key, partial)
+					.look_up(full_key, partial);
 				},
 				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),
@@ -876,16 +875,16 @@ where
 								self.db,
 								&self.recorder,
 								full_key,
-							)?)
+							)?);
 						} else {
-							return Ok(None)
+							return Ok(None);
 						},
 					Node::Extension(slice, child) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.starts_with(&slice) {
 							(slice.len(), child)
 						} else {
-							return Ok(None)
+							return Ok(None);
 						}
 					},
 					Node::Branch(children, value) =>
@@ -899,7 +898,7 @@ where
 								)?
 							} else {
 								None
-							})
+							});
 						} else {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -919,7 +918,7 @@ where
 								)?
 							} else {
 								None
-							})
+							});
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(slice.len());
 							match children[idx as usize].as_ref() {
@@ -927,7 +926,7 @@ where
 								None => return Ok(None),
 							}
 						} else {
-							return Ok(None)
+							return Ok(None);
 						}
 					},
 				},
@@ -1027,7 +1026,7 @@ where
 						if !changed {
 							// The new node we composed didn't change.
 							// It means our branch is untouched too.
-							return Ok(InsertAction::Restore(Node::Branch(children, stored_value)))
+							return Ok(InsertAction::Restore(Node::Branch(children, stored_value)));
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
@@ -1118,7 +1117,7 @@ where
 								children,
 								stored_value,
 							);
-							return Ok(InsertAction::Restore(n_branch))
+							return Ok(InsertAction::Restore(n_branch));
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
@@ -1562,7 +1561,7 @@ where
 						(false, &UsedIndex::None) => used_index = UsedIndex::One(i as u8),
 						(false, &UsedIndex::One(_)) => {
 							used_index = UsedIndex::Many;
-							break
+							break;
 						},
 						_ => continue,
 					}
@@ -1610,7 +1609,7 @@ where
 						(false, &UsedIndex::None) => used_index = UsedIndex::One(i as u8),
 						(false, &UsedIndex::One(_)) => {
 							used_index = UsedIndex::Many;
-							break
+							break;
 						},
 						_ => continue,
 					}
@@ -1837,7 +1836,7 @@ where
 							let value_hash = self.db.insert(k.as_prefix(), value);
 							self.cache_value(k.inner(), value, value_hash);
 							k.drop_lasts(mov);
-							ChildReference::Hash(value_hash)
+							ChildReference(value_hash)
 						},
 						NodeToEncode::TrieNode(child) => {
 							let result = self.commit_child(child, &mut k);
@@ -1953,10 +1952,10 @@ where
 		prefix: &mut NibbleVec,
 	) -> ChildReference<TrieHash<L>> {
 		match handle {
-			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
+			NodeHandle::Hash(hash) => ChildReference(hash),
 			NodeHandle::InMemory(storage_handle) => {
 				match self.storage.destroy(storage_handle) {
-					Stored::Cached(_, hash) => ChildReference::Hash(hash),
+					Stored::Cached(_, hash) => ChildReference(hash),
 					Stored::New(node) => {
 						// Reconstructs the full key
 						let full_key = self.cache.as_ref().and_then(|_| {
@@ -1979,7 +1978,7 @@ where
 										self.cache_value(prefix.inner(), value, value_hash);
 
 										prefix.drop_lasts(mov);
-										ChildReference::Hash(value_hash)
+										ChildReference(value_hash)
 									},
 									NodeToEncode::TrieNode(node_handle) => {
 										let result = self.commit_child(node_handle, prefix);
@@ -1990,21 +1989,12 @@ where
 							};
 							node.into_encoded(commit_child)
 						};
-						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded);
+						// Always hash children, never inline - required for ZK trie compatibility
+						let hash = self.db.insert(prefix.as_prefix(), &encoded);
 
-							self.cache_node(hash, &encoded, full_key);
+						self.cache_node(hash, &encoded, full_key);
 
-							ChildReference::Hash(hash)
-						} else {
-							// it's a small value, so we cram it into a `TrieHash<L>`
-							// and tag with length
-							let mut h = <TrieHash<L>>::default();
-							let len = encoded.len();
-							h.as_mut()[..len].copy_from_slice(&encoded[..len]);
-
-							ChildReference::Inline(h, len)
-						}
+						ChildReference(hash)
 					},
 				}
 			},
@@ -2052,7 +2042,7 @@ where
 		value: &[u8],
 	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		if !L::ALLOW_EMPTY && value.is_empty() {
-			return self.remove(key)
+			return self.remove(key);
 		}
 
 		let mut old_val = None;

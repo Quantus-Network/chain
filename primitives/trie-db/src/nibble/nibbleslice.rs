@@ -52,7 +52,7 @@ impl<'a> NibbleSlice<'a> {
 	}
 
 	/// Get nibble slice from a `NodeKey`.
-	pub fn from_stored(i: &NodeKey) -> NibbleSlice {
+	pub fn from_stored(i: &NodeKey) -> NibbleSlice<'_> {
 		NibbleSlice::new_offset(&i.1[..], i.0)
 	}
 
@@ -69,7 +69,7 @@ impl<'a> NibbleSlice<'a> {
 	/// original padding).
 	pub fn to_stored_range(&self, nb: usize) -> NodeKey {
 		if nb >= self.len() {
-			return self.to_stored()
+			return self.to_stored();
 		}
 		if (self.offset + nb) % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			// aligned
@@ -144,7 +144,7 @@ impl<'a> NibbleSlice<'a> {
 					nibble_ops::pad_right(them.data[them_start])
 				{
 					// warning only for radix 16
-					return 0
+					return 0;
 				}
 				self_start += 1;
 				them_start += 1;
@@ -156,7 +156,7 @@ impl<'a> NibbleSlice<'a> {
 			let mut i = 0usize;
 			while i < s {
 				if self.at(i) != them.at(i) {
-					break
+					break;
 				}
 				i += 1;
 			}
@@ -166,7 +166,7 @@ impl<'a> NibbleSlice<'a> {
 
 	/// Return `Partial` representation of this slice:
 	/// first encoded byte and following slice.
-	pub fn right(&'a self) -> Partial {
+	pub fn right(&'a self) -> Partial<'a> {
 		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 		let nb = (self.len() % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
@@ -237,7 +237,7 @@ impl<'a> NibbleSlice<'a> {
 	/// Return left portion of `NibbleSlice`, if the slice
 	/// originates from a full key it will be the `Prefix of
 	/// the node`.
-	pub fn left(&'a self) -> Prefix {
+	pub fn left(&'a self) -> Prefix<'a> {
 		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 		let ix = (self.offset % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if ix == 0 {
@@ -250,7 +250,7 @@ impl<'a> NibbleSlice<'a> {
 	/// Get [`Prefix`] representation of the inner data.
 	///
 	/// This means the entire inner data will be returned as [`Prefix`], ignoring any `offset`.
-	pub fn original_data_as_prefix(&self) -> Prefix {
+	pub fn original_data_as_prefix(&self) -> Prefix<'_> {
 		(&self.data, None)
 	}
 
@@ -263,7 +263,7 @@ impl<'a> NibbleSlice<'a> {
 	/// Same as [`Self::starts_with`] but using [`NibbleVec`].
 	pub fn starts_with_vec(&self, other: &NibbleVec) -> bool {
 		if self.len() < other.len() {
-			return false
+			return false;
 		}
 
 		match other.as_nibbleslice() {
@@ -271,7 +271,7 @@ impl<'a> NibbleSlice<'a> {
 			None => {
 				for i in 0..other.len() {
 					if self.at(i) != other.at(i) {
-						return false
+						return false;
 					}
 				}
 				true
@@ -295,7 +295,7 @@ impl<'a> PartialEq for NibbleSlice<'a> {
 impl<'a> PartialEq<NibbleVec> for NibbleSlice<'a> {
 	fn eq(&self, other: &NibbleVec) -> bool {
 		if self.len() != other.len() {
-			return false
+			return false;
 		}
 
 		match other.as_nibbleslice() {
