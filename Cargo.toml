@@ -233,6 +233,7 @@ substrate-test-utils = { version = "3.0.0", default-features = false }
 substrate-wasm-builder = { version = "31.1.0", default-features = false }
 
 [patch.crates-io]
+frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-test-runtime" }
 libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity", tag = "v0.2.11_patch_qp_rusty_crystals_dilithium_2_1" }
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }
@@ -240,7 +241,6 @@ sc-network = { path = "client/network" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 trie-db = { path = "./primitives/trie-db" }
-frame-storage-access-test-runtime = { path = "./patches/frame-storage-access-test-runtime" }
 
 [profile.release]
 opt-level = 3
