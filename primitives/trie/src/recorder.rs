@@ -377,7 +377,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 
 				if inner.ignored_nodes.is_ignored(&hash) {
 					tracing::trace!(target: LOG_TARGET, ?hash, "Ignoring node");
-					return
+					return;
 				}
 
 				tracing::trace!(target: LOG_TARGET, ?hash, "Recording node");
@@ -399,7 +399,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 
 				if inner.ignored_nodes.is_ignored(&hash) {
 					tracing::trace!(target: LOG_TARGET, ?hash, "Ignoring node");
-					return
+					return;
 				}
 
 				tracing::trace!(target: LOG_TARGET, hash = ?hash, "Recording node");
@@ -421,7 +421,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 
 				if inner.ignored_nodes.is_ignored(&hash) {
 					tracing::trace!(target: LOG_TARGET, ?hash, "Ignoring value");
-					return
+					return;
 				}
 
 				tracing::trace!(
