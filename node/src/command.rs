@@ -13,6 +13,8 @@ use qp_rusty_crystals_hdwallet::{
 	SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
 };
 use quantus_runtime::Block;
+#[cfg(feature = "runtime-benchmarks")]
+use quantus_runtime::EXISTENTIAL_DEPOSIT;
 use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
@@ -21,6 +23,8 @@ use sp_core::{
 	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
 	Pair, H256,
 };
+#[cfg(feature = "runtime-benchmarks")]
+use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
 #[derive(Debug, PartialEq)]
