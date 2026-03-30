@@ -1,0 +1,80 @@
+[package]
+authors.workspace = true
+description = "FRAME system module (vendored from polkadot-sdk)"
+edition.workspace = true
+homepage.workspace = true
+license = "Apache-2.0"
+name = "frame-system"
+readme = "README.md"
+repository.workspace = true
+version = "45.0.0"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "frame_system"
+path = "src/lib.rs"
+
+[[bench]]
+harness = false
+name = "bench"
+path = "benches/bench.rs"
+
+[dependencies]
+cfg-if = "1.0"
+codec = { workspace = true, default-features = false, features = ["derive"] }
+docify = { workspace = true }
+frame-support = { version = "45.0.0", default-features = false }
+log = { workspace = true, default-features = false }
+scale-info = { version = "2.11.6", default-features = false, features = ["derive", "serde"] }
+serde = { workspace = true, default-features = false, features = ["alloc", "derive"] }
+sp-core = { workspace = true, default-features = false, features = ["serde"] }
+sp-io = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false, features = ["serde"] }
+sp-version = { version = "43.0.0", default-features = false, features = ["serde"] }
+sp-weights = { workspace = true, default-features = false, features = ["serde"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+env_logger = { workspace = true }
+sp-externalities = { workspace = true }
+
+[features]
+default = ["std"]
+experimental = ["frame-support/experimental"]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"log/std",
+	"scale-info/std",
+	"serde/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"sp-version/std",
+	"sp-weights/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"sp-runtime/try-runtime",
+]
+
+[lints.clippy]
+all = "allow"
+complexity = { level = "warn", priority = 1 }
+correctness = { level = "warn", priority = 1 }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+	"cfg(enable_alloc_error_handler)",
+	"cfg(fuzzing)",
+	"cfg(ignore_flaky_test)",
+	"cfg(substrate_runtime)",
+	'cfg(build_opt_level, values("3"))',
+	'cfg(build_profile, values("debug", "release"))',
+] }
