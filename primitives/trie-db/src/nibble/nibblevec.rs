@@ -72,7 +72,7 @@ impl NibbleVec {
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
 	pub fn pop(&mut self) -> Option<u8> {
 		if self.is_empty() {
-			return None
+			return None;
 		}
 		let byte = self.inner.pop().expect("len != 0; inner has last elem; qed");
 		self.len -= 1;
@@ -86,11 +86,11 @@ impl NibbleVec {
 	/// Remove then n last nibbles in a faster way than popping n times.
 	pub fn drop_lasts(&mut self, n: usize) {
 		if n == 0 {
-			return
+			return;
 		}
 		if n >= self.len {
 			self.clear();
-			return
+			return;
 		}
 		let end = self.len - n;
 		let end_index = end / nibble_ops::NIBBLE_PER_BYTE +
@@ -107,7 +107,7 @@ impl NibbleVec {
 	}
 
 	/// Get `Prefix` representation of this `NibbleVec`.
-	pub fn as_prefix(&self) -> Prefix {
+	pub fn as_prefix(&self) -> Prefix<'_> {
 		let split = self.len / nibble_ops::NIBBLE_PER_BYTE;
 		let pos = (self.len % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if pos == 0 {
@@ -120,7 +120,7 @@ impl NibbleVec {
 	/// Append another `NibbleVec`. Can be slow (alignement of second vec).
 	pub fn append(&mut self, v: &NibbleVec) {
 		if v.len == 0 {
-			return
+			return;
 		}
 
 		let final_len = self.len + v.len;
@@ -208,7 +208,7 @@ impl NibbleVec {
 	}
 
 	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if there is no padding.
-	pub fn as_nibbleslice(&self) -> Option<NibbleSlice> {
+	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<'_>> {
 		if self.len % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			Some(NibbleSlice::new(self.inner()))
 		} else {
@@ -219,17 +219,17 @@ impl NibbleVec {
 	/// Do we start with the same nibbles as the whole of `them`?
 	pub fn starts_with(&self, other: &Self) -> bool {
 		if self.len() < other.len() {
-			return false
+			return false;
 		}
 		let byte_len = other.len() / nibble_ops::NIBBLE_PER_BYTE;
 		if &self.inner[..byte_len] != &other.inner[..byte_len] {
-			return false
+			return false;
 		}
 		for pad in 0..(other.len() - byte_len * nibble_ops::NIBBLE_PER_BYTE) {
 			let self_nibble = nibble_ops::at_left(pad as u8, self.inner[byte_len]);
 			let other_nibble = nibble_ops::at_left(pad as u8, other.inner[byte_len]);
 			if self_nibble != other_nibble {
-				return false
+				return false;
 			}
 		}
 		true
@@ -238,7 +238,7 @@ impl NibbleVec {
 	/// Same as [`Self::starts_with`] but using [`NibbleSlice`].
 	pub fn starts_with_slice(&self, other: &NibbleSlice) -> bool {
 		if self.len() < other.len() {
-			return false
+			return false;
 		}
 
 		match self.as_nibbleslice() {
@@ -246,7 +246,7 @@ impl NibbleVec {
 			None => {
 				for i in 0..other.len() {
 					if self.at(i) != other.at(i) {
-						return false
+						return false;
 					}
 				}
 				true
