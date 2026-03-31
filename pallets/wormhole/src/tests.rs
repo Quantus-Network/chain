@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod wormhole_tests {
 	use crate::mock::*;
+	use codec::Encode;
 	use frame_support::{
 		assert_ok,
 		traits::{
@@ -8,8 +9,25 @@ mod wormhole_tests {
 			Currency,
 		},
 	};
+	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole::derive_wormhole_account;
 	use sp_core::crypto::AccountId32;
+
+	/// Compute the expected leaf_inputs_hash for a transfer.
+	/// This must match the computation in record_transfer.
+	fn compute_leaf_inputs_hash(
+		asset_id: u32,
+		transfer_count: u64,
+		from: &AccountId,
+		to: &AccountId,
+		amount: Balance,
+	) -> [u8; 32] {
+		let full_data: (u32, u64, AccountId, AccountId, Balance) =
+			(asset_id, transfer_count, from.clone(), to.clone(), amount);
+		PoseidonHasher::hash_storage::<(u32, u64, AccountId, AccountId, Balance)>(
+			&full_data.encode(),
+		)
+	}
 
 	#[test]
 	fn record_transfer_creates_proof_and_increments_count() {
@@ -22,14 +40,15 @@ mod wormhole_tests {
 			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-			assert!(Wormhole::transfer_proof((
-				0u32,
-				count_before,
-				alice.clone(),
-				bob.clone(),
-				amount
-			))
-			.is_some());
+
+			// Verify the stored hash matches the expected leaf_inputs_hash
+			let expected_hash = compute_leaf_inputs_hash(0u32, count_before, &alice, &bob, amount);
+			let stored_hash = Wormhole::transfer_proof((bob.clone(), count_before))
+				.expect("transfer proof should exist");
+			assert_eq!(
+				stored_hash, expected_hash,
+				"stored hash should match expected leaf_inputs_hash"
+			);
 
 			// Second transfer increments count again
 			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
@@ -85,7 +104,15 @@ mod wormhole_tests {
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-			assert!(Wormhole::transfer_proof((0u32, count_before, alice, bob, amount)).is_some());
+
+			// Verify the stored hash matches the expected leaf_inputs_hash
+			let expected_hash = compute_leaf_inputs_hash(0u32, count_before, &alice, &bob, amount);
+			let stored_hash =
+				Wormhole::transfer_proof((bob, count_before)).expect("transfer proof should exist");
+			assert_eq!(
+				stored_hash, expected_hash,
+				"stored hash should match expected leaf_inputs_hash"
+			);
 		});
 	}
 
@@ -96,12 +123,11 @@ mod wormhole_tests {
 		let address = derive_wormhole_account(preimage);
 
 		// This is the expected wormhole address for preimage [0; 32]
-		// Computed via: PoseidonHasher::hash_variable_length(preimage.to_felts())
-		// SS58: 5GE628zL...
+		// Computed via: qp_wormhole::derive_wormhole_account -> rehash_to_bytes(preimage)
 		let expected_bytes: [u8; 32] = [
-			0xb8, 0x18, 0xc0, 0x2c, 0x58, 0x77, 0xcc, 0x44, 0x07, 0xf7, 0x1b, 0x9b, 0x34, 0xee,
-			0x45, 0xc7, 0x99, 0x86, 0xa5, 0xaf, 0x12, 0x9b, 0xfd, 0xc9, 0xe7, 0x71, 0x51, 0x1f,
-			0xb4, 0xd5, 0x20, 0x4f,
+			0xca, 0x0a, 0xef, 0xbd, 0x2e, 0x87, 0xc9, 0xec, 0xc4, 0x71, 0x6b, 0x7d, 0xb8, 0xe8,
+			0x39, 0x37, 0xa4, 0x5d, 0xfb, 0x06, 0xea, 0x10, 0xe1, 0xd6, 0x2a, 0x4c, 0x2f, 0x27,
+			0x84, 0x00, 0x22, 0x90,
 		];
 		let expected = AccountId32::from(expected_bytes);
 
@@ -118,12 +144,11 @@ mod wormhole_tests {
 		let address = derive_wormhole_account(preimage);
 
 		// This is the expected wormhole address for preimage [1; 32]
-		// Computed via: PoseidonHasher::hash_variable_length(preimage.to_felts())
-		// SS58: 5CRs5z8R...
+		// Computed via: qp_wormhole::derive_wormhole_account -> rehash_to_bytes(preimage)
 		let expected_bytes: [u8; 32] = [
-			0x10, 0x23, 0x39, 0x1d, 0x9b, 0xe8, 0xa3, 0x3b, 0xc5, 0xfa, 0x49, 0x65, 0xf6, 0xde,
-			0x83, 0x36, 0xd5, 0xb2, 0x97, 0x2b, 0xe4, 0x95, 0x73, 0xca, 0x74, 0xf4, 0x55, 0xc8,
-			0x19, 0x98, 0xa9, 0x97,
+			0x2d, 0x45, 0x48, 0xaf, 0xca, 0xc3, 0x11, 0xcd, 0xb8, 0x47, 0xe9, 0xf3, 0x9e, 0x4d,
+			0x52, 0x55, 0xbf, 0x74, 0x6e, 0xdd, 0xd8, 0x6b, 0x71, 0x40, 0x32, 0xd9, 0x2d, 0x6c,
+			0x0e, 0xd7, 0x08, 0xd1,
 		];
 		let expected = AccountId32::from(expected_bytes);
 
@@ -140,12 +165,11 @@ mod wormhole_tests {
 		let address = derive_wormhole_account(preimage);
 
 		// This is the expected wormhole address for preimage [0, 1, 2, ..., 31]
-		// Computed via: PoseidonHasher::hash_variable_length(preimage.to_felts())
-		// SS58: 5CZ8wxNm...
+		// Computed via: qp_wormhole::derive_wormhole_account -> rehash_to_bytes(preimage)
 		let expected_bytes: [u8; 32] = [
-			0x15, 0xaf, 0x55, 0xee, 0x62, 0xfd, 0xd5, 0xea, 0x01, 0x4a, 0x59, 0x74, 0x24, 0xe7,
-			0xe5, 0xdc, 0x68, 0xd6, 0x82, 0xfd, 0x48, 0x0d, 0xf2, 0x50, 0x40, 0x1f, 0xa2, 0x15,
-			0x85, 0x22, 0xec, 0xff,
+			0xc0, 0x87, 0x74, 0x70, 0xeb, 0x2f, 0xbf, 0xc7, 0xcc, 0x6f, 0x22, 0xab, 0x70, 0x95,
+			0x55, 0x09, 0xde, 0x54, 0xf3, 0xb8, 0x98, 0x56, 0xd6, 0xa5, 0x83, 0x99, 0xa7, 0xb7,
+			0xd9, 0xd2, 0x62, 0x52,
 		];
 		let expected = AccountId32::from(expected_bytes);
 

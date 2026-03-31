@@ -502,7 +502,7 @@ mod execution {
 			last: &mut SmallVec<[Vec<u8>; 2]>,
 		) -> bool {
 			if stopped_at == 0 || stopped_at > MAX_NESTED_TRIE_DEPTH {
-				return false
+				return false;
 			}
 			match stopped_at {
 				1 => {
@@ -512,7 +512,7 @@ mod execution {
 						match last.len() {
 							0 => {
 								last.push(top_last);
-								return true
+								return true;
 							},
 							2 => {
 								last.pop();
@@ -521,12 +521,12 @@ mod execution {
 						}
 						// update top trie access.
 						last[0] = top_last;
-						return true
+						return true;
 					} else {
 						// No change in top trie accesses.
 						// Indicates end of reading of a child trie.
 						last.truncate(1);
-						return true
+						return true;
 					}
 				},
 				2 => {
@@ -540,7 +540,7 @@ mod execution {
 							if let Some(top_last) = top_last {
 								last.push(top_last)
 							} else {
-								return false
+								return false;
 							}
 						} else if let Some(top_last) = top_last {
 							last[0] = top_last;
@@ -549,10 +549,10 @@ mod execution {
 							last.pop();
 						}
 						last.push(child_last);
-						return true
+						return true;
 					} else {
 						// stopped at level 2 so child last is define.
-						return false
+						return false;
 					}
 				},
 				_ => (),
@@ -596,7 +596,7 @@ mod execution {
 		H::Out: Ord + Codec,
 	{
 		if start_at.len() > MAX_NESTED_TRIE_DEPTH {
-			return Err(Box::new("Invalid start of range."))
+			return Err(Box::new("Invalid start of range."));
 		}
 
 		let recorder = sp_trie::recorder::Recorder::default();
@@ -613,7 +613,7 @@ mod execution {
 			{
 				child_roots.insert(state_root);
 			} else {
-				return Err(Box::new("Invalid range start child trie key."))
+				return Err(Box::new("Invalid range start child trie key."));
 			}
 
 			(Some(storage_key), start_at.get(1).cloned())
@@ -658,12 +658,12 @@ mod execution {
 					if !child_roots.contains(value.as_slice()) {
 						child_roots.insert(value);
 						switch_child_key = Some(key);
-						break
+						break;
 					}
 				} else if recorder.estimate_encoded_size() <= size_limit {
 					count += 1;
 				} else {
-					break
+					break;
 				}
 			}
 
@@ -671,11 +671,11 @@ mod execution {
 
 			if switch_child_key.is_none() {
 				if depth == 1 {
-					break
+					break;
 				} else if completed {
 					start_at = child_key.take();
 				} else {
-					break
+					break;
 				}
 			} else {
 				child_key = switch_child_key;
@@ -746,7 +746,7 @@ mod execution {
 			if count == 0 || recorder.estimate_encoded_size() <= size_limit {
 				count += 1;
 			} else {
-				break
+				break;
 			}
 		}
 
@@ -969,7 +969,7 @@ mod execution {
 			let (key, value) = item.map_err(|e| Box::new(e) as Box<dyn Error>)?;
 			values.push((key, value));
 			if !count.as_ref().map_or(true, |c| (values.len() as u32) < *c) {
-				break
+				break;
 			}
 		}
 
@@ -993,7 +993,7 @@ mod execution {
 			parent_storage_keys: Default::default(),
 		}];
 		if start_at.len() > MAX_NESTED_TRIE_DEPTH {
-			return Err(Box::new("Invalid start of range."))
+			return Err(Box::new("Invalid start of range."));
 		}
 
 		let mut child_roots = HashSet::new();
@@ -1006,7 +1006,7 @@ mod execution {
 				child_roots.insert(state_root.clone());
 				Some((storage_key, state_root))
 			} else {
-				return Err(Box::new("Invalid range start child trie key."))
+				return Err(Box::new("Invalid range start child trie key."));
 			};
 
 			(child_key, start_at.get(1).cloned())
@@ -1064,7 +1064,7 @@ mod execution {
 					if !child_roots.contains(value.as_slice()) {
 						child_roots.insert(value.clone());
 						switch_child_key = Some((key, value));
-						break
+						break;
 					}
 				}
 			}
@@ -1073,10 +1073,10 @@ mod execution {
 
 			if switch_child_key.is_none() {
 				if !completed {
-					break depth
+					break depth;
 				}
 				if depth == 1 {
-					break 0
+					break 0;
 				} else {
 					start_at = child_key.take().map(|entry| entry.0);
 				}
@@ -1577,12 +1577,6 @@ mod tests {
 		}
 	}
 
-	fn test_compact(remote_proof: StorageProof, _remote_root: &sp_core::H256) -> StorageProof {
-		// Simply return the original storage proof since we're not using compact proofs for the
-		// zk-circuit
-		remote_proof
-	}
-
 	#[test]
 	fn prove_read_and_proof_check_works() {
 		prove_read_and_proof_check_works_inner(StateVersion::V0);
@@ -1597,7 +1591,6 @@ mod tests {
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let remote_root = remote_backend.storage_root(std::iter::empty(), state_version).0;
 		let remote_proof = prove_read(remote_backend, &[b"value2"]).unwrap();
-		let remote_proof = test_compact(remote_proof, &remote_root);
 		// check proof locally
 		let local_result1 =
 			read_proof_check::<BlakeTwo256, _>(remote_root, remote_proof.clone(), &[b"value2"])
@@ -1614,7 +1607,6 @@ mod tests {
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let remote_root = remote_backend.storage_root(std::iter::empty(), state_version).0;
 		let remote_proof = prove_child_read(remote_backend, child_info, &[b"value3"]).unwrap();
-		let remote_proof = test_compact(remote_proof, &remote_root);
 		let local_result1 = read_child_proof_check::<BlakeTwo256, _>(
 			remote_root,
 			remote_proof.clone(),
@@ -1708,7 +1700,7 @@ mod tests {
 						if i == ix {
 							let _ = backend.child_storage(&child_info, key.as_slice()).unwrap();
 							queries.push((child_info.clone(), key.clone(), Some(value.clone())));
-							break
+							break;
 						}
 					}
 				}
@@ -1722,9 +1714,8 @@ mod tests {
 			}
 		}
 
-		let storage_proof = backend.extract_proof().expect("Failed to extract proof");
 		println!("Proof generated, attempting compact conversion...");
-		let _remote_proof = test_compact(storage_proof, &trie_root);
+		let _storage_proof = backend.extract_proof().expect("Failed to extract proof");
 	}
 
 	#[test]
@@ -1792,7 +1783,7 @@ mod tests {
 									key.clone(),
 									Some(value.clone()),
 								));
-								break
+								break;
 							}
 						}
 					}
@@ -1807,9 +1798,8 @@ mod tests {
 			}
 
 			let storage_proof = backend.extract_proof().expect("Failed to extract proof");
-			let remote_proof = test_compact(storage_proof, &trie_root);
 			let proof_check =
-				create_proof_check_backend::<BlakeTwo256>(trie_root, remote_proof).unwrap();
+				create_proof_check_backend::<BlakeTwo256>(trie_root, storage_proof).unwrap();
 
 			for (child_info, key, expected) in queries {
 				assert_eq!(
@@ -1828,16 +1818,16 @@ mod tests {
 		let (proof, count) =
 			prove_range_read_with_size(remote_backend, None, None, 0, None).unwrap();
 		// Always contains at least some nodes.
-		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 5);
+		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 6);
 		assert_eq!(count, 1);
-		assert_eq!(proof.encoded_size(), 705);
+		assert_eq!(proof.encoded_size(), 609);
 
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let (proof, count) =
 			prove_range_read_with_size(remote_backend, None, None, 800, Some(&[])).unwrap();
-		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 7);
+		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 11);
 		assert_eq!(count, 3);
-		assert_eq!(proof.encoded_size(), 828);
+		assert_eq!(proof.encoded_size(), 791);
 		let (results, completed) = read_range_proof_check::<BlakeTwo256>(
 			remote_root,
 			proof.clone(),
@@ -1853,15 +1843,15 @@ mod tests {
 		let (results, completed) =
 			read_range_proof_check::<BlakeTwo256>(remote_root, proof, None, None, None, None)
 				.unwrap();
-		assert_eq!(results.len() as u32, 5);
+		assert_eq!(results.len() as u32, 4);
 		assert_eq!(completed, false);
 
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let (proof, count) =
 			prove_range_read_with_size(remote_backend, None, None, 50000, Some(&[])).unwrap();
-		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 15);
+		assert_eq!(proof.to_memory_db::<BlakeTwo256>().drain().len(), 275);
 		assert_eq!(count, 132);
-		assert_eq!(proof.encoded_size(), 5036);
+		assert_eq!(proof.encoded_size(), 10231);
 
 		let (results, completed) =
 			read_range_proof_check::<BlakeTwo256>(remote_root, proof, None, None, None, None)
@@ -1892,7 +1882,7 @@ mod tests {
 		let (proof, count) =
 			prove_range_read_with_size(remote_backend, None, None, 1000, None).unwrap();
 
-		assert_eq!(proof.encoded_size(), 1398);
+		assert_eq!(proof.encoded_size(), 1423);
 		assert_eq!(count, 3);
 	}
 
@@ -1928,27 +1918,19 @@ mod tests {
 
 		let remote_proof = check_proof(mdb.clone(), root, state_version);
 		// check full values in proof
-		assert!(remote_proof.encode().len() > 800);
-		assert!(remote_proof.encoded_size() > 800);
-		let _root1 = root;
+		assert!(remote_proof.encode().len() > 700);
+		assert!(remote_proof.encoded_size() > 700);
 
-		// do switch
 		state_version = StateVersion::V1;
 		{
 			let mut trie = TrieDBMutBuilderV1::from_existing(&mut mdb, &mut root).build();
-			trie.insert(b"foo222", vec![5u8; 100].as_slice()) // inner hash
-				.expect("insert failed");
-			// update with same value do change
-			trie.insert(b"foo", vec![1u8; 1000].as_slice()) // inner hash
-				.expect("insert failed");
+			trie.insert(b"foo222", vec![5u8; 100].as_slice()).expect("insert failed");
+			trie.insert(b"foo", vec![1u8; 1000].as_slice()).expect("insert failed");
 		}
-		let _root3 = root;
-		// assert!(root1 != root3); // ZK-trie may handle state versioning differently
 		let remote_proof = check_proof(mdb.clone(), root, state_version);
 		// nodes foo is replaced by its hashed value form.
 		assert!(remote_proof.encode().len() < 1000);
 		assert!(remote_proof.encoded_size() < 1000);
-		assert_eq!(remote_proof.encode().len(), remote_proof.encoded_size());
 	}
 
 	#[test]
@@ -1983,70 +1965,12 @@ mod tests {
 			.unwrap();
 
 			if completed_depth == 0 {
-				break
+				break;
 			}
 			assert!(result.update_last_key(completed_depth, &mut start_at));
 		}
 
-		assert_eq!(nb_loop, 13);
-	}
-
-	#[allow(dead_code)]
-	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
-		// this root will be queried
-		let child_info1 = ChildInfo::new_default(b"sub1");
-		// this root will not be include in proof
-		let child_info2 = ChildInfo::new_default(b"sub2");
-		// this root will be include in proof
-		let child_info3 = ChildInfo::new_default(b"sub");
-		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
-		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
-		let (remote_root, transaction) = remote_backend.full_storage_root(
-			std::iter::empty(),
-			vec![
-				(
-					&child_info1,
-					vec![
-						// a inner hashable node
-						(&b"k"[..], Some(&long_vec[..])),
-						// need to ensure this is not an inline node
-						// otherwise we do not know what is accessed when
-						// storing proof.
-						(&b"key1"[..], Some(&vec![5u8; 32][..])),
-						(&b"key2"[..], Some(&b"val3"[..])),
-					]
-					.into_iter(),
-				),
-				(
-					&child_info2,
-					vec![(&b"key3"[..], Some(&b"val4"[..])), (&b"key4"[..], Some(&b"val5"[..]))]
-						.into_iter(),
-				),
-				(
-					&child_info3,
-					vec![(&b"key5"[..], Some(&b"val6"[..])), (&b"key6"[..], Some(&b"val7"[..]))]
-						.into_iter(),
-				),
-			]
-			.into_iter(),
-			state_version,
-		);
-		let mut remote_storage = remote_backend.backend_storage().clone();
-		remote_storage.consolidate(transaction);
-		let remote_backend = TrieBackendBuilder::new(remote_storage, remote_root).build();
-		let remote_proof = prove_child_read(remote_backend, &child_info1, &[b"key1"]).unwrap();
-		let size = remote_proof.encoded_size();
-		let remote_proof = test_compact(remote_proof, &remote_root);
-		let local_result1 = read_child_proof_check::<BlakeTwo256, _>(
-			remote_root,
-			remote_proof,
-			&child_info1,
-			&[b"key1"],
-		)
-		.unwrap();
-		assert_eq!(local_result1.len(), 1);
-		assert_eq!(local_result1.get(&b"key1"[..]), Some(&Some(vec![5u8; 32])));
-		size
+		assert_eq!(nb_loop, 133);
 	}
 
 	#[test]

@@ -30,13 +30,11 @@ pub mod pallet {
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
-	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
 	pub type Difficulty = U512;
 	pub type WorkValue = U512;
 	pub type Timestamp = u64;
 	pub type BlockDuration = u64;
-	pub type PercentageClamp = u8;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -73,11 +71,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxReorgDepth: Get<u32>;
 
-		/// Fixed point scale for calculations (default: 10^18)
-		#[pallet::constant]
-		type FixedU128Scale: Get<u128>;
-
-		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 	}
 
@@ -127,12 +120,12 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		// TODO: update this
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-			<T as crate::Config>::WeightInfo::on_finalize_max_history()
+			<T as crate::Config>::WeightInfo::on_finalize()
 		}
 
-		/// Called at the end of each block.
+		/// Called at the end of each block to adjust mining difficulty based on
+		/// observed block times using Exponential Moving Average (EMA).
 		fn on_finalize(block_number: BlockNumberFor<T>) {
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
@@ -255,8 +248,8 @@ pub mod pallet {
 			target_block_time: u64,
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
-			// Calculate ratio using FixedU128
-			let clamp = T::DifficultyAdjustPercentClamp::get();
+			let observed_block_time = observed_block_time.max(1);
+			let clamp = T::DifficultyAdjustPercentClamp::get(); // 10%
 			let one = FixedU128::one();
 			let ratio =
 				FixedU128::from_rational(target_block_time as u128, observed_block_time as u128)
@@ -372,10 +365,10 @@ pub mod pallet {
 			block_hash: [u8; 32],
 			nonce: NonceType,
 		) -> (bool, U512) {
-			let (valid, _difficulty, hash_achieved) =
-				Self::verify_nonce_internal(block_hash, nonce);
-			let achieved_difficulty = achieved_difficulty_from_hash(hash_achieved);
-
+			let (valid, _, hash_achieved) = Self::verify_nonce_internal(block_hash, nonce);
+			let achieved_difficulty = valid
+				.then(|| achieved_difficulty_from_hash(hash_achieved))
+				.unwrap_or(U512::zero());
 			(valid, achieved_difficulty)
 		}
 
@@ -395,7 +388,10 @@ pub mod pallet {
 		}
 
 		pub fn get_min_difficulty() -> Difficulty {
-			Difficulty::one()
+			// This value is related to clamp value,
+			// ie, if clamp is 10% this value must be at least 10
+			// 1000 is safe for clamp values >= 0.01%
+			U512::from(1000u64)
 		}
 
 		pub fn get_max_difficulty() -> Difficulty {

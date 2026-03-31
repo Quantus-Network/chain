@@ -4,7 +4,7 @@
 extern crate alloc;
 
 use codec::Decode;
-use qp_poseidon::{PoseidonHasher, ToFelts};
+use qp_poseidon_core::rehash_to_bytes;
 use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::generic::DigestItem;
 
@@ -22,18 +22,16 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 	);
 }
 
-/// Derive a wormhole address from a 32-byte preimage.
+/// Derive a wormhole address from a 32-byte inner_digest.
 ///
-/// This hashes the preimage using Poseidon to get the wormhole account address.
-/// The preimage is the "first_hash" from wormhole derivation: `first_hash = hash(salt + secret)`.
-/// The wormhole address is: `address = hash(first_hash)`.
+/// This hashes the inner_digest using Poseidon to get the wormhole account address.
+/// The inner_digest is the "first hash" from wormhole derivation: `hash(salt + secret)`.
+/// The wormhole address is: `address = hash(hash(salt + secret))`.
 ///
-/// This function uses the same serialization as the ZK circuit:
-/// - Convert 32 bytes to 4 field elements using ToFelts (8 bytes per element)
-/// - Hash without padding using hash_variable_length
-pub fn derive_wormhole_address(preimage: [u8; 32]) -> [u8; 32] {
-	let preimage_felts = preimage.to_felts();
-	PoseidonHasher::hash_variable_length(preimage_felts)
+/// The inner_digest is the serialization of 4 field elements (Poseidon output),
+/// so we decode it back to 4 felts using 8 bytes/felt encoding before hashing again.
+pub fn derive_wormhole_address(inner_digest: [u8; 32]) -> [u8; 32] {
+	rehash_to_bytes(&inner_digest)
 }
 
 /// Derive a wormhole AccountId32 from a 32-byte preimage.

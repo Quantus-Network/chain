@@ -175,10 +175,7 @@ pub fn generate_quantus_key(
 			let mut seed = [0u8; 32];
 			rand::thread_rng().fill(&mut seed);
 			let sensitive_seed = SensitiveBytes32::from(&mut seed);
-			let wormhole_pair = WormholePair::generate_new(sensitive_seed).map_err(|e| {
-				eprintln!("Error generating WormholePair: {:?}", e);
-				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e))
-			})?;
+			let wormhole_pair = WormholePair::generate_new(sensitive_seed);
 
 			// Convert wormhole address to account ID using WormholeAddress type
 			let wormhole_address = WormholeAddress(H256::from(wormhole_pair.address));

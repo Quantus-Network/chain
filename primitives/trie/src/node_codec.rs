@@ -97,7 +97,9 @@ where
 	}
 
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
-		log::debug!(target: "zk-trie", "NodeCodec::decode_plan called with data: {:02x?}", data);
+		// Log the hash of the data being decoded so we can verify it matches the lookup key
+		let data_hash = H::hash(data);
+		log::debug!(target: "zk-trie", "NodeCodec::decode_plan called with data_len={}, data_hash={:02x?}", data.len(), data_hash.as_ref());
 
 		// Handle empty data
 		if data.is_empty() {
@@ -131,7 +133,7 @@ where
 				let partial = felt_aligned_range.start..(felt_aligned_range.start + nibble_bytes);
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
-				let bitmap = Bitmap::decode(&data[bitmap_range])?;
+				let bitmap = Bitmap::decode(&data[bitmap_range.clone()])?;
 				let value = if branch_has_value {
 					Some(if contains_hash {
 						ValuePlan::Node(input.take(H::LENGTH)?)
@@ -155,30 +157,38 @@ where
 					None, None, None, None, None, None, None, None, None, None, None, None, None,
 					None, None, None,
 				];
+				// Log partial key and bitmap for debugging
+				log::debug!(
+					target: "zk-trie",
+					"Branch: partial_nibbles={}, partial_data={:02x?}, bitmap={:02x?}",
+					nibble_count, &data[partial.clone()], &data[bitmap_range.clone()]
+				);
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						// Read 8-byte little-endian length
-						let length_range = input.take(8)?;
-						let length_bytes = &data[length_range];
-						let mut length_array = [0u8; 8];
-						length_array.copy_from_slice(length_bytes);
-						let count = u64::from_le_bytes(length_array) as usize;
-
-						let range = input.take(count)?;
-						children[i] = Some(if count == H::LENGTH {
-							NodeHandlePlan::Hash(range)
-						} else {
-							NodeHandlePlan::Inline(range)
-						});
+						// Children are always 32-byte hashes (no length prefix)
+						let range = input.take(H::LENGTH)?;
+						log::debug!(
+							target: "zk-trie",
+							"Branch child[{}]: range={:?}, data={:02x?}",
+							i, range, &data[range.clone()]
+						);
+						children[i] = Some(NodeHandlePlan::Hash(range));
 					}
 				}
-				Ok(NodePlan::NibbledBranch {
-					partial: NibbleSlicePlan::new(partial, partial_padding),
-					value,
-					children,
-				})
+				let plan = NibbleSlicePlan::new(partial.clone(), partial_padding);
+				log::debug!(
+					target: "zk-trie",
+					"Branch NibbleSlicePlan: partial_range={:?}, padding={}, len={}",
+					partial, partial_padding, plan.len()
+				);
+				Ok(NodePlan::NibbledBranch { partial: plan, value, children })
 			},
 			NodeHeader::HashedValueLeaf(nibble_count) | NodeHeader::Leaf(nibble_count) => {
+				log::debug!(
+					target: "zk-trie",
+					"Leaf node: header={:?}, nibble_count={}, contains_hash={}",
+					header, nibble_count, contains_hash
+				);
 				let nibble_bytes = nibble_count.div_ceil(nibble_ops::NIBBLE_PER_BYTE);
 
 				// Calculate prefix padding to ensure partial key data aligns to felt boundaries
@@ -199,14 +209,20 @@ where
 				let partial = nibble_start..(nibble_start + nibble_bytes);
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let value = if contains_hash {
+					log::debug!(target: "zk-trie", "Leaf: reading hashed value (32 bytes)");
 					ValuePlan::Node(input.take(H::LENGTH)?)
 				} else {
 					// Read 8-byte little-endian length
 					let length_range = input.take(8)?;
-					let length_bytes = &data[length_range];
+					let length_bytes = &data[length_range.clone()];
 					let mut length_array = [0u8; 8];
 					length_array.copy_from_slice(length_bytes);
 					let count = u64::from_le_bytes(length_array) as usize;
+					log::debug!(
+						target: "zk-trie",
+						"Leaf: reading inline value, length_bytes={:02x?}, count={}",
+						length_bytes, count
+					);
 					// Calculate felt-aligned length to consume padding
 					let value_aligned_len = count.div_ceil(8) * 8;
 					let value_range = input.take(value_aligned_len)?;
@@ -258,7 +274,7 @@ where
 				}
 			},
 			Value::Node(hash) => {
-				debug_assert!(hash.len() == H::LENGTH);
+				assert_eq!(hash.len(), H::LENGTH, "leaf value hash length mismatch");
 				output.extend_from_slice(hash);
 			},
 		}
@@ -314,28 +330,29 @@ where
 				}
 			},
 			Some(Value::Node(hash)) => {
-				debug_assert!(hash.len() == H::LENGTH);
+				assert_eq!(hash.len(), H::LENGTH, "branch value hash length mismatch");
 				output.extend_from_slice(hash);
 			},
 			None => (),
 		}
+		let mut child_idx = 0usize;
 		Bitmap::encode(
-			children.map(|maybe_child| match maybe_child.borrow() {
-				Some(ChildReference::Hash(h)) => {
-					// Always encode hash references with 8-byte length prefix
-					let length_bytes = (h.as_ref().len() as u64).to_le_bytes();
-					output.extend_from_slice(&length_bytes);
-					output.extend_from_slice(h.as_ref());
-					true
-				},
-				&Some(ChildReference::Inline(inline_data, len)) => {
-					// Encode length as 8-byte little-endian
-					let length_bytes = (len as u64).to_le_bytes();
-					output.extend_from_slice(&length_bytes);
-					output.extend_from_slice(&inline_data.as_ref()[..len]);
-					true
-				},
-				None => false,
+			children.map(|maybe_child| {
+				let result = match maybe_child.borrow() {
+					Some(ChildReference(h)) => {
+						assert_eq!(h.as_ref().len(), H::LENGTH, "child hash length mismatch");
+						log::debug!(
+							target: "zk-trie",
+							"branch_node_nibbled: encoding child[{}] as Hash, len={}, hash={:02x?}",
+							child_idx, h.as_ref().len(), h.as_ref()
+						);
+						output.extend_from_slice(h.as_ref());
+						true
+					},
+					None => false,
+				};
+				child_idx += 1;
+				result
 			}),
 			bitmap.as_mut(),
 		);
