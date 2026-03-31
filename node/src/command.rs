@@ -47,7 +47,7 @@ pub fn generate_quantus_key(
 			let seed_for_pair: Vec<u8>;
 
 			// Build the derivation path (all components must be hardened for lattice-based crypto)
-			let path =
+			let path: String =
 				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
 			if let Some(words_phrase) = words {
@@ -61,19 +61,13 @@ pub fn generate_quantus_key(
 					})?;
 					seed_for_pair = seed64.to_vec();
 				} else {
-					// Derive keypair directly from mnemonic, then create DilithiumPair from it
-					println!("Deriving HD path: {}", path);
-					let keypair =
-						derive_key_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
-							eprintln!("Error deriving from mnemonic: {:?}", e);
-							sc_cli::Error::Input("Failed to derive from mnemonic".into())
-						})?;
-					// Create DilithiumPair from the derived keypair's secret
-					let dilithium_pair = DilithiumPair::from_seed(&keypair.secret.to_bytes())
-						.map_err(|e| {
-							eprintln!("Error creating DilithiumPair: {:?}", e);
-							sc_cli::Error::Input("Failed to create keypair".into())
-						})?;
+				println!("Deriving HD path: {}", path);
+				let keypair =
+					derive_key_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
+						eprintln!("Error deriving from mnemonic: {:?}", e);
+						sc_cli::Error::Input("Failed to derive from mnemonic".into())
+					})?;
+				let dilithium_pair = DilithiumPair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
 						address: account_id
@@ -127,19 +121,13 @@ pub fn generate_quantus_key(
 					})?;
 					seed_for_pair = seed64.to_vec();
 				} else {
-					// Derive keypair directly from mnemonic, then create DilithiumPair from it
-					println!("Deriving HD path: {}", path);
-					let keypair =
-						derive_key_from_mnemonic(&new_words, None, &path).map_err(|e| {
-							eprintln!("Error deriving from mnemonic: {:?}", e);
-							sc_cli::Error::Input("Failed to derive from mnemonic".into())
-						})?;
-					// Create DilithiumPair from the derived keypair's secret
-					let dilithium_pair = DilithiumPair::from_seed(&keypair.secret.to_bytes())
-						.map_err(|e| {
-							eprintln!("Error creating DilithiumPair: {:?}", e);
-							sc_cli::Error::Input("Failed to create keypair".into())
-						})?;
+				println!("Deriving HD path: {}", path);
+				let keypair =
+					derive_key_from_mnemonic(&new_words, None, &path).map_err(|e| {
+						eprintln!("Error deriving from mnemonic: {:?}", e);
+						sc_cli::Error::Input("Failed to derive from mnemonic".into())
+					})?;
+				let dilithium_pair = DilithiumPair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
 						address: account_id
