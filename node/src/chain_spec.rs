@@ -85,6 +85,9 @@ pub fn planck_chain_spec() -> Result<ChainSpec, String> {
 		"/dns/a2-p2p-planck.quantus.cat/tcp/30333/p2p/QmZT5LVJjBWf3QeJY6JKcFY6bCJoWucji96pKwpgbfTgic"
 			.parse()
 			.unwrap(),
+		"/ip4/72.61.118.55/tcp/30333/p2p/QmbctLKQojifo6bym7a1ypph55n1nSw58YZGDkGtgRNVmF"
+			.parse()
+			.unwrap(),
 	];
 
 	Ok(ChainSpec::builder(
