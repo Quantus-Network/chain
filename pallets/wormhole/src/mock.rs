@@ -6,7 +6,10 @@ use frame_support::{
 use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
-use sp_runtime::{traits::IdentityLookup, BuildStorage, Permill};
+use sp_runtime::{
+	traits::{BlakeTwo256, IdentityLookup},
+	BuildStorage, Permill,
+};
 
 construct_runtime!(
 	pub enum Test {
@@ -47,7 +50,7 @@ impl frame_system::Config for Test {
 	type RuntimeTask = ();
 	type Nonce = u64;
 	type Hash = H256;
-	type Hashing = PoseidonHasher;
+	type Hashing = BlakeTwo256;
 	type AccountId = AccountId;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block<Self>;
