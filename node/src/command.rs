@@ -47,7 +47,7 @@ pub fn generate_quantus_key(
 			let seed_for_pair: Vec<u8>;
 
 			// Build the derivation path (all components must be hardened for lattice-based crypto)
-			let path: String =
+			let path =
 				format!("m/44'/{QUANTUS_DILITHIUM_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
 
 			if let Some(words_phrase) = words {
