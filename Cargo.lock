@@ -8498,7 +8498,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.4.9-jeruk-kintamani"
+version = "0.4.10-kintamani-sunrise"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -8560,7 +8560,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.4.9-jeruk-kintamani"
+version = "0.4.10-kintamani-sunrise"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
