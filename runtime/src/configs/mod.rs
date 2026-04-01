@@ -49,10 +49,10 @@ use frame_system::{
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use qp_poseidon::PoseidonHasher;
+
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, One},
+	traits::{AccountIdConversion, BlakeTwo256, One},
 	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -102,8 +102,9 @@ impl frame_system::Config for Runtime {
 	type Nonce = Nonce;
 	/// The type for hashing blocks and tries.
 	type Hash = Hash;
-	/// The type for hash function that computes extrinsic root
-	type Hashing = PoseidonHasher;
+	/// The hashing algorithm for application-level operations (preimages, tx IDs, etc).
+	/// Storage trie and extrinsics root use the header's hasher (PoseidonHasher) instead.
+	type Hashing = BlakeTwo256;
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;
 	/// The weight of database operations that the runtime can invoke.
