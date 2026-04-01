@@ -121,8 +121,7 @@ impl Pair for DilithiumPair {
 		const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
 		let keypair = derive_key_from_mnemonic(phrase, password, DEFAULT_PATH)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
-		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
-		// Get seed for return value
+		let pair = DilithiumPair::from_keypair(keypair);
 		let seed_bytes = mnemonic_to_seed(phrase.to_string(), password)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
 		let mut seed = [0u8; 32];
@@ -142,7 +141,7 @@ impl Pair for DilithiumPair {
 		// We combine the string with the password if provided
 		let keypair = derive_key_from_mnemonic(s, password, DEFAULT_PATH)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
-		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+		let pair = DilithiumPair::from_keypair(keypair);
 
 		// Return the pair with no seed since Dilithium doesn't use traditional seed-based
 		// generation
