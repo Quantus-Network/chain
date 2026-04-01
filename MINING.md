@@ -237,7 +237,7 @@ docker run -d \
 
 ## External Miner Setup
 
-For high-performance mining, you can offload the QPoW mining process to a separate service, freeing up node resources.
+For high-performance mining, you can offload the mining process to a separate service, freeing up node resources.
 
 ### Prerequisites
 
@@ -337,7 +337,7 @@ curl -H "Content-Type: application/json" \
 ## Testnet Information
 
 - **Chain**: Dirac Testnet
-- **Consensus**: Quantum Proof of Work (QPoW)
+- **Consensus**: Proof of Work (PoW) using Poseidon2 hash function
 - **Block Time**: ~6 seconds target
 - **Network Explorer**: Coming soon
 - **Faucet**: See Telegram
@@ -450,11 +450,11 @@ Happy mining! 🚀
 
 # External Miner Protocol Specification
 
-This section defines the QUIC-based protocol for communication between the Quantus Network node and external QPoW miner services. **This is technical documentation for developers building custom miner implementations.**
+This section defines the QUIC-based protocol for communication between the Quantus Network node and external miner services. **This is technical documentation for developers building custom miner implementations.**
 
 ## Overview
 
-The node delegates the mining task (finding a valid nonce) to external miner services over persistent QUIC connections. The node provides the necessary parameters (header hash, difficulty) and each external miner independently searches for a valid nonce according to the QPoW rules defined in the `qpow-math` crate. Miners push results back when found.
+The node delegates the mining task (finding a valid nonce) to external miner services over persistent QUIC connections. The node provides the necessary parameters (header hash, difficulty) and each external miner independently searches for a valid nonce according to the PoW rules defined in the `qpow-math` crate (using Poseidon2 hash function). Miners push results back when found.
 
 ### Key Benefits of QUIC
 
