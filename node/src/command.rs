@@ -1,16 +1,20 @@
+#[cfg(feature = "runtime-benchmarks")]
+use crate::benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder};
 use crate::{
-	benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder},
 	chain_spec,
 	cli::{Cli, QuantusAddressType, QuantusKeySubcommand, Subcommand},
 	service,
 };
+#[cfg(feature = "runtime-benchmarks")]
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
 	derive_key_from_mnemonic, generate_mnemonic, mnemonic_to_seed, wormhole::WormholePair,
 	SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
 };
-use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use quantus_runtime::Block;
+#[cfg(feature = "runtime-benchmarks")]
+use quantus_runtime::EXISTENTIAL_DEPOSIT;
 use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
@@ -19,6 +23,7 @@ use sp_core::{
 	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
 	Pair, H256,
 };
+#[cfg(feature = "runtime-benchmarks")]
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
@@ -374,6 +379,7 @@ pub fn run() -> sc_cli::Result<()> {
 				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
 			})
 		},
+		#[cfg(feature = "runtime-benchmarks")]
 		Some(Subcommand::Benchmark(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 
@@ -381,29 +387,14 @@ pub fn run() -> sc_cli::Result<()> {
 				// This switch needs to be in the client, since the client decides
 				// which sub-commands it wants to support.
 				match cmd {
-					BenchmarkCmd::Pallet(cmd) => {
-						if !cfg!(feature = "runtime-benchmarks") {
-							return Err(
-								"Runtime benchmarking wasn't enabled when building the node. \
-            You can enable it with `--features runtime-benchmarks`."
-									.into(),
-							);
-						}
-
-						cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
+					BenchmarkCmd::Pallet(cmd) => cmd
+						.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
 							config.chain_spec,
-						))
-					},
+						)),
 					BenchmarkCmd::Block(cmd) => {
 						let PartialComponents { client, .. } = service::new_partial(&config)?;
 						cmd.run(client)
 					},
-					#[cfg(not(feature = "runtime-benchmarks"))]
-					BenchmarkCmd::Storage(_) => Err(
-						"Storage benchmarking can be enabled with `--features runtime-benchmarks`."
-							.into(),
-					),
-					#[cfg(feature = "runtime-benchmarks")]
 					BenchmarkCmd::Storage(cmd) => {
 						let PartialComponents { client, backend, .. } =
 							service::new_partial(&config)?;
