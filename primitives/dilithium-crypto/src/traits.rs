@@ -253,6 +253,10 @@ impl DilithiumPair {
 		Ok(DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() })
 	}
 
+	pub fn from_keypair(keypair: qp_rusty_crystals_dilithium::ml_dsa_87::Keypair) -> Self {
+		DilithiumPair { secret: keypair.secret.to_bytes(), public: keypair.public.to_bytes() }
+	}
+
 	/// Create DilithiumPair from raw public and secret key bytes.
 	/// Use when reconstructing a pair from stored/serialized key material (e.g. wallet restore).
 	///
