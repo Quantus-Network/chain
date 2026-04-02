@@ -1,6 +1,12 @@
 [package]
-edition = "2021"
+authors.workspace = true
+description = "Quantum Proof-of-Work math primitives for the Quantus Network"
+edition.workspace = true
+homepage.workspace = true
+keywords = ["quantus-network", "qpow", "mining"]
+license.workspace = true
 name = "qpow-math"
+repository.workspace = true
 version = "0.1.0"
 
 [dependencies]

@@ -1,0 +1,195 @@
+name: QPow Math - Release Proposal
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch for the PR (default: main)'
+        required: false
+        type: string
+        default: 'main'
+      version_type:
+        description: 'Type of version bump (major, minor, patch) or specify custom version'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: 'Custom version string (e.g., 0.1.1). Only used if version_type is "custom". Do NOT include "qpow-math-v" prefix'
+        required: false
+      is_draft:
+        description: 'Is this a draft release?'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  calculate-next-qpow-math-version:
+    name: 🧮 Calculate Next QPow Math Version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.versioner.outputs.new_version }}
+      commit_sha_short: ${{ steps.vars.outputs.commit_sha_short }}
+      source_branch: ${{ steps.vars.outputs.source_branch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get current branch and commit SHA
+        id: vars
+        run: |
+          echo "commit_sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "source_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get latest qpow-math tag
+        id: latest_tag
+        run: |
+          latest_qpow_math_tag=$(git tag -l "qpow-math-v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
+          
+          if [ -z "$latest_qpow_math_tag" ]; then
+            latest_qpow_math_tag="qpow-math-v0.0.0"
+          fi
+          
+          echo "latest_tag_found=$latest_qpow_math_tag" >> $GITHUB_OUTPUT
+          echo "Latest qpow-math tag found: $latest_qpow_math_tag"
+
+      - name: Calculate new qpow-math version
+        id: versioner
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag_found }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
+          IS_DRAFT: ${{ github.event.inputs.is_draft }}
+        run: |
+          current_version=${LATEST_TAG#qpow-math-v}
+
+          if [[ "$VERSION_TYPE" == "custom" ]]; then
+            if [[ -z "$CUSTOM_VERSION" ]]; then
+              echo "Error: Custom version is selected but no custom_version string provided."
+              exit 1
+            fi
+            if [[ ! "$CUSTOM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: Custom version string must be in format X.Y.Z (e.g., 0.1.1)."
+              exit 1
+            fi
+            new_version="qpow-math-v$CUSTOM_VERSION"
+          else
+            IFS='.' read -r major minor patch <<< "$current_version"
+
+            if [[ "$VERSION_TYPE" == "major" ]]; then
+              if [[ "$major" == "0" ]]; then
+                major=$major
+                minor=$((minor + 1))
+                patch=0
+              else
+                major=$((major + 1))
+                minor=0
+                patch=0
+              fi
+            elif [[ "$VERSION_TYPE" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+            elif [[ "$VERSION_TYPE" == "patch" ]]; then
+              patch=$((patch + 1))
+            else
+              echo "Error: Invalid version_type: $VERSION_TYPE"
+              exit 1
+            fi
+            new_version="qpow-math-v$major.$minor.$patch"
+          fi
+
+          echo "New qpow-math version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+  update-qpow-math-cargo-toml:
+    name: 📝 Update QPow Math Version Files
+    needs: calculate-next-qpow-math-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create qpow-math version bump branch and PR
+        env:
+          NEW_VERSION: ${{ needs.calculate-next-qpow-math-version.outputs.new_version }}
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT }}
+          SOURCE_BRANCH: ${{ needs.calculate-next-qpow-math-version.outputs.source_branch }}
+          TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+        run: |
+          set -ex
+          new_cargo_version=${NEW_VERSION#qpow-math-v}
+          branch_name="release/${NEW_VERSION}"
+
+          if git tag -l | grep -q "^${NEW_VERSION}$"; then
+            echo "Error: Tag $NEW_VERSION already exists"
+            exit 1
+          fi
+
+          git checkout "$SOURCE_BRANCH"
+          git checkout -b "$branch_name"
+          
+          echo "Updating qpow-math/Cargo.toml to version: $new_cargo_version"
+          sed -i -E "s/^version = \"[0-9]+\.[0-9]+\.[0-9]+\"/version = \"$new_cargo_version\"/" qpow-math/Cargo.toml
+          
+          if ! grep -q "version = \"$new_cargo_version\"" qpow-math/Cargo.toml; then
+            echo "Error: Failed to update version in qpow-math/Cargo.toml"
+            exit 1
+          fi
+          
+          echo "Updating workspace Cargo.toml qpow-math dependency to version: $new_cargo_version"
+          sed -i -E "s/^qpow-math = \{ path = \"\.\/qpow-math\", version = \"[0-9]+\.[0-9]+\.[0-9]+\"/qpow-math = { path = \"\.\/qpow-math\", version = \"$new_cargo_version\"/" Cargo.toml
+          
+          if ! grep -q "qpow-math = { path = \"./qpow-math\", version = \"$new_cargo_version\"" Cargo.toml; then
+            echo "Error: Failed to update qpow-math version in workspace Cargo.toml"
+            exit 1
+          fi
+          
+          cargo update --package qpow-math --precise "$new_cargo_version" || echo "cargo update tried, proceeding."
+
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          
+          git add qpow-math/Cargo.toml Cargo.toml Cargo.lock
+          git commit -m "ci: QPow Math version bump to $NEW_VERSION"
+          git push origin "$branch_name"
+
+          if [[ "${{ github.event.inputs.is_draft }}" == "true" ]]; then
+            PR_TITLE="ci: QPow Math version bump to $NEW_VERSION (DRAFT)"
+            PR_LABELS="automated,qpow-math-release-proposal,draft-release"
+          else
+            PR_TITLE="ci: QPow Math version bump to $NEW_VERSION"
+            PR_LABELS="automated,qpow-math-release-proposal"
+          fi
+          
+          cat > pr_body.md << EOF
+          ## QPow Math Release Proposal
+          
+          This PR proposes releasing **qpow-math** version \`${new_cargo_version}\`.
+          
+          ### Changes
+          - Updated \`qpow-math/Cargo.toml\` version to \`${new_cargo_version}\`
+          - Updated \`Cargo.toml\` workspace dependency version to \`${new_cargo_version}\`
+          - Updated \`Cargo.lock\`
+          EOF
+          
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body-file pr_body.md \
+            --base "$TARGET_BRANCH" \
+            --head "$branch_name" \
+            --label "$PR_LABELS"
