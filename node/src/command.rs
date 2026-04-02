@@ -292,7 +292,7 @@ pub fn run() -> sc_cli::Result<()> {
 										println!("Derivation path: master (no derivation)");
 									} else {
 										println!(
-											"Derivation path: m/44'/{}/{}'/0/0",
+											"Derivation path: m/44'/{}/{}'/0'/0'",
 											QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
