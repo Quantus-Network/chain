@@ -45,7 +45,7 @@ fn ss58_version() -> sp_core::crypto::Ss58AddressFormat {
 }
 
 fn heisenberg_root_account() -> AccountId {
-	account_from_ss58("qzpXdKnqr62KUgBxb9RAbJjFC5GgjGriBx7KyfhVMk6oMMYiy")
+	account_from_ss58("qzk69g9d4d3iehaFR1gN7FJQXpfEegfT3EpiGmFei1BG5impU")
 }
 
 fn dilithium_default_accounts() -> Vec<AccountId> {
@@ -188,18 +188,18 @@ pub fn heisenberg_config_genesis() -> Value {
 }
 
 fn planck_root_account() -> AccountId {
-	account_from_ss58("qzjkMSEA8eATwGdhWAj9gGXWiXeLqoAK4A9yybsGSmNbe2k5t")
+	account_from_ss58("qzk69g9d4d3iehaFR1gN7FJQXpfEegfT3EpiGmFei1BG5impU")
 }
 
 fn planck_faucet_account() -> AccountId {
-	account_from_ss58("qznjfnzgLjroTyy46hRK7sDsDPmM7JuoY5TgXMbMhGhV6jLiL")
+	account_from_ss58("qzka7DZXAT7GnzgXQfxiSwrPKRWgW6m6G89QRsQiLThThZ6Cw")
 }
 
 fn planck_treasury_account() -> AccountId {
 	let signers = vec![
-		account_from_ss58("qzjXSPADEgMSJ5YhN3S64Eo97Gf913GVPeDKZYRjurgNuSQYL"),
-		account_from_ss58("qznWn6PLNvr5zTBnYRMYKeDkjsitBoeW9U8uhixfhLRtyLvRU"),
-		account_from_ss58("qzkSyMRufWMsFBXuprDZcuKycUB4YgLXamCybgQLKNpoTCw7A"),
+		account_from_ss58("qzoRRfx5bUSdq2YWSXBXrmFFSwe24bNSUoMu3Vhz5hrtPri7D"),
+		account_from_ss58("qzkscJp9ofGZzQbhAdySSNx3pmfKBDq9vqdfT8ZHNjp4GiwFq"),
+		account_from_ss58("qzjxqVV6hzauZkBPBvvMxVv1o7ifp2XZj1J1qLTnze3yh7uhu"),
 	];
 	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
 }
