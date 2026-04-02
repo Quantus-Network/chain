@@ -143,7 +143,7 @@ qp-header = { path = "./primitives/header", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
 qp-wormhole = { path = "./primitives/wormhole", default-features = false }
 qpow-math = { path = "./qpow-math", default-features = false }
-quantus-miner-api = { path = "./miner-api", version = "0.0.3", default-features = false }
+quantus-miner-api = { path = "./miner-api", version = "0.1.0", default-features = false }
 quantus-runtime = { path = "./runtime", default-features = false }
 sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false }
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
