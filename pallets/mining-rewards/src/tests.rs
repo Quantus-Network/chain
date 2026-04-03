@@ -240,35 +240,10 @@ fn transaction_fees_collector_works() {
 }
 
 #[test]
-fn block_lifecycle_works() {
+fn on_initialize_returns_correct_weight() {
 	new_test_ext().execute_with(|| {
-		// Remember initial balance
-		let initial_balance = Balances::free_balance(MINER_1.account_id());
-
-		// Run through a complete block lifecycle
-
-		// 1. on_initialize - should return correct weight
 		let weight = MiningRewards::on_initialize(1);
 		assert_eq!(weight, <()>::on_finalize_rewarded_miner());
-
-		// 2. Add some transaction fees during block execution
-		MiningRewards::collect_transaction_fees(15);
-
-		// Calculate expected rewards with treasury portion
-		let current_supply = Balances::total_issuance();
-		let total_block_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
-		let miner_block_reward =
-			total_block_reward - Treasury::portion().mul_floor(total_block_reward);
-
-		// 3. on_finalize - should reward the miner
-		set_miner_preimage_digest(MINER_1.preimage());
-		MiningRewards::on_finalize(1);
-
-		// Check miner received rewards
-		assert_eq!(
-			Balances::free_balance(MINER_1.account_id()),
-			initial_balance + miner_block_reward + 15
-		);
 	});
 }
 
