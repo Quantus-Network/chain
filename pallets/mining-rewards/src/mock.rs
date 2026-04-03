@@ -173,27 +173,34 @@ impl pallet_mining_rewards::Config for Test {
 	type Unit = Unit;
 }
 
-/// Helper function to convert a u8 to a preimage
-pub fn miner_preimage(id: u8) -> [u8; 32] {
-	[id; 32]
+/// Test helper struct that derives both preimage and account from an arbitrary numeric id.
+/// This replaces the previous helpers (miner_preimage_1, miner_preimage_2, miner, miner2)
+/// and fixes the incorrect fallback in set_miner_digest.
+///
+/// Usage:
+///   let miner = TestMiner(1);
+///   set_miner_preimage_digest(miner.preimage());
+///   assert_eq!(Balances::free_balance(miner.account_id()), ...);
+#[derive(Clone, Copy, Debug)]
+pub struct TestMiner(pub u64);
+
+impl TestMiner {
+	/// Generate a deterministic 32-byte preimage from the miner id.
+	pub fn preimage(&self) -> [u8; 32] {
+		let mut buf = [0u8; 32];
+		buf[..8].copy_from_slice(&self.0.to_le_bytes());
+		buf
+	}
+
+	/// Derive the wormhole account address from the preimage (via Poseidon2 hash).
+	pub fn account_id(&self) -> sp_core::crypto::AccountId32 {
+		derive_wormhole_account(self.preimage())
+	}
 }
 
-// Configure default miner preimages and addresses for tests
-pub fn miner_preimage_1() -> [u8; 32] {
-	miner_preimage(1)
-}
-
-pub fn miner_preimage_2() -> [u8; 32] {
-	miner_preimage(2)
-}
-
-pub fn miner() -> sp_core::crypto::AccountId32 {
-	derive_wormhole_account(miner_preimage_1())
-}
-
-pub fn miner2() -> sp_core::crypto::AccountId32 {
-	derive_wormhole_account(miner_preimage_2())
-}
+/// Default test miners for convenience
+pub const MINER_1: TestMiner = TestMiner(1);
+pub const MINER_2: TestMiner = TestMiner(2);
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -201,8 +208,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
-			(miner(), ExistentialDeposit::get()),
-			(miner2(), ExistentialDeposit::get()),
+			(MINER_1.account_id(), ExistentialDeposit::get()),
+			(MINER_2.account_id(), ExistentialDeposit::get()),
 			(MockTreasury::account_id(), ExistentialDeposit::get()),
 		],
 		dev_accounts: None,
@@ -215,24 +222,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	ext
 }
 
-// Helper function to create a block digest with a miner preimage
-pub fn set_miner_digest(miner_account: sp_core::crypto::AccountId32) {
-	// Find the preimage that corresponds to this miner address
-	let preimage = if miner_account == miner() {
-		miner_preimage_1()
-	} else if miner_account == miner2() {
-		miner_preimage_2()
-	} else {
-		// For other miners, use their raw bytes as preimage for testing
-		let mut preimage = [0u8; 32];
-		preimage.copy_from_slice(miner_account.as_ref());
-		preimage
-	};
-
-	set_miner_preimage_digest(preimage);
-}
-
-// Helper function to create a block digest with a specific preimage
+/// Helper function to create a block digest with a specific preimage.
+/// Use with TestMiner: `set_miner_preimage_digest(MINER_1.preimage())`
 pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
 	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, preimage.to_vec());
 	System::deposit_log(pre_digest);
