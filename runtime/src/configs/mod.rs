@@ -119,11 +119,6 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-	pub const MaxTokenAmount: Balance = 1000 * UNIT;
-	pub const DefaultMintAmount: Balance = 10 * UNIT;
-}
-
-parameter_types! {
 	pub const MiningUnit: Balance = UNIT;
 }
 
@@ -210,7 +205,6 @@ impl pallet_balances::Config for Runtime {
 parameter_types! {
 	pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
 	pub const MaxVotes: u32 = 4096;
-	pub const MinimumDeposit: Balance = UNIT;
 }
 
 /// Dynamic MaxTurnout that uses the current total issuance of tokens
@@ -330,20 +324,6 @@ impl pallet_ranked_collective::Config for Runtime {
 	type BenchmarkSetup = ();
 }
 
-parameter_types! {
-	// Default voting period (28 days)
-	pub const TechReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
-	// Minimum time before a successful referendum can be enacted (4 days)
-	pub const TechReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
-	// Maximum number of active referenda
-	pub const TechReferendumMaxProposals: u32 = 100;
-	// Submission deposit for referenda
-	pub const TechReferendumSubmissionDeposit: Balance = 100 * UNIT;
-	// Undeciding timeout (90 days)
-	pub const TechUndecidingTimeout: BlockNumber = 45 * DAYS;
-	pub const TechAlarmInterval: BlockNumber = 1;
-}
-
 pub type TechReferendaInstance = pallet_referenda::Instance1;
 
 impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
@@ -395,8 +375,6 @@ parameter_types! {
 	pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
 	// Maximum number of scheduled calls per block
 	pub const MaxScheduledPerBlock: u32 = 50;
-	// Optional postponement for calls without preimage
-	pub const NoPreimagePostponement: Option<u32> = Some(10);
 }
 
 impl pallet_scheduler::Config for Runtime {
