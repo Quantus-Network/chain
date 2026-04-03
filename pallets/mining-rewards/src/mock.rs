@@ -6,7 +6,6 @@ use frame_support::{
 	traits::{ConstU32, Everything, Hooks},
 };
 use pallet_treasury::TreasuryProvider;
-use qp_wormhole::derive_wormhole_account;
 use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
@@ -14,6 +13,9 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	BuildStorage, DigestItem,
 };
+
+// Re-export shared test helpers from qp_wormhole
+pub use qp_wormhole::{TestMiner, MINTING_ACCOUNT};
 
 // Configure a mock runtime to test the pallet.
 // Treasury is mocked via TreasuryProvider - no need for full pallet in construct_runtime,
@@ -89,8 +91,8 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	pub const MintingAccount: sp_core::crypto::AccountId32 =
-		sp_core::crypto::AccountId32::new([99u8; 32]);
+	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
+	pub const MintingAccount: sp_core::crypto::AccountId32 = MINTING_ACCOUNT;
 	pub const Unit: u128 = UNIT;
 }
 
@@ -173,32 +175,7 @@ impl pallet_mining_rewards::Config for Test {
 	type Unit = Unit;
 }
 
-/// Test helper struct that derives both preimage and account from an arbitrary numeric id.
-/// This replaces the previous helpers (miner_preimage_1, miner_preimage_2, miner, miner2)
-/// and fixes the incorrect fallback in set_miner_digest.
-///
-/// Usage:
-///   let miner = TestMiner(1);
-///   set_miner_preimage_digest(miner.preimage());
-///   assert_eq!(Balances::free_balance(miner.account_id()), ...);
-#[derive(Clone, Copy, Debug)]
-pub struct TestMiner(pub u64);
-
-impl TestMiner {
-	/// Generate a deterministic 32-byte preimage from the miner id.
-	pub fn preimage(&self) -> [u8; 32] {
-		let mut buf = [0u8; 32];
-		buf[..8].copy_from_slice(&self.0.to_le_bytes());
-		buf
-	}
-
-	/// Derive the wormhole account address from the preimage (via Poseidon2 hash).
-	pub fn account_id(&self) -> sp_core::crypto::AccountId32 {
-		derive_wormhole_account(self.preimage())
-	}
-}
-
-/// Default test miners for convenience
+/// Default test miners for convenience (using shared TestMiner from qp_wormhole)
 pub const MINER_1: TestMiner = TestMiner(1);
 pub const MINER_2: TestMiner = TestMiner(2);
 

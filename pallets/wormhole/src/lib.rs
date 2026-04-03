@@ -222,7 +222,6 @@ pub mod pallet {
 	pub enum Error<T> {
 		InvalidPublicInputs,
 		NullifierAlreadyUsed,
-		VerifierNotAvailable,
 		BlockNotFound,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
