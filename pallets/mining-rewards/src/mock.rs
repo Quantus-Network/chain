@@ -229,6 +229,13 @@ pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
 	System::deposit_log(pre_digest);
 }
 
+/// Helper function to create a block digest with a custom engine ID.
+/// Used for testing that incorrect engine IDs are properly ignored.
+pub fn set_digest_with_engine_id(engine_id: [u8; 4], data: Vec<u8>) {
+	let pre_digest = DigestItem::PreRuntime(engine_id, data);
+	System::deposit_log(pre_digest);
+}
+
 // Helper function to run a block
 pub fn run_to_block(n: u64) {
 	while System::block_number() < n {

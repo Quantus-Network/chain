@@ -352,6 +352,146 @@ fn fees_go_to_treasury_when_no_miner() {
 	});
 }
 
+// =========================================================================
+// EQ-QNT-WORMHOLE-F-03: Tests for extract_author_from_digest edge cases
+// =========================================================================
+
+/// Test that a digest with an incorrect engine ID is ignored.
+/// The miner extraction should return None, causing rewards to go to treasury.
+#[test]
+fn incorrect_engine_id_ignored() {
+	new_test_ext().execute_with(|| {
+		let treasury_account = Treasury::account_id();
+		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+		// Calculate expected rewards
+		let current_supply = Balances::total_issuance();
+		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
+		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
+		let miner_portion_reward = total_reward - treasury_portion_reward;
+
+		// Set a digest with a WRONG engine ID (not POW_ENGINE_ID)
+		// Using arbitrary engine ID that doesn't match POW_ENGINE_ID
+		let wrong_engine_id: [u8; 4] = *b"FAKE";
+		set_digest_with_engine_id(wrong_engine_id, MINER_1.preimage().to_vec());
+
+		// Run on_finalize
+		System::set_block_number(1);
+		MiningRewards::on_finalize(System::block_number());
+
+		// Since the engine ID is wrong, miner extraction fails.
+		// All rewards should go to treasury (same as no miner case).
+		assert_eq!(
+			Balances::free_balance(&treasury_account),
+			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
+		);
+
+		// MINER_1 should NOT have received any rewards
+		assert_eq!(
+			Balances::free_balance(MINER_1.account_id()),
+			ExistentialDeposit::get(), // Only the initial existential deposit
+			"Miner should not receive rewards when engine ID is incorrect"
+		);
+	});
+}
+
+/// Test that a digest with malformed preimage data (wrong length) is ignored.
+/// The miner extraction should return None, causing rewards to go to treasury.
+#[test]
+fn malformed_preimage_data_ignored() {
+	new_test_ext().execute_with(|| {
+		use sp_consensus_qpow::POW_ENGINE_ID;
+
+		let treasury_account = Treasury::account_id();
+		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+		// Calculate expected rewards
+		let current_supply = Balances::total_issuance();
+		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
+		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
+		let miner_portion_reward = total_reward - treasury_portion_reward;
+
+		// Set a digest with correct engine ID but WRONG data length (not 32 bytes)
+		let short_data: Vec<u8> = vec![1, 2, 3, 4, 5]; // Only 5 bytes instead of 32
+		set_digest_with_engine_id(POW_ENGINE_ID, short_data);
+
+		// Run on_finalize
+		System::set_block_number(1);
+		MiningRewards::on_finalize(System::block_number());
+
+		// Since the preimage data is malformed (wrong length), miner extraction fails.
+		// All rewards should go to treasury (same as no miner case).
+		assert_eq!(
+			Balances::free_balance(&treasury_account),
+			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
+		);
+	});
+}
+
+/// Test that an empty digest (no PreRuntime entries) results in treasury fallback.
+#[test]
+fn empty_digest_falls_back_to_treasury() {
+	new_test_ext().execute_with(|| {
+		let treasury_account = Treasury::account_id();
+		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+		// Calculate expected rewards
+		let current_supply = Balances::total_issuance();
+		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
+		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
+		let miner_portion_reward = total_reward - treasury_portion_reward;
+
+		// Don't set any digest at all - the digest will be empty
+		System::set_block_number(1);
+		MiningRewards::on_finalize(System::block_number());
+
+		// With no PreRuntime digest, miner extraction returns None.
+		// All rewards should go to treasury.
+		assert_eq!(
+			Balances::free_balance(&treasury_account),
+			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
+		);
+
+		// Verify the treasury events were emitted
+		System::assert_has_event(
+			Event::TreasuryRewarded { reward: treasury_portion_reward }.into(),
+		);
+		System::assert_has_event(Event::TreasuryRewarded { reward: miner_portion_reward }.into());
+	});
+}
+
+/// Test that a digest with too-long preimage data (more than 32 bytes) is ignored.
+#[test]
+fn oversized_preimage_data_ignored() {
+	new_test_ext().execute_with(|| {
+		use sp_consensus_qpow::POW_ENGINE_ID;
+
+		let treasury_account = Treasury::account_id();
+		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+		// Calculate expected rewards
+		let current_supply = Balances::total_issuance();
+		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
+		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
+		let miner_portion_reward = total_reward - treasury_portion_reward;
+
+		// Set a digest with correct engine ID but data that's too long (64 bytes)
+		let long_data: Vec<u8> = vec![42u8; 64];
+		set_digest_with_engine_id(POW_ENGINE_ID, long_data);
+
+		// Run on_finalize
+		System::set_block_number(1);
+		MiningRewards::on_finalize(System::block_number());
+
+		// Since the preimage data is wrong length, miner extraction fails.
+		// All rewards should go to treasury.
+		assert_eq!(
+			Balances::free_balance(&treasury_account),
+			initial_treasury_balance + treasury_portion_reward + miner_portion_reward
+		);
+	});
+}
+
 #[test]
 fn test_fees_and_rewards_to_miner() {
 	new_test_ext().execute_with(|| {
