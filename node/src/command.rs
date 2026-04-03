@@ -310,11 +310,11 @@ pub fn run() -> sc_cli::Result<()> {
                                         "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
                                     );
 									println!("Address: {}", details.address);
+									println!("Address hex: {}", details.public_key_hex);
 									println!(
 										"Inner Hash: 0x{}",
 										details.inner_hash.unwrap_or_default()
 									);
-									println!("Wormhole Address: {}", details.public_key_hex);
 									println!("Secret: {}", details.secret_key_hex);
 									// Pub key and Seed are N/A for wormhole as per
 									// QuantusKeyDetails
@@ -469,32 +469,69 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.network_backend = NetworkBackendType::Libp2p;
 
-				let rewards_account = match cli.rewards_preimage {
-					Some(address) => {
-						let account = address.parse::<AccountId32>().map_err(|_| {
-							sc_cli::Error::Input("Invalid rewards preimage format".into())
-						})?;
-						log::info!("⛏️ Using address for rewards: {:?}", account);
-						account
-					},
+			let rewards_account = match cli.rewards_inner_hash {
+				Some(ref inner_hash) => {
+				let hex_str = match inner_hash.strip_prefix("0x") {
+					Some(s) => s,
 					None => {
-						// Automatically set rewards_preimage to Treasury when --dev is used
-						if cli.run.shared_params.is_dev() {
-							let treasury_account =
-								quantus_runtime::configs::TreasuryPalletId::get()
-									.into_account_truncating();
-							log::info!(
-								"⛏️ Using treasury address for rewards: {:?}",
-								treasury_account
-							);
-
-							treasury_account
-						} else {
-							// Should never happen
-							return Err(sc_cli::Error::Input("No rewards preimage provided".into()));
-						}
+						eprintln!("Error: --rewards-inner-hash must start with '0x'.\n");
+						eprintln!("To generate an inner hash, run:");
+						eprintln!("  quantus-node key quantus --scheme wormhole\n");
+						eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+						return Err(sc_cli::Error::Input("Missing 0x prefix".into()));
 					},
 				};
+				if hex_str.len() != 64 {
+					eprintln!(
+						"Error: --rewards-inner-hash must be a 0x-prefixed 32-byte hex string."
+					);
+					eprintln!("  Provided: {}", inner_hash);
+					eprintln!("  Expected 66 characters, got {}.\n", inner_hash.len());
+					eprintln!("To generate an inner hash, run:");
+					eprintln!("  quantus-node key quantus --scheme wormhole\n");
+					eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+					return Err(sc_cli::Error::Input("Invalid inner hash length".into()));
+				}
+				let bytes = hex::decode(hex_str).map_err(|_| {
+					eprintln!("Error: --rewards-inner-hash contains invalid hex characters.\n");
+					eprintln!("To generate an inner hash, run:");
+					eprintln!("  quantus-node key quantus --scheme wormhole\n");
+					eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+					sc_cli::Error::Input("Invalid hex characters".into())
+				})?;
+				let inner_bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+					sc_cli::Error::Input("Failed to convert inner hash to account".into())
+				})?;
+				let wormhole_address = AccountId32::from(
+					qp_wormhole::derive_wormhole_address(inner_bytes),
+				);
+				log::info!(
+					"⛏️ Rewards wormhole address: {}",
+					wormhole_address.to_ss58check()
+				);
+				AccountId32::new(inner_bytes)
+				},
+				None => {
+					if cli.run.shared_params.is_dev() {
+						let treasury_account =
+							quantus_runtime::configs::TreasuryPalletId::get()
+								.into_account_truncating();
+						log::info!(
+							"⛏️ Using treasury address for rewards: {:?}",
+							treasury_account
+						);
+						treasury_account
+					} else {
+						eprintln!("Error: --rewards-inner-hash is required.\n");
+						eprintln!("To generate an inner hash, run:");
+						eprintln!("  quantus-node key quantus --scheme wormhole\n");
+						eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+						return Err(sc_cli::Error::Input(
+							"Missing --rewards-inner-hash".into(),
+						));
+					}
+				},
+			};
 
 				service::new_full::<
 					sc_network::NetworkWorker<

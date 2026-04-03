@@ -8519,6 +8519,7 @@ dependencies = [
  "qp-poseidon",
  "qp-rusty-crystals-dilithium",
  "qp-rusty-crystals-hdwallet",
+ "qp-wormhole",
  "qpow-math",
  "quantus-miner-api",
  "quantus-runtime",
