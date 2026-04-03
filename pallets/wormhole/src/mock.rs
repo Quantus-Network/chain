@@ -132,15 +132,18 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Test {
-	type WeightInfo = crate::weights::SubstrateWeight<Test>;
+	type NativeBalance = Balance;
 	type Currency = Balances;
 	type Assets = Assets;
+	type AssetId = u32;
+	type AssetBalance = Balance;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;
+	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 }
 
 // Helper function to build a genesis configuration

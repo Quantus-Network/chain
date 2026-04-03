@@ -640,13 +640,16 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Runtime {
+	type NativeBalance = Balance;
+	type Currency = Balances;
+	type Assets = Assets;
+	type AssetId = AssetId;
+	type AssetBalance = Balance;
+	type TransferCount = u64;
 	type MintingAccount = WormholeMintingAccount;
 	type MinimumTransferAmount = WormholeMinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
-	type WeightInfo = ();
-	type Currency = Balances;
-	type Assets = Assets;
-	type TransferCount = u64;
 	type WormholeAccountId = AccountId32;
+	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 }
