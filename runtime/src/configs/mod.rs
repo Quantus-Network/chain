@@ -161,10 +161,13 @@ impl pallet_qpow::Config for Runtime {
 }
 
 parameter_types! {
-	/// Canonical minting account for native token mining rewards
+	/// Canonical minting account for native token operations (mining rewards, wormhole exits).
+	/// Used as the `from` address in TransferProofs when native tokens are minted.
+	/// This is a well-known sentinel address, not a real account.
 	pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
 	/// Canonical minting account for pallet_assets mint operations.
 	/// Used as the `from` address in TransferProofs when assets are minted.
+	/// This is a well-known sentinel address, not a real account.
 	pub const AssetMintingAccount: AccountId = AccountId::new([2u8; 32]);
 }
 
@@ -583,8 +586,8 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 				pallet_reversible_transfers::Call::schedule_transfer { .. }
 			) | RuntimeCall::ReversibleTransfers(
 				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
-				RuntimeCall::ReversibleTransfers(
+			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. })
+				| RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::recover_funds { .. }
 				)
 		)
@@ -634,7 +637,6 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 }
 
 parameter_types! {
-	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
 	/// Minimum transfer amount for wormhole (10 QUAN = 10 * 10^12)
 	pub const WormholeMinimumTransferAmount: Balance = UNIT / 10;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
@@ -650,7 +652,9 @@ impl pallet_wormhole::Config for Runtime {
 	type AssetId = AssetId;
 	type AssetBalance = Balance;
 	type TransferCount = u64;
-	type MintingAccount = WormholeMintingAccount;
+	/// Use the same MintingAccount as mining-rewards for consistency.
+	/// Both pallets mint native tokens and should use the same sentinel "from" address.
+	type MintingAccount = MintingAccount;
 	type MinimumTransferAmount = WormholeMinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
