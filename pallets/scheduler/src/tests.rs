@@ -1449,29 +1449,24 @@ fn cancel_retries_works() {
 }
 
 #[test]
-fn postponed_named_task_cannot_be_rescheduled() {
+fn unavailable_preimage_preserves_lookup_for_cancellation() {
 	new_test_ext().execute_with(|| {
 		let call =
 			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(1000, 0) });
 		let hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 		let len = call.using_encoded(|x| x.len()) as u32;
-		// Important to use here `Bounded::Lookup` to ensure that we request the hash.
 		let hashed = Bounded::Lookup { hash, len };
 		let name: [u8; 32] = hash.as_ref().try_into().unwrap();
 
-		let address =
-			Scheduler::do_schedule_named(name, DispatchTime::At(4), 127, root(), hashed.clone())
-				.unwrap();
+		Scheduler::do_schedule_named(name, DispatchTime::At(4), 127, root(), hashed.clone())
+			.unwrap();
 		assert!(Preimage::is_requested(&hash));
 		assert!(Lookup::<Test>::contains_key(name));
 
-		// Run to a very large block.
 		run_to_block(10);
 
-		// It was not executed.
 		assert!(logger::log().is_empty());
 
-		// Preimage was not available
 		assert_eq!(
 			System::events().last().unwrap().event,
 			crate::Event::CallUnavailable {
@@ -1481,12 +1476,11 @@ fn postponed_named_task_cannot_be_rescheduled() {
 			.into()
 		);
 
-		// So it should not be requested.
-		assert!(!Preimage::is_requested(&hash));
-		// Postponing removes the lookup.
-		assert!(!Lookup::<Test>::contains_key(name));
+		// Preimage stays requested -- the task is still in the agenda.
+		assert!(Preimage::is_requested(&hash));
+		// Lookup is preserved so the task can still be cancelled/rescheduled by name.
+		assert!(Lookup::<Test>::contains_key(name));
 
-		// The agenda still contains the call.
 		let agenda = Agenda::<Test>::iter().collect::<Vec<_>>();
 		assert_eq!(agenda.len(), 1);
 		assert_eq!(
@@ -1500,24 +1494,10 @@ fn postponed_named_task_cannot_be_rescheduled() {
 			})]
 		);
 
-		// Finally add the preimage.
-		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(0), call.encode()));
-
-		run_to_block(1000);
-		// It did not execute.
-		assert!(logger::log().is_empty());
-		assert!(!Preimage::is_requested(&hash));
-
-		// Manually re-schedule the call by name does not work.
-		assert_err!(
-			Scheduler::do_reschedule_named(name, DispatchTime::At(1001)),
-			Error::<Test>::NotFound
-		);
-		// Manually re-scheduling the call by address errors.
-		assert_err!(
-			Scheduler::do_reschedule(address, DispatchTime::At(1001)),
-			Error::<Test>::Named
-		);
+		// The stranded task can still be cancelled by name.
+		assert_ok!(Scheduler::do_cancel_named(None, name));
+		assert!(!Lookup::<Test>::contains_key(name));
+		assert!(Agenda::<Test>::iter().collect::<Vec<_>>().is_empty());
 	});
 }
 
@@ -2228,8 +2208,9 @@ fn unavailable_call_is_detected() {
 			}
 			.into()
 		);
-		// It should not be requested anymore.
-		assert!(!Preimage::is_requested(&hash));
+		// Preimage stays requested -- the task is still in the agenda and can be
+		// cancelled or rescheduled by name.
+		assert!(Preimage::is_requested(&hash));
 	});
 }
 #[test]

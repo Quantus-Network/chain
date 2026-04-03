@@ -55,6 +55,15 @@
 //!     * Could lead to undefined behavior, such as executing another runtime call with the same
 //!       index.
 //!
+//! ## Known Limitation: Stranded tasks when preimage is unavailable
+//!
+//! If a task's preimage is not available at execution time, the task remains in the `Agenda`
+//! and its `Lookup` entry is preserved, allowing cancellation or rescheduling by name. However,
+//! the scheduler will not automatically retry the task in future blocks -- it is only
+//! re-attempted when the original block's agenda is serviced again (which does not happen
+//! once the block has passed). Callers should ensure preimages are available before the
+//! scheduled block, or cancel/reschedule stranded tasks explicitly.
+//!
 //! [`on_initialize`]: frame_support::traits::Hooks::on_initialize
 
 // Ensure we're `no_std` when compiling for Wasm.
@@ -767,24 +776,28 @@ impl<T: Config> Pallet<T> {
 		Lookup::<T>::try_mutate_exists(id, |lookup| -> DispatchResult {
 			if let Some((when, index)) = lookup.take() {
 				let i = index as usize;
-				Agenda::<T>::try_mutate(when, |agenda| -> DispatchResult {
-					if let Some(s) = agenda.get_mut(i) {
-						if let (Some(ref o), Some(ref s)) = (origin, s.borrow()) {
-							Self::ensure_privilege(o, &s.origin)?;
-						}
-						if let Some(ref s) = s {
-							Retries::<T>::remove((when, index));
-							T::Preimages::drop(&s.call);
-						}
-						*s = None;
-					}
-					Ok(())
+				let task = Agenda::<T>::try_mutate(when, |agenda| {
+					agenda.get_mut(i).map_or(
+						Ok(None),
+						|s| -> Result<Option<Scheduled<_, _, _, _, _, _>>, DispatchError> {
+							if let (Some(ref o), Some(ref s)) = (origin, s.borrow()) {
+								Self::ensure_privilege(o, &s.origin)?;
+							}
+							Ok(s.take())
+						},
+					)
 				})?;
-				Self::cleanup_agenda(when);
-				Self::deposit_event(Event::Canceled { when, index });
-				Ok(())
+				if let Some(s) = task {
+					Retries::<T>::remove((when, index));
+					T::Preimages::drop(&s.call);
+					Self::cleanup_agenda(when);
+					Self::deposit_event(Event::Canceled { when, index });
+					Ok(())
+				} else {
+					Err(Error::<T>::NotFound.into())
+				}
 			} else {
-				return Err(Error::<T>::NotFound.into());
+				Err(Error::<T>::NotFound.into())
 			}
 		})
 	}
@@ -1023,13 +1036,12 @@ impl<T: Config> Pallet<T> {
 		postponed == 0
 	}
 
-	/// Service (i.e. execute) the given task, being careful not to overflow the `weight` counter.
-	///
-	/// This involves:
-	/// - removing and potentially replacing the `Lookup` entry for the task.
-	/// - realizing the task's call which can include a preimage lookup.
 	/// Execute a single scheduled task. Returns Ok(()) on successful dispatch, or Err with
 	/// the task back (Some) for retry / postponement, or None if permanently removed.
+	///
+	/// Lookup removal is deferred until the outcome is known: tasks that return to the
+	/// agenda (preimage unavailable, temporarily overweight) keep their Lookup entry so
+	/// they can still be cancelled or rescheduled by name.
 	fn service_task(
 		weight: &mut WeightMeter,
 		now: BlockNumberOrTimestampOf<T>,
@@ -1038,33 +1050,21 @@ impl<T: Config> Pallet<T> {
 		is_first: bool,
 		task: ScheduledOf<T>,
 	) -> Result<(), (ServiceTaskError, Option<ScheduledOf<T>>)> {
-		// Eagerly remove the name->address lookup. If the task succeeds or gets rescheduled
-		// via a retry, the new address will be re-inserted by place_task. If it fails,
-		// the name is freed.
-		if let Some(ref id) = task.maybe_id {
-			Lookup::<T>::remove(id);
-		}
-
-		// Try to retrieve the actual call data. For inline calls this is a no-op decode.
-		// For lookup calls this fetches from the preimage store.
 		let (call, lookup_len) = match T::Preimages::peek(&task.call) {
 			Ok(c) => c,
 			Err(_) => {
-				// Preimage not available (not yet submitted or previously dropped).
-				// Drop our reference, emit an event, and return the task back to the
-				// agenda so it can be retried if the preimage appears later.
 				Self::deposit_event(Event::CallUnavailable {
 					task: (when, agenda_index),
 					id: task.maybe_id,
 				});
-
-				T::Preimages::drop(&task.call);
 
 				let _ = weight.try_consume(T::WeightInfo::service_task(
 					task.call.lookup_len().map(|x| x as usize),
 					task.maybe_id.is_some(),
 				));
 
+				// Keep preimage requested -- the task returns to the agenda and
+				// whoever resolves it (cancel/reschedule) will drop the reference.
 				return Err((Unavailable, Some(task)));
 			},
 		};
@@ -1076,6 +1076,9 @@ impl<T: Config> Pallet<T> {
 
 		match Self::execute_dispatch(weight, task.origin.clone(), call) {
 			Err(()) if is_first => {
+				if let Some(ref id) = task.maybe_id {
+					Lookup::<T>::remove(id);
+				}
 				T::Preimages::drop(&task.call);
 				Self::deposit_event(Event::PermanentlyOverweight {
 					task: (when, agenda_index),
@@ -1085,6 +1088,9 @@ impl<T: Config> Pallet<T> {
 			},
 			Err(()) => Err((Overweight, Some(task))),
 			Ok(result) => {
+				if let Some(ref id) = task.maybe_id {
+					Lookup::<T>::remove(id);
+				}
 				let failed = result.is_err();
 				let maybe_retry_config = Retries::<T>::take((when, agenda_index));
 
