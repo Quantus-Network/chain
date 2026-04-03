@@ -391,15 +391,15 @@ fn test_emission_simulation_120m_blocks() {
 		println!("Treasury Portion: {:?}", Treasury::portion());
 		println!();
 
-		const MAX_BLOCKS: u32 = 130_000_000;
-		const REPORT_INTERVAL: u32 = 1_000_000; // Report every 1M blocks
+		const MAX_BLOCKS: u64 = 130_000_000;
+		const REPORT_INTERVAL: u64 = 1_000_000; // Report every 1M blocks
 		const UNIT: u128 = 1_000_000_000_000; // For readable output
 
 		let initial_supply = Balances::total_issuance();
 		let mut current_supply = initial_supply;
 		let mut total_miner_rewards = 0u128;
 		let mut total_treasury_rewards = 0u128;
-		let mut block = 0u32;
+		let mut block = 0u64;
 
 		println!("Block       Supply        %MaxSupply  BlockReward   ToTreasury   ToMiner      Remaining");
 		println!("{}", "-".repeat(90));
@@ -424,58 +424,60 @@ fn test_emission_simulation_120m_blocks() {
 		// Set up a consistent miner
 		set_miner_digest(miner());
 
-		while block < MAX_BLOCKS && current_supply < MaxSupply::get() {
-			// Simulate REPORT_INTERVAL blocks
-			for _ in 0..REPORT_INTERVAL {
-				if current_supply >= MaxSupply::get() {
-					break;
-				}
+		// Single flattened loop - continues until block_reward reaches 0 or max blocks exceeded
+		// This ensures we stress-test the supply cap properly (no early exit on small rewards)
+		loop {
+			// Calculate reward for this block
+			let remaining_supply = MaxSupply::get().saturating_sub(current_supply);
+			let block_reward = remaining_supply / EmissionDivisor::get();
 
-				// Calculate reward for this block
-				let remaining_supply = MaxSupply::get().saturating_sub(current_supply);
-				if remaining_supply == 0 {
-					break;
-				}
-
-				let block_reward = remaining_supply / EmissionDivisor::get();
-				let treasury_reward = Treasury::portion().mul_floor(block_reward);
-				let miner_reward = block_reward - treasury_reward;
-
-				// Update totals (simulate the minting)
-				current_supply += block_reward;
-				total_treasury_rewards += treasury_reward;
-				total_miner_rewards += miner_reward;
-				block += 1;
-
-				// Early exit if rewards become negligible
-				if block_reward < 1000 { // Less than 1000 raw units (very small)
-					break;
-				}
-			}
-
-			// Print progress report
-			let remaining = MaxSupply::get().saturating_sub(current_supply);
-			let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
-			let next_treasury =
-				Treasury::portion().mul_floor(next_block_reward);
-			let next_miner = next_block_reward - next_treasury;
-
-			println!(
-				"{:<11} {:<13} {:<11.2}% {:<13.6} {:<12.6} {:<12.6} {:<13}",
-				block,
-				current_supply / UNIT,
-				(current_supply as f64 / MaxSupply::get() as f64) * 100.0,
-				next_block_reward as f64 / UNIT as f64,
-				next_treasury as f64 / UNIT as f64,
-				next_miner as f64 / UNIT as f64,
-				remaining / UNIT
-			);
-
-			// Stop if rewards become negligible or we've reached max supply
-			if current_supply >= MaxSupply::get() || next_block_reward < 1000 {
+			// Exit when block reward reaches zero (emission exhausted) or max blocks exceeded
+			if block_reward == 0 || block >= MAX_BLOCKS {
 				break;
 			}
+
+			let treasury_reward = Treasury::portion().mul_floor(block_reward);
+			let miner_reward = block_reward - treasury_reward;
+
+			// Update totals (simulate the minting)
+			current_supply += block_reward;
+			total_treasury_rewards += treasury_reward;
+			total_miner_rewards += miner_reward;
+			block += 1;
+
+			// Print progress report at intervals
+			if block % REPORT_INTERVAL == 0 {
+				let remaining = MaxSupply::get().saturating_sub(current_supply);
+				let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
+				let next_treasury = Treasury::portion().mul_floor(next_block_reward);
+				let next_miner = next_block_reward - next_treasury;
+
+				println!(
+					"{:<11} {:<13} {:<11.2}% {:<13.6} {:<12.6} {:<12.6} {:<13}",
+					block,
+					current_supply / UNIT,
+					(current_supply as f64 / MaxSupply::get() as f64) * 100.0,
+					next_block_reward as f64 / UNIT as f64,
+					next_treasury as f64 / UNIT as f64,
+					next_miner as f64 / UNIT as f64,
+					remaining / UNIT
+				);
+			}
 		}
+
+		// Print final state
+		let remaining = MaxSupply::get().saturating_sub(current_supply);
+		let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
+		println!(
+			"{:<11} {:<13} {:<11.2}% {:<13.6} {:<12.6} {:<12.6} {:<13} (final)",
+			block,
+			current_supply / UNIT,
+			(current_supply as f64 / MaxSupply::get() as f64) * 100.0,
+			next_block_reward as f64 / UNIT as f64,
+			0.0,
+			0.0,
+			remaining / UNIT
+		);
 
 		println!("{}", "-".repeat(90));
 		println!();
@@ -515,7 +517,7 @@ fn test_emission_simulation_120m_blocks() {
 		assert_eq!(total_miner_rewards + total_treasury_rewards, emitted_tokens, "Total rewards should equal emitted tokens");
 
 		let remaining_percentage = ((MaxSupply::get() - current_supply) as f64 / MaxSupply::get() as f64) * 100.0;
-		assert!(remaining_percentage < 1.0, "Should have <10% supply remaining, got {:.2}%", remaining_percentage);
+		assert!(remaining_percentage < 1.0, "Should have <1% supply remaining, got {:.2}%", remaining_percentage);
 		assert!(remaining_percentage > 0.0, "Should still have some supply remaining for future emission");
 
 		println!();
