@@ -323,6 +323,48 @@ fn rewards_go_to_treasury_when_no_miner() {
 	});
 }
 
+/// EQ-QNT-MINING-R-02: Test that transaction fees go to treasury when no miner is present.
+/// This exercises the fee fallback path where `mint_reward(None, tx_fees)` routes fees to treasury.
+#[test]
+fn fees_go_to_treasury_when_no_miner() {
+	new_test_ext().execute_with(|| {
+		// Get Treasury account
+		let treasury_account = Treasury::account_id();
+		let initial_treasury_balance = Balances::free_balance(&treasury_account);
+
+		// Calculate expected block rewards - when no miner, all rewards go to treasury
+		let current_supply = Balances::total_issuance();
+		let total_reward = (MaxSupply::get() - current_supply) / EmissionDivisor::get();
+		let treasury_portion_reward = Treasury::portion().mul_floor(total_reward);
+		let miner_portion_reward = total_reward - treasury_portion_reward;
+
+		// Collect transaction fees BEFORE on_finalize (no miner digest set)
+		let tx_fees: u128 = 500;
+		MiningRewards::collect_transaction_fees(tx_fees);
+
+		// Create a block without a miner (no digest set)
+		System::set_block_number(1);
+		MiningRewards::on_finalize(System::block_number());
+
+		// Check that Treasury received:
+		// 1. Its portion of the block reward
+		// 2. The miner's portion of the block reward (since no miner)
+		// 3. The accumulated transaction fees (since no miner to receive them)
+		let expected_treasury_total =
+			initial_treasury_balance + treasury_portion_reward + miner_portion_reward + tx_fees;
+		assert_eq!(Balances::free_balance(&treasury_account), expected_treasury_total);
+
+		// Check that the events were emitted
+		System::assert_has_event(
+			Event::TreasuryRewarded { reward: treasury_portion_reward }.into(),
+		);
+		// Miner portion goes to treasury when no miner
+		System::assert_has_event(Event::TreasuryRewarded { reward: miner_portion_reward }.into());
+		// Fees also go to treasury when no miner
+		System::assert_has_event(Event::TreasuryRewarded { reward: tx_fees }.into());
+	});
+}
+
 #[test]
 fn test_fees_and_rewards_to_miner() {
 	new_test_ext().execute_with(|| {
