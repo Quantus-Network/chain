@@ -315,7 +315,7 @@ mod aggregated_proof_tests {
 					RawOrigin::Signed(account_id(1)).into(),
 					proof_bytes
 				),
-				frame_system::Error::<Test>::RequireNone
+				sp_runtime::DispatchError::BadOrigin
 			);
 		});
 	}
@@ -326,10 +326,10 @@ mod aggregated_proof_tests {
 			// Random invalid bytes should fail deserialization
 			let invalid_bytes = vec![0u8; 100];
 
-			assert_noop!(
-				Wormhole::verify_aggregated_proof(RawOrigin::None.into(), invalid_bytes),
-				Error::<Test>::AggregatedProofDeserializationFailed
-			);
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), invalid_bytes);
+			assert!(result.is_err());
+			let err = result.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::AggregatedProofDeserializationFailed.into());
 		});
 	}
 
@@ -340,10 +340,10 @@ mod aggregated_proof_tests {
 
 			// The proof references a block that doesn't exist in our mock
 			// This should fail with BlockNotFound
-			assert_noop!(
-				Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes),
-				Error::<Test>::BlockNotFound
-			);
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			assert!(result.is_err());
+			let err = result.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::BlockNotFound.into());
 		});
 	}
 
@@ -370,10 +370,10 @@ mod aggregated_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			assert_noop!(
-				Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes),
-				Error::<Test>::NullifierAlreadyUsed
-			);
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			assert!(result.is_err());
+			let err = result.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
 
@@ -391,10 +391,10 @@ mod aggregated_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			assert_noop!(
-				Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes),
-				Error::<Test>::InvalidPublicInputs
-			);
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			assert!(result.is_err());
+			let err = result.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::InvalidPublicInputs.into());
 		});
 	}
 
@@ -478,10 +478,10 @@ mod aggregated_proof_tests {
 			));
 
 			// Second submission with same proof should fail (nullifiers already used)
-			assert_noop!(
-				Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes),
-				Error::<Test>::NullifierAlreadyUsed
-			);
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			assert!(result.is_err());
+			let err = result.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
 }

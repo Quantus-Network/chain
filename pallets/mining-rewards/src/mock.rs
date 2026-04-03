@@ -1,5 +1,6 @@
 use crate as pallet_mining_rewards;
 
+use core::cell::RefCell;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
@@ -106,17 +107,57 @@ impl pallet_treasury::TreasuryProvider for MockTreasury {
 	}
 }
 
-// Mock proof recorder that does nothing
+/// Recorded transfer proof for testing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedTransferProof {
+	pub asset_id: Option<u32>,
+	pub from: sp_core::crypto::AccountId32,
+	pub to: sp_core::crypto::AccountId32,
+	pub amount: u128,
+}
+
+thread_local! {
+	/// Storage for recorded transfer proofs (for test verification)
+	static RECORDED_PROOFS: RefCell<Vec<RecordedTransferProof>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Mock proof recorder that tracks recorded proofs for test verification
 pub struct MockProofRecorder;
+
+impl MockProofRecorder {
+	/// Get all recorded transfer proofs
+	pub fn get_recorded_proofs() -> Vec<RecordedTransferProof> {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow().clone())
+	}
+
+	/// Clear all recorded proofs (call at start of tests)
+	pub fn clear() {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().clear());
+	}
+
+	/// Get the last recorded proof
+	pub fn last_proof() -> Option<RecordedTransferProof> {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow().last().cloned())
+	}
+
+	/// Get the number of recorded proofs
+	pub fn proof_count() -> usize {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow().len())
+	}
+}
+
 impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
 	for MockProofRecorder
 {
 	fn record_transfer_proof(
-		_asset_id: Option<u32>,
-		_from: sp_core::crypto::AccountId32,
-		_to: sp_core::crypto::AccountId32,
-		_amount: u128,
+		asset_id: Option<u32>,
+		from: sp_core::crypto::AccountId32,
+		to: sp_core::crypto::AccountId32,
+		amount: u128,
 	) {
+		RECORDED_PROOFS.with(|proofs| {
+			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
+		});
 	}
 }
 

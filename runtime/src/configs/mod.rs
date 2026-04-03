@@ -161,7 +161,11 @@ impl pallet_qpow::Config for Runtime {
 }
 
 parameter_types! {
-	 pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
+	/// Canonical minting account for native token mining rewards
+	pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
+	/// Canonical minting account for pallet_assets mint operations.
+	/// Used as the `from` address in TransferProofs when assets are minted.
+	pub const AssetMintingAccount: AccountId = AccountId::new([2u8; 32]);
 }
 
 type Moment = u64;
