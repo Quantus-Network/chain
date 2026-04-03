@@ -37,7 +37,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			let count_before = Wormhole::transfer_count(&bob);
-			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
+			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
 
@@ -51,7 +51,7 @@ mod wormhole_tests {
 			);
 
 			// Second transfer increments count again
-			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
+			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 2);
 		});
 	}
@@ -64,7 +64,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			System::set_block_number(1);
-			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
+			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 
 			System::assert_last_event(
 				crate::Event::<Test>::NativeTransferred {
@@ -99,7 +99,7 @@ mod wormhole_tests {
 
 			// 2. Record the transfer proof
 			let count_before = Wormhole::transfer_count(&bob);
-			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
+			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
@@ -437,8 +437,8 @@ mod aggregated_proof_tests {
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
 							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
+								total += (account_data.summed_output_amount as u128)
+									* crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total

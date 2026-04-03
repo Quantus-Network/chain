@@ -420,10 +420,12 @@ pub mod pallet {
 				)?;
 
 				// Record transfer proof for the minted tokens
+				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
 				Self::record_transfer(
 					T::AssetId::default(),
-					mint_account.clone().into(),
-					exit_account.clone().into(),
+					&from_account,
+					&to_account,
 					*exit_balance,
 				);
 			}
@@ -495,11 +497,11 @@ pub mod pallet {
 
 		pub fn record_transfer(
 			asset_id: T::AssetId,
-			from: <T as Config>::WormholeAccountId,
-			to: <T as Config>::WormholeAccountId,
+			from: &<T as Config>::WormholeAccountId,
+			to: &<T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
-			let current_count = TransferCount::<T>::get(&to);
+			let current_count = TransferCount::<T>::get(to);
 
 			// Storage key uses Blake2_256 hash of (to, transfer_count)
 			// This is unique since transfer_count is atomic per recipient
@@ -514,19 +516,19 @@ pub mod pallet {
 				PoseidonCore::hash_storage::<TransferProofData<T>>(&encoded_data);
 
 			TransferProof::<T>::insert(key, leaf_inputs_hash);
-			TransferCount::<T>::insert(&to, current_count.saturating_add(T::TransferCount::one()));
+			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
 
 			if asset_id == T::AssetId::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {
-					from: from.into(),
-					to: to.into(),
+					from: from.clone().into(),
+					to: to.clone().into(),
 					amount,
 					transfer_count: current_count,
 				});
 			} else {
 				Self::deposit_event(Event::<T>::AssetTransferred {
-					from: from.into(),
-					to: to.into(),
+					from: from.clone().into(),
+					to: to.clone().into(),
 					asset_id,
 					amount: amount.into(),
 					transfer_count: current_count,
@@ -550,7 +552,7 @@ pub mod pallet {
 			amount: BalanceOf<T>,
 		) {
 			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, from, to, amount);
+			Self::record_transfer(asset_id_value, &from, &to, amount);
 		}
 	}
 }
