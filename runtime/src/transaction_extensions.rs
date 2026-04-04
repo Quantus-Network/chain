@@ -110,17 +110,16 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 	fn count_transfers(call: &RuntimeCall) -> u64 {
 		match call {
-			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
-			| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
-			| RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
-			| RuntimeCall::Assets(pallet_assets::Call::transfer { .. })
-			| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
 
-			RuntimeCall::Utility(pallet_utility::Call::batch { calls })
-			| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
-			| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
-				calls.iter().map(Self::count_transfers).sum()
-			},
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+				calls.iter().map(Self::count_transfers).sum(),
 
 			_ => 0,
 		}

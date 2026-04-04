@@ -564,8 +564,8 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 				pallet_reversible_transfers::Call::schedule_transfer { .. }
 			) | RuntimeCall::ReversibleTransfers(
 				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. })
-				| RuntimeCall::ReversibleTransfers(
+			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
+				RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::recover_funds { .. }
 				)
 		)
