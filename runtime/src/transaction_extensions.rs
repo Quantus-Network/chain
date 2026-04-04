@@ -778,6 +778,84 @@ mod tests {
 	}
 
 	// =========================================================================
+	// Regression test: multiple txs in one block must NOT duplicate proofs
+	// =========================================================================
+	//
+	// Before the event_count snapshot fix, record_proofs_from_events scanned
+	// ALL events in the block. The second tx's post_dispatch would re-process
+	// the first tx's Transfer event, creating a duplicate proof. This test
+	// simulates that exact scenario and asserts exactly 1 proof per transfer.
+
+	#[test]
+	fn no_duplicate_proofs_across_transactions_in_same_block() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let bob_account = bob();
+			let charlie_account = charlie();
+			let bob_count_start = Wormhole::transfer_count(&bob_account);
+			let charlie_count_start = Wormhole::transfer_count(&charlie_account);
+
+			// --- Tx 1: Alice sends to Bob ---
+			let snapshot_1 = frame_system::Pallet::<Runtime>::event_count();
+
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(bob()),
+				EXISTENTIAL_DEPOSIT * 50,
+			));
+
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(snapshot_1);
+
+			assert_eq!(
+				Wormhole::transfer_count(&bob_account),
+				bob_count_start + 1,
+				"Tx1: Bob should have exactly 1 new proof"
+			);
+
+			// --- Tx 2: Alice sends to Charlie ---
+			let snapshot_2 = frame_system::Pallet::<Runtime>::event_count();
+
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(charlie()),
+				EXISTENTIAL_DEPOSIT * 30,
+			));
+
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(snapshot_2);
+
+			assert_eq!(
+				Wormhole::transfer_count(&charlie_account),
+				charlie_count_start + 1,
+				"Tx2: Charlie should have exactly 1 new proof"
+			);
+			assert_eq!(
+				Wormhole::transfer_count(&bob_account),
+				bob_count_start + 1,
+				"Tx2 must NOT re-record Bob's proof from Tx1"
+			);
+
+			// --- Tx 3: a non-transfer tx should not create any proofs ---
+			let snapshot_3 = frame_system::Pallet::<Runtime>::event_count();
+
+			assert_ok!(System::remark(RuntimeOrigin::signed(alice()), vec![0xCA, 0xFE]));
+
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(snapshot_3);
+
+			assert_eq!(
+				Wormhole::transfer_count(&bob_account),
+				bob_count_start + 1,
+				"Tx3: Bob count unchanged after non-transfer tx"
+			);
+			assert_eq!(
+				Wormhole::transfer_count(&charlie_account),
+				charlie_count_start + 1,
+				"Tx3: Charlie count unchanged after non-transfer tx"
+			);
+		});
+	}
+
+	// =========================================================================
 	// Tests for multisig transfer proof recording
 	// =========================================================================
 
