@@ -108,6 +108,24 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		Self(PhantomData)
 	}
 
+	fn count_transfers(call: &RuntimeCall) -> u64 {
+		match call {
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
+			| RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
+			| RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer { .. })
+			| RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
+
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls })
+			| RuntimeCall::Utility(pallet_utility::Call::batch_all { calls })
+			| RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) => {
+				calls.iter().map(Self::count_transfers).sum()
+			},
+
+			_ => 0,
+		}
+	}
+
 	/// Scan events and record transfer proofs for any transfers that occurred
 	/// since the given event count (to avoid re-processing previous events
 	/// within the same block).
@@ -118,12 +136,9 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		// Read all events and filter by pallet.
 		// We use read_events_no_consensus to iterate through all events.
 		// Only process events that were added since this tx started.
-		for (i, event_record) in frame_system::Pallet::<Runtime>::read_events_no_consensus()
-			.enumerate()
+		for event_record in frame_system::Pallet::<Runtime>::read_events_no_consensus()
+			.skip(event_count_before as usize)
 		{
-			if (i as u32) < event_count_before {
-				continue;
-			}
 			match event_record.event {
 				// Native balance transfers
 				RuntimeEvent::Balances(pallet_balances::Event::Transfer { from, to, amount }) => {
@@ -183,14 +198,14 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
 
-	fn weight(&self, _call: &RuntimeCall) -> Weight {
-		// Weight estimation for event-based approach:
-		// We charge for reading events and potential proof recording.
-		// This is a conservative estimate; actual weight depends on number of events.
-		// Reading events: 1 read per pallet (balances + assets = 2)
-		// We can't know exact transfer count upfront, so charge a base amount.
-		// The actual proof recording happens in post_dispatch and may vary.
-		T::DbWeight::get().reads(2)
+	fn weight(&self, call: &RuntimeCall) -> Weight {
+		let n = Self::count_transfers(call);
+		if n > 0 {
+			// Per transfer: 1 read (TransferCount) + 2 writes (TransferProof + TransferCount)
+			T::DbWeight::get().reads_writes(n, 2 * n)
+		} else {
+			Weight::zero()
+		}
 	}
 
 	fn prepare(
@@ -493,13 +508,39 @@ mod tests {
 	fn wormhole_proof_recorder_extension_has_correct_weight() {
 		new_test_ext().execute_with(|| {
 			let ext = WormholeProofRecorderExtension::<Runtime>::new();
-			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 
-			// Weight should be non-zero (we charge for reading events)
+			let non_transfer =
+				RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
 				RuntimeCall,
-			>>::weight(&ext, &call);
+			>>::weight(&ext, &non_transfer);
+			assert_eq!(weight, Weight::zero());
+
+			let transfer = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 100 * UNIT,
+			});
+			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &transfer);
 			assert!(weight.ref_time() > 0);
+
+			let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![
+					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+						dest: MultiAddress::Id(bob()),
+						value: 50 * UNIT,
+					}),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+						dest: MultiAddress::Id(charlie()),
+						value: 30 * UNIT,
+					}),
+				],
+			});
+			let batch_weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &batch);
+			assert!(batch_weight.ref_time() > weight.ref_time());
 		});
 	}
 
