@@ -108,15 +108,36 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 		Self(PhantomData)
 	}
 
-	/// Scan events and record transfer proofs for any transfers that occurred.
+	fn count_transfers(call: &RuntimeCall) -> u64 {
+		match call {
+			RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. }) |
+			RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer { .. }) |
+			RuntimeCall::Assets(pallet_assets::Call::transfer_keep_alive { .. }) => 1,
+
+			RuntimeCall::Utility(pallet_utility::Call::batch { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }) |
+			RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }) =>
+				calls.iter().map(Self::count_transfers).sum(),
+
+			_ => 0,
+		}
+	}
+
+	/// Scan events and record transfer proofs for any transfers that occurred
+	/// since the given event count (to avoid re-processing previous events
+	/// within the same block).
 	///
-	/// This is called in `post_dispatch` after successful execution.
-	/// It reads Transfer events from pallet_balances and Transferred/Issued events
-	/// from pallet_assets, then records proofs for each.
-	fn record_proofs_from_events() {
-		// Read all events and filter by pallet
-		// We use read_events_no_consensus to iterate through all events
-		for event_record in frame_system::Pallet::<Runtime>::read_events_no_consensus() {
+	/// `event_count_before` is the value from `frame_system::Pallet::event_count()`
+	/// captured in `prepare()`.
+	fn record_proofs_from_events_since(event_count_before: u32) {
+		// Read all events and filter by pallet.
+		// We use read_events_no_consensus to iterate through all events.
+		// Only process events that were added since this tx started.
+		for event_record in frame_system::Pallet::<Runtime>::read_events_no_consensus()
+			.skip(event_count_before as usize)
+		{
 			match event_record.event {
 				// Native balance transfers
 				RuntimeEvent::Balances(pallet_balances::Event::Transfer { from, to, amount }) => {
@@ -170,20 +191,20 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionExtension<RuntimeCall>
 	for WormholeProofRecorderExtension<T>
 {
-	type Pre = ();
+	type Pre = u32;
 	type Val = ();
 	type Implicit = ();
 
 	const IDENTIFIER: &'static str = "WormholeProofRecorderExtension";
 
-	fn weight(&self, _call: &RuntimeCall) -> Weight {
-		// Weight estimation for event-based approach:
-		// We charge for reading events and potential proof recording.
-		// This is a conservative estimate; actual weight depends on number of events.
-		// Reading events: 1 read per pallet (balances + assets = 2)
-		// We can't know exact transfer count upfront, so charge a base amount.
-		// The actual proof recording happens in post_dispatch and may vary.
-		T::DbWeight::get().reads(2)
+	fn weight(&self, call: &RuntimeCall) -> Weight {
+		let n = Self::count_transfers(call);
+		if n > 0 {
+			// Per transfer: 1 read (TransferCount) + 2 writes (TransferProof + TransferCount)
+			T::DbWeight::get().reads_writes(n, 2 * n)
+		} else {
+			Weight::zero()
+		}
 	}
 
 	fn prepare(
@@ -194,8 +215,9 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 		_info: &sp_runtime::traits::DispatchInfoOf<RuntimeCall>,
 		_len: usize,
 	) -> Result<Self::Pre, TransactionValidityError> {
-		// No pre-computation needed - we scan events in post_dispatch
-		Ok(())
+		// Snapshot current event count so we only process events added by this tx
+		// (and any events from previous txs in the same block).
+		Ok(frame_system::Pallet::<Runtime>::event_count())
 	}
 
 	fn validate(
@@ -213,15 +235,16 @@ impl<T: pallet_wormhole::Config + Send + Sync + alloc::fmt::Debug> TransactionEx
 	}
 
 	fn post_dispatch(
-		_pre: Self::Pre,
+		pre: Self::Pre,
 		_info: &DispatchInfoOf<RuntimeCall>,
 		_post_info: &mut PostDispatchInfoOf<RuntimeCall>,
 		_len: usize,
 		result: &DispatchResult,
 	) -> Result<(), TransactionValidityError> {
-		// Only record proofs if the transaction succeeded
+		// Only record proofs if the transaction succeeded.
+		// Use the event count snapshot from prepare() to avoid duplicate recording.
 		if result.is_ok() {
-			Self::record_proofs_from_events();
+			Self::record_proofs_from_events_since(pre);
 		}
 
 		Ok(())
@@ -484,13 +507,39 @@ mod tests {
 	fn wormhole_proof_recorder_extension_has_correct_weight() {
 		new_test_ext().execute_with(|| {
 			let ext = WormholeProofRecorderExtension::<Runtime>::new();
-			let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 
-			// Weight should be non-zero (we charge for reading events)
+			let non_transfer =
+				RuntimeCall::System(frame_system::Call::remark { remark: vec![1, 2, 3] });
 			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
 				RuntimeCall,
-			>>::weight(&ext, &call);
+			>>::weight(&ext, &non_transfer);
+			assert_eq!(weight, Weight::zero());
+
+			let transfer = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+				dest: MultiAddress::Id(bob()),
+				value: 100 * UNIT,
+			});
+			let weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &transfer);
 			assert!(weight.ref_time() > 0);
+
+			let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+				calls: vec![
+					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+						dest: MultiAddress::Id(bob()),
+						value: 50 * UNIT,
+					}),
+					RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+						dest: MultiAddress::Id(charlie()),
+						value: 30 * UNIT,
+					}),
+				],
+			});
+			let batch_weight = <WormholeProofRecorderExtension<Runtime> as TransactionExtension<
+				RuntimeCall,
+			>>::weight(&ext, &batch);
+			assert!(batch_weight.ref_time() > weight.ref_time());
 		});
 	}
 
@@ -504,7 +553,7 @@ mod tests {
 			});
 			let origin = RuntimeOrigin::signed(alice());
 
-			// Prepare should succeed (it's a no-op now)
+			// Prepare should succeed and return current event count
 			let result = ext.prepare((), &origin, &call, &Default::default(), 0);
 			assert_ok!(result);
 		});
@@ -542,7 +591,7 @@ mod tests {
 	// These tests verify that transfers via various paths result in proofs
 	// being recorded. We simulate what post_dispatch does by:
 	// 1. Executing the transfer (which emits events)
-	// 2. Calling record_proofs_from_events() directly
+	// 2. Calling record_proofs_from_events_since(0) directly
 	// 3. Verifying proofs were recorded in wormhole storage
 
 	#[test]
@@ -562,8 +611,9 @@ mod tests {
 				transfer_amount,
 			));
 
-			// Simulate what post_dispatch does - scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Simulate what post_dispatch does - scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Verify proof was recorded
 			let count_after = Wormhole::transfer_count(&bob_account);
@@ -594,8 +644,9 @@ mod tests {
 				transfer_amount,
 			));
 
-			// Scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Verify proof was recorded
 			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
@@ -618,8 +669,9 @@ mod tests {
 				false, // keep_alive = false
 			));
 
-			// Scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Verify proof was recorded with actual amount (not Balance::MAX)
 			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
@@ -653,8 +705,9 @@ mod tests {
 				],
 			));
 
-			// Scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Verify both proofs were recorded
 			assert_eq!(Wormhole::transfer_count(&bob_account), bob_count_before + 1);
@@ -675,8 +728,9 @@ mod tests {
 			// Execute a non-transfer call
 			assert_ok!(System::remark(RuntimeOrigin::signed(alice()), vec![1, 2, 3]));
 
-			// Scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Verify no proofs were recorded
 			assert_eq!(
@@ -705,8 +759,9 @@ mod tests {
 				mint_amount,
 			));
 
-			// Scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Note: force_set_balance emits Minted event, which we scan for
 			// The proof should use MintingAccount as 'from'
@@ -718,6 +773,84 @@ mod tests {
 			if count_after > count_before {
 				assert!(Wormhole::transfer_proof((recipient, count_before)).is_some());
 			}
+		});
+	}
+
+	// =========================================================================
+	// Regression test: multiple txs in one block must NOT duplicate proofs
+	// =========================================================================
+	//
+	// Before the event_count snapshot fix, record_proofs_from_events scanned
+	// ALL events in the block. The second tx's post_dispatch would re-process
+	// the first tx's Transfer event, creating a duplicate proof. This test
+	// simulates that exact scenario and asserts exactly 1 proof per transfer.
+
+	#[test]
+	fn no_duplicate_proofs_across_transactions_in_same_block() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+
+			let bob_account = bob();
+			let charlie_account = charlie();
+			let bob_count_start = Wormhole::transfer_count(&bob_account);
+			let charlie_count_start = Wormhole::transfer_count(&charlie_account);
+
+			// --- Tx 1: Alice sends to Bob ---
+			let snapshot_1 = frame_system::Pallet::<Runtime>::event_count();
+
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(bob()),
+				EXISTENTIAL_DEPOSIT * 50,
+			));
+
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(snapshot_1);
+
+			assert_eq!(
+				Wormhole::transfer_count(&bob_account),
+				bob_count_start + 1,
+				"Tx1: Bob should have exactly 1 new proof"
+			);
+
+			// --- Tx 2: Alice sends to Charlie ---
+			let snapshot_2 = frame_system::Pallet::<Runtime>::event_count();
+
+			assert_ok!(Balances::transfer_keep_alive(
+				RuntimeOrigin::signed(alice()),
+				MultiAddress::Id(charlie()),
+				EXISTENTIAL_DEPOSIT * 30,
+			));
+
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(snapshot_2);
+
+			assert_eq!(
+				Wormhole::transfer_count(&charlie_account),
+				charlie_count_start + 1,
+				"Tx2: Charlie should have exactly 1 new proof"
+			);
+			assert_eq!(
+				Wormhole::transfer_count(&bob_account),
+				bob_count_start + 1,
+				"Tx2 must NOT re-record Bob's proof from Tx1"
+			);
+
+			// --- Tx 3: a non-transfer tx should not create any proofs ---
+			let snapshot_3 = frame_system::Pallet::<Runtime>::event_count();
+
+			assert_ok!(System::remark(RuntimeOrigin::signed(alice()), vec![0xCA, 0xFE]));
+
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(snapshot_3);
+
+			assert_eq!(
+				Wormhole::transfer_count(&bob_account),
+				bob_count_start + 1,
+				"Tx3: Bob count unchanged after non-transfer tx"
+			);
+			assert_eq!(
+				Wormhole::transfer_count(&charlie_account),
+				charlie_count_start + 1,
+				"Tx3: Charlie count unchanged after non-transfer tx"
+			);
 		});
 	}
 
@@ -797,8 +930,9 @@ mod tests {
 				0, // proposal_id
 			));
 
-			// Scan events and record proofs
-			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events();
+			// Scan events and record proofs.
+			// Use 0 as the before count for tests (all events are "new").
+			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
 			// Verify proof was recorded for the transfer TO charlie
 			// The transfer is FROM the multisig address
