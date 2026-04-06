@@ -1479,9 +1479,15 @@ where
 		if request.fields == BlockAttributes::JUSTIFICATION {
 			self.on_block_justification(*peer_id, block_response)
 		} else {
+			let is_downloading = self.peers.get(peer_id).map_or(false, |p| matches!(
+				p.state,
+				PeerSyncState::DownloadingNew(_) |
+				PeerSyncState::DownloadingStale(_) |
+				PeerSyncState::DownloadingGap(_)
+			));
 			let num_blocks = block_response.blocks.len();
 			let result = self.on_block_data(peer_id, Some(request), block_response);
-			if result.is_ok() && num_blocks > 0 {
+			if result.is_ok() && num_blocks > 0 && is_downloading {
 				self.grow_peer_block_limit(peer_id);
 			}
 			result
