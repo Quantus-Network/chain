@@ -54,7 +54,7 @@ use smallvec::smallvec;
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, BlakeTwo256, One},
+	traits::{BlakeTwo256, One},
 	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
