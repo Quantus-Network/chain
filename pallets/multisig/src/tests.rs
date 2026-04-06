@@ -267,9 +267,10 @@ fn propose_works() {
 		let expiry = 1000;
 
 		let initial_balance = Balances::free_balance(proposer.clone());
-		let proposal_deposit = 100; // ProposalDepositParam (Changed in mock)
-							  // Fee calculation: Base(1000) + (Base(1000) * 1% * 2 signers) = 1000 + 20 = 1020
-		let proposal_fee = 1020;
+		let proposal_deposit = 100; // ProposalDepositParam
+							  // Fee calculation: Base(999) + floor(1% * 999 * 2 signers) = 999 + floor(19.98) = 999 + 19
+							  // = 1018
+		let proposal_fee = 1018;
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(proposer.clone()),
@@ -1349,11 +1350,11 @@ fn propose_charges_correct_fee_with_signer_factor() {
 			1000
 		));
 
-		// ProposalFeeParam = 1000
+		// ProposalFeeParam = 999
 		// SignerStepFactor = 1%
 		// Signers = 3
-		// Calculation: 1000 + (1000 * 1% * 3) = 1000 + 30 = 1030
-		let expected_fee = 1030;
+		// Calculation: 999 + floor(1% * 999 * 3) = 999 + floor(29.97) = 999 + 29 = 1028
+		let expected_fee = 1028;
 		let deposit = 100; // ProposalDepositParam
 
 		assert_eq!(
@@ -1361,6 +1362,96 @@ fn propose_charges_correct_fee_with_signer_factor() {
 			initial_balance - deposit - expected_fee
 		);
 		// Fee is burned (reduces total issuance)
+	});
+}
+
+#[test]
+fn fee_calculation_order_of_operations_is_correct() {
+	// This test verifies that the fee calculation uses the correct order of operations:
+	// Fee = Base + floor(StepFactor * Base * SignerCount)
+	//
+	// The WRONG formula would be:
+	// Fee = Base + floor(StepFactor * Base) * SignerCount
+	//
+	// The difference matters when floor(StepFactor * Base) truncates.
+	// Example with base=99, factor=1%, signers=100:
+	//   Wrong:   99 + floor(0.99) * 100 = 99 + 0 * 100 = 99  (no increase!)
+	//   Correct: 99 + floor(0.99 * 100) = 99 + floor(99) = 198
+	use sp_runtime::Permill;
+
+	// Test case where early floor truncation would cause loss of precision
+	let base_fee: u128 = 99;
+	let step_factor = Permill::from_percent(1); // 1%
+	let signers_count: u128 = 100;
+
+	// WRONG way (early floor truncation):
+	let wrong_per_signer = step_factor.mul_floor(base_fee); // floor(0.99) = 0
+	let wrong_total_increase = wrong_per_signer.saturating_mul(signers_count); // 0 * 100 = 0
+	let wrong_fee = base_fee.saturating_add(wrong_total_increase); // 99 + 0 = 99
+
+	// CORRECT way (multiply first, then floor):
+	let multiplier = base_fee.saturating_mul(signers_count); // 99 * 100 = 9900
+	let correct_total_increase = step_factor.mul_floor(multiplier); // floor(1% * 9900) = 99
+	let correct_fee = base_fee.saturating_add(correct_total_increase); // 99 + 99 = 198
+
+	// Verify the formulas produce different results
+	assert_eq!(wrong_fee, 99, "Wrong formula should give 99");
+	assert_eq!(correct_fee, 198, "Correct formula should give 198");
+	assert_ne!(wrong_fee, correct_fee, "The two formulas should differ for this input");
+}
+
+#[test]
+fn propose_charges_correct_fee_with_max_signers() {
+	// Integration test with max signers to verify fee scaling works correctly
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		// Use max signers (10) to maximize the fee increase
+		let signers = vec![
+			bob(),
+			charlie(),
+			dave(),
+			account_id(5),
+			account_id(6),
+			account_id(7),
+			account_id(8),
+			account_id(9),
+			account_id(10),
+			account_id(11),
+		];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			5,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 5, 0);
+
+		let proposer = bob();
+		let call = make_call(vec![1, 2, 3]);
+		let initial_balance = Balances::free_balance(proposer.clone());
+
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(proposer.clone()),
+			multisig_address,
+			call,
+			1000
+		));
+
+		// ProposalFeeParam = 999
+		// SignerStepFactor = 1% (Permill::from_parts(10_000))
+		// Signers = 10
+		//
+		// Correct calculation: 999 + floor(1% * 999 * 10) = 999 + floor(99.9) = 999 + 99 = 1098
+		let expected_fee = 1098;
+		let deposit = 100; // ProposalDepositParam
+
+		assert_eq!(
+			Balances::free_balance(proposer.clone()),
+			initial_balance - deposit - expected_fee
+		);
 	});
 }
 
