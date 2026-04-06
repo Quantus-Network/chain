@@ -128,8 +128,6 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 			RuntimeCall::Utility(pallet_utility::Call::dispatch_as { call, .. }) |
 			RuntimeCall::Utility(pallet_utility::Call::with_weight { call, .. }) |
-			RuntimeCall::Sudo(pallet_sudo::Call::sudo { call }) |
-			RuntimeCall::Sudo(pallet_sudo::Call::sudo_as { call, .. }) |
 			RuntimeCall::Recovery(pallet_recovery::Call::as_recovered { call, .. }) =>
 				Self::count_transfers(call),
 
