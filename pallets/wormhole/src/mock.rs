@@ -146,3 +146,35 @@ pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
 	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	t.into()
 }
+
+/// Build test externalities with genesis endowments.
+/// Each endowment is (address, amount) and will have both balance and TransferProof recorded
+/// (after block 1 initialization), enabling the address to spend via ZK proofs.
+///
+/// Note: This sets up the genesis state, but TransferProofs are recorded in on_initialize
+/// at block 1. Tests should call `System::set_block_number(1)` and then trigger
+/// `Wormhole::on_initialize(1)` to process the endowments.
+pub fn new_test_ext_with_endowments(
+	endowments: Vec<(AccountId, Balance)>,
+) -> sp_state_machine::TestExternalities<PoseidonHasher> {
+	use sp_runtime::BuildStorage;
+
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+
+	// Set up balances for the endowed accounts
+	pallet_balances::GenesisConfig::<Test> {
+		balances: endowments.iter().cloned().collect(),
+		dev_accounts: None,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	// Set up endowments to be processed at block 1
+	pallet_wormhole::GenesisConfig::<Test> {
+		endowed_addresses: endowments.into_iter().map(|(a, b)| (a, b)).collect(),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	t.into()
+}

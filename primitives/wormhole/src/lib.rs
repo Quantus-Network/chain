@@ -85,7 +85,7 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 	);
 }
 
-/// Derive a wormhole address from a 32-byte inner_digest.
+/// Derive a wormhole address from a 32-byte inner_digest (already hashed).
 ///
 /// This hashes the inner_digest using Poseidon to get the wormhole account address.
 /// The inner_digest is the "first hash" from wormhole derivation: `hash(salt + secret)`.
@@ -93,17 +93,22 @@ pub trait TransferProofRecorder<AccountId, AssetId, Balance> {
 ///
 /// The inner_digest is the serialization of 4 field elements (Poseidon output),
 /// so we decode it back to 4 felts using 8 bytes/felt encoding before hashing again.
+///
+/// NOTE: If you have a raw secret, use `derive_wormhole_address_from_secret` instead.
 pub fn derive_wormhole_address(inner_digest: [u8; 32]) -> [u8; 32] {
 	rehash_to_bytes(&inner_digest)
 }
 
-/// Derive a wormhole AccountId32 from a 32-byte preimage.
+/// Derive a wormhole AccountId32 from a 32-byte inner_digest.
 ///
 /// This is a convenience wrapper around `derive_wormhole_address` that returns
-/// an `sp_core::crypto::AccountId32` directly. Useful for tests.
+/// an `sp_core::crypto::AccountId32` directly.
+///
+/// NOTE: The input must be an inner_digest (already `H(salt + secret)`), not a raw secret.
+/// For raw secrets, use `quantus wormhole address --secret <hex>` to compute the address.
 #[cfg(feature = "std")]
-pub fn derive_wormhole_account(preimage: [u8; 32]) -> sp_core::crypto::AccountId32 {
-	sp_core::crypto::AccountId32::from(derive_wormhole_address(preimage))
+pub fn derive_wormhole_account(inner_digest: [u8; 32]) -> sp_core::crypto::AccountId32 {
+	sp_core::crypto::AccountId32::from(derive_wormhole_address(inner_digest))
 }
 
 /// Extract the block author (miner) account from a digest.
