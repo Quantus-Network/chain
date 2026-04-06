@@ -657,6 +657,8 @@ pub fn new_full<
 	#[cfg(feature = "tx-logging")]
 	let tx_stream_for_logger = transaction_pool.clone().import_notification_stream();
 
+	sc_network_sync::set_sync_network_config(sc_network_sync::SyncNetworkConfig::default());
+
 	let net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,
 		<Block as sp_runtime::traits::Block>::Hash,
