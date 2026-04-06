@@ -8606,6 +8606,7 @@ dependencies = [
  "qp-wormhole-verifier",
  "scale-info",
  "serde_json",
+ "smallvec",
  "sp-api",
  "sp-block-builder",
  "sp-consensus-qpow",
