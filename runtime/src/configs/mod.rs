@@ -52,7 +52,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, BlakeTwo256, One},
+	traits::{BlakeTwo256, One},
 	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;

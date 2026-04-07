@@ -132,58 +132,57 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// `event_count_before` is the value from `frame_system::Pallet::event_count()`
 	/// captured in `prepare()`.
 	fn record_proofs_from_events_since(event_count_before: u32) {
-		// Read all events and filter by pallet.
-		// We use read_events_no_consensus to iterate through all events.
-		// Only process events that were added since this tx started.
-		for event_record in frame_system::Pallet::<Runtime>::read_events_no_consensus()
-			.skip(event_count_before as usize)
-		{
-			match event_record.event {
-				// Native balance transfers
-				RuntimeEvent::Balances(pallet_balances::Event::Transfer { from, to, amount }) => {
-					<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
-						None, // Native token has no asset_id
-						from,
-						to,
-						amount,
-					);
-				},
-				// Native balance mints
-				RuntimeEvent::Balances(pallet_balances::Event::Minted { who, amount }) => {
-					let minting_account = crate::configs::MintingAccount::get();
-					<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
-						None,
-						minting_account,
-						who,
-						amount,
-					);
-				},
-				// Asset transfers
-				RuntimeEvent::Assets(pallet_assets::Event::Transferred {
-					asset_id,
-					from,
-					to,
-					amount,
-				}) => {
-					<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
-						Some(asset_id),
-						from,
-						to,
-						amount,
-					);
-				},
-				// Asset mints
-				RuntimeEvent::Assets(pallet_assets::Event::Issued { asset_id, owner, amount }) => {
-					let minting_account = crate::configs::AssetMintingAccount::get();
-					<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
-						Some(asset_id),
-						minting_account,
-						owner,
-						amount,
-					);
-				},
-				_ => {}, // Ignore all other events
-			}
+		// IMPORTANT: We must collect all transfers FIRST before calling record_transfer_proof,
+		// because record_transfer_proof deposits new events which would invalidate the
+		// stream_iter iterator (causing "Corrupted state" errors).
+		//
+		// The iterator reads from Events storage using stream_iter, which caches data.
+		// If we modify Events storage during iteration (by depositing new events),
+		// the cached data becomes stale and decoding fails.
+
+		// Collect transfers to record - (asset_id, from, to, amount)
+		let transfers_to_record: alloc::vec::Vec<(Option<AssetId>, AccountId, AccountId, Balance)> =
+			frame_system::Pallet::<Runtime>::read_events_no_consensus()
+				.skip(event_count_before as usize)
+				.filter_map(|event_record| {
+					match event_record.event {
+						// Native balance transfers
+						RuntimeEvent::Balances(pallet_balances::Event::Transfer {
+							from,
+							to,
+							amount,
+						}) => Some((None, from, to, amount)),
+						// Native balance mints
+						RuntimeEvent::Balances(pallet_balances::Event::Minted { who, amount }) => {
+							let minting_account = crate::configs::MintingAccount::get();
+							Some((None, minting_account, who, amount))
+						},
+						// Asset transfers
+						RuntimeEvent::Assets(pallet_assets::Event::Transferred {
+							asset_id,
+							from,
+							to,
+							amount,
+						}) => Some((Some(asset_id), from, to, amount)),
+						// Asset mints
+						RuntimeEvent::Assets(pallet_assets::Event::Issued {
+							asset_id,
+							owner,
+							amount,
+						}) => {
+							let minting_account = crate::configs::AssetMintingAccount::get();
+							Some((Some(asset_id), minting_account, owner, amount))
+						},
+						_ => None, // Ignore all other events
+					}
+				})
+				.collect();
+
+		// Now record the proofs - this is safe because we're no longer iterating over Events
+		for (asset_id, from, to, amount) in transfers_to_record {
+			<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
+				asset_id, from, to, amount,
+			);
 		}
 	}
 }
