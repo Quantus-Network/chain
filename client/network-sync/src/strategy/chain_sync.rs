@@ -987,7 +987,10 @@ where
 
 		if let Some(state) = self.peers.remove(peer_id) {
 			if is_timeout {
-				let current = self.peer_block_limit.get(peer_id).copied()
+				let current = self
+					.peer_block_limit
+					.get(peer_id)
+					.copied()
 					.unwrap_or(self.max_blocks_per_request);
 				let reduced = (current / 2).max(1);
 				debug!(
@@ -1479,12 +1482,14 @@ where
 		if request.fields == BlockAttributes::JUSTIFICATION {
 			self.on_block_justification(*peer_id, block_response)
 		} else {
-			let is_downloading = self.peers.get(peer_id).map_or(false, |p| matches!(
-				p.state,
-				PeerSyncState::DownloadingNew(_) |
-				PeerSyncState::DownloadingStale(_) |
-				PeerSyncState::DownloadingGap(_)
-			));
+			let is_downloading = self.peers.get(peer_id).map_or(false, |p| {
+				matches!(
+					p.state,
+					PeerSyncState::DownloadingNew(_) |
+						PeerSyncState::DownloadingStale(_) |
+						PeerSyncState::DownloadingGap(_)
+				)
+			});
 			let num_blocks = block_response.blocks.len();
 			let result = self.on_block_data(peer_id, Some(request), block_response);
 			if result.is_ok() && num_blocks > 0 && is_downloading {
@@ -1918,8 +1923,8 @@ where
 					};
 					Some((id, ancestry_request::<B>(current)))
 				} else if let Some((range, req)) = {
-					let peer_max = peer_block_limit.get(&id).copied()
-						.unwrap_or(max_blocks_per_request);
+					let peer_max =
+						peer_block_limit.get(&id).copied().unwrap_or(max_blocks_per_request);
 					peer_block_request(
 						&id,
 						peer,
@@ -1931,23 +1936,23 @@ where
 						best_queued,
 					)
 				} {
-				peer.state = PeerSyncState::DownloadingNew(range.start);
-				let peer_max = peer_block_limit.get(&id).copied()
-					.unwrap_or(max_blocks_per_request);
-				debug!(
-					target: LOG_TARGET,
-					"📥 Block request to {} for #{} range {:?} (limit:{}, best:{}, common:{})",
-					id,
-					range.start,
-					range,
-					peer_max,
-					peer.best_number,
-					peer.common_number,
-				);
-				Some((id, req))
+					peer.state = PeerSyncState::DownloadingNew(range.start);
+					let peer_max =
+						peer_block_limit.get(&id).copied().unwrap_or(max_blocks_per_request);
+					debug!(
+						target: LOG_TARGET,
+						"📥 Block request to {} for #{} range {:?} (limit:{}, best:{}, common:{})",
+						id,
+						range.start,
+						range,
+						peer_max,
+						peer.best_number,
+						peer.common_number,
+					);
+					Some((id, req))
 				} else if let Some((hash, req)) = {
-					let peer_max = peer_block_limit.get(&id).copied()
-						.unwrap_or(max_blocks_per_request);
+					let peer_max =
+						peer_block_limit.get(&id).copied().unwrap_or(max_blocks_per_request);
 					fork_sync_request(
 						&id,
 						fork_targets,
@@ -1969,8 +1974,8 @@ where
 					peer.state = PeerSyncState::DownloadingStale(hash);
 					Some((id, req))
 				} else if let Some((range, req)) = gap_sync.as_mut().and_then(|sync| {
-					let peer_max = peer_block_limit.get(&id).copied()
-						.unwrap_or(max_blocks_per_request);
+					let peer_max =
+						peer_block_limit.get(&id).copied().unwrap_or(max_blocks_per_request);
 					peer_gap_block_request(
 						&id,
 						peer,

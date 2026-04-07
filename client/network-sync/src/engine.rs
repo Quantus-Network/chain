@@ -407,10 +407,10 @@ where
 				} else {
 					None
 				},
-			pending_responses: PendingResponses::new(),
-			import_queue,
-			timeout_disconnected_peers: HashSet::new(),
-		},
+				pending_responses: PendingResponses::new(),
+				import_queue,
+				timeout_disconnected_peers: HashSet::new(),
+			},
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
 		))

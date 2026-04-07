@@ -53,10 +53,7 @@ pub struct SyncNetworkConfig {
 
 impl Default for SyncNetworkConfig {
 	fn default() -> Self {
-		Self {
-			block_request_timeout: Duration::from_secs(30),
-			no_ban_on_timeout: true,
-		}
+		Self { block_request_timeout: Duration::from_secs(60), no_ban_on_timeout: true }
 	}
 }
 

@@ -306,4 +306,4 @@ const MAX_CONNECTIONS_PER_PEER: usize = 2;
 const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 
 /// Maximum response size limit.
-pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;
+pub const MAX_RESPONSE_SIZE: u64 = 128 * 1024 * 1024;
