@@ -305,7 +305,7 @@ impl<B: BlockT> FusedStream for BlockAnnounceValidator<B> {
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "substrate-test"))]
 mod tests {
 	use super::*;
 	use crate::block_announce_validator::AllocateSlotForBlockAnnounceValidation;

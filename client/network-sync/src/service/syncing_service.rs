@@ -56,9 +56,8 @@ pub enum ToServiceCommand<B: BlockT> {
 	NumSyncRequests(oneshot::Sender<usize>),
 	PeersInfo(oneshot::Sender<Vec<(PeerId, ExtendedPeerInfo<B>)>>),
 	OnBlockFinalized(B::Hash, B::Header),
-	// Status {
-	// 	pending_response: oneshot::Sender<SyncStatus<B>>,
-	// },
+	SetMaxTimeoutsBeforeDrop(u32),
+	SetDisableMajorSyncGating(bool),
 }
 
 /// Handle for communicating with `SyncingEngine` asynchronously
@@ -108,6 +107,14 @@ impl<B: BlockT> SyncingService<B> {
 		let _ = self.tx.unbounded_send(ToServiceCommand::NumSyncRequests(tx));
 
 		rx.await
+	}
+
+	pub fn set_max_timeouts_before_drop(&self, value: u32) {
+		let _ = self.tx.unbounded_send(ToServiceCommand::SetMaxTimeoutsBeforeDrop(value));
+	}
+
+	pub fn set_disable_major_sync_gating(&self, disable: bool) {
+		let _ = self.tx.unbounded_send(ToServiceCommand::SetDisableMajorSyncGating(disable));
 	}
 
 	/// Get peer information.

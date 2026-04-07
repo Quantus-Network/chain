@@ -146,7 +146,7 @@ impl DisconnectedPeers {
 			self.disconnected_peers.remove(peer_id);
 			true
 		} else {
-			log::debug!(target: LOG_TARGET,"Peer {peer_id} is backedoff");
+			log::debug!(target: LOG_TARGET, "Peer {peer_id} is backed off");
 			false
 		}
 	}

@@ -54,7 +54,6 @@ use std::{
 	cmp::min,
 	hash::{Hash, Hasher},
 	sync::Arc,
-	time::Duration,
 };
 
 /// Maximum blocks per response.
@@ -86,12 +85,14 @@ pub fn generate_protocol_config<
 	fork_id: Option<&str>,
 	inbound_queue: async_channel::Sender<IncomingRequest>,
 ) -> N::RequestResponseProtocolConfig {
+	let timeout = crate::block_request_timeout();
+	log::info!(target: LOG_TARGET, "📡 Block sync request timeout configured to {:?}", timeout);
 	N::request_response_config(
 		generate_protocol_name(genesis_hash, fork_id).into(),
 		std::iter::once(generate_legacy_protocol_name(protocol_id).into()).collect(),
 		1024 * 1024,
 		MAX_RESPONSE_SIZE,
-		Duration::from_secs(20),
+		timeout,
 		Some(inbound_queue),
 	)
 }

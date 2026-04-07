@@ -72,7 +72,7 @@ use std::{
 	sync::Arc,
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "substrate-test"))]
 mod test;
 
 /// Maximum blocks to store in the import queue.
@@ -235,6 +235,15 @@ pub(crate) struct PeerSync<B: BlockT> {
 	/// The state of syncing this peer is in for us, generally categories
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
+	request_signatures: HashSet<SyncRequestParams>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+struct SyncRequestParams {
+	start_number_u64: u64,
+	is_descending: bool,
+	fields_mask: u32,
+	max_blocks: u32,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -851,6 +860,37 @@ where
 		}
 	}
 
+	fn on_request_failed(&mut self, peer_id: &PeerId) {
+		debug!(target: LOG_TARGET, "received on_request_failed for {:?} has peer: {:?}", peer_id, self.peers.get_mut(peer_id).is_some());
+
+		if let Some(peer) = self.peers.get_mut(peer_id) {
+			debug!(target: LOG_TARGET, "Request failed for peer {:?}, previous state: {:?}", peer_id, peer.state);
+			match peer.state {
+				PeerSyncState::DownloadingNew(_) => {
+					self.blocks.clear_peer_download(peer_id);
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::DownloadingGap(_) => {
+					if let Some(gap) = &mut self.gap_sync {
+						gap.blocks.clear_peer_download(peer_id);
+					}
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::DownloadingStale(_) => {
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::AncestorSearch { .. } => {
+					peer.state = PeerSyncState::Available;
+				},
+				PeerSyncState::DownloadingJustification(_) |
+				PeerSyncState::DownloadingState |
+				PeerSyncState::Available => {},
+			}
+			debug!(target: LOG_TARGET, "on_request_failed: now_available={}", matches!(peer.state, PeerSyncState::Available));
+		}
+		self.allowed_requests.add(peer_id);
+	}
+
 	fn num_downloaded_blocks(&self) -> usize {
 		self.downloaded_blocks
 	}
@@ -875,7 +915,14 @@ where
 		let block_requests = self
 			.block_requests()
 			.into_iter()
-			.map(|(peer_id, request)| self.create_block_request_action(peer_id, request))
+			.map(|(peer_id, request)| {
+				debug!(
+					target: LOG_TARGET,
+					"Scheduling block request to {:?}: fields={:?}, from={:?}, dir={:?}, max={:?}",
+					peer_id, request.fields, request.from, request.direction, request.max,
+				);
+				self.create_block_request_action(peer_id, request)
+			})
 			.collect::<Vec<_>>();
 		self.actions.extend(block_requests);
 
@@ -1046,6 +1093,7 @@ where
 							best_hash,
 							best_number,
 							state: PeerSyncState::Available,
+							request_signatures: Default::default(),
 						},
 					);
 					return Ok(None);
@@ -1089,6 +1137,7 @@ where
 						best_hash,
 						best_number,
 						state,
+						request_signatures: Default::default(),
 					},
 				);
 
@@ -1109,6 +1158,7 @@ where
 						best_hash,
 						best_number,
 						state: PeerSyncState::Available,
+						request_signatures: Default::default(),
 					},
 				);
 				self.allowed_requests.add(&peer_id);
@@ -1123,6 +1173,9 @@ where
 		request: BlockRequest<B>,
 	) -> SyncingAction<B> {
 		let downloader = self.block_downloader.clone();
+		if let Some((low, high)) = self.compute_request_range_u64(&request) {
+			debug!(target: LOG_TARGET, "➡️ Sent block request to {}: {}..{}", peer_id, low, high);
+		}
 
 		SyncingAction::StartRequest {
 			peer_id,
@@ -1154,8 +1207,18 @@ where
 	) -> Result<(), BadPeer> {
 		self.downloaded_blocks += response.blocks.len();
 		let mut gap = false;
+		let mut blocks = response.blocks;
+
+		if log::log_enabled!(target: LOG_TARGET, log::Level::Debug) {
+			if let Some((low, high)) = self.compute_blocks_range_u64(&blocks) {
+				debug!(target: LOG_TARGET, "⬅️ Received blocks from {}: {}..{}", peer_id, low, high);
+			} else if let Some(req) = &request {
+				if let Some((low, high)) = self.compute_request_range_u64(req) {
+					debug!(target: LOG_TARGET, "⬅️ Received blocks from {} (range estimated from request): {}..{}", peer_id, low, high);
+				}
+			}
+		}
 		let new_blocks: Vec<IncomingBlock<B>> = if let Some(peer) = self.peers.get_mut(peer_id) {
-			let mut blocks = response.blocks;
 			if request.as_ref().map_or(false, |r| r.direction == Direction::Descending) {
 				trace!(target: LOG_TARGET, "Reversing incoming block list");
 				blocks.reverse()
@@ -1829,10 +1892,23 @@ where
 		let gap_sync = &mut self.gap_sync;
 		let disconnected_peers = &mut self.disconnected_peers;
 		let metrics = self.metrics.as_ref();
+		let client_ref = &self.client;
 		let requests = self
 			.peers
 			.iter_mut()
 			.filter_map(move |(&id, peer)| {
+				if !peer.state.is_available() {
+					debug!(target: LOG_TARGET, "Skipping {:?}: state not available: {:?}", id, peer.state);
+					return None;
+				}
+				if !allowed_requests.contains(&id) {
+					debug!(target: LOG_TARGET, "Skipping {:?}: not in allowed_requests", id);
+					return None;
+				}
+				if !disconnected_peers.is_peer_available(&id) {
+					debug!(target: LOG_TARGET, "Skipping {:?}: backed off due to recent disconnect", id);
+					return None;
+				}
 				if !peer.state.is_available() ||
 					!allowed_requests.contains(&id) ||
 					!disconnected_peers.is_peer_available(&id)
@@ -1851,7 +1927,7 @@ where
 					peer.common_number < last_finalized &&
 					queue_blocks.len() <= MAJOR_SYNC_BLOCKS as usize
 				{
-					trace!(
+					debug!(
 						target: LOG_TARGET,
 						"Peer {:?} common block {} too far behind of our best {}. Starting ancestry search.",
 						id,
@@ -1865,7 +1941,7 @@ where
 						state: AncestorSearchState::ExponentialBackoff(One::one()),
 					};
 					Some((id, ancestry_request::<B>(current)))
-				} else if let Some((range, req)) = peer_block_request(
+				} else if let Some((range, mut req)) = peer_block_request(
 					&id,
 					peer,
 					blocks,
@@ -1875,8 +1951,43 @@ where
 					last_finalized,
 					best_queued,
 				) {
+					if req.max.is_some() {
+						loop {
+							let already = {
+								let max = req.max.unwrap();
+								let start_number_u64 = match req.from {
+									FromBlock::Number(n) => n.saturated_into::<u64>(),
+									FromBlock::Hash(h) => client_ref
+										.number(h)
+										.ok()
+										.flatten()
+										.map(|n| n.saturated_into::<u64>())
+										.unwrap_or(0),
+								};
+								let sig = SyncRequestParams {
+									start_number_u64,
+									is_descending: matches!(req.direction, Direction::Descending),
+									fields_mask: req.fields.to_be_u32(),
+									max_blocks: max,
+								};
+								!peer.request_signatures.insert(sig)
+							};
+							if !already { break; }
+							if let Some(m) = req.max.as_mut() {
+								if *m <= 1 {
+									debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
+									break;
+								}
+								let new_m = (*m).saturating_div(2).max(1);
+								debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, *m, new_m);
+								*m = new_m;
+							} else {
+								break;
+							}
+						}
+					}
 					peer.state = PeerSyncState::DownloadingNew(range.start);
-					trace!(
+					debug!(
 						target: LOG_TARGET,
 						"New block request for {}, (best:{}, common:{}) {:?}",
 						id,
@@ -1915,18 +2026,19 @@ where
 						max_blocks_per_request,
 					)
 				}) {
-					peer.state = PeerSyncState::DownloadingGap(range.start);
-					trace!(
-						target: LOG_TARGET,
-						"New gap block request for {}, (best:{}, common:{}) {:?}",
-						id,
-						peer.best_number,
-						peer.common_number,
-						req,
-					);
-					Some((id, req))
+				peer.state = PeerSyncState::DownloadingGap(range.start);
+				debug!(
+					target: LOG_TARGET,
+					"New gap block request for {}, (best:{}, common:{}) {:?}",
+					id,
+					peer.best_number,
+					peer.common_number,
+					req,
+				);
+				Some((id, req))
 				} else {
-					None
+				debug!(target: LOG_TARGET, "No request produced for {:?}", id);
+				None
 				}
 			})
 			.collect::<Vec<_>>();
@@ -2062,8 +2174,37 @@ where
 		}
 	}
 
-	/// A version of `actions()` that doesn't schedule extra requests. For testing only.
-	#[cfg(test)]
+	fn compute_request_range_u64(&self, req: &BlockRequest<B>) -> Option<(u64, u64)> {
+		let max = req.max?;
+		let start_num = match req.from {
+			FromBlock::Number(n) => n.saturated_into::<u64>(),
+			FromBlock::Hash(h) =>
+				self.client.number(h).ok().flatten().map(|n| n.saturated_into::<u64>())?,
+		};
+		let span = max.saturating_sub(1) as u64;
+		match req.direction {
+			Direction::Descending => Some((start_num.saturating_sub(span), start_num)),
+			Direction::Ascending => Some((start_num, start_num.saturating_add(span))),
+		}
+	}
+
+	fn compute_blocks_range_u64(&self, blocks: &Vec<BlockData<B>>) -> Option<(u64, u64)> {
+		let mut min_n: Option<u64> = None;
+		let mut max_n: Option<u64> = None;
+		for b in blocks.iter() {
+			if let Some(h) = &b.header {
+				let n = (*h.number()).saturated_into::<u64>();
+				min_n = Some(min_n.map_or(n, |x| x.min(n)));
+				max_n = Some(max_n.map_or(n, |x| x.max(n)));
+			}
+		}
+		match (min_n, max_n) {
+			(Some(lo), Some(hi)) => Some((lo, hi)),
+			_ => None,
+		}
+	}
+
+	#[cfg(all(test, feature = "substrate-test"))]
 	#[must_use]
 	fn take_actions(&mut self) -> impl Iterator<Item = SyncingAction<B>> {
 		std::mem::take(&mut self.actions).into_iter()
