@@ -98,6 +98,8 @@ where
 		response: Box<dyn Any + Send>,
 	);
 
+	fn on_request_failed(&mut self, _peer_id: &PeerId);
+
 	/// A batch of blocks that have been processed, with or without errors.
 	///
 	/// Call this when a batch of blocks that have been processed by the import queue, with or
@@ -129,6 +131,11 @@ where
 
 	/// Get an estimate of the number of parallel sync requests.
 	fn num_sync_requests(&self) -> usize;
+
+	fn peer_drop_threshold(&self) -> u32 { 20 }
+	fn disable_major_sync_gating(&self) -> bool { false }
+	fn set_peer_drop_threshold(&mut self, _value: u32) {}
+	fn set_disable_major_sync_gating(&mut self, _disable: bool) {}
 
 	/// Get actions that should be performed by the owner on the strategy's behalf
 	#[must_use]
@@ -210,7 +217,6 @@ impl<B: BlockT> SyncingAction<B> {
 		matches!(self, SyncingAction::Finished)
 	}
 
-	#[cfg(test)]
 	pub(crate) fn name(&self) -> &'static str {
 		match self {
 			Self::StartRequest { .. } => "StartRequest",

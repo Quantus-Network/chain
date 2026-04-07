@@ -641,6 +641,8 @@ pub fn new_full<
 	rewards_address: AccountId32,
 	miner_listen_port: Option<u16>,
 	enable_peer_sharing: bool,
+	sync_max_timeouts_before_drop: u32,
+	sync_disable_major_sync_gating: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -656,8 +658,6 @@ pub fn new_full<
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
 	#[cfg(feature = "tx-logging")]
 	let tx_stream_for_logger = transaction_pool.clone().import_notification_stream();
-
-	sc_network_sync::set_sync_network_config(sc_network_sync::SyncNetworkConfig::default());
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,
@@ -679,6 +679,14 @@ pub fn new_full<
 			block_relay: None,
 			metrics,
 		})?;
+
+	sync_service.set_max_timeouts_before_drop(sync_max_timeouts_before_drop);
+	sync_service.set_disable_major_sync_gating(sync_disable_major_sync_gating);
+	log::debug!(
+		"Applied CLI sync flags: max_timeouts_before_drop={}, disable_major_sync_gating={}",
+		sync_max_timeouts_before_drop,
+		sync_disable_major_sync_gating
+	);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
