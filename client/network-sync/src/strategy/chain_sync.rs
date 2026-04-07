@@ -235,11 +235,11 @@ pub(crate) struct PeerSync<B: BlockT> {
 	/// The state of syncing this peer is in for us, generally categories
 	/// into `Available` or "busy" with something as defined by `PeerSyncState`.
 	pub state: PeerSyncState<B>,
-	request_signatures: HashSet<RequestSignature>,
+	request_signatures: HashSet<SyncRequestParams>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-struct RequestSignature {
+struct SyncRequestParams {
 	start_number_u64: u64,
 	is_descending: bool,
 	fields_mask: u32,
@@ -1964,7 +1964,7 @@ where
 										.map(|n| n.saturated_into::<u64>())
 										.unwrap_or(0),
 								};
-								let sig = RequestSignature {
+								let sig = SyncRequestParams {
 									start_number_u64,
 									is_descending: matches!(req.direction, Direction::Descending),
 									fields_mask: req.fields.to_be_u32(),
