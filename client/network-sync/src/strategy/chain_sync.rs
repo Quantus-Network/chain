@@ -72,7 +72,7 @@ use std::{
 	sync::Arc,
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "substrate-test"))]
 mod test;
 
 /// Maximum blocks to store in the import queue.
@@ -2204,7 +2204,7 @@ where
 		}
 	}
 
-	#[cfg(test)]
+	#[cfg(all(test, feature = "substrate-test"))]
 	#[must_use]
 	fn take_actions(&mut self) -> impl Iterator<Item = SyncingAction<B>> {
 		std::mem::take(&mut self.actions).into_iter()

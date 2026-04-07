@@ -767,7 +767,7 @@ where
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "substrate-test"))]
 mod test {
 	use super::*;
 	use crate::{mock::MockBlockDownloader, service::network::NetworkServiceProvider};

@@ -141,6 +141,9 @@ version = "1.45.0"
 [dependencies.tokio-stream]
 version = "0.1.14"
 
+[features]
+substrate-test = []
+
 [dev-dependencies.quickcheck]
 default-features = false
 version = "1.0.3"

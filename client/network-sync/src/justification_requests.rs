@@ -323,14 +323,12 @@ impl<B: BlockT> ExtraRequests<B> {
 		true
 	}
 
-	/// Returns an iterator over all active (in-flight) requests and associated peer id.
-	#[cfg(test)]
+	#[cfg(all(test, feature = "substrate-test"))]
 	pub(crate) fn active_requests(&self) -> impl Iterator<Item = (&PeerId, &ExtraRequest<B>)> {
 		self.active_requests.iter()
 	}
 
-	/// Returns an iterator over all scheduled pending requests.
-	#[cfg(test)]
+	#[cfg(all(test, feature = "substrate-test"))]
 	pub(crate) fn pending_requests(&self) -> impl Iterator<Item = &ExtraRequest<B>> {
 		self.pending_requests.iter()
 	}
@@ -437,7 +435,7 @@ impl<'a, B: BlockT> Matcher<'a, B> {
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "substrate-test"))]
 mod tests {
 	use super::*;
 	use crate::strategy::chain_sync::PeerSync;

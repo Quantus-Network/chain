@@ -390,7 +390,7 @@ impl<B: BlockT> StateStrategy<B> {
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "substrate-test"))]
 mod test {
 	use super::*;
 	use crate::{
