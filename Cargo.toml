@@ -10,6 +10,7 @@ members = [
 	"client/cli",
 	"client/consensus/qpow",
 	"client/network",
+	"client/network-sync",
 	"miner-api",
 	"node",
 	"pallets/frame-system",
@@ -238,6 +239,7 @@ libp2p-identity = { git = "https://github.com/Quantus-Network/qp-libp2p-identity
 libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag = "v0.45.10" }
 sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
+sc-network-sync = { path = "client/network-sync" }
 sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 trie-db = { path = "./primitives/trie-db" }

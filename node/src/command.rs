@@ -538,7 +538,15 @@ pub fn run() -> sc_cli::Result<()> {
 						quantus_runtime::opaque::Block,
 						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 					>,
-				>(config, rewards_account, cli.miner_listen_port, cli.enable_peer_sharing)
+				>(
+					config,
+					rewards_account,
+					cli.miner_listen_port,
+					cli.enable_peer_sharing,
+					cli.sync_max_timeouts_before_drop,
+					cli.sync_disable_major_sync_gating,
+					cli.sync_block_request_timeout,
+				)
 				.map_err(sc_cli::Error::Service)
 			})
 		},
