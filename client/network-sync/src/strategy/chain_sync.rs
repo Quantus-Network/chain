@@ -72,7 +72,7 @@ use std::{
 	sync::Arc,
 };
 
-#[cfg(all(test, feature = "upstream-tests"))]
+#[cfg(test)]
 mod test;
 
 /// Maximum blocks to store in the import queue.
@@ -343,10 +343,6 @@ pub struct ChainSync<B: BlockT, Client> {
 	actions: Vec<SyncingAction<B>>,
 	/// Prometheus metrics.
 	metrics: Option<Metrics>,
-	/// Adaptive per-peer block request limit. On timeout, halved down to 1.
-	/// On success, doubled back up to `max_blocks_per_request`. Peers not
-	/// in this map use `max_blocks_per_request`.
-	peer_block_limit: HashMap<PeerId, u32>,
 }
 
 impl<B, Client> SyncingStrategy<B> for ChainSync<B, Client>
@@ -372,11 +368,36 @@ where
 	}
 
 	fn remove_peer(&mut self, peer_id: &PeerId) {
-		self.remove_peer_inner(peer_id, false);
-	}
+		self.blocks.clear_peer_download(peer_id);
+		if let Some(gap_sync) = &mut self.gap_sync {
+			gap_sync.blocks.clear_peer_download(peer_id)
+		}
 
-	fn remove_peer_on_timeout(&mut self, peer_id: &PeerId) {
-		self.remove_peer_inner(peer_id, true);
+		if let Some(state) = self.peers.remove(peer_id) {
+			if !state.state.is_available() {
+				if let Some(bad_peer) =
+					self.disconnected_peers.on_disconnect_during_request(*peer_id)
+				{
+					self.actions.push(SyncingAction::DropPeer(bad_peer));
+				}
+			}
+		}
+
+		self.extra_justifications.peer_disconnected(peer_id);
+		self.allowed_requests.set_all();
+		self.fork_targets.retain(|_, target| {
+			target.peers.remove(peer_id);
+			!target.peers.is_empty()
+		});
+		if let Some(metrics) = &self.metrics {
+			metrics.fork_targets.set(self.fork_targets.len().try_into().unwrap_or(u64::MAX));
+		}
+
+		let blocks = self.ready_blocks();
+
+		if !blocks.is_empty() {
+			self.validate_and_queue_blocks(blocks, false);
+		}
 	}
 
 	fn on_validated_block_announce(
@@ -946,7 +967,6 @@ where
 			block_downloader,
 			gap_sync: None,
 			actions: Vec::new(),
-			peer_block_limit: HashMap::new(),
 			metrics: metrics_registry.and_then(|r| match Metrics::register(r) {
 				Ok(metrics) => Some(metrics),
 				Err(err) => {
@@ -976,66 +996,6 @@ where
 				"Block history download is complete."
 			);
 			self.gap_sync = None;
-		}
-	}
-
-	fn remove_peer_inner(&mut self, peer_id: &PeerId, is_timeout: bool) {
-		self.blocks.clear_peer_download(peer_id);
-		if let Some(gap_sync) = &mut self.gap_sync {
-			gap_sync.blocks.clear_peer_download(peer_id)
-		}
-
-		if let Some(state) = self.peers.remove(peer_id) {
-			if is_timeout {
-				let current = self.peer_block_limit.get(peer_id).copied()
-					.unwrap_or(self.max_blocks_per_request);
-				let reduced = (current / 2).max(1);
-				debug!(
-					target: LOG_TARGET,
-					"⏱ Timeout for {peer_id}: block request limit {current} → {reduced}",
-				);
-				self.peer_block_limit.insert(*peer_id, reduced);
-			} else if !state.state.is_available() {
-				if let Some(bad_peer) =
-					self.disconnected_peers.on_disconnect_during_request(*peer_id)
-				{
-					self.actions.push(SyncingAction::DropPeer(bad_peer));
-				}
-			}
-		}
-
-		self.extra_justifications.peer_disconnected(peer_id);
-		self.allowed_requests.set_all();
-		self.fork_targets.retain(|_, target| {
-			target.peers.remove(peer_id);
-			!target.peers.is_empty()
-		});
-		if let Some(metrics) = &self.metrics {
-			metrics.fork_targets.set(self.fork_targets.len().try_into().unwrap_or(u64::MAX));
-		}
-
-		let blocks = self.ready_blocks();
-
-		if !blocks.is_empty() {
-			self.validate_and_queue_blocks(blocks, false);
-		}
-	}
-
-	fn grow_peer_block_limit(&mut self, peer_id: &PeerId) {
-		let Some(&current) = self.peer_block_limit.get(peer_id) else {
-			return;
-		};
-		let grown = (current * 2).min(self.max_blocks_per_request);
-		if grown >= self.max_blocks_per_request {
-			self.peer_block_limit.remove(peer_id);
-			debug!(
-				target: LOG_TARGET,
-				"📈 {peer_id}: block request limit restored to max ({})",
-				self.max_blocks_per_request,
-			);
-		} else {
-			self.peer_block_limit.insert(*peer_id, grown);
-			debug!(target: LOG_TARGET, "📈 {peer_id}: block request limit {current} → {grown}");
 		}
 	}
 
@@ -1479,18 +1439,7 @@ where
 		if request.fields == BlockAttributes::JUSTIFICATION {
 			self.on_block_justification(*peer_id, block_response)
 		} else {
-			let is_downloading = self.peers.get(peer_id).map_or(false, |p| matches!(
-				p.state,
-				PeerSyncState::DownloadingNew(_) |
-				PeerSyncState::DownloadingStale(_) |
-				PeerSyncState::DownloadingGap(_)
-			));
-			let num_blocks = block_response.blocks.len();
-			let result = self.on_block_data(peer_id, Some(request), block_response);
-			if result.is_ok() && num_blocks > 0 && is_downloading {
-				self.grow_peer_block_limit(peer_id);
-			}
-			result
+			self.on_block_data(peer_id, Some(request), block_response)
 		}
 	}
 
@@ -1877,7 +1826,6 @@ where
 		let allowed_requests = self.allowed_requests.clone();
 		let max_parallel = if is_major_syncing { 1 } else { self.max_parallel_downloads };
 		let max_blocks_per_request = self.max_blocks_per_request;
-		let peer_block_limit = &self.peer_block_limit;
 		let gap_sync = &mut self.gap_sync;
 		let disconnected_peers = &mut self.disconnected_peers;
 		let metrics = self.metrics.as_ref();
@@ -1917,60 +1865,46 @@ where
 						state: AncestorSearchState::ExponentialBackoff(One::one()),
 					};
 					Some((id, ancestry_request::<B>(current)))
-				} else if let Some((range, req)) = {
-					let peer_max = peer_block_limit.get(&id).copied()
-						.unwrap_or(max_blocks_per_request);
-					peer_block_request(
-						&id,
-						peer,
-						blocks,
-						attrs,
-						max_parallel,
-						peer_max,
-						last_finalized,
-						best_queued,
-					)
-				} {
-				peer.state = PeerSyncState::DownloadingNew(range.start);
-				let peer_max = peer_block_limit.get(&id).copied()
-					.unwrap_or(max_blocks_per_request);
-				debug!(
-					target: LOG_TARGET,
-					"📥 Block request to {} for #{} range {:?} (limit:{}, best:{}, common:{})",
-					id,
-					range.start,
-					range,
-					peer_max,
-					peer.best_number,
-					peer.common_number,
-				);
-				Some((id, req))
-				} else if let Some((hash, req)) = {
-					let peer_max = peer_block_limit.get(&id).copied()
-						.unwrap_or(max_blocks_per_request);
-					fork_sync_request(
-						&id,
-						fork_targets,
-						best_queued,
-						last_finalized,
-						attrs,
-						|hash| {
-							if queue_blocks.contains(hash) {
-								BlockStatus::Queued
-							} else {
-								client.block_status(*hash).unwrap_or(BlockStatus::Unknown)
-							}
-						},
-						peer_max,
-						metrics,
-					)
-				} {
+				} else if let Some((range, req)) = peer_block_request(
+					&id,
+					peer,
+					blocks,
+					attrs,
+					max_parallel,
+					max_blocks_per_request,
+					last_finalized,
+					best_queued,
+				) {
+					peer.state = PeerSyncState::DownloadingNew(range.start);
+					trace!(
+						target: LOG_TARGET,
+						"New block request for {}, (best:{}, common:{}) {:?}",
+						id,
+						peer.best_number,
+						peer.common_number,
+						req,
+					);
+					Some((id, req))
+				} else if let Some((hash, req)) = fork_sync_request(
+					&id,
+					fork_targets,
+					best_queued,
+					last_finalized,
+					attrs,
+					|hash| {
+						if queue_blocks.contains(hash) {
+							BlockStatus::Queued
+						} else {
+							client.block_status(*hash).unwrap_or(BlockStatus::Unknown)
+						}
+					},
+					max_blocks_per_request,
+					metrics,
+				) {
 					trace!(target: LOG_TARGET, "Downloading fork {hash:?} from {id}");
 					peer.state = PeerSyncState::DownloadingStale(hash);
 					Some((id, req))
 				} else if let Some((range, req)) = gap_sync.as_mut().and_then(|sync| {
-					let peer_max = peer_block_limit.get(&id).copied()
-						.unwrap_or(max_blocks_per_request);
 					peer_gap_block_request(
 						&id,
 						peer,
@@ -1978,7 +1912,7 @@ where
 						attrs,
 						sync.target,
 						sync.best_queued_number,
-						peer_max,
+						max_blocks_per_request,
 					)
 				}) {
 					peer.state = PeerSyncState::DownloadingGap(range.start);
@@ -2128,7 +2062,8 @@ where
 		}
 	}
 
-	#[cfg(all(test, feature = "upstream-tests"))]
+	/// A version of `actions()` that doesn't schedule extra requests. For testing only.
+	#[cfg(test)]
 	#[must_use]
 	fn take_actions(&mut self) -> impl Iterator<Item = SyncingAction<B>> {
 		std::mem::take(&mut self.actions).into_iter()

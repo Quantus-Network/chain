@@ -148,9 +148,6 @@ default-features = false
 [build-dependencies.prost-build]
 version = "0.13.2"
 
-[features]
-upstream-tests = []
-
 [lints.clippy.all]
 level = "allow"
 priority = 0

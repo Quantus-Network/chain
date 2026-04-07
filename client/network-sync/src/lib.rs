@@ -42,30 +42,3 @@ pub mod warp_request_handler;
 
 /// Log target for this crate.
 const LOG_TARGET: &str = "sync";
-
-use std::{sync::OnceLock, time::Duration};
-
-#[derive(Debug, Clone)]
-pub struct SyncNetworkConfig {
-	pub block_request_timeout: Duration,
-	pub no_ban_on_timeout: bool,
-}
-
-impl Default for SyncNetworkConfig {
-	fn default() -> Self {
-		Self {
-			block_request_timeout: Duration::from_secs(30),
-			no_ban_on_timeout: true,
-		}
-	}
-}
-
-static SYNC_NETWORK_CONFIG: OnceLock<SyncNetworkConfig> = OnceLock::new();
-
-pub fn set_sync_network_config(config: SyncNetworkConfig) {
-	SYNC_NETWORK_CONFIG.set(config).ok();
-}
-
-pub(crate) fn sync_network_config() -> &'static SyncNetworkConfig {
-	SYNC_NETWORK_CONFIG.get_or_init(SyncNetworkConfig::default)
-}

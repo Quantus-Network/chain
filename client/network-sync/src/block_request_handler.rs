@@ -30,7 +30,7 @@ use crate::{
 
 use codec::{Decode, DecodeAll, Encode};
 use futures::{channel::oneshot, stream::StreamExt};
-use log::{debug, info};
+use log::debug;
 use prost::Message;
 use schnellru::{ByLength, LruMap};
 
@@ -54,18 +54,20 @@ use std::{
 	cmp::min,
 	hash::{Hash, Hasher},
 	sync::Arc,
+	time::Duration,
 };
 
 /// Maximum blocks per response.
 pub(crate) const MAX_BLOCKS_IN_RESPONSE: usize = 128;
 
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
-const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 10;
+const MAX_NUMBER_OF_SAME_REQUESTS_PER_PEER: usize = 2;
 
 mod rep {
 	use sc_network::ReputationChange as Rep;
 
-	pub const SAME_REQUEST: Rep = Rep::new(-(1 << 12), "Same block request multiple times");
+	/// Reputation change when a peer sent us the same request multiple times.
+	pub const SAME_REQUEST: Rep = Rep::new_fatal("Same block request multiple times");
 
 	/// Reputation change when a peer sent us the same "small" request multiple times.
 	pub const SAME_SMALL_REQUEST: Rep =
@@ -84,17 +86,12 @@ pub fn generate_protocol_config<
 	fork_id: Option<&str>,
 	inbound_queue: async_channel::Sender<IncomingRequest>,
 ) -> N::RequestResponseProtocolConfig {
-	let timeout = crate::sync_network_config().block_request_timeout;
-	info!(
-		target: LOG_TARGET,
-		"📡 Block sync request timeout configured to {:?}", timeout,
-	);
 	N::request_response_config(
 		generate_protocol_name(genesis_hash, fork_id).into(),
 		std::iter::once(generate_legacy_protocol_name(protocol_id).into()).collect(),
 		1024 * 1024,
 		MAX_RESPONSE_SIZE,
-		timeout,
+		Duration::from_secs(20),
 		Some(inbound_queue),
 	)
 }

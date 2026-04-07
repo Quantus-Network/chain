@@ -119,14 +119,6 @@ where
 		self.peer_best_blocks.remove(peer_id);
 	}
 
-	fn remove_peer_on_timeout(&mut self, peer_id: &PeerId) {
-		self.warp.as_mut().map(|s| s.remove_peer(peer_id));
-		self.state.as_mut().map(|s| s.remove_peer(peer_id));
-		self.chain_sync.as_mut().map(|s| s.remove_peer_on_timeout(peer_id));
-
-		self.peer_best_blocks.remove(peer_id);
-	}
-
 	fn on_validated_block_announce(
 		&mut self,
 		is_best: bool,

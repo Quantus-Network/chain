@@ -767,7 +767,7 @@ where
 	}
 }
 
-#[cfg(all(test, feature = "upstream-tests"))]
+#[cfg(test)]
 mod test {
 	use super::*;
 	use crate::{mock::MockBlockDownloader, service::network::NetworkServiceProvider};

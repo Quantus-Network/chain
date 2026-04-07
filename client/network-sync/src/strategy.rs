@@ -57,12 +57,6 @@ where
 	/// Notify that a sync peer has disconnected.
 	fn remove_peer(&mut self, peer_id: &PeerId);
 
-	/// Notify that a sync peer disconnected due to a network timeout.
-	/// Skips disconnect-during-request tracking to avoid penalizing slow peers.
-	fn remove_peer_on_timeout(&mut self, peer_id: &PeerId) {
-		self.remove_peer(peer_id);
-	}
-
 	/// Submit a validated block announcement.
 	///
 	/// Returns new best hash & best number of the peer if they are updated.
@@ -216,7 +210,7 @@ impl<B: BlockT> SyncingAction<B> {
 		matches!(self, SyncingAction::Finished)
 	}
 
-	#[cfg(all(test, feature = "upstream-tests"))]
+	#[cfg(test)]
 	pub(crate) fn name(&self) -> &'static str {
 		match self {
 			Self::StartRequest { .. } => "StartRequest",

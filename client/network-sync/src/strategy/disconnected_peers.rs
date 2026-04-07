@@ -40,6 +40,7 @@ const MAX_DISCONNECTED_PEERS_STATE: u32 = 512;
 /// an inflight request are not tracked.
 const DISCONNECTED_PEER_BACKOFF_SECONDS: u64 = 60;
 
+/// Maximum number of disconnects with a request in flight before a peer is banned.
 const MAX_NUM_DISCONNECTS: u64 = 3;
 
 /// Peer disconnected with a request in flight after backoffs.

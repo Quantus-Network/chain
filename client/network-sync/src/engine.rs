@@ -260,9 +260,6 @@ pub struct SyncingEngine<B: BlockT, Client> {
 
 	/// Handle to import queue.
 	import_queue: Box<dyn ImportQueueService<B>>,
-
-	/// Peers disconnected due to timeout (not malice). Cleared in on_sync_peer_disconnected.
-	timeout_disconnected_peers: HashSet<PeerId>,
 }
 
 impl<B: BlockT, Client> SyncingEngine<B, Client>
@@ -407,10 +404,9 @@ where
 				} else {
 					None
 				},
-			pending_responses: PendingResponses::new(),
-			import_queue,
-			timeout_disconnected_peers: HashSet::new(),
-		},
+				pending_responses: PendingResponses::new(),
+				import_queue,
+			},
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
 		))
@@ -837,15 +833,7 @@ where
 			}
 		}
 
-		if self.timeout_disconnected_peers.remove(&peer_id) {
-			debug!(
-				target: LOG_TARGET,
-				"⏱ {peer_id} disconnected due to timeout — skipping disconnect penalty",
-			);
-			self.strategy.remove_peer_on_timeout(&peer_id);
-		} else {
-			self.strategy.remove_peer(&peer_id);
-		}
+		self.strategy.remove_peer(&peer_id);
 		self.pending_responses.remove_all(&peer_id);
 		self.event_streams
 			.retain(|stream| stream.unbounded_send(SyncEvent::PeerDisconnected(peer_id)).is_ok());
@@ -1028,18 +1016,7 @@ where
 
 				match e {
 					RequestFailure::Network(OutboundFailure::Timeout) => {
-						let config = crate::sync_network_config();
-						if config.no_ban_on_timeout {
-							debug!(
-								target: LOG_TARGET,
-								"⏱ Timeout for {peer_id:?} — not banning (no_ban_on_timeout=true, \
-								timeout={:?}). Will retry on reconnect.",
-								config.block_request_timeout,
-							);
-							self.timeout_disconnected_peers.insert(peer_id);
-						} else {
-							self.network_service.report_peer(peer_id, rep::TIMEOUT);
-						}
+						self.network_service.report_peer(peer_id, rep::TIMEOUT);
 						self.network_service
 							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 					},
