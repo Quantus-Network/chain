@@ -7,8 +7,6 @@ pub use pallet::*;
 pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
 use qp_wormhole_verifier::WormholeVerifier;
 
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -41,7 +39,7 @@ pub mod pallet {
 	use alloc::vec::Vec;
 	use codec::{Decode, Encode};
 	use frame_support::{
-		dispatch::{DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo},
+		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
@@ -63,8 +61,14 @@ pub mod pallet {
 		Permill,
 	};
 
-	pub type BalanceOf<T> = <T as Config>::NativeBalance;
-	pub type AssetBalanceOf<T> = <T as Config>::AssetBalance;
+	pub type BalanceOf<T> =
+		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+	pub type AssetIdOf<T> = <<T as Config>::Assets as fungibles::Inspect<
+		<T as frame_system::Config>::AccountId,
+	>>::AssetId;
+	pub type AssetBalanceOf<T> = <<T as Config>::Assets as fungibles::Inspect<
+		<T as frame_system::Config>::AccountId,
+	>>::Balance;
 
 	/// Key for TransferProof storage - uniquely identifies a transfer.
 	/// Uses (to, transfer_count) since transfer_count is atomic per recipient.
@@ -74,7 +78,7 @@ pub mod pallet {
 	/// Full transfer data including amount - used to compute the leaf_inputs_hash via Poseidon2.
 	/// This is what the ZK circuit verifies.
 	pub type TransferProofData<T> = (
-		<T as Config>::AssetId,
+		AssetIdOf<T>,
 		<T as Config>::TransferCount,
 		<T as Config>::WormholeAccountId,
 		<T as Config>::WormholeAccountId,
@@ -89,43 +93,21 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
-		/// Native balance type with ToFelts bound for Poseidon hashing in transfer proofs.
-		type NativeBalance: Parameter
-			+ Member
-			+ Default
-			+ Copy
-			+ ToFelts
-			+ MaxEncodedLen
-			+ sp_runtime::traits::AtLeast32BitUnsigned
-			+ sp_runtime::traits::CheckedAdd
-			+ sp_runtime::traits::CheckedSub
-			+ sp_runtime::traits::Zero
-			+ sp_runtime::traits::Saturating;
-
-		/// Currency type used for native token transfers and minting.
-		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>
+	pub trait Config: frame_system::Config
+	where
+		AssetIdOf<Self>: Default + From<u32> + Clone + ToFelts,
+		BalanceOf<Self>: Default + ToFelts,
+		AssetBalanceOf<Self>: Into<BalanceOf<Self>> + From<BalanceOf<Self>>,
+	{
+		/// Currency type used for native token transfers and minting
+		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = BalanceOf<Self>>
 			+ Unbalanced<<Self as frame_system::Config>::AccountId>
-			+ Currency<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>;
+			+ Currency<<Self as frame_system::Config>::AccountId>;
 
-		/// Assets type used for managing fungible assets.
-		/// The AssetId must match Self::AssetId for consistency.
-		type Assets: fungibles::Inspect<
-				<Self as frame_system::Config>::AccountId,
-				AssetId = Self::AssetId,
-				Balance = Self::AssetBalance,
-			> + fungibles::Mutate<<Self as frame_system::Config>::AccountId>
+		/// Assets type used for managing fungible assets
+		type Assets: fungibles::Inspect<<Self as frame_system::Config>::AccountId>
+			+ fungibles::Mutate<<Self as frame_system::Config>::AccountId>
 			+ fungibles::Create<<Self as frame_system::Config>::AccountId>;
-
-		/// Asset ID type with bounds needed for Poseidon hashing in transfer proofs.
-		type AssetId: Parameter + Member + Default + From<u32> + Clone + ToFelts + MaxEncodedLen;
-
-		/// Asset balance type that can convert to/from native balance.
-		type AssetBalance: Parameter
-			+ Member
-			+ Into<Self::NativeBalance>
-			+ From<Self::NativeBalance>
-			+ MaxEncodedLen;
 
 		/// Transfer count type used in storage
 		type TransferCount: Parameter
@@ -206,7 +188,7 @@ pub mod pallet {
 			transfer_count: T::TransferCount,
 		},
 		AssetTransferred {
-			asset_id: T::AssetId,
+			asset_id: AssetIdOf<T>,
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: AssetBalanceOf<T>,
@@ -222,6 +204,7 @@ pub mod pallet {
 	pub enum Error<T> {
 		InvalidPublicInputs,
 		NullifierAlreadyUsed,
+		VerifierNotAvailable,
 		BlockNotFound,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
@@ -237,36 +220,16 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Verify an aggregated wormhole proof and process all transfers in the batch.
-		///
-		/// Returns `DispatchResultWithPostInfo` to allow weight correction on early failures.
-		/// If pre-validation fails (deserialization, cheap checks), we return the actual
-		/// consumed weight to free block capacity for other transactions.
+		/// Verify an aggregated wormhole proof and process all transfers in the batch
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
 		pub fn verify_aggregated_proof(
 			origin: OriginFor<T>,
 			proof_bytes: Vec<u8>,
-		) -> DispatchResultWithPostInfo {
+		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			// Pre-validate proof (deserialization + cheap checks, no ZK verification).
-			// This is also called in validate_unsigned for pool admission, but we call it
-			// here as defense-in-depth. If it fails, return minimal weight since we did
-			// almost no work compared to the declared weight for full ZK verification.
-			let pre_validate_result = Self::pre_validate_proof(&proof_bytes);
-			let (proof, aggregated_inputs) = match pre_validate_result {
-				Ok(result) => result,
-				Err(e) => {
-					return Err(DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo {
-							actual_weight: Some(<T as Config>::WeightInfo::pre_validate_proof()),
-							pays_fee: Pays::No,
-						},
-						error: e.into(),
-					});
-				},
-			};
+			let (proof, aggregated_inputs) = Self::pre_validate_proof(&proof_bytes)?;
 
 			// Mark nullifiers as used (pre_validate_proof only checks existence)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
@@ -420,23 +383,24 @@ pub mod pallet {
 				)?;
 
 				// Record transfer proof for the minted tokens
-				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
-				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
 				Self::record_transfer(
-					T::AssetId::default(),
-					&from_account,
-					&to_account,
+					AssetIdOf::<T>::default(),
+					mint_account.clone().into(),
+					exit_account.clone().into(),
 					*exit_balance,
 				);
 			}
 
-			// Success - use declared weight (actual_weight: None means use declared weight)
-			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+			Ok(())
 		}
 	}
 
 	#[pallet::validate_unsigned]
-	impl<T: Config> ValidateUnsigned for Pallet<T> {
+	impl<T: Config> ValidateUnsigned for Pallet<T>
+	where
+		BalanceOf<T>: Default + ToFelts,
+		AssetBalanceOf<T>: Into<BalanceOf<T>> + From<BalanceOf<T>>,
+	{
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
@@ -496,12 +460,12 @@ pub mod pallet {
 		}
 
 		pub fn record_transfer(
-			asset_id: T::AssetId,
-			from: &<T as Config>::WormholeAccountId,
-			to: &<T as Config>::WormholeAccountId,
+			asset_id: AssetIdOf<T>,
+			from: <T as Config>::WormholeAccountId,
+			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
-			let current_count = TransferCount::<T>::get(to);
+			let current_count = TransferCount::<T>::get(&to);
 
 			// Storage key uses Blake2_256 hash of (to, transfer_count)
 			// This is unique since transfer_count is atomic per recipient
@@ -516,19 +480,19 @@ pub mod pallet {
 				PoseidonCore::hash_storage::<TransferProofData<T>>(&encoded_data);
 
 			TransferProof::<T>::insert(key, leaf_inputs_hash);
-			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
+			TransferCount::<T>::insert(&to, current_count.saturating_add(T::TransferCount::one()));
 
-			if asset_id == T::AssetId::default() {
+			if asset_id == AssetIdOf::<T>::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {
-					from: from.clone().into(),
-					to: to.clone().into(),
+					from: from.into(),
+					to: to.into(),
 					amount,
 					transfer_count: current_count,
 				});
 			} else {
 				Self::deposit_event(Event::<T>::AssetTransferred {
-					from: from.clone().into(),
-					to: to.clone().into(),
+					from: from.into(),
+					to: to.into(),
 					asset_id,
 					amount: amount.into(),
 					transfer_count: current_count,
@@ -541,18 +505,18 @@ pub mod pallet {
 	impl<T: Config>
 		qp_wormhole::TransferProofRecorder<
 			<T as Config>::WormholeAccountId,
-			<T as Config>::AssetId,
+			AssetIdOf<T>,
 			BalanceOf<T>,
 		> for Pallet<T>
 	{
 		fn record_transfer_proof(
-			asset_id: Option<<T as Config>::AssetId>,
+			asset_id: Option<AssetIdOf<T>>,
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
 		) {
 			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, &from, &to, amount);
+			Self::record_transfer(asset_id_value, from, to, amount);
 		}
 	}
 }

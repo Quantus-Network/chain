@@ -752,15 +752,13 @@ fn ensure_signed_stuff_works() {
 
 pub fn from_actual_ref_time(ref_time: Option<u64>) -> PostDispatchInfo {
 	PostDispatchInfo {
-		// Only set ref_time, leave proof_size at 0 to match the pre-dispatch weight in tests
-		actual_weight: ref_time.map(|t| Weight::from_parts(t, 0)),
+		actual_weight: ref_time.map(|t| Weight::from_all(t)),
 		pays_fee: Default::default(),
 	}
 }
 
 pub fn from_post_weight_info(ref_time: Option<u64>, pays_fee: Pays) -> PostDispatchInfo {
-	// Only set ref_time, leave proof_size at 0 to match the pre-dispatch weight in tests
-	PostDispatchInfo { actual_weight: ref_time.map(|t| Weight::from_parts(t, 0)), pays_fee }
+	PostDispatchInfo { actual_weight: ref_time.map(|t| Weight::from_all(t)), pays_fee }
 }
 
 #[docify::export]

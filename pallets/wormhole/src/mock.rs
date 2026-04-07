@@ -11,9 +11,6 @@ use sp_runtime::{
 	BuildStorage, Permill,
 };
 
-// Re-export shared test helpers from qp_wormhole
-pub use qp_wormhole::{account_id, MINTING_ACCOUNT};
-
 construct_runtime!(
 	pub enum Test {
 		System: frame_system,
@@ -31,6 +28,13 @@ pub type Block<T> = sp_runtime::generic::Block<
 	qp_header::Header<u64, PoseidonHasher>,
 	MockUncheckedExtrinsic<T, qp_dilithium_crypto::DilithiumSignatureScheme>,
 >;
+
+/// Helper function to convert a u64 to an AccountId32
+pub fn account_id(id: u64) -> AccountId {
+	let mut bytes = [0u8; 32];
+	bytes[0..8].copy_from_slice(&id.to_le_bytes());
+	AccountId::new(bytes)
+}
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -115,9 +119,10 @@ impl pallet_assets::Config for Test {
 }
 
 parameter_types! {
-	/// The "from" account used when recording transfer proofs for minted tokens.
-	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
-	pub const MintingAccount: AccountId = MINTING_ACCOUNT;
+	pub const MintingAccount: AccountId = AccountId::new([
+		231, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	]);
 	/// Minimum transfer amount (10 QUAN)
 	pub const MinimumTransferAmount: Balance = 10 * UNIT;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
@@ -127,18 +132,15 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Test {
-	type NativeBalance = Balance;
+	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 	type Currency = Balances;
 	type Assets = Assets;
-	type AssetId = u32;
-	type AssetBalance = Balance;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;
-	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 }
 
 // Helper function to build a genesis configuration

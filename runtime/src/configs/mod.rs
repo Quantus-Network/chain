@@ -119,6 +119,11 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
+	pub const MaxTokenAmount: Balance = 1000 * UNIT;
+	pub const DefaultMintAmount: Balance = 10 * UNIT;
+}
+
+parameter_types! {
 	pub const MiningUnit: Balance = UNIT;
 }
 
@@ -156,14 +161,7 @@ impl pallet_qpow::Config for Runtime {
 }
 
 parameter_types! {
-	/// Canonical minting account for native token operations (mining rewards, wormhole exits).
-	/// Used as the `from` address in TransferProofs when native tokens are minted.
-	/// This is a well-known sentinel address, not a real account.
-	pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
-	/// Canonical minting account for pallet_assets mint operations.
-	/// Used as the `from` address in TransferProofs when assets are minted.
-	/// This is a well-known sentinel address, not a real account.
-	pub const AssetMintingAccount: AccountId = AccountId::new([2u8; 32]);
+	 pub const MintingAccount: AccountId = AccountId::new([1u8; 32]);
 }
 
 type Moment = u64;
@@ -205,6 +203,7 @@ impl pallet_balances::Config for Runtime {
 parameter_types! {
 	pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
 	pub const MaxVotes: u32 = 4096;
+	pub const MinimumDeposit: Balance = UNIT;
 }
 
 /// Dynamic MaxTurnout that uses the current total issuance of tokens
@@ -324,6 +323,20 @@ impl pallet_ranked_collective::Config for Runtime {
 	type BenchmarkSetup = ();
 }
 
+parameter_types! {
+	// Default voting period (28 days)
+	pub const TechReferendumDefaultVotingPeriod: BlockNumber = 28 * DAYS;
+	// Minimum time before a successful referendum can be enacted (4 days)
+	pub const TechReferendumMinEnactmentPeriod: BlockNumber = 4 * DAYS;
+	// Maximum number of active referenda
+	pub const TechReferendumMaxProposals: u32 = 100;
+	// Submission deposit for referenda
+	pub const TechReferendumSubmissionDeposit: Balance = 100 * UNIT;
+	// Undeciding timeout (90 days)
+	pub const TechUndecidingTimeout: BlockNumber = 45 * DAYS;
+	pub const TechAlarmInterval: BlockNumber = 1;
+}
+
 pub type TechReferendaInstance = pallet_referenda::Instance1;
 
 impl pallet_referenda::Config<TechReferendaInstance> for Runtime {
@@ -375,6 +388,8 @@ parameter_types! {
 	pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * RuntimeBlockWeights::get().max_block;
 	// Maximum number of scheduled calls per block
 	pub const MaxScheduledPerBlock: u32 = 50;
+	// Optional postponement for calls without preimage
+	pub const NoPreimagePostponement: Option<u32> = Some(10);
 }
 
 impl pallet_scheduler::Config for Runtime {
@@ -615,6 +630,7 @@ impl TryFrom<RuntimeCall> for pallet_assets::Call<Runtime> {
 }
 
 parameter_types! {
+	pub WormholeMintingAccount: AccountId = PalletId(*b"wormhole").into_account_truncating();
 	/// Minimum transfer amount for wormhole (10 QUAN = 10 * 10^12)
 	pub const WormholeMinimumTransferAmount: Balance = UNIT / 10;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
@@ -624,18 +640,13 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Runtime {
-	type NativeBalance = Balance;
-	type Currency = Balances;
-	type Assets = Assets;
-	type AssetId = AssetId;
-	type AssetBalance = Balance;
-	type TransferCount = u64;
-	/// Use the same MintingAccount as mining-rewards for consistency.
-	/// Both pallets mint native tokens and should use the same sentinel "from" address.
-	type MintingAccount = MintingAccount;
+	type MintingAccount = WormholeMintingAccount;
 	type MinimumTransferAmount = WormholeMinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type WeightInfo = ();
+	type Currency = Balances;
+	type Assets = Assets;
+	type TransferCount = u64;
 	type WormholeAccountId = AccountId32;
-	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 }

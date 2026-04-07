@@ -35,5 +35,5 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_multisig, Multisig]
 	[pallet_scheduler, Scheduler]
 	[pallet_qpow, QPoW]
-	[pallet_wormhole, Wormhole]
+	// pallet_wormhole: no Benchmarking impl yet (ZK proof verification is complex to benchmark)
 );

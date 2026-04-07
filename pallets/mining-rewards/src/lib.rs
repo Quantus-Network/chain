@@ -180,10 +180,10 @@ pub mod pallet {
 			}
 
 			// Send fees to miner if any
-			Self::mint_reward(miner.as_ref(), tx_fees);
+			Self::mint_reward(miner.clone(), tx_fees);
 
 			// Send block rewards to miner
-			Self::mint_reward(miner.as_ref(), miner_reward);
+			Self::mint_reward(miner, miner_reward);
 
 			// Send treasury portion to treasury
 			Self::mint_reward(None, treasury_reward);
@@ -207,7 +207,7 @@ pub mod pallet {
 			});
 		}
 
-		fn mint_reward(maybe_miner: Option<&T::AccountId>, reward: BalanceOf<T>) {
+		fn mint_reward(maybe_miner: Option<T::AccountId>, reward: BalanceOf<T>) {
 			if reward.is_zero() {
 				return;
 			}
@@ -217,7 +217,7 @@ pub mod pallet {
 
 			match maybe_miner {
 				Some(miner) => {
-					match T::Currency::mint_into(miner, reward) {
+					match T::Currency::mint_into(&miner, reward) {
 						Ok(_) => {
 							T::ProofRecorder::record_transfer_proof(
 								None, // Native token
@@ -225,10 +225,7 @@ pub mod pallet {
 								miner.clone(),
 								reward,
 							);
-							Self::deposit_event(Event::MinerRewarded {
-								miner: miner.clone(),
-								reward,
-							});
+							Self::deposit_event(Event::MinerRewarded { miner, reward });
 						},
 						Err(e) => {
 							log::warn!(
@@ -246,7 +243,7 @@ pub mod pallet {
 										reward,
 									);
 									Self::deposit_event(Event::MinerRewardRedirected {
-										miner: miner.clone(),
+										miner,
 										reward,
 									});
 								},

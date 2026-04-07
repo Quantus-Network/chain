@@ -580,7 +580,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		        * many txs */
 		268_435_456,
 		None,
-		TransactionPoolType::SingleState.into(),
+		TransactionPoolType::ForkAware.into(),
 		false,
 	);
 	let transaction_pool = Arc::from(

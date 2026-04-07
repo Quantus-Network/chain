@@ -37,7 +37,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			let count_before = Wormhole::transfer_count(&bob);
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
 
@@ -51,7 +51,7 @@ mod wormhole_tests {
 			);
 
 			// Second transfer increments count again
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 2);
 		});
 	}
@@ -64,7 +64,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			System::set_block_number(1);
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			System::assert_last_event(
 				crate::Event::<Test>::NativeTransferred {
@@ -99,7 +99,7 @@ mod wormhole_tests {
 
 			// 2. Record the transfer proof
 			let count_before = Wormhole::transfer_count(&bob);
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			Wormhole::record_transfer(0u32, alice.clone(), bob.clone(), amount);
 
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
@@ -242,246 +242,5 @@ mod wormhole_tests {
 			address1, address2,
 			"Different preimages should produce different wormhole addresses"
 		);
-	}
-}
-
-/// Tests for aggregated proof verification
-#[cfg(test)]
-mod aggregated_proof_tests {
-	use crate::{
-		mock::*,
-		pallet::{Error, UsedNullifiers},
-	};
-	use frame_support::{assert_noop, assert_ok};
-	use frame_system::RawOrigin;
-	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, F};
-	use sp_core::H256;
-
-	/// The D const parameter for plonky2 proofs (extension degree = 2)
-	const D: usize = 2;
-
-	/// Real aggregated proof for testing (hex-encoded).
-	/// Generated using: `quantus wormhole multi round`
-	const AGGREGATED_PROOF_HEX: &str = include_str!("../test-data/aggregated.hex");
-
-	/// Helper to decode the test proof
-	fn get_test_proof_bytes() -> Vec<u8> {
-		hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("Invalid hex in test proof")
-	}
-
-	/// Helper to deserialize the test proof
-	fn deserialize_test_proof() -> ProofWithPublicInputs<F, C, D> {
-		let proof_bytes = get_test_proof_bytes();
-		let verifier = crate::get_aggregated_verifier().expect("Verifier should be available");
-		ProofWithPublicInputs::<F, C, D>::from_bytes(proof_bytes, &verifier.circuit_data.common)
-			.expect("Proof should deserialize")
-	}
-
-	#[test]
-	fn test_proof_deserialization_succeeds() {
-		// Just test that the proof deserializes correctly
-		let proof = deserialize_test_proof();
-		assert!(!proof.public_inputs.is_empty(), "Proof should have public inputs");
-	}
-
-	#[test]
-	fn test_parse_aggregated_public_inputs_succeeds() {
-		let proof = deserialize_test_proof();
-		let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse public inputs");
-
-		// Verify basic structure
-		assert_eq!(inputs.asset_id, 0, "Asset ID should be native (0)");
-		assert_eq!(inputs.volume_fee_bps, 10, "Volume fee should be 10 bps");
-		assert!(!inputs.nullifiers.is_empty(), "Should have nullifiers");
-		assert!(!inputs.account_data.is_empty(), "Should have account data");
-
-		println!("Parsed public inputs:");
-		println!("  asset_id: {}", inputs.asset_id);
-		println!("  volume_fee_bps: {}", inputs.volume_fee_bps);
-		println!("  block_number: {}", inputs.block_data.block_number);
-		println!("  block_hash: {:?}", inputs.block_data.block_hash);
-		println!("  num_nullifiers: {}", inputs.nullifiers.len());
-		println!("  num_accounts: {}", inputs.account_data.len());
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_fails_with_wrong_origin() {
-		new_test_ext().execute_with(|| {
-			let proof_bytes = get_test_proof_bytes();
-
-			// Should fail with signed origin (must be unsigned)
-			assert_noop!(
-				Wormhole::verify_aggregated_proof(
-					RawOrigin::Signed(account_id(1)).into(),
-					proof_bytes
-				),
-				sp_runtime::DispatchError::BadOrigin
-			);
-		});
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_fails_with_invalid_bytes() {
-		new_test_ext().execute_with(|| {
-			// Random invalid bytes should fail deserialization
-			let invalid_bytes = vec![0u8; 100];
-
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), invalid_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
-			assert_eq!(err.error, Error::<Test>::AggregatedProofDeserializationFailed.into());
-		});
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_fails_with_block_not_found() {
-		new_test_ext().execute_with(|| {
-			let proof_bytes = get_test_proof_bytes();
-
-			// The proof references a block that doesn't exist in our mock
-			// This should fail with BlockNotFound
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
-			assert_eq!(err.error, Error::<Test>::BlockNotFound.into());
-		});
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_fails_with_nullifier_already_used() {
-		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
-
-			// Set up block hash to match the proof
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
-
-			// Insert a matching block hash
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-
-			// Mark one of the nullifiers as already used
-			if let Some(nullifier) = inputs.nullifiers.first() {
-				let nullifier_bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
-				UsedNullifiers::<Test>::insert(nullifier_bytes, true);
-			}
-
-			let proof_bytes = get_test_proof_bytes();
-
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
-			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
-		});
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_fails_with_wrong_block_hash() {
-		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
-
-			// Set up a block at the right number but with wrong hash
-			let block_number = inputs.block_data.block_number as u64;
-			let wrong_hash = H256::from([0xABu8; 32]); // Wrong hash
-
-			frame_system::BlockHash::<Test>::insert(block_number, wrong_hash);
-
-			let proof_bytes = get_test_proof_bytes();
-
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
-			assert_eq!(err.error, Error::<Test>::InvalidPublicInputs.into());
-		});
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_succeeds_with_valid_state() {
-		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
-
-			// Set up block hash to match the proof
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
-
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-
-			// Set current block number higher than the proof's block
-			System::set_block_number(block_number + 10);
-
-			let proof_bytes = get_test_proof_bytes();
-
-			// This should succeed - proof is valid and state matches
-			assert_ok!(Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes));
-
-			// Verify nullifiers are now marked as used
-			for nullifier in &inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
-				assert!(
-					UsedNullifiers::<Test>::contains_key(nullifier_bytes),
-					"Nullifier should be marked as used"
-				);
-			}
-
-			// Verify event was emitted
-			System::assert_has_event(
-				crate::Event::<Test>::ProofVerified {
-					exit_amount: {
-						// Calculate expected exit amount from public inputs
-						let mut total = 0u128;
-						for account_data in &inputs.account_data {
-							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
-							}
-						}
-						total
-					},
-					nullifiers: inputs
-						.nullifiers
-						.iter()
-						.map(|n| n.as_ref().try_into().unwrap())
-						.collect(),
-				}
-				.into(),
-			);
-		});
-	}
-
-	#[test]
-	fn test_verify_aggregated_proof_cannot_replay() {
-		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
-
-			// Set up block hash to match the proof
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
-
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-			System::set_block_number(block_number + 10);
-
-			let proof_bytes = get_test_proof_bytes();
-
-			// First submission should succeed
-			assert_ok!(Wormhole::verify_aggregated_proof(
-				RawOrigin::None.into(),
-				proof_bytes.clone()
-			));
-
-			// Second submission with same proof should fail (nullifiers already used)
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
-			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
-		});
 	}
 }

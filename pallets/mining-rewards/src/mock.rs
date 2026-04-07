@@ -1,11 +1,11 @@
 use crate as pallet_mining_rewards;
 
-use core::cell::RefCell;
 use frame_support::{
 	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 };
 use pallet_treasury::TreasuryProvider;
+use qp_wormhole::derive_wormhole_account;
 use sp_consensus_qpow::POW_ENGINE_ID;
 use sp_runtime::{
 	app_crypto::sp_core,
@@ -13,9 +13,6 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	BuildStorage, DigestItem,
 };
-
-// Re-export shared test helpers from qp_wormhole
-pub use qp_wormhole::{TestMiner, MINTING_ACCOUNT};
 
 // Configure a mock runtime to test the pallet.
 // Treasury is mocked via TreasuryProvider - no need for full pallet in construct_runtime,
@@ -91,8 +88,8 @@ impl pallet_balances::Config for Test {
 }
 
 parameter_types! {
-	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
-	pub const MintingAccount: sp_core::crypto::AccountId32 = MINTING_ACCOUNT;
+	pub const MintingAccount: sp_core::crypto::AccountId32 =
+		sp_core::crypto::AccountId32::new([99u8; 32]);
 	pub const Unit: u128 = UNIT;
 }
 
@@ -109,57 +106,17 @@ impl pallet_treasury::TreasuryProvider for MockTreasury {
 	}
 }
 
-/// Recorded transfer proof for testing
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordedTransferProof {
-	pub asset_id: Option<u32>,
-	pub from: sp_core::crypto::AccountId32,
-	pub to: sp_core::crypto::AccountId32,
-	pub amount: u128,
-}
-
-thread_local! {
-	/// Storage for recorded transfer proofs (for test verification)
-	static RECORDED_PROOFS: RefCell<Vec<RecordedTransferProof>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Mock proof recorder that tracks recorded proofs for test verification
+// Mock proof recorder that does nothing
 pub struct MockProofRecorder;
-
-impl MockProofRecorder {
-	/// Get all recorded transfer proofs
-	pub fn get_recorded_proofs() -> Vec<RecordedTransferProof> {
-		RECORDED_PROOFS.with(|proofs| proofs.borrow().clone())
-	}
-
-	/// Clear all recorded proofs (call at start of tests)
-	pub fn clear() {
-		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().clear());
-	}
-
-	/// Get the last recorded proof
-	pub fn last_proof() -> Option<RecordedTransferProof> {
-		RECORDED_PROOFS.with(|proofs| proofs.borrow().last().cloned())
-	}
-
-	/// Get the number of recorded proofs
-	pub fn proof_count() -> usize {
-		RECORDED_PROOFS.with(|proofs| proofs.borrow().len())
-	}
-}
-
 impl qp_wormhole::TransferProofRecorder<sp_core::crypto::AccountId32, u32, u128>
 	for MockProofRecorder
 {
 	fn record_transfer_proof(
-		asset_id: Option<u32>,
-		from: sp_core::crypto::AccountId32,
-		to: sp_core::crypto::AccountId32,
-		amount: u128,
+		_asset_id: Option<u32>,
+		_from: sp_core::crypto::AccountId32,
+		_to: sp_core::crypto::AccountId32,
+		_amount: u128,
 	) {
-		RECORDED_PROOFS.with(|proofs| {
-			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
-		});
 	}
 }
 
@@ -175,9 +132,27 @@ impl pallet_mining_rewards::Config for Test {
 	type Unit = Unit;
 }
 
-/// Default test miners for convenience (using shared TestMiner from qp_wormhole)
-pub const MINER_1: TestMiner = TestMiner(1);
-pub const MINER_2: TestMiner = TestMiner(2);
+/// Helper function to convert a u8 to a preimage
+pub fn miner_preimage(id: u8) -> [u8; 32] {
+	[id; 32]
+}
+
+// Configure default miner preimages and addresses for tests
+pub fn miner_preimage_1() -> [u8; 32] {
+	miner_preimage(1)
+}
+
+pub fn miner_preimage_2() -> [u8; 32] {
+	miner_preimage(2)
+}
+
+pub fn miner() -> sp_core::crypto::AccountId32 {
+	derive_wormhole_account(miner_preimage_1())
+}
+
+pub fn miner2() -> sp_core::crypto::AccountId32 {
+	derive_wormhole_account(miner_preimage_2())
+}
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -185,8 +160,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
-			(MINER_1.account_id(), ExistentialDeposit::get()),
-			(MINER_2.account_id(), ExistentialDeposit::get()),
+			(miner(), ExistentialDeposit::get()),
+			(miner2(), ExistentialDeposit::get()),
 			(MockTreasury::account_id(), ExistentialDeposit::get()),
 		],
 		dev_accounts: None,
@@ -199,17 +174,26 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	ext
 }
 
-/// Helper function to create a block digest with a specific preimage.
-/// Use with TestMiner: `set_miner_preimage_digest(MINER_1.preimage())`
-pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
-	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, preimage.to_vec());
-	System::deposit_log(pre_digest);
+// Helper function to create a block digest with a miner preimage
+pub fn set_miner_digest(miner_account: sp_core::crypto::AccountId32) {
+	// Find the preimage that corresponds to this miner address
+	let preimage = if miner_account == miner() {
+		miner_preimage_1()
+	} else if miner_account == miner2() {
+		miner_preimage_2()
+	} else {
+		// For other miners, use their raw bytes as preimage for testing
+		let mut preimage = [0u8; 32];
+		preimage.copy_from_slice(miner_account.as_ref());
+		preimage
+	};
+
+	set_miner_preimage_digest(preimage);
 }
 
-/// Helper function to create a block digest with a custom engine ID.
-/// Used for testing that incorrect engine IDs are properly ignored.
-pub fn set_digest_with_engine_id(engine_id: [u8; 4], data: Vec<u8>) {
-	let pre_digest = DigestItem::PreRuntime(engine_id, data);
+// Helper function to create a block digest with a specific preimage
+pub fn set_miner_preimage_digest(preimage: [u8; 32]) {
+	let pre_digest = DigestItem::PreRuntime(POW_ENGINE_ID, preimage.to_vec());
 	System::deposit_log(pre_digest);
 }
 
