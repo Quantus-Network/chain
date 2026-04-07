@@ -132,8 +132,12 @@ where
 	/// Get an estimate of the number of parallel sync requests.
 	fn num_sync_requests(&self) -> usize;
 
-	fn peer_drop_threshold(&self) -> u32 { 20 }
-	fn disable_major_sync_gating(&self) -> bool { false }
+	fn peer_drop_threshold(&self) -> u32 {
+		20
+	}
+	fn disable_major_sync_gating(&self) -> bool {
+		false
+	}
 	fn set_peer_drop_threshold(&mut self, _value: u32) {}
 	fn set_disable_major_sync_gating(&mut self, _disable: bool) {}
 

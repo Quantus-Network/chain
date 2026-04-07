@@ -317,11 +317,17 @@ where
 		self.chain_sync.as_ref().map_or(0, |chain_sync| chain_sync.num_sync_requests())
 	}
 
-	fn peer_drop_threshold(&self) -> u32 { self.peer_drop_threshold }
+	fn peer_drop_threshold(&self) -> u32 {
+		self.peer_drop_threshold
+	}
 
-	fn disable_major_sync_gating(&self) -> bool { self.disable_major_sync_gating }
+	fn disable_major_sync_gating(&self) -> bool {
+		self.disable_major_sync_gating
+	}
 
-	fn set_peer_drop_threshold(&mut self, value: u32) { self.peer_drop_threshold = value; }
+	fn set_peer_drop_threshold(&mut self, value: u32) {
+		self.peer_drop_threshold = value;
+	}
 
 	fn set_disable_major_sync_gating(&mut self, disable: bool) {
 		self.disable_major_sync_gating = disable;
@@ -393,16 +399,16 @@ where
 				config.block_downloader.clone(),
 				config.min_peers_to_start_warp_sync,
 			);
-		Ok(Self {
-			config,
-			client,
-			warp: Some(warp_sync),
-			state: None,
-			chain_sync: None,
-			peer_best_blocks: Default::default(),
-			peer_drop_threshold: 20,
-			disable_major_sync_gating: false,
-		})
+			Ok(Self {
+				config,
+				client,
+				warp: Some(warp_sync),
+				state: None,
+				chain_sync: None,
+				peer_best_blocks: Default::default(),
+				peer_drop_threshold: 20,
+				disable_major_sync_gating: false,
+			})
 		} else {
 			let chain_sync = ChainSync::new(
 				chain_sync_mode(config.mode),
@@ -414,16 +420,16 @@ where
 				config.metrics_registry.as_ref(),
 				std::iter::empty(),
 			)?;
-		Ok(Self {
-			config,
-			client,
-			warp: None,
-			state: None,
-			chain_sync: Some(chain_sync),
-			peer_best_blocks: Default::default(),
-			peer_drop_threshold: 20,
-			disable_major_sync_gating: false,
-		})
+			Ok(Self {
+				config,
+				client,
+				warp: None,
+				state: None,
+				chain_sync: Some(chain_sync),
+				peer_best_blocks: Default::default(),
+				peer_drop_threshold: 20,
+				disable_major_sync_gating: false,
+			})
 		}
 	}
 

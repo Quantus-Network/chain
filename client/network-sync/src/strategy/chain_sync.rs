@@ -240,10 +240,10 @@ pub(crate) struct PeerSync<B: BlockT> {
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 struct RequestSignature {
-    start_number_u64: u64,
-    is_descending: bool,
-    fields_mask: u32,
-    max_blocks: u32,
+	start_number_u64: u64,
+	is_descending: bool,
+	fields_mask: u32,
+	max_blocks: u32,
 }
 
 impl<B: BlockT> PeerSync<B> {
@@ -882,7 +882,9 @@ where
 				PeerSyncState::AncestorSearch { .. } => {
 					peer.state = PeerSyncState::Available;
 				},
-				PeerSyncState::DownloadingJustification(_) | PeerSyncState::DownloadingState | PeerSyncState::Available => {},
+				PeerSyncState::DownloadingJustification(_) |
+				PeerSyncState::DownloadingState |
+				PeerSyncState::Available => {},
 			}
 			debug!(target: LOG_TARGET, "on_request_failed: now_available={}", matches!(peer.state, PeerSyncState::Available));
 		}
@@ -1083,18 +1085,18 @@ where
 						self.best_queued_hash,
 						self.best_queued_number
 					);
-				self.peers.insert(
-					peer_id,
-					PeerSync {
+					self.peers.insert(
 						peer_id,
-						common_number: self.best_queued_number,
-						best_hash,
-						best_number,
-						state: PeerSyncState::Available,
-						request_signatures: Default::default(),
-					},
-				);
-				return Ok(None);
+						PeerSync {
+							peer_id,
+							common_number: self.best_queued_number,
+							best_hash,
+							best_number,
+							state: PeerSyncState::Available,
+							request_signatures: Default::default(),
+						},
+					);
+					return Ok(None);
 				}
 
 				// If we are at genesis, just start downloading.
@@ -1126,20 +1128,20 @@ where
 					)
 				};
 
-			self.allowed_requests.add(&peer_id);
-			self.peers.insert(
-				peer_id,
-				PeerSync {
+				self.allowed_requests.add(&peer_id);
+				self.peers.insert(
 					peer_id,
-					common_number: Zero::zero(),
-					best_hash,
-					best_number,
-					state,
-					request_signatures: Default::default(),
-				},
-			);
+					PeerSync {
+						peer_id,
+						common_number: Zero::zero(),
+						best_hash,
+						best_number,
+						state,
+						request_signatures: Default::default(),
+					},
+				);
 
-			Ok(req)
+				Ok(req)
 			},
 			Ok(BlockStatus::Queued) |
 			Ok(BlockStatus::InChainWithState) |
@@ -1148,18 +1150,18 @@ where
 					target: LOG_TARGET,
 					"New peer {peer_id} with known best hash {best_hash} ({best_number}).",
 				);
-			self.peers.insert(
-				peer_id,
-				PeerSync {
+				self.peers.insert(
 					peer_id,
-					common_number: std::cmp::min(self.best_queued_number, best_number),
-					best_hash,
-					best_number,
-					state: PeerSyncState::Available,
-					request_signatures: Default::default(),
-				},
-			);
-			self.allowed_requests.add(&peer_id);
+					PeerSync {
+						peer_id,
+						common_number: std::cmp::min(self.best_queued_number, best_number),
+						best_hash,
+						best_number,
+						state: PeerSyncState::Available,
+						request_signatures: Default::default(),
+					},
+				);
+				self.allowed_requests.add(&peer_id);
 				Ok(None)
 			},
 		}
@@ -2176,12 +2178,8 @@ where
 		let max = req.max?;
 		let start_num = match req.from {
 			FromBlock::Number(n) => n.saturated_into::<u64>(),
-			FromBlock::Hash(h) => self
-				.client
-				.number(h)
-				.ok()
-				.flatten()
-				.map(|n| n.saturated_into::<u64>())?,
+			FromBlock::Hash(h) =>
+				self.client.number(h).ok().flatten().map(|n| n.saturated_into::<u64>())?,
 		};
 		let span = max.saturating_sub(1) as u64;
 		match req.direction {

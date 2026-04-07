@@ -405,10 +405,10 @@ where
 				} else {
 					None
 				},
-			pending_responses: PendingResponses::new(),
-			import_queue,
-			peer_failures: HashMap::new(),
-		},
+				pending_responses: PendingResponses::new(),
+				import_queue,
+				peer_failures: HashMap::new(),
+			},
 			SyncingService::new(tx, num_connected, is_major_syncing),
 			block_announce_config,
 		))
@@ -646,7 +646,7 @@ where
 						number,
 					)
 				},
-			SyncingAction::Finished => {
+				SyncingAction::Finished => {
 					debug!(target: LOG_TARGET, "sync finished.");
 				},
 			}
@@ -738,17 +738,17 @@ where
 					self.peers.iter().map(|(peer_id, peer)| (*peer_id, peer.info)).collect();
 				let _ = tx.send(peers_info);
 			},
-		ToServiceCommand::OnBlockFinalized(hash, header) =>
-			self.strategy.on_block_finalized(&hash, *header.number()),
-		ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
-			self.strategy.set_peer_drop_threshold(value);
-			log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
-		},
-		ToServiceCommand::SetDisableMajorSyncGating(disable) => {
-			self.strategy.set_disable_major_sync_gating(disable);
-			log::debug!(target: LOG_TARGET, "disable_major_sync_gating set to {}", disable);
-		},
-	}
+			ToServiceCommand::OnBlockFinalized(hash, header) =>
+				self.strategy.on_block_finalized(&hash, *header.number()),
+			ToServiceCommand::SetMaxTimeoutsBeforeDrop(value) => {
+				self.strategy.set_peer_drop_threshold(value);
+				log::debug!(target: LOG_TARGET, "peer_drop_threshold updated to {}", value);
+			},
+			ToServiceCommand::SetDisableMajorSyncGating(disable) => {
+				self.strategy.set_disable_major_sync_gating(disable);
+				log::debug!(target: LOG_TARGET, "disable_major_sync_gating set to {}", disable);
+			},
+		}
 	}
 
 	fn process_notification_event(&mut self, event: NotificationEvent) {
@@ -1044,41 +1044,45 @@ where
 				let should_drop_peer = !should_gate || *entry >= threshold;
 
 				match e {
-					RequestFailure::Network(OutboundFailure::Timeout) => {
+					RequestFailure::Network(OutboundFailure::Timeout) =>
 						if should_drop_peer {
 							debug!(target: LOG_TARGET, "dropping peer after timeout! {:?}", peer_id);
 							self.network_service.report_peer(peer_id, rep::TIMEOUT);
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
 						} else {
 							debug!(target: LOG_TARGET, "Timeouts for {:?}: {} (major_syncing={} threshold={})", peer_id, *entry, is_major, threshold);
-						}
-					},
+						},
 					RequestFailure::Network(OutboundFailure::UnsupportedProtocols) => {
 						self.network_service.report_peer(peer_id, rep::BAD_PROTOCOL);
 						self.network_service
 							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
 					},
-					RequestFailure::Network(OutboundFailure::DialFailure) => {
+					RequestFailure::Network(OutboundFailure::DialFailure) =>
 						if should_drop_peer {
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
-						}
-					},
-					RequestFailure::Refused => {
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
+						},
+					RequestFailure::Refused =>
 						if should_drop_peer {
 							self.network_service.report_peer(peer_id, rep::REFUSED);
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
-						}
-					},
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
+						},
 					RequestFailure::Network(OutboundFailure::ConnectionClosed) |
-					RequestFailure::NotConnected => {
+					RequestFailure::NotConnected =>
 						if should_drop_peer {
-							self.network_service
-								.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
-						}
-					},
+							self.network_service.disconnect_peer(
+								peer_id,
+								self.block_announce_protocol_name.clone(),
+							);
+						},
 					RequestFailure::UnknownProtocol => {
 						debug_assert!(false, "Block request protocol should always be known.");
 					},
