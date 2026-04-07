@@ -643,6 +643,7 @@ pub fn new_full<
 	enable_peer_sharing: bool,
 	sync_max_timeouts_before_drop: u32,
 	sync_disable_major_sync_gating: bool,
+	sync_block_request_timeout: u64,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -658,6 +659,10 @@ pub fn new_full<
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
 	#[cfg(feature = "tx-logging")]
 	let tx_stream_for_logger = transaction_pool.clone().import_notification_stream();
+
+	sc_network_sync::set_block_request_timeout(
+		std::time::Duration::from_secs(sync_block_request_timeout),
+	);
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,

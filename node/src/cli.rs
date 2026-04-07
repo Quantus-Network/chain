@@ -29,6 +29,10 @@ pub struct Cli {
 	/// Sync: disable gating peer drops during major sync (fast-ban even in major sync).
 	#[arg(long, default_value_t = false)]
 	pub sync_disable_major_sync_gating: bool,
+
+	/// Sync: block request timeout in seconds (default: 30).
+	#[arg(long, default_value_t = 30)]
+	pub sync_block_request_timeout: u64,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -42,3 +42,16 @@ pub mod warp_request_handler;
 
 /// Log target for this crate.
 const LOG_TARGET: &str = "sync";
+
+use std::sync::OnceLock;
+use std::time::Duration;
+
+static BLOCK_REQUEST_TIMEOUT: OnceLock<Duration> = OnceLock::new();
+
+pub fn set_block_request_timeout(timeout: Duration) {
+	BLOCK_REQUEST_TIMEOUT.set(timeout).ok();
+}
+
+pub(crate) fn block_request_timeout() -> Duration {
+	BLOCK_REQUEST_TIMEOUT.get().copied().unwrap_or(Duration::from_secs(30))
+}
