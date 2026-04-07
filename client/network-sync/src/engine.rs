@@ -1093,10 +1093,14 @@ where
 							response receiver.",
 						);
 					},
-					RequestFailure::Network(OutboundFailure::Io(_)) => {
+				RequestFailure::Network(OutboundFailure::Io(ref io_err)) =>
+					if should_drop_peer {
+						debug!(target: LOG_TARGET, "dropping peer after IO error: {:?} {:?}", peer_id, io_err);
 						self.network_service.report_peer(peer_id, rep::IO);
 						self.network_service
 							.disconnect_peer(peer_id, self.block_announce_protocol_name.clone());
+					} else {
+						debug!(target: LOG_TARGET, "IO error for {:?}: {} (major_syncing={} threshold={}) err: {:?}", peer_id, *entry, is_major, threshold, io_err);
 					},
 				}
 				self.strategy.on_request_failed(&peer_id);
