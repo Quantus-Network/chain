@@ -6945,7 +6945,7 @@ dependencies = [
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-header",
- "qp-plonky2 1.3.0",
+ "qp-plonky2",
  "qp-poseidon",
  "qp-poseidon-core",
  "qp-wormhole",
@@ -7284,19 +7284,11 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 [[package]]
 name = "plonky2_maybe_rayon"
 version = "1.0.0"
-
-[[package]]
-name = "plonky2_maybe_rayon"
-version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1e554181dc95243b8d9948ae7bae5759c7fb2502fed28f671f95ef38079406"
 dependencies = [
  "rayon",
 ]
-
-[[package]]
-name = "plonky2_util"
-version = "1.0.0"
 
 [[package]]
 name = "plonky2_util"
@@ -8199,35 +8191,6 @@ version = "0.1.0"
 
 [[package]]
 name = "qp-plonky2"
-version = "1.3.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "critical-section",
- "hashbrown 0.14.5",
- "itertools 0.11.0",
- "keccak-hash 0.8.0",
- "log",
- "num",
- "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "plonky2_maybe_rayon 1.0.0",
- "plonky2_util 1.0.0",
- "qp-plonky2-core 1.3.0",
- "qp-plonky2-field 1.3.0",
- "qp-plonky2-verifier 1.3.0",
- "qp-poseidon-constants",
- "rand 0.8.5",
- "serde",
- "static_assertions",
- "unroll",
-]
-
-[[package]]
-name = "qp-plonky2"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "414a0203c2d4787ad76be16aaa6a3e5bedf4ac5baa66ecfab46ed40c88d10af9"
@@ -8246,11 +8209,11 @@ dependencies = [
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
- "plonky2_maybe_rayon 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "qp-plonky2-core 1.4.0",
- "qp-plonky2-field 1.4.0",
- "qp-plonky2-verifier 1.4.0",
+ "plonky2_maybe_rayon",
+ "plonky2_util",
+ "qp-plonky2-core",
+ "qp-plonky2-field",
+ "qp-plonky2-verifier",
  "qp-poseidon-constants",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -8258,29 +8221,6 @@ dependencies = [
  "static_assertions",
  "unroll",
  "web-time",
-]
-
-[[package]]
-name = "qp-plonky2-core"
-version = "1.3.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "hashbrown 0.14.5",
- "itertools 0.11.0",
- "keccak-hash 0.8.0",
- "log",
- "num",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "plonky2_util 1.0.0",
- "qp-plonky2-field 1.3.0",
- "qp-poseidon-constants",
- "serde",
- "static_assertions",
- "unroll",
 ]
 
 [[package]]
@@ -8300,24 +8240,10 @@ dependencies = [
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
- "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "qp-plonky2-field 1.4.0",
+ "plonky2_util",
+ "qp-plonky2-field",
  "qp-poseidon-constants",
  "rand 0.8.5",
- "serde",
- "static_assertions",
- "unroll",
-]
-
-[[package]]
-name = "qp-plonky2-field"
-version = "1.3.0"
-dependencies = [
- "anyhow",
- "itertools 0.11.0",
- "num",
- "plonky2_util 1.0.0",
- "rustc_version",
  "serde",
  "static_assertions",
  "unroll",
@@ -8332,35 +8258,9 @@ dependencies = [
  "anyhow",
  "itertools 0.11.0",
  "num",
- "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plonky2_util",
  "rand 0.8.5",
  "rustc_version",
- "serde",
- "static_assertions",
- "unroll",
-]
-
-[[package]]
-name = "qp-plonky2-verifier"
-version = "1.3.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "critical-section",
- "hashbrown 0.14.5",
- "itertools 0.11.0",
- "keccak-hash 0.8.0",
- "log",
- "num",
- "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "plonky2_util 1.0.0",
- "qp-plonky2-core 1.3.0",
- "qp-plonky2-field 1.3.0",
- "qp-poseidon-constants",
  "serde",
  "static_assertions",
  "unroll",
@@ -8385,9 +8285,9 @@ dependencies = [
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
- "plonky2_util 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "qp-plonky2-core 1.4.0",
- "qp-plonky2-field 1.4.0",
+ "plonky2_util",
+ "qp-plonky2-core",
+ "qp-plonky2-field",
  "qp-poseidon-constants",
  "serde",
  "static_assertions",
@@ -8494,11 +8394,13 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a96cf6018afa939953257a738e503ce305546c85d8777aa66153f21dc535ffe"
 dependencies = [
  "anyhow",
  "hex",
- "qp-plonky2 1.4.0",
+ "qp-plonky2",
  "qp-wormhole-circuit",
  "qp-wormhole-inputs",
  "qp-wormhole-prover",
@@ -8510,22 +8412,26 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b86a9f070a7cc9d00e69caed517d2add5913484ce05052e3fb9849cd9c0587d4"
 dependencies = [
  "anyhow",
  "hex",
- "qp-plonky2 1.4.0",
+ "qp-plonky2",
  "qp-wormhole-inputs",
  "qp-zk-circuits-common",
 ]
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "177ce48156dd5fe8d84e581ba70ffaf4ee1334986697f58305b04c11b9d3566c"
 dependencies = [
  "anyhow",
  "clap",
- "qp-plonky2 1.4.0",
+ "qp-plonky2",
  "qp-wormhole-aggregator",
  "qp-wormhole-circuit",
  "qp-zk-circuits-common",
@@ -8533,17 +8439,21 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b81b137f4cf98b62f4437694fb1849e07b65f2b556dddeea6e91e7209cbf168"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fae60b441328ecf956c5bd34c98810cb7d536bccdc65ceccfed5bf2b46344eb"
 dependencies = [
  "anyhow",
- "qp-plonky2 1.4.0",
+ "qp-plonky2",
  "qp-wormhole-circuit",
  "qp-wormhole-inputs",
  "qp-zk-circuits-common",
@@ -8551,20 +8461,24 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f9d517f9570578944a22a53f514ce9f7643857f28b256252c6ba82cbebc308a"
 dependencies = [
  "anyhow",
- "qp-plonky2-verifier 1.4.0",
+ "qp-plonky2-verifier",
  "qp-wormhole-inputs",
 ]
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "1.3.0"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d0649182166496ef48ad23f9c94062baf5d98499c409ff9a92f784bf5fa4efe"
 dependencies = [
  "anyhow",
  "hex",
- "qp-plonky2 1.4.0",
+ "qp-plonky2",
  "qp-poseidon-constants",
  "qp-poseidon-core",
  "qp-wormhole-inputs",
