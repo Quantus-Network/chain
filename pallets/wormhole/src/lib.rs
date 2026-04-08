@@ -346,9 +346,8 @@ pub mod pallet {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::AggregatedVerificationFailed => {
-							Some(<T as Config>::WeightInfo::verify_aggregated_proof())
-						},
+						Error::<T>::AggregatedVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_aggregated_proof()),
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
@@ -568,22 +567,15 @@ pub mod pallet {
 		fn validate_proof(
 			proof_bytes: &[u8],
 		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
-			let verifier = crate::get_aggregated_verifier().map_err(|e| {
-				log::error!("validate_proof: verifier not available: {}", e);
-				Error::<T>::AggregatedVerifierNotAvailable
-			})?;
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,
 			)
-			.map_err(|e| {
-				log::error!("validate_proof: proof deserialization failed: {:?}", e);
-				Error::<T>::AggregatedProofDeserializationFailed
-			})?;
-			let inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
-				log::error!("validate_proof: parse public inputs failed: {:?}", e);
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
+			let inputs = parse_aggregated_public_inputs(&proof)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 			ensure!(
 				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
@@ -591,36 +583,28 @@ pub mod pallet {
 			);
 			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-			if block_hash == T::Hash::default() {
-				log::error!("validate_proof: block not found for block_number {:?}", block_number);
-				return Err(Error::<T>::BlockNotFound);
-			}
-			if block_hash.as_ref() != inputs.block_data.block_hash.as_ref() {
-				log::error!(
-					"validate_proof: block hash mismatch - expected {:?}, got {:?}",
-					inputs.block_data.block_hash,
-					block_hash
-				);
-				return Err(Error::<T>::InvalidPublicInputs);
-			}
+			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
+			ensure!(
+				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
 			for nullifier in &inputs.nullifiers {
 				let bytes: [u8; 32] = (*nullifier)
 					.as_ref()
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				if UsedNullifiers::<T>::contains_key(bytes) {
-					log::error!("validate_proof: nullifier already used: {:?}", bytes);
-					return Err(Error::<T>::NullifierAlreadyUsed);
-				}
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
 			}
 
 			// Full ZK verification - if this fails, full verification weight was consumed
 			verifier.verify(proof.clone()).map_err(|e| {
-				log::error!("validate_proof: ZK verification failed: {:?}", e);
+				log::error!("Aggregated proof verification failed: {:?}", e);
 				Error::<T>::AggregatedVerificationFailed
 			})?;
 
-			log::info!("validate_proof: proof verified successfully");
 			Ok((proof, inputs))
 		}
 

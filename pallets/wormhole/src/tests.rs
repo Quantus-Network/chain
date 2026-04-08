@@ -537,8 +537,8 @@ mod aggregated_proof_tests {
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
 							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128)
-									* crate::SCALE_DOWN_FACTOR;
+								total += (account_data.summed_output_amount as u128) *
+									crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total
