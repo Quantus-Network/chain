@@ -57,8 +57,7 @@ pub mod pallet {
 	use sp_runtime::{
 		traits::{MaybeDisplay, One, Saturating, Zero},
 		transaction_validity::{
-			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
-			ValidTransaction,
+			InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 		},
 		Permill,
 	};
@@ -531,10 +530,18 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_aggregated_proof { proof_bytes } => {
-					Self::pre_validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
+					let (_proof, inputs) = Self::pre_validate_proof(proof_bytes)
+						.map_err(|_| InvalidTransaction::Call)?;
+
+					// Priority based on total transfer volume - higher value transfers get
+					// priority. This prevents DoS since attackers must transfer real value to
+					// get high priority.
+					let total_amount: u64 =
+						inputs.account_data.iter().map(|a| a.summed_output_amount as u64).sum();
+
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(TransactionPriority::MAX / 2)
+						.priority(total_amount)
 						.longevity(5)
 						.propagate(true)
 						.build()
