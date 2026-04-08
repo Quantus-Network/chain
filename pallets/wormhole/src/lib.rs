@@ -328,8 +328,8 @@ pub mod pallet {
 		/// Verify an aggregated wormhole proof and process all transfers in the batch.
 		///
 		/// Returns `DispatchResultWithPostInfo` to allow weight correction on early failures.
-		/// If pre-validation fails (deserialization, cheap checks), we return the actual
-		/// consumed weight to free block capacity for other transactions.
+		/// If validation fails before ZK verification, we return minimal weight.
+		/// If ZK verification fails, we return full weight since the work was done.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
 		pub fn verify_aggregated_proof(
@@ -338,25 +338,28 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			// Pre-validate proof (deserialization + cheap checks, no ZK verification).
-			// This is also called in validate_unsigned for pool admission, but we call it
-			// here as defense-in-depth. If it fails, return minimal weight since we did
-			// almost no work compared to the declared weight for full ZK verification.
-			let pre_validate_result = Self::pre_validate_proof(&proof_bytes);
-			let (proof, aggregated_inputs) = match pre_validate_result {
+			// Full validation including ZK verification (defense-in-depth, also done in
+			// validate_unsigned). Weight returned depends on which stage failed.
+			let (_proof, aggregated_inputs) = match Self::validate_proof(&proof_bytes) {
 				Ok(result) => result,
 				Err(e) => {
-					return Err(DispatchErrorWithPostInfo {
-						post_info: PostDispatchInfo {
-							actual_weight: Some(<T as Config>::WeightInfo::pre_validate_proof()),
-							pays_fee: Pays::No,
+					// Determine weight based on which stage failed
+					let actual_weight = match e {
+						// ZK verification was attempted - full weight consumed
+						Error::<T>::AggregatedVerificationFailed => {
+							Some(<T as Config>::WeightInfo::verify_aggregated_proof())
 						},
+						// Failed before ZK verification - minimal weight
+						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
+					};
+					return Err(DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
 						error: e.into(),
 					});
 				},
 			};
 
-			// Mark nullifiers as used (pre_validate_proof only checks existence)
+			// Mark nullifiers as used (validate_proof only checks existence)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
@@ -366,13 +369,6 @@ pub mod pallet {
 				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 				nullifier_list.push(nullifier_bytes);
 			}
-
-			let verifier = crate::get_aggregated_verifier()
-				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
-			verifier.verify(proof.clone()).map_err(|e| {
-				log::error!("Aggregated proof verification failed: {:?}", e);
-				Error::<T>::AggregatedVerificationFailed
-			})?;
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
@@ -530,12 +526,14 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_aggregated_proof { proof_bytes } => {
-					let (_proof, inputs) = Self::pre_validate_proof(proof_bytes)
-						.map_err(|_| InvalidTransaction::Call)?;
+					// Full validation including ZK verification - prevents invalid proofs
+					// with high amounts from entering the pool and crowding out valid txs
+					let (_proof, inputs) =
+						Self::validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
 
 					// Priority based on total transfer volume - higher value transfers get
-					// priority. This prevents DoS since attackers must transfer real value to
-					// get high priority.
+					// priority. This prevents DoS since attackers must transfer real value
+					// (and valid proofs) to get high priority.
 					let total_amount: u64 =
 						inputs.account_data.iter().map(|a| a.summed_output_amount as u64).sum();
 
@@ -549,23 +547,43 @@ pub mod pallet {
 				_ => InvalidTransaction::Call.into(),
 			}
 		}
+
+		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
+			// Skip re-validation - validate_unsigned already did full verification,
+			// and dispatch will verify again as defense-in-depth
+			match call {
+				Call::verify_aggregated_proof { .. } => Ok(()),
+				_ => Err(InvalidTransaction::Call.into()),
+			}
+		}
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Pre-validate an aggregated proof (all cheap checks, no ZK verification).
+		/// Validate an aggregated proof (cheap checks + full ZK verification).
 		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
-		fn pre_validate_proof(
+		///
+		/// Errors before ZK verification (deserialization, nullifier checks, etc.) allow
+		/// dispatch to return minimal weight. `AggregatedVerificationFailed` indicates
+		/// full ZK verification was attempted.
+		fn validate_proof(
 			proof_bytes: &[u8],
 		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
-			let verifier = crate::get_aggregated_verifier()
-				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			let verifier = crate::get_aggregated_verifier().map_err(|e| {
+				log::error!("validate_proof: verifier not available: {}", e);
+				Error::<T>::AggregatedVerifierNotAvailable
+			})?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,
 			)
-			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
-			let inputs = parse_aggregated_public_inputs(&proof)
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			.map_err(|e| {
+				log::error!("validate_proof: proof deserialization failed: {:?}", e);
+				Error::<T>::AggregatedProofDeserializationFailed
+			})?;
+			let inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
+				log::error!("validate_proof: parse public inputs failed: {:?}", e);
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
 			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 			ensure!(
 				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
@@ -573,21 +591,36 @@ pub mod pallet {
 			);
 			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
 			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
-			ensure!(
-				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
-				Error::<T>::InvalidPublicInputs
-			);
+			if block_hash == T::Hash::default() {
+				log::error!("validate_proof: block not found for block_number {:?}", block_number);
+				return Err(Error::<T>::BlockNotFound);
+			}
+			if block_hash.as_ref() != inputs.block_data.block_hash.as_ref() {
+				log::error!(
+					"validate_proof: block hash mismatch - expected {:?}, got {:?}",
+					inputs.block_data.block_hash,
+					block_hash
+				);
+				return Err(Error::<T>::InvalidPublicInputs);
+			}
 			for nullifier in &inputs.nullifiers {
 				let bytes: [u8; 32] = (*nullifier)
 					.as_ref()
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
+				if UsedNullifiers::<T>::contains_key(bytes) {
+					log::error!("validate_proof: nullifier already used: {:?}", bytes);
+					return Err(Error::<T>::NullifierAlreadyUsed);
+				}
 			}
+
+			// Full ZK verification - if this fails, full verification weight was consumed
+			verifier.verify(proof.clone()).map_err(|e| {
+				log::error!("validate_proof: ZK verification failed: {:?}", e);
+				Error::<T>::AggregatedVerificationFailed
+			})?;
+
+			log::info!("validate_proof: proof verified successfully");
 			Ok((proof, inputs))
 		}
 
