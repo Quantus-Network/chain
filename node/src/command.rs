@@ -546,6 +546,7 @@ pub fn run() -> sc_cli::Result<()> {
 					cli.sync_max_timeouts_before_drop,
 					cli.sync_disable_major_sync_gating,
 					cli.sync_block_request_timeout,
+					cli.run.shared_params.is_dev(),
 				)
 				.map_err(sc_cli::Error::Service)
 			})
