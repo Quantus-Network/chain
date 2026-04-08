@@ -329,7 +329,7 @@ async fn mining_loop(
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	miner_server: Option<Arc<MinerServer>>,
 	cancellation_token: CancellationToken,
-	is_dev: bool,
+	allow_mining_without_peers: bool,
 ) {
 	log::info!("⛏️ QPoW Mining task spawned");
 
@@ -356,9 +356,9 @@ async fn mining_loop(
 			continue;
 		}
 
-		// Don't mine if we have no peers (unless in dev mode)
+		// Don't mine if we have no peers (unless --dev or --force-authoring)
 		// Use a grace period to handle brief network hiccups
-		if !is_dev && sync_service.is_offline() {
+		if !allow_mining_without_peers && sync_service.is_offline() {
 			let now = std::time::Instant::now();
 			match offline_since {
 				None => {
@@ -463,7 +463,7 @@ fn spawn_authority_tasks(
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
 		+ 'static,
-	is_dev: bool,
+	allow_mining_without_peers: bool,
 ) {
 	// Create block proposer factory
 	let proposer = ProposerFactory::new(
@@ -531,7 +531,7 @@ fn spawn_authority_tasks(
 				},
 			}
 		} else {
-			log::warn!("⚠️ No --miner-listen-port specified. Using LOCAL mining only.");
+			log::warn!("⚠️  No --miner-listen-port specified. Using LOCAL mining only.");
 			None
 		};
 
@@ -541,7 +541,7 @@ fn spawn_authority_tasks(
 			sync_service,
 			miner_server,
 			mining_cancellation_token,
-			is_dev,
+			allow_mining_without_peers,
 		)
 		.await;
 	});
@@ -689,7 +689,7 @@ pub fn new_full<
 	sync_max_timeouts_before_drop: u32,
 	sync_disable_major_sync_gating: bool,
 	sync_block_request_timeout: u64,
-	is_dev: bool,
+	allow_mining_without_peers: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -810,7 +810,7 @@ pub fn new_full<
 			miner_listen_port,
 			tx_stream_for_worker,
 			tx_stream_for_logger,
-			is_dev,
+			allow_mining_without_peers,
 		);
 		#[cfg(not(feature = "tx-logging"))]
 		spawn_authority_tasks(
@@ -823,7 +823,7 @@ pub fn new_full<
 			rewards_address,
 			miner_listen_port,
 			tx_stream_for_worker,
-			is_dev,
+			allow_mining_without_peers,
 		);
 	}
 

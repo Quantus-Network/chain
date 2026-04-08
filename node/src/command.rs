@@ -533,6 +533,9 @@ pub fn run() -> sc_cli::Result<()> {
 						},
 				};
 
+				// Allow mining without peers if --dev or --force-authoring is set
+				let allow_mining_without_peers = config.force_authoring;
+
 				service::new_full::<
 					sc_network::NetworkWorker<
 						quantus_runtime::opaque::Block,
@@ -546,7 +549,7 @@ pub fn run() -> sc_cli::Result<()> {
 					cli.sync_max_timeouts_before_drop,
 					cli.sync_disable_major_sync_gating,
 					cli.sync_block_request_timeout,
-					cli.run.shared_params.is_dev(),
+					allow_mining_without_peers,
 				)
 				.map_err(sc_cli::Error::Service)
 			})
