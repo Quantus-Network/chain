@@ -307,3 +307,15 @@ const MAX_CONNECTIONS_ESTABLISHED_INCOMING: u32 = 10_000;
 
 /// Maximum response size limit.
 pub const MAX_RESPONSE_SIZE: u64 = 16 * 1024 * 1024;
+
+use std::{sync::OnceLock, time::Duration};
+
+static TRANSPORT_TIMEOUT: OnceLock<Duration> = OnceLock::new();
+
+pub fn set_transport_timeout(timeout: Duration) {
+	TRANSPORT_TIMEOUT.set(timeout).ok();
+}
+
+pub(crate) fn transport_timeout() -> Duration {
+	TRANSPORT_TIMEOUT.get().copied().unwrap_or(Duration::from_secs(30))
+}
