@@ -19,8 +19,8 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	configs::TreasuryPalletId, AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig,
-	SudoConfig, EXISTENTIAL_DEPOSIT, UNIT,
+	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, SudoConfig, EXISTENTIAL_DEPOSIT,
+	UNIT,
 };
 use alloc::{vec, vec::Vec};
 use pallet_multisig::Pallet as Multisig;
@@ -29,7 +29,7 @@ use serde_json::Value;
 use sp_core::crypto::Ss58Codec;
 use sp_genesis_builder::{self, PresetId};
 use sp_runtime::{
-	traits::{AccountIdConversion, IdentifyAccount, Zero},
+	traits::{IdentifyAccount, Zero},
 	Permill,
 };
 
@@ -60,18 +60,16 @@ fn test_wormhole_account() -> AccountId {
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 
-/// Identifier for the dirac runtime preset.
-pub const DIRAC_RUNTIME_PRESET: &str = "dirac";
+/// Identifier for the planck runtime preset.
+pub const PLANCK_RUNTIME_PRESET: &str = "planck";
+
+/// SS58 address format used by all Quantus chains.
+fn ss58_version() -> sp_core::crypto::Ss58AddressFormat {
+	sp_core::crypto::Ss58AddressFormat::custom(189)
+}
 
 fn heisenberg_root_account() -> AccountId {
-	account_from_ss58("qzpXdKnqr62KUgBxb9RAbJjFC5GgjGriBx7KyfhVMk6oMMYiy")
-}
-
-fn dirac_root_account() -> AccountId {
-	account_from_ss58("qznYQKUeV5un22rXh7CCQB7Bsac74jynVDs2qbHk1hpPMjocB")
-}
-fn dirac_faucet_account() -> AccountId {
-	account_from_ss58("qzn2h1xdg8N1QCLbL5BYxAikYvpVnyELtFkYqHEhwrDTx9bhr")
+	account_from_ss58("qzk69g9d4d3iehaFR1gN7FJQXpfEegfT3EpiGmFei1BG5impU")
 }
 
 fn dilithium_default_accounts() -> Vec<AccountId> {
@@ -226,9 +224,8 @@ pub fn development_config_genesis() -> Value {
 pub fn heisenberg_config_genesis() -> Value {
 	let mut endowed_accounts = vec![heisenberg_root_account()];
 	endowed_accounts.extend(dilithium_default_accounts());
-	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
-		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
+		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version()));
 	}
 	let treasury = TreasuryGenesis {
 		account: heisenberg_treasury_account(),
@@ -237,17 +234,32 @@ pub fn heisenberg_config_genesis() -> Value {
 	genesis_template(endowed_accounts, heisenberg_root_account(), treasury)
 }
 
-pub fn dirac_config_genesis() -> Value {
-	let endowed_accounts = vec![dirac_root_account(), dirac_faucet_account()];
-	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
+fn planck_root_account() -> AccountId {
+	account_from_ss58("qzk69g9d4d3iehaFR1gN7FJQXpfEegfT3EpiGmFei1BG5impU")
+}
+
+fn planck_faucet_account() -> AccountId {
+	account_from_ss58("qzka7DZXAT7GnzgXQfxiSwrPKRWgW6m6G89QRsQiLThThZ6Cw")
+}
+
+fn planck_treasury_account() -> AccountId {
+	let signers = vec![
+		account_from_ss58("qzoRRfx5bUSdq2YWSXBXrmFFSwe24bNSUoMu3Vhz5hrtPri7D"),
+		account_from_ss58("qzkscJp9ofGZzQbhAdySSNx3pmfKBDq9vqdfT8ZHNjp4GiwFq"),
+		account_from_ss58("qzjxqVV6hzauZkBPBvvMxVv1o7ifp2XZj1J1qLTnze3yh7uhu"),
+	];
+	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
+}
+
+pub fn planck_config_genesis() -> Value {
+	let mut endowed_accounts = vec![planck_root_account(), planck_faucet_account()];
+	endowed_accounts.extend(dilithium_default_accounts());
 	for account in endowed_accounts.iter() {
-		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
+		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version()));
 	}
-	let treasury = TreasuryGenesis {
-		account: TreasuryPalletId::get().into_account_truncating(),
-		portion: Permill::from_percent(30),
-	};
-	genesis_template(endowed_accounts, dirac_root_account(), treasury)
+	let treasury =
+		TreasuryGenesis { account: planck_treasury_account(), portion: Permill::from_percent(30) };
+	genesis_template(endowed_accounts, planck_root_account(), treasury)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
@@ -255,7 +267,7 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
 		HEISENBERG_RUNTIME_PRESET => heisenberg_config_genesis(),
-		DIRAC_RUNTIME_PRESET => dirac_config_genesis(),
+		PLANCK_RUNTIME_PRESET => planck_config_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -276,6 +288,6 @@ pub fn preset_names() -> Vec<PresetId> {
 	vec![
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
 		PresetId::from(HEISENBERG_RUNTIME_PRESET),
-		PresetId::from(DIRAC_RUNTIME_PRESET),
+		PresetId::from(PLANCK_RUNTIME_PRESET),
 	]
 }

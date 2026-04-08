@@ -30,4 +30,4 @@ USER 10001:10001
 
 # Start the node
 ENTRYPOINT ["quantus-node"]
-CMD ["--chain", "dirac_live_spec"]
+CMD ["--chain", "planck_live_spec"]

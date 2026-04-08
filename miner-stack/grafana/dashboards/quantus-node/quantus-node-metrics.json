@@ -225,7 +225,7 @@
       },
       "targets": [
         {
-          "expr": "(node_memory_MemTotal_bytes{job=\"dirac-node\"} - node_memory_MemAvailable_bytes{job=\"dirac-node\"})",
+          "expr": "(node_memory_MemTotal_bytes{job=\"quantus-node\"} - node_memory_MemAvailable_bytes{job=\"quantus-node\"})",
           "legendFormat": "Memory Used - {{instance}}",
           "refId": "A"
         }
@@ -308,7 +308,7 @@
       },
       "targets": [
         {
-          "expr": "avg(rate(node_cpu_seconds_total{job=\"dirac-node\",mode!=\"idle\"}[5m])) by (instance) * 100",
+          "expr": "avg(rate(node_cpu_seconds_total{job=\"quantus-node\",mode!=\"idle\"}[5m])) by (instance) * 100",
           "legendFormat": "CPU Usage - {{instance}}",
           "refId": "A"
         }
@@ -563,12 +563,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(node_network_transmit_bytes_total{job=\"dirac-node\"}[1m])) / 1024 / 1024",
+          "expr": "sum(rate(node_network_transmit_bytes_total{job=\"quantus-node\"}[1m])) / 1024 / 1024",
           "legendFormat": "Outbound",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(node_network_receive_bytes_total{job=\"dirac-node\"}[1m])) / 1024 / 1024",
+          "expr": "sum(rate(node_network_receive_bytes_total{job=\"quantus-node\"}[1m])) / 1024 / 1024",
           "legendFormat": "Inbound",
           "refId": "B"
         }
@@ -652,12 +652,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (instance) (rate(node_network_transmit_bytes_total{job=\"dirac-node\"}[1m])) / 1024 / 1024",
+          "expr": "sum by (instance) (rate(node_network_transmit_bytes_total{job=\"quantus-node\"}[1m])) / 1024 / 1024",
           "legendFormat": "{{instance}} - TX",
           "refId": "A"
         },
         {
-          "expr": "sum by (instance) (rate(node_network_receive_bytes_total{job=\"dirac-node\"}[1m])) / 1024 / 1024",
+          "expr": "sum by (instance) (rate(node_network_receive_bytes_total{job=\"quantus-node\"}[1m])) / 1024 / 1024",
           "legendFormat": "{{instance}} - RX",
           "refId": "B"
         }
@@ -670,7 +670,7 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "dirac",
+    "planck",
     "node-metrics"
   ],
   "templating": {
@@ -683,7 +683,7 @@
   "timepicker": {},
   "timezone": "",
   "title": "Quantus - Node Metrics",
-  "uid": "dirac-node-metrics",
+  "uid": "quantus-node-metrics",
   "version": 1,
   "weekStart": ""
 }

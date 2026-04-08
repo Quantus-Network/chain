@@ -89,13 +89,13 @@ If you prefer manual installation or the script doesn't work for your system:
    
    **Save the preimage** - you'll need it for the `--rewards-address` parameter.
 
-4. **Run the node (Dirac testnet)**
+4. **Run the node (Planck network)**
 
 Minimal command - see --help for many more options
 ```sh
 ./quantus-node \
     --validator \
-    --chain dirac \
+    --chain planck \
     --node-key-file ~/.quantus/node_key.p2p \
     --rewards-preimage <YOUR_PREIMAGE_FROM_STEP_3> \
     --max-blocks-per-request 64 \
@@ -103,7 +103,6 @@ Minimal command - see --help for many more options
 ```
 
 **Note:** Use the `inner_hash` from step 3 as your `--rewards-preimage`. The node will derive your wormhole address and log it on startup.
-
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:
@@ -163,7 +162,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain dirac \
+  --chain planck \
   --node-key-file /var/lib/quantus/node_key.p2p \
   --rewards-preimage <YOUR_PREIMAGE>
 ```
@@ -227,7 +226,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain dirac \
+  --chain planck \
   --rewards-address YOUR_ADDRESS_HERE
 ```
 
@@ -273,7 +272,7 @@ For high-performance mining, you can offload the mining process to a separate se
    # Replace <YOUR_PREIMAGE> with the inner_hash from step 1
    RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
     --validator \
-    --chain dirac \
+    --chain planck \
     --external-miner-url http://127.0.0.1:9833 \
     --rewards-preimage <YOUR_PREIMAGE>
    ```
@@ -288,11 +287,13 @@ For developers building custom miner implementations, see the [External Miner Pr
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
 | `--rewards-preimage` | Wormhole preimage (inner_hash from key generation) | Required |
-| `--chain` | Chain specification | `dirac` |
+| `--chain` | Chain specification | `planck` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
 | `--name` | Node display name | Auto-generated |
 | `--base-path` | Data directory | `~/.local/share/quantus-node` |
+
+
 
 ## Monitoring Your Node
 
@@ -301,7 +302,7 @@ For developers building custom miner implementations, see the [External Miner Pr
 **View Logs**
 ```bash
 # Real-time logs
-tail -f ~/.local/share/quantus-node/chains/dirac/network/quantus-node.log
+tail -f ~/.local/share/quantus-node/chains/planck/network/quantus-node.log
 
 # Or run with verbose logging
 RUST_LOG=info quantus-node [options]
@@ -336,8 +337,8 @@ curl -H "Content-Type: application/json" \
 
 ## Testnet Information
 
-- **Chain**: Dirac Testnet
-- **Consensus**: Proof of Work (PoW) using Poseidon2 hash function
+- **Chain**: Planck network
+- **Consensus**: Quantum Proof of Work (QPoW)
 - **Block Time**: ~6 seconds target
 - **Network Explorer**: Coming soon
 - **Faucet**: See Telegram
@@ -355,7 +356,7 @@ quantus-node --port 30334 --prometheus-port 9617 [other options]
 **Database Corruption**
 ```bash
 # Purge and resync
-quantus-node purge-chain --chain dirac
+quantus-node purge-chain --chain planck
 ```
 
 **Mining Not Working**

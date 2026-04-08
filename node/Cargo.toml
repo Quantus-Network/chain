@@ -41,6 +41,7 @@ qp-dilithium-crypto = { workspace = true }
 qp-poseidon.workspace = true
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
+qp-wormhole.workspace = true
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
