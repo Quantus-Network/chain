@@ -915,7 +915,12 @@ where
 /// Constants used into trie simplification codec.
 mod trie_constants {
 	pub const EMPTY_TRIE: u64 = 0x00000000_00000000; // 8-byte null header for new format
-	pub const ESCAPE_COMPACT_HEADER: u8 = 0x01; // Update since EMPTY_TRIE is now an array
+	                                              // ESCAPE_COMPACT_HEADER removed - was 0x01 which
+	                                              // collided with valid node headers
+	                                              // where nibble_count % 256 == 1. Quantus uses ZK
+	                                              // proofs, not compact Merkle proofs,
+	                                              // so ESCAPE_HEADER is now set to None in
+	                                              // NodeCodec (audit issue #1).
 }
 
 #[cfg(test)]
@@ -2581,5 +2586,208 @@ mod tests {
 		}
 
 		println!("✅ delta_trie_root block import test passed!");
+	}
+
+	/// Test that simulates the multiround corruption scenario with 84 events.
+	/// This test verifies that large SCALE-encoded Vecs can be stored and retrieved
+	/// correctly through the felt-aligned trie encoding.
+	#[test]
+	fn test_large_scale_vec_storage_84_elements() {
+		use codec::{Decode, Encode};
+		use trie_db::{TrieDBMutBuilder, TrieMut};
+
+		println!("Testing large SCALE Vec storage (84 elements)...");
+
+		fn decode_hex(s: &str) -> Vec<u8> {
+			(0..s.len())
+				.step_by(2)
+				.map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+				.collect()
+		}
+
+		// System::Events storage key
+		let events_key =
+			decode_hex("26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7");
+
+		// Create a mock event structure (simplified)
+		#[derive(Clone, Debug, PartialEq, Encode, Decode)]
+		struct MockEvent {
+			phase: u8,
+			event_data: Vec<u8>,
+			topics: Vec<[u8; 32]>,
+		}
+
+		// Create 84 events (the number from the corruption error)
+		let events: Vec<MockEvent> = (0..84u8)
+			.map(|i| MockEvent {
+				phase: i,
+				event_data: vec![i; 50], // 50 bytes of event data each
+				topics: vec![[i; 32]],   // One topic per event
+			})
+			.collect();
+
+		let encoded_events = events.encode();
+		println!("Encoded {} events, total size: {} bytes", events.len(), encoded_events.len());
+
+		let mut memdb = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+		let mut root = Default::default();
+
+		// Store the events
+		{
+			let mut trie = TrieDBMutBuilder::<LayoutV1>::new(&mut memdb, &mut root).build();
+			trie.insert(&events_key, &encoded_events).expect("Failed to insert events");
+			println!("Inserted events into trie");
+		}
+
+		println!("Root after insertion: {:?}", root);
+
+		// Read back and verify
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			let stored_bytes = trie
+				.get(&events_key)
+				.expect("Failed to get events")
+				.expect("Events should exist");
+
+			println!("Retrieved {} bytes from trie", stored_bytes.len());
+
+			// Verify bytes match
+			assert_eq!(stored_bytes.len(), encoded_events.len(), "Stored bytes length mismatch");
+			assert_eq!(stored_bytes, encoded_events, "Stored bytes content mismatch");
+
+			// Now decode and verify each element
+			let decoded_events: Vec<MockEvent> = Vec::<MockEvent>::decode(&mut &stored_bytes[..])
+				.expect("Failed to decode events - this is the corruption bug!");
+
+			assert_eq!(decoded_events.len(), 84, "Should have 84 events");
+
+			for (i, event) in decoded_events.iter().enumerate() {
+				assert_eq!(event.phase, i as u8, "Event {} phase mismatch", i);
+				assert_eq!(event.event_data, vec![i as u8; 50], "Event {} data mismatch", i);
+			}
+
+			println!("✓ All 84 events decoded correctly");
+		}
+
+		println!("✅ Large SCALE Vec storage test passed!");
+	}
+
+	/// Test nodes with nibble_count=1 to verify ESCAPE_HEADER collision doesn't cause issues.
+	/// A Branch node with has_value=true and nibble_count=1 encodes with first byte 0x01,
+	/// which collides with ESCAPE_COMPACT_HEADER.
+	#[test]
+	fn test_escape_header_collision_nibble_count_1() {
+		use trie_db::{TrieDBMutBuilder, TrieMut};
+
+		println!("Testing ESCAPE_HEADER collision with nibble_count=1...");
+
+		let mut memdb = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+		let mut root = Default::default();
+
+		// Create keys that will result in branch nodes with nibble_count=1
+		// We need keys that share a common prefix except for one nibble
+		let keys_and_values = vec![
+			// These keys share prefix and should create internal branch nodes
+			(vec![0x10], vec![1u8; 32]),
+			(vec![0x11], vec![2u8; 32]),
+			(vec![0x12], vec![3u8; 32]),
+			// Add more to create deeper structure
+			(vec![0x10, 0x00], vec![4u8; 32]),
+			(vec![0x10, 0x01], vec![5u8; 32]),
+			// Keys that differ by single nibble to force nibble_count=1 branches
+			(vec![0xA0], vec![6u8; 32]),
+			(vec![0xA1], vec![7u8; 32]),
+		];
+
+		// Insert all keys
+		{
+			let mut trie = TrieDBMutBuilder::<LayoutV1>::new(&mut memdb, &mut root).build();
+			for (key, value) in &keys_and_values {
+				trie.insert(key, value).expect("Insert failed");
+			}
+		}
+
+		println!("Root: {:?}", root);
+
+		// Verify all can be read back
+		{
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb, &root).build();
+			for (key, expected_value) in &keys_and_values {
+				let result = trie.get(key).expect("Get failed");
+				assert_eq!(
+					result.as_ref(),
+					Some(expected_value),
+					"Value mismatch for key {:02x?}",
+					key
+				);
+			}
+			println!("✓ All values retrieved correctly");
+		}
+
+		// Now test with 257 nibbles (257 % 256 == 1, another collision point)
+		// This would require a very long key, which is unusual but let's test a medium case
+		{
+			let mut memdb2 = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+			let mut root2 = Default::default();
+
+			// Create keys with specific lengths to test various nibble counts
+			let long_key_a = vec![0xAB; 64]; // 128 nibbles
+			let mut long_key_b = long_key_a.clone();
+			long_key_b[63] = 0xAC; // Differ in last byte
+
+			let mut trie = TrieDBMutBuilder::<LayoutV1>::new(&mut memdb2, &mut root2).build();
+			trie.insert(&long_key_a, &[1u8; 100]).expect("Insert long key A failed");
+			trie.insert(&long_key_b, &[2u8; 100]).expect("Insert long key B failed");
+			drop(trie);
+
+			let trie = trie_db::TrieDBBuilder::<LayoutV1>::new(&memdb2, &root2).build();
+			assert_eq!(trie.get(&long_key_a).unwrap(), Some(vec![1u8; 100]), "Long key A mismatch");
+			assert_eq!(trie.get(&long_key_b).unwrap(), Some(vec![2u8; 100]), "Long key B mismatch");
+			println!("✓ Long keys with potential collision retrieved correctly");
+		}
+
+		println!("✅ ESCAPE_HEADER collision test passed!");
+	}
+
+	/// Test ByteSliceInput::take with edge cases to verify overflow protection.
+	#[test]
+	fn test_byte_slice_input_overflow_protection() {
+		use crate::node_codec::NodeCodec;
+		use trie_db::NodeCodec as NodeCodecT;
+
+		println!("Testing ByteSliceInput overflow protection...");
+
+		// Test with a node that has a corrupted length field
+		// This simulates what could happen with Issue #2 or #6
+
+		// Create a minimal valid leaf node header (type 3, nibble_count 0)
+		// Then add a corrupted value length field
+		let mut corrupted_node = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30]; // Leaf header
+
+		// Add a huge length value (would cause overflow if unchecked)
+		let huge_length: u64 = u64::MAX - 10;
+		corrupted_node.extend_from_slice(&huge_length.to_le_bytes());
+
+		// Add some dummy data (not enough to satisfy the length)
+		corrupted_node.extend_from_slice(&[0xAB; 100]);
+
+		// Try to decode - should fail gracefully, not panic or corrupt memory
+		let result = NodeCodec::<Blake2Hasher>::decode_plan(&corrupted_node);
+		assert!(result.is_err(), "Decoding corrupted node with huge length should fail");
+		println!("✓ Corrupted node with huge length correctly rejected");
+
+		// Test with length that would cause offset+count overflow
+		let mut overflow_node = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30]; // Leaf header
+
+		// Length that when added to offset could overflow usize
+		let overflow_length: u64 = (usize::MAX - 8) as u64; // offset is ~8 after header
+		overflow_node.extend_from_slice(&overflow_length.to_le_bytes());
+		overflow_node.extend_from_slice(&[0xCD; 50]);
+
+		let result = NodeCodec::<Blake2Hasher>::decode_plan(&overflow_node);
+		assert!(result.is_err(), "Decoding node with overflow-causing length should fail");
+		println!("✓ Overflow-causing length correctly rejected");
+
+		println!("✅ ByteSliceInput overflow protection test passed!");
 	}
 }
