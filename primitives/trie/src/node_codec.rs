@@ -18,7 +18,7 @@
 //! `NodeCodec` implementation for Substrate's trie format.
 
 use super::node_header::{NodeHeader, NodeKind};
-use crate::{error::Error, trie_constants};
+use crate::error::Error;
 use alloc::{borrow::Borrow, vec::Vec};
 use codec::{Decode, Encode, Input};
 use core::{marker::PhantomData, ops::Range};
@@ -28,6 +28,12 @@ use trie_db::{
 	node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan},
 	ChildReference, NodeCodec as NodeCodecT,
 };
+
+/// Maximum allowed size for inline values in trie nodes.
+/// This provides defense-in-depth against corrupted length fields (audit issue #6).
+/// Set to 16 MiB which is far larger than any reasonable storage value but
+/// prevents absurdly large allocations from corrupted data.
+const MAX_INLINE_VALUE_SIZE: usize = 16 * 1024 * 1024;
 
 /// Helper struct for trie node decoder. This implements `codec::Input` on a byte slice, while
 /// tracking the absolute position. This is similar to `std::io::Cursor` but does not implement
@@ -43,12 +49,18 @@ impl<'a> ByteSliceInput<'a> {
 	}
 
 	fn take(&mut self, count: usize) -> Result<Range<usize>, codec::Error> {
-		if self.offset + count > self.data.len() {
+		// Use checked arithmetic to prevent overflow (audit issue #2)
+		let end = self
+			.offset
+			.checked_add(count)
+			.ok_or_else(|| codec::Error::from("offset + count overflow"))?;
+
+		if end > self.data.len() {
 			return Err("out of data".into());
 		}
 
-		let range = self.offset..(self.offset + count);
-		self.offset += count;
+		let range = self.offset..end;
+		self.offset = end;
 		Ok(range)
 	}
 }
@@ -65,7 +77,7 @@ impl<'a> Input for ByteSliceInput<'a> {
 	}
 
 	fn read_byte(&mut self) -> Result<u8, codec::Error> {
-		if self.offset + 1 > self.data.len() {
+		if self.offset >= self.data.len() {
 			return Err("out of data".into());
 		}
 
@@ -85,7 +97,10 @@ impl<H> NodeCodecT for NodeCodec<H>
 where
 	H: Hasher,
 {
-	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
+	// Set to None since Quantus uses ZK proofs instead of compact Merkle proofs.
+	// The previous value (0x01) collided with valid node headers where nibble_count % 256 == 1
+	// (audit issue #1).
+	const ESCAPE_HEADER: Option<u8> = None;
 	type Error = Error<H::Out>;
 	type HashOut = H::Out;
 
@@ -144,6 +159,10 @@ where
 						let mut length_array = [0u8; 8];
 						length_array.copy_from_slice(length_bytes);
 						let count = u64::from_le_bytes(length_array) as usize;
+						// Validate count is within reasonable bounds (audit issue #6)
+						if count > MAX_INLINE_VALUE_SIZE {
+							return Err(Error::BadFormatMsg("branch value length exceeds maximum"));
+						}
 						// Calculate felt-aligned length to consume padding
 						let value_aligned_len = count.div_ceil(8) * 8;
 						let value_range = input.take(value_aligned_len)?;
@@ -218,6 +237,10 @@ where
 					let mut length_array = [0u8; 8];
 					length_array.copy_from_slice(length_bytes);
 					let count = u64::from_le_bytes(length_array) as usize;
+					// Validate count is within reasonable bounds (audit issue #6)
+					if count > MAX_INLINE_VALUE_SIZE {
+						return Err(Error::BadFormatMsg("leaf value length exceeds maximum"));
+					}
 					log::debug!(
 						target: "zk-trie",
 						"Leaf: reading inline value, length_bytes={:02x?}, count={}",

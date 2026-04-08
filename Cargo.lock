@@ -6934,6 +6934,7 @@ dependencies = [
 name = "pallet-wormhole"
 version = "0.1.0"
 dependencies = [
+ "frame-benchmarking",
  "frame-support",
  "frame-system",
  "hex",
@@ -8626,6 +8627,7 @@ dependencies = [
  "qp-wormhole-verifier",
  "scale-info",
  "serde_json",
+ "smallvec",
  "sp-api",
  "sp-block-builder",
  "sp-consensus-qpow",

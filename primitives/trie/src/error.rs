@@ -23,6 +23,8 @@ use alloc::{boxed::Box, vec::Vec};
 pub enum Error<H> {
 	#[cfg_attr(feature = "std", error("Bad format"))]
 	BadFormat,
+	#[cfg_attr(feature = "std", error("Bad format: {0}"))]
+	BadFormatMsg(&'static str),
 	#[cfg_attr(feature = "std", error("Decoding failed: {0}"))]
 	Decode(#[cfg_attr(feature = "std", source)] codec::Error),
 	#[cfg_attr(

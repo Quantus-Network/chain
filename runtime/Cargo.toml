@@ -59,6 +59,7 @@ scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = [
 	"alloc",
 ] }
+smallvec.workspace = true
 sp-api.workspace = true
 sp-block-builder.workspace = true
 sp-consensus-qpow.workspace = true
@@ -163,6 +164,7 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
+	"pallet-wormhole/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
 
