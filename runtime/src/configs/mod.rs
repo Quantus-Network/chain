@@ -39,7 +39,8 @@ use frame_support::{
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
-		IdentityFee, Weight,
+		IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
+		WeightToFeePolynomial,
 	},
 	PalletId,
 };
@@ -49,10 +50,11 @@ use frame_system::{
 };
 use pallet_ranked_collective::Linear;
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use smallvec::smallvec;
 
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
-	traits::{AccountIdConversion, BlakeTwo256, One},
+	traits::{BlakeTwo256, One},
 	AccountId32, FixedU128, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
@@ -392,6 +394,68 @@ impl pallet_scheduler::Config for Runtime {
 	type TimestampBucketSize = TimestampBucketSize;
 }
 
+// ============================================================================
+// Transaction Fee Structure
+// ============================================================================
+//
+// This is a solo Proof of Work chain (not a parachain), so Proof of Validity (PoV)
+// size limits do not apply - we don't submit proofs to any relay chain.
+//
+// Fee Structure:
+// - **Compute (ref_time):** 1 balance unit per unit of ref_time
+//   - 1 second of compute ≈ 1 UNIT (since WEIGHT_REF_TIME_PER_SECOND = 10^12)
+//   - Uses `IdentityFee<Balance>` for direct 1:1 mapping
+//
+// - **Extrinsic Length:** 1 UNIT per megabyte (LENGTH_FEE_MULTIPLIER = 10^6)
+//   - This brings storage/bandwidth costs in line with compute costs
+//   - A 5 MB block (max size) costs ~5 UNIT in length fees
+//   - A typical 500-byte transfer costs ~0.0005 UNIT in length fees
+//   - Uses `LengthToFeeMultiplier` with 10^6 coefficient
+//
+// - **Proof Size:** Not charged (appropriate for solo chains)
+//   - Block weight limit uses u64::MAX for proof_size component
+//   - Parachains need PoV fees; solo chains do not
+//
+// Fee Destination:
+// - 100% of transaction fees go to the block miner
+// - Block rewards are split: 70% miner, 30% treasury
+//
+// Spam Prevention:
+// - Existential deposit: 0.001 UNIT
+// - Various pallet-specific deposits (multisig, governance, recovery, etc.)
+// - Miners can reject transactions below their minimum fee threshold
+
+/// Multiplier for converting extrinsic length (bytes) to fee.
+/// At 10^6, this means 1 MB of data costs approximately 1 UNIT in fees,
+/// bringing storage costs roughly in line with compute costs.
+pub const LENGTH_FEE_MULTIPLIER: Balance = 1_000_000;
+
+/// Converts extrinsic length to fee with a multiplier.
+///
+/// This implementation applies [`LENGTH_FEE_MULTIPLIER`] to the extrinsic length,
+/// making 1 MB of extrinsic data cost approximately 1 UNIT in fees.
+///
+/// Fee comparison at different transaction sizes:
+/// - 500 bytes (simple transfer): ~0.0005 UNIT
+/// - 10 KB (complex call): ~0.01 UNIT
+/// - 100 KB (batch operation): ~0.1 UNIT
+/// - 1 MB (large payload): ~1 UNIT
+/// - 5 MB (full block): ~5 UNIT
+pub struct LengthToFeeMultiplier;
+
+impl WeightToFeePolynomial for LengthToFeeMultiplier {
+	type Balance = Balance;
+
+	fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
+		smallvec![WeightToFeeCoefficient {
+			degree: 1,
+			negative: false,
+			coeff_frac: Perbill::zero(),
+			coeff_integer: LENGTH_FEE_MULTIPLIER,
+		}]
+	}
+}
+
 parameter_types! {
 	pub FeeMultiplier: Multiplier = Multiplier::one();
 }
@@ -400,8 +464,12 @@ impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type OnChargeTransaction =
 		FungibleAdapter<Balances, pallet_mining_rewards::TransactionFeesCollector<Runtime>>;
+	/// Converts compute weight (ref_time) to fee. Uses identity (1:1) mapping,
+	/// so 1 second of compute costs approximately 1 UNIT.
 	type WeightToFee = IdentityFee<Balance>;
-	type LengthToFee = IdentityFee<Balance>;
+	/// Converts extrinsic length to fee. Uses 10^6 multiplier so 1 MB costs ~1 UNIT,
+	/// bringing storage/bandwidth costs in line with compute costs.
+	type LengthToFee = LengthToFeeMultiplier;
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 	type OperationalFeeMultiplier = ConstU8<5>;
 	type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;

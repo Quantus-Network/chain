@@ -125,7 +125,10 @@ parameter_types! {
 	pub const MultisigFeeParam: Balance = 1000;
 	pub const MultisigDepositParam: Balance = 500;
 	pub const ProposalDepositParam: Balance = 100;
-	pub const ProposalFeeParam: Balance = 1000;
+	// Use 999 instead of 1000 to catch early floor truncation bugs.
+	// With step_factor=1%, per-signer increase = floor(999 * 1%) = 9 (truncated from 9.99)
+	// The correct formula multiplies first: floor(999 * signers * 1%) to preserve precision.
+	pub const ProposalFeeParam: Balance = 999;
 	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000);
 	pub const MaxExpiryDurationParam: u64 = 10000;
 }

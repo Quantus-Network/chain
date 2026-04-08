@@ -33,6 +33,30 @@ use sp_runtime::{
 	Permill,
 };
 
+/// Well-known test secret for testing ZK proof spending.
+/// This is a simple pattern (`[42u8; 32]`) for easy testing.
+/// Use this secret with `quantus wormhole prove` to spend from the test address.
+pub const TEST_WORMHOLE_SECRET: [u8; 32] = [42u8; 32];
+
+/// Pre-computed address for TEST_WORMHOLE_SECRET.
+///
+/// This address was computed using: `quantus wormhole address --secret 0x2a2a...2a`
+/// The derivation is: H(H("wormhole" || secret)) using the circuit's Poseidon2Hash::hash_no_pad.
+/// SS58: qzokTZkdWXxMgSXyF86ECHxG8o8yRX5ibrX2Uw8YmqkHRdj1V
+///
+/// IMPORTANT: If you change TEST_WORMHOLE_SECRET, you must recompute this address using
+/// the quantus CLI to ensure it matches what the ZK circuit expects.
+const TEST_WORMHOLE_ADDRESS: [u8; 32] = [
+	0xbe, 0x13, 0xa1, 0x89, 0xf9, 0x9c, 0x44, 0xa9, 0x59, 0xe2, 0x66, 0x94, 0xff, 0xe5, 0xe4, 0xba,
+	0x22, 0x30, 0x92, 0xf3, 0xed, 0xbe, 0x82, 0x59, 0xc1, 0xd4, 0x5a, 0xd0, 0x8e, 0xdb, 0x40, 0x3d,
+];
+
+/// Get the test address derived from TEST_WORMHOLE_SECRET.
+/// This address is endowed at genesis in the dev profile for testing ZK spending.
+fn test_wormhole_account() -> AccountId {
+	AccountId::new(TEST_WORMHOLE_ADDRESS)
+}
+
 /// Identifier for the heisenberg runtime preset.
 pub const HEISENBERG_RUNTIME_PRESET: &str = "heisenberg";
 
@@ -86,6 +110,11 @@ struct TreasuryGenesis {
 }
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
+///
+/// All endowed addresses automatically get transfer proofs recorded, enabling them to
+/// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole
+/// addresses" and regular addresses - any address can spend via ZK proofs if they
+/// know the corresponding secret.
 fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	root: AccountId,
@@ -103,7 +132,7 @@ fn genesis_template(
 	balances.push((treasury.account.clone(), treasury_balance));
 
 	let config = RuntimeGenesisConfig {
-		balances: BalancesConfig { balances, dev_accounts: None },
+		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
 		sudo: SudoConfig { key: Some(root.clone()) },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
@@ -117,6 +146,14 @@ fn genesis_template(
 			                                                                         * min_balance) */
 			..Default::default()
 		},
+		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
+			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.
+			// Events are emitted in on_initialize at block 1 for indexer compatibility.
+			endowed_addresses: balances
+				.into_iter()
+				.map(|(account, amount)| (account.into(), amount))
+				.collect(),
+		},
 		..Default::default()
 	};
 
@@ -127,11 +164,20 @@ fn genesis_template(
 pub fn development_config_genesis() -> Value {
 	let mut endowed_accounts = vec![];
 	endowed_accounts.extend(dilithium_default_accounts());
+
+	// Add the test address derived from TEST_WORMHOLE_SECRET.
+	// This is useful for testing ZK spending with a known secret.
+	let test_account = test_wormhole_account();
+	endowed_accounts.push(test_account.clone());
+
 	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
-		log::info!("🍆 Endowed account raw: {:?}", account);
 	}
+	log::info!(
+		"🕳️ Test ZK address (use TEST_WORMHOLE_SECRET to spend): {:?}",
+		test_account.to_ss58check_with_version(ss58_version)
+	);
 
 	#[cfg(feature = "runtime-benchmarks")]
 	{

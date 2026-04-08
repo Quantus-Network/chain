@@ -46,7 +46,7 @@ pub mod pallet {
 		traits::{
 			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
 			fungibles::{self},
-			Currency,
+			BuildGenesisConfig, Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -55,7 +55,7 @@ pub mod pallet {
 		F,
 	};
 	use sp_runtime::{
-		traits::{MaybeDisplay, Saturating, Zero},
+		traits::{MaybeDisplay, One, Saturating, Zero},
 		transaction_validity::{
 			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 			ValidTransaction,
@@ -87,6 +87,54 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
+
+	/// Genesis configuration for recording transfer proofs.
+	///
+	/// This allows addresses to be endowed at genesis with funds that can be spent
+	/// using ZK proofs. The endowments are stored during genesis and processed in
+	/// `on_initialize` at block 1, which calls `record_transfer` for each address.
+	/// This records both the TransferProof in storage AND emits NativeTransferred events.
+	///
+	/// We defer to block 1 because events emitted during genesis_build are not
+	/// persisted (Substrate limitation). By processing at block 1, indexers like
+	/// Subsquid can track these transfers.
+	///
+	/// The chain does not distinguish between "wormhole addresses" and regular addresses -
+	/// any address can have transfer proofs recorded and spend via ZK proofs.
+	///
+	/// Note: The actual balance must also be set via BalancesConfig separately.
+	#[pallet::genesis_config]
+	#[derive(frame_support::DefaultNoBound)]
+	pub struct GenesisConfig<T: Config> {
+		/// Addresses to record transfer proofs for at genesis: (address, amount).
+		/// A TransferProof will be recorded for each, enabling ZK spending.
+		/// Uses u128 for serde compatibility; converted to BalanceOf<T> at build time.
+		pub endowed_addresses: Vec<(T::WormholeAccountId, u128)>,
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+		fn build(&self) {
+			// Store endowments to be processed in on_initialize at block 1.
+			// We can't call record_transfer here because events emitted during
+			// genesis_build are not persisted (Substrate limitation).
+			// By deferring to block 1, both storage and events are handled correctly.
+			let pending: Vec<(T::WormholeAccountId, BalanceOf<T>)> = self
+				.endowed_addresses
+				.iter()
+				.map(|(to, amount)| {
+					let balance: BalanceOf<T> = (*amount).try_into().unwrap_or_else(|_| {
+						panic!("Genesis endowment amount {} exceeds Balance capacity", amount)
+					});
+					(to.clone(), balance)
+				})
+				.collect();
+
+			if !pending.is_empty() {
+				GenesisEndowmentsPending::<T>::put(pending);
+			}
+		}
+	}
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -196,6 +244,17 @@ pub mod pallet {
 	pub type TransferCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::WormholeAccountId, T::TransferCount, ValueQuery>;
 
+	/// Genesis endowments pending event emission.
+	/// Stores (to_address, amount) for each genesis endowment.
+	/// These are processed in on_initialize at block 1 to emit NativeTransferred events,
+	/// then cleared. This ensures indexers like Subsquid can track genesis transfers.
+	///
+	/// Unbounded because it's only populated at genesis and cleared on block 1.
+	#[pallet::storage]
+	#[pallet::unbounded]
+	pub type GenesisEndowmentsPending<T: Config> =
+		StorageValue<_, Vec<(T::WormholeAccountId, BalanceOf<T>)>, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -233,6 +292,36 @@ pub mod pallet {
 		TransferAmountBelowMinimum,
 		/// Only native asset (asset_id = 0) is supported in this version
 		NonNativeAssetNotSupported,
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		/// On block 1, process all genesis endowments by calling record_transfer.
+		/// This records transfer proofs and emits NativeTransferred events.
+		/// We defer this from genesis_build because events emitted during genesis
+		/// are not persisted (Substrate limitation).
+		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+			// Only process on block 1
+			if n != One::one() {
+				return Weight::zero();
+			}
+
+			let pending = GenesisEndowmentsPending::<T>::take();
+			if pending.is_empty() {
+				return Weight::zero();
+			}
+
+			let minting_account: T::WormholeAccountId = T::MintingAccount::get().into();
+			let num_endowments = pending.len() as u64;
+
+			for (to, amount) in pending {
+				// Record transfer proof and emit event
+				Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
+			}
+
+			// Weight: 1 read (take pending) + N * (2 reads + 2 writes + 1 event) per endowment
+			T::DbWeight::get().reads_writes(1 + num_endowments * 2, num_endowments * 2)
+		}
 	}
 
 	#[pallet::call]

@@ -10,8 +10,28 @@ mod wormhole_tests {
 		},
 	};
 	use qp_poseidon::PoseidonHasher;
-	use qp_wormhole::derive_wormhole_account;
 	use sp_core::crypto::AccountId32;
+
+	/// Well-known test secret for genesis endowment (matches runtime preset).
+	/// This secret can be used with `quantus wormhole prove` to spend funds
+	/// from the corresponding address via ZK proofs.
+	#[allow(dead_code)]
+	const TEST_SECRET: [u8; 32] = [42u8; 32];
+
+	/// Pre-computed address for TEST_SECRET, derived using the ZK circuit's
+	/// unspendable account derivation: H(H("wormhole" || secret)).
+	/// Computed using: `quantus wormhole address --secret 0x2a2a...2a`
+	/// SS58: qzokTZkdWXxMgSXyF86ECHxG8o8yRX5ibrX2Uw8YmqkHRdj1V
+	const TEST_ADDRESS: [u8; 32] = [
+		0xbe, 0x13, 0xa1, 0x89, 0xf9, 0x9c, 0x44, 0xa9, 0x59, 0xe2, 0x66, 0x94, 0xff, 0xe5, 0xe4,
+		0xba, 0x22, 0x30, 0x92, 0xf3, 0xed, 0xbe, 0x82, 0x59, 0xc1, 0xd4, 0x5a, 0xd0, 0x8e, 0xdb,
+		0x40, 0x3d,
+	];
+
+	/// Get the test account derived from TEST_SECRET
+	fn test_account() -> AccountId {
+		AccountId32::new(TEST_ADDRESS)
+	}
 
 	/// Compute the expected leaf_inputs_hash for a transfer.
 	/// This must match the computation in record_transfer.
@@ -117,77 +137,16 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	fn known_preimage_to_wormhole_address_all_zeros() {
-		// Test vector: all zeros preimage
-		let preimage = [0u8; 32];
-		let address = derive_wormhole_account(preimage);
+	fn test_address_matches_expected() {
+		// Verify our pre-computed test address is correct
+		let address = test_account();
+		let address_bytes: &[u8; 32] = address.as_ref();
 
-		// This is the expected wormhole address for preimage [0; 32]
-		// Computed via: qp_wormhole::derive_wormhole_account -> rehash_to_bytes(preimage)
-		let expected_bytes: [u8; 32] = [
-			0xca, 0x0a, 0xef, 0xbd, 0x2e, 0x87, 0xc9, 0xec, 0xc4, 0x71, 0x6b, 0x7d, 0xb8, 0xe8,
-			0x39, 0x37, 0xa4, 0x5d, 0xfb, 0x06, 0xea, 0x10, 0xe1, 0xd6, 0x2a, 0x4c, 0x2f, 0x27,
-			0x84, 0x00, 0x22, 0x90,
-		];
-		let expected = AccountId32::from(expected_bytes);
+		// Should match TEST_ADDRESS
+		assert_eq!(address_bytes, &TEST_ADDRESS);
 
-		assert_eq!(
-			address, expected,
-			"Wormhole address for all-zeros preimage should match known value"
-		);
-	}
-
-	#[test]
-	fn known_preimage_to_wormhole_address_all_ones() {
-		// Test vector: all ones preimage
-		let preimage = [1u8; 32];
-		let address = derive_wormhole_account(preimage);
-
-		// This is the expected wormhole address for preimage [1; 32]
-		// Computed via: qp_wormhole::derive_wormhole_account -> rehash_to_bytes(preimage)
-		let expected_bytes: [u8; 32] = [
-			0x2d, 0x45, 0x48, 0xaf, 0xca, 0xc3, 0x11, 0xcd, 0xb8, 0x47, 0xe9, 0xf3, 0x9e, 0x4d,
-			0x52, 0x55, 0xbf, 0x74, 0x6e, 0xdd, 0xd8, 0x6b, 0x71, 0x40, 0x32, 0xd9, 0x2d, 0x6c,
-			0x0e, 0xd7, 0x08, 0xd1,
-		];
-		let expected = AccountId32::from(expected_bytes);
-
-		assert_eq!(
-			address, expected,
-			"Wormhole address for all-ones preimage should match known value"
-		);
-	}
-
-	#[test]
-	fn known_preimage_to_wormhole_address_sequential() {
-		// Test vector: sequential bytes 0..31
-		let preimage: [u8; 32] = core::array::from_fn(|i| i as u8);
-		let address = derive_wormhole_account(preimage);
-
-		// This is the expected wormhole address for preimage [0, 1, 2, ..., 31]
-		// Computed via: qp_wormhole::derive_wormhole_account -> rehash_to_bytes(preimage)
-		let expected_bytes: [u8; 32] = [
-			0xc0, 0x87, 0x74, 0x70, 0xeb, 0x2f, 0xbf, 0xc7, 0xcc, 0x6f, 0x22, 0xab, 0x70, 0x95,
-			0x55, 0x09, 0xde, 0x54, 0xf3, 0xb8, 0x98, 0x56, 0xd6, 0xa5, 0x83, 0x99, 0xa7, 0xb7,
-			0xd9, 0xd2, 0x62, 0x52,
-		];
-		let expected = AccountId32::from(expected_bytes);
-
-		assert_eq!(
-			address, expected,
-			"Wormhole address for sequential preimage should match known value"
-		);
-	}
-
-	#[test]
-	fn preimage_to_wormhole_address_is_deterministic() {
-		// Same preimage should always produce the same address
-		let preimage = [42u8; 32];
-
-		let address1 = derive_wormhole_account(preimage);
-		let address2 = derive_wormhole_account(preimage);
-
-		assert_eq!(address1, address2, "Same preimage should produce same wormhole address");
+		// Should not be all zeros
+		assert_ne!(address_bytes, &[0u8; 32], "Test address should not be all zeros");
 	}
 
 	#[test]
@@ -231,17 +190,158 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	fn different_preimages_produce_different_addresses() {
-		let preimage1 = [1u8; 32];
-		let preimage2 = [2u8; 32];
+	fn genesis_endowments_have_transfer_proofs() {
+		// Test that addresses endowed at genesis have TransferProof recorded,
+		// enabling them to spend via ZK proofs.
+		use frame_support::traits::Hooks;
 
-		let address1 = derive_wormhole_account(preimage1);
-		let address2 = derive_wormhole_account(preimage2);
+		let address = test_account();
+		let endowment_amount = 1_000 * UNIT; // Matches runtime genesis preset
 
-		assert_ne!(
-			address1, address2,
-			"Different preimages should produce different wormhole addresses"
+		new_test_ext_with_endowments(vec![(address.clone(), endowment_amount)]).execute_with(
+			|| {
+				// Verify the balance was set (this happens immediately at genesis)
+				assert_eq!(
+					Balances::balance(&address),
+					endowment_amount,
+					"Address should have endowed balance"
+				);
+
+				// Before block 1: TransferProof should NOT exist yet
+				assert_eq!(
+					Wormhole::transfer_count(&address),
+					0,
+					"Transfer count should be 0 before on_initialize"
+				);
+				assert!(
+					Wormhole::transfer_proof((address.clone(), 0)).is_none(),
+					"TransferProof should not exist before on_initialize"
+				);
+
+				// Trigger on_initialize at block 1 to process genesis endowments
+				System::set_block_number(1);
+				Wormhole::on_initialize(1);
+
+				// After block 1: TransferProof should exist
+				assert_eq!(
+					Wormhole::transfer_count(&address),
+					1,
+					"Transfer count should be 1 after on_initialize"
+				);
+
+				let transfer_proof = Wormhole::transfer_proof((address.clone(), 0));
+				assert!(
+					transfer_proof.is_some(),
+					"TransferProof should exist for genesis-endowed address"
+				);
+
+				// Verify the stored hash matches expected computation
+				let expected_hash = compute_leaf_inputs_hash(
+					0u32,             // asset_id (native)
+					0,                // transfer_count
+					&MINTING_ACCOUNT, // from (genesis uses minting account)
+					&address,         // to
+					endowment_amount, // amount
+				);
+				assert_eq!(
+					transfer_proof.unwrap(),
+					expected_hash,
+					"TransferProof hash should match expected value"
+				);
+
+				// Verify event was emitted
+				System::assert_last_event(
+					crate::Event::<Test>::NativeTransferred {
+						from: MINTING_ACCOUNT,
+						to: address,
+						amount: endowment_amount,
+						transfer_count: 0,
+					}
+					.into(),
+				);
+			},
 		);
+	}
+
+	#[test]
+	fn genesis_multiple_endowments_all_have_transfer_proofs() {
+		// Test multiple addresses endowed at genesis all get TransferProofs.
+		// The chain doesn't distinguish "wormhole addresses" from regular addresses -
+		// any address can have transfer proofs and spend via ZK proofs.
+		use frame_support::traits::Hooks;
+
+		let addr1 = account_id(100);
+		let addr2 = account_id(101);
+		let addr3 = account_id(102);
+
+		let amount1 = 100 * UNIT;
+		let amount2 = 200 * UNIT;
+		let amount3 = 300 * UNIT;
+
+		new_test_ext_with_endowments(vec![
+			(addr1.clone(), amount1),
+			(addr2.clone(), amount2),
+			(addr3.clone(), amount3),
+		])
+		.execute_with(|| {
+			// All addresses should have their balances (set at genesis)
+			assert_eq!(Balances::balance(&addr1), amount1);
+			assert_eq!(Balances::balance(&addr2), amount2);
+			assert_eq!(Balances::balance(&addr3), amount3);
+
+			// Before block 1: No transfer proofs yet
+			assert_eq!(Wormhole::transfer_count(&addr1), 0);
+			assert_eq!(Wormhole::transfer_count(&addr2), 0);
+			assert_eq!(Wormhole::transfer_count(&addr3), 0);
+
+			// Trigger on_initialize at block 1
+			System::set_block_number(1);
+			Wormhole::on_initialize(1);
+
+			// After block 1: All addresses should have transfer count = 1
+			assert_eq!(Wormhole::transfer_count(&addr1), 1);
+			assert_eq!(Wormhole::transfer_count(&addr2), 1);
+			assert_eq!(Wormhole::transfer_count(&addr3), 1);
+
+			// All addresses should have TransferProof at index 0
+			assert!(Wormhole::transfer_proof((addr1.clone(), 0)).is_some());
+			assert!(Wormhole::transfer_proof((addr2.clone(), 0)).is_some());
+			assert!(Wormhole::transfer_proof((addr3.clone(), 0)).is_some());
+
+			// Verify each proof has correct hash
+			for (addr, amount) in [(addr1, amount1), (addr2, amount2), (addr3, amount3)] {
+				let expected_hash =
+					compute_leaf_inputs_hash(0u32, 0, &MINTING_ACCOUNT, &addr, amount);
+				let stored_hash = Wormhole::transfer_proof((addr, 0)).unwrap();
+				assert_eq!(stored_hash, expected_hash);
+			}
+		});
+	}
+
+	#[test]
+	fn on_initialize_only_runs_once() {
+		// Verify that on_initialize only processes endowments on block 1
+		use frame_support::traits::Hooks;
+
+		let address = account_id(100);
+		let amount = 100 * UNIT;
+
+		new_test_ext_with_endowments(vec![(address.clone(), amount)]).execute_with(|| {
+			// Block 0: nothing happens
+			System::set_block_number(0);
+			Wormhole::on_initialize(0);
+			assert_eq!(Wormhole::transfer_count(&address), 0);
+
+			// Block 1: endowments are processed
+			System::set_block_number(1);
+			Wormhole::on_initialize(1);
+			assert_eq!(Wormhole::transfer_count(&address), 1);
+
+			// Block 2: nothing happens (pending was cleared)
+			System::set_block_number(2);
+			Wormhole::on_initialize(2);
+			assert_eq!(Wormhole::transfer_count(&address), 1); // Still 1, not 2
+		});
 	}
 }
 

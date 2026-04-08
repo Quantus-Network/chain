@@ -598,14 +598,15 @@ pub mod pallet {
 			ensure!(expiry <= max_expiry, Error::<T>::ExpiryTooFar);
 
 			// Calculate dynamic fee based on number of signers
-			// Fee = Base + (Base * SignerCount * StepFactor)
+			// Fee = Base + floor(StepFactor * Base * SignerCount)
 			let base_fee = T::ProposalFee::get();
 			let step_factor = T::SignerStepFactor::get();
 
-			// Calculate extra fee: (Base * Factor) * Count
-			// mul_floor returns the part of the fee corresponding to the percentage
-			let fee_increase_per_signer = step_factor.mul_floor(base_fee);
-			let total_increase = fee_increase_per_signer.saturating_mul(signers_count.into());
+			// Multiply base by signer count first, then apply step factor percentage.
+			// This avoids early floor truncation that would zero out small percentages.
+			// Example: base=99, factor=1%, signers=100 -> floor(1% * 9900) = 99
+			let multiplier = base_fee.saturating_mul(signers_count.into());
+			let total_increase = step_factor.mul_floor(multiplier);
 			let fee = base_fee.saturating_add(total_increase);
 
 			// Charge non-refundable fee (burned)
