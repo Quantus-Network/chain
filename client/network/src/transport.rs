@@ -85,7 +85,7 @@ pub fn build_transport(
 		.upgrade(upgrade::Version::V1Lazy)
 		.authenticate(authentication_config)
 		.multiplex(multiplexing_config)
-		.timeout(Duration::from_secs(20))
+		.timeout(crate::transport_timeout())
 		.boxed();
 
 	transport.with_bandwidth_logging()
