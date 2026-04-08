@@ -53,8 +53,10 @@ Get started mining on the Quantus Network testnet in minutes.
 - **CPU**: 2+ cores
 - **RAM**: 4GB
 - **Storage**: 100GB available space
-- **Network**: Stable internet connection
+- **Network**: Stable internet connection (3+ Mbps)
 - **OS**: Linux (Ubuntu 20.04+), macOS (10.15+), or Windows WSL2
+
+> ⚠️ Connections below 3 Mbps will likely fail to keep the node synced with the network.
 
 ### Recommended Requirements
 - **CPU**: 4+ cores (higher core count improves mining performance - coming soon)
