@@ -290,8 +290,12 @@ impl_runtime_apis! {
 
 	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
 		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+			let (config, tech_collective_members) =
+				crate::genesis_config_presets::prepare_genesis_build_input(config)?;
 			build_state::<RuntimeGenesisConfig>(config)?;
-			crate::genesis_config_presets::seed_tech_collective();
+			if let Some(members) = tech_collective_members {
+				crate::genesis_config_presets::seed_tech_collective(&members);
+			}
 			Ok(())
 		}
 
