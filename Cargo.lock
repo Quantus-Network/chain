@@ -6819,22 +6819,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-sudo"
-version = "45.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad134ab6aa0cd61a3af61ca9b8e82ce40a2020608f0a4b5b816043663fe576d9"
-dependencies = [
- "docify",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "parity-scale-codec",
- "scale-info",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-timestamp"
 version = "44.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8612,7 +8596,6 @@ dependencies = [
  "pallet-referenda",
  "pallet-reversible-transfers",
  "pallet-scheduler",
- "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",

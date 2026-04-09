@@ -89,7 +89,7 @@ RUST_BACKTRACE=1 ./target/release/quantus-node -ldebug --dev
 
 - Maintains state in a `tmp` folder while the node is running
 - Uses the **Alice** and **Bob** accounts as default validator authorities
-- Uses the **Alice** account as the default `sudo` account
+- Governance is bootstrapped via the tech collective (no sudo pallet)
 - Preconfigured with a genesis state (`/node/src/chain_spec.rs`) that includes several pre-funded development accounts
 
 #### Persisting Chain State

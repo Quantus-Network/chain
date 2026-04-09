@@ -179,7 +179,6 @@ pallet-preimage = { version = "45.0.0", default-features = false }
 pallet-ranked-collective = { version = "45.0.0", default-features = false }
 pallet-recovery = { version = "45.0.0", default-features = false }
 pallet-referenda = { version = "45.0.0", default-features = false }
-pallet-sudo = { version = "45.0.0", default-features = false }
 pallet-timestamp = { version = "44.0.0", default-features = false }
 pallet-transaction-payment = { version = "45.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "48.0.0", default-features = false }

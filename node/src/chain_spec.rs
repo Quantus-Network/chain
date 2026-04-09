@@ -65,7 +65,7 @@ pub fn heisenberg_chain_spec() -> Result<ChainSpec, String> {
 	.build())
 }
 
-/// Planck network - same genesis as heisenberg (root and treasury).
+/// Planck network — live treasury signers + faucet; dev dilithium accounts for testing.
 pub fn planck_chain_spec() -> Result<ChainSpec, String> {
 	let mut properties = Properties::new();
 	properties.insert("tokenDecimals".into(), json!(12));
