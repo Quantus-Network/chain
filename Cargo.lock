@@ -8523,7 +8523,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.5.1"
+version = "0.5.2-quantum-coherence"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -8586,7 +8586,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.5.0-batukaru-mist"
+version = "0.5.2-quantum-coherence"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
