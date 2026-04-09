@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "quantus-runtime"
 publish = false
 repository.workspace = true
-version = "0.5.2-quantum-coherence"
+version = "0.5.4-power-redistribution"
 
 [lints]
 workspace = true
