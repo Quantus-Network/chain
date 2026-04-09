@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Builder
-FROM rust:bookworm AS builder
+FROM rust:1.89-bookworm AS builder
 
 # Install dependencies needed for building
 # clang-sys requires libclang - libclang-dev provides libclang-14.so in /usr/lib/x86_64-linux-gnu/
@@ -19,9 +19,7 @@ WORKDIR /app
 # Copy the entire project
 COPY . .
 
-# Build the release binary
-# We use --locked to respect the Cargo.lock file
-RUN cargo build --release -p quantus-node
+RUN cargo build --release --locked -p quantus-node
 
 # Stage 2: Runtime
 FROM ubuntu:24.04
