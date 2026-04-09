@@ -8523,7 +8523,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.5.2-quantum-coherence"
+version = "0.5.3"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
