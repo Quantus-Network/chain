@@ -28,7 +28,6 @@ frame_benchmarking::define_benchmarks!(
 	[frame_system, SystemBench::<Runtime>]
 	[pallet_balances, Balances]
 	[pallet_timestamp, Timestamp]
-	[pallet_sudo, Sudo]
 	[pallet_reversible_transfers, ReversibleTransfers]
 	[pallet_mining_rewards, MiningRewards]
 	[pallet_treasury, TreasuryPallet]

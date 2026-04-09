@@ -19,8 +19,7 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, SudoConfig, EXISTENTIAL_DEPOSIT,
-	UNIT,
+	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use pallet_multisig::Pallet as Multisig;
@@ -131,7 +130,6 @@ fn genesis_template(
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
-		sudo: SudoConfig { key: Some(root.clone()) },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),

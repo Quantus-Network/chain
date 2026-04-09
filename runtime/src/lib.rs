@@ -206,9 +206,6 @@ mod runtime {
 	#[runtime::pallet_index(3)]
 	pub type TransactionPayment = pallet_transaction_payment;
 
-	#[runtime::pallet_index(4)]
-	pub type Sudo = pallet_sudo;
-
 	#[runtime::pallet_index(5)]
 	pub type QPoW = pallet_qpow;
 
