@@ -329,11 +329,16 @@ async fn mining_loop(
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	miner_server: Option<Arc<MinerServer>>,
 	cancellation_token: CancellationToken,
+	allow_mining_without_peers: bool,
 ) {
 	log::info!("⛏️ QPoW Mining task spawned");
 
 	let mut mining_start_time = std::time::Instant::now();
 	let mut job_counter: u64 = 0;
+
+	// Track when we first detected offline status for grace period
+	let mut offline_since: Option<std::time::Instant> = None;
+	const OFFLINE_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 	loop {
 		if cancellation_token.is_cancelled() {
@@ -349,6 +354,38 @@ async fn mining_loop(
 				_ = cancellation_token.cancelled() => continue
 			}
 			continue;
+		}
+
+		// Don't mine if we have no peers (unless --dev or --force-authoring)
+		// Use a grace period to handle brief network hiccups
+		if !allow_mining_without_peers && sync_service.is_offline() {
+			let now = std::time::Instant::now();
+			match offline_since {
+				None => {
+					// First time detecting offline, start grace period
+					offline_since = Some(now);
+					log::debug!(target: "pow", "No peers detected, starting {}s grace period before pausing mining", OFFLINE_GRACE_PERIOD.as_secs());
+				},
+				Some(since) if now.duration_since(since) >= OFFLINE_GRACE_PERIOD => {
+					// Grace period exceeded, pause mining
+					log::warn!(target: "pow", "Mining paused: no connected peers for {}s (node is offline)", OFFLINE_GRACE_PERIOD.as_secs());
+					tokio::select! {
+						_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+						_ = cancellation_token.cancelled() => continue
+					}
+					continue;
+				},
+				Some(_) => {
+					// Still within grace period, continue mining but log
+					log::debug!(target: "pow", "No peers but still within grace period, continuing mining");
+				},
+			}
+		} else {
+			// We have peers (or are in dev mode), reset offline tracking
+			if offline_since.is_some() {
+				log::info!(target: "pow", "Peers reconnected, resuming normal mining");
+			}
+			offline_since = None;
 		}
 
 		// Wait for mining metadata to be available
@@ -426,6 +463,7 @@ fn spawn_authority_tasks(
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
 		+ 'static,
+	allow_mining_without_peers: bool,
 ) {
 	// Create block proposer factory
 	let proposer = ProposerFactory::new(
@@ -493,12 +531,19 @@ fn spawn_authority_tasks(
 				},
 			}
 		} else {
-			log::warn!("⚠️ No --miner-listen-port specified. Using LOCAL mining only.");
+			log::warn!("⚠️  No --miner-listen-port specified. Using LOCAL mining only.");
 			None
 		};
 
-		mining_loop(client, worker_handle, sync_service, miner_server, mining_cancellation_token)
-			.await;
+		mining_loop(
+			client,
+			worker_handle,
+			sync_service,
+			miner_server,
+			mining_cancellation_token,
+			allow_mining_without_peers,
+		)
+		.await;
 	});
 
 	// Spawn transaction logger (only when tx-logging feature is enabled)
@@ -644,6 +689,7 @@ pub fn new_full<
 	sync_max_timeouts_before_drop: u32,
 	sync_disable_major_sync_gating: bool,
 	sync_block_request_timeout: u64,
+	allow_mining_without_peers: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -764,6 +810,7 @@ pub fn new_full<
 			miner_listen_port,
 			tx_stream_for_worker,
 			tx_stream_for_logger,
+			allow_mining_without_peers,
 		);
 		#[cfg(not(feature = "tx-logging"))]
 		spawn_authority_tasks(
@@ -776,6 +823,7 @@ pub fn new_full<
 			rewards_address,
 			miner_listen_port,
 			tx_stream_for_worker,
+			allow_mining_without_peers,
 		);
 	}
 
