@@ -173,7 +173,7 @@ pub fn development_config_genesis() -> Value {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
 	}
 	log::info!(
-		"🕳️ Test ZK address (use TEST_WORMHOLE_SECRET to spend): {:?}",
+		"🕳️  Test ZK address (use TEST_WORMHOLE_SECRET to spend): {:?}",
 		test_account.to_ss58check_with_version(ss58_version)
 	);
 

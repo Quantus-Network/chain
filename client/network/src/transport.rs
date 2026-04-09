@@ -27,7 +27,7 @@ use libp2p::{
 	},
 	dns, identity, noise, tcp, websocket, PeerId, Transport, TransportExt,
 };
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 // TODO: Create a wrapper similar to upstream `BandwidthTransport` that tracks sent/received bytes
 #[allow(deprecated)]
