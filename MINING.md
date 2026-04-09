@@ -99,12 +99,12 @@ Minimal command - see --help for many more options
     --validator \
     --chain planck \
     --node-key-file ~/.quantus/node_key.p2p \
-    --rewards-preimage <YOUR_PREIMAGE_FROM_STEP_3> \
+    --rewards-inner-hash <YOUR_PREIMAGE_FROM_STEP_3> \
     --max-blocks-per-request 64 \
     --sync full
 ```
 
-**Note:** Use the `inner_hash` from step 3 as your `--rewards-preimage`. The node will derive your wormhole address and log it on startup.
+**Note:** Use the `inner_hash` from step 3 as your `--rewards-inner-hash`. The node will derive your wormhole address and log it on startup.
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:
@@ -166,7 +166,7 @@ docker run -d \
   --base-path /var/lib/quantus \
   --chain planck \
   --node-key-file /var/lib/quantus/node_key.p2p \
-  --rewards-preimage <YOUR_PREIMAGE>
+  --rewards-inner-hash <YOUR_PREIMAGE>
 ```
 
 *Note for Apple Silicon (M1/M2/M3) users:* As mentioned above, if you are using an `amd64` based Docker image on an ARM-based Mac, you will likely need to add the `--platform linux/amd64` flag to your `docker run` commands.
@@ -276,7 +276,7 @@ For high-performance mining, you can offload the mining process to a separate se
     --validator \
     --chain planck \
     --external-miner-url http://127.0.0.1:9833 \
-    --rewards-preimage <YOUR_PREIMAGE>
+    --rewards-inner-hash <YOUR_PREIMAGE>
    ```
 
 For developers building custom miner implementations, see the [External Miner Protocol Specification](#external-miner-protocol-specification) section below.
@@ -288,7 +288,7 @@ For developers building custom miner implementations, see the [External Miner Pr
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
-| `--rewards-preimage` | Wormhole preimage (inner_hash from key generation) | Required |
+| `--rewards-inner-hash` | Wormhole preimage (inner_hash from key generation) | Required |
 | `--chain` | Chain specification | `planck` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
