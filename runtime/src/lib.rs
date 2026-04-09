@@ -206,8 +206,7 @@ mod runtime {
 	#[runtime::pallet_index(3)]
 	pub type TransactionPayment = pallet_transaction_payment;
 
-	#[runtime::pallet_index(4)]
-	pub type Sudo = pallet_sudo;
+	// Index 4 was `pallet_sudo` (removed). Kept vacant so downstream pallet indices stay stable.
 
 	#[runtime::pallet_index(5)]
 	pub type QPoW = pallet_qpow;

@@ -93,7 +93,6 @@ impl<T: pallet_reversible_transfers::Config + Send + Sync + alloc::fmt::Debug>
 ///   - Batch transfers (utility.batch, batch_all, force_batch)
 ///   - Multisig transfers (multisig.execute)
 ///   - Recovery transfers (recovery.as_recovered)
-///   - Sudo transfers (sudo.sudo_as)
 ///   - Scheduled transfers (scheduler)
 ///   - Future mechanisms automatically covered
 ///
@@ -760,7 +759,7 @@ mod tests {
 			let mint_amount = 1000 * UNIT;
 			let count_before = Wormhole::transfer_count(&recipient);
 
-			// Mint tokens (requires sudo/root)
+			// Mint tokens (requires root origin)
 			// This emits pallet_balances::Event::Minted
 			assert_ok!(Balances::force_set_balance(
 				RuntimeOrigin::root(),

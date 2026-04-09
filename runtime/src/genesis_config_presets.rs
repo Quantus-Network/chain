@@ -19,8 +19,7 @@
 #![allow(clippy::expect_used)]
 
 use crate::{
-	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, SudoConfig, EXISTENTIAL_DEPOSIT,
-	UNIT,
+	AccountId, AssetsConfig, BalancesConfig, RuntimeGenesisConfig, EXISTENTIAL_DEPOSIT, UNIT,
 };
 use alloc::{vec, vec::Vec};
 use pallet_multisig::Pallet as Multisig;
@@ -68,10 +67,6 @@ fn ss58_version() -> sp_core::crypto::Ss58AddressFormat {
 	sp_core::crypto::Ss58AddressFormat::custom(189)
 }
 
-fn heisenberg_root_account() -> AccountId {
-	account_from_ss58("qzk69g9d4d3iehaFR1gN7FJQXpfEegfT3EpiGmFei1BG5impU")
-}
-
 fn dilithium_default_accounts() -> Vec<AccountId> {
 	vec![
 		crystal_alice().into_account(),
@@ -80,20 +75,28 @@ fn dilithium_default_accounts() -> Vec<AccountId> {
 	]
 }
 
-/// Treasury as 2-of-3 multisig derived from the three crystal/dilithium accounts (dev only).
+/// Treasury as 2-of-3 multisig from Alice, Bob, Charlie (`dilithium_default_accounts`), nonce 0.
 fn development_treasury_account() -> AccountId {
 	let signers = dilithium_default_accounts();
 	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
 }
 
-/// Treasury as 2-of-3 multisig derived from three heisenberg-specific accounts.
+/// Multisig nonce for Heisenberg treasury: same three signers as dev, different on-chain address
+/// so `seed_tech_collective` can tell presets apart.
+const HEISENBERG_TREASURY_MULTISIG_NONCE: u64 = 1;
+
+fn heisenberg_treasury_signers() -> Vec<AccountId> {
+	dilithium_default_accounts()
+}
+
+/// Treasury as 2-of-3 multisig (Alice, Bob, Charlie) with nonce
+/// [`HEISENBERG_TREASURY_MULTISIG_NONCE`].
 fn heisenberg_treasury_account() -> AccountId {
-	let signers = vec![
-		heisenberg_root_account(),
-		crystal_alice().into_account(),
-		crystal_charlie().into_account(),
-	];
-	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
+	Multisig::<crate::Runtime>::derive_multisig_address(
+		&heisenberg_treasury_signers(),
+		2,
+		HEISENBERG_TREASURY_MULTISIG_NONCE,
+	)
 }
 
 /// Total supply used for genesis (same portion% goes to treasury at genesis as in pallet).
@@ -109,15 +112,14 @@ struct TreasuryGenesis {
 
 /// Returns the genesis config populated with given parameters. Treasury is per-profile.
 ///
+/// The treasury account is also the `pallet-assets` owner for **asset id 0** (native-in-assets path
+/// for wormhole). It is not FRAME `Root`.
+///
 /// All endowed addresses automatically get transfer proofs recorded, enabling them to
 /// spend their funds via ZK proofs. The chain doesn't distinguish between "wormhole
 /// addresses" and regular addresses - any address can spend via ZK proofs if they
 /// know the corresponding secret.
-fn genesis_template(
-	endowed_accounts: Vec<AccountId>,
-	root: AccountId,
-	treasury: TreasuryGenesis,
-) -> Value {
+fn genesis_template(endowed_accounts: Vec<AccountId>, treasury: TreasuryGenesis) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
 		.iter()
@@ -127,21 +129,18 @@ fn genesis_template(
 
 	let total_supply_raw = GENESIS_SUPPLY.saturating_mul(UNIT);
 	let treasury_balance = treasury.portion.mul_floor(total_supply_raw);
-	balances.push((treasury.account.clone(), treasury_balance));
+	let treasury_account = treasury.account.clone();
+	balances.push((treasury_account.clone(), treasury_balance));
 
 	let config = RuntimeGenesisConfig {
 		balances: BalancesConfig { balances: balances.clone(), dev_accounts: None },
-		sudo: SudoConfig { key: Some(root.clone()) },
 		treasury_pallet: pallet_treasury::GenesisConfig::<crate::Runtime> {
 			treasury_account: Some(treasury.account),
 			treasury_portion: Some(treasury.portion),
 		},
 		assets: AssetsConfig {
-			// We need to initialize and reserve the first asset id for the native token transfers
-			// with wormhole.
-			assets: vec![(Zero::zero(), root.clone(), false, EXISTENTIAL_DEPOSIT)], /* (asset_id,
-			                                                                         * owner, is_sufficient,
-			                                                                         * min_balance) */
+			// Reserve asset id 0 for native token representation used with wormhole.
+			assets: vec![(Zero::zero(), treasury_account, false, EXISTENTIAL_DEPOSIT)],
 			..Default::default()
 		},
 		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
@@ -201,12 +200,9 @@ pub fn development_config_genesis() -> Value {
 			account: development_treasury_account(),
 			portion: Permill::from_percent(30),
 		};
-		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
-			endowed_accounts,
-			crystal_alice().into_account(),
-			treasury,
-		))
-		.expect("genesis_template returns valid config");
+		let mut config: RuntimeGenesisConfig =
+			serde_json::from_value(genesis_template(endowed_accounts, treasury))
+				.expect("genesis_template returns valid config");
 		config.reversible_transfers = rt_genesis;
 		return serde_json::to_value(config).expect("Could not build genesis config.");
 	}
@@ -217,13 +213,12 @@ pub fn development_config_genesis() -> Value {
 			account: development_treasury_account(),
 			portion: Permill::from_percent(30),
 		};
-		genesis_template(endowed_accounts, crystal_alice().into_account(), treasury)
+		genesis_template(endowed_accounts, treasury)
 	}
 }
 
 pub fn heisenberg_config_genesis() -> Value {
-	let mut endowed_accounts = vec![heisenberg_root_account()];
-	endowed_accounts.extend(dilithium_default_accounts());
+	let endowed_accounts = dilithium_default_accounts();
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version()));
 	}
@@ -231,35 +226,77 @@ pub fn heisenberg_config_genesis() -> Value {
 		account: heisenberg_treasury_account(),
 		portion: Permill::from_percent(30),
 	};
-	genesis_template(endowed_accounts, heisenberg_root_account(), treasury)
-}
-
-fn planck_root_account() -> AccountId {
-	account_from_ss58("qzk69g9d4d3iehaFR1gN7FJQXpfEegfT3EpiGmFei1BG5impU")
+	genesis_template(endowed_accounts, treasury)
 }
 
 fn planck_faucet_account() -> AccountId {
 	account_from_ss58("qzka7DZXAT7GnzgXQfxiSwrPKRWgW6m6G89QRsQiLThThZ6Cw")
 }
 
-fn planck_treasury_account() -> AccountId {
-	let signers = vec![
+fn planck_treasury_signers() -> Vec<AccountId> {
+	vec![
 		account_from_ss58("qzoRRfx5bUSdq2YWSXBXrmFFSwe24bNSUoMu3Vhz5hrtPri7D"),
 		account_from_ss58("qzkscJp9ofGZzQbhAdySSNx3pmfKBDq9vqdfT8ZHNjp4GiwFq"),
 		account_from_ss58("qzjxqVV6hzauZkBPBvvMxVv1o7ifp2XZj1J1qLTnze3yh7uhu"),
-	];
-	Multisig::<crate::Runtime>::derive_multisig_address(&signers, 2, 0)
+	]
+}
+
+fn planck_treasury_account() -> AccountId {
+	Multisig::<crate::Runtime>::derive_multisig_address(&planck_treasury_signers(), 2, 0)
+}
+
+/// Seed tech collective members at genesis for all profiles.
+/// Called after standard genesis build — identifies the profile by treasury account
+/// and seeds the collective with the same signers that form the treasury multisig.
+pub fn seed_tech_collective() {
+	let treasury = pallet_treasury::pallet::TreasuryAccount::<crate::Runtime>::get();
+
+	let members = match &treasury {
+		Some(t) if *t == planck_treasury_account() => {
+			log::info!("🏛️ Seeding tech collective for planck profile");
+			planck_treasury_signers()
+		},
+		Some(t) if *t == heisenberg_treasury_account() => {
+			log::info!("🏛️ Seeding tech collective for heisenberg profile");
+			heisenberg_treasury_signers()
+		},
+		Some(t) if *t == development_treasury_account() => {
+			log::info!("🏛️ Seeding tech collective for dev profile");
+			dilithium_default_accounts()
+		},
+		_ => {
+			log::warn!(
+				"⚠️ Tech collective not seeded: treasury account {:?} did not match any profile",
+				treasury
+			);
+			return;
+		},
+	};
+
+	for member in &members {
+		log::info!(
+			"🏛️ Adding tech collective member: {:?}",
+			member.to_ss58check_with_version(sp_core::crypto::Ss58AddressFormat::custom(189))
+		);
+		pallet_ranked_collective::Pallet::<crate::Runtime>::do_add_member_to_rank(
+			member.clone(),
+			0,
+			false,
+		)
+		.expect("Failed to seed tech collective member");
+	}
+	log::info!("🏛️ Tech collective seeded with {} members", members.len());
 }
 
 pub fn planck_config_genesis() -> Value {
-	let mut endowed_accounts = vec![planck_root_account(), planck_faucet_account()];
+	let mut endowed_accounts = vec![planck_faucet_account()];
 	endowed_accounts.extend(dilithium_default_accounts());
 	for account in endowed_accounts.iter() {
 		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version()));
 	}
 	let treasury =
 		TreasuryGenesis { account: planck_treasury_account(), portion: Permill::from_percent(30) };
-	genesis_template(endowed_accounts, planck_root_account(), treasury)
+	genesis_template(endowed_accounts, treasury)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.

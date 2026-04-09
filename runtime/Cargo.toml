@@ -40,7 +40,6 @@ pallet-recovery.workspace = true
 pallet-referenda.workspace = true
 pallet-reversible-transfers.workspace = true
 pallet-scheduler.workspace = true
-pallet-sudo.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
@@ -110,7 +109,6 @@ std = [
 	"pallet-referenda/std",
 	"pallet-reversible-transfers/std",
 	"pallet-scheduler/std",
-	"pallet-sudo/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -160,7 +158,6 @@ runtime-benchmarks = [
 	"pallet-referenda/runtime-benchmarks",
 	"pallet-reversible-transfers/runtime-benchmarks",
 	"pallet-scheduler/runtime-benchmarks",
-	"pallet-sudo/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
@@ -179,7 +176,6 @@ try-runtime = [
 	"pallet-qpow/try-runtime",
 	"pallet-ranked-collective/try-runtime",
 	"pallet-recovery/try-runtime",
-	"pallet-sudo/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"sp-runtime/try-runtime",
