@@ -168,6 +168,8 @@ impl<H: Hasher> From<&StorageProof> for crate::MemoryDB<H> {
 		let mut db = crate::MemoryDB::new(&0u64.to_le_bytes());
 		proof.iter_nodes().for_each(|n| {
 			db.insert(crate::EMPTY_PREFIX, n);
+			let value_key = crate::injective_value_hash::<H>(n);
+			hash_db::HashDB::emplace(&mut db, value_key, crate::EMPTY_PREFIX, n.to_vec());
 		});
 		db
 	}

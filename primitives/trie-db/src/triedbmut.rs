@@ -1833,7 +1833,8 @@ where
 					let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 					match node {
 						NodeToEncode::Node(value) => {
-							let value_hash = self.db.insert(k.as_prefix(), value);
+							let value_hash = L::hash_value(value);
+							self.db.emplace(value_hash, k.as_prefix(), value.to_vec().into());
 							self.cache_value(k.inner(), value, value_hash);
 							k.drop_lasts(mov);
 							ChildReference(value_hash)
@@ -1973,7 +1974,8 @@ where
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
 								match node {
 									NodeToEncode::Node(value) => {
-										let value_hash = self.db.insert(prefix.as_prefix(), value);
+										let value_hash = L::hash_value(value);
+										self.db.emplace(value_hash, prefix.as_prefix(), value.to_vec().into());
 
 										self.cache_value(prefix.inner(), value, value_hash);
 

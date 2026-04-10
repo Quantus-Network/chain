@@ -497,7 +497,7 @@ impl<'a, H: Hasher> trie_db::TrieRecorder<H::Out> for TrieRecorder<'a, H> {
 mod tests {
 	use super::*;
 	use crate::tests::create_trie;
-	use trie_db::{Trie, TrieDBBuilder, TrieRecorder};
+	use trie_db::{Trie, TrieDBBuilder, TrieLayout, TrieRecorder};
 
 	type MemoryDB = crate::MemoryDB<sp_core::Blake2Hasher>;
 	type Layout = crate::LayoutV1<sp_core::Blake2Hasher>;
@@ -716,7 +716,7 @@ mod tests {
 				.build();
 
 			assert_eq!(
-				sp_core::Blake2Hasher::hash(TEST_DATA[0].1),
+				Layout::hash_value(TEST_DATA[0].1),
 				trie.get_hash(TEST_DATA[0].0).unwrap().unwrap()
 			);
 			assert!(matches!(trie_recorder.trie_nodes_recorded_for_key(key), RecordedForKey::Hash));
@@ -770,7 +770,7 @@ mod tests {
 				.build();
 
 			assert_eq!(
-				sp_core::Blake2Hasher::hash(TEST_DATA[0].1),
+				Layout::hash_value(TEST_DATA[0].1),
 				trie.get_hash(TEST_DATA[0].0).unwrap().unwrap()
 			);
 			assert!(matches!(

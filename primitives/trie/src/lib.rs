@@ -141,6 +141,13 @@ pub struct LayoutV1<H>(PhantomData<H>);
 // This removes the need for length prefixes in the storage proof
 const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
+pub(crate) fn injective_value_hash<H: Hasher>(value: &[u8]) -> H::Out {
+	let bytes = qp_poseidon_core::hash_bytes(value);
+	let mut out = H::Out::default();
+	out.as_mut().copy_from_slice(&bytes);
+	out
+}
+
 impl<H> TrieLayout for LayoutV0<H>
 where
 	H: Hasher,
@@ -151,6 +158,10 @@ where
 
 	type Hash = H;
 	type Codec = NodeCodec<Self::Hash>;
+
+	fn hash_value(value: &[u8]) -> H::Out {
+		injective_value_hash::<H>(value)
+	}
 }
 
 impl<H> TrieConfiguration for LayoutV0<H>
@@ -163,14 +174,11 @@ where
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
-		let input_vec: Vec<_> = input.into_iter().collect();
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root input length: {}", input_vec.len());
-		let result = trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(
-			input_vec,
-			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		);
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root result: {:02x?}", result.as_ref());
-		result
+		let mut v: Vec<_> = input.into_iter().collect();
+		v.sort_by(|a, b| a.0.as_ref().cmp(b.0.as_ref()));
+		let mut cb = trie_db::TrieRoot::<Self>::default();
+		trie_db::trie_visit::<Self, _, _, _, _>(v.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
 	}
 
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
@@ -179,14 +187,11 @@ where
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
-		let input_vec: Vec<_> = input.into_iter().collect();
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root_unhashed input length: {}", input_vec.len());
-		let result = trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(
-			input_vec,
-			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		);
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root_unhashed result: {:02x?}", result);
-		result
+		let mut v: Vec<_> = input.into_iter().collect();
+		v.sort_by(|a, b| a.0.as_ref().cmp(b.0.as_ref()));
+		let mut cb = trie_db::TrieRootUnhashed::<Self>::default();
+		trie_db::trie_visit::<Self, _, _, _, _>(v.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
 	}
 
 	fn encode_index(input: u32) -> Vec<u8> {
@@ -204,6 +209,10 @@ where
 
 	type Hash = H;
 	type Codec = NodeCodec<Self::Hash>;
+
+	fn hash_value(value: &[u8]) -> H::Out {
+		injective_value_hash::<H>(value)
+	}
 }
 
 impl<H> TrieConfiguration for LayoutV1<H>
@@ -216,10 +225,11 @@ where
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
-		trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(
-			input,
-			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		)
+		let mut v: Vec<_> = input.into_iter().collect();
+		v.sort_by(|a, b| a.0.as_ref().cmp(b.0.as_ref()));
+		let mut cb = trie_db::TrieRoot::<Self>::default();
+		trie_db::trie_visit::<Self, _, _, _, _>(v.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
 	}
 
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
@@ -228,10 +238,11 @@ where
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
-		trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(
-			input,
-			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		)
+		let mut v: Vec<_> = input.into_iter().collect();
+		v.sort_by(|a, b| a.0.as_ref().cmp(b.0.as_ref()));
+		let mut cb = trie_db::TrieRootUnhashed::<Self>::default();
+		trie_db::trie_visit::<Self, _, _, _, _>(v.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
 	}
 
 	fn encode_index(input: u32) -> Vec<u8> {
@@ -370,28 +381,33 @@ impl<H: Hasher> hash_db::HashDBRef<H, trie_db::DBValue> for PrefixedMemoryDB<H> 
 	}
 }
 
-/// ZK-trie compatible memory database with correct default initialization
-pub struct MemoryDB<H: Hasher, RS = RandomState>(
-	memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>,
-);
+/// ZK-trie compatible memory database with correct default initialization.
+///
+/// Wraps `memory_db::MemoryDB` with a fallback store for values that the inner
+/// DB drops due to null_node_data collision (values matching the empty node encoding).
+pub struct MemoryDB<H: Hasher, RS = RandomState> {
+	inner: memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>,
+	forced: hashbrown::HashMap<H::Out, trie_db::DBValue>,
+}
 
 impl<H: Hasher> MemoryDB<H> {
 	pub fn new(prefix: &[u8]) -> Self {
-		Self(memory_db::MemoryDB::new(prefix))
+		Self { inner: memory_db::MemoryDB::new(prefix), forced: Default::default() }
 	}
 
 	pub fn with_hasher(hasher: RandomState) -> Self {
-		Self(memory_db::MemoryDB::with_hasher(hasher))
+		Self { inner: memory_db::MemoryDB::with_hasher(hasher), forced: Default::default() }
 	}
 
 	pub fn consolidate(&mut self, other: Self) {
-		self.0.consolidate(other.0)
+		self.inner.consolidate(other.inner);
+		self.forced.extend(other.forced);
 	}
 }
 
 impl<H: Hasher> Clone for MemoryDB<H> {
 	fn clone(&self) -> Self {
-		Self(self.0.clone())
+		Self { inner: self.inner.clone(), forced: self.forced.clone() }
 	}
 }
 
@@ -404,29 +420,29 @@ impl<H: Hasher> Default for MemoryDB<H> {
 impl<H: Hasher, RS> core::ops::Deref for MemoryDB<H, RS> {
 	type Target = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue, RS>;
 	fn deref(&self) -> &Self::Target {
-		&self.0
+		&self.inner
 	}
 }
 
 impl<H: Hasher> core::ops::DerefMut for MemoryDB<H> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.0
+		&mut self.inner
 	}
 }
 
 impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for MemoryDB<H> {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, trie_db::DBValue> {
-		&self.0
+		self
 	}
 
 	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn hash_db::HashDB<H, trie_db::DBValue> + 'a) {
-		&mut self.0
+		self
 	}
 }
 
 impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for &MemoryDB<H> {
 	fn as_hash_db(&self) -> &dyn hash_db::HashDB<H, trie_db::DBValue> {
-		&self.0
+		&self.inner
 	}
 
 	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn hash_db::HashDB<H, trie_db::DBValue> + 'a) {
@@ -436,33 +452,39 @@ impl<H: Hasher> hash_db::AsHashDB<H, trie_db::DBValue> for &MemoryDB<H> {
 
 impl<H: Hasher> hash_db::HashDB<H, trie_db::DBValue> for MemoryDB<H> {
 	fn get(&self, key: &H::Out, prefix: hash_db::Prefix) -> Option<trie_db::DBValue> {
-		hash_db::HashDB::get(&self.0, key, prefix)
+		hash_db::HashDB::get(&self.inner, key, prefix)
+			.or_else(|| self.forced.get(key).cloned())
 	}
 
 	fn contains(&self, key: &H::Out, prefix: hash_db::Prefix) -> bool {
-		hash_db::HashDB::contains(&self.0, key, prefix)
+		hash_db::HashDB::contains(&self.inner, key, prefix) || self.forced.contains_key(key)
 	}
 
 	fn insert(&mut self, prefix: hash_db::Prefix, value: &[u8]) -> H::Out {
-		hash_db::HashDB::insert(&mut self.0, prefix, value)
+		hash_db::HashDB::insert(&mut self.inner, prefix, value)
 	}
 
 	fn emplace(&mut self, key: H::Out, prefix: hash_db::Prefix, value: trie_db::DBValue) {
-		hash_db::HashDB::emplace(&mut self.0, key, prefix, value)
+		hash_db::HashDB::emplace(&mut self.inner, key, prefix, value.clone());
+		if !hash_db::HashDB::contains(&self.inner, &key, prefix) {
+			self.forced.insert(key, value);
+		}
 	}
 
 	fn remove(&mut self, key: &H::Out, prefix: hash_db::Prefix) {
-		hash_db::HashDB::remove(&mut self.0, key, prefix)
+		hash_db::HashDB::remove(&mut self.inner, key, prefix);
+		self.forced.remove(key);
 	}
 }
 
 impl<H: Hasher> hash_db::HashDBRef<H, trie_db::DBValue> for MemoryDB<H> {
 	fn get(&self, key: &H::Out, prefix: hash_db::Prefix) -> Option<trie_db::DBValue> {
-		hash_db::HashDBRef::get(&self.0, key, prefix)
+		hash_db::HashDBRef::get(&self.inner, key, prefix)
+			.or_else(|| self.forced.get(key).cloned())
 	}
 
 	fn contains(&self, key: &H::Out, prefix: hash_db::Prefix) -> bool {
-		hash_db::HashDBRef::contains(&self.0, key, prefix)
+		hash_db::HashDBRef::contains(&self.inner, key, prefix) || self.forced.contains_key(key)
 	}
 }
 
@@ -951,30 +973,16 @@ mod tests {
 
 		type Hash = H;
 		type Codec = NodeCodec<Self::Hash>;
+
+		fn hash_value(value: &[u8]) -> H::Out {
+			super::injective_value_hash::<H>(value)
+		}
 	}
 
 	impl<H> TrieConfiguration for ForceHashedValuesLayoutV1<H>
 	where
 		H: Hasher,
 	{
-		fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
-		where
-			I: IntoIterator<Item = (A, B)>,
-			A: AsRef<[u8]> + Ord,
-			B: AsRef<[u8]>,
-		{
-			trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(input, Some(0))
-		}
-
-		fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
-		where
-			I: IntoIterator<Item = (A, B)>,
-			A: AsRef<[u8]> + Ord,
-			B: AsRef<[u8]>,
-		{
-			trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(input, Some(0))
-		}
-
 		fn encode_index(input: u32) -> Vec<u8> {
 			codec::Encode::encode(&codec::Compact(input))
 		}
@@ -2423,7 +2431,7 @@ mod tests {
 			("57f8dc2f5ab09467896f47300f0424385e0621c4869aa60c02be9adcc98a0d1d", vec![0x00]),
 		];
 
-		let mut memdb = MemoryDBMeta::<Blake2Hasher>::new(&[0u8; 8]);
+		let mut memdb = MemoryDB::<Blake2Hasher>::new(&[0u8; 8]);
 		let mut root = Default::default();
 
 		// Insert all keys (simulating genesis block state)

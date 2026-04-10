@@ -129,7 +129,7 @@ impl<'a> Value<'a> {
 
 	pub fn to_owned_value<L: TrieLayout>(&self) -> ValueOwned<TrieHash<L>> {
 		match self {
-			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data), L::Hash::hash(data)),
+			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data), L::hash_value(data)),
 			Self::Node(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);

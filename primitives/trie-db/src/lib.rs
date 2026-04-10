@@ -529,6 +529,14 @@ pub trait TrieLayout {
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut = <Self::Hash as Hasher>::Out>;
+
+	/// Hash a storage value for external (hashed) value nodes.
+	///
+	/// Override this to use an injective hash when the default `H::hash()`
+	/// is not collision-resistant for variable-length data.
+	fn hash_value(value: &[u8]) -> <Self::Hash as Hasher>::Out {
+		<Self::Hash as Hasher>::hash(value)
+	}
 }
 
 /// This trait associates a trie definition with preferred methods.

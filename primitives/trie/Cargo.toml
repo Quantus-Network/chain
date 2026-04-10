@@ -29,6 +29,7 @@ hashbrown = { workspace = true }
 log = { workspace = true, default-features = false }
 memory-db = { workspace = true, default-features = false }
 nohash-hasher = { workspace = true, optional = true }
+qp-poseidon-core = { workspace = true, default-features = false }
 parking_lot = { workspace = true, default-features = true, optional = true }
 prometheus-endpoint = { optional = true, workspace = true, default-features = true }
 rand = { workspace = true, default-features = false, optional = true }
@@ -61,6 +62,7 @@ std = [
 	"log/std",
 	"memory-db/std",
 	"nohash-hasher",
+	"qp-poseidon-core/std",
 	"parking_lot",
 	"prometheus-endpoint",
 	"rand",

@@ -388,7 +388,9 @@ where
 	}
 
 	fn process_inner_hashed_value(&mut self, prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		self.db.insert(prefix, value)
+		let hash = T::hash_value(value);
+		self.db.emplace(hash, prefix, value.to_vec().into());
+		hash
 	}
 }
 
@@ -420,7 +422,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		<T::Hash as Hasher>::hash(value)
+		T::hash_value(value)
 	}
 }
 
@@ -474,7 +476,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
 		println!("Hashed node: {:x?}", &value);
-		<T::Hash as Hasher>::hash(value)
+		T::hash_value(value)
 	}
 }
 
@@ -495,6 +497,6 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		<T::Hash as Hasher>::hash(value)
+		T::hash_value(value)
 	}
 }
