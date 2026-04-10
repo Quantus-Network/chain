@@ -139,7 +139,7 @@ pub struct LayoutV1<H>(PhantomData<H>);
 
 // Set to 0 to force all values to be hashed, never inlined
 // This removes the need for length prefixes in the storage proof
-const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
+const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 30;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -938,6 +938,48 @@ mod tests {
 
 	type MemoryDBMeta<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue>;
 
+	/// Test-only layout that forces *all* values into external value nodes.
+	struct ForceHashedValuesLayoutV1<H>(core::marker::PhantomData<H>);
+
+	impl<H> TrieLayout for ForceHashedValuesLayoutV1<H>
+	where
+		H: Hasher,
+	{
+		const USE_EXTENSION: bool = false;
+		const ALLOW_EMPTY: bool = true;
+		const MAX_INLINE_VALUE: Option<u32> = Some(0);
+
+		type Hash = H;
+		type Codec = NodeCodec<Self::Hash>;
+	}
+
+	impl<H> TrieConfiguration for ForceHashedValuesLayoutV1<H>
+	where
+		H: Hasher,
+	{
+		fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
+		where
+			I: IntoIterator<Item = (A, B)>,
+			A: AsRef<[u8]> + Ord,
+			B: AsRef<[u8]>,
+		{
+			trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(input, Some(0))
+		}
+
+		fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
+		where
+			I: IntoIterator<Item = (A, B)>,
+			A: AsRef<[u8]> + Ord,
+			B: AsRef<[u8]>,
+		{
+			trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(input, Some(0))
+		}
+
+		fn encode_index(input: u32) -> Vec<u8> {
+			codec::Encode::encode(&codec::Compact(input))
+		}
+	}
+
 	pub fn create_trie<L: TrieLayout>(
 		data: &[(&[u8], &[u8])],
 	) -> (MemoryDB<L::Hash>, trie_db::TrieHash<L>) {
@@ -1029,6 +1071,35 @@ mod tests {
 		check_iteration::<LayoutV0>(input);
 		check_equivalent::<LayoutV1>(input);
 		check_iteration::<LayoutV1>(input);
+	}
+
+	/// Exposes the `MAX_INLINE_VALUE = 0` issue for short zero-prefixed values with Poseidon
+	/// hashing (the chain hasher).
+	#[test]
+	fn force_hashed_values_preserve_distinct_zero_prefixed_values_poseidon() {
+		use trie_db::TrieDBMutBuilder;
+		type PoseidonLayout = ForceHashedValuesLayoutV1<qp_poseidon::PoseidonHasher>;
+
+		let mut memdb = MemoryDBMeta::<qp_poseidon::PoseidonHasher>::new(&0u64.to_le_bytes());
+		let mut root = Default::default();
+
+		let k1 = b"k1";
+		let k2 = b"k2";
+		let v1 = vec![0u8];
+		let v2 = vec![0u8, 0u8];
+
+		{
+			let mut trie = TrieDBMutBuilder::<PoseidonLayout>::new(&mut memdb, &mut root).build();
+			trie.insert(k1, &v1).expect("insert v1 should succeed");
+			trie.insert(k2, &v2).expect("insert v2 should succeed");
+		}
+
+		let trie = trie_db::TrieDBBuilder::<PoseidonLayout>::new(&memdb, &root).build();
+		let read_v1 = trie.get(k1).expect("read v1 should succeed").expect("v1 should exist");
+		let read_v2 = trie.get(k2).expect("read v2 should succeed").expect("v2 should exist");
+
+		assert_eq!(read_v1, v1, "value 0x00 should round-trip exactly");
+		assert_eq!(read_v2, v2, "value 0x0000 should round-trip exactly");
 	}
 
 	#[test]

@@ -11900,6 +11900,7 @@ dependencies = [
  "nohash-hasher",
  "parity-scale-codec",
  "parking_lot 0.12.4",
+ "qp-poseidon",
  "rand 0.8.5",
  "scale-info",
  "schnellru",
