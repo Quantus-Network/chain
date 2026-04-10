@@ -207,21 +207,12 @@ fn log_genesis_accounts(
 	for account in endowed {
 		log::info!("[{preset}] 💰 Endowed: {:?}", account.to_ss58check_with_version(ss58));
 	}
-	log::info!(
-		"[{preset}] 🏦 Treasury: {:?}",
-		treasury_account.to_ss58check_with_version(ss58)
-	);
+	log::info!("[{preset}] 🏦 Treasury: {:?}", treasury_account.to_ss58check_with_version(ss58));
 	for signer in treasury_signers {
-		log::info!(
-			"[{preset}] 🔑 Treasury signer: {:?}",
-			signer.to_ss58check_with_version(ss58)
-		);
+		log::info!("[{preset}] 🔑 Treasury signer: {:?}", signer.to_ss58check_with_version(ss58));
 	}
 	for member in tech_collective {
-		log::info!(
-			"[{preset}] 🏛️  Tech collective: {:?}",
-			member.to_ss58check_with_version(ss58)
-		);
+		log::info!("[{preset}] 🏛️  Tech collective: {:?}", member.to_ss58check_with_version(ss58));
 	}
 }
 
@@ -239,10 +230,7 @@ pub fn development_config_genesis() -> Value {
 		&dilithium_default_accounts(),
 		&tech_collective,
 	);
-	log::info!(
-		"[dev] 🕳️  Test ZK: {:?}",
-		test_account.to_ss58check_with_version(ss58_version())
-	);
+	log::info!("[dev] 🕳️  Test ZK: {:?}", test_account.to_ss58check_with_version(ss58_version()));
 
 	#[cfg(feature = "runtime-benchmarks")]
 	{
@@ -264,26 +252,19 @@ pub fn development_config_genesis() -> Value {
 			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
 		};
 
-		let treasury = TreasuryGenesis {
-			account: treasury_account,
-			portion: Permill::from_percent(30),
-		};
-		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
-			endowed_accounts,
-			treasury,
-			tech_collective,
-		))
-		.expect("genesis_template returns valid config");
+		let treasury =
+			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+		let mut config: RuntimeGenesisConfig =
+			serde_json::from_value(genesis_template(endowed_accounts, treasury, tech_collective))
+				.expect("genesis_template returns valid config");
 		config.reversible_transfers = rt_genesis;
 		return serde_json::to_value(config).expect("Could not build genesis config.");
 	}
 
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
-		let treasury = TreasuryGenesis {
-			account: treasury_account,
-			portion: Permill::from_percent(30),
-		};
+		let treasury =
+			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
 		genesis_template(endowed_accounts, treasury, tech_collective)
 	}
 }

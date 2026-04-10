@@ -1406,12 +1406,8 @@ mod tests {
 			));
 
 			assert!(
-				TechCollective::vote(
-					RuntimeOrigin::signed(non_member),
-					referendum_index,
-					true
-				)
-				.is_err(),
+				TechCollective::vote(RuntimeOrigin::signed(non_member), referendum_index, true)
+					.is_err(),
 				"Non-seeded account should be rejected with NotMember"
 			);
 		});
