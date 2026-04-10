@@ -36,6 +36,9 @@ version = "0.16.0"
 [dependencies.log]
 version = "0.4"
 
+[dependencies.qp-poseidon-core]
+workspace = true
+
 [dependencies.rustc-hex]
 default-features = false
 optional = true

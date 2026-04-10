@@ -88,6 +88,23 @@ pub use crate::iter_build::TrieRootPrint;
 /// Database value
 pub type DBValue = Vec<u8>;
 
+/// Hash value-node payload using the hasher's injective byte hashing path.
+pub(crate) fn hash_value_node_injective<H: Hasher>(value: &[u8]) -> H::Out {
+	assert!(
+		core::any::type_name::<H>() == "qp_poseidon::PoseidonHasher",
+		"hash_value_node_injective is Poseidon-only",
+	);
+	let felts = qp_poseidon_core::serialization::bytes_to_felts(value);
+	let digest = qp_poseidon_core::hash_to_bytes(&felts);
+	let mut out = H::Out::default();
+	assert!(
+		out.as_ref().len() == digest.len(),
+		"Hasher output length mismatch for Poseidon digest",
+	);
+	out.as_mut().copy_from_slice(&digest);
+	out
+}
+
 /// Trie Errors.
 ///
 /// These borrow the data within them to avoid excessive copying on every

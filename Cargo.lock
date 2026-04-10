@@ -13129,6 +13129,7 @@ version = "0.30.0"
 dependencies = [
  "hash-db",
  "log",
+ "qp-poseidon-core",
  "rustc-hex",
  "smallvec",
 ]

@@ -388,7 +388,12 @@ where
 	}
 
 	fn process_inner_hashed_value(&mut self, prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		self.db.insert(prefix, value)
+		let value_hash = self.db.insert(prefix, value);
+		debug_assert!(
+			value_hash == crate::hash_value_node_injective::<T::Hash>(value),
+			"HashDB::insert must use the same value-hash function"
+		);
+		value_hash
 	}
 }
 
@@ -420,7 +425,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		<T::Hash as Hasher>::hash(value)
+		crate::hash_value_node_injective::<T::Hash>(value)
 	}
 }
 
@@ -474,7 +479,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
 		println!("Hashed node: {:x?}", &value);
-		<T::Hash as Hasher>::hash(value)
+		crate::hash_value_node_injective::<T::Hash>(value)
 	}
 }
 
@@ -495,6 +500,6 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 	}
 
 	fn process_inner_hashed_value(&mut self, _prefix: Prefix, value: &[u8]) -> TrieHash<T> {
-		<T::Hash as Hasher>::hash(value)
+		crate::hash_value_node_injective::<T::Hash>(value)
 	}
 }

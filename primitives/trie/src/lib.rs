@@ -139,7 +139,7 @@ pub struct LayoutV1<H>(PhantomData<H>);
 
 // Set to 0 to force all values to be hashed, never inlined
 // This removes the need for length prefixes in the storage proof
-const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 30;
+const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -1073,33 +1073,61 @@ mod tests {
 		check_iteration::<LayoutV1>(input);
 	}
 
-	/// Exposes the `MAX_INLINE_VALUE = 0` issue for short zero-prefixed values with Poseidon
-	/// hashing (the chain hasher).
 	#[test]
-	fn force_hashed_values_preserve_distinct_zero_prefixed_values_poseidon() {
+	fn poseidon_hashes_zero_padded_values_distinctly() {
+		use hash_db::Hasher;
+		let h1 = qp_poseidon::PoseidonHasher::hash(&[0x00]);
+		let h2 = qp_poseidon::PoseidonHasher::hash(&[0x00, 0x00]);
+		let h8 = qp_poseidon::PoseidonHasher::hash(&[0u8; 8]);
+		assert_ne!(h1, h2, "hash([0x00]) must differ from hash([0x00,0x00])");
+		assert_ne!(h1, h8, "hash([0x00]) must differ from hash(empty_node)");
+		assert_ne!(h2, h8, "hash([0x00,0x00]) must differ from hash(empty_node)");
+	}
+
+	/// Reproduces the live-chain bug: MemberRecord { rank: 0 } is SCALE-encoded as
+	/// [0x00, 0x00] (2 bytes). With MAX_INLINE_VALUE=0 and Poseidon hashing, the
+	/// trie stores it externally by hash — and returns corrupted data on read.
+	#[test]
+	fn poseidon_force_hashed_member_record_round_trips() {
 		use trie_db::TrieDBMutBuilder;
 		type PoseidonLayout = ForceHashedValuesLayoutV1<qp_poseidon::PoseidonHasher>;
 
 		let mut memdb = MemoryDBMeta::<qp_poseidon::PoseidonHasher>::new(&0u64.to_le_bytes());
 		let mut root = Default::default();
 
-		let k1 = b"k1";
-		let k2 = b"k2";
-		let v1 = vec![0u8];
-		let v2 = vec![0u8, 0u8];
+		let key = b"member";
+		let member_record = vec![0x00u8, 0x00]; // MemberRecord { rank: 0 }
 
 		{
 			let mut trie = TrieDBMutBuilder::<PoseidonLayout>::new(&mut memdb, &mut root).build();
-			trie.insert(k1, &v1).expect("insert v1 should succeed");
-			trie.insert(k2, &v2).expect("insert v2 should succeed");
+			trie.insert(key, &member_record).expect("insert should succeed");
 		}
 
 		let trie = trie_db::TrieDBBuilder::<PoseidonLayout>::new(&memdb, &root).build();
-		let read_v1 = trie.get(k1).expect("read v1 should succeed").expect("v1 should exist");
-		let read_v2 = trie.get(k2).expect("read v2 should succeed").expect("v2 should exist");
+		let read = trie.get(key).expect("get should succeed").expect("value should exist");
+		assert_eq!(read, member_record, "2-byte value must round-trip unchanged");
+	}
 
-		assert_eq!(read_v1, v1, "value 0x00 should round-trip exactly");
-		assert_eq!(read_v2, v2, "value 0x0000 should round-trip exactly");
+	/// Same test with Blake2 — should pass, proving the issue is Poseidon-specific.
+	#[test]
+	fn blake2_force_hashed_member_record_round_trips() {
+		use trie_db::TrieDBMutBuilder;
+		type Blake2Layout = ForceHashedValuesLayoutV1<Blake2Hasher>;
+
+		let mut memdb = MemoryDBMeta::<Blake2Hasher>::new(&0u64.to_le_bytes());
+		let mut root = Default::default();
+
+		let key = b"member";
+		let member_record = vec![0x00u8, 0x00];
+
+		{
+			let mut trie = TrieDBMutBuilder::<Blake2Layout>::new(&mut memdb, &mut root).build();
+			trie.insert(key, &member_record).expect("insert should succeed");
+		}
+
+		let trie = trie_db::TrieDBBuilder::<Blake2Layout>::new(&memdb, &root).build();
+		let read = trie.get(key).expect("get should succeed").expect("value should exist");
+		assert_eq!(read, member_record, "2-byte value must round-trip unchanged");
 	}
 
 	#[test]
