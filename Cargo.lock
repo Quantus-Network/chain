@@ -8175,9 +8175,9 @@ version = "0.1.0"
 
 [[package]]
 name = "qp-plonky2"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "414a0203c2d4787ad76be16aaa6a3e5bedf4ac5baa66ecfab46ed40c88d10af9"
+checksum = "a1d18516ef5ecd81ddcccb6beacdfe1578f44e4f05ccb0890998afcd3b87d01f"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8209,9 +8209,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-core"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e97d56a59ca75de58414a058195e6d8630b524ffb333d1a4555f2b49f4113cdd"
+checksum = "0ad9961c2e2f6aca563eefd902697b0d21e9807c2c3b719ba1d4488bb03383c4"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8235,9 +8235,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-field"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf15d2ccea0cb80e61ee27315bdcb272fdbbb19c1826936569887c4c5b499627"
+checksum = "ecc7089b7ae09ef8fe4889353d2f2be7dffe6d87edfb5b03f9553ca0a1ca55da"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -8252,9 +8252,9 @@ dependencies = [
 
 [[package]]
 name = "qp-plonky2-verifier"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7741059492bd163a1eeaec7471e2cf3d00b403e1ddec476fa5248237f7493298"
+checksum = "eb155f950f3df3c0cf5fce846290f19c6b7a059fbefd9bdf9011fd6f01f84e79"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8378,9 +8378,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a96cf6018afa939953257a738e503ce305546c85d8777aa66153f21dc535ffe"
+checksum = "c98df8c8a59dca57f896904abd1cd5cd5cb4387b4831e077cfc17aa8f448fffa"
 dependencies = [
  "anyhow",
  "hex",
@@ -8396,9 +8396,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b86a9f070a7cc9d00e69caed517d2add5913484ce05052e3fb9849cd9c0587d4"
+checksum = "62c4c1671504baeefc3bd44ce62c69055b99595b2442eb5968b152ebccd33153"
 dependencies = [
  "anyhow",
  "hex",
@@ -8409,9 +8409,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "177ce48156dd5fe8d84e581ba70ffaf4ee1334986697f58305b04c11b9d3566c"
+checksum = "2602cb861a190728337d28e660384ad3bb707768260c4e48db50fb60d8717908"
 dependencies = [
  "anyhow",
  "clap",
@@ -8423,18 +8423,18 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b81b137f4cf98b62f4437694fb1849e07b65f2b556dddeea6e91e7209cbf168"
+checksum = "aed8a9809079a89ea2a69cd5e3459d88e9a36b0a771d8821cacc50f7c66ef19d"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fae60b441328ecf956c5bd34c98810cb7d536bccdc65ceccfed5bf2b46344eb"
+checksum = "fa4a78a88d3d851c6a828e2031c4422f0a44b17c53f8446656fd45dea146a5fd"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -8445,9 +8445,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f9d517f9570578944a22a53f514ce9f7643857f28b256252c6ba82cbebc308a"
+checksum = "cf5d21d7c8c07cfa7bfea14240c63d09fad5c1396b111ab72063dbe07aeae121"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -8456,9 +8456,9 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d0649182166496ef48ad23f9c94062baf5d98499c409ff9a92f784bf5fa4efe"
+checksum = "0756b4c23179e5e4a53cc9ac9ed2e0134124ec40e21f72ec12fe793bc6f6f278"
 dependencies = [
  "anyhow",
  "hex",
