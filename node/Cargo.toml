@@ -17,6 +17,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
+async-trait.workspace = true
 frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
 frame-metadata-hash-extension.default-features = true
 frame-metadata-hash-extension.workspace = true
