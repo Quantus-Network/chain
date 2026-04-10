@@ -29,6 +29,8 @@ sp-metadata-ir.workspace = true
 sp-runtime.workspace = true
 
 [build-dependencies]
+hex.workspace = true
+qp-poseidon-core.workspace = true
 qp-wormhole-circuit-builder.workspace = true
 
 [dev-dependencies]

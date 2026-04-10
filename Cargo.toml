@@ -150,7 +150,7 @@ sc-consensus-qpow = { path = "./client/consensus/qpow", default-features = false
 sp-consensus-qpow = { path = "./primitives/consensus/qpow", default-features = false }
 
 # Quantus network dependencies
-qp-plonky2 = { version = "1.4.2", default-features = false }
+qp-plonky2 = { version = "1.4.1", default-features = false }
 qp-poseidon = { version = "1.4.0", default-features = false }
 qp-poseidon-core = { version = "1.4.0", default-features = false }
 qp-rusty-crystals-dilithium = { version = "2.4.0", default-features = false }
