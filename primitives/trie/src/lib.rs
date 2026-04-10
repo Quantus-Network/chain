@@ -139,7 +139,7 @@ pub struct LayoutV1<H>(PhantomData<H>);
 
 // Set to 0 to force all values to be hashed, never inlined
 // This removes the need for length prefixes in the storage proof
-const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 30;
+const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -938,48 +938,6 @@ mod tests {
 
 	type MemoryDBMeta<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, trie_db::DBValue>;
 
-	/// Test-only layout that forces *all* values into external value nodes.
-	struct ForceHashedValuesLayoutV1<H>(core::marker::PhantomData<H>);
-
-	impl<H> TrieLayout for ForceHashedValuesLayoutV1<H>
-	where
-		H: Hasher,
-	{
-		const USE_EXTENSION: bool = false;
-		const ALLOW_EMPTY: bool = true;
-		const MAX_INLINE_VALUE: Option<u32> = Some(0);
-
-		type Hash = H;
-		type Codec = NodeCodec<Self::Hash>;
-	}
-
-	impl<H> TrieConfiguration for ForceHashedValuesLayoutV1<H>
-	where
-		H: Hasher,
-	{
-		fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
-		where
-			I: IntoIterator<Item = (A, B)>,
-			A: AsRef<[u8]> + Ord,
-			B: AsRef<[u8]>,
-		{
-			trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(input, Some(0))
-		}
-
-		fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
-		where
-			I: IntoIterator<Item = (A, B)>,
-			A: AsRef<[u8]> + Ord,
-			B: AsRef<[u8]>,
-		{
-			trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(input, Some(0))
-		}
-
-		fn encode_index(input: u32) -> Vec<u8> {
-			codec::Encode::encode(&codec::Compact(input))
-		}
-	}
-
 	pub fn create_trie<L: TrieLayout>(
 		data: &[(&[u8], &[u8])],
 	) -> (MemoryDB<L::Hash>, trie_db::TrieHash<L>) {
@@ -1078,7 +1036,7 @@ mod tests {
 	#[test]
 	fn force_hashed_values_preserve_distinct_zero_prefixed_values_poseidon() {
 		use trie_db::TrieDBMutBuilder;
-		type PoseidonLayout = ForceHashedValuesLayoutV1<qp_poseidon::PoseidonHasher>;
+		type PoseidonLayoutV1 = super::LayoutV1<qp_poseidon::PoseidonHasher>;
 
 		let mut memdb = MemoryDBMeta::<qp_poseidon::PoseidonHasher>::new(&0u64.to_le_bytes());
 		let mut root = Default::default();
@@ -1089,17 +1047,61 @@ mod tests {
 		let v2 = vec![0u8, 0u8];
 
 		{
-			let mut trie = TrieDBMutBuilder::<PoseidonLayout>::new(&mut memdb, &mut root).build();
+			let mut trie = TrieDBMutBuilder::<PoseidonLayoutV1>::new(&mut memdb, &mut root).build();
 			trie.insert(k1, &v1).expect("insert v1 should succeed");
 			trie.insert(k2, &v2).expect("insert v2 should succeed");
 		}
 
-		let trie = trie_db::TrieDBBuilder::<PoseidonLayout>::new(&memdb, &root).build();
+		let trie = trie_db::TrieDBBuilder::<PoseidonLayoutV1>::new(&memdb, &root).build();
 		let read_v1 = trie.get(k1).expect("read v1 should succeed").expect("v1 should exist");
 		let read_v2 = trie.get(k2).expect("read v2 should succeed").expect("v2 should exist");
 
 		assert_eq!(read_v1, v1, "value 0x00 should round-trip exactly");
 		assert_eq!(read_v2, v2, "value 0x0000 should round-trip exactly");
+	}
+
+	/// Exposes the Goldilocks field order collision vulnerability.
+	///
+	/// The Goldilocks field has order p = 2^64 - 2^32 + 1 = 18446744069414584321,
+	/// which is less than u64::MAX. When using 8 bytes per field element, values
+	/// in [p, 2^64-1] reduce modulo p, causing collisions with values in [0, 2^64-p-1].
+	///
+	/// An attacker on a public blockchain could craft data where an 8-byte chunk
+	/// equals p (or p+k), colliding with 0 (or k), corrupting trie storage.
+	#[test]
+	fn force_hashed_values_field_order_collision_poseidon() {
+		use trie_db::TrieDBMutBuilder;
+		type PoseidonLayoutV1 = super::LayoutV1<qp_poseidon::PoseidonHasher>;
+
+		let mut memdb = MemoryDBMeta::<qp_poseidon::PoseidonHasher>::new(&0u64.to_le_bytes());
+		let mut root = Default::default();
+
+		// Goldilocks field order: p = 2^64 - 2^32 + 1
+		let p: u64 = 0xFFFFFFFF00000001;
+
+		let k1 = b"k1";
+		let k2 = b"k2";
+		// Two different 8-byte values that collide in the Goldilocks field
+		let v1 = 0u64.to_le_bytes().to_vec(); // encodes 0
+		let v2 = p.to_le_bytes().to_vec(); // encodes p, which equals 0 mod p
+
+		// Verify they are actually different byte sequences
+		assert_ne!(v1, v2, "values should be different byte sequences");
+
+		{
+			let mut trie = TrieDBMutBuilder::<PoseidonLayoutV1>::new(&mut memdb, &mut root).build();
+			trie.insert(k1, &v1).expect("insert v1 should succeed");
+			trie.insert(k2, &v2).expect("insert v2 should succeed");
+		}
+
+		let trie = trie_db::TrieDBBuilder::<PoseidonLayoutV1>::new(&memdb, &root).build();
+		let read_v1 = trie.get(k1).expect("read v1 should succeed").expect("v1 should exist");
+		let read_v2 = trie.get(k2).expect("read v2 should succeed").expect("v2 should exist");
+
+		// These should both pass - each value should round-trip correctly
+		// If the field order collision causes issues, one or both will fail
+		assert_eq!(read_v1, v1, "value encoding 0 should round-trip exactly");
+		assert_eq!(read_v2, v2, "value encoding p should round-trip exactly");
 	}
 
 	#[test]
