@@ -4,8 +4,8 @@
 //! This ensures the binaries are always consistent with the circuit crate version and
 //! eliminates the need to commit large binary files to the repository.
 //!
-//! Set `SKIP_CIRCUIT_BUILD=1` to skip circuit generation (useful for CI jobs
-//! that don't need the circuits, like clippy/doc checks).
+//! Note: Circuit generation cannot be skipped for this pallet because the binaries are
+//! embedded at compile time via `include_bytes!`.
 
 use std::{env, path::Path, time::Instant};
 
@@ -29,12 +29,6 @@ fn print_bin_hash(dir: &Path, filename: &str) {
 }
 
 fn main() {
-	// Allow skipping circuit generation for CI jobs that don't need it
-	if env::var("SKIP_CIRCUIT_BUILD").is_ok() {
-		println!("cargo:warning=[pallet-wormhole] Skipping circuit generation (SKIP_CIRCUIT_BUILD is set)");
-		return;
-	}
-
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
 	let num_leaf_proofs: usize = env::var("QP_NUM_LEAF_PROOFS")
 		.unwrap_or_else(|_| "16".to_string())
