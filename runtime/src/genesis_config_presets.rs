@@ -196,23 +196,52 @@ fn genesis_template(
 	v
 }
 
-/// Return the development genesis config.
-pub fn development_config_genesis() -> Value {
-	let mut endowed_accounts = vec![];
-	endowed_accounts.extend(dilithium_default_accounts());
-
-	// Add the test address derived from TEST_WORMHOLE_SECRET.
-	// This is useful for testing ZK spending with a known secret.
-	let test_account = test_wormhole_account();
-	endowed_accounts.push(test_account.clone());
-
-	let ss58_version = sp_core::crypto::Ss58AddressFormat::custom(189);
-	for account in endowed_accounts.iter() {
-		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version));
+fn log_genesis_accounts(
+	preset: &str,
+	endowed: &[AccountId],
+	treasury_account: &AccountId,
+	treasury_signers: &[AccountId],
+	tech_collective: &[AccountId],
+) {
+	let ss58 = ss58_version();
+	for account in endowed {
+		log::info!("[{preset}] 💰 Endowed: {:?}", account.to_ss58check_with_version(ss58));
 	}
 	log::info!(
-		"🕳️  Test ZK address (use TEST_WORMHOLE_SECRET to spend): {:?}",
-		test_account.to_ss58check_with_version(ss58_version)
+		"[{preset}] 🏦 Treasury: {:?}",
+		treasury_account.to_ss58check_with_version(ss58)
+	);
+	for signer in treasury_signers {
+		log::info!(
+			"[{preset}] 🔑 Treasury signer: {:?}",
+			signer.to_ss58check_with_version(ss58)
+		);
+	}
+	for member in tech_collective {
+		log::info!(
+			"[{preset}] 🏛️  Tech collective: {:?}",
+			member.to_ss58check_with_version(ss58)
+		);
+	}
+}
+
+/// Return the development genesis config.
+pub fn development_config_genesis() -> Value {
+	let mut endowed_accounts = dilithium_default_accounts();
+	let test_account = test_wormhole_account();
+	endowed_accounts.push(test_account.clone());
+	let treasury_account = development_treasury_account();
+	let tech_collective = development_tech_collective_seed();
+	log_genesis_accounts(
+		"dev",
+		&endowed_accounts,
+		&treasury_account,
+		&dilithium_default_accounts(),
+		&tech_collective,
+	);
+	log::info!(
+		"[dev] 🕳️  Test ZK: {:?}",
+		test_account.to_ss58check_with_version(ss58_version())
 	);
 
 	#[cfg(feature = "runtime-benchmarks")]
@@ -236,13 +265,13 @@ pub fn development_config_genesis() -> Value {
 		};
 
 		let treasury = TreasuryGenesis {
-			account: development_treasury_account(),
+			account: treasury_account,
 			portion: Permill::from_percent(30),
 		};
 		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
 			endowed_accounts,
 			treasury,
-			development_tech_collective_seed(),
+			tech_collective,
 		))
 		.expect("genesis_template returns valid config");
 		config.reversible_transfers = rt_genesis;
@@ -252,23 +281,28 @@ pub fn development_config_genesis() -> Value {
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	{
 		let treasury = TreasuryGenesis {
-			account: development_treasury_account(),
+			account: treasury_account,
 			portion: Permill::from_percent(30),
 		};
-		genesis_template(endowed_accounts, treasury, development_tech_collective_seed())
+		genesis_template(endowed_accounts, treasury, tech_collective)
 	}
 }
 
 pub fn heisenberg_config_genesis() -> Value {
 	let endowed_accounts = dilithium_default_accounts();
-	for account in endowed_accounts.iter() {
-		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version()));
-	}
-	let treasury = TreasuryGenesis {
-		account: heisenberg_treasury_account(),
-		portion: Permill::from_percent(30),
-	};
-	genesis_template(endowed_accounts, treasury, heisenberg_tech_collective_seed())
+	let treasury_signers = heisenberg_treasury_signers();
+	let tech_collective = heisenberg_tech_collective_seed();
+	let treasury_account = heisenberg_treasury_account();
+	log_genesis_accounts(
+		"heisenberg",
+		&endowed_accounts,
+		&treasury_account,
+		&treasury_signers,
+		&tech_collective,
+	);
+	let treasury =
+		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+	genesis_template(endowed_accounts, treasury, tech_collective)
 }
 
 fn planck_faucet_account() -> AccountId {
@@ -347,14 +381,21 @@ pub fn seed_tech_collective(members: &[AccountId]) {
 }
 
 pub fn planck_config_genesis() -> Value {
+	let treasury_signers = planck_treasury_signers();
+	let tech_collective = planck_tech_collective_seed();
+	let treasury_account = planck_treasury_account();
 	let mut endowed_accounts = vec![planck_faucet_account()];
-	endowed_accounts.extend(dilithium_default_accounts());
-	for account in endowed_accounts.iter() {
-		log::info!("🍆 Endowed account: {:?}", account.to_ss58check_with_version(ss58_version()));
-	}
+	endowed_accounts.extend(treasury_signers.clone());
+	log_genesis_accounts(
+		"planck",
+		&endowed_accounts,
+		&treasury_account,
+		&treasury_signers,
+		&tech_collective,
+	);
 	let treasury =
-		TreasuryGenesis { account: planck_treasury_account(), portion: Permill::from_percent(30) };
-	genesis_template(endowed_accounts, treasury, planck_tech_collective_seed())
+		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
+	genesis_template(endowed_accounts, treasury, tech_collective)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.

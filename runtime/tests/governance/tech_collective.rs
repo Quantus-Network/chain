@@ -1283,6 +1283,140 @@ mod tests {
 		});
 	}
 
+	#[test]
+	fn test_genesis_seeded_members_can_vote() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let proposer = TestCommons::account_id(1);
+			let voter = TestCommons::account_id(2);
+
+			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+			Balances::make_free_balance_be(&voter, 2000 * UNIT);
+
+			quantus_runtime::genesis_config_presets::seed_tech_collective(&[
+				proposer.clone(),
+				voter.clone(),
+			]);
+
+			assert!(
+				pallet_ranked_collective::Members::<Runtime>::contains_key(&proposer),
+				"Proposer should be in Members storage after genesis seeding"
+			);
+			assert!(
+				pallet_ranked_collective::Members::<Runtime>::contains_key(&voter),
+				"Voter should be in Members storage after genesis seeding"
+			);
+
+			let proposal = RuntimeCall::System(frame_system::Call::remark {
+				remark: b"genesis-seeded voting test".to_vec(),
+			});
+			let encoded = proposal.encode();
+			let hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded);
+			assert_ok!(Preimage::note_preimage(
+				RuntimeOrigin::signed(proposer.clone()),
+				encoded.clone()
+			));
+
+			assert_ok!(TechReferenda::submit(
+				RuntimeOrigin::signed(proposer.clone()),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+				frame_support::traits::Bounded::Lookup { hash, len: encoded.len() as u32 },
+				frame_support::traits::schedule::DispatchTime::After(0u32)
+			));
+
+			let referendum_index =
+				pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
+
+			assert_ok!(TechReferenda::place_decision_deposit(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index
+			));
+
+			assert_ok!(TechCollective::vote(
+				RuntimeOrigin::signed(voter.clone()),
+				referendum_index,
+				true
+			));
+
+			let track_info =
+				<Runtime as pallet_referenda::Config<TechReferendaInstance>>::Tracks::info(
+					TRACK_ID,
+				)
+				.expect("Track info should exist");
+
+			let total_blocks = TestCommons::calculate_governance_blocks(
+				track_info.prepare_period,
+				track_info.decision_period,
+				track_info.confirm_period,
+				track_info.min_enactment_period,
+			);
+			TestCommons::run_to_block(total_blocks);
+
+			let final_info =
+				pallet_referenda::ReferendumInfoFor::<Runtime, TechReferendaInstance>::get(
+					referendum_index,
+				)
+				.expect("Referendum info should exist");
+			assert!(
+				matches!(final_info, pallet_referenda::ReferendumInfo::Approved(_, _, _)),
+				"Referendum should be approved, but is {:?}",
+				final_info
+			);
+		});
+	}
+
+	#[test]
+	fn test_non_seeded_member_cannot_vote() {
+		TestCommons::new_fast_governance_test_ext().execute_with(|| {
+			let proposer = TestCommons::account_id(1);
+			let non_member = TestCommons::account_id(99);
+
+			Balances::make_free_balance_be(&proposer, 3000 * UNIT);
+			Balances::make_free_balance_be(&non_member, 3000 * UNIT);
+
+			quantus_runtime::genesis_config_presets::seed_tech_collective(&[proposer.clone()]);
+
+			assert!(
+				!pallet_ranked_collective::Members::<Runtime>::contains_key(&non_member),
+				"Non-seeded account should not be in Members storage"
+			);
+
+			let proposal = RuntimeCall::System(frame_system::Call::remark {
+				remark: b"non-member voting test".to_vec(),
+			});
+			let encoded = proposal.encode();
+			let hash = <Runtime as frame_system::Config>::Hashing::hash(&encoded);
+			assert_ok!(Preimage::note_preimage(
+				RuntimeOrigin::signed(proposer.clone()),
+				encoded.clone()
+			));
+
+			assert_ok!(TechReferenda::submit(
+				RuntimeOrigin::signed(proposer.clone()),
+				Box::new(OriginCaller::system(frame_system::RawOrigin::Root)),
+				frame_support::traits::Bounded::Lookup { hash, len: encoded.len() as u32 },
+				frame_support::traits::schedule::DispatchTime::After(0u32)
+			));
+
+			let referendum_index =
+				pallet_referenda::ReferendumCount::<Runtime, TechReferendaInstance>::get() - 1;
+
+			assert_ok!(TechReferenda::place_decision_deposit(
+				RuntimeOrigin::signed(proposer.clone()),
+				referendum_index
+			));
+
+			assert!(
+				TechCollective::vote(
+					RuntimeOrigin::signed(non_member),
+					referendum_index,
+					true
+				)
+				.is_err(),
+				"Non-seeded account should be rejected with NotMember"
+			);
+		});
+	}
+
 	// Treasury spend tests removed: treasury pallet is now config-only (account + portion for
 	// mining-rewards).
 
