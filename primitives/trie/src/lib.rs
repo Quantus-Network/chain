@@ -139,7 +139,7 @@ pub struct LayoutV1<H>(PhantomData<H>);
 
 // Set to 0 to force all values to be hashed, never inlined
 // This removes the need for length prefixes in the storage proof
-const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 30;
+const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
