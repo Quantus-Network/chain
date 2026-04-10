@@ -47,6 +47,7 @@ trie-root = { workspace = true, default-features = false }
 array-bytes = { workspace = true, default-features = true }
 criterion = { workspace = true, default-features = true }
 qp-poseidon = { workspace = true, default-features = true }
+qp-poseidon-core = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 trie-bench = { workspace = true }
 trie-standardmap = { workspace = true }

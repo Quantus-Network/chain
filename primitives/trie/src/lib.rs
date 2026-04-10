@@ -1075,10 +1075,15 @@ mod tests {
 
 	#[test]
 	fn poseidon_hashes_zero_padded_values_distinctly() {
-		use hash_db::Hasher;
-		let h1 = qp_poseidon::PoseidonHasher::hash(&[0x00]);
-		let h2 = qp_poseidon::PoseidonHasher::hash(&[0x00, 0x00]);
-		let h8 = qp_poseidon::PoseidonHasher::hash(&[0u8; 8]);
+		let h1 = qp_poseidon_core::hash_to_bytes(&qp_poseidon_core::serialization::bytes_to_felts(
+			&[0x00],
+		));
+		let h2 = qp_poseidon_core::hash_to_bytes(&qp_poseidon_core::serialization::bytes_to_felts(
+			&[0x00, 0x00],
+		));
+		let h8 = qp_poseidon_core::hash_to_bytes(&qp_poseidon_core::serialization::bytes_to_felts(
+			&[0u8; 8],
+		));
 		assert_ne!(h1, h2, "hash([0x00]) must differ from hash([0x00,0x00])");
 		assert_ne!(h1, h8, "hash([0x00]) must differ from hash(empty_node)");
 		assert_ne!(h2, h8, "hash([0x00,0x00]) must differ from hash(empty_node)");
@@ -2846,6 +2851,49 @@ mod tests {
 		}
 
 		println!("✅ ESCAPE_HEADER collision test passed!");
+	}
+	/// Exposes the Goldilocks field order collision vulnerability.
+	///
+	/// The Goldilocks field has order p = 2^64 - 2^32 + 1 = 18446744069414584321,
+	/// which is less than u64::MAX. When using 8 bytes per field element, values
+	/// in [p, 2^64-1] reduce modulo p, causing collisions with values in [0, 2^64-p-1].
+	///
+	/// An attacker on a public blockchain could craft data where an 8-byte chunk
+	/// equals p (or p+k), colliding with 0 (or k), corrupting trie storage.
+	#[test]
+	fn force_hashed_values_field_order_collision_poseidon() {
+		use trie_db::TrieDBMutBuilder;
+		type PoseidonLayoutV1 = super::LayoutV1<qp_poseidon::PoseidonHasher>;
+
+		let mut memdb = MemoryDBMeta::<qp_poseidon::PoseidonHasher>::new(&0u64.to_le_bytes());
+		let mut root = Default::default();
+
+		// Goldilocks field order: p = 2^64 - 2^32 + 1
+		let p: u64 = 0xFFFFFFFF00000001;
+
+		let k1 = b"k1";
+		let k2 = b"k2";
+		// Two different 8-byte values that collide in the Goldilocks field
+		let v1 = 0u64.to_le_bytes().to_vec(); // encodes 0
+		let v2 = p.to_le_bytes().to_vec(); // encodes p, which equals 0 mod p
+
+		// Verify they are actually different byte sequences
+		assert_ne!(v1, v2, "values should be different byte sequences");
+
+		{
+			let mut trie = TrieDBMutBuilder::<PoseidonLayoutV1>::new(&mut memdb, &mut root).build();
+			trie.insert(k1, &v1).expect("insert v1 should succeed");
+			trie.insert(k2, &v2).expect("insert v2 should succeed");
+		}
+
+		let trie = trie_db::TrieDBBuilder::<PoseidonLayoutV1>::new(&memdb, &root).build();
+		let read_v1 = trie.get(k1).expect("read v1 should succeed").expect("v1 should exist");
+		let read_v2 = trie.get(k2).expect("read v2 should succeed").expect("v2 should exist");
+
+		// These should both pass - each value should round-trip correctly
+		// If the field order collision causes issues, one or both will fail
+		assert_eq!(read_v1, v1, "value encoding 0 should round-trip exactly");
+		assert_eq!(read_v2, v2, "value encoding p should round-trip exactly");
 	}
 
 	/// Test ByteSliceInput::take with edge cases to verify overflow protection.

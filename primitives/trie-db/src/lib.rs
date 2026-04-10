@@ -88,10 +88,14 @@ pub use crate::iter_build::TrieRootPrint;
 /// Database value
 pub type DBValue = Vec<u8>;
 
+pub(crate) fn is_poseidon_hasher<H: Hasher>() -> bool {
+	core::any::type_name::<H>() == "qp_poseidon::PoseidonHasher"
+}
+
 /// Hash value-node payload using the hasher's injective byte hashing path.
 pub(crate) fn hash_value_node_injective<H: Hasher>(value: &[u8]) -> H::Out {
 	assert!(
-		core::any::type_name::<H>() == "qp_poseidon::PoseidonHasher",
+		is_poseidon_hasher::<H>(),
 		"hash_value_node_injective is Poseidon-only",
 	);
 	let felts = qp_poseidon_core::serialization::bytes_to_felts(value);
@@ -103,6 +107,26 @@ pub(crate) fn hash_value_node_injective<H: Hasher>(value: &[u8]) -> H::Out {
 	);
 	out.as_mut().copy_from_slice(&digest);
 	out
+}
+
+pub(crate) fn insert_value_node<H, DB>(db: &mut DB, prefix: hash_db::Prefix, value: &[u8]) -> H::Out
+where
+	H: Hasher,
+	DB: HashDB<H, DBValue> + ?Sized,
+{
+	if is_poseidon_hasher::<H>() {
+		let hash = hash_value_node_injective::<H>(value);
+		db.emplace(hash, prefix, value.to_vec());
+		// Some backends (e.g. memory-db null-node optimization) may reject this payload.
+		// If that happens, fall back to backend insert to keep retrieval consistent.
+		if db.contains(&hash, prefix) {
+			hash
+		} else {
+			db.insert(prefix, value)
+		}
+	} else {
+		db.insert(prefix, value)
+	}
 }
 
 /// Trie Errors.

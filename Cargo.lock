@@ -11901,6 +11901,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.4",
  "qp-poseidon",
+ "qp-poseidon-core",
  "rand 0.8.5",
  "scale-info",
  "schnellru",
