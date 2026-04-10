@@ -1112,6 +1112,36 @@ mod tests {
 		let read = trie.get(key).expect("get should succeed").expect("value should exist");
 		assert_eq!(read, member_record, "2-byte value must round-trip unchanged");
 	}
+	
+	/// Exposes the `MAX_INLINE_VALUE = 0` issue for short zero-prefixed values with Poseidon
+	/// hashing (the chain hasher).
+	#[test]
+	fn force_hashed_values_preserve_distinct_zero_prefixed_values_poseidon() {
+		use trie_db::TrieDBMutBuilder;
+		type PoseidonLayout = ForceHashedValuesLayoutV1<qp_poseidon::PoseidonHasher>;
+
+		let mut memdb = MemoryDBMeta::<qp_poseidon::PoseidonHasher>::new(&0u64.to_le_bytes());
+		let mut root = Default::default();
+
+		let k1 = b"k1";
+		let k2 = b"k2";
+		let v1 = vec![0u8];
+		let v2 = vec![0u8, 0u8];
+
+		{
+			let mut trie = TrieDBMutBuilder::<PoseidonLayout>::new(&mut memdb, &mut root).build();
+			trie.insert(k1, &v1).expect("insert v1 should succeed");
+			trie.insert(k2, &v2).expect("insert v2 should succeed");
+		}
+
+		let trie = trie_db::TrieDBBuilder::<PoseidonLayout>::new(&memdb, &root).build();
+		let read_v1 = trie.get(k1).expect("read v1 should succeed").expect("v1 should exist");
+		let read_v2 = trie.get(k2).expect("read v2 should succeed").expect("v2 should exist");
+
+		assert_eq!(read_v1, v1, "value 0x00 should round-trip exactly");
+		assert_eq!(read_v2, v2, "value 0x0000 should round-trip exactly");
+	}
+
 
 	/// Same test with Blake2 — should pass, proving the issue is Poseidon-specific.
 	#[test]
