@@ -41,7 +41,7 @@ qp-wormhole-circuit.workspace = true
 qp-wormhole-prover.workspace = true
 qp-wormhole-verifier = { workspace = true, default-features = false }
 qp-zk-circuits-common = { workspace = true, default-features = false }
-sp-state-machine = { path = "../../primitives/state-machine" }
+sp-state-machine.workspace = true
 sp-trie.workspace = true
 
 [features]
