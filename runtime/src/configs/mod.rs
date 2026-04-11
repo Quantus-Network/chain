@@ -63,8 +63,8 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
 	PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, DAYS,
-	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTrie,
+	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -700,6 +700,7 @@ impl pallet_wormhole::Config for Runtime {
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
+	type ZkTrie = ZkTrie;
 }
 
 impl pallet_zk_trie::Config for Runtime {

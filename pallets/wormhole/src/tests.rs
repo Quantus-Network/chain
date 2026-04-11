@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod wormhole_tests {
 	use crate::mock::*;
-	use codec::Encode;
 	use frame_support::{
 		assert_ok,
 		traits::{
@@ -9,7 +8,6 @@ mod wormhole_tests {
 			Currency,
 		},
 	};
-	use qp_poseidon::PoseidonHasher;
 	use sp_core::crypto::AccountId32;
 
 	/// Well-known test secret for genesis endowment (matches runtime preset).
@@ -33,24 +31,8 @@ mod wormhole_tests {
 		AccountId32::new(TEST_ADDRESS)
 	}
 
-	/// Compute the expected leaf_inputs_hash for a transfer.
-	/// This must match the computation in record_transfer.
-	fn compute_leaf_inputs_hash(
-		asset_id: u32,
-		transfer_count: u64,
-		from: &AccountId,
-		to: &AccountId,
-		amount: Balance,
-	) -> [u8; 32] {
-		let full_data: (u32, u64, AccountId, AccountId, Balance) =
-			(asset_id, transfer_count, from.clone(), to.clone(), amount);
-		PoseidonHasher::hash_storage::<(u32, u64, AccountId, AccountId, Balance)>(
-			&full_data.encode(),
-		)
-	}
-
 	#[test]
-	fn record_transfer_creates_proof_and_increments_count() {
+	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {
 			let alice = account_id(1);
 			let bob = account_id(2);
@@ -60,15 +42,6 @@ mod wormhole_tests {
 			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-
-			// Verify the stored hash matches the expected leaf_inputs_hash
-			let expected_hash = compute_leaf_inputs_hash(0u32, count_before, &alice, &bob, amount);
-			let stored_hash = Wormhole::transfer_proof((bob.clone(), count_before))
-				.expect("transfer proof should exist");
-			assert_eq!(
-				stored_hash, expected_hash,
-				"stored hash should match expected leaf_inputs_hash"
-			);
 
 			// Second transfer increments count again
 			Wormhole::record_transfer(0u32, &alice, &bob, amount);
@@ -117,22 +90,13 @@ mod wormhole_tests {
 				frame_support::traits::tokens::Preservation::Expendable,
 			));
 
-			// 2. Record the transfer proof
+			// 2. Record the transfer (now goes to ZK trie, but disabled in mock)
 			let count_before = Wormhole::transfer_count(&bob);
 			Wormhole::record_transfer(0u32, &alice, &bob, amount);
 
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
-
-			// Verify the stored hash matches the expected leaf_inputs_hash
-			let expected_hash = compute_leaf_inputs_hash(0u32, count_before, &alice, &bob, amount);
-			let stored_hash =
-				Wormhole::transfer_proof((bob, count_before)).expect("transfer proof should exist");
-			assert_eq!(
-				stored_hash, expected_hash,
-				"stored hash should match expected leaf_inputs_hash"
-			);
 		});
 	}
 
@@ -190,9 +154,9 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	fn genesis_endowments_have_transfer_proofs() {
-		// Test that addresses endowed at genesis have TransferProof recorded,
-		// enabling them to spend via ZK proofs.
+	fn genesis_endowments_are_recorded() {
+		// Test that addresses endowed at genesis have their transfers recorded,
+		// enabling them to spend via ZK proofs (proofs stored in ZK trie).
 		use frame_support::traits::Hooks;
 
 		let address = test_account();
@@ -207,46 +171,22 @@ mod wormhole_tests {
 					"Address should have endowed balance"
 				);
 
-				// Before block 1: TransferProof should NOT exist yet
+				// Before block 1: transfer count should be 0
 				assert_eq!(
 					Wormhole::transfer_count(&address),
 					0,
 					"Transfer count should be 0 before on_initialize"
-				);
-				assert!(
-					Wormhole::transfer_proof((address.clone(), 0)).is_none(),
-					"TransferProof should not exist before on_initialize"
 				);
 
 				// Trigger on_initialize at block 1 to process genesis endowments
 				System::set_block_number(1);
 				Wormhole::on_initialize(1);
 
-				// After block 1: TransferProof should exist
+				// After block 1: transfer count should be incremented
 				assert_eq!(
 					Wormhole::transfer_count(&address),
 					1,
 					"Transfer count should be 1 after on_initialize"
-				);
-
-				let transfer_proof = Wormhole::transfer_proof((address.clone(), 0));
-				assert!(
-					transfer_proof.is_some(),
-					"TransferProof should exist for genesis-endowed address"
-				);
-
-				// Verify the stored hash matches expected computation
-				let expected_hash = compute_leaf_inputs_hash(
-					0u32,             // asset_id (native)
-					0,                // transfer_count
-					&MINTING_ACCOUNT, // from (genesis uses minting account)
-					&address,         // to
-					endowment_amount, // amount
-				);
-				assert_eq!(
-					transfer_proof.unwrap(),
-					expected_hash,
-					"TransferProof hash should match expected value"
 				);
 
 				// Verify event was emitted
@@ -264,10 +204,10 @@ mod wormhole_tests {
 	}
 
 	#[test]
-	fn genesis_multiple_endowments_all_have_transfer_proofs() {
-		// Test multiple addresses endowed at genesis all get TransferProofs.
+	fn genesis_multiple_endowments_all_recorded() {
+		// Test multiple addresses endowed at genesis all get their transfers recorded.
 		// The chain doesn't distinguish "wormhole addresses" from regular addresses -
-		// any address can have transfer proofs and spend via ZK proofs.
+		// any address can have transfers recorded and spend via ZK proofs.
 		use frame_support::traits::Hooks;
 
 		let addr1 = account_id(100);
@@ -289,7 +229,7 @@ mod wormhole_tests {
 			assert_eq!(Balances::balance(&addr2), amount2);
 			assert_eq!(Balances::balance(&addr3), amount3);
 
-			// Before block 1: No transfer proofs yet
+			// Before block 1: No transfers recorded yet
 			assert_eq!(Wormhole::transfer_count(&addr1), 0);
 			assert_eq!(Wormhole::transfer_count(&addr2), 0);
 			assert_eq!(Wormhole::transfer_count(&addr3), 0);
@@ -302,19 +242,6 @@ mod wormhole_tests {
 			assert_eq!(Wormhole::transfer_count(&addr1), 1);
 			assert_eq!(Wormhole::transfer_count(&addr2), 1);
 			assert_eq!(Wormhole::transfer_count(&addr3), 1);
-
-			// All addresses should have TransferProof at index 0
-			assert!(Wormhole::transfer_proof((addr1.clone(), 0)).is_some());
-			assert!(Wormhole::transfer_proof((addr2.clone(), 0)).is_some());
-			assert!(Wormhole::transfer_proof((addr3.clone(), 0)).is_some());
-
-			// Verify each proof has correct hash
-			for (addr, amount) in [(addr1, amount1), (addr2, amount2), (addr3, amount3)] {
-				let expected_hash =
-					compute_leaf_inputs_hash(0u32, 0, &MINTING_ACCOUNT, &addr, amount);
-				let stored_hash = Wormhole::transfer_proof((addr, 0)).unwrap();
-				assert_eq!(stored_hash, expected_hash);
-			}
 		});
 	}
 

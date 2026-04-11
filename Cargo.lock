@@ -6926,6 +6926,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-balances",
+ "pallet-zk-trie",
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-header",

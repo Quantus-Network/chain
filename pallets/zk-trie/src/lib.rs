@@ -225,6 +225,49 @@ pub mod pallet {
 }
 
 // ============================================================================
+// Trait for external pallets
+// ============================================================================
+
+/// Trait for inserting leaves into the ZK trie.
+/// Used by pallet-wormhole to record transfer proofs.
+pub trait ZkTrieRecorder<AccountId, AssetId, Balance> {
+	/// Insert a transfer into the ZK trie.
+	/// Returns the leaf index and new root hash.
+	fn record_transfer(
+		to: AccountId,
+		transfer_count: u64,
+		asset_id: AssetId,
+		amount: Balance,
+	) -> Option<(u64, Hash256)>;
+}
+
+/// No-op implementation for when ZK trie is not configured.
+impl<AccountId, AssetId, Balance> ZkTrieRecorder<AccountId, AssetId, Balance> for () {
+	fn record_transfer(
+		_to: AccountId,
+		_transfer_count: u64,
+		_asset_id: AssetId,
+		_amount: Balance,
+	) -> Option<(u64, Hash256)> {
+		None
+	}
+}
+
+impl<T: Config> ZkTrieRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T>
+where
+	T::AccountId: AsRef<[u8]>,
+{
+	fn record_transfer(
+		to: T::AccountId,
+		transfer_count: u64,
+		asset_id: T::AssetId,
+		amount: T::Balance,
+	) -> Option<(u64, Hash256)> {
+		Self::insert_leaf(to, transfer_count, asset_id, amount).ok()
+	}
+}
+
+// ============================================================================
 // Runtime API
 // ============================================================================
 
