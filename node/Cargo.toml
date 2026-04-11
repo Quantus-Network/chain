@@ -36,6 +36,8 @@ pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
 pallet-utility.default-features = true
 pallet-utility.workspace = true
+pallet-zk-trie.default-features = true
+pallet-zk-trie.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
 qp-poseidon.workspace = true

@@ -6948,6 +6948,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-zk-trie"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "qp-poseidon-core",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "parity-bip39"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8522,6 +8539,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-utility",
+ "pallet-zk-trie",
  "parity-scale-codec",
  "prometheus",
  "qp-dilithium-crypto",
@@ -8602,6 +8620,7 @@ dependencies = [
  "pallet-treasury",
  "pallet-utility",
  "pallet-wormhole",
+ "pallet-zk-trie",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",

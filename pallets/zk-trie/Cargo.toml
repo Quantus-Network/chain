@@ -1,0 +1,47 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "pallet-zk-trie"
+repository.workspace = true
+version = "0.1.0"
+description = "4-ary Poseidon Merkle tree for ZK transfer proofs"
+
+[dependencies]
+codec = { workspace = true, default-features = false, features = ["derive"] }
+frame-support.workspace = true
+frame-system.workspace = true
+log.workspace = true
+qp-poseidon-core = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false, features = ["derive"] }
+serde = { workspace = true, optional = true }
+sp-api = { workspace = true, default-features = false }
+sp-core.workspace = true
+sp-runtime.workspace = true
+
+[dev-dependencies]
+sp-io.workspace = true
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+	"log/std",
+	"qp-poseidon-core/std",
+	"scale-info/std",
+	"serde/std",
+	"sp-api/std",
+	"sp-core/std",
+	"sp-runtime/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+]

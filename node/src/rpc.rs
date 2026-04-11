@@ -111,10 +111,14 @@ where
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: sp_consensus_qpow::QPoWApi<Block>,
+	C::Api: pallet_zk_trie::ZkTrieApi<Block>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool<Block = Block> + 'static,
 {
-	use crate::txwatch::{TxWatch, TxWatchApiServer};
+	use crate::{
+		txwatch::{TxWatch, TxWatchApiServer},
+		zktrie_rpc::{ZkTrie, ZkTrieApiServer},
+	};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
@@ -125,6 +129,7 @@ where
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(Peer::new(network).into_rpc())?;
 	module.merge(TxWatch::new(pool).into_rpc())?;
+	module.merge(ZkTrie::new(client).into_rpc())?;
 
 	Ok(module)
 }

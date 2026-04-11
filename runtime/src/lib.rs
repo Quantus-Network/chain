@@ -255,4 +255,7 @@ mod runtime {
 
 	#[runtime::pallet_index(20)]
 	pub type Wormhole = pallet_wormhole;
+
+	#[runtime::pallet_index(21)]
+	pub type ZkTrie = pallet_zk_trie;
 }

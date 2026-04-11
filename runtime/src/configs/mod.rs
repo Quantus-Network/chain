@@ -701,3 +701,8 @@ impl pallet_wormhole::Config for Runtime {
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 }
+
+impl pallet_zk_trie::Config for Runtime {
+	type AssetId = AssetId;
+	type Balance = Balance;
+}

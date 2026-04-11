@@ -46,6 +46,7 @@ pallet-transaction-payment-rpc-runtime-api.workspace = true
 pallet-treasury.workspace = true
 pallet-utility.workspace = true
 pallet-wormhole.workspace = true
+pallet-zk-trie.workspace = true
 primitive-types.workspace = true
 qp-dilithium-crypto.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
@@ -115,6 +116,7 @@ std = [
 	"pallet-treasury/std",
 	"pallet-utility/std",
 	"pallet-wormhole/std",
+	"pallet-zk-trie/std",
 	"primitive-types/std",
 	"qp-dilithium-crypto/full_crypto",
 	"qp-dilithium-crypto/std",

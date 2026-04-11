@@ -21,6 +21,7 @@ members = [
 	"pallets/scheduler",
 	"pallets/treasury",
 	"pallets/wormhole",
+	"pallets/zk-trie",
 	"primitives/consensus/qpow",
 	"primitives/dilithium-crypto",
 	"primitives/header",
@@ -139,6 +140,7 @@ pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
 pallet-scheduler = { path = "./pallets/scheduler", default-features = false }
 pallet-wormhole = { path = "./pallets/wormhole", default-features = false }
+pallet-zk-trie = { path = "./pallets/zk-trie", default-features = false }
 qp-dilithium-crypto = { path = "./primitives/dilithium-crypto", version = "0.3.1", default-features = false }
 qp-header = { path = "./primitives/header", default-features = false }
 qp-scheduler = { path = "./primitives/scheduler", default-features = false }
