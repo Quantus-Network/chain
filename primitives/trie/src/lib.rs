@@ -131,14 +131,12 @@ pub use trie_stream::TrieStream;
 /// Raw storage proof type (just raw trie nodes).
 pub type RawStorageProof = Vec<Vec<u8>>;
 
-/// substrate trie layout
-pub struct LayoutV0<H>(PhantomData<H>);
-
-/// substrate trie layout, with external value nodes.
+/// Quantus trie layout.
 pub struct LayoutV1<H>(PhantomData<H>);
 
-// Set to 0 to force all values to be hashed, never inlined
-// This removes the need for length prefixes in the storage proof
+/// Alias for backwards compatibility with `StateVersion::V0` code paths.
+pub type LayoutV0<H> = LayoutV1<H>;
+
 const FELT_ALIGNED_MAX_INLINE_VALUE: u32 = 0;
 
 pub(crate) fn injective_value_hash<H: Hasher>(value: &[u8]) -> H::Out {
@@ -146,63 +144,6 @@ pub(crate) fn injective_value_hash<H: Hasher>(value: &[u8]) -> H::Out {
 	let mut out = H::Out::default();
 	out.as_mut().copy_from_slice(&bytes);
 	out
-}
-
-impl<H> TrieLayout for LayoutV0<H>
-where
-	H: Hasher,
-{
-	const USE_EXTENSION: bool = false;
-	const ALLOW_EMPTY: bool = true;
-	const MAX_INLINE_VALUE: Option<u32> = Some(FELT_ALIGNED_MAX_INLINE_VALUE);
-
-	type Hash = H;
-	type Codec = NodeCodec<Self::Hash>;
-
-	fn hash_value(value: &[u8]) -> H::Out {
-		injective_value_hash::<H>(value)
-	}
-}
-
-impl<H> TrieConfiguration for LayoutV0<H>
-where
-	H: Hasher,
-{
-	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord,
-		B: AsRef<[u8]>,
-	{
-		let input_vec: Vec<_> = input.into_iter().collect();
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root input length: {}", input_vec.len());
-		let result = trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(
-			input_vec,
-			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		);
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root result: {:02x?}", result.as_ref());
-		result
-	}
-
-	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord,
-		B: AsRef<[u8]>,
-	{
-		let input_vec: Vec<_> = input.into_iter().collect();
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root_unhashed input length: {}", input_vec.len());
-		let result = trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(
-			input_vec,
-			Some(FELT_ALIGNED_MAX_INLINE_VALUE),
-		);
-		log::debug!(target: "zk-trie", "LayoutV1::trie_root_unhashed result: {:02x?}", result);
-		result
-	}
-
-	fn encode_index(input: u32) -> Vec<u8> {
-		codec::Encode::encode(&codec::Compact(input))
-	}
 }
 
 impl<H> TrieLayout for LayoutV1<H>
