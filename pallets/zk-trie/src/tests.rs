@@ -103,7 +103,7 @@ fn test_hash_node() {
 fn insert_first_leaf_works() {
 	new_test_ext().execute_with(|| {
 		let to = make_account(1);
-		let (index, root) = ZkTrie::insert_leaf(to.clone(), 0, 0u32, 100u128).unwrap();
+		let (index, root) = ZkTrie::insert_leaf(to.clone(), 0, 0u32, 100u128);
 
 		assert_eq!(index, 0);
 		assert_ne!(root, [0u8; 32]);
@@ -127,8 +127,7 @@ fn insert_multiple_leaves_works() {
 
 		for i in 0..4 {
 			let to = make_account(i + 1);
-			let (index, root) =
-				ZkTrie::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100).unwrap();
+			let (index, root) = ZkTrie::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100);
 			assert_eq!(index, i as u64);
 			roots.push(root);
 		}
@@ -149,13 +148,13 @@ fn tree_grows_at_capacity() {
 		// Fill depth 1 (4 leaves)
 		for i in 0..4 {
 			let to = make_account(i + 1);
-			ZkTrie::insert_leaf(to, i as u64, 0u32, 100u128).unwrap();
+			ZkTrie::insert_leaf(to, i as u64, 0u32, 100u128);
 		}
 		assert_eq!(ZkTrie::depth(), 1);
 
 		// 5th leaf should trigger growth to depth 2
 		let to = make_account(5);
-		ZkTrie::insert_leaf(to, 4, 0u32, 100u128).unwrap();
+		ZkTrie::insert_leaf(to, 4, 0u32, 100u128);
 
 		assert_eq!(ZkTrie::leaf_count(), 5);
 		assert_eq!(ZkTrie::depth(), 2);
@@ -168,7 +167,7 @@ fn tree_grows_multiple_times() {
 		// Insert 20 leaves (need depth 3 to fit: 4^3 = 64)
 		for i in 0..20 {
 			let to = make_account((i % 255) as u8 + 1);
-			ZkTrie::insert_leaf(to, i as u64, 0u32, 100u128).unwrap();
+			ZkTrie::insert_leaf(to, i as u64, 0u32, 100u128);
 		}
 
 		assert_eq!(ZkTrie::leaf_count(), 20);
@@ -182,7 +181,7 @@ fn merkle_proof_works() {
 		// Insert some leaves
 		for i in 0..5 {
 			let to = make_account(i + 1);
-			ZkTrie::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100).unwrap();
+			ZkTrie::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100);
 		}
 
 		// Get proof for leaf 0
@@ -203,7 +202,7 @@ fn merkle_proof_all_leaves() {
 		// Insert leaves
 		for i in 0..10 {
 			let to = make_account(i + 1);
-			ZkTrie::insert_leaf(to, i as u64, i as u32, (i + 1) as u128 * 100).unwrap();
+			ZkTrie::insert_leaf(to, i as u64, i as u32, (i + 1) as u128 * 100);
 		}
 
 		// Verify proof for each leaf
@@ -221,7 +220,7 @@ fn invalid_proof_fails() {
 		// Insert leaves
 		for i in 0..5 {
 			let to = make_account(i + 1);
-			ZkTrie::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100).unwrap();
+			ZkTrie::insert_leaf(to, i as u64, 0u32, (i + 1) as u128 * 100);
 		}
 
 		// Get proof for leaf 0
@@ -237,7 +236,7 @@ fn invalid_proof_fails() {
 #[test]
 fn proof_for_nonexistent_leaf_fails() {
 	new_test_ext().execute_with(|| {
-		ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128).unwrap();
+		ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128);
 
 		// Try to get proof for leaf index 5 (doesn't exist)
 		let result = ZkTrie::get_merkle_proof(5);
@@ -248,8 +247,8 @@ fn proof_for_nonexistent_leaf_fails() {
 #[test]
 fn root_changes_on_insert() {
 	new_test_ext().execute_with(|| {
-		let (_, root1) = ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128).unwrap();
-		let (_, root2) = ZkTrie::insert_leaf(make_account(2), 1, 0u32, 200u128).unwrap();
+		let (_, root1) = ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128);
+		let (_, root2) = ZkTrie::insert_leaf(make_account(2), 1, 0u32, 200u128);
 
 		assert_ne!(root1, root2);
 		assert_eq!(ZkTrie::root(), root2);
@@ -259,7 +258,7 @@ fn root_changes_on_insert() {
 #[test]
 fn different_amounts_give_different_hashes() {
 	new_test_ext().execute_with(|| {
-		let (_, root1) = ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128).unwrap();
+		let (_, root1) = ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128);
 
 		// Reset and insert with different amount
 		crate::Leaves::<Test>::remove(0);
@@ -267,7 +266,7 @@ fn different_amounts_give_different_hashes() {
 		crate::Depth::<Test>::put(0);
 		crate::Root::<Test>::put([0u8; 32]);
 
-		let (_, root2) = ZkTrie::insert_leaf(make_account(1), 0, 0u32, 200u128).unwrap();
+		let (_, root2) = ZkTrie::insert_leaf(make_account(1), 0, 0u32, 200u128);
 
 		assert_ne!(root1, root2);
 	});
@@ -276,7 +275,7 @@ fn different_amounts_give_different_hashes() {
 #[test]
 fn digest_log_contains_root() {
 	new_test_ext().execute_with(|| {
-		ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128).unwrap();
+		ZkTrie::insert_leaf(make_account(1), 0, 0u32, 100u128);
 		let expected_root = ZkTrie::root();
 
 		// Trigger on_finalize
@@ -321,7 +320,7 @@ fn simulate_transfer(
 	asset_id: u32,
 	amount: u128,
 ) -> (u64, Hash256) {
-	ZkTrie::insert_leaf(to, transfer_count, asset_id, amount).expect("insert_leaf should succeed")
+	ZkTrie::insert_leaf(to, transfer_count, asset_id, amount)
 }
 
 #[test]

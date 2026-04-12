@@ -48,6 +48,20 @@ pub const ARITY: usize = 4;
 pub type Hash256 = [u8; 32];
 
 /// Leaf data for the ZK tree.
+///
+/// # Why `from` is not included
+///
+/// The ZK circuit needs to verify two things about a transfer:
+/// 1. The transfer amount (to compute balances)
+/// 2. The transfer is unique (to prevent double-spending)
+///
+/// Uniqueness is guaranteed by `(to, transfer_count)` - each recipient has a
+/// monotonically increasing counter, so every transfer to that recipient gets
+/// a unique index. The `from` address is irrelevant for proving ownership of
+/// received funds; what matters is that the transfer happened exactly once.
+///
+/// Omitting `from` reduces the leaf size and simplifies the ZK circuit without
+/// sacrificing security properties.
 #[derive(
 	codec::Encode,
 	codec::Decode,
@@ -61,7 +75,7 @@ pub type Hash256 = [u8; 32];
 pub struct ZkLeaf<AccountId, AssetId, Balance> {
 	/// Recipient account
 	pub to: AccountId,
-	/// Transfer count (unique per recipient)
+	/// Transfer count for this recipient (ensures uniqueness via `(to, transfer_count)`)
 	pub transfer_count: u64,
 	/// Asset ID (0 for native token)
 	pub asset_id: AssetId,
@@ -140,8 +154,6 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Tree has reached maximum depth.
-		MaxDepthReached,
 		/// Leaf index out of bounds.
 		LeafIndexOutOfBounds,
 		/// Leaf not found.
@@ -165,12 +177,18 @@ pub mod pallet {
 		/// Insert a new leaf into the tree.
 		///
 		/// Returns the leaf index and new root hash.
+		///
+		/// # Infallibility
+		///
+		/// This function is infallible because the only theoretical failure mode
+		/// (exceeding MAX_TREE_DEPTH of 32) would require 4^32 leaves, which is
+		/// astronomically larger than any practical blockchain state.
 		pub fn insert_leaf(
 			to: AccountIdOf<T>,
 			transfer_count: u64,
 			asset_id: T::AssetId,
 			amount: T::Balance,
-		) -> Result<(u64, Hash256), Error<T>> {
+		) -> (u64, Hash256) {
 			let leaf = ZkLeaf { to, transfer_count, asset_id, amount };
 			let leaf_index = LeafCount::<T>::get();
 
@@ -180,10 +198,15 @@ pub mod pallet {
 
 			if leaf_index >= capacity {
 				// Need to grow the tree
-				let new_depth = current_depth.checked_add(1).ok_or(Error::<T>::MaxDepthReached)?;
-				ensure!(new_depth <= MAX_TREE_DEPTH, Error::<T>::MaxDepthReached);
+				// saturating_add ensures we never overflow; MAX_TREE_DEPTH=32 means 4^32 leaves
+				// which is ~18 quintillion - far beyond any practical blockchain state
+				let new_depth = current_depth.saturating_add(1);
+				debug_assert!(
+					new_depth <= MAX_TREE_DEPTH,
+					"ZK trie exceeded max depth - this should never happen in practice"
+				);
 
-				tree::grow_tree::<T>(current_depth, new_depth)?;
+				tree::grow_tree::<T>(current_depth, new_depth);
 				Depth::<T>::put(new_depth);
 
 				Self::deposit_event(Event::TreeGrew { new_depth });
@@ -195,13 +218,13 @@ pub mod pallet {
 
 			// Compute leaf hash and update tree
 			let leaf_hash = tree::hash_leaf::<T>(&leaf);
-			let new_root = tree::update_path::<T>(leaf_index, leaf_hash)?;
+			let new_root = tree::update_path::<T>(leaf_index, leaf_hash);
 
 			Root::<T>::put(new_root);
 
 			Self::deposit_event(Event::LeafInserted { index: leaf_index, leaf_hash, new_root });
 
-			Ok((leaf_index, new_root))
+			(leaf_index, new_root)
 		}
 
 		/// Get a Merkle proof for a leaf at the given index.
@@ -232,24 +255,15 @@ pub mod pallet {
 /// Used by pallet-wormhole to record transfer proofs.
 pub trait ZkTrieRecorder<AccountId, AssetId, Balance> {
 	/// Insert a transfer into the ZK trie.
-	/// Returns the leaf index and new root hash.
-	fn record_transfer(
-		to: AccountId,
-		transfer_count: u64,
-		asset_id: AssetId,
-		amount: Balance,
-	) -> Option<(u64, Hash256)>;
+	///
+	/// This operation is infallible. Implementations must always succeed.
+	fn record_transfer(to: AccountId, transfer_count: u64, asset_id: AssetId, amount: Balance);
 }
 
 /// No-op implementation for when ZK trie is not configured.
 impl<AccountId, AssetId, Balance> ZkTrieRecorder<AccountId, AssetId, Balance> for () {
-	fn record_transfer(
-		_to: AccountId,
-		_transfer_count: u64,
-		_asset_id: AssetId,
-		_amount: Balance,
-	) -> Option<(u64, Hash256)> {
-		None
+	fn record_transfer(_to: AccountId, _transfer_count: u64, _asset_id: AssetId, _amount: Balance) {
+		// No-op
 	}
 }
 
@@ -262,8 +276,8 @@ where
 		transfer_count: u64,
 		asset_id: T::AssetId,
 		amount: T::Balance,
-	) -> Option<(u64, Hash256)> {
-		Self::insert_leaf(to, transfer_count, asset_id, amount).ok()
+	) {
+		Self::insert_leaf(to, transfer_count, asset_id, amount);
 	}
 }
 

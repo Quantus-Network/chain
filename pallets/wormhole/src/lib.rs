@@ -39,7 +39,7 @@ pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 pub mod pallet {
 	use crate::{ToFelts, WeightInfo};
 	use alloc::vec::Vec;
-	use codec::{Decode, Encode};
+	use codec::Decode;
 	use frame_support::{
 		dispatch::{DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo},
 		pallet_prelude::*,
@@ -163,6 +163,7 @@ pub mod pallet {
 			+ Saturating
 			+ Copy
 			+ sp_runtime::traits::One
+			+ Into<u64>
 			+ ToFelts;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
@@ -600,17 +601,9 @@ pub mod pallet {
 			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
 
 			// Insert into ZK trie for Merkle proof generation
-			// Convert transfer_count to u64 for the trie
-			let transfer_count_u64: u64 = {
-				let encoded = current_count.encode();
-				let mut bytes = [0u8; 8];
-				let len = encoded.len().min(8);
-				bytes[..len].copy_from_slice(&encoded[..len]);
-				u64::from_le_bytes(bytes)
-			};
 			T::ZkTrie::record_transfer(
 				to.clone().into(),
-				transfer_count_u64,
+				current_count.into(),
 				asset_id.clone(),
 				amount,
 			);

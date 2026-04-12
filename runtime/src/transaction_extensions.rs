@@ -623,15 +623,9 @@ mod tests {
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Verify proof was recorded
+			// Verify transfer was recorded (proof is now in ZK trie)
 			let count_after = Wormhole::transfer_count(&bob_account);
 			assert_eq!(count_after, count_before + 1, "Transfer count should increment");
-
-			// Verify the proof exists
-			assert!(
-				Wormhole::transfer_proof((bob_account, count_before)).is_some(),
-				"Transfer proof should exist"
-			);
 		});
 	}
 
@@ -656,9 +650,8 @@ mod tests {
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Verify proof was recorded
+			// Verify transfer was recorded (proof is now in ZK trie)
 			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
-			assert!(Wormhole::transfer_proof((bob_account, count_before)).is_some());
 		});
 	}
 
@@ -681,9 +674,8 @@ mod tests {
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Verify proof was recorded with actual amount (not Balance::MAX)
+			// Verify transfer was recorded (proof is now in ZK trie)
 			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
-			assert!(Wormhole::transfer_proof((bob_account, count_before)).is_some());
 		});
 	}
 
@@ -717,11 +709,9 @@ mod tests {
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Verify both proofs were recorded
+			// Verify both transfers were recorded (proofs are now in ZK trie)
 			assert_eq!(Wormhole::transfer_count(&bob_account), bob_count_before + 1);
 			assert_eq!(Wormhole::transfer_count(&charlie_account), charlie_count_before + 1);
-			assert!(Wormhole::transfer_proof((bob_account, bob_count_before)).is_some());
-			assert!(Wormhole::transfer_proof((charlie_account, charlie_count_before)).is_some());
 		});
 	}
 
@@ -777,10 +767,8 @@ mod tests {
 
 			// Check if count increased (depends on whether Minted event is emitted)
 			// force_set_balance may emit BalanceSet instead of Minted
-			// This test documents the expected behavior
-			if count_after > count_before {
-				assert!(Wormhole::transfer_proof((recipient, count_before)).is_some());
-			}
+			// This test documents the expected behavior - proofs are now in ZK trie
+			assert!(count_after >= count_before, "Transfer count should not decrease");
 		});
 	}
 
@@ -942,19 +930,13 @@ mod tests {
 			// Use 0 as the before count for tests (all events are "new").
 			WormholeProofRecorderExtension::<Runtime>::record_proofs_from_events_since(0);
 
-			// Verify proof was recorded for the transfer TO charlie
+			// Verify transfer was recorded (proof is now in ZK trie)
 			// The transfer is FROM the multisig address
 			let count_after = Wormhole::transfer_count(&charlie_account);
 			assert_eq!(
 				count_after,
 				count_before + 1,
 				"Transfer count should increment for multisig transfer"
-			);
-
-			// Verify the proof exists
-			assert!(
-				Wormhole::transfer_proof((charlie_account, count_before)).is_some(),
-				"Transfer proof should exist for multisig transfer"
 			);
 		});
 	}

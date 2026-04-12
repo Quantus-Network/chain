@@ -8,8 +8,8 @@
 //! - Tree growth when capacity is exceeded
 
 use crate::{
-	pallet::{AccountIdOf, Config},
-	Error, Hash256, ZkLeaf, ZkMerkleProof, ARITY,
+	pallet::{AccountIdOf, Config, Error},
+	Hash256, ZkLeaf, ZkMerkleProof, ARITY,
 };
 use alloc::vec::Vec;
 
@@ -97,7 +97,7 @@ fn get_node_hash<T: Config>(level: u8, index: u64) -> Hash256 {
 /// Update the path from a leaf to the root after insertion.
 ///
 /// Returns the new root hash.
-pub fn update_path<T: Config>(leaf_index: u64, leaf_hash: Hash256) -> Result<Hash256, Error<T>>
+pub fn update_path<T: Config>(leaf_index: u64, leaf_hash: Hash256) -> Hash256
 where
 	AccountIdOf<T>: AsRef<[u8]>,
 {
@@ -106,7 +106,7 @@ where
 	if depth == 0 {
 		// Special case: first leaf in empty tree - need to initialize
 		crate::Depth::<T>::put(1);
-		return Ok(leaf_hash);
+		return leaf_hash;
 	}
 
 	// Start from leaf level and work up to root
@@ -116,7 +116,6 @@ where
 	for level in 1..=depth {
 		// Find which group of 4 this node belongs to
 		let parent_index = current_index / (ARITY as u64);
-		let _position_in_parent = (current_index % (ARITY as u64)) as usize;
 
 		// Get all 4 children for this parent
 		let mut children = [empty_hash(); ARITY];
@@ -156,16 +155,16 @@ where
 		current_index = parent_index;
 	}
 
-	Ok(current_hash)
+	current_hash
 }
 
 /// Grow the tree by one level.
 ///
 /// The current root becomes one of the children of the new root.
-pub fn grow_tree<T: Config>(old_depth: u8, _new_depth: u8) -> Result<(), Error<T>> {
+pub fn grow_tree<T: Config>(old_depth: u8, _new_depth: u8) {
 	if old_depth == 0 {
 		// Tree was empty, just set depth
-		return Ok(());
+		return;
 	}
 
 	// The old root hash becomes child[0] of the new root
@@ -181,8 +180,6 @@ pub fn grow_tree<T: Config>(old_depth: u8, _new_depth: u8) -> Result<(), Error<T
 	let new_root = hash_node(&children);
 
 	crate::Root::<T>::put(new_root);
-
-	Ok(())
 }
 
 /// Generate a Merkle proof for a leaf at the given index.
@@ -247,7 +244,6 @@ where
 	}
 
 	let mut current_hash = hash_leaf::<T>(leaf);
-	let mut _current_index = proof.leaf_index;
 
 	for (level_siblings, &position) in proof.siblings.iter().zip(proof.path_indices.iter()) {
 		if position >= ARITY as u8 {
@@ -268,7 +264,6 @@ where
 		}
 
 		current_hash = hash_node(&children);
-		_current_index /= ARITY as u64;
 	}
 
 	current_hash == expected_root
@@ -277,31 +272,6 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn test_capacity_at_depth() {
-		assert_eq!(capacity_at_depth(0), 0);
-		assert_eq!(capacity_at_depth(1), 4);
-		assert_eq!(capacity_at_depth(2), 16);
-		assert_eq!(capacity_at_depth(3), 64);
-		assert_eq!(capacity_at_depth(4), 256);
-	}
-
-	#[test]
-	fn test_hash_node() {
-		let children = [[1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32]];
-		let hash = hash_node(&children);
-		assert_ne!(hash, [0u8; 32]);
-
-		// Same input should give same output
-		let hash2 = hash_node(&children);
-		assert_eq!(hash, hash2);
-
-		// Different input should give different output
-		let children2 = [[1u8; 32], [2u8; 32], [3u8; 32], [5u8; 32]];
-		let hash3 = hash_node(&children2);
-		assert_ne!(hash, hash3);
-	}
 
 	#[test]
 	fn test_empty_hash() {
