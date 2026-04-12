@@ -6,8 +6,8 @@
 //!
 //! This pallet provides a separate Merkle tree structure optimized for ZK circuits:
 //! - 4-ary tree (4 children per node) for optimal ZK circuit efficiency
-//! - Leaves hashed with injective Poseidon (4 bytes/felt) for collision resistance
-//! - Internal nodes hashed with non-injective Poseidon (8 bytes/felt) for efficiency
+//! - Leaves hashed as 8 field elements (injective: values are ≤32 bits)
+//! - Internal nodes hashed as 16 field elements (8 bytes/felt compact encoding)
 //! - Tree root published in block digest for ZK verification
 //!
 //! ## Tree Structure
@@ -21,8 +21,8 @@
 //! ```
 //!
 //! Leaf data: (to_account, transfer_count, asset_id, amount)
-//! Leaf hash: injective_poseidon(leaf_data)
-//! Node hash: poseidon(child0 || child1 || child2 || child3)
+//! Leaf hash: poseidon(8 felts from leaf encoding)
+//! Node hash: poseidon(sorted children concatenated → 16 felts)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

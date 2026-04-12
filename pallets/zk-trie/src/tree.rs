@@ -1,8 +1,8 @@
 //! 4-ary Poseidon Merkle tree implementation.
 //!
 //! This module provides the core tree operations:
-//! - Leaf hashing (injective, 4 bytes/felt)
-//! - Node hashing (non-injective, 8 bytes/felt)
+//! - Leaf hashing (8 felts, injective for ≤32-bit values)
+//! - Node hashing (16 felts, 8 bytes/felt compact encoding)
 //! - Path updates on insert
 //! - Proof generation and verification
 //! - Tree growth when capacity is exceeded
@@ -84,8 +84,7 @@ where
 /// in Merkle proofs. This makes verification simpler in ZK circuits - the
 /// verifier just needs the siblings, sorts all 4 children, and hashes.
 ///
-/// Uses non-injective Poseidon (8 bytes/felt) since internal nodes
-/// only contain fixed-size hash outputs, not user-controlled data.
+/// Uses compact Poseidon encoding (8 bytes/felt) - 128 bytes → 16 felts.
 pub fn hash_node(children: &[Hash256; ARITY]) -> Hash256 {
 	// Sort children to make hash order-independent
 	let mut sorted = *children;

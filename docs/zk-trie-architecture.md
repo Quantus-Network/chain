@@ -69,25 +69,35 @@ The tree grows dynamically -- when the 5th leaf arrives, depth increases from 1 
 
 ### Hashing Strategy
 
-Two different Poseidon modes are used, optimized for their context:
+| Layer              | Encoding                  | Felts | Injective? |
+|--------------------|---------------------------|-------|------------|
+| **Leaves**         | Structured (see below)    | 8     | Yes (all values ≤ 32 bits except account) |
+| **Internal nodes** | 8 bytes/felt compact      | 16    | No (hash outputs may exceed field modulus) |
 
-| Layer           | Mode                    | Bytes/Felt | Why                                                    |
-|-----------------|-------------------------|------------|--------------------------------------------------------|
-| **Leaves**      | Injective Poseidon      | 4          | Collision resistance for user-controlled data           |
-| **Internal nodes** | Non-injective Poseidon | 8       | Efficiency -- inputs are fixed-size hashes, not user data |
+**Leaf encoding** (8 field elements):
+```
+┌─────────────────────┬──────────────────┬───────────┬─────────────────┐
+│   to_account        │ transfer_count   │ asset_id  │ amount          │
+│   (4 felts)         │ (2 felts)        │ (1 felt)  │ (1 felt)        │
+│   32 bytes →        │ u64 as high/low  │ u32       │ u32 quantized   │
+│   8 bytes/felt      │ 32-bit limbs     │           │ (raw / 10^10)   │
+└─────────────────────┴──────────────────┴───────────┴─────────────────┘
+                              │
+                        poseidon(8 felts)
+                              │
+                              ▼
+                      leaf_hash (32 bytes)
+```
 
-**Leaf data** (72 bytes):
-```
-┌──────────────────┬──────────────────┬──────────────┬──────────────┐
-│   to (32 bytes)  │ transfer_count   │  asset_id    │   amount     │
-│   AccountId32    │   (8 bytes LE)   │ (16 bytes LE)│ (16 bytes LE)│
-└──────────────────┴──────────────────┴──────────────┴──────────────┘
-                            │
-                   injective_poseidon()
-                            │
-                            ▼
-                    leaf_hash (32 bytes)
-```
+The leaf encoding is effectively injective because:
+- `transfer_count`, `asset_id`, `amount` are all ≤ 32 bits, well under the Goldilocks field modulus (~2^64)
+- `to_account` uses 8 bytes/felt which could theoretically wrap, but AccountId32 values in practice don't collide
+
+**SCALE-encoded leaf data** (60 bytes on-chain storage):
+- `to`: 32 bytes (AccountId32)
+- `transfer_count`: 8 bytes (u64 LE)
+- `asset_id`: 4 bytes (u32 LE)
+- `amount`: 16 bytes (u128 LE, **raw planck value** - full precision stored)
 
 > **Why no `from` address?** The ZK circuit proves ownership of received funds. Uniqueness is guaranteed by `(to, transfer_count)` -- each recipient has a monotonically increasing counter. The sender's identity is irrelevant for proving "I received this transfer."
 
@@ -367,8 +377,10 @@ Storage keys use `Identity` hasher since leaf indices are sequential (no adversa
 }
 ```
 
-The `leaf_data` field is SCALE-encoded `ZkLeaf<AccountId32, u32, u128>`:
+The `leaf_data` field is SCALE-encoded `ZkLeaf<AccountId32, u32, u128>` (60 bytes total):
 - Bytes 0-31: `to` (AccountId32)
 - Bytes 32-39: `transfer_count` (u64 LE)
-- Bytes 40-43: `asset_id` (u32, compact-encoded)
-- Bytes 44+: `amount` (u128, compact-encoded)
+- Bytes 40-43: `asset_id` (u32 LE)
+- Bytes 44-59: `amount` (u128 LE, raw planck value)
+
+Note: The amount stored on-chain is the raw planck value. When hashing for the ZK circuit, amounts are **quantized** by dividing by 10^10 to fit in a single field element with 2 decimal places of precision.
