@@ -201,9 +201,6 @@ name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
-dependencies = [
- "derive_arbitrary",
-]
 
 [[package]]
 name = "ark-bls12-377"
@@ -2414,17 +2411,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "derive_arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.106",
-]
-
-[[package]]
 name = "derive_more"
 version = "0.99.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2478,12 +2464,6 @@ dependencies = [
  "syn 2.0.106",
  "unicode-xid",
 ]
-
-[[package]]
-name = "diff"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
 name = "digest"
@@ -4899,17 +4879,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e1b8590eb6148af2ea2d75f38e7d29f5ca970d5a4df456b3ef19b8b415d0264"
 dependencies = [
  "primitive-types 0.13.1",
- "tiny-keccak",
-]
-
-[[package]]
-name = "keccak-hasher"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19ea4653859ca2266a86419d3f592d3f22e7a854b482f99180d2498507902048"
-dependencies = [
- "hash-db",
- "hash256-std-hasher",
  "tiny-keccak",
 ]
 
@@ -7771,16 +7740,6 @@ checksum = "72dd2d6d381dfb73a193c7fca536518d7caee39fc8503f74e7dc0be0531b425c"
 dependencies = [
  "predicates-core",
  "termtree",
-]
-
-[[package]]
-name = "pretty_assertions"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
-dependencies = [
- "diff",
- "yansi",
 ]
 
 [[package]]
@@ -11769,21 +11728,18 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.49.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b5bfda052a2fe9be497139e0c5d0a51946873f3cd7c2ff81bdbcb8b446caa37"
 dependencies = [
- "arbitrary",
- "array-bytes 6.2.3",
- "assert_matches",
  "hash-db",
  "log",
  "parity-scale-codec",
  "parking_lot 0.12.4",
- "pretty_assertions",
  "rand 0.8.5",
  "smallvec",
  "sp-core",
  "sp-externalities",
  "sp-panic-handler",
- "sp-runtime",
  "sp-trie",
  "thiserror 1.0.69",
  "tracing",
@@ -11888,14 +11844,13 @@ dependencies = [
 [[package]]
 name = "sp-trie"
 version = "42.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6beed4d77d66f085443eac37171d88b2dbf6f7358d9d3451c11479ddfce60d6e"
 dependencies = [
  "ahash 0.8.12",
- "array-bytes 6.2.3",
- "criterion",
  "foldhash 0.1.5",
  "hash-db",
  "hashbrown 0.15.5",
- "log",
  "memory-db",
  "nohash-hasher",
  "parity-scale-codec",
@@ -11905,14 +11860,11 @@ dependencies = [
  "schnellru",
  "sp-core",
  "sp-externalities",
- "sp-runtime",
  "substrate-prometheus-endpoint",
  "thiserror 1.0.69",
  "tracing",
- "trie-bench",
  "trie-db",
  "trie-root",
- "trie-standardmap",
 ]
 
 [[package]]
@@ -13107,24 +13059,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "trie-bench"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "972be214c558b1a5550d34c8c7e55a284f6439cefc51226d6ffbfc152de5cc58"
-dependencies = [
- "criterion",
- "hash-db",
- "keccak-hasher",
- "memory-db",
- "parity-scale-codec",
- "trie-db",
- "trie-root",
- "trie-standardmap",
-]
-
-[[package]]
 name = "trie-db"
 version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c0670ab45a6b7002c7df369fee950a27cf29ae0474343fd3a15aa15f691e7a6"
 dependencies = [
  "hash-db",
  "log",
@@ -13139,16 +13077,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4ed310ef5ab98f5fa467900ed906cb9232dd5376597e00fd4cba2a449d06c0b"
 dependencies = [
  "hash-db",
-]
-
-[[package]]
-name = "trie-standardmap"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "684aafb332fae6f83d7fe10b3fbfdbe39a1b3234c4e2a618f030815838519516"
-dependencies = [
- "hash-db",
- "keccak-hasher",
 ]
 
 [[package]]
@@ -14853,12 +14781,6 @@ dependencies = [
  "static_assertions",
  "web-time",
 ]
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yap"
