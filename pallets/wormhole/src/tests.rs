@@ -39,12 +39,12 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			let count_before = Wormhole::transfer_count(&bob);
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			assert_ok!(Wormhole::record_transfer(0u32, &alice, &bob, amount));
 
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 1);
 
 			// Second transfer increments count again
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			assert_ok!(Wormhole::record_transfer(0u32, &alice, &bob, amount));
 			assert_eq!(Wormhole::transfer_count(&bob), count_before + 2);
 		});
 	}
@@ -57,7 +57,7 @@ mod wormhole_tests {
 			let amount = 10 * UNIT;
 
 			System::set_block_number(1);
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			assert_ok!(Wormhole::record_transfer(0u32, &alice, &bob, amount));
 
 			System::assert_last_event(
 				crate::Event::<Test>::NativeTransferred {
@@ -92,7 +92,7 @@ mod wormhole_tests {
 
 			// 2. Record the transfer (now goes to ZK trie, but disabled in mock)
 			let count_before = Wormhole::transfer_count(&bob);
-			Wormhole::record_transfer(0u32, &alice, &bob, amount);
+			assert_ok!(Wormhole::record_transfer(0u32, &alice, &bob, amount));
 
 			assert_eq!(Balances::balance(&alice), amount);
 			assert_eq!(Balances::balance(&bob), amount);

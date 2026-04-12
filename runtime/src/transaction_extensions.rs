@@ -8,7 +8,6 @@ use frame_support::pallet_prelude::{
 };
 use frame_system::ensure_signed;
 use qp_high_security::HighSecurityInspector;
-use qp_wormhole::TransferProofRecorder;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{
@@ -141,8 +140,8 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 	/// `event_count_before` is the value from `frame_system::Pallet::event_count()`
 	/// captured in `prepare()`.
 	fn record_proofs_from_events_since(event_count_before: u32) {
-		// IMPORTANT: We must collect all transfers FIRST before calling record_transfer_proof,
-		// because record_transfer_proof deposits new events which would invalidate the
+		// IMPORTANT: We must collect all transfers FIRST before calling record_transfer,
+		// because record_transfer deposits new events which would invalidate the
 		// stream_iter iterator (causing "Corrupted state" errors).
 		//
 		// The iterator reads from Events storage using stream_iter, which caches data.
@@ -189,9 +188,10 @@ impl<T: pallet_wormhole::Config + Send + Sync> WormholeProofRecorderExtension<T>
 
 		// Now record the proofs - this is safe because we're no longer iterating over Events
 		for (asset_id, from, to, amount) in transfers_to_record {
-			<Wormhole as TransferProofRecorder<AccountId, AssetId, Balance>>::record_transfer_proof(
-				asset_id, from, to, amount,
-			);
+			let asset_id_value = asset_id.unwrap_or_default();
+			if let Err(e) = Wormhole::record_transfer(asset_id_value, &from, &to, amount) {
+				log::error!("Failed to record transfer proof in extension: {:?}", e);
+			}
 		}
 	}
 }
@@ -273,6 +273,22 @@ mod tests {
 	}
 	fn charlie() -> AccountId {
 		AccountId32::from([3; 32])
+	}
+
+	fn transfer_count_to_u64<T: codec::Encode>(transfer_count: T) -> u64 {
+		let encoded = transfer_count.encode();
+		let mut bytes = [0u8; 8];
+		let len = encoded.len().min(8);
+		bytes[..len].copy_from_slice(&encoded[..len]);
+		u64::from_le_bytes(bytes)
+	}
+
+	fn has_zk_trie_leaf(recipient: &AccountId, transfer_count: u64) -> bool {
+		(0..ZkTrie::leaf_count()).any(|idx| {
+			ZkTrie::leaf(idx)
+				.map(|leaf| leaf.to == *recipient && leaf.transfer_count == transfer_count)
+				.unwrap_or(false)
+		})
 	}
 
 	// Build genesis storage according to the mock runtime.
@@ -600,7 +616,7 @@ mod tests {
 	// being recorded. We simulate what post_dispatch does by:
 	// 1. Executing the transfer (which emits events)
 	// 2. Calling record_proofs_from_events_since(0) directly
-	// 3. Verifying proofs were recorded in wormhole storage
+	// 3. Verifying proofs were recorded in the ZK trie
 
 	#[test]
 	fn event_based_proof_recording_native_transfer() {
@@ -627,9 +643,9 @@ mod tests {
 			let count_after = Wormhole::transfer_count(&bob_account);
 			assert_eq!(count_after, count_before + 1, "Transfer count should increment");
 
-			// Verify the proof exists
+			// Verify the proof exists in ZK trie storage
 			assert!(
-				Wormhole::transfer_proof((bob_account, count_before)).is_some(),
+				has_zk_trie_leaf(&bob_account, transfer_count_to_u64(count_before)),
 				"Transfer proof should exist"
 			);
 		});
@@ -658,7 +674,7 @@ mod tests {
 
 			// Verify proof was recorded
 			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
-			assert!(Wormhole::transfer_proof((bob_account, count_before)).is_some());
+			assert!(has_zk_trie_leaf(&bob_account, transfer_count_to_u64(count_before)));
 		});
 	}
 
@@ -683,7 +699,7 @@ mod tests {
 
 			// Verify proof was recorded with actual amount (not Balance::MAX)
 			assert_eq!(Wormhole::transfer_count(&bob_account), count_before + 1);
-			assert!(Wormhole::transfer_proof((bob_account, count_before)).is_some());
+			assert!(has_zk_trie_leaf(&bob_account, transfer_count_to_u64(count_before)));
 		});
 	}
 
@@ -720,8 +736,14 @@ mod tests {
 			// Verify both proofs were recorded
 			assert_eq!(Wormhole::transfer_count(&bob_account), bob_count_before + 1);
 			assert_eq!(Wormhole::transfer_count(&charlie_account), charlie_count_before + 1);
-			assert!(Wormhole::transfer_proof((bob_account, bob_count_before)).is_some());
-			assert!(Wormhole::transfer_proof((charlie_account, charlie_count_before)).is_some());
+			assert!(has_zk_trie_leaf(
+				&bob_account,
+				transfer_count_to_u64(bob_count_before)
+			));
+			assert!(has_zk_trie_leaf(
+				&charlie_account,
+				transfer_count_to_u64(charlie_count_before)
+			));
 		});
 	}
 
@@ -779,7 +801,7 @@ mod tests {
 			// force_set_balance may emit BalanceSet instead of Minted
 			// This test documents the expected behavior
 			if count_after > count_before {
-				assert!(Wormhole::transfer_proof((recipient, count_before)).is_some());
+				assert!(has_zk_trie_leaf(&recipient, transfer_count_to_u64(count_before)));
 			}
 		});
 	}
@@ -951,9 +973,9 @@ mod tests {
 				"Transfer count should increment for multisig transfer"
 			);
 
-			// Verify the proof exists
+			// Verify the proof exists in ZK trie storage
 			assert!(
-				Wormhole::transfer_proof((charlie_account, count_before)).is_some(),
+				has_zk_trie_leaf(&charlie_account, transfer_count_to_u64(count_before)),
 				"Transfer proof should exist for multisig transfer"
 			);
 		});

@@ -238,7 +238,7 @@ pub trait ZkTrieRecorder<AccountId, AssetId, Balance> {
 		transfer_count: u64,
 		asset_id: AssetId,
 		amount: Balance,
-	) -> Option<(u64, Hash256)>;
+	) -> Result<Option<(u64, Hash256)>, ()>;
 }
 
 /// No-op implementation for when ZK trie is not configured.
@@ -248,8 +248,8 @@ impl<AccountId, AssetId, Balance> ZkTrieRecorder<AccountId, AssetId, Balance> fo
 		_transfer_count: u64,
 		_asset_id: AssetId,
 		_amount: Balance,
-	) -> Option<(u64, Hash256)> {
-		None
+	) -> Result<Option<(u64, Hash256)>, ()> {
+		Ok(None)
 	}
 }
 
@@ -262,8 +262,10 @@ where
 		transfer_count: u64,
 		asset_id: T::AssetId,
 		amount: T::Balance,
-	) -> Option<(u64, Hash256)> {
-		Self::insert_leaf(to, transfer_count, asset_id, amount).ok()
+	) -> Result<Option<(u64, Hash256)>, ()> {
+		Self::insert_leaf(to, transfer_count, asset_id, amount)
+			.map(Some)
+			.map_err(|_| ())
 	}
 }
 

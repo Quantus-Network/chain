@@ -267,6 +267,8 @@ pub mod pallet {
 		TransferAmountBelowMinimum,
 		/// Only native asset (asset_id = 0) is supported in this version
 		NonNativeAssetNotSupported,
+		/// Failed to record transfer in ZK trie
+		ZkTrieRecordFailed,
 	}
 
 	#[pallet::hooks]
@@ -291,7 +293,11 @@ pub mod pallet {
 
 			for (to, amount) in pending {
 				// Record transfer proof and emit event
-				Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
+				if let Err(e) =
+					Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount)
+				{
+					log::error!("Failed to record genesis transfer for {:?}: {:?}", to, e);
+				}
 			}
 
 			// Weight: 1 read (take pending) + N * (2 reads + 2 writes + 1 event) per endowment
@@ -486,7 +492,7 @@ pub mod pallet {
 					&from_account,
 					&to_account,
 					*exit_balance,
-				);
+				)?;
 			}
 
 			// Success - use declared weight (actual_weight: None means use declared weight)
@@ -593,11 +599,8 @@ pub mod pallet {
 			from: &<T as Config>::WormholeAccountId,
 			to: &<T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) {
+		) -> Result<(), Error<T>> {
 			let current_count = TransferCount::<T>::get(to);
-
-			// Increment transfer count for this recipient
-			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
 
 			// Insert into ZK trie for Merkle proof generation
 			// Convert transfer_count to u64 for the trie
@@ -608,12 +611,16 @@ pub mod pallet {
 				bytes[..len].copy_from_slice(&encoded[..len]);
 				u64::from_le_bytes(bytes)
 			};
-			T::ZkTrie::record_transfer(
+			let _ = T::ZkTrie::record_transfer(
 				to.clone().into(),
 				transfer_count_u64,
 				asset_id.clone(),
 				amount,
-			);
+			)
+			.map_err(|_| Error::<T>::ZkTrieRecordFailed)?;
+
+			// Increment transfer count for this recipient
+			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
 
 			if asset_id == T::AssetId::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {
@@ -631,6 +638,7 @@ pub mod pallet {
 					transfer_count: current_count,
 				});
 			}
+			Ok(())
 		}
 	}
 
@@ -649,7 +657,9 @@ pub mod pallet {
 			amount: BalanceOf<T>,
 		) {
 			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, &from, &to, amount);
+			if let Err(e) = Self::record_transfer(asset_id_value, &from, &to, amount) {
+				log::error!("Failed to record transfer proof from external pallet: {:?}", e);
+			}
 		}
 	}
 }
