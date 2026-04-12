@@ -65,6 +65,7 @@ mod wormhole_tests {
 					to: bob,
 					amount,
 					transfer_count: 0,
+					leaf_index: 0, // First leaf inserted
 				}
 				.into(),
 			);
@@ -196,6 +197,7 @@ mod wormhole_tests {
 						to: address,
 						amount: endowment_amount,
 						transfer_count: 0,
+						leaf_index: 0, // First leaf inserted
 					}
 					.into(),
 				);

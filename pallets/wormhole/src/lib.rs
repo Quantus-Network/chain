@@ -234,18 +234,30 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
+		/// A native token transfer was recorded.
+		///
+		/// The `leaf_index` can be used to fetch Merkle proofs via the
+		/// `zkTrie_getMerkleProof` RPC for ZK circuit verification.
 		NativeTransferred {
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
 			transfer_count: T::TransferCount,
+			/// Index of this transfer in the ZK trie (for Merkle proof lookup)
+			leaf_index: u64,
 		},
+		/// A non-native asset transfer was recorded.
+		///
+		/// The `leaf_index` can be used to fetch Merkle proofs via the
+		/// `zkTrie_getMerkleProof` RPC for ZK circuit verification.
 		AssetTransferred {
 			asset_id: T::AssetId,
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: AssetBalanceOf<T>,
 			transfer_count: T::TransferCount,
+			/// Index of this transfer in the ZK trie (for Merkle proof lookup)
+			leaf_index: u64,
 		},
 		ProofVerified {
 			exit_amount: BalanceOf<T>,
@@ -589,6 +601,9 @@ pub mod pallet {
 		///
 		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
 		/// managed by pallet-zk-trie, which provides Merkle proofs for ZK circuits.
+		///
+		/// The emitted event includes `leaf_index` which clients can use to fetch
+		/// Merkle proofs via `zkTrie_getMerkleProof(leaf_index)` RPC.
 		pub fn record_transfer(
 			asset_id: T::AssetId,
 			from: &<T as Config>::WormholeAccountId,
@@ -601,7 +616,8 @@ pub mod pallet {
 			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
 
 			// Insert into ZK trie for Merkle proof generation
-			T::ZkTrie::record_transfer(
+			// Returns the leaf index for clients to use when fetching proofs
+			let leaf_index = T::ZkTrie::record_transfer(
 				to.clone().into(),
 				current_count.into(),
 				asset_id.clone(),
@@ -614,6 +630,7 @@ pub mod pallet {
 					to: to.clone().into(),
 					amount,
 					transfer_count: current_count,
+					leaf_index,
 				});
 			} else {
 				Self::deposit_event(Event::<T>::AssetTransferred {
@@ -622,6 +639,7 @@ pub mod pallet {
 					asset_id,
 					amount: amount.into(),
 					transfer_count: current_count,
+					leaf_index,
 				});
 			}
 		}

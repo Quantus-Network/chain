@@ -260,14 +260,25 @@ pub mod pallet {
 pub trait ZkTrieRecorder<AccountId, AssetId, Balance> {
 	/// Insert a transfer into the ZK trie.
 	///
+	/// Returns the leaf index, which can be used to fetch Merkle proofs via RPC.
 	/// This operation is infallible. Implementations must always succeed.
-	fn record_transfer(to: AccountId, transfer_count: u64, asset_id: AssetId, amount: Balance);
+	fn record_transfer(
+		to: AccountId,
+		transfer_count: u64,
+		asset_id: AssetId,
+		amount: Balance,
+	) -> u64;
 }
 
 /// No-op implementation for when ZK trie is not configured.
 impl<AccountId, AssetId, Balance> ZkTrieRecorder<AccountId, AssetId, Balance> for () {
-	fn record_transfer(_to: AccountId, _transfer_count: u64, _asset_id: AssetId, _amount: Balance) {
-		// No-op
+	fn record_transfer(
+		_to: AccountId,
+		_transfer_count: u64,
+		_asset_id: AssetId,
+		_amount: Balance,
+	) -> u64 {
+		0 // No-op returns 0
 	}
 }
 
@@ -280,8 +291,9 @@ where
 		transfer_count: u64,
 		asset_id: T::AssetId,
 		amount: T::Balance,
-	) {
-		Self::insert_leaf(to, transfer_count, asset_id, amount);
+	) -> u64 {
+		let (leaf_index, _root) = Self::insert_leaf(to, transfer_count, asset_id, amount);
+		leaf_index
 	}
 }
 
