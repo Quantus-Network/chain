@@ -26,32 +26,56 @@ pub fn capacity_at_depth(depth: u8) -> u64 {
 	}
 }
 
-/// Hash a leaf using injective Poseidon (4 bytes/felt).
+/// Quantization factor for amounts in ZK leaves.
+/// Amounts are divided by this factor before storing in the leaf hash.
+/// This matches the circuit's expectation of 2 decimal places of precision.
+/// 10^10 means 1 DEV (10^12 planck) becomes 100 in the leaf.
+pub const AMOUNT_SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
+
+/// Hash a leaf using Poseidon with field element encoding.
 ///
-/// This ensures collision resistance for user-controlled data.
+/// The encoding matches the ZK circuit's leaf hash computation:
+/// - to_account: 4 felts (32 bytes using 8 bytes/felt compact encoding)
+/// - transfer_count: 2 felts (u64 split into two 32-bit limbs, high then low)
+/// - asset_id: 1 felt (u32 as u64, then to felt via 8 bytes compact)
+/// - amount: 1 felt (u32 quantized, as u64, then to felt via 8 bytes compact)
+/// Total: 8 felts
+///
+/// This encoding must exactly match `ZkLeafTargets::collect_for_hash()` in the circuit.
 pub fn hash_leaf<T: Config>(leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>) -> Hash256
 where
 	AccountIdOf<T>: AsRef<[u8]>,
 {
-	// Encode leaf data to bytes
-	let mut data = Vec::new();
+	use qp_poseidon_core::serialization::{bytes_to_felts_compact, u64_to_felts};
 
-	// to: account bytes (should be 32 bytes)
-	data.extend_from_slice(leaf.to.as_ref());
+	let mut felts = Vec::with_capacity(8);
 
-	// transfer_count: 8 bytes LE
-	data.extend_from_slice(&leaf.transfer_count.to_le_bytes());
+	// to_account: 4 felts (32 bytes -> 4 felts at 8 bytes/felt)
+	let to_bytes = leaf.to.as_ref();
+	debug_assert_eq!(to_bytes.len(), 32, "Account must be 32 bytes");
+	felts.extend(bytes_to_felts_compact(to_bytes));
 
-	// asset_id: as u128, 16 bytes LE
+	// transfer_count: 2 felts (u64 as two 32-bit limbs, high then low)
+	felts.extend(u64_to_felts(leaf.transfer_count));
+
+	// asset_id: 1 felt (u32 -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
+	// Convert via u128 then truncate to u32 (asset IDs should always fit in u32)
 	let asset_id_u128: u128 = leaf.asset_id.into();
-	data.extend_from_slice(&asset_id_u128.to_le_bytes());
+	let asset_id_u32 = asset_id_u128 as u32;
+	debug_assert_eq!(asset_id_u128, asset_id_u32 as u128, "Asset ID must fit in u32");
+	felts.extend(bytes_to_felts_compact(&(asset_id_u32 as u64).to_le_bytes()));
 
-	// amount: as u128, 16 bytes LE
+	// amount: 1 felt (u32 quantized -> u64 -> 8 bytes LE -> 1 felt via compact encoding)
+	// Quantize by dividing by AMOUNT_SCALE_DOWN_FACTOR (10^10)
+	// This gives 2 decimal places of precision (1 DEV = 100 quantized units)
 	let amount_u128: u128 = leaf.amount.into();
-	data.extend_from_slice(&amount_u128.to_le_bytes());
+	let amount_quantized = (amount_u128 / AMOUNT_SCALE_DOWN_FACTOR) as u32;
+	felts.extend(bytes_to_felts_compact(&(amount_quantized as u64).to_le_bytes()));
 
-	// Use injective hash (4 bytes/felt)
-	qp_poseidon_core::hash_bytes(&data)
+	debug_assert_eq!(felts.len(), 8, "Leaf preimage must be exactly 8 felts");
+
+	// Hash the felts
+	qp_poseidon_core::hash_to_bytes(&felts)
 }
 
 /// Hash 4 child hashes into a parent node hash.
@@ -202,8 +226,11 @@ where
 		return Err(Error::<T>::LeafNotFound);
 	}
 
+	let leaf_hash = get_leaf_hash::<T>(leaf_index);
+
 	let mut siblings = Vec::with_capacity(depth as usize);
 	let mut current_index = leaf_index;
+	let mut current_hash = leaf_hash;
 
 	for level in 1..=depth {
 		let parent_index = current_index / (ARITY as u64);
@@ -228,6 +255,11 @@ where
 			level_siblings[sibling_idx] = hash;
 			sibling_idx += 1;
 		}
+
+		// Compute parent hash for next iteration
+		let children: [Hash256; ARITY] =
+			[current_hash, level_siblings[0], level_siblings[1], level_siblings[2]];
+		current_hash = hash_node(&children);
 
 		siblings.push(level_siblings);
 		current_index = parent_index;

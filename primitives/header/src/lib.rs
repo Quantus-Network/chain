@@ -146,6 +146,9 @@ where
 	/// Convenience helper for computing the hash of the header without having
 	/// to import the trait.
 	pub fn hash(&self) -> Hash::Output {
+		/// Fixed size for digest encoding - must match circuit expectation
+		const DIGEST_LOGS_SIZE: usize = 110;
+
 		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
@@ -169,8 +172,14 @@ where
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
-		// digest – injective encoding (4 bytes/felt + terminator)
-		felts.extend(bytes_to_felts(&self.digest.encode()));
+		// digest – SCALE encode then pad to fixed 110 bytes to match circuit expectation
+		let digest_encoded = self.digest.encode();
+		let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
+		let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
+		digest_padded[..copy_len].copy_from_slice(&digest_encoded[..copy_len]);
+
+		// injective encoding (4 bytes/felt + terminator)
+		felts.extend(bytes_to_felts(&digest_padded));
 
 		let poseidon_hash: [u8; 32] = hash_to_bytes(&felts);
 		poseidon_hash.into()
