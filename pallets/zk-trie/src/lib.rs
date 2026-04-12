@@ -84,14 +84,18 @@ pub struct ZkLeaf<AccountId, AssetId, Balance> {
 }
 
 /// Merkle proof for a leaf in the 4-ary tree.
+///
+/// # Index-free verification
+///
+/// Because internal nodes sort their children before hashing, proofs don't need
+/// path indices. The verifier simply combines the current hash with the 3 siblings,
+/// sorts all 4, and hashes to get the parent. This simplifies ZK circuit verification.
 #[derive(codec::Encode, codec::Decode, Clone, PartialEq, Eq, scale_info::TypeInfo, Debug)]
 pub struct ZkMerkleProof {
-	/// Index of the leaf
+	/// Index of the leaf (for reference, not needed for verification)
 	pub leaf_index: u64,
 	/// Sibling hashes at each level (3 siblings per level for 4-ary tree)
 	pub siblings: alloc::vec::Vec<[Hash256; 3]>,
-	/// Position within siblings at each level (0-3)
-	pub path_indices: alloc::vec::Vec<u8>,
 }
 
 #[frame_support::pallet]
@@ -286,11 +290,14 @@ where
 // ============================================================================
 
 /// RPC-friendly Merkle proof structure (no generics).
+///
 /// Uses raw bytes for the leaf data to avoid generic type issues in RPC.
+/// No path indices needed - children are sorted before hashing, so verification
+/// just requires combining current hash with siblings, sorting, and hashing.
 #[derive(codec::Encode, codec::Decode, Clone, PartialEq, Eq, scale_info::TypeInfo, Debug)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ZkMerkleProofRpc {
-	/// Index of the leaf
+	/// Index of the leaf (for reference, not needed for verification)
 	pub leaf_index: u64,
 	/// The leaf data (encoded ZkLeaf)
 	pub leaf_data: Vec<u8>,
@@ -298,8 +305,6 @@ pub struct ZkMerkleProofRpc {
 	pub leaf_hash: Hash256,
 	/// Sibling hashes at each level (3 siblings per level for 4-ary tree)
 	pub siblings: Vec<[Hash256; 3]>,
-	/// Position within siblings at each level (0-3)
-	pub path_indices: Vec<u8>,
 	/// Current tree root
 	pub root: Hash256,
 	/// Current tree depth

@@ -56,12 +56,20 @@ where
 
 /// Hash 4 child hashes into a parent node hash.
 ///
+/// Children are sorted before hashing to eliminate the need for path indices
+/// in Merkle proofs. This makes verification simpler in ZK circuits - the
+/// verifier just needs the siblings, sorts all 4 children, and hashes.
+///
 /// Uses non-injective Poseidon (8 bytes/felt) since internal nodes
 /// only contain fixed-size hash outputs, not user-controlled data.
 pub fn hash_node(children: &[Hash256; ARITY]) -> Hash256 {
+	// Sort children to make hash order-independent
+	let mut sorted = *children;
+	sorted.sort();
+
 	// Concatenate all 4 child hashes (128 bytes total)
 	let mut data = Vec::with_capacity(32 * ARITY);
-	for child in children {
+	for child in &sorted {
 		data.extend_from_slice(child);
 	}
 
@@ -183,6 +191,9 @@ pub fn grow_tree<T: Config>(old_depth: u8, _new_depth: u8) {
 }
 
 /// Generate a Merkle proof for a leaf at the given index.
+///
+/// Returns siblings at each level. No path indices needed because children
+/// are sorted before hashing - the verifier can reconstruct by sorting.
 pub fn generate_proof<T: Config>(leaf_index: u64, depth: u8) -> Result<ZkMerkleProof, Error<T>>
 where
 	AccountIdOf<T>: AsRef<[u8]>,
@@ -192,15 +203,10 @@ where
 	}
 
 	let mut siblings = Vec::with_capacity(depth as usize);
-	let mut path_indices = Vec::with_capacity(depth as usize);
-
 	let mut current_index = leaf_index;
 
 	for level in 1..=depth {
 		let parent_index = current_index / (ARITY as u64);
-		let position_in_parent = (current_index % (ARITY as u64)) as u8;
-
-		path_indices.push(position_in_parent);
 
 		// Get sibling hashes (the other 3 children)
 		let mut level_siblings = [empty_hash(); 3];
@@ -227,10 +233,13 @@ where
 		current_index = parent_index;
 	}
 
-	Ok(ZkMerkleProof { leaf_index, siblings, path_indices })
+	Ok(ZkMerkleProof { leaf_index, siblings })
 }
 
 /// Verify a Merkle proof against a given root.
+///
+/// No path indices needed - we combine current hash with siblings, sort all 4,
+/// and hash. This works because `hash_node` sorts children before hashing.
 pub fn verify_proof<T: Config>(
 	leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>,
 	proof: &ZkMerkleProof,
@@ -239,30 +248,14 @@ pub fn verify_proof<T: Config>(
 where
 	AccountIdOf<T>: AsRef<[u8]>,
 {
-	if proof.siblings.len() != proof.path_indices.len() {
-		return false;
-	}
-
 	let mut current_hash = hash_leaf::<T>(leaf);
 
-	for (level_siblings, &position) in proof.siblings.iter().zip(proof.path_indices.iter()) {
-		if position >= ARITY as u8 {
-			return false;
-		}
+	for level_siblings in &proof.siblings {
+		// Combine current hash with 3 siblings to get all 4 children
+		let children: [Hash256; ARITY] =
+			[current_hash, level_siblings[0], level_siblings[1], level_siblings[2]];
 
-		// Reconstruct the 4 children from position and siblings
-		let mut children = [empty_hash(); ARITY];
-		let mut sibling_idx = 0;
-
-		for i in 0..ARITY {
-			if i == position as usize {
-				children[i] = current_hash;
-			} else {
-				children[i] = level_siblings[sibling_idx];
-				sibling_idx += 1;
-			}
-		}
-
+		// hash_node sorts internally, so order doesn't matter
 		current_hash = hash_node(&children);
 	}
 

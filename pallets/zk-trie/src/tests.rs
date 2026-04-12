@@ -188,7 +188,6 @@ fn merkle_proof_works() {
 		let proof = ZkTrie::get_merkle_proof(0).unwrap();
 		assert_eq!(proof.leaf_index, 0);
 		assert_eq!(proof.siblings.len(), 2); // depth 2
-		assert_eq!(proof.path_indices.len(), 2);
 
 		// Verify the proof
 		let leaf = ZkTrie::leaf(0).unwrap();
@@ -454,7 +453,7 @@ fn integration_root_changes_only_on_insert() {
 }
 
 #[test]
-fn integration_proof_contains_correct_path_indices() {
+fn integration_proof_siblings_at_correct_depth() {
 	new_test_ext().execute_with(|| {
 		// Insert 5 leaves to force depth 2
 		for i in 0..5u64 {
@@ -464,24 +463,20 @@ fn integration_proof_contains_correct_path_indices() {
 
 		assert_eq!(ZkTrie::depth(), 2);
 
-		// Check path indices for each leaf
-		// In a 4-ary tree at depth 2:
-		// Leaf 0: path [0, 0] (first child at each level)
-		// Leaf 1: path [1, 0]
-		// Leaf 2: path [2, 0]
-		// Leaf 3: path [3, 0]
-		// Leaf 4: path [0, 1] (first child of second node)
+		// Verify proofs have correct number of sibling levels
+		// No path indices needed - children are sorted before hashing
+		for i in 0..5u64 {
+			let proof = ZkTrie::get_merkle_proof(i).unwrap();
+			assert_eq!(proof.siblings.len(), 2, "depth 2 tree should have 2 levels of siblings");
 
-		let proof_0 = ZkTrie::get_merkle_proof(0).unwrap();
-		assert_eq!(proof_0.path_indices, vec![0, 0]);
+			// Each level should have 3 siblings (4-ary tree)
+			for level_siblings in &proof.siblings {
+				assert_eq!(level_siblings.len(), 3);
+			}
 
-		let proof_1 = ZkTrie::get_merkle_proof(1).unwrap();
-		assert_eq!(proof_1.path_indices, vec![1, 0]);
-
-		let proof_3 = ZkTrie::get_merkle_proof(3).unwrap();
-		assert_eq!(proof_3.path_indices, vec![3, 0]);
-
-		let proof_4 = ZkTrie::get_merkle_proof(4).unwrap();
-		assert_eq!(proof_4.path_indices, vec![0, 1]);
+			// Verify the proof works
+			let leaf = ZkTrie::leaf(i).unwrap();
+			assert!(ZkTrie::verify_proof(&leaf, &proof), "proof for leaf {} should verify", i);
+		}
 	});
 }

@@ -202,7 +202,6 @@ impl_runtime_apis! {
 				leaf_data: leaf.encode(),
 				leaf_hash,
 				siblings: proof.siblings,
-				path_indices: proof.path_indices,
 				root: ZkTrie::root(),
 				depth: ZkTrie::depth(),
 			})
