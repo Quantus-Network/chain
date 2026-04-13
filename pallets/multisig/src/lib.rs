@@ -917,7 +917,7 @@ pub mod pallet {
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_deposits(
 		T::MaxTotalProposalsInStorage::get(),  // Worst-case iterated
-		T::MaxTotalProposalsInStorage::get().saturating_div(2),  // Worst-case cleaned
+		T::MaxTotalProposalsInStorage::get(),  // Worst-case cleaned
 		T::MaxCallSize::get()  // Worst-case avg call size
 	))]
 		#[allow(clippy::useless_conversion)]
