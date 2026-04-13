@@ -1,12 +1,12 @@
 [package]
 authors.workspace = true
+description = "4-ary Poseidon Merkle tree for ZK transfer proofs"
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 name = "pallet-zk-trie"
 repository.workspace = true
 version = "0.1.0"
-description = "4-ary Poseidon Merkle tree for ZK transfer proofs"
 
 [dependencies]
 codec = { workspace = true, default-features = false, features = ["derive"] }

@@ -19,6 +19,7 @@ use sp_runtime::{
 	MultiAddress,
 };
 use sp_version::RuntimeVersion;
+use sp_runtime::traits::BlakeTwo256;
 
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
@@ -45,11 +46,11 @@ pub mod opaque {
 
 	// For whatever reason, changing this causes the block hash and
 	// the storage root to be computed with poseidon, but not the extrinsics root.
-	// For the wormhole proofs, we only need the storage root to be calculated with poseidon.
-	// However, some internal checks in dev build expect extrinsics_root to be computed with same
-	// Hash function, so we change the configs/mod.rs Hashing type as well
-	// Opaque block header type.
-	pub type Header = qp_header::Header<BlockNumber, PoseidonHasher>;
+	// Block header with separate hashers:
+	// - PoseidonHasher: for block hash (ZK circuit compatible)
+	// - BlakeTwo256: for state trie / extrinsics root (efficient native execution)
+	pub type Header =
+		qp_header::Header<BlockNumber, PoseidonHasher, BlakeTwo256>;
 
 	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -131,7 +132,9 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = qp_header::Header<BlockNumber, PoseidonHasher>;
+/// - PoseidonHasher: for block hash (ZK circuit compatible)
+/// - BlakeTwo256: for state trie / extrinsics root (efficient native execution)
+pub type Header = qp_header::Header<BlockNumber, PoseidonHasher, BlakeTwo256>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;

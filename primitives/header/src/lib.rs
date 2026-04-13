@@ -1,5 +1,14 @@
 //! Fork of sp-runtime's generic implementation of a block header.
-//! We override the hashing function to ensure a felt aligned pre-image for the block hash.
+//!
+//! Key differences from the standard Substrate header:
+//! - **Block hash**: Computed with Poseidon (via the `Hash` type parameter) for ZK circuit
+//!   compatibility
+//! - **State trie**: Uses Blake2 (hardcoded as `Hashing` type) for efficient native execution
+//!
+//! This means `HashingFor<Block>` returns `BlakeTwo256`, which is used for:
+//! - State trie merkle root computation
+//! - Extrinsics root computation
+//! - Storage proof verification
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -24,13 +33,16 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// Custom block header that hashes itself with Poseidon over Goldilocks field elements.
+/// Custom block header with separate hashers for block hash and state trie.
+///
+/// - `Hash`: Used for block hash computation (Poseidon for ZK compatibility)
+/// - `StateHash`: Used for state trie / extrinsics root via `Header::Hashing` trait
 #[derive(Encode, Decode, PartialEq, Eq, Clone, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
-#[scale_info(skip_type_params(Hash))]
+#[scale_info(skip_type_params(Hash, StateHash))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct Header<Number, Hash: HashT>
+pub struct Header<Number, Hash: HashT, StateHash: HashT>
 where
 	Number: Copy + Into<U256> + TryFrom<U256>,
 {
@@ -43,6 +55,9 @@ where
 	pub state_root: Hash::Output,
 	pub extrinsics_root: Hash::Output,
 	pub digest: Digest,
+	#[codec(skip)]
+	#[cfg_attr(feature = "serde", serde(skip))]
+	_marker: core::marker::PhantomData<StateHash>,
 }
 
 #[cfg(feature = "serde")]
@@ -66,15 +81,16 @@ where
 	TryFrom::try_from(u256).map_err(|_| serde::de::Error::custom("Try from failed"))
 }
 
-impl<Number, Hash> sp_runtime::traits::Header for Header<Number, Hash>
+impl<Number, Hash, StateHash> sp_runtime::traits::Header for Header<Number, Hash, StateHash>
 where
 	Number: BlockNumber,
-	Hash: HashT,
-	Hash::Output: From<[u8; 32]>,
+	Hash: HashT<Output = sp_core::H256>,
+	StateHash: HashT<Output = sp_core::H256>,
 {
 	type Number = Number;
-	type Hash = <Hash as HashT>::Output;
-	type Hashing = Hash;
+	type Hash = sp_core::H256;
+	/// State trie hasher - configurable, defaults to BlakeTwo256.
+	type Hashing = StateHash;
 
 	fn new(
 		number: Self::Number,
@@ -83,7 +99,14 @@ where
 		parent_hash: Self::Hash,
 		digest: Digest,
 	) -> Self {
-		Self { number, extrinsics_root, state_root, parent_hash, digest }
+		Self {
+			number,
+			extrinsics_root,
+			state_root,
+			parent_hash,
+			digest,
+			_marker: core::marker::PhantomData,
+		}
 	}
 	fn number(&self) -> &Self::Number {
 		&self.number
@@ -130,7 +153,7 @@ where
 	}
 }
 
-impl<Number, Hash> Header<Number, Hash>
+impl<Number, Hash, StateHash> Header<Number, Hash, StateHash>
 where
 	Number: Member
 		+ core::hash::Hash
@@ -142,6 +165,7 @@ where
 		+ TryFrom<U256>,
 	Hash: HashT,
 	Hash::Output: From<[u8; 32]>,
+	StateHash: HashT,
 {
 	/// Convenience helper for computing the hash of the header without having
 	/// to import the trait.
@@ -225,12 +249,13 @@ mod tests {
 
 	#[test]
 	fn ensure_format_is_unchanged() {
-		let header = Header::<u32, BlakeTwo256> {
+		let header = Header::<u32, BlakeTwo256, BlakeTwo256> {
 			parent_hash: BlakeTwo256::hash(b"1"),
 			number: 2,
 			state_root: BlakeTwo256::hash(b"3"),
 			extrinsics_root: BlakeTwo256::hash(b"4"),
 			digest: Digest { logs: vec![sp_runtime::generic::DigestItem::Other(b"6".to_vec())] },
+			_marker: core::marker::PhantomData,
 		};
 
 		let header_encoded = header.encode();
@@ -245,14 +270,18 @@ mod tests {
 				12, 73, 104, 49, 200, 204, 31, 143, 13, 4, 0, 4, 54
 			],
 		);
-		assert_eq!(Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(), header);
+		assert_eq!(
+			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(),
+			header
+		);
 
-		let header = Header::<u32, BlakeTwo256> {
+		let header = Header::<u32, BlakeTwo256, BlakeTwo256> {
 			parent_hash: BlakeTwo256::hash(b"1000"),
 			number: 2000,
 			state_root: BlakeTwo256::hash(b"3000"),
 			extrinsics_root: BlakeTwo256::hash(b"4000"),
 			digest: Digest { logs: vec![sp_runtime::generic::DigestItem::Other(b"5000".to_vec())] },
+			_marker: core::marker::PhantomData,
 		};
 
 		let header_encoded = header.encode();
@@ -267,12 +296,15 @@ mod tests {
 				44, 111, 126, 54, 34, 155, 220, 253, 124, 4, 0, 16, 53, 48, 48, 48
 			],
 		);
-		assert_eq!(Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(), header);
+		assert_eq!(
+			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(),
+			header
+		);
 	}
 
 	fn hash_header(x: &[u8]) -> [u8; 32] {
 		let mut y = x;
-		if let Ok(header) = Header::<u32, PoseidonHasher>::decode(&mut y) {
+		if let Ok(header) = Header::<u32, PoseidonHasher, BlakeTwo256>::decode(&mut y) {
 			// Only treat this as a header if we consumed the entire input.
 			if y.is_empty() {
 				let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts
@@ -333,7 +365,7 @@ mod tests {
 				),
 			],
 		};
-		let header = Header::<u32, PoseidonHasher> {
+		let header = Header::<u32, PoseidonHasher, BlakeTwo256> {
 			parent_hash: H256::from_slice(
 				hex::decode(parent_hash).expect("valid hex parent hash").as_slice(),
 			),
@@ -345,6 +377,7 @@ mod tests {
 				hex::decode(extrinsics_root).expect("valid hex extrinsics root").as_slice(),
 			),
 			digest,
+			_marker: core::marker::PhantomData,
 		};
 
 		let encoded = header.encode();

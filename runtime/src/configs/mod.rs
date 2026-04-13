@@ -104,8 +104,8 @@ impl frame_system::Config for Runtime {
 	type Nonce = Nonce;
 	/// The type for hashing blocks and tries.
 	type Hash = Hash;
-	/// The hashing algorithm for application-level operations (preimages, tx IDs, etc).
-	/// Storage trie and extrinsics root use the header's hasher (PoseidonHasher) instead.
+	/// The hashing algorithm used for state trie and extrinsics root.
+	/// This matches the `StateHash` parameter in qp_header::Header.
 	type Hashing = BlakeTwo256;
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;

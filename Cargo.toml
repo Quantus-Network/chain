@@ -245,13 +245,13 @@ sp-state-machine = { path = "./primitives/state-machine" }
 sp-trie = { path = "./primitives/trie" }
 trie-db = { path = "./primitives/trie-db" }
 # Use local development versions of qp-zk-circuits crates
-qp-zk-circuits-common = { path = "../qp-zk-circuits/common" }
+qp-wormhole-aggregator = { path = "../qp-zk-circuits/wormhole/aggregator" }
 qp-wormhole-circuit = { path = "../qp-zk-circuits/wormhole/circuit" }
 qp-wormhole-circuit-builder = { path = "../qp-zk-circuits/wormhole/circuit-builder" }
+qp-wormhole-inputs = { path = "../qp-zk-circuits/wormhole/inputs" }
 qp-wormhole-prover = { path = "../qp-zk-circuits/wormhole/prover" }
 qp-wormhole-verifier = { path = "../qp-zk-circuits/wormhole/verifier" }
-qp-wormhole-inputs = { path = "../qp-zk-circuits/wormhole/inputs" }
-qp-wormhole-aggregator = { path = "../qp-zk-circuits/wormhole/aggregator" }
+qp-zk-circuits-common = { path = "../qp-zk-circuits/common" }
 
 [profile.release]
 opt-level = 3
