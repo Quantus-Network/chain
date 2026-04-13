@@ -24,7 +24,7 @@ use crate::mock::{
 };
 use frame_support::{
 	assert_err, assert_noop, assert_ok,
-	traits::{Contains, OnInitialize, QueryPreimage, StorePreimage},
+	traits::{Contains, OnFinalize, OnInitialize, QueryPreimage, StorePreimage},
 };
 use sp_runtime::traits::Hash;
 
@@ -3105,5 +3105,100 @@ fn reschedule_named_preserves_retry_config() {
 		run_to_block(20);
 		assert_eq!(logger::log(), vec![(root(), 42u32)]);
 		assert_eq!(Retries::<Test>::iter().count(), 0);
+	});
+}
+#[test]
+fn timestamp_task_not_permanently_overweight_after_block_tasks_execute() {
+	// This test verifies that a timestamp task that doesn't fit in the current block
+	// (because block-based tasks consumed weight) is NOT incorrectly marked as
+	// permanently overweight. It should be kept and executed in the next block.
+	//
+	// The bug: block and timestamp agendas each have separate `executed` counters.
+	// The `is_first` flag (used to determine if an overweight task is permanently
+	// overweight) is based on `executed == 0`. When timestamp processing starts,
+	// `executed` resets to 0 even if block tasks already ran, causing the first
+	// timestamp task to be incorrectly marked as permanently overweight.
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		// Initialize timestamp
+		MockTimestamp::set_timestamp(1);
+		run_to_block(1);
+
+		// Schedule a block task that takes ~67% of max scheduler weight - will execute successfully
+		let block_weight = max_weight / 3 * 2;
+		let block_call = RuntimeCall::Logger(LoggerCall::log { i: 1, weight: block_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(block_call).unwrap()
+		));
+
+		// Schedule a timestamp task that takes 50% of max scheduler weight
+		// This would fit in a fresh block, but not after the block task runs (67% + 50% > 100%)
+		let timestamp_weight = max_weight / 2;
+		let timestamp_call =
+			RuntimeCall::Logger(LoggerCall::log { i: 2, weight: timestamp_weight });
+		assert_ok!(Scheduler::schedule_after(
+			RuntimeOrigin::root(),
+			BlockNumberOrTimestamp::Timestamp(35000), // Will be scheduled for bucket 40000
+			127,
+			Box::new(timestamp_call),
+		));
+
+		// Verify agenda scheduled correctly
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(40000))
+				.iter()
+				.any(|s| s.is_some()),
+			"Timestamp task should be scheduled in bucket 40000"
+		);
+
+		// Advance to block 4 without processing timestamp agenda yet
+		// (timestamp stays at 1, which normalizes to bucket 10000, before our task at 40000)
+		run_to_block(3);
+
+		// Now at block 4, set timestamp to trigger both block and timestamp task in same block
+		MockTimestamp::set_timestamp(45000);
+		<Scheduler as OnFinalize<u64>>::on_finalize(System::block_number());
+		System::set_block_number(System::block_number() + 1);
+		<Scheduler as OnInitialize<u64>>::on_initialize(System::block_number()); // This is block 4
+
+		// Block task should have executed
+		assert!(logger::log().iter().any(|&(_, i)| i == 1), "Block task should have executed");
+
+		// The timestamp task should NOT be permanently overweight - it should still be
+		// in the agenda waiting to execute in the next block
+		let permanently_overweight_count = System::events()
+			.iter()
+			.filter(|e| {
+				matches!(
+					e.event,
+					RuntimeEvent::Scheduler(crate::Event::PermanentlyOverweight { .. })
+				)
+			})
+			.count();
+
+		assert_eq!(
+			permanently_overweight_count, 0,
+			"Timestamp task should NOT be marked as permanently overweight"
+		);
+
+		// The timestamp task should still be in the agenda (IncompleteTimestampSince should be set)
+		let incomplete_ts = IncompleteTimestampSince::<Test>::get();
+		assert!(
+			incomplete_ts.is_some() ||
+				Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(40000))
+					.iter()
+					.any(|s| s.is_some()),
+			"Timestamp task should still be pending (either in agenda or incomplete)"
+		);
+
+		// Run another block - the timestamp task should now execute
+		run_to_block(5);
+		assert!(
+			logger::log().iter().any(|&(_, i)| i == 2),
+			"Timestamp task should execute in subsequent block"
+		);
 	});
 }
