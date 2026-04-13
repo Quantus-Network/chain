@@ -8397,7 +8397,7 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -8413,7 +8413,7 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -8424,7 +8424,7 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -8436,14 +8436,14 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -8454,7 +8454,7 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -8463,7 +8463,7 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "1.4.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "hex",
