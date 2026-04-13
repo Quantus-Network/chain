@@ -372,8 +372,7 @@ pub fn planck_config_genesis() -> Value {
 	let tech_collective = planck_tech_collective_seed();
 	let treasury_account = planck_treasury_account();
 	let endowed_accounts = vec![planck_faucet_account()];
-	let signer_fee_seed: Vec<_> =
-		treasury_signers.iter().cloned().map(|a| (a, UNIT)).collect();
+	let signer_fee_seed: Vec<_> = treasury_signers.iter().cloned().map(|a| (a, UNIT)).collect();
 	log_genesis_accounts(
 		"planck",
 		&endowed_accounts,
