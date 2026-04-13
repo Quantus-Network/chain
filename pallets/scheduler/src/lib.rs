@@ -359,8 +359,14 @@ pub mod pallet {
 				return weight_counter.consumed();
 			}
 
+			// Shared executed counter across block and timestamp agendas.
+			// This ensures that if block tasks execute first, a timestamp task that
+			// doesn't fit in the remaining weight is NOT incorrectly marked as
+			// permanently overweight (which only applies to the very first task).
+			let mut executed = 0u32;
+
 			// Process block-based agendas
-			Self::service_block_agendas(&mut weight_counter, now, u32::max_value());
+			Self::service_block_agendas(&mut weight_counter, &mut executed, now, u32::max_value());
 
 			// Process timestamp-based agendas using current system time
 			// This ensures no buckets are skipped if block times are longer than bucket intervals
@@ -370,6 +376,7 @@ pub mod pallet {
 			if current_timestamp > T::Moment::zero() {
 				Self::service_timestamp_agendas(
 					&mut weight_counter,
+					&mut executed,
 					current_timestamp,
 					u32::max_value(),
 				);
@@ -604,8 +611,23 @@ impl<T: Config> Pallet<T> {
 					BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
 						current_block.saturating_add(x).saturating_add(One::one()),
 					),
-					BlockNumberOrTimestamp::Timestamp(_) =>
-						x.normalize(T::TimestampBucketSize::get()),
+					BlockNumberOrTimestamp::Timestamp(target) => {
+						// For timestamp-based scheduling, we need to ensure the task doesn't
+						// fire before the target time. The normalize function places the task
+						// in a bucket, but that bucket could start processing before the target.
+						//
+						// Example with bucket_size = 10000:
+						// - Target = 35000 -> normalize() = 40000 (bucket covers 30001-40000)
+						// - But time 31000 is in this bucket, so task could fire at 31000 < 35000!
+						//
+						// Fix: Schedule in the next bucket after normalization, guaranteeing
+						// the bucket's start time is > target time.
+						let bucket = x.normalize(T::TimestampBucketSize::get());
+						let bucket_time = bucket.as_timestamp().unwrap_or(target);
+						BlockNumberOrTimestamp::Timestamp(
+							bucket_time.saturating_add(T::TimestampBucketSize::get()),
+						)
+					},
 				};
 				res
 			},
@@ -739,7 +761,12 @@ impl<T: Config> Pallet<T> {
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
 
-		Self::place_task(new_time, task).map_err(|x| x.0)
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+		// Transfer retry configuration to the new address
+		if let Some(retry_config) = Retries::<T>::take((when, index)) {
+			Retries::<T>::insert(new_address, retry_config);
+		}
+		Ok(new_address)
 	}
 
 	fn do_schedule_named(
@@ -808,7 +835,13 @@ impl<T: Config> Pallet<T> {
 		})?;
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
-		Self::place_task(new_time, task).map_err(|x| x.0)
+
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+		// Transfer retry configuration to the new address
+		if let Some(retry_config) = Retries::<T>::take((when, index)) {
+			Retries::<T>::insert(new_address, retry_config);
+		}
+		Ok(new_address)
 	}
 
 	fn do_cancel_retry(
@@ -836,12 +869,16 @@ use ServiceTaskError::*;
 
 impl<T: Config> Pallet<T> {
 	/// Service up to `max` block-based agendas starting from earliest incompletely executed agenda.
-	fn service_block_agendas(weight: &mut WeightMeter, current_block: BlockNumberFor<T>, max: u32) {
+	fn service_block_agendas(
+		weight: &mut WeightMeter,
+		executed: &mut u32,
+		current_block: BlockNumberFor<T>,
+		max: u32,
+	) {
 		let next_block = current_block.saturating_add(One::one());
 		let start_block = IncompleteBlockSince::<T>::take().unwrap_or(current_block);
 		let mut when = start_block;
 		let mut incomplete_since = next_block;
-		let mut executed = 0;
 
 		let max_items = T::MaxScheduledPerBlock::get();
 		let mut count_down = max;
@@ -853,7 +890,7 @@ impl<T: Config> Pallet<T> {
 		{
 			if !Self::service_agenda(
 				weight,
-				&mut executed,
+				executed,
 				BlockNumberOrTimestamp::BlockNumber(current_block),
 				BlockNumberOrTimestamp::BlockNumber(when),
 				u32::max_value(),
@@ -873,7 +910,12 @@ impl<T: Config> Pallet<T> {
 
 	/// Service up to `max` timestamp-based agendas starting from earliest incompletely executed
 	/// agenda.
-	fn service_timestamp_agendas(weight: &mut WeightMeter, current_time: T::Moment, max: u32) {
+	fn service_timestamp_agendas(
+		weight: &mut WeightMeter,
+		executed: &mut u32,
+		current_time: T::Moment,
+		max: u32,
+	) {
 		let normalized_time =
 			BlockNumberOrTimestamp::<BlockNumberFor<T>, T::Moment>::Timestamp(current_time)
 				.normalize(T::TimestampBucketSize::get())
@@ -895,7 +937,6 @@ impl<T: Config> Pallet<T> {
 
 		let mut when = start_time;
 		let mut incomplete_since = next_bucket;
-		let mut executed = 0;
 
 		let max_items = T::MaxScheduledPerBlock::get();
 		let mut count_down = max;
@@ -908,7 +949,7 @@ impl<T: Config> Pallet<T> {
 			log::debug!(target: "scheduler", "service_timestamp_agendas: when: {:?}", when);
 			if !Self::service_agenda(
 				weight,
-				&mut executed,
+				executed,
 				BlockNumberOrTimestamp::Timestamp(normalized_time),
 				BlockNumberOrTimestamp::Timestamp(when),
 				u32::MAX,

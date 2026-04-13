@@ -382,12 +382,20 @@ mod benchmarks {
 	/// Benchmark `claim_deposits` extrinsic. Uses MaxSigners approvals per proposal for worst-case
 	/// decode. Parameters: i = iterated proposals, r = removed (cleaned) proposals,
 	/// c = average stored call size (affects iteration cost)
+	///
+	/// Note: We restrict the sampled region so r <= i is always true, avoiding the min(r,i) clamp
+	/// distortion. This doesn't cover the full valid domain (especially small i values), but
+	/// Substrate doesn't support dependent variables in benchmarks.
 	#[benchmark]
 	fn claim_deposits(
-		i: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
-		r: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
+		i: Linear<
+			{ T::MaxTotalProposalsInStorage::get() / 2 },
+			{ T::MaxTotalProposalsInStorage::get() },
+		>,
+		r: Linear<0, { T::MaxTotalProposalsInStorage::get() / 2 }>,
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
+		// With the restricted ranges above, r <= i is always true, so min(r,i) == r
 		let cleaned_target = (r as u32).min(i);
 		let total_proposals = i;
 

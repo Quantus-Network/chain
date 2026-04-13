@@ -24,7 +24,7 @@ use crate::mock::{
 };
 use frame_support::{
 	assert_err, assert_noop, assert_ok,
-	traits::{Contains, OnInitialize, QueryPreimage, StorePreimage},
+	traits::{Contains, OnFinalize, OnInitialize, QueryPreimage, StorePreimage},
 };
 use sp_runtime::traits::Hash;
 
@@ -2236,7 +2236,9 @@ fn unavailable_call_is_detected() {
 fn time_based_agenda_is_processed_correctly() {
 	new_test_ext().execute_with(|| {
 		// Bucket size is 10_000ms.
-		// Schedule a task in bucket 10_000
+		// Schedule a task for "after 15_000ms"
+		// With the fix: normalize(15000) = 20000, then +bucket = 30000
+		// This ensures the task won't fire until time >= 20001 (bucket 30000's start)
 		let schedule_time_ms = 15_000;
 
 		assert_ok!(Scheduler::schedule_after(
@@ -2249,6 +2251,14 @@ fn time_based_agenda_is_processed_correctly() {
 			})),
 		));
 
+		// Verify task is scheduled in bucket 30_000 (normalized 20000 + extra bucket)
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(30000))
+				.iter()
+				.any(|s| s.is_some()),
+			"Task should be scheduled in bucket 30000"
+		);
+
 		// First block is at 0ms.
 		MockTimestamp::set_timestamp(0);
 		run_to_block(1); // This will trigger on_initialize which processes timestamp agendas
@@ -2256,12 +2266,19 @@ fn time_based_agenda_is_processed_correctly() {
 		// Assert nothing is logged yet.
 		assert_eq!(logger::log(), vec![]);
 
-		// Jump time far ahead, skipping bucket 10_000 and 20_000.
-		let future_time_ms = 10_000;
-		MockTimestamp::set_timestamp(future_time_ms);
-		// Process the block at the future time.
-		run_to_block(2); // This will trigger on_initialize which processes timestamp agendas
+		// Set time to 16_000ms - this is past target 15_000 but still before bucket 30_000's start
+		// Task should NOT execute yet (bucket hasn't been reached)
+		MockTimestamp::set_timestamp(16_000);
+		run_to_block(2);
+		assert_eq!(
+			logger::log().len(),
+			0,
+			"Task should not execute before bucket 30000 is reached"
+		);
 
+		// Set time to 21_000ms - now we're in bucket 30000, task should execute
+		MockTimestamp::set_timestamp(21_000);
+		run_to_block(3);
 		assert_eq!(logger::log().len(), 1);
 		assert_eq!(logger::log()[0].1, 1);
 	});
@@ -2271,7 +2288,8 @@ fn time_based_agenda_is_processed_correctly() {
 fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
 	new_test_ext().execute_with(|| {
 		// Bucket size is 10_000ms.
-		// Schedule a task in bucket 10_000
+		// Task 1: After(16000) -> normalize(16000) = 20000, +bucket = 30000
+		// Task 2: After(100000) -> normalize(100000) = 110000, +bucket = 120000
 		let schedule_time_ms = 16_000;
 		let schedule_time_ms_2 = 100_000;
 
@@ -2302,32 +2320,33 @@ fn time_based_agenda_prevents_bucket_skipping_after_time_skip() {
 		// Assert nothing is logged yet.
 		assert_eq!(logger::log(), vec![]);
 
-		// Jump time far ahead, skipping buckets
+		// Jump time far ahead, skipping buckets - now past bucket 30000's start (20001)
 		let future_time_ms = 50_000;
 		MockTimestamp::set_timestamp(future_time_ms);
 		// Process the block at the future time.
 		run_to_block(3); // This will trigger on_initialize which processes timestamp agendas
 
-		// With our fix, bucket skipping is prevented and the task SHOULD execute
+		// Task 1 (bucket 30000) should execute since we're past 20001
 		assert_eq!(logger::log().len(), 1);
 		assert_eq!(logger::log()[0].1, 1);
 
-		//Jump time far ahead, skipping buckets
+		// Jump time ahead but not past bucket 120000's start (110001)
 		let future_time_ms = 80_000;
 		MockTimestamp::set_timestamp(future_time_ms);
 		// Process the block at the future time.
 		run_to_block(4); // This will trigger on_initialize which processes timestamp agendas
 
-		// With our fix, bucket skipping is prevented and the task SHOULD execute
+		// Task 2 (bucket 120000) should NOT execute yet since 80000 < 110001
 		assert_eq!(logger::log().len(), 1);
 		assert_eq!(logger::log()[0].1, 1);
 
+		// Jump way past bucket 120000's start time
 		let future_time_ms = 300_000;
 		MockTimestamp::set_timestamp(future_time_ms);
 		// Process the block at the future time.
 		run_to_block(5); // This will trigger on_initialize which processes timestamp agendas
 
-		// With our fix, bucket skipping is prevented and the task SHOULD execute
+		// Now task 2 should execute
 		assert_eq!(logger::log().len(), 2);
 		assert_eq!(logger::log()[1].1, 2);
 	});
@@ -2341,6 +2360,7 @@ fn timestamp_scheduler_respects_weight_limits() {
 		MockTimestamp::set_timestamp(1);
 		run_to_block(1);
 
+		// Both tasks scheduled for After(15000) -> normalize(15000) = 20000, +bucket = 30000
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight / 3 * 2 });
 		assert_ok!(Scheduler::schedule_after(
 			RuntimeOrigin::root(),
@@ -2357,17 +2377,17 @@ fn timestamp_scheduler_respects_weight_limits() {
 			Box::new(call),
 		));
 
-		// Jump to timestamp 25000 (bucket 30000) - this should process bucket 20000
+		// Jump to timestamp 25000 - bucket 30000 starts at 20001, so this should process it
 		MockTimestamp::set_timestamp(25000);
 		run_to_block(2);
 
 		// 69 and 42 do not fit together, so only one should execute
 		assert_eq!(logger::log(), vec![(root(), 42u32)]);
 
-		// The incomplete timestamp should be set to bucket 20000 since processing was incomplete
-		assert_eq!(IncompleteTimestampSince::<Test>::get(), Some(20000));
+		// The incomplete timestamp should be set to bucket 30000 since processing was incomplete
+		assert_eq!(IncompleteTimestampSince::<Test>::get(), Some(30000));
 
-		// Next block should process the remaining task from bucket 20000
+		// Next block should process the remaining task from bucket 30000
 		run_to_block(3);
 		assert_eq!(logger::log(), vec![(root(), 42u32), (root(), 69u32)]);
 
@@ -2383,6 +2403,7 @@ fn timestamp_scheduler_removes_permanently_overweight_call() {
 		MockTimestamp::set_timestamp(1);
 		run_to_block(1);
 
+		// After(15000) -> normalize(15000) = 20000, +bucket = 30000
 		let call = RuntimeCall::Logger(LoggerCall::log { i: 42, weight: max_weight });
 		assert_ok!(Scheduler::schedule_after(
 			RuntimeOrigin::root(),
@@ -2398,7 +2419,7 @@ fn timestamp_scheduler_removes_permanently_overweight_call() {
 
 		assert!(System::events().iter().any(|e| e.event ==
 			crate::Event::PermanentlyOverweight {
-				task: (BlockNumberOrTimestamp::Timestamp(20000), 0),
+				task: (BlockNumberOrTimestamp::Timestamp(30000), 0),
 				id: None,
 			}
 			.into()));
@@ -2412,11 +2433,11 @@ fn timestamp_on_initialize_weight_is_correct() {
 		let call_weight = Weight::from_parts(25, 0);
 
 		// === TASK DEFINITIONS ===
-		// All tasks scheduled at timestamp 0
+		// All tasks scheduled at timestamp 100
 		MockTimestamp::set_timestamp(100);
 		run_to_block(1);
 
-		// Task A: i=2600, scheduled for bucket 10000 (timestamp 5000 -> bucket 10000)
+		// Task A: After(5000) -> normalize(5000) = 10000, +bucket = 20000
 		let call_a = RuntimeCall::Logger(LoggerCall::log {
 			i: 2600,
 			weight: call_weight + Weight::from_parts(4, 0),
@@ -2429,6 +2450,7 @@ fn timestamp_on_initialize_weight_is_correct() {
 			Box::new(call_a),
 		));
 
+		// Task B: After(15000) -> normalize(15000) = 20000, +bucket = 30000
 		let call_b = RuntimeCall::Logger(LoggerCall::log {
 			i: 69,
 			weight: call_weight + Weight::from_parts(3, 0),
@@ -2440,6 +2462,7 @@ fn timestamp_on_initialize_weight_is_correct() {
 			Box::new(call_b),
 		));
 
+		// Task C: After(15000) -> normalize(15000) = 20000, +bucket = 30000
 		let call_c = RuntimeCall::Logger(LoggerCall::log {
 			i: 42,
 			weight: call_weight + Weight::from_parts(2, 0),
@@ -2451,6 +2474,7 @@ fn timestamp_on_initialize_weight_is_correct() {
 			Box::new(call_c),
 		));
 
+		// Task D: After(25000) -> normalize(25000) = 30000, +bucket = 40000
 		let call_d = RuntimeCall::Logger(LoggerCall::log {
 			i: 3,
 			weight: call_weight + Weight::from_parts(1, 0),
@@ -2464,20 +2488,21 @@ fn timestamp_on_initialize_weight_is_correct() {
 		));
 
 		// === EXPECTED BEHAVIOR ===
-		// Block 1 at timestamp 15000 (normalized to bucket 20000):
-		//   - Process buckets 0, 10000, 20000
-		//   - Execute: Task A (2600) from bucket 10000, Tasks B (69) and C (42) from bucket 20000
-		//   - LastProcessedTimestamp should be set to 20000
+		// Task A in bucket 20000 (starts at 10001)
+		// Tasks B, C in bucket 30000 (starts at 20001)
+		// Task D in bucket 40000 (starts at 30001)
 
-		// Block 2 at timestamp 25000 (normalized to bucket 30000):
-		//   - Process buckets from 20000 to 30000 (only bucket 30000 has tasks)
-		//   - Execute: Task D (3) from bucket 30000
-		//   - LastProcessedTimestamp should be set to 30000
+		// Block 1 at timestamp 15000:
+		//   - Process buckets up to 20000 (bucket 20000 starts at 10001)
+		//   - Execute: Task A (2600) from bucket 20000
 
-		// Block 3 at timestamp 35000 (normalized to bucket 40000):
-		//   - Process buckets from 30000 to 40000 (no tasks)
-		//   - Execute: nothing
-		//   - LastProcessedTimestamp should be set to 40000
+		// Block 2 at timestamp 25000:
+		//   - Process buckets up to 30000 (bucket 30000 starts at 20001)
+		//   - Execute: Tasks B (69) and C (42) from bucket 30000
+
+		// Block 3 at timestamp 35000:
+		//   - Process buckets up to 40000 (bucket 40000 starts at 30001)
+		//   - Execute: Task D (3) from bucket 40000
 
 		// === EXECUTION AND VERIFICATION ===
 
@@ -2489,12 +2514,10 @@ fn timestamp_on_initialize_weight_is_correct() {
 		println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
 		println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
 
-		// Verify all three tasks from buckets 10000 and 20000 executed
+		// Verify Task A from bucket 20000 executed
 		let logs_after_block1 = logger::log();
-		assert_eq!(logs_after_block1.len(), 3);
+		assert_eq!(logs_after_block1.len(), 1);
 		assert!(logs_after_block1.contains(&(root(), 2600u32))); // Task A
-		assert!(logs_after_block1.contains(&(root(), 69u32))); // Task B
-		assert!(logs_after_block1.contains(&(root(), 42u32))); // Task C
 		assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
 
 		println!("\n=== Block 2: Jump to timestamp 25000 ===");
@@ -2505,10 +2528,11 @@ fn timestamp_on_initialize_weight_is_correct() {
 		println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
 		println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
 
-		// Verify Task D from bucket 30000 executed
+		// Verify Tasks B and C from bucket 30000 executed
 		let logs_after_block2 = logger::log();
-		assert_eq!(logs_after_block2.len(), 4);
-		assert!(logs_after_block2.contains(&(root(), 3u32))); // Task D
+		assert_eq!(logs_after_block2.len(), 3);
+		assert!(logs_after_block2.contains(&(root(), 69u32))); // Task B
+		assert!(logs_after_block2.contains(&(root(), 42u32))); // Task C
 		assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
 
 		println!("\n=== Block 3: Jump to timestamp 35000 ===");
@@ -2519,9 +2543,10 @@ fn timestamp_on_initialize_weight_is_correct() {
 		println!("IncompleteTimestampSince: {:?}", IncompleteTimestampSince::<Test>::get());
 		println!("LastProcessedTimestamp: {:?}", LastProcessedTimestamp::<Test>::get());
 
-		// No new tasks should execute
+		// Verify Task D from bucket 40000 executed
 		let logs_after_block3 = logger::log();
-		assert_eq!(logs_after_block3.len(), 4); // Same as before
+		assert_eq!(logs_after_block3.len(), 4);
+		assert!(logs_after_block3.contains(&(root(), 3u32))); // Task D
 		assert_eq!(IncompleteTimestampSince::<Test>::get(), None);
 
 		// Verify weights are reasonable
@@ -2549,6 +2574,8 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
 		// Schedule 5 heavy tasks across different buckets
 		// Each task takes 1/4 of max weight, so theoretically 4 should fit
 		// But there's overhead, so let's see what actually happens
+		// With the fix: After(X) -> normalize(X) + bucket_size
+		// So After(15000) -> 30000, After(25000) -> 40000, etc.
 		for i in 0..5 {
 			let call = RuntimeCall::Logger(LoggerCall::log {
 				i: i + 100,
@@ -2556,17 +2583,17 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
 			});
 			assert_ok!(Scheduler::schedule_after(
 				RuntimeOrigin::root(),
-				BlockNumberOrTimestamp::Timestamp(15000 + (i as u64) * 10000), /* Buckets 20000,
-				                                                                * 30000, 40000,
-				                                                                * 50000, 60000 */
+				BlockNumberOrTimestamp::Timestamp(15000 + (i as u64) * 10000), /* Buckets 30000,
+				                                                                * 40000, 50000,
+				                                                                * 60000, 70000 */
 				127,
 				Box::new(call),
 			));
-			println!("Scheduled task {} in bucket {}", i + 100, 20000 + i * 10000);
+			println!("Scheduled task {} in bucket {}", i + 100, 30000 + i * 10000);
 		}
 
 		// === EXPECTED BEHAVIOR ===
-		// Jump to timestamp 65000 (bucket 70000) - should process all buckets 20000-60000
+		// Jump to timestamp 75000 (bucket 80000) - should process all buckets 30000-70000
 		// Weight limits should cause tasks to be spread across multiple blocks
 		// Why not 4 tasks in first block? Because of overhead:
 		// - service_agendas_base() weight
@@ -2575,7 +2602,7 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
 		// - storage read/write overhead
 
 		println!("\n=== EXECUTION ===");
-		MockTimestamp::set_timestamp(65000);
+		MockTimestamp::set_timestamp(75000);
 
 		let mut total_executed = 0;
 		let mut block = 1;
@@ -2629,7 +2656,7 @@ fn timestamp_incomplete_processing_across_multiple_buckets() {
 					tasks_executed_this_block, 3,
 					"Expected 3 tasks in first block based on weight limits"
 				);
-				assert_eq!(incomplete_after, Some(50000), "Should be incomplete at bucket 50000");
+				assert_eq!(incomplete_after, Some(60000), "Should be incomplete at bucket 60000");
 			} else if block == 2 {
 				// Second block: should complete remaining tasks
 				assert_eq!(
@@ -2989,6 +3016,290 @@ fn permanently_overweight_task_is_removed() {
 			Agenda::<Test>::iter().count(),
 			0,
 			"Agenda must be empty after permanently overweight task is removed"
+		);
+	});
+}
+
+#[test]
+fn reschedule_preserves_retry_config() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 20 is reached
+		Threshold::<Test>::put((20, 100));
+		// Schedule task at block 4
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0)
+			}))
+			.unwrap()
+		));
+		// Set retry config: 10 retries every 3 blocks
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			10,
+			BlockNumberOrTimestamp::BlockNumber(3)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+
+		// Reschedule to block 8
+		let new_address = Scheduler::do_reschedule(
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			DispatchTime::At(8),
+		)
+		.unwrap();
+		assert_eq!(new_address, (BlockNumberOrTimestamp::BlockNumber(8), 0));
+
+		// Retry config should be transferred to the new address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(!Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+		assert!(Retries::<Test>::contains_key(new_address));
+
+		let retry_config = Retries::<Test>::get(new_address).unwrap();
+		assert_eq!(retry_config.total_retries, 10);
+		assert_eq!(retry_config.remaining, 10);
+		assert_eq!(retry_config.period, BlockNumberOrTimestamp::BlockNumber(3));
+
+		// Run to block 8 - task should fail and be retried at block 11
+		run_to_block(8);
+		assert!(logger::log().is_empty());
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(11))[0].is_some());
+
+		// Retry config should now be at the retry address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Run to block 20 - task should eventually succeed
+		run_to_block(20);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+		assert_eq!(Retries::<Test>::iter().count(), 0);
+	});
+}
+
+#[test]
+fn reschedule_named_preserves_retry_config() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 20 is reached
+		Threshold::<Test>::put((20, 100));
+		// Schedule named task at block 4
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0)
+			}))
+			.unwrap()
+		));
+		// Set retry config: 10 retries every 3 blocks
+		assert_ok!(Scheduler::set_retry_named(
+			root().into(),
+			[1u8; 32],
+			10,
+			BlockNumberOrTimestamp::BlockNumber(3)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+
+		// Reschedule to block 8
+		let new_address = Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(8)).unwrap();
+		assert_eq!(new_address, (BlockNumberOrTimestamp::BlockNumber(8), 0));
+
+		// Retry config should be transferred to the new address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(!Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+		assert!(Retries::<Test>::contains_key(new_address));
+
+		let retry_config = Retries::<Test>::get(new_address).unwrap();
+		assert_eq!(retry_config.total_retries, 10);
+		assert_eq!(retry_config.remaining, 10);
+		assert_eq!(retry_config.period, BlockNumberOrTimestamp::BlockNumber(3));
+
+		// Run to block 8 - task should fail and be retried at block 11
+		run_to_block(8);
+		assert!(logger::log().is_empty());
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(11))[0].is_some());
+
+		// Retry config should now be at the retry address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Run to block 20 - task should eventually succeed
+		run_to_block(20);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+		assert_eq!(Retries::<Test>::iter().count(), 0);
+	});
+}
+#[test]
+fn timestamp_task_not_permanently_overweight_after_block_tasks_execute() {
+	// This test verifies that a timestamp task that doesn't fit in the current block
+	// (because block-based tasks consumed weight) is NOT incorrectly marked as
+	// permanently overweight. It should be kept and executed in the next block.
+	//
+	// The bug: block and timestamp agendas each have separate `executed` counters.
+	// The `is_first` flag (used to determine if an overweight task is permanently
+	// overweight) is based on `executed == 0`. When timestamp processing starts,
+	// `executed` resets to 0 even if block tasks already ran, causing the first
+	// timestamp task to be incorrectly marked as permanently overweight.
+	let max_weight: Weight = <Test as Config>::MaximumWeight::get();
+	new_test_ext().execute_with(|| {
+		// Initialize timestamp
+		MockTimestamp::set_timestamp(1);
+		run_to_block(1);
+
+		// Schedule a block task that takes ~67% of max scheduler weight - will execute successfully
+		let block_weight = max_weight / 3 * 2;
+		let block_call = RuntimeCall::Logger(LoggerCall::log { i: 1, weight: block_weight });
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(block_call).unwrap()
+		));
+
+		// Schedule a timestamp task that takes 50% of max scheduler weight
+		// This would fit in a fresh block, but not after the block task runs (67% + 50% > 100%)
+		// After(35000) -> normalize(35000) = 40000, +bucket = 50000
+		let timestamp_weight = max_weight / 2;
+		let timestamp_call =
+			RuntimeCall::Logger(LoggerCall::log { i: 2, weight: timestamp_weight });
+		assert_ok!(Scheduler::schedule_after(
+			RuntimeOrigin::root(),
+			BlockNumberOrTimestamp::Timestamp(35000), // Will be scheduled for bucket 50000
+			127,
+			Box::new(timestamp_call),
+		));
+
+		// Verify agenda scheduled correctly
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(50000))
+				.iter()
+				.any(|s| s.is_some()),
+			"Timestamp task should be scheduled in bucket 50000"
+		);
+
+		// Advance to block 4 without processing timestamp agenda yet
+		// (timestamp stays at 1, which normalizes to bucket 10000, before our task at 50000)
+		run_to_block(3);
+
+		// Now at block 4, set timestamp to trigger both block and timestamp task in same block
+		// Bucket 50000 starts at 40001
+		MockTimestamp::set_timestamp(45000);
+		<Scheduler as OnFinalize<u64>>::on_finalize(System::block_number());
+		System::set_block_number(System::block_number() + 1);
+		<Scheduler as OnInitialize<u64>>::on_initialize(System::block_number()); // This is block 4
+
+		// Block task should have executed
+		assert!(logger::log().iter().any(|&(_, i)| i == 1), "Block task should have executed");
+
+		// The timestamp task should NOT be permanently overweight - it should still be
+		// in the agenda waiting to execute in the next block
+		let permanently_overweight_count = System::events()
+			.iter()
+			.filter(|e| {
+				matches!(
+					e.event,
+					RuntimeEvent::Scheduler(crate::Event::PermanentlyOverweight { .. })
+				)
+			})
+			.count();
+
+		assert_eq!(
+			permanently_overweight_count, 0,
+			"Timestamp task should NOT be marked as permanently overweight"
+		);
+
+		// The timestamp task should still be in the agenda (IncompleteTimestampSince should be set)
+		let incomplete_ts = IncompleteTimestampSince::<Test>::get();
+		assert!(
+			incomplete_ts.is_some() ||
+				Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(50000))
+					.iter()
+					.any(|s| s.is_some()),
+			"Timestamp task should still be pending (either in agenda or incomplete)"
+		);
+
+		// Run another block - the timestamp task should now execute
+		run_to_block(5);
+		assert!(
+			logger::log().iter().any(|&(_, i)| i == 2),
+			"Timestamp task should execute in subsequent block"
+		);
+	});
+}
+
+#[test]
+fn timestamp_task_does_not_fire_before_target_time() {
+	// This test verifies that a task scheduled with DispatchTime::After(Timestamp(X))
+	// does NOT execute before time X.
+	//
+	// The fix: Schedule tasks in the next bucket after normalization, guaranteeing
+	// the bucket's start time is > target time.
+	//
+	// Example with bucket_size = 10000:
+	// - Schedule task "after 35000ms"
+	// - normalize(35000) = 40000, then +bucket = 50000
+	// - Bucket 50000 starts at time 40001, which is > 35000 ✓
+	new_test_ext().execute_with(|| {
+		// Initialize at timestamp 1
+		MockTimestamp::set_timestamp(1);
+		run_to_block(1);
+
+		// Schedule a task for "after 35000ms"
+		// With bucket_size = 10000: normalize(35000) = 40000, +bucket = 50000
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+		assert_ok!(Scheduler::schedule_after(
+			RuntimeOrigin::root(),
+			BlockNumberOrTimestamp::Timestamp(35000),
+			127,
+			Box::new(call),
+		));
+
+		// Verify task is scheduled in bucket 50000 (not 40000)
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(50000))
+				.iter()
+				.any(|s| s.is_some()),
+			"Task should be scheduled in bucket 50000"
+		);
+
+		// Advance to timestamp 36000 - this is AFTER target 35000 but bucket 50000 hasn't started
+		// Task should NOT execute yet
+		MockTimestamp::set_timestamp(36000);
+		<Scheduler as OnFinalize<u64>>::on_finalize(System::block_number());
+		System::set_block_number(System::block_number() + 1);
+		<Scheduler as OnInitialize<u64>>::on_initialize(System::block_number());
+
+		// Task should NOT have executed - bucket 50000 starts at 40001
+		assert!(
+			logger::log().is_empty(),
+			"Task should NOT execute before bucket 50000 is reached (36000 < 40001)"
+		);
+
+		// Task should still be in the agenda
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::Timestamp(50000))
+				.iter()
+				.any(|s| s.is_some()),
+			"Task should still be in agenda"
+		);
+
+		// Now advance to timestamp 41000 - bucket 50000 has started (40001+)
+		MockTimestamp::set_timestamp(41000);
+		<Scheduler as OnFinalize<u64>>::on_finalize(System::block_number());
+		System::set_block_number(System::block_number() + 1);
+		<Scheduler as OnInitialize<u64>>::on_initialize(System::block_number());
+
+		// NOW the task should execute
+		assert_eq!(
+			logger::log(),
+			vec![(root(), 42u32)],
+			"Task should execute once bucket 50000 is reached (41000 >= 40001)"
 		);
 	});
 }

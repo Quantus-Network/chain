@@ -138,7 +138,7 @@ benchmarks! {
 		let now = BlockNumberFor::<T>::from(BLOCK_NUMBER);
 		IncompleteBlockSince::<T>::put(now - One::one());
 	}: {
-		Scheduler::<T>::service_block_agendas(&mut WeightMeter::new(), now, 0);
+		Scheduler::<T>::service_block_agendas(&mut WeightMeter::new(), &mut 0, now, 0);
 	} verify {
 		assert_eq!(IncompleteBlockSince::<T>::get(), Some(now - One::one()));
 	}

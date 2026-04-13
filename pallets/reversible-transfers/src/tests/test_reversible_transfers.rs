@@ -391,8 +391,11 @@ fn schedule_transfer_with_timestamp_works() {
 			user_delay.as_timestamp().unwrap();
 
 		let bounded = Preimage::bound(call.clone()).unwrap();
-		let expected_timestamp =
-			BlockNumberOrTimestamp::Timestamp(expected_raw_timestamp + TimestampBucketSize::get());
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		// normalize() adds one bucket, then scheduler adds another for safety
+		let expected_timestamp = BlockNumberOrTimestamp::Timestamp(
+			expected_raw_timestamp + TimestampBucketSize::get() + TimestampBucketSize::get(),
+		);
 
 		assert!(Agenda::<Test>::get(expected_timestamp).is_empty());
 
@@ -419,7 +422,11 @@ fn schedule_transfer_with_timestamp_works() {
 		assert!(!Agenda::<Test>::get(expected_timestamp).is_empty());
 
 		// Advance to expected execution time and ensure it executed
-		MockTimestamp::<Test>::set_timestamp(expected_raw_timestamp);
+		// With the extra bucket, we need to advance to when the bucket starts processing
+		// (bucket starts at expected_timestamp - bucket_size + 1)
+		MockTimestamp::<Test>::set_timestamp(
+			expected_timestamp.as_timestamp().unwrap() - timestamp_bucket_size + 1,
+		);
 		run_to_block(2);
 		let eps: Balance = 10; // tolerate tiny fee differences
 		assert!(approx_eq_balance(Balances::free_balance(&user), user_balance - amount, eps));
@@ -781,9 +788,13 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 		));
 
 		// The transfer should be scheduled at: current_time + user_delay_duration
-		let expected_execution_time =
-			BlockNumberOrTimestamp::Timestamp(initial_mock_time + user_delay_duration)
-				.normalize(bucket_size);
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		let expected_execution_time = BlockNumberOrTimestamp::<u64, u64>::Timestamp(
+			BlockNumberOrTimestamp::<u64, u64>::Timestamp(initial_mock_time + user_delay_duration)
+				.normalize(bucket_size)
+				.as_timestamp()
+				.unwrap() + bucket_size,
+		);
 
 		assert!(
 			!Agenda::<Test>::get(expected_execution_time).is_empty(),
@@ -902,16 +913,22 @@ fn full_flow_execute_with_timestamp_delay_works() {
 			amount,
 		));
 
-		let expected_execution_time =
-			BlockNumberOrTimestamp::Timestamp(initial_mock_time + user_delay_duration)
-				.normalize(TimestampBucketSize::get());
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		let expected_execution_time = BlockNumberOrTimestamp::<u64, u64>::Timestamp(
+			BlockNumberOrTimestamp::<u64, u64>::Timestamp(initial_mock_time + user_delay_duration)
+				.normalize(TimestampBucketSize::get())
+				.as_timestamp()
+				.unwrap() + TimestampBucketSize::get(),
+		);
 
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 		assert!(!Agenda::<Test>::get(expected_execution_time).is_empty());
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount); // On hold
 
-		// Advance time to execution
-		MockTimestamp::<Test>::set_timestamp(expected_execution_time.as_timestamp().unwrap() - 1);
+		// Advance time to execution (bucket starts at expected_execution_time - bucket_size + 1)
+		MockTimestamp::<Test>::set_timestamp(
+			expected_execution_time.as_timestamp().unwrap() - TimestampBucketSize::get(),
+		);
 		run_to_block(2);
 
 		let expected_event = Event::TransactionExecuted { tx_id, result: Ok(().into()) };
@@ -1575,8 +1592,17 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 		);
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 
-		// Set time before execution time
-		MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms - one_minute_ms);
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		// Calculate the actual execution bucket
+		let bucket_size = 1000u64; // TimestampBucketSize
+		let normalized = BlockNumberOrTimestamp::<u64, u64>::Timestamp(1_000_000 + custom_delay_ms)
+			.normalize(bucket_size)
+			.as_timestamp()
+			.unwrap();
+		let actual_execution_bucket = normalized + bucket_size;
+
+		// Set time before execution time (before bucket starts)
+		MockTimestamp::<Test>::set_timestamp(actual_execution_bucket - bucket_size - 1);
 		let execute_block = System::block_number() + 3;
 		run_to_block(execute_block);
 
@@ -1586,8 +1612,8 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 		// recipient balance not yet changed
 		assert_eq!(Balances::free_balance(&recipient), initial_recipient_balance);
 
-		// Set time past execution time
-		MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms + 1);
+		// Set time past execution time (bucket starts at actual_execution_bucket - bucket_size + 1)
+		MockTimestamp::<Test>::set_timestamp(actual_execution_bucket - bucket_size + 1);
 		let execute_block = System::block_number() + 2;
 		run_to_block(execute_block);
 
