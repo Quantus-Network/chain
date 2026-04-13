@@ -8485,7 +8485,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.6.0-perfect-resonance"
+version = "0.6.1"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
