@@ -28,7 +28,7 @@ pub type Balance = u128;
 pub const UNIT: Balance = 1_000_000_000_000;
 pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block<T> = sp_runtime::generic::Block<
-	qp_header::Header<u64, PoseidonHasher>,
+	qp_header::Header<u64, PoseidonHasher, sp_runtime::traits::BlakeTwo256>,
 	MockUncheckedExtrinsic<T, qp_dilithium_crypto::DilithiumSignatureScheme>,
 >;
 

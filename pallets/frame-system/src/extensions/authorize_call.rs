@@ -197,7 +197,8 @@ mod tests {
 
 	pub type TransactionExtension = (frame_system::AuthorizeCall<Runtime>,);
 
-	pub type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
+	pub type Header =
+		qp_header::Header<u32, sp_runtime::traits::BlakeTwo256, sp_runtime::traits::BlakeTwo256>;
 	pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
 	pub type UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic<
 		u64,
