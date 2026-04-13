@@ -167,10 +167,9 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_finalize(_n: BlockNumberFor<T>) {
-			// Add ZkRoot to digest
-			let root = Root::<T>::get();
-			let item = sp_runtime::generic::DigestItem::Other(root.to_vec());
-			<frame_system::Pallet<T>>::deposit_log(item);
+			// Set ZK Merkle root in frame_system for inclusion in block header
+			let root: Hash256 = Root::<T>::get();
+			<frame_system::Pallet<T>>::set_zk_trie_root(root.into());
 		}
 	}
 

@@ -33,15 +33,40 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Extension trait for headers that support ZK trie root.
+///
+/// This trait allows frame_system to set the ZK trie root on headers
+/// without knowing the concrete header type.
+pub trait ZkTrieRootProvider {
+	/// The hash type used for the ZK trie root.
+	type Hash;
+
+	/// Set the ZK trie root.
+	fn set_zk_trie_root(&mut self, root: Self::Hash);
+
+	/// Get the ZK trie root.
+	fn zk_trie_root(&self) -> &Self::Hash;
+}
+
 /// Custom block header with separate hashers for block hash and state trie.
 ///
 /// - `Hash`: Used for block hash computation (Poseidon for ZK compatibility)
 /// - `StateHash`: Used for state trie / extrinsics root via `Header::Hashing` trait
+///
+/// ## Field Ordering
+///
+/// The `zk_trie_root` field is intentionally placed **before** `digest` to ensure
+/// a fixed offset in the header preimage. This prevents miners from manipulating
+/// the digest to shift the ZK root's position in the felt encoding.
 #[derive(Encode, Decode, PartialEq, Eq, Clone, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
 #[scale_info(skip_type_params(Hash, StateHash))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(
+	feature = "serde",
+	serde(bound = "Hash::Output: Serialize + serde::de::DeserializeOwned")
+)]
 pub struct Header<Number, Hash: HashT, StateHash: HashT>
 where
 	Number: Copy + Into<U256> + TryFrom<U256>,
@@ -54,6 +79,11 @@ where
 	pub number: Number,
 	pub state_root: Hash::Output,
 	pub extrinsics_root: Hash::Output,
+	/// Root of the ZK Merkle trie (4-ary Poseidon tree).
+	///
+	/// This is placed before `digest` to ensure a fixed offset in the header
+	/// preimage for ZK circuit verification.
+	pub zk_trie_root: Hash::Output,
 	pub digest: Digest,
 	#[codec(skip)]
 	#[cfg_attr(feature = "serde", serde(skip))]
@@ -104,6 +134,8 @@ where
 			extrinsics_root,
 			state_root,
 			parent_hash,
+			// Initialize with zero; pallet-zk-trie will set the actual root
+			zk_trie_root: sp_core::H256::zero(),
 			digest,
 			_marker: core::marker::PhantomData,
 		}
@@ -173,7 +205,8 @@ where
 		/// Fixed size for digest encoding - must match circuit expectation
 		const DIGEST_LOGS_SIZE: usize = 110;
 
-		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
+		// 4 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
+		let max_encoded_felts = 4 * 4 + 1 + 28;
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
 		// parent_hash : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
@@ -196,6 +229,12 @@ where
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
+		// zk_trie_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
+		// Placed before digest to ensure fixed offset regardless of digest content
+		felts.extend(bytes_to_digest::<Goldilocks>(
+			self.zk_trie_root.as_ref().try_into().expect("hash is 32 bytes"),
+		));
+
 		// digest – SCALE encode then pad to fixed 110 bytes to match circuit expectation
 		let digest_encoded = self.digest.encode();
 		let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
@@ -207,6 +246,58 @@ where
 
 		let poseidon_hash: [u8; 32] = hash_to_bytes(&felts);
 		poseidon_hash.into()
+	}
+
+	/// Create a new header with all fields including zk_trie_root.
+	///
+	/// This is the preferred constructor when you have the ZK trie root available.
+	/// Use this instead of `Header::new` + `set_zk_trie_root`.
+	pub fn new_with_zk_root(
+		number: Number,
+		extrinsics_root: Hash::Output,
+		state_root: Hash::Output,
+		parent_hash: Hash::Output,
+		zk_trie_root: Hash::Output,
+		digest: Digest,
+	) -> Self {
+		Self {
+			parent_hash,
+			number,
+			state_root,
+			extrinsics_root,
+			zk_trie_root,
+			digest,
+			_marker: core::marker::PhantomData,
+		}
+	}
+
+	/// Get the ZK trie root.
+	pub fn zk_trie_root(&self) -> &Hash::Output {
+		&self.zk_trie_root
+	}
+
+	/// Set the ZK trie root.
+	///
+	/// Called by pallet-zk-trie during block finalization.
+	pub fn set_zk_trie_root(&mut self, root: Hash::Output) {
+		self.zk_trie_root = root;
+	}
+}
+
+impl<Number, Hash, StateHash> ZkTrieRootProvider for Header<Number, Hash, StateHash>
+where
+	Number: Copy + Into<U256> + TryFrom<U256>,
+	Hash: HashT,
+	StateHash: HashT,
+{
+	type Hash = Hash::Output;
+
+	fn set_zk_trie_root(&mut self, root: Self::Hash) {
+		self.zk_trie_root = root;
+	}
+
+	fn zk_trie_root(&self) -> &Self::Hash {
+		&self.zk_trie_root
 	}
 }
 
