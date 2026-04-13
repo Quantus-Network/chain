@@ -739,7 +739,12 @@ impl<T: Config> Pallet<T> {
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
 
-		Self::place_task(new_time, task).map_err(|x| x.0)
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+		// Transfer retry configuration to the new address
+		if let Some(retry_config) = Retries::<T>::take((when, index)) {
+			Retries::<T>::insert(new_address, retry_config);
+		}
+		Ok(new_address)
 	}
 
 	fn do_schedule_named(
@@ -808,7 +813,13 @@ impl<T: Config> Pallet<T> {
 		})?;
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
-		Self::place_task(new_time, task).map_err(|x| x.0)
+
+		let new_address = Self::place_task(new_time, task).map_err(|x| x.0)?;
+		// Transfer retry configuration to the new address
+		if let Some(retry_config) = Retries::<T>::take((when, index)) {
+			Retries::<T>::insert(new_address, retry_config);
+		}
+		Ok(new_address)
 	}
 
 	fn do_cancel_retry(

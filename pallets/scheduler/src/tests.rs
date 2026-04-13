@@ -2992,3 +2992,118 @@ fn permanently_overweight_task_is_removed() {
 		);
 	});
 }
+
+#[test]
+fn reschedule_preserves_retry_config() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 20 is reached
+		Threshold::<Test>::put((20, 100));
+		// Schedule task at block 4
+		assert_ok!(Scheduler::do_schedule(
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0)
+			}))
+			.unwrap()
+		));
+		// Set retry config: 10 retries every 3 blocks
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			10,
+			BlockNumberOrTimestamp::BlockNumber(3)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+
+		// Reschedule to block 8
+		let new_address = Scheduler::do_reschedule(
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			DispatchTime::At(8),
+		)
+		.unwrap();
+		assert_eq!(new_address, (BlockNumberOrTimestamp::BlockNumber(8), 0));
+
+		// Retry config should be transferred to the new address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(!Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+		assert!(Retries::<Test>::contains_key(new_address));
+
+		let retry_config = Retries::<Test>::get(new_address).unwrap();
+		assert_eq!(retry_config.total_retries, 10);
+		assert_eq!(retry_config.remaining, 10);
+		assert_eq!(retry_config.period, BlockNumberOrTimestamp::BlockNumber(3));
+
+		// Run to block 8 - task should fail and be retried at block 11
+		run_to_block(8);
+		assert!(logger::log().is_empty());
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(11))[0].is_some());
+
+		// Retry config should now be at the retry address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Run to block 20 - task should eventually succeed
+		run_to_block(20);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+		assert_eq!(Retries::<Test>::iter().count(), 0);
+	});
+}
+
+#[test]
+fn reschedule_named_preserves_retry_config() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 20 is reached
+		Threshold::<Test>::put((20, 100));
+		// Schedule named task at block 4
+		assert_ok!(Scheduler::do_schedule_named(
+			[1u8; 32],
+			DispatchTime::At(4),
+			127,
+			root(),
+			Preimage::bound(RuntimeCall::Logger(logger::Call::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0)
+			}))
+			.unwrap()
+		));
+		// Set retry config: 10 retries every 3 blocks
+		assert_ok!(Scheduler::set_retry_named(
+			root().into(),
+			[1u8; 32],
+			10,
+			BlockNumberOrTimestamp::BlockNumber(3)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+
+		// Reschedule to block 8
+		let new_address = Scheduler::do_reschedule_named([1u8; 32], DispatchTime::At(8)).unwrap();
+		assert_eq!(new_address, (BlockNumberOrTimestamp::BlockNumber(8), 0));
+
+		// Retry config should be transferred to the new address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+		assert!(!Retries::<Test>::contains_key((BlockNumberOrTimestamp::BlockNumber(4), 0)));
+		assert!(Retries::<Test>::contains_key(new_address));
+
+		let retry_config = Retries::<Test>::get(new_address).unwrap();
+		assert_eq!(retry_config.total_retries, 10);
+		assert_eq!(retry_config.remaining, 10);
+		assert_eq!(retry_config.period, BlockNumberOrTimestamp::BlockNumber(3));
+
+		// Run to block 8 - task should fail and be retried at block 11
+		run_to_block(8);
+		assert!(logger::log().is_empty());
+		assert!(Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(11))[0].is_some());
+
+		// Retry config should now be at the retry address
+		assert_eq!(Retries::<Test>::iter().count(), 1);
+
+		// Run to block 20 - task should eventually succeed
+		run_to_block(20);
+		assert_eq!(logger::log(), vec![(root(), 42u32)]);
+		assert_eq!(Retries::<Test>::iter().count(), 0);
+	});
+}
