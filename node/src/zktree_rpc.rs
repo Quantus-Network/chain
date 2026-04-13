@@ -10,6 +10,7 @@ use quantus_runtime::opaque::Block;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
+use sp_core::H256;
 
 /// ZK Tree state information returned by the RPC.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,9 +34,20 @@ pub trait ZkTreeApi {
 
 	/// Get a Merkle proof for a leaf at the given index.
 	///
+	/// If `at_block` is provided, fetch the proof at that specific block hash.
+	/// Otherwise, use the best (latest) block.
+	///
+	/// **IMPORTANT**: For ZK proof generation, you MUST pass the block hash
+	/// that you're proving against. The tree root changes with each block,
+	/// so the Merkle proof must be from the same block as the header.
+	///
 	/// Returns `null` if the leaf index is out of bounds.
 	#[method(name = "zkTree_getMerkleProof")]
-	fn get_merkle_proof(&self, leaf_index: u64) -> RpcResult<Option<ZkMerkleProofRpc>>;
+	fn get_merkle_proof(
+		&self,
+		leaf_index: u64,
+		at_block: Option<H256>,
+	) -> RpcResult<Option<ZkMerkleProofRpc>>;
 }
 
 /// ZK Tree RPC handler.
@@ -86,17 +98,24 @@ where
 		Ok(ZkTreeState { root, leaf_count, depth })
 	}
 
-	fn get_merkle_proof(&self, leaf_index: u64) -> RpcResult<Option<ZkMerkleProofRpc>> {
-		let best_hash = self.client.info().best_hash;
+	fn get_merkle_proof(
+		&self,
+		leaf_index: u64,
+		at_block: Option<H256>,
+	) -> RpcResult<Option<ZkMerkleProofRpc>> {
+		let block_hash = at_block.unwrap_or_else(|| self.client.info().best_hash);
 
 		let proof =
-			self.client.runtime_api().get_merkle_proof(best_hash, leaf_index).map_err(|e| {
-				jsonrpsee::types::error::ErrorObject::owned(
-					9003,
-					format!("Failed to get ZK merkle proof: {:?}", e),
-					None::<()>,
-				)
-			})?;
+			self.client
+				.runtime_api()
+				.get_merkle_proof(block_hash, leaf_index)
+				.map_err(|e| {
+					jsonrpsee::types::error::ErrorObject::owned(
+						9003,
+						format!("Failed to get ZK merkle proof at {:?}: {:?}", block_hash, e),
+						None::<()>,
+					)
+				})?;
 
 		Ok(proof)
 	}
