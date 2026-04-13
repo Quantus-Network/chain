@@ -179,7 +179,7 @@ fn genesis_template(
 			// Events are emitted in on_initialize at block 1 for indexer compatibility.
 			endowed_addresses: balances
 				.into_iter()
-				.map(|(account, amount)| (account.into(), amount))
+				.map(|(account, amount)| (account, amount))
 				.collect(),
 		},
 		..Default::default()
