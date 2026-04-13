@@ -148,6 +148,7 @@ fn genesis_template(
 	endowed_accounts: Vec<AccountId>,
 	treasury: TreasuryGenesis,
 	tech_collective_members: Vec<AccountId>,
+	extra_balances: Vec<(AccountId, u128)>,
 ) -> Value {
 	const ENDOWED_BALANCE_UNITS: u128 = 100_000;
 	let mut balances = endowed_accounts
@@ -155,6 +156,7 @@ fn genesis_template(
 		.cloned()
 		.map(|k| (k, ENDOWED_BALANCE_UNITS.saturating_mul(UNIT)))
 		.collect::<Vec<_>>();
+	balances.extend(extra_balances);
 
 	let total_supply_raw = GENESIS_SUPPLY.saturating_mul(UNIT);
 	let treasury_balance = treasury.portion.mul_floor(total_supply_raw);
@@ -254,9 +256,13 @@ pub fn development_config_genesis() -> Value {
 
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
-		let mut config: RuntimeGenesisConfig =
-			serde_json::from_value(genesis_template(endowed_accounts, treasury, tech_collective))
-				.expect("genesis_template returns valid config");
+		let mut config: RuntimeGenesisConfig = serde_json::from_value(genesis_template(
+			endowed_accounts,
+			treasury,
+			tech_collective,
+			vec![],
+		))
+		.expect("genesis_template returns valid config");
 		config.reversible_transfers = rt_genesis;
 		return serde_json::to_value(config).expect("Could not build genesis config.");
 	}
@@ -265,7 +271,7 @@ pub fn development_config_genesis() -> Value {
 	{
 		let treasury =
 			TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
-		genesis_template(endowed_accounts, treasury, tech_collective)
+		genesis_template(endowed_accounts, treasury, tech_collective, vec![])
 	}
 }
 
@@ -283,7 +289,7 @@ pub fn heisenberg_config_genesis() -> Value {
 	);
 	let treasury =
 		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
-	genesis_template(endowed_accounts, treasury, tech_collective)
+	genesis_template(endowed_accounts, treasury, tech_collective, vec![])
 }
 
 fn planck_faucet_account() -> AccountId {
@@ -365,8 +371,9 @@ pub fn planck_config_genesis() -> Value {
 	let treasury_signers = planck_treasury_signers();
 	let tech_collective = planck_tech_collective_seed();
 	let treasury_account = planck_treasury_account();
-	let mut endowed_accounts = vec![planck_faucet_account()];
-	endowed_accounts.extend(treasury_signers.clone());
+	let endowed_accounts = vec![planck_faucet_account()];
+	let signer_fee_seed: Vec<_> =
+		treasury_signers.iter().cloned().map(|a| (a, UNIT)).collect();
 	log_genesis_accounts(
 		"planck",
 		&endowed_accounts,
@@ -376,7 +383,7 @@ pub fn planck_config_genesis() -> Value {
 	);
 	let treasury =
 		TreasuryGenesis { account: treasury_account, portion: Permill::from_percent(30) };
-	genesis_template(endowed_accounts, treasury, tech_collective)
+	genesis_template(endowed_accounts, treasury, tech_collective, signer_fee_seed)
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
