@@ -235,10 +235,10 @@ impl TechCollectiveTracksInfo {
 				name: str_array("tech_collective_members"),
 				max_deciding: 1,
 				decision_deposit: 1000 * UNIT,
-				prepare_period: 100,
+				prepare_period: 20,
 				decision_period: DAYS,
-				confirm_period: 100,
-				min_enactment_period: 100,
+				confirm_period: 20,
+				min_enactment_period: 20,
 				min_approval: pallet_referenda::Curve::LinearDecreasing {
 					length: Perbill::from_percent(100),
 					floor: Perbill::from_percent(50),
