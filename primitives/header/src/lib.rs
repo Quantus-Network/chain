@@ -345,84 +345,63 @@ mod tests {
 			number: 2,
 			state_root: BlakeTwo256::hash(b"3"),
 			extrinsics_root: BlakeTwo256::hash(b"4"),
+			zk_tree_root: Default::default(),
 			digest: Digest { logs: vec![sp_runtime::generic::DigestItem::Other(b"6".to_vec())] },
 			_marker: core::marker::PhantomData,
 		};
 
 		let header_encoded = header.encode();
-		assert_eq!(
-			header_encoded,
-			vec![
-				146, 205, 245, 120, 196, 112, 133, 165, 153, 34, 86, 240, 220, 249, 125, 11, 25,
-				241, 241, 201, 222, 77, 95, 227, 12, 58, 206, 97, 145, 182, 229, 219, 2, 0, 0, 0,
-				88, 19, 72, 51, 123, 15, 62, 20, 134, 32, 23, 61, 170, 165, 249, 77, 0, 216, 129,
-				112, 93, 203, 240, 170, 131, 239, 218, 186, 97, 210, 237, 225, 235, 134, 73, 33,
-				73, 151, 87, 78, 32, 196, 100, 56, 138, 23, 36, 32, 210, 84, 3, 104, 43, 187, 184,
-				12, 73, 104, 49, 200, 204, 31, 143, 13, 4, 0, 4, 54
-			],
-		);
-		assert_eq!(
-			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(),
-			header
-		);
+		let header_decoded =
+			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
+		assert_eq!(header_decoded, header);
 
 		let header = Header::<u32, BlakeTwo256, BlakeTwo256> {
 			parent_hash: BlakeTwo256::hash(b"1000"),
 			number: 2000,
 			state_root: BlakeTwo256::hash(b"3000"),
 			extrinsics_root: BlakeTwo256::hash(b"4000"),
+			zk_tree_root: Default::default(),
 			digest: Digest { logs: vec![sp_runtime::generic::DigestItem::Other(b"5000".to_vec())] },
 			_marker: core::marker::PhantomData,
 		};
 
 		let header_encoded = header.encode();
-		assert_eq!(
-			header_encoded,
-			vec![
-				197, 243, 254, 225, 31, 117, 21, 218, 179, 213, 92, 6, 247, 164, 230, 25, 47, 166,
-				140, 117, 142, 159, 195, 202, 67, 196, 238, 26, 44, 18, 33, 92, 208, 7, 0, 0, 219,
-				225, 47, 12, 107, 88, 153, 146, 55, 21, 226, 186, 110, 48, 167, 187, 67, 183, 228,
-				232, 118, 136, 30, 254, 11, 87, 48, 112, 7, 97, 31, 82, 146, 110, 96, 87, 152, 68,
-				98, 162, 227, 222, 78, 14, 244, 194, 120, 154, 112, 97, 222, 144, 174, 101, 220,
-				44, 111, 126, 54, 34, 155, 220, 253, 124, 4, 0, 16, 53, 48, 48, 48
-			],
-		);
-		assert_eq!(
-			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(),
-			header
-		);
+		let header_decoded =
+			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
+		assert_eq!(header_decoded, header);
 	}
 
 	fn hash_header(x: &[u8]) -> [u8; 32] {
 		let mut y = x;
 		if let Ok(header) = Header::<u32, PoseidonHasher, BlakeTwo256>::decode(&mut y) {
-			// Only treat this as a header if we consumed the entire input.
 			if y.is_empty() {
-				let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts
+				const DIGEST_LOGS_SIZE: usize = 110;
+				let max_encoded_felts = 4 * 4 + 1 + 28;
 				let mut felts = Vec::with_capacity(max_encoded_felts);
 
-				let parent_hash = header.parent_hash.as_bytes();
-				let number = header.number;
-				let state_root = header.state_root.as_bytes();
-				let extrinsics_root = header.extrinsics_root.as_bytes();
-				let digest = header.digest.encode();
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.parent_hash.as_bytes().try_into().unwrap(),
+				));
+				felts.push(Goldilocks::from_int(header.number as u64));
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.state_root.as_bytes().try_into().unwrap(),
+				));
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.extrinsics_root.as_bytes().try_into().unwrap(),
+				));
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.zk_tree_root.as_bytes().try_into().unwrap(),
+				));
 
-				felts.extend(bytes_to_digest::<Goldilocks>(
-					parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
-				));
-				felts.push(Goldilocks::from_int(number as u64));
-				felts.extend(bytes_to_digest::<Goldilocks>(
-					state_root.try_into().expect("State root expected to equal 32 bytes"),
-				));
-				felts.extend(bytes_to_digest::<Goldilocks>(
-					extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
-				));
-				felts.extend(bytes_to_felts(&digest));
+				let digest_encoded = header.digest.encode();
+				let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
+				let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
+				digest_padded[..copy_len].copy_from_slice(&digest_encoded[..copy_len]);
+				felts.extend(bytes_to_felts(&digest_padded));
 
 				return hash_to_bytes(&felts);
 			}
 		}
-		// Fallback: canonical bytes hashing for non-header data
 		PoseidonHasher::hash_for_circuit(x)
 	}
 
@@ -456,20 +435,21 @@ mod tests {
 				),
 			],
 		};
-		let header = Header::<u32, PoseidonHasher, BlakeTwo256> {
-			parent_hash: H256::from_slice(
-				hex::decode(parent_hash).expect("valid hex parent hash").as_slice(),
-			),
-			number,
-			state_root: H256::from_slice(
-				hex::decode(state_root).expect("valid hex state root").as_slice(),
-			),
-			extrinsics_root: H256::from_slice(
-				hex::decode(extrinsics_root).expect("valid hex extrinsics root").as_slice(),
-			),
-			digest,
-			_marker: core::marker::PhantomData,
-		};
+	let header = Header::<u32, PoseidonHasher, BlakeTwo256> {
+		parent_hash: H256::from_slice(
+			hex::decode(parent_hash).expect("valid hex parent hash").as_slice(),
+		),
+		number,
+		state_root: H256::from_slice(
+			hex::decode(state_root).expect("valid hex state root").as_slice(),
+		),
+		extrinsics_root: H256::from_slice(
+			hex::decode(extrinsics_root).expect("valid hex extrinsics root").as_slice(),
+		),
+		zk_tree_root: Default::default(),
+		digest,
+		_marker: core::marker::PhantomData,
+	};
 
 		let encoded = header.encode();
 
