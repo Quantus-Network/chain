@@ -15,11 +15,10 @@ use alloc::vec::Vec;
 use sp_core::U512;
 use sp_runtime::{
 	generic, impl_opaque_keys,
-	traits::{IdentifyAccount, Verify},
+	traits::{BlakeTwo256, IdentifyAccount, Verify},
 	MultiAddress,
 };
 use sp_version::RuntimeVersion;
-use sp_runtime::traits::BlakeTwo256;
 
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
@@ -49,8 +48,7 @@ pub mod opaque {
 	// Block header with separate hashers:
 	// - PoseidonHasher: for block hash (ZK circuit compatible)
 	// - BlakeTwo256: for state trie / extrinsics root (efficient native execution)
-	pub type Header =
-		qp_header::Header<BlockNumber, PoseidonHasher, BlakeTwo256>;
+	pub type Header = qp_header::Header<BlockNumber, PoseidonHasher, BlakeTwo256>;
 
 	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -260,5 +258,5 @@ mod runtime {
 	pub type Wormhole = pallet_wormhole;
 
 	#[runtime::pallet_index(21)]
-	pub type ZkTrie = pallet_zk_trie;
+	pub type ZkTree = pallet_zk_tree;
 }

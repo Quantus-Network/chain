@@ -50,7 +50,7 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use pallet_zk_trie::ZkTrieRecorder;
+	use pallet_zk_tree::ZkTreeRecorder;
 	use qp_wormhole_verifier::{
 		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, D,
 		F,
@@ -200,9 +200,9 @@ pub mod pallet {
 			+ Into<<Self as frame_system::Config>::AccountId>
 			+ From<<Self as frame_system::Config>::AccountId>;
 
-		/// ZK Trie recorder for inserting transfer leaves into the Merkle tree.
-		/// Set to `()` to disable ZK trie recording.
-		type ZkTrie: pallet_zk_trie::ZkTrieRecorder<
+		/// ZK Tree recorder for inserting transfer leaves into the Merkle tree.
+		/// Set to `()` to disable ZK tree recording.
+		type ZkTree: pallet_zk_tree::ZkTreeRecorder<
 			<Self as frame_system::Config>::AccountId,
 			Self::AssetId,
 			Self::NativeBalance,
@@ -597,13 +597,13 @@ pub mod pallet {
 			Ok((proof, inputs))
 		}
 
-		/// Record a transfer in the ZK trie and emit events.
+		/// Record a transfer in the ZK tree and emit events.
 		///
 		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
-		/// managed by pallet-zk-trie, which provides Merkle proofs for ZK circuits.
+		/// managed by pallet-zk-tree, which provides Merkle proofs for ZK circuits.
 		///
 		/// The emitted event includes `leaf_index` which clients can use to fetch
-		/// Merkle proofs via `zkTrie_getMerkleProof(leaf_index)` RPC.
+		/// Merkle proofs via `zkTree_getMerkleProof(leaf_index)` RPC.
 		pub fn record_transfer(
 			asset_id: T::AssetId,
 			from: &<T as Config>::WormholeAccountId,
@@ -615,9 +615,9 @@ pub mod pallet {
 			// Increment transfer count for this recipient
 			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
 
-			// Insert into ZK trie for Merkle proof generation
+			// Insert into ZK tree for Merkle proof generation
 			// Returns the leaf index for clients to use when fetching proofs
-			let leaf_index = T::ZkTrie::record_transfer(
+			let leaf_index = T::ZkTree::record_transfer(
 				to.clone().into(),
 				current_count.into(),
 				asset_id.clone(),

@@ -139,7 +139,7 @@ impl pallet_wormhole::Config for Test {
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
-	type ZkTrie = (); // Disabled in tests - use () no-op implementation
+	type ZkTree = (); // Disabled in tests - use () no-op implementation
 }
 
 // Helper function to build a genesis configuration

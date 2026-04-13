@@ -6927,7 +6927,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-balances",
- "pallet-zk-trie",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-header",
@@ -6950,7 +6950,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-zk-trie"
+name = "pallet-zk-tree"
 version = "0.1.0"
 dependencies = [
  "frame-support",
@@ -8527,7 +8527,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-utility",
- "pallet-zk-trie",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "prometheus",
  "qp-dilithium-crypto",
@@ -8608,7 +8608,7 @@ dependencies = [
  "pallet-treasury",
  "pallet-utility",
  "pallet-wormhole",
- "pallet-zk-trie",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",

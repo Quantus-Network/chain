@@ -1,4 +1,4 @@
-//! # ZK Trie Pallet
+//! # ZK Tree Pallet
 //!
 //! A 4-ary Poseidon Merkle tree for storing ZK transfer proofs.
 //!
@@ -8,7 +8,7 @@
 //! - 4-ary tree (4 children per node) for optimal ZK circuit efficiency
 //! - Leaves hashed as 8 field elements (injective: values are ≤32 bits)
 //! - Internal nodes hashed as 16 field elements (8 bytes/felt compact encoding)
-//! - Tree root published in block digest for ZK verification
+//! - Tree root published in block header for ZK verification
 //!
 //! ## Tree Structure
 //!
@@ -167,9 +167,9 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_finalize(_n: BlockNumberFor<T>) {
-			// Set ZK Merkle root in frame_system for inclusion in block header
+			// Set ZK Merkle tree root in frame_system for inclusion in block header
 			let root: Hash256 = Root::<T>::get();
-			<frame_system::Pallet<T>>::set_zk_trie_root(root.into());
+			<frame_system::Pallet<T>>::set_zk_tree_root(root.into());
 		}
 	}
 
@@ -206,7 +206,7 @@ pub mod pallet {
 				let new_depth = current_depth.saturating_add(1);
 				debug_assert!(
 					new_depth <= MAX_TREE_DEPTH,
-					"ZK trie exceeded max depth - this should never happen in practice"
+					"ZK tree exceeded max depth - this should never happen in practice"
 				);
 
 				tree::grow_tree::<T>(current_depth, new_depth);
@@ -254,10 +254,10 @@ pub mod pallet {
 // Trait for external pallets
 // ============================================================================
 
-/// Trait for inserting leaves into the ZK trie.
+/// Trait for inserting leaves into the ZK tree.
 /// Used by pallet-wormhole to record transfer proofs.
-pub trait ZkTrieRecorder<AccountId, AssetId, Balance> {
-	/// Insert a transfer into the ZK trie.
+pub trait ZkTreeRecorder<AccountId, AssetId, Balance> {
+	/// Insert a transfer into the ZK tree.
 	///
 	/// Returns the leaf index, which can be used to fetch Merkle proofs via RPC.
 	/// This operation is infallible. Implementations must always succeed.
@@ -269,8 +269,8 @@ pub trait ZkTrieRecorder<AccountId, AssetId, Balance> {
 	) -> u64;
 }
 
-/// No-op implementation for when ZK trie is not configured.
-impl<AccountId, AssetId, Balance> ZkTrieRecorder<AccountId, AssetId, Balance> for () {
+/// No-op implementation for when ZK tree is not configured.
+impl<AccountId, AssetId, Balance> ZkTreeRecorder<AccountId, AssetId, Balance> for () {
 	fn record_transfer(
 		_to: AccountId,
 		_transfer_count: u64,
@@ -281,7 +281,7 @@ impl<AccountId, AssetId, Balance> ZkTrieRecorder<AccountId, AssetId, Balance> fo
 	}
 }
 
-impl<T: Config> ZkTrieRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T>
+impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T>
 where
 	T::AccountId: AsRef<[u8]>,
 {
@@ -323,10 +323,10 @@ pub struct ZkMerkleProofRpc {
 }
 
 sp_api::decl_runtime_apis! {
-	/// Runtime API for the ZK Trie pallet.
+	/// Runtime API for the ZK Tree pallet.
 	///
 	/// Provides methods to query the ZK Merkle tree state and generate proofs.
-	pub trait ZkTrieApi {
+	pub trait ZkTreeApi {
 		/// Get the current root hash of the ZK tree.
 		fn get_root() -> Hash256;
 

@@ -4,7 +4,7 @@ description = "4-ary Poseidon Merkle tree for ZK transfer proofs"
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
-name = "pallet-zk-trie"
+name = "pallet-zk-tree"
 repository.workspace = true
 version = "0.1.0"
 

@@ -1,19 +1,19 @@
-//! ZK Trie RPC API implementation.
+//! ZK Tree RPC API implementation.
 //!
 //! Provides RPC methods for querying the ZK Merkle tree state and generating proofs.
 
 use std::sync::Arc;
 
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use pallet_zk_trie::{Hash256, ZkMerkleProofRpc, ZkTrieApi as ZkTrieRuntimeApi};
+use pallet_zk_tree::{Hash256, ZkMerkleProofRpc, ZkTreeApi as ZkTreeRuntimeApi};
 use quantus_runtime::opaque::Block;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 
-/// ZK Trie state information returned by the RPC.
+/// ZK Tree state information returned by the RPC.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZkTrieState {
+pub struct ZkTreeState {
 	/// Current root hash of the ZK tree.
 	pub root: Hash256,
 	/// Number of leaves in the tree.
@@ -22,47 +22,47 @@ pub struct ZkTrieState {
 	pub depth: u8,
 }
 
-/// ZK Trie RPC API trait.
+/// ZK Tree RPC API trait.
 #[rpc(client, server)]
-pub trait ZkTrieApi {
-	/// Get the current state of the ZK trie.
+pub trait ZkTreeApi {
+	/// Get the current state of the ZK tree.
 	///
 	/// Returns the current root hash, leaf count, and tree depth.
-	#[method(name = "zkTrie_getState")]
-	fn get_state(&self) -> RpcResult<ZkTrieState>;
+	#[method(name = "zkTree_getState")]
+	fn get_state(&self) -> RpcResult<ZkTreeState>;
 
 	/// Get a Merkle proof for a leaf at the given index.
 	///
 	/// Returns `null` if the leaf index is out of bounds.
-	#[method(name = "zkTrie_getMerkleProof")]
+	#[method(name = "zkTree_getMerkleProof")]
 	fn get_merkle_proof(&self, leaf_index: u64) -> RpcResult<Option<ZkMerkleProofRpc>>;
 }
 
-/// ZK Trie RPC handler.
-pub struct ZkTrie<C> {
+/// ZK Tree RPC handler.
+pub struct ZkTree<C> {
 	client: Arc<C>,
 }
 
-impl<C> ZkTrie<C> {
-	/// Create a new ZkTrie RPC handler.
+impl<C> ZkTree<C> {
+	/// Create a new ZkTree RPC handler.
 	pub fn new(client: Arc<C>) -> Self {
 		Self { client }
 	}
 }
 
-impl<C> ZkTrieApiServer for ZkTrie<C>
+impl<C> ZkTreeApiServer for ZkTree<C>
 where
 	C: ProvideRuntimeApi<Block>,
 	C: HeaderBackend<Block> + Send + Sync + 'static,
-	C::Api: ZkTrieRuntimeApi<Block>,
+	C::Api: ZkTreeRuntimeApi<Block>,
 {
-	fn get_state(&self) -> RpcResult<ZkTrieState> {
+	fn get_state(&self) -> RpcResult<ZkTreeState> {
 		let best_hash = self.client.info().best_hash;
 
 		let root = self.client.runtime_api().get_root(best_hash).map_err(|e| {
 			jsonrpsee::types::error::ErrorObject::owned(
 				9000,
-				format!("Failed to get ZK trie root: {:?}", e),
+				format!("Failed to get ZK tree root: {:?}", e),
 				None::<()>,
 			)
 		})?;
@@ -70,7 +70,7 @@ where
 		let leaf_count = self.client.runtime_api().get_leaf_count(best_hash).map_err(|e| {
 			jsonrpsee::types::error::ErrorObject::owned(
 				9001,
-				format!("Failed to get ZK trie leaf count: {:?}", e),
+				format!("Failed to get ZK tree leaf count: {:?}", e),
 				None::<()>,
 			)
 		})?;
@@ -78,12 +78,12 @@ where
 		let depth = self.client.runtime_api().get_depth(best_hash).map_err(|e| {
 			jsonrpsee::types::error::ErrorObject::owned(
 				9002,
-				format!("Failed to get ZK trie depth: {:?}", e),
+				format!("Failed to get ZK tree depth: {:?}", e),
 				None::<()>,
 			)
 		})?;
 
-		Ok(ZkTrieState { root, leaf_count, depth })
+		Ok(ZkTreeState { root, leaf_count, depth })
 	}
 
 	fn get_merkle_proof(&self, leaf_index: u64) -> RpcResult<Option<ZkMerkleProofRpc>> {

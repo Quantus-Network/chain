@@ -102,7 +102,7 @@ extern crate alloc;
 use alloc::{borrow::Cow, boxed::Box, vec, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use pallet_prelude::{BlockNumberFor, HeaderFor};
-use qp_header::ZkTrieRootProvider;
+use qp_header::ZkTreeRootProvider;
 #[cfg(feature = "std")]
 use serde::Serialize;
 use sp_io::hashing::blake2_256;
@@ -601,14 +601,14 @@ pub mod pallet {
 		/// The Block type used by the runtime. This is used by `construct_runtime` to retrieve the
 		/// extrinsics or other block specific data as needed.
 		///
-		/// The header must implement `ZkTrieRootProvider` to support setting the ZK trie root
+		/// The header must implement `ZkTreeRootProvider` to support setting the ZK tree root
 		/// during block finalization.
 		#[pallet::no_default]
 		type Block: Parameter
 			+ Member
 			+ traits::Block<
 				Hash = Self::Hash,
-				Header: qp_header::ZkTrieRootProvider<Hash = Self::Hash>,
+				Header: qp_header::ZkTreeRootProvider<Hash = Self::Hash>,
 			>;
 
 		/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
@@ -897,9 +897,8 @@ pub mod pallet {
 
 			match Self::can_set_code(&code, res.check_version) {
 				CanSetCodeResult::Ok => {},
-				CanSetCodeResult::MultiBlockMigrationsOngoing => {
-					return Err(Error::<T>::MultiBlockMigrationsOngoing.into())
-				},
+				CanSetCodeResult::MultiBlockMigrationsOngoing =>
+					return Err(Error::<T>::MultiBlockMigrationsOngoing.into()),
 				CanSetCodeResult::InvalidVersion(error) => {
 					// The upgrade is invalid and there is no benefit in trying to apply this again.
 					Self::deposit_event(Event::RejectedInvalidAuthorizedUpgrade {
@@ -1052,15 +1051,15 @@ pub mod pallet {
 	#[pallet::getter(fn digest)]
 	pub(super) type Digest<T: Config> = StorageValue<_, generic::Digest, ValueQuery>;
 
-	/// ZK trie root for the current block.
+	/// ZK tree root for the current block.
 	///
-	/// Set by pallet-zk-trie during block finalization. This is included in the
+	/// Set by pallet-zk-tree during block finalization. This is included in the
 	/// block header as a dedicated field (not in digest) to ensure a fixed offset
 	/// for ZK circuit verification.
 	#[pallet::storage]
 	#[pallet::whitelist_storage]
-	#[pallet::getter(fn zk_trie_root)]
-	pub(super) type ZkTrieRoot<T: Config> = StorageValue<_, T::Hash, ValueQuery>;
+	#[pallet::getter(fn zk_tree_root)]
+	pub(super) type ZkTreeRoot<T: Config> = StorageValue<_, T::Hash, ValueQuery>;
 
 	/// Events deposited for the current block.
 	///
@@ -1570,9 +1569,8 @@ impl<T: Config> CanSetCodeResult<T> {
 	pub fn into_result(self) -> Result<(), DispatchError> {
 		match self {
 			Self::Ok => Ok(()),
-			Self::MultiBlockMigrationsOngoing => {
-				Err(Error::<T>::MultiBlockMigrationsOngoing.into())
-			},
+			Self::MultiBlockMigrationsOngoing =>
+				Err(Error::<T>::MultiBlockMigrationsOngoing.into()),
 			Self::InvalidVersion(err) => Err(err.into()),
 		}
 	}
@@ -2071,11 +2069,11 @@ impl<T: Config> Pallet<T> {
 		let storage_root = T::Hash::decode(&mut &sp_io::storage::root(version)[..])
 			.expect("Node is configured to use the same hash; qed");
 
-		let zk_trie_root = <ZkTrieRoot<T>>::get();
+		let zk_tree_root = <ZkTreeRoot<T>>::get();
 
 		let mut header =
 			HeaderFor::<T>::new(number, extrinsics_root, storage_root, parent_hash, digest);
-		header.set_zk_trie_root(zk_trie_root);
+		header.set_zk_tree_root(zk_tree_root);
 		header
 	}
 
@@ -2084,12 +2082,12 @@ impl<T: Config> Pallet<T> {
 		<Digest<T>>::append(item);
 	}
 
-	/// Set the ZK trie root for the current block.
+	/// Set the ZK tree root for the current block.
 	///
-	/// Called by pallet-zk-trie during `on_finalize`. The root is included in
+	/// Called by pallet-zk-tree during `on_finalize`. The root is included in
 	/// the block header as a dedicated field for ZK circuit verification.
-	pub fn set_zk_trie_root(root: T::Hash) {
-		<ZkTrieRoot<T>>::put(root);
+	pub fn set_zk_tree_root(root: T::Hash) {
+		<ZkTreeRoot<T>>::put(root);
 	}
 
 	/// Get the basic externalities for this pallet, useful for tests.
