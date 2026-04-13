@@ -611,8 +611,23 @@ impl<T: Config> Pallet<T> {
 					BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
 						current_block.saturating_add(x).saturating_add(One::one()),
 					),
-					BlockNumberOrTimestamp::Timestamp(_) =>
-						x.normalize(T::TimestampBucketSize::get()),
+					BlockNumberOrTimestamp::Timestamp(target) => {
+						// For timestamp-based scheduling, we need to ensure the task doesn't
+						// fire before the target time. The normalize function places the task
+						// in a bucket, but that bucket could start processing before the target.
+						//
+						// Example with bucket_size = 10000:
+						// - Target = 35000 -> normalize() = 40000 (bucket covers 30001-40000)
+						// - But time 31000 is in this bucket, so task could fire at 31000 < 35000!
+						//
+						// Fix: Schedule in the next bucket after normalization, guaranteeing
+						// the bucket's start time is > target time.
+						let bucket = x.normalize(T::TimestampBucketSize::get());
+						let bucket_time = bucket.as_timestamp().unwrap_or(target);
+						BlockNumberOrTimestamp::Timestamp(
+							bucket_time.saturating_add(T::TimestampBucketSize::get()),
+						)
+					},
 				};
 				res
 			},
