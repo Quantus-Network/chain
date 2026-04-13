@@ -435,21 +435,21 @@ mod tests {
 				),
 			],
 		};
-	let header = Header::<u32, PoseidonHasher, BlakeTwo256> {
-		parent_hash: H256::from_slice(
-			hex::decode(parent_hash).expect("valid hex parent hash").as_slice(),
-		),
-		number,
-		state_root: H256::from_slice(
-			hex::decode(state_root).expect("valid hex state root").as_slice(),
-		),
-		extrinsics_root: H256::from_slice(
-			hex::decode(extrinsics_root).expect("valid hex extrinsics root").as_slice(),
-		),
-		zk_tree_root: Default::default(),
-		digest,
-		_marker: core::marker::PhantomData,
-	};
+		let header = Header::<u32, PoseidonHasher, BlakeTwo256> {
+			parent_hash: H256::from_slice(
+				hex::decode(parent_hash).expect("valid hex parent hash").as_slice(),
+			),
+			number,
+			state_root: H256::from_slice(
+				hex::decode(state_root).expect("valid hex state root").as_slice(),
+			),
+			extrinsics_root: H256::from_slice(
+				hex::decode(extrinsics_root).expect("valid hex extrinsics root").as_slice(),
+			),
+			zk_tree_root: Default::default(),
+			digest,
+			_marker: core::marker::PhantomData,
+		};
 
 		let encoded = header.encode();
 

@@ -257,58 +257,49 @@ fn root_changes_on_insert() {
 #[test]
 fn different_amounts_give_different_hashes() {
 	new_test_ext().execute_with(|| {
-		let (_, root1) = ZkTree::insert_leaf(make_account(1), 0, 0u32, 100u128);
+		// Use amounts large enough to differ after quantization.
+		// Amounts are quantized by dividing by 10^10 (AMOUNT_SCALE_DOWN_FACTOR).
+		// 1 DEV = 10^12 planck → 100 quantized units
+		// 2 DEV = 2*10^12 planck → 200 quantized units
+		let one_dev = 1_000_000_000_000u128; // 10^12
+		let two_dev = 2_000_000_000_000u128; // 2*10^12
+
+		let (_, root1) = ZkTree::insert_leaf(make_account(1), 0, 0u32, one_dev);
 
 		// Reset and insert with different amount
 		crate::Leaves::<Test>::remove(0);
 		crate::LeafCount::<Test>::put(0);
 		crate::Depth::<Test>::put(0);
 		crate::Root::<Test>::put([0u8; 32]);
+		// Also reset the internal nodes
+		let _ = crate::Nodes::<Test>::clear(u32::MAX, None);
 
-		let (_, root2) = ZkTree::insert_leaf(make_account(1), 0, 0u32, 200u128);
+		let (_, root2) = ZkTree::insert_leaf(make_account(1), 0, 0u32, two_dev);
 
 		assert_ne!(root1, root2);
 	});
 }
 
 #[test]
-fn digest_log_contains_root() {
+fn zk_tree_root_set_in_frame_system() {
 	new_test_ext().execute_with(|| {
 		ZkTree::insert_leaf(make_account(1), 0, 0u32, 100u128);
 		let expected_root = ZkTree::root();
 
-		// Trigger on_finalize
+		// Trigger on_finalize which sets the root in frame_system
 		ZkTree::on_finalize(1);
 
-		// Check digest
-		let digest = System::digest();
-		assert!(!digest.logs.is_empty());
-
-		// Find the ZkRoot log
-		let found = digest.logs.iter().any(|item| {
-			if let sp_runtime::generic::DigestItem::Other(data) = item {
-				data.as_slice() == expected_root
-			} else {
-				false
-			}
-		});
-		assert!(found, "ZkRoot not found in digest");
+		// Check that the root was set in frame_system storage using the getter
+		let stored_root: H256 = frame_system::Pallet::<Test>::zk_tree_root();
+		assert_eq!(stored_root.0, expected_root, "ZkTreeRoot not set correctly in frame_system");
 	});
 }
 
-/// Helper to extract ZkRoot from digest
-fn extract_zk_root_from_digest() -> Option<Hash256> {
-	let digest = System::digest();
-	for item in digest.logs.iter() {
-		if let sp_runtime::generic::DigestItem::Other(data) = item {
-			if data.len() == 32 {
-				let mut root = [0u8; 32];
-				root.copy_from_slice(data);
-				return Some(root);
-			}
-		}
-	}
-	None
+/// Helper to extract ZkRoot from frame_system storage
+fn extract_zk_root_from_frame_system() -> Option<Hash256> {
+	let stored: H256 = frame_system::Pallet::<Test>::zk_tree_root();
+	// Return Some even for zero since that's a valid empty tree root
+	Some(stored.0)
 }
 
 /// Simulate a transfer by inserting a leaf into the ZK trie.
@@ -323,7 +314,7 @@ fn simulate_transfer(
 }
 
 #[test]
-fn integration_many_transfers_updates_root_in_digest() {
+fn integration_many_transfers_updates_root() {
 	new_test_ext().execute_with(|| {
 		let alice = make_account(1);
 		let bob = make_account(2);
@@ -405,15 +396,16 @@ fn integration_many_transfers_updates_root_in_digest() {
 		assert_eq!(leaf_6.asset_id, 1); // Different asset
 		assert_eq!(leaf_6.amount, 100);
 
-		// === Finally verify root appears in digest on finalize ===
+		// === Finally verify root is set in frame_system on finalize ===
 		ZkTree::on_finalize(1);
-		let digest_root = extract_zk_root_from_digest().expect("ZkRoot should be in digest");
-		assert_eq!(digest_root, root_after_18, "digest should contain current root");
+		let stored_root =
+			extract_zk_root_from_frame_system().expect("ZkRoot should be in frame_system");
+		assert_eq!(stored_root, root_after_18, "frame_system should contain current root");
 	});
 }
 
 #[test]
-fn integration_empty_tree_has_zero_root_in_digest() {
+fn integration_empty_tree_has_zero_root_in_frame_system() {
 	new_test_ext().execute_with(|| {
 		// No transfers - tree is empty
 		assert_eq!(ZkTree::leaf_count(), 0);
@@ -422,10 +414,11 @@ fn integration_empty_tree_has_zero_root_in_digest() {
 		let empty_root = ZkTree::root();
 		assert_eq!(empty_root, [0u8; 32], "empty tree should have zero root");
 
-		// Finalize and check digest
+		// Finalize and check frame_system storage
 		ZkTree::on_finalize(1);
-		let digest_root = extract_zk_root_from_digest().expect("ZkRoot should be in digest");
-		assert_eq!(digest_root, empty_root);
+		let stored_root =
+			extract_zk_root_from_frame_system().expect("ZkRoot should be in frame_system");
+		assert_eq!(stored_root, empty_root);
 	});
 }
 
