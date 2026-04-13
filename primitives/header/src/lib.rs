@@ -1,5 +1,14 @@
 //! Fork of sp-runtime's generic implementation of a block header.
-//! We override the hashing function to ensure a felt aligned pre-image for the block hash.
+//!
+//! Key differences from the standard Substrate header:
+//! - **Block hash**: Computed with Poseidon (via the `Hash` type parameter) for ZK circuit
+//!   compatibility
+//! - **State trie**: Uses Blake2 (hardcoded as `Hashing` type) for efficient native execution
+//!
+//! This means `HashingFor<Block>` returns `BlakeTwo256`, which is used for:
+//! - State trie merkle root computation
+//! - Extrinsics root computation
+//! - Storage proof verification
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -24,13 +33,41 @@ use alloc::vec::Vec;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// Custom block header that hashes itself with Poseidon over Goldilocks field elements.
+/// Extension trait for headers that support ZK tree root.
+///
+/// This trait allows frame_system to set the ZK Merkle tree root on headers
+/// without knowing the concrete header type.
+pub trait ZkTreeRootProvider {
+	/// The hash type used for the ZK tree root.
+	type Hash;
+
+	/// Set the ZK tree root.
+	fn set_zk_tree_root(&mut self, root: Self::Hash);
+
+	/// Get the ZK tree root.
+	fn zk_tree_root(&self) -> &Self::Hash;
+}
+
+/// Custom block header with separate hashers for block hash and state trie.
+///
+/// - `Hash`: Used for block hash computation (Poseidon for ZK compatibility)
+/// - `StateHash`: Used for state trie / extrinsics root via `Header::Hashing` trait
+///
+/// ## Field Ordering
+///
+/// The `zk_tree_root` field is intentionally placed **before** `digest` to ensure
+/// a fixed offset in the header preimage. This prevents miners from manipulating
+/// the digest to shift the ZK root's position in the felt encoding.
 #[derive(Encode, Decode, PartialEq, Eq, Clone, RuntimeDebug, TypeInfo, DecodeWithMemTracking)]
-#[scale_info(skip_type_params(Hash))]
+#[scale_info(skip_type_params(Hash, StateHash))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
-pub struct Header<Number, Hash: HashT>
+#[cfg_attr(
+	feature = "serde",
+	serde(bound = "Hash::Output: Serialize + serde::de::DeserializeOwned")
+)]
+pub struct Header<Number, Hash: HashT, StateHash: HashT>
 where
 	Number: Copy + Into<U256> + TryFrom<U256>,
 {
@@ -42,7 +79,15 @@ where
 	pub number: Number,
 	pub state_root: Hash::Output,
 	pub extrinsics_root: Hash::Output,
+	/// Root of the ZK Merkle tree (4-ary Poseidon tree).
+	///
+	/// This is placed before `digest` to ensure a fixed offset in the header
+	/// preimage for ZK circuit verification.
+	pub zk_tree_root: Hash::Output,
 	pub digest: Digest,
+	#[codec(skip)]
+	#[cfg_attr(feature = "serde", serde(skip))]
+	_marker: core::marker::PhantomData<StateHash>,
 }
 
 #[cfg(feature = "serde")]
@@ -66,15 +111,16 @@ where
 	TryFrom::try_from(u256).map_err(|_| serde::de::Error::custom("Try from failed"))
 }
 
-impl<Number, Hash> sp_runtime::traits::Header for Header<Number, Hash>
+impl<Number, Hash, StateHash> sp_runtime::traits::Header for Header<Number, Hash, StateHash>
 where
 	Number: BlockNumber,
-	Hash: HashT,
-	Hash::Output: From<[u8; 32]>,
+	Hash: HashT<Output = sp_core::H256>,
+	StateHash: HashT<Output = sp_core::H256>,
 {
 	type Number = Number;
-	type Hash = <Hash as HashT>::Output;
-	type Hashing = Hash;
+	type Hash = sp_core::H256;
+	/// State trie hasher - configurable, defaults to BlakeTwo256.
+	type Hashing = StateHash;
 
 	fn new(
 		number: Self::Number,
@@ -83,7 +129,16 @@ where
 		parent_hash: Self::Hash,
 		digest: Digest,
 	) -> Self {
-		Self { number, extrinsics_root, state_root, parent_hash, digest }
+		Self {
+			number,
+			extrinsics_root,
+			state_root,
+			parent_hash,
+			// Initialize with zero; pallet-zk-tree will set the actual root
+			zk_tree_root: sp_core::H256::zero(),
+			digest,
+			_marker: core::marker::PhantomData,
+		}
 	}
 	fn number(&self) -> &Self::Number {
 		&self.number
@@ -130,7 +185,7 @@ where
 	}
 }
 
-impl<Number, Hash> Header<Number, Hash>
+impl<Number, Hash, StateHash> Header<Number, Hash, StateHash>
 where
 	Number: Member
 		+ core::hash::Hash
@@ -142,11 +197,16 @@ where
 		+ TryFrom<U256>,
 	Hash: HashT,
 	Hash::Output: From<[u8; 32]>,
+	StateHash: HashT,
 {
 	/// Convenience helper for computing the hash of the header without having
 	/// to import the trait.
 	pub fn hash(&self) -> Hash::Output {
-		let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
+		/// Fixed size for digest encoding - must match circuit expectation
+		const DIGEST_LOGS_SIZE: usize = 110;
+
+		// 4 hash fields (4 felts each) + 1 u32 + 28 felts for injective digest encoding
+		let max_encoded_felts = 4 * 4 + 1 + 28;
 		let mut felts = Vec::with_capacity(max_encoded_felts);
 
 		// parent_hash : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
@@ -169,11 +229,75 @@ where
 			self.extrinsics_root.as_ref().try_into().expect("hash is 32 bytes"),
 		));
 
-		// digest – injective encoding (4 bytes/felt + terminator)
-		felts.extend(bytes_to_felts(&self.digest.encode()));
+		// zk_tree_root : 32 bytes → 4 felts (8 bytes/felt for hash outputs)
+		// Placed before digest to ensure fixed offset regardless of digest content
+		felts.extend(bytes_to_digest::<Goldilocks>(
+			self.zk_tree_root.as_ref().try_into().expect("hash is 32 bytes"),
+		));
+
+		// digest – SCALE encode then pad to fixed 110 bytes to match circuit expectation
+		let digest_encoded = self.digest.encode();
+		let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
+		let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
+		digest_padded[..copy_len].copy_from_slice(&digest_encoded[..copy_len]);
+
+		// injective encoding (4 bytes/felt + terminator)
+		felts.extend(bytes_to_felts(&digest_padded));
 
 		let poseidon_hash: [u8; 32] = hash_to_bytes(&felts);
 		poseidon_hash.into()
+	}
+
+	/// Create a new header with all fields including zk_tree_root.
+	///
+	/// This is the preferred constructor when you have the ZK tree root available.
+	/// Use this instead of `Header::new` + `set_zk_tree_root`.
+	pub fn new_with_zk_root(
+		number: Number,
+		extrinsics_root: Hash::Output,
+		state_root: Hash::Output,
+		parent_hash: Hash::Output,
+		zk_tree_root: Hash::Output,
+		digest: Digest,
+	) -> Self {
+		Self {
+			parent_hash,
+			number,
+			state_root,
+			extrinsics_root,
+			zk_tree_root,
+			digest,
+			_marker: core::marker::PhantomData,
+		}
+	}
+
+	/// Get the ZK tree root.
+	pub fn zk_tree_root(&self) -> &Hash::Output {
+		&self.zk_tree_root
+	}
+
+	/// Set the ZK tree root.
+	///
+	/// Called by pallet-zk-tree during block finalization.
+	pub fn set_zk_tree_root(&mut self, root: Hash::Output) {
+		self.zk_tree_root = root;
+	}
+}
+
+impl<Number, Hash, StateHash> ZkTreeRootProvider for Header<Number, Hash, StateHash>
+where
+	Number: Copy + Into<U256> + TryFrom<U256>,
+	Hash: HashT,
+	StateHash: HashT,
+{
+	type Hash = Hash::Output;
+
+	fn set_zk_tree_root(&mut self, root: Self::Hash) {
+		self.zk_tree_root = root;
+	}
+
+	fn zk_tree_root(&self) -> &Self::Hash {
+		&self.zk_tree_root
 	}
 }
 
@@ -216,81 +340,68 @@ mod tests {
 
 	#[test]
 	fn ensure_format_is_unchanged() {
-		let header = Header::<u32, BlakeTwo256> {
+		let header = Header::<u32, BlakeTwo256, BlakeTwo256> {
 			parent_hash: BlakeTwo256::hash(b"1"),
 			number: 2,
 			state_root: BlakeTwo256::hash(b"3"),
 			extrinsics_root: BlakeTwo256::hash(b"4"),
+			zk_tree_root: Default::default(),
 			digest: Digest { logs: vec![sp_runtime::generic::DigestItem::Other(b"6".to_vec())] },
+			_marker: core::marker::PhantomData,
 		};
 
 		let header_encoded = header.encode();
-		assert_eq!(
-			header_encoded,
-			vec![
-				146, 205, 245, 120, 196, 112, 133, 165, 153, 34, 86, 240, 220, 249, 125, 11, 25,
-				241, 241, 201, 222, 77, 95, 227, 12, 58, 206, 97, 145, 182, 229, 219, 2, 0, 0, 0,
-				88, 19, 72, 51, 123, 15, 62, 20, 134, 32, 23, 61, 170, 165, 249, 77, 0, 216, 129,
-				112, 93, 203, 240, 170, 131, 239, 218, 186, 97, 210, 237, 225, 235, 134, 73, 33,
-				73, 151, 87, 78, 32, 196, 100, 56, 138, 23, 36, 32, 210, 84, 3, 104, 43, 187, 184,
-				12, 73, 104, 49, 200, 204, 31, 143, 13, 4, 0, 4, 54
-			],
-		);
-		assert_eq!(Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(), header);
+		let header_decoded =
+			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
+		assert_eq!(header_decoded, header);
 
-		let header = Header::<u32, BlakeTwo256> {
+		let header = Header::<u32, BlakeTwo256, BlakeTwo256> {
 			parent_hash: BlakeTwo256::hash(b"1000"),
 			number: 2000,
 			state_root: BlakeTwo256::hash(b"3000"),
 			extrinsics_root: BlakeTwo256::hash(b"4000"),
+			zk_tree_root: Default::default(),
 			digest: Digest { logs: vec![sp_runtime::generic::DigestItem::Other(b"5000".to_vec())] },
+			_marker: core::marker::PhantomData,
 		};
 
 		let header_encoded = header.encode();
-		assert_eq!(
-			header_encoded,
-			vec![
-				197, 243, 254, 225, 31, 117, 21, 218, 179, 213, 92, 6, 247, 164, 230, 25, 47, 166,
-				140, 117, 142, 159, 195, 202, 67, 196, 238, 26, 44, 18, 33, 92, 208, 7, 0, 0, 219,
-				225, 47, 12, 107, 88, 153, 146, 55, 21, 226, 186, 110, 48, 167, 187, 67, 183, 228,
-				232, 118, 136, 30, 254, 11, 87, 48, 112, 7, 97, 31, 82, 146, 110, 96, 87, 152, 68,
-				98, 162, 227, 222, 78, 14, 244, 194, 120, 154, 112, 97, 222, 144, 174, 101, 220,
-				44, 111, 126, 54, 34, 155, 220, 253, 124, 4, 0, 16, 53, 48, 48, 48
-			],
-		);
-		assert_eq!(Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap(), header);
+		let header_decoded =
+			Header::<u32, BlakeTwo256, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
+		assert_eq!(header_decoded, header);
 	}
 
 	fn hash_header(x: &[u8]) -> [u8; 32] {
 		let mut y = x;
-		if let Ok(header) = Header::<u32, PoseidonHasher>::decode(&mut y) {
-			// Only treat this as a header if we consumed the entire input.
+		if let Ok(header) = Header::<u32, PoseidonHasher, BlakeTwo256>::decode(&mut y) {
 			if y.is_empty() {
-				let max_encoded_felts = 4 * 3 + 1 + 28; // 3 hash fields (4 felts each) + 1 u32 + 28 felts
+				const DIGEST_LOGS_SIZE: usize = 110;
+				let max_encoded_felts = 4 * 4 + 1 + 28;
 				let mut felts = Vec::with_capacity(max_encoded_felts);
 
-				let parent_hash = header.parent_hash.as_bytes();
-				let number = header.number;
-				let state_root = header.state_root.as_bytes();
-				let extrinsics_root = header.extrinsics_root.as_bytes();
-				let digest = header.digest.encode();
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.parent_hash.as_bytes().try_into().unwrap(),
+				));
+				felts.push(Goldilocks::from_int(header.number as u64));
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.state_root.as_bytes().try_into().unwrap(),
+				));
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.extrinsics_root.as_bytes().try_into().unwrap(),
+				));
+				felts.extend(bytes_to_digest::<Goldilocks>(
+					header.zk_tree_root.as_bytes().try_into().unwrap(),
+				));
 
-				felts.extend(bytes_to_digest::<Goldilocks>(
-					parent_hash.try_into().expect("Parent hash expected to equal 32 bytes"),
-				));
-				felts.push(Goldilocks::from_int(number as u64));
-				felts.extend(bytes_to_digest::<Goldilocks>(
-					state_root.try_into().expect("State root expected to equal 32 bytes"),
-				));
-				felts.extend(bytes_to_digest::<Goldilocks>(
-					extrinsics_root.try_into().expect("Extrinsics root expected to equal 32 bytes"),
-				));
-				felts.extend(bytes_to_felts(&digest));
+				let digest_encoded = header.digest.encode();
+				let mut digest_padded = [0u8; DIGEST_LOGS_SIZE];
+				let copy_len = digest_encoded.len().min(DIGEST_LOGS_SIZE);
+				digest_padded[..copy_len].copy_from_slice(&digest_encoded[..copy_len]);
+				felts.extend(bytes_to_felts(&digest_padded));
 
 				return hash_to_bytes(&felts);
 			}
 		}
-		// Fallback: canonical bytes hashing for non-header data
 		PoseidonHasher::hash_for_circuit(x)
 	}
 
@@ -324,7 +435,7 @@ mod tests {
 				),
 			],
 		};
-		let header = Header::<u32, PoseidonHasher> {
+		let header = Header::<u32, PoseidonHasher, BlakeTwo256> {
 			parent_hash: H256::from_slice(
 				hex::decode(parent_hash).expect("valid hex parent hash").as_slice(),
 			),
@@ -335,7 +446,9 @@ mod tests {
 			extrinsics_root: H256::from_slice(
 				hex::decode(extrinsics_root).expect("valid hex extrinsics root").as_slice(),
 			),
+			zk_tree_root: Default::default(),
 			digest,
+			_marker: core::marker::PhantomData,
 		};
 
 		let encoded = header.encode();

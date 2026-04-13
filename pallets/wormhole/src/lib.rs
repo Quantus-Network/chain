@@ -4,7 +4,7 @@ extern crate alloc;
 
 use lazy_static::lazy_static;
 pub use pallet::*;
-pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
+pub use qp_poseidon::ToFelts;
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -37,9 +37,9 @@ pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::{PoseidonCore, ToFelts, WeightInfo};
+	use crate::{ToFelts, WeightInfo};
 	use alloc::vec::Vec;
-	use codec::{Decode, Encode};
+	use codec::Decode;
 	use frame_support::{
 		dispatch::{DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo},
 		pallet_prelude::*,
@@ -50,6 +50,7 @@ pub mod pallet {
 		},
 	};
 	use frame_system::pallet_prelude::*;
+	use pallet_zk_tree::ZkTreeRecorder;
 	use qp_wormhole_verifier::{
 		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, D,
 		F,
@@ -64,25 +65,6 @@ pub mod pallet {
 
 	pub type BalanceOf<T> = <T as Config>::NativeBalance;
 	pub type AssetBalanceOf<T> = <T as Config>::AssetBalance;
-
-	/// Key for TransferProof storage - uniquely identifies a transfer.
-	/// Uses (to, transfer_count) since transfer_count is atomic per recipient.
-	/// This is hashed with Blake2_256 to form the storage key suffix.
-	pub type TransferProofKey<T> = (<T as Config>::WormholeAccountId, <T as Config>::TransferCount);
-
-	/// Full transfer data including amount - used to compute the leaf_inputs_hash via Poseidon2.
-	/// This is what the ZK circuit verifies.
-	pub type TransferProofData<T> = (
-		<T as Config>::AssetId,
-		<T as Config>::TransferCount,
-		<T as Config>::WormholeAccountId,
-		<T as Config>::WormholeAccountId,
-		BalanceOf<T>,
-	);
-
-	/// The leaf_inputs_hash stored as the value in TransferProof storage.
-	/// This is the Poseidon2 hash of TransferProofData, verified by the ZK circuit.
-	pub type LeafInputsHash = [u8; 32];
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -181,6 +163,7 @@ pub mod pallet {
 			+ Saturating
 			+ Copy
 			+ sp_runtime::traits::One
+			+ Into<u64>
 			+ ToFelts;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
@@ -216,6 +199,14 @@ pub mod pallet {
 			+ ToFelts
 			+ Into<<Self as frame_system::Config>::AccountId>
 			+ From<<Self as frame_system::Config>::AccountId>;
+
+		/// ZK Tree recorder for inserting transfer leaves into the Merkle tree.
+		/// Set to `()` to disable ZK tree recording.
+		type ZkTree: pallet_zk_tree::ZkTreeRecorder<
+			<Self as frame_system::Config>::AccountId,
+			Self::AssetId,
+			Self::NativeBalance,
+		>;
 	}
 
 	#[pallet::storage]
@@ -223,21 +214,7 @@ pub mod pallet {
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
-	/// Transfer proofs for wormhole transfers (both native and assets).
-	///
-	/// Storage key: Twox128("Wormhole") || Twox128("TransferProof") || Blake2_256(to,
-	/// transfer_count) Storage value: leaf_inputs_hash (Poseidon2 hash of full transfer data)
-	///
-	/// The key uses only (to, transfer_count) since transfer_count is atomic per recipient.
-	/// The ZK circuit verifies that the leaf_inputs_hash in the value section matches
-	/// the Poseidon2 hash of all transfer details (asset_id, count, from, to, amount),
-	/// providing full 256-bit security.
-	#[pallet::storage]
-	#[pallet::getter(fn transfer_proof)]
-	pub type TransferProof<T: Config> =
-		StorageMap<_, Blake2_256, TransferProofKey<T>, LeafInputsHash, OptionQuery>;
-
-	/// Transfer count for all wormhole transfers
+	/// Transfer count per recipient - used to generate unique leaf indices in the ZK trie.
 	#[pallet::storage]
 	#[pallet::getter(fn transfer_count)]
 	pub type TransferCount<T: Config> =
@@ -257,18 +234,30 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
+		/// A native token transfer was recorded.
+		///
+		/// The `leaf_index` can be used to fetch Merkle proofs via the
+		/// `zkTrie_getMerkleProof` RPC for ZK circuit verification.
 		NativeTransferred {
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
 			transfer_count: T::TransferCount,
+			/// Index of this transfer in the ZK trie (for Merkle proof lookup)
+			leaf_index: u64,
 		},
+		/// A non-native asset transfer was recorded.
+		///
+		/// The `leaf_index` can be used to fetch Merkle proofs via the
+		/// `zkTrie_getMerkleProof` RPC for ZK circuit verification.
 		AssetTransferred {
 			asset_id: T::AssetId,
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: AssetBalanceOf<T>,
 			transfer_count: T::TransferCount,
+			/// Index of this transfer in the ZK trie (for Merkle proof lookup)
+			leaf_index: u64,
 		},
 		ProofVerified {
 			exit_amount: BalanceOf<T>,
@@ -608,6 +597,13 @@ pub mod pallet {
 			Ok((proof, inputs))
 		}
 
+		/// Record a transfer in the ZK tree and emit events.
+		///
+		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
+		/// managed by pallet-zk-tree, which provides Merkle proofs for ZK circuits.
+		///
+		/// The emitted event includes `leaf_index` which clients can use to fetch
+		/// Merkle proofs via `zkTree_getMerkleProof(leaf_index)` RPC.
 		pub fn record_transfer(
 			asset_id: T::AssetId,
 			from: &<T as Config>::WormholeAccountId,
@@ -616,20 +612,17 @@ pub mod pallet {
 		) {
 			let current_count = TransferCount::<T>::get(to);
 
-			// Storage key uses Blake2_256 hash of (to, transfer_count)
-			// This is unique since transfer_count is atomic per recipient
-			let key: TransferProofKey<T> = (to.clone(), current_count);
-
-			// Storage value is the Poseidon2 hash of the full transfer data (leaf_inputs_hash)
-			// This matches what the ZK circuit computes and verifies
-			let full_data: TransferProofData<T> =
-				(asset_id.clone(), current_count, from.clone(), to.clone(), amount);
-			let encoded_data = full_data.encode();
-			let leaf_inputs_hash =
-				PoseidonCore::hash_storage::<TransferProofData<T>>(&encoded_data);
-
-			TransferProof::<T>::insert(key, leaf_inputs_hash);
+			// Increment transfer count for this recipient
 			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
+
+			// Insert into ZK tree for Merkle proof generation
+			// Returns the leaf index for clients to use when fetching proofs
+			let leaf_index = T::ZkTree::record_transfer(
+				to.clone().into(),
+				current_count.into(),
+				asset_id.clone(),
+				amount,
+			);
 
 			if asset_id == T::AssetId::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {
@@ -637,6 +630,7 @@ pub mod pallet {
 					to: to.clone().into(),
 					amount,
 					transfer_count: current_count,
+					leaf_index,
 				});
 			} else {
 				Self::deposit_event(Event::<T>::AssetTransferred {
@@ -645,6 +639,7 @@ pub mod pallet {
 					asset_id,
 					amount: amount.into(),
 					transfer_count: current_count,
+					leaf_index,
 				});
 			}
 		}

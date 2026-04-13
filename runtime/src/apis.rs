@@ -43,7 +43,7 @@ use sp_version::RuntimeVersion;
 // Local module imports
 use super::{
 	AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime, RuntimeCall,
-	RuntimeGenesisConfig, System, TransactionPayment, VERSION,
+	RuntimeGenesisConfig, System, TransactionPayment, ZkTree, VERSION,
 };
 #[cfg(feature = "try-runtime")]
 use super::{Header, UncheckedExtrinsic};
@@ -169,6 +169,42 @@ impl_runtime_apis! {
 
 		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512) {
 			pallet_qpow::Pallet::<Self>::verify_and_get_achieved_difficulty(block_hash, nonce)
+		}
+	}
+
+	impl pallet_zk_tree::ZkTreeApi<Block> for Runtime {
+		fn get_root() -> pallet_zk_tree::Hash256 {
+			ZkTree::root()
+		}
+
+		fn get_leaf_count() -> u64 {
+			ZkTree::leaf_count()
+		}
+
+		fn get_depth() -> u8 {
+			ZkTree::depth()
+		}
+
+		fn get_merkle_proof(leaf_index: u64) -> Option<pallet_zk_tree::ZkMerkleProofRpc> {
+			use codec::Encode;
+
+			// Get the leaf
+			let leaf = ZkTree::leaf(leaf_index)?;
+
+			// Generate the proof
+			let proof = ZkTree::get_merkle_proof(leaf_index).ok()?;
+
+			// Compute leaf hash
+			let leaf_hash = pallet_zk_tree::tree::hash_leaf::<Runtime>(&leaf);
+
+			Some(pallet_zk_tree::ZkMerkleProofRpc {
+				leaf_index,
+				leaf_data: leaf.encode(),
+				leaf_hash,
+				siblings: proof.siblings,
+				root: ZkTree::root(),
+				depth: ZkTree::depth(),
+			})
 		}
 	}
 

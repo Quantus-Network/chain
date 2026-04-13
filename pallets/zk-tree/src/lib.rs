@@ -1,0 +1,344 @@
+//! # ZK Tree Pallet
+//!
+//! A 4-ary Poseidon Merkle tree for storing ZK transfer proofs.
+//!
+//! ## Overview
+//!
+//! This pallet provides a separate Merkle tree structure optimized for ZK circuits:
+//! - 4-ary tree (4 children per node) for optimal ZK circuit efficiency
+//! - Leaves hashed as 8 field elements (injective: values are ≤32 bits)
+//! - Internal nodes hashed as 16 field elements (8 bytes/felt compact encoding)
+//! - Tree root published in block header for ZK verification
+//!
+//! ## Tree Structure
+//!
+//! ```text
+//!                     [Root]                    Level 2
+//!                    /  |  \  \
+//!              [N0] [N1] [N2] [N3]              Level 1  
+//!             /|||\  ...
+//!          [L0-L3]  ...                         Level 0 (leaves)
+//! ```
+//!
+//! Leaf data: (to_account, transfer_count, asset_id, amount)
+//! Leaf hash: poseidon(8 felts from leaf encoding)
+//! Node hash: poseidon(sorted children concatenated → 16 felts)
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+use alloc::vec::Vec;
+
+pub use pallet::*;
+
+pub mod tree;
+
+#[cfg(test)]
+mod tests;
+
+/// Maximum depth supported by ZK circuits.
+/// A tree of depth 32 can hold 4^32 leaves (more than enough).
+pub const MAX_TREE_DEPTH: u8 = 32;
+
+/// Branching factor of the tree.
+pub const ARITY: usize = 4;
+
+/// A 32-byte hash output.
+pub type Hash256 = [u8; 32];
+
+/// Leaf data for the ZK tree.
+///
+/// # Why `from` is not included
+///
+/// The ZK circuit needs to verify two things about a transfer:
+/// 1. The transfer amount (to compute balances)
+/// 2. The transfer is unique (to prevent double-spending)
+///
+/// Uniqueness is guaranteed by `(to, transfer_count)` - each recipient has a
+/// monotonically increasing counter, so every transfer to that recipient gets
+/// a unique index. The `from` address is irrelevant for proving ownership of
+/// received funds; what matters is that the transfer happened exactly once.
+///
+/// Omitting `from` reduces the leaf size and simplifies the ZK circuit without
+/// sacrificing security properties.
+#[derive(
+	codec::Encode,
+	codec::Decode,
+	codec::MaxEncodedLen,
+	Clone,
+	PartialEq,
+	Eq,
+	scale_info::TypeInfo,
+	Debug,
+)]
+pub struct ZkLeaf<AccountId, AssetId, Balance> {
+	/// Recipient account
+	pub to: AccountId,
+	/// Transfer count for this recipient (ensures uniqueness via `(to, transfer_count)`)
+	pub transfer_count: u64,
+	/// Asset ID (0 for native token)
+	pub asset_id: AssetId,
+	/// Transfer amount
+	pub amount: Balance,
+}
+
+/// Merkle proof for a leaf in the 4-ary tree.
+///
+/// # Index-free verification
+///
+/// Because internal nodes sort their children before hashing, proofs don't need
+/// path indices. The verifier simply combines the current hash with the 3 siblings,
+/// sorts all 4, and hashes to get the parent. This simplifies ZK circuit verification.
+#[derive(codec::Encode, codec::Decode, Clone, PartialEq, Eq, scale_info::TypeInfo, Debug)]
+pub struct ZkMerkleProof {
+	/// Index of the leaf (for reference, not needed for verification)
+	pub leaf_index: u64,
+	/// Sibling hashes at each level (3 siblings per level for 4-ary tree)
+	pub siblings: alloc::vec::Vec<[Hash256; 3]>,
+}
+
+#[frame_support::pallet]
+pub mod pallet {
+	use super::*;
+	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
+
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> {
+		/// Asset ID type.
+		type AssetId: Parameter + Member + Copy + Default + MaxEncodedLen + Into<u128>;
+
+		/// Balance type.
+		type Balance: Parameter + Member + Copy + Default + MaxEncodedLen + Into<u128>;
+	}
+
+	/// Account ID type alias for convenience.
+	pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
+
+	/// Leaf data stored by index.
+	#[pallet::storage]
+	#[pallet::getter(fn leaf)]
+	pub type Leaves<T: Config> =
+		StorageMap<_, Identity, u64, ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>, OptionQuery>;
+
+	/// Internal tree nodes: (level, index) -> hash.
+	/// Level 0 is unused (leaves are hashed on-demand).
+	/// Level 1+ contains internal node hashes.
+	#[pallet::storage]
+	#[pallet::getter(fn node)]
+	pub type Nodes<T: Config> = StorageMap<_, Identity, (u8, u64), Hash256, OptionQuery>;
+
+	/// Number of leaves in the tree.
+	#[pallet::storage]
+	#[pallet::getter(fn leaf_count)]
+	pub type LeafCount<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	/// Current depth of the tree (0 = empty, 1 = up to 4 leaves, etc.).
+	#[pallet::storage]
+	#[pallet::getter(fn depth)]
+	pub type Depth<T: Config> = StorageValue<_, u8, ValueQuery>;
+
+	/// Current root hash of the tree.
+	#[pallet::storage]
+	#[pallet::getter(fn root)]
+	pub type Root<T: Config> = StorageValue<_, Hash256, ValueQuery>;
+
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// A new leaf was inserted into the tree.
+		LeafInserted { index: u64, leaf_hash: Hash256, new_root: Hash256 },
+		/// Tree depth increased.
+		TreeGrew { new_depth: u8 },
+	}
+
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Leaf index out of bounds.
+		LeafIndexOutOfBounds,
+		/// Leaf not found.
+		LeafNotFound,
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn on_finalize(_n: BlockNumberFor<T>) {
+			// Set ZK Merkle tree root in frame_system for inclusion in block header
+			let root: Hash256 = Root::<T>::get();
+			<frame_system::Pallet<T>>::set_zk_tree_root(root.into());
+		}
+	}
+
+	impl<T: Config> Pallet<T>
+	where
+		AccountIdOf<T>: AsRef<[u8]>,
+	{
+		/// Insert a new leaf into the tree.
+		///
+		/// Returns the leaf index and new root hash.
+		///
+		/// # Infallibility
+		///
+		/// This function is infallible because the only theoretical failure mode
+		/// (exceeding MAX_TREE_DEPTH of 32) would require 4^32 leaves, which is
+		/// astronomically larger than any practical blockchain state.
+		pub fn insert_leaf(
+			to: AccountIdOf<T>,
+			transfer_count: u64,
+			asset_id: T::AssetId,
+			amount: T::Balance,
+		) -> (u64, Hash256) {
+			let leaf = ZkLeaf { to, transfer_count, asset_id, amount };
+			let leaf_index = LeafCount::<T>::get();
+
+			// Check if we need to grow the tree
+			let current_depth = Depth::<T>::get();
+			let capacity = tree::capacity_at_depth(current_depth);
+
+			if leaf_index >= capacity {
+				// Need to grow the tree
+				// saturating_add ensures we never overflow; MAX_TREE_DEPTH=32 means 4^32 leaves
+				// which is ~18 quintillion - far beyond any practical blockchain state
+				let new_depth = current_depth.saturating_add(1);
+				debug_assert!(
+					new_depth <= MAX_TREE_DEPTH,
+					"ZK tree exceeded max depth - this should never happen in practice"
+				);
+
+				tree::grow_tree::<T>(current_depth, new_depth);
+				Depth::<T>::put(new_depth);
+
+				Self::deposit_event(Event::TreeGrew { new_depth });
+			}
+
+			// Store the leaf
+			Leaves::<T>::insert(leaf_index, leaf.clone());
+			LeafCount::<T>::put(leaf_index + 1);
+
+			// Compute leaf hash and update tree
+			let leaf_hash = tree::hash_leaf::<T>(&leaf);
+			let new_root = tree::update_path::<T>(leaf_index, leaf_hash);
+
+			Root::<T>::put(new_root);
+
+			Self::deposit_event(Event::LeafInserted { index: leaf_index, leaf_hash, new_root });
+
+			(leaf_index, new_root)
+		}
+
+		/// Get a Merkle proof for a leaf at the given index.
+		pub fn get_merkle_proof(leaf_index: u64) -> Result<ZkMerkleProof, Error<T>> {
+			let leaf_count = LeafCount::<T>::get();
+			ensure!(leaf_index < leaf_count, Error::<T>::LeafIndexOutOfBounds);
+
+			let depth = Depth::<T>::get();
+			tree::generate_proof::<T>(leaf_index, depth)
+		}
+
+		/// Verify a Merkle proof against the current root.
+		pub fn verify_proof(
+			leaf: &ZkLeaf<AccountIdOf<T>, T::AssetId, T::Balance>,
+			proof: &ZkMerkleProof,
+		) -> bool {
+			let root = Root::<T>::get();
+			tree::verify_proof::<T>(leaf, proof, root)
+		}
+	}
+}
+
+// ============================================================================
+// Trait for external pallets
+// ============================================================================
+
+/// Trait for inserting leaves into the ZK tree.
+/// Used by pallet-wormhole to record transfer proofs.
+pub trait ZkTreeRecorder<AccountId, AssetId, Balance> {
+	/// Insert a transfer into the ZK tree.
+	///
+	/// Returns the leaf index, which can be used to fetch Merkle proofs via RPC.
+	/// This operation is infallible. Implementations must always succeed.
+	fn record_transfer(
+		to: AccountId,
+		transfer_count: u64,
+		asset_id: AssetId,
+		amount: Balance,
+	) -> u64;
+}
+
+/// No-op implementation for when ZK tree is not configured.
+impl<AccountId, AssetId, Balance> ZkTreeRecorder<AccountId, AssetId, Balance> for () {
+	fn record_transfer(
+		_to: AccountId,
+		_transfer_count: u64,
+		_asset_id: AssetId,
+		_amount: Balance,
+	) -> u64 {
+		0 // No-op returns 0
+	}
+}
+
+impl<T: Config> ZkTreeRecorder<T::AccountId, T::AssetId, T::Balance> for Pallet<T>
+where
+	T::AccountId: AsRef<[u8]>,
+{
+	fn record_transfer(
+		to: T::AccountId,
+		transfer_count: u64,
+		asset_id: T::AssetId,
+		amount: T::Balance,
+	) -> u64 {
+		let (leaf_index, _root) = Self::insert_leaf(to, transfer_count, asset_id, amount);
+		leaf_index
+	}
+}
+
+// ============================================================================
+// Runtime API
+// ============================================================================
+
+/// RPC-friendly Merkle proof structure (no generics).
+///
+/// Uses raw bytes for the leaf data to avoid generic type issues in RPC.
+/// No path indices needed - children are sorted before hashing, so verification
+/// just requires combining current hash with siblings, sorting, and hashing.
+#[derive(codec::Encode, codec::Decode, Clone, PartialEq, Eq, scale_info::TypeInfo, Debug)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct ZkMerkleProofRpc {
+	/// Index of the leaf (for reference, not needed for verification)
+	pub leaf_index: u64,
+	/// The leaf data (encoded ZkLeaf)
+	pub leaf_data: Vec<u8>,
+	/// Leaf hash
+	pub leaf_hash: Hash256,
+	/// Sibling hashes at each level (3 siblings per level for 4-ary tree)
+	pub siblings: Vec<[Hash256; 3]>,
+	/// Current tree root
+	pub root: Hash256,
+	/// Current tree depth
+	pub depth: u8,
+}
+
+sp_api::decl_runtime_apis! {
+	/// Runtime API for the ZK Tree pallet.
+	///
+	/// Provides methods to query the ZK Merkle tree state and generate proofs.
+	pub trait ZkTreeApi {
+		/// Get the current root hash of the ZK tree.
+		fn get_root() -> Hash256;
+
+		/// Get the current number of leaves in the tree.
+		fn get_leaf_count() -> u64;
+
+		/// Get the current depth of the tree.
+		fn get_depth() -> u8;
+
+		/// Get a Merkle proof for a leaf at the given index.
+		///
+		/// Returns `None` if the leaf index is out of bounds.
+		fn get_merkle_proof(leaf_index: u64) -> Option<ZkMerkleProofRpc>;
+	}
+}

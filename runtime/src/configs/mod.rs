@@ -63,8 +63,8 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Assets, Balance, Balances, Block, BlockNumber, Hash, Nonce, OriginCaller,
 	PalletInfo, Preimage, Referenda, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason,
-	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, DAYS,
-	EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
+	RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Scheduler, System, Timestamp, Wormhole, ZkTree,
+	DAYS, EXISTENTIAL_DEPOSIT, MICRO_UNIT, TARGET_BLOCK_TIME_MS, UNIT, VERSION,
 };
 use sp_core::U512;
 
@@ -104,8 +104,8 @@ impl frame_system::Config for Runtime {
 	type Nonce = Nonce;
 	/// The type for hashing blocks and tries.
 	type Hash = Hash;
-	/// The hashing algorithm for application-level operations (preimages, tx IDs, etc).
-	/// Storage trie and extrinsics root use the header's hasher (PoseidonHasher) instead.
+	/// The hashing algorithm used for state trie and extrinsics root.
+	/// This matches the `StateHash` parameter in qp_header::Header.
 	type Hashing = BlakeTwo256;
 	/// Maximum number of block number to block hash mappings to keep (oldest pruned first).
 	type BlockHashCount = BlockHashCount;
@@ -700,4 +700,10 @@ impl pallet_wormhole::Config for Runtime {
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
+	type ZkTree = ZkTree;
+}
+
+impl pallet_zk_tree::Config for Runtime {
+	type AssetId = AssetId;
+	type Balance = Balance;
 }

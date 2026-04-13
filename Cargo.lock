@@ -3347,6 +3347,7 @@ dependencies = [
  "frame-support",
  "log",
  "parity-scale-codec",
+ "qp-header",
  "scale-info",
  "serde",
  "sp-core",
@@ -6895,6 +6896,7 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-balances",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "qp-dilithium-crypto",
  "qp-header",
@@ -6914,6 +6916,23 @@ dependencies = [
  "sp-runtime",
  "sp-state-machine",
  "sp-trie",
+]
+
+[[package]]
+name = "pallet-zk-tree"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "qp-poseidon-core",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -8337,9 +8356,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-aggregator"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c98df8c8a59dca57f896904abd1cd5cd5cb4387b4831e077cfc17aa8f448fffa"
+checksum = "ba5a23eea8e17c97632f5056d1fecdb83d2e997f79d823fb97c514823fce8580"
 dependencies = [
  "anyhow",
  "hex",
@@ -8355,9 +8374,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62c4c1671504baeefc3bd44ce62c69055b99595b2442eb5968b152ebccd33153"
+checksum = "b72abd3357e1c486621431109d83a259076ed941fcc7f035353a629940c443d9"
 dependencies = [
  "anyhow",
  "hex",
@@ -8368,9 +8387,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-circuit-builder"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2602cb861a190728337d28e660384ad3bb707768260c4e48db50fb60d8717908"
+checksum = "9d27c981d34a35cb10ee96e16c1fb44fbb4c52f3e58a787ce089c21bf5469514"
 dependencies = [
  "anyhow",
  "clap",
@@ -8382,18 +8401,18 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-inputs"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aed8a9809079a89ea2a69cd5e3459d88e9a36b0a771d8821cacc50f7c66ef19d"
+checksum = "f69e54a0f450d349cb1169bbb743a7a846475a1210760308e38f55841e5aa5c0"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "qp-wormhole-prover"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa4a78a88d3d851c6a828e2031c4422f0a44b17c53f8446656fd45dea146a5fd"
+checksum = "68cee4d6a0317f89d1ec7a6c40a9592e5525c75b9cb21bd7d5d3b408301068bd"
 dependencies = [
  "anyhow",
  "qp-plonky2",
@@ -8404,9 +8423,9 @@ dependencies = [
 
 [[package]]
 name = "qp-wormhole-verifier"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf5d21d7c8c07cfa7bfea14240c63d09fad5c1396b111ab72063dbe07aeae121"
+checksum = "83f7c0134a766c6624183d129abf12523247e38fc27860e3a9778f73321008ae"
 dependencies = [
  "anyhow",
  "qp-plonky2-verifier",
@@ -8415,9 +8434,9 @@ dependencies = [
 
 [[package]]
 name = "qp-zk-circuits-common"
-version = "1.4.2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0756b4c23179e5e4a53cc9ac9ed2e0134124ec40e21f72ec12fe793bc6f6f278"
+checksum = "f6d5e1d764560fd797f71defbf75a1618596945c53e33033ac42cc7c2e4689f6"
 dependencies = [
  "anyhow",
  "hex",
@@ -8481,6 +8500,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-utility",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "prometheus",
  "qp-dilithium-crypto",
@@ -8561,6 +8581,7 @@ dependencies = [
  "pallet-treasury",
  "pallet-utility",
  "pallet-wormhole",
+ "pallet-zk-tree",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "qp-dilithium-crypto",
