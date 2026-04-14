@@ -9,9 +9,8 @@ use crate::{
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
-	derive_key_from_mnemonic, derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed,
-	wormhole::WormholePair, SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
-	QUANTUS_WORMHOLE_CHAIN_ID,
+	derive_key_from_mnemonic, generate_mnemonic, mnemonic_to_seed, wormhole::WormholePair,
+	SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
 };
 use quantus_runtime::Block;
 #[cfg(feature = "runtime-benchmarks")]
