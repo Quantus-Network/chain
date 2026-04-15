@@ -784,7 +784,7 @@ mod tests {
 		let wormhole_address = WormholeAddress(H256::from(pair.address));
 		let account_id = wormhole_address.into_account();
 
-		assert_eq!(account_id.to_ss58check(), TEST_WORMHOLE_ADDRESS);
+		assert_eq!(account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)), TEST_WORMHOLE_ADDRESS);
 		assert_eq!(hex::encode(pair.first_hash), TEST_WORMHOLE_PREIMAGE);
 	}
 }
