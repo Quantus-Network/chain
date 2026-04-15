@@ -9,8 +9,9 @@ use crate::{
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
-	derive_key_from_mnemonic, generate_mnemonic, mnemonic_to_seed, wormhole::WormholePair,
-	SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
+	derive_key_from_mnemonic, derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed,
+	wormhole::WormholePair, SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
+	QUANTUS_WORMHOLE_CHAIN_ID,
 };
 use quantus_runtime::Block;
 #[cfg(feature = "runtime-benchmarks")]
@@ -165,12 +166,40 @@ pub fn generate_quantus_key(
 			})
 		},
 		QuantusAddressType::Wormhole => {
-			let mut seed = [0u8; 32];
-			rand::thread_rng().fill(&mut seed);
-			let sensitive_seed = SensitiveBytes32::from(&mut seed);
-			let wormhole_pair = WormholePair::generate_new(sensitive_seed);
+			let path =
+				format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
+			let words_to_print;
+			let words_phrase = if let Some(w) = words {
+				words_to_print = Some(w.clone());
+				w
+			} else {
+				let mut entropy = [0u8; 32];
+				rand::thread_rng().fill(&mut entropy);
+				let sensitive_entropy = SensitiveBytes32::from(&mut entropy);
+				let new_words = generate_mnemonic(sensitive_entropy).map_err(|e| {
+					eprintln!("Error generating new words: {:?}", e);
+					sc_cli::Error::Input("Failed to generate new words".into())
+				})?;
+				words_to_print = Some(new_words.clone());
+				new_words
+			};
 
-			// Convert wormhole address to account ID using WormholeAddress type
+			let wormhole_pair = if no_derivation {
+				let seed64 = mnemonic_to_seed(words_phrase, None).map_err(|e| {
+					eprintln!("Error processing provided words: {:?}", e);
+					sc_cli::Error::Input("Failed to process provided words".into())
+				})?;
+				let mut seed32 = [0u8; 32];
+				seed32.copy_from_slice(&seed64[..32]);
+				WormholePair::generate_new(SensitiveBytes32::from(&mut seed32))
+			} else {
+				println!("Deriving wormhole HD path: {}", path);
+				derive_wormhole_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
+					eprintln!("Error deriving wormhole from mnemonic: {:?}", e);
+					sc_cli::Error::Input("Failed to derive wormhole from mnemonic".into())
+				})?
+			};
+
 			let wormhole_address = WormholeAddress(H256::from(wormhole_pair.address));
 			let account_id = wormhole_address.into_account();
 
@@ -180,7 +209,7 @@ pub fn generate_quantus_key(
 				public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address)),
 				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
 				seed_hex: "N/A (Wormhole)".to_string(),
-				secret_phrase: None,
+				secret_phrase: words_to_print,
 				inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
 			})
 		},
@@ -635,7 +664,7 @@ mod tests {
 		assert!(details.public_key_hex.starts_with("0x"));
 		assert!(details.secret_key_hex.starts_with("0x"));
 		assert_eq!(details.seed_hex, "N/A (Wormhole)");
-		assert!(details.secret_phrase.is_none());
+		assert!(details.secret_phrase.is_some());
 		let address = details.address;
 		assert!(
 			AccountId32::from_ss58check_with_version(&address).is_ok(),
@@ -753,7 +782,10 @@ mod tests {
 		let wormhole_address = WormholeAddress(H256::from(pair.address));
 		let account_id = wormhole_address.into_account();
 
-		assert_eq!(account_id.to_ss58check(), TEST_WORMHOLE_ADDRESS);
+		assert_eq!(
+			account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
+			TEST_WORMHOLE_ADDRESS
+		);
 		assert_eq!(hex::encode(pair.first_hash), TEST_WORMHOLE_PREIMAGE);
 	}
 }

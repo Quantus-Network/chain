@@ -7,7 +7,7 @@ pub const TEST_ADDRESS: &str = "qzmTAz3UUw1WGUuVh8nbFmPwcftomduwy6twq6NDR6y9qqtE
 pub const TEST_ADDRESS_HD_0: &str = "qzm5QCox8Dp5A3oSXZZYHD8YoYgPz7enykZb6RPUropdCyN5h";
 pub const TEST_ADDRESS_HD_1: &str = "qzmufPopkLKAwDmTzR5uXg8GMp5sUP48CqafJLUz3fPMSSGSh";
 
-pub const TEST_WORMHOLE_ADDRESS: &str = "5H8AGzwKPtKMfKKuKYCoAFApCoy4EVewCqc9k6GrSgqHoaXm";
+pub const TEST_WORMHOLE_ADDRESS: &str = "qzpWh4AEtsgCyEbv4WBgFWnB9bcdF2L2jVDuyjXP9mSTyBaeU";
 pub const TEST_WORMHOLE_PREIMAGE: &str =
 	"e4be02a913727c01c1a155fd6e807b7c1a4a13abf37a352b7c9ed4412d127fc3";
 
