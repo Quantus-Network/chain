@@ -1760,6 +1760,40 @@ fn scheduler_v3_anon_next_schedule_time_works() {
 	});
 }
 
+/// Cancelled task returns Unavailable for next_dispatch_time (empty slot check).
+#[test]
+fn scheduler_v3_anon_next_dispatch_time_returns_unavailable_for_cancelled_task() {
+	use frame_support::traits::schedule::{v3::Anon, DispatchTime};
+
+	new_test_ext().execute_with(|| {
+		let call =
+			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(10, 0) });
+
+		// Schedule a call.
+		let address = <Scheduler as Anon<_, _, _>>::schedule(
+			DispatchTime::At(4),
+			None,
+			127,
+			root(),
+			Preimage::bound(call).unwrap(),
+		)
+		.unwrap();
+
+		// Verify it's scheduled.
+		assert_eq!(<Scheduler as Anon<_, _, _>>::next_dispatch_time(address), Ok(4));
+
+		// Cancel the task - this leaves an empty slot (None) in the agenda.
+		assert_ok!(<Scheduler as Anon<_, _, _>>::cancel(address));
+
+		// next_dispatch_time should return Unavailable for the empty slot,
+		// not succeed just because the index exists in the agenda vector.
+		assert_noop!(
+			<Scheduler as Anon<_, _, _>>::next_dispatch_time(address),
+			DispatchError::Unavailable
+		);
+	});
+}
+
 /// Re-scheduling a task changes its next dispatch time.
 #[test]
 fn scheduler_v3_anon_reschedule_and_next_schedule_time_work() {

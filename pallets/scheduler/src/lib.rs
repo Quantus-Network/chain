@@ -344,6 +344,8 @@ pub mod pallet {
 		RescheduleNoChange,
 		/// Attempt to use a non-named function on a named task.
 		Named,
+		/// Periodic scheduling is not supported.
+		PeriodicNotSupported,
 	}
 
 	#[pallet::hooks]
@@ -1042,9 +1044,8 @@ impl<T: Config> Pallet<T> {
 
 			// Put the task back in the agenda if it was not executed.
 			agenda[agenda_index as usize] = match result {
-				// Preimage not available -- slot may contain Some(task) to retry later,
-				// or None if permanently removed (e.g. overweight). Not counted as
-				// postponed since re-processing this block won't help.
+				// Preimage unavailable or permanently overweight -- task is removed (None).
+				// Not counted as postponed since re-processing this block won't help.
 				Err((Unavailable, slot)) => slot,
 				// Too heavy for this block but may fit next block.
 				Err((Overweight, slot)) => {
@@ -1287,7 +1288,9 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		assert!(maybe_periodic.is_none(), "Periodic scheduling is not supported");
+		if maybe_periodic.is_some() {
+			return Err(Error::<T>::PeriodicNotSupported.into());
+		}
 		Self::do_schedule(when.into(), priority, origin, call)
 	}
 
@@ -1307,9 +1310,9 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 	) -> Result<BlockNumberFor<T>, DispatchError> {
 		Agenda::<T>::get(when)
 			.get(index as usize)
+			.and_then(|slot| slot.as_ref()) // Verify slot contains a task, not just exists
 			.ok_or(DispatchError::Unavailable)
-			.map(|_| when.as_block_number())
-			.and_then(|x| x.ok_or(DispatchError::Unavailable))
+			.and_then(|_| when.as_block_number().ok_or(DispatchError::Unavailable))
 	}
 }
 
@@ -1327,10 +1330,9 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		assert!(
-			maybe_periodic.is_none(),
-			"Periodic scheduling is not supported for schedule named"
-		);
+		if maybe_periodic.is_some() {
+			return Err(Error::<T>::PeriodicNotSupported.into());
+		}
 		Self::do_schedule_named(id, when.into(), priority, origin, call)
 	}
 
@@ -1348,7 +1350,10 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 	fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
 		Lookup::<T>::get(id)
 			.and_then(|(when, index)| {
-				Agenda::<T>::get(when).get(index as usize).map(|_| when.as_block_number())
+				Agenda::<T>::get(when)
+					.get(index as usize)
+					.and_then(|slot| slot.as_ref()) // Verify slot contains a task
+					.map(|_| when.as_block_number())
 			})
 			.ok_or(DispatchError::Unavailable)
 			.and_then(|x| x.ok_or(DispatchError::Unavailable))
@@ -1392,6 +1397,7 @@ impl<T: Config>
 			.and_then(|(when, index)| {
 				Agenda::<T>::get(when)
 					.get(index as usize)
+					.and_then(|slot| slot.as_ref()) // Verify slot contains a task
 					.ok_or(DispatchError::Unavailable)
 					.and_then(|_| when.as_block_number().ok_or(DispatchError::Unavailable))
 			})
