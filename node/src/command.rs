@@ -564,7 +564,8 @@ mod tests {
 		cli::QuantusAddressType,
 		tests::data::quantus_key_test_data::{
 			EXPECTED_PUBLIC_KEY_HEX, EXPECTED_SECRET_KEY_HEX, TEST_ADDRESS, TEST_ADDRESS_HD_0,
-			TEST_ADDRESS_HD_1, TEST_MNEMONIC, TEST_SEED_HEX,
+			TEST_ADDRESS_HD_1, TEST_MNEMONIC, TEST_SEED_HEX, TEST_WORMHOLE_ADDRESS,
+			TEST_WORMHOLE_PREIMAGE,
 		},
 	};
 
@@ -742,5 +743,17 @@ mod tests {
 		assert_eq!(master.address, TEST_ADDRESS);
 		assert_eq!(child0.address, TEST_ADDRESS_HD_0);
 		assert_eq!(child1.address, TEST_ADDRESS_HD_1);
+	}
+
+	#[test]
+	fn test_derive_wormhole_from_mnemonic_known_values() {
+		let path = format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/0'/0'/0'");
+		let pair = derive_wormhole_from_mnemonic(TEST_MNEMONIC, None, &path).unwrap();
+
+		let wormhole_address = WormholeAddress(H256::from(pair.address));
+		let account_id = wormhole_address.into_account();
+
+		assert_eq!(account_id.to_ss58check(), TEST_WORMHOLE_ADDRESS);
+		assert_eq!(hex::encode(pair.first_hash), TEST_WORMHOLE_PREIMAGE);
 	}
 }
