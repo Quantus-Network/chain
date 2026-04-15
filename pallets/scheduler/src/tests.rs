@@ -1449,10 +1449,9 @@ fn cancel_retries_works() {
 }
 
 #[test]
-fn unavailable_preimage_removes_lookup_known_limitation() {
-	// When a preimage is unavailable, the task becomes stranded: the preimage reference
-	// is dropped but the task remains in the Agenda. The Lookup is also removed because
-	// keeping it would cause a double-drop on cancel. This is a known limitation.
+fn unavailable_preimage_removes_task_completely() {
+	// When a preimage is unavailable, the task is a terminal failure: it cannot execute
+	// without its call data. The task is completely removed (Agenda, Lookup, Retries).
 	new_test_ext().execute_with(|| {
 		let call =
 			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(1000, 0) });
@@ -1475,41 +1474,22 @@ fn unavailable_preimage_removes_lookup_known_limitation() {
 		assert!(logger::log().is_empty());
 
 		// CallUnavailable event was emitted.
-		assert_eq!(
-			System::events().last().unwrap().event,
-			crate::Event::CallUnavailable {
+		assert!(System::events().iter().any(|e| matches!(
+			e.event,
+			RuntimeEvent::Scheduler(crate::Event::CallUnavailable {
 				task: (BlockNumberOrTimestamp::BlockNumber(4), 0),
-				id: Some(name)
-			}
-			.into()
-		);
+				id: Some(_)
+			})
+		)));
 
 		// Preimage reference was dropped.
 		assert!(!Preimage::is_requested(&hash));
 
-		// Lookup is removed because preimage was dropped (known limitation).
-		// The task is effectively stranded and unreachable by name.
+		// Lookup is removed.
 		assert!(!Lookup::<Test>::contains_key(name));
 
-		// The agenda still contains the call (stranded).
-		let agenda = Agenda::<Test>::iter().collect::<Vec<_>>();
-		assert_eq!(agenda.len(), 1);
-		assert_eq!(
-			agenda[0].1,
-			vec![Some(Scheduled {
-				maybe_id: Some(name),
-				priority: 127,
-				call: hashed,
-				origin: root().into(),
-				_phantom: Default::default(),
-			})]
-		);
-
-		// Rescheduling by name fails because Lookup was removed.
-		assert_err!(
-			Scheduler::do_reschedule_named(name, DispatchTime::At(1001)),
-			Error::<Test>::NotFound
-		);
+		// Agenda is cleaned up - task is completely removed.
+		assert_eq!(Agenda::<Test>::iter().count(), 0);
 	});
 }
 

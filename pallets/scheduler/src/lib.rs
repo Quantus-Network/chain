@@ -1089,37 +1089,32 @@ impl<T: Config> Pallet<T> {
 		// permanently overweight, or preimage unavailable). Tasks that return to the Agenda
 		// due to temporary overweight keep their Lookup intact so they remain reachable by
 		// name for cancel_named/reschedule_named.
-		//
-		// For preimage unavailable: Lookup is removed because the preimage reference is
-		// dropped, leaving the task stranded. Keeping Lookup would cause double-drop on
-		// cancel. This is a known limitation documented below.
 
 		// Try to retrieve the actual call data. For inline calls this is a no-op decode.
 		// For lookup calls this fetches from the preimage store.
 		let (call, lookup_len) = match T::Preimages::peek(&task.call) {
 			Ok(c) => c,
 			Err(_) => {
-				// Preimage not available (not yet submitted or previously dropped).
-				// This is a terminal outcome for named task reachability: we must drop
-				// the preimage reference and remove Lookup. The task remains in Agenda
-				// but is effectively stranded (known limitation).
+				// Preimage not available. This is a terminal failure: the task cannot
+				// execute without its call data. Clean up completely (Lookup, Retries,
+				// preimage reference) and remove from Agenda by returning None.
 				if let Some(ref id) = task.maybe_id {
 					Lookup::<T>::remove(id);
 				}
+				Retries::<T>::remove((when, agenda_index));
+				T::Preimages::drop(&task.call);
 
 				Self::deposit_event(Event::CallUnavailable {
 					task: (when, agenda_index),
 					id: task.maybe_id,
 				});
 
-				T::Preimages::drop(&task.call);
-
 				let _ = weight.try_consume(T::WeightInfo::service_task(
 					task.call.lookup_len().map(|x| x as usize),
 					task.maybe_id.is_some(),
 				));
 
-				return Err((Unavailable, Some(task)));
+				return Err((Unavailable, None));
 			},
 		};
 
