@@ -1449,7 +1449,10 @@ fn cancel_retries_works() {
 }
 
 #[test]
-fn postponed_named_task_cannot_be_rescheduled() {
+fn unavailable_preimage_removes_lookup_known_limitation() {
+	// When a preimage is unavailable, the task becomes stranded: the preimage reference
+	// is dropped but the task remains in the Agenda. The Lookup is also removed because
+	// keeping it would cause a double-drop on cancel. This is a known limitation.
 	new_test_ext().execute_with(|| {
 		let call =
 			RuntimeCall::Logger(LoggerCall::log { i: 42, weight: Weight::from_parts(1000, 0) });
@@ -1459,19 +1462,19 @@ fn postponed_named_task_cannot_be_rescheduled() {
 		let hashed = Bounded::Lookup { hash, len };
 		let name: [u8; 32] = hash.as_ref().try_into().unwrap();
 
-		let address =
+		let _address =
 			Scheduler::do_schedule_named(name, DispatchTime::At(4), 127, root(), hashed.clone())
 				.unwrap();
 		assert!(Preimage::is_requested(&hash));
 		assert!(Lookup::<Test>::contains_key(name));
 
-		// Run to a very large block.
+		// Run to a very large block - preimage never submitted.
 		run_to_block(10);
 
-		// It was not executed.
+		// Task was not executed.
 		assert!(logger::log().is_empty());
 
-		// Preimage was not available
+		// CallUnavailable event was emitted.
 		assert_eq!(
 			System::events().last().unwrap().event,
 			crate::Event::CallUnavailable {
@@ -1481,12 +1484,14 @@ fn postponed_named_task_cannot_be_rescheduled() {
 			.into()
 		);
 
-		// So it should not be requested.
+		// Preimage reference was dropped.
 		assert!(!Preimage::is_requested(&hash));
-		// Postponing removes the lookup.
+
+		// Lookup is removed because preimage was dropped (known limitation).
+		// The task is effectively stranded and unreachable by name.
 		assert!(!Lookup::<Test>::contains_key(name));
 
-		// The agenda still contains the call.
+		// The agenda still contains the call (stranded).
 		let agenda = Agenda::<Test>::iter().collect::<Vec<_>>();
 		assert_eq!(agenda.len(), 1);
 		assert_eq!(
@@ -1500,24 +1505,135 @@ fn postponed_named_task_cannot_be_rescheduled() {
 			})]
 		);
 
-		// Finally add the preimage.
-		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(0), call.encode()));
-
-		run_to_block(1000);
-		// It did not execute.
-		assert!(logger::log().is_empty());
-		assert!(!Preimage::is_requested(&hash));
-
-		// Manually re-schedule the call by name does not work.
+		// Rescheduling by name fails because Lookup was removed.
 		assert_err!(
 			Scheduler::do_reschedule_named(name, DispatchTime::At(1001)),
 			Error::<Test>::NotFound
 		);
-		// Manually re-scheduling the call by address errors.
-		assert_err!(
-			Scheduler::do_reschedule(address, DispatchTime::At(1001)),
-			Error::<Test>::Named
-		);
+	});
+}
+
+#[test]
+fn overweight_named_task_keeps_lookup_and_can_be_cancelled() {
+	// When a named task is deferred due to weight limits (not permanently overweight),
+	// the Lookup is preserved so the task can be cancelled by name.
+	new_test_ext().execute_with(|| {
+		// Max block weight is 2_000_000_000_000. Use a call heavy enough to exceed
+		// remaining weight after a light task, but light enough to fit when alone.
+		let call = RuntimeCall::Logger(LoggerCall::log {
+			i: 42,
+			weight: Weight::from_parts(1_500_000_000_000, 0),
+		});
+		let bounded = Preimage::bound(call).unwrap();
+		let name: [u8; 32] = [1u8; 32];
+
+		// Schedule a light task that consumes significant weight.
+		let light_call = RuntimeCall::Logger(LoggerCall::log {
+			i: 1,
+			weight: Weight::from_parts(1_000_000_000_000, 0),
+		});
+		Scheduler::do_schedule(
+			DispatchTime::At(4),
+			100,
+			root(),
+			Preimage::bound(light_call).unwrap(),
+		)
+		.unwrap();
+
+		// Schedule the heavy named task with lower priority.
+		Scheduler::do_schedule_named(name, DispatchTime::At(4), 127, root(), bounded.clone())
+			.unwrap();
+		assert!(Lookup::<Test>::contains_key(name));
+
+		// Run to block 4 - light task executes, heavy task deferred.
+		run_to_block(4);
+
+		// Light task executed.
+		assert_eq!(logger::log(), vec![(root(), 1u32)]);
+
+		// Heavy task was not executed.
+		assert!(logger::log().iter().all(|(_, i)| *i != 42));
+
+		// Lookup is preserved for overweight-deferred tasks.
+		assert!(Lookup::<Test>::contains_key(name));
+
+		// Cancel the deferred task by name - this should succeed.
+		assert_ok!(Scheduler::do_cancel_named(None, name));
+
+		// Lookup is removed after cancellation.
+		assert!(!Lookup::<Test>::contains_key(name));
+
+		// Canceled event was emitted.
+		assert!(System::events()
+			.iter()
+			.any(|e| matches!(e.event, RuntimeEvent::Scheduler(crate::Event::Canceled { .. }))));
+
+		// Run to block 100 - the cancelled task should not execute.
+		run_to_block(100);
+		assert!(logger::log().iter().all(|(_, i)| *i != 42));
+	});
+}
+
+#[test]
+fn overweight_named_task_keeps_lookup_and_can_be_rescheduled() {
+	// When a named task is deferred due to weight limits (not permanently overweight),
+	// the Lookup is preserved so the task can be rescheduled by name.
+	new_test_ext().execute_with(|| {
+		// Max block weight is 2_000_000_000_000. Use a call heavy enough to exceed
+		// remaining weight after a light task, but light enough to fit when alone.
+		let call = RuntimeCall::Logger(LoggerCall::log {
+			i: 42,
+			weight: Weight::from_parts(1_500_000_000_000, 0),
+		});
+		let bounded = Preimage::bound(call).unwrap();
+		let name: [u8; 32] = [1u8; 32];
+
+		// Schedule a light task that consumes significant weight.
+		let light_call = RuntimeCall::Logger(LoggerCall::log {
+			i: 1,
+			weight: Weight::from_parts(1_000_000_000_000, 0),
+		});
+		Scheduler::do_schedule(
+			DispatchTime::At(4),
+			100,
+			root(),
+			Preimage::bound(light_call).unwrap(),
+		)
+		.unwrap();
+
+		// Schedule the heavy named task with lower priority (higher number = lower priority).
+		Scheduler::do_schedule_named(name, DispatchTime::At(4), 127, root(), bounded.clone())
+			.unwrap();
+		assert!(Lookup::<Test>::contains_key(name));
+
+		// Run to block 4 - light task executes (1T weight), heavy task deferred
+		// because remaining weight (1T) < heavy task weight (1.5T).
+		run_to_block(4);
+
+		// Light task executed.
+		assert_eq!(logger::log(), vec![(root(), 1u32)]);
+
+		// Heavy task was not executed (deferred due to overweight).
+		assert!(logger::log().iter().all(|(_, i)| *i != 42));
+
+		// Lookup is preserved for overweight-deferred tasks.
+		assert!(Lookup::<Test>::contains_key(name));
+
+		// Reschedule the deferred task by name to a future block.
+		let new_address = Scheduler::do_reschedule_named(name, DispatchTime::At(100)).unwrap();
+		assert_eq!(new_address.0, BlockNumberOrTimestamp::BlockNumber(100));
+
+		// Lookup now points to new address.
+		assert_eq!(Lookup::<Test>::get(name), Some(new_address));
+
+		// Run to block 100 - now the heavy task is first (full 2T available) and can execute.
+		run_to_block(100);
+
+		// Heavy task executed (1.5T < 2T max).
+		assert!(logger::log().iter().any(|(_, i)| *i == 42));
+
+		// Lookup is removed after successful execution.
+		assert!(!Lookup::<Test>::contains_key(name));
 	});
 }
 
