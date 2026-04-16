@@ -344,6 +344,8 @@ pub mod pallet {
 		RescheduleNoChange,
 		/// Attempt to use a non-named function on a named task.
 		Named,
+		/// Periodic scheduling is not supported.
+		PeriodicNotSupported,
 	}
 
 	#[pallet::hooks]
@@ -795,16 +797,22 @@ impl<T: Config> Pallet<T> {
 			if let Some((when, index)) = lookup.take() {
 				let i = index as usize;
 				Agenda::<T>::try_mutate(when, |agenda| -> DispatchResult {
-					if let Some(s) = agenda.get_mut(i) {
-						if let (Some(ref o), Some(ref s)) = (origin, s.borrow()) {
-							Self::ensure_privilege(o, &s.origin)?;
-						}
-						if let Some(ref s) = s {
-							Retries::<T>::remove((when, index));
-							T::Preimages::drop(&s.call);
-						}
-						*s = None;
+					// Validate that the slot exists and contains an actual task.
+					// Return NotFound if the Lookup pointed to an empty or out-of-range slot.
+					let slot = agenda.get_mut(i).ok_or(Error::<T>::NotFound)?;
+					let task = slot.as_ref().ok_or(Error::<T>::NotFound)?;
+
+					// Check privilege if origin is provided.
+					if let Some(ref o) = origin {
+						Self::ensure_privilege(o, &task.origin)?;
 					}
+
+					// Clean up task resources.
+					Retries::<T>::remove((when, index));
+					T::Preimages::drop(&task.call);
+
+					// Clear the slot.
+					*slot = None;
 					Ok(())
 				})?;
 				Self::cleanup_agenda(when);
@@ -1036,9 +1044,8 @@ impl<T: Config> Pallet<T> {
 
 			// Put the task back in the agenda if it was not executed.
 			agenda[agenda_index as usize] = match result {
-				// Preimage not available -- slot may contain Some(task) to retry later,
-				// or None if permanently removed (e.g. overweight). Not counted as
-				// postponed since re-processing this block won't help.
+				// Preimage unavailable or permanently overweight -- task is removed (None).
+				// Not counted as postponed since re-processing this block won't help.
 				Err((Unavailable, slot)) => slot,
 				// Too heavy for this block but may fit next block.
 				Err((Overweight, slot)) => {
@@ -1079,34 +1086,36 @@ impl<T: Config> Pallet<T> {
 		is_first: bool,
 		task: ScheduledOf<T>,
 	) -> Result<(), (ServiceTaskError, Option<ScheduledOf<T>>)> {
-		// Eagerly remove the name->address lookup. If the task succeeds or gets rescheduled
-		// via a retry, the new address will be re-inserted by place_task. If it fails,
-		// the name is freed.
-		if let Some(ref id) = task.maybe_id {
-			Lookup::<T>::remove(id);
-		}
+		// NOTE: Lookup removal is deferred until terminal outcomes (successful dispatch,
+		// permanently overweight, or preimage unavailable). Tasks that return to the Agenda
+		// due to temporary overweight keep their Lookup intact so they remain reachable by
+		// name for cancel_named/reschedule_named.
 
 		// Try to retrieve the actual call data. For inline calls this is a no-op decode.
 		// For lookup calls this fetches from the preimage store.
 		let (call, lookup_len) = match T::Preimages::peek(&task.call) {
 			Ok(c) => c,
 			Err(_) => {
-				// Preimage not available (not yet submitted or previously dropped).
-				// Drop our reference, emit an event, and return the task back to the
-				// agenda so it can be retried if the preimage appears later.
+				// Preimage not available. This is a terminal failure: the task cannot
+				// execute without its call data. Clean up completely (Lookup, Retries,
+				// preimage reference) and remove from Agenda by returning None.
+				if let Some(ref id) = task.maybe_id {
+					Lookup::<T>::remove(id);
+				}
+				Retries::<T>::remove((when, agenda_index));
+				T::Preimages::drop(&task.call);
+
 				Self::deposit_event(Event::CallUnavailable {
 					task: (when, agenda_index),
 					id: task.maybe_id,
 				});
-
-				T::Preimages::drop(&task.call);
 
 				let _ = weight.try_consume(T::WeightInfo::service_task(
 					task.call.lookup_len().map(|x| x as usize),
 					task.maybe_id.is_some(),
 				));
 
-				return Err((Unavailable, Some(task)));
+				return Err((Unavailable, None));
 			},
 		};
 
@@ -1117,6 +1126,10 @@ impl<T: Config> Pallet<T> {
 
 		match Self::execute_dispatch(weight, task.origin.clone(), call) {
 			Err(()) if is_first => {
+				// Terminal outcome: permanently overweight. Remove Lookup since task won't retry.
+				if let Some(ref id) = task.maybe_id {
+					Lookup::<T>::remove(id);
+				}
 				T::Preimages::drop(&task.call);
 				Self::deposit_event(Event::PermanentlyOverweight {
 					task: (when, agenda_index),
@@ -1126,6 +1139,11 @@ impl<T: Config> Pallet<T> {
 			},
 			Err(()) => Err((Overweight, Some(task))),
 			Ok(result) => {
+				// Terminal outcome: dispatch completed. Remove Lookup since task is done.
+				if let Some(ref id) = task.maybe_id {
+					Lookup::<T>::remove(id);
+				}
+
 				let failed = result.is_err();
 				let maybe_retry_config = Retries::<T>::take((when, agenda_index));
 
@@ -1270,7 +1288,9 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		assert!(maybe_periodic.is_none(), "Periodic scheduling is not supported");
+		if maybe_periodic.is_some() {
+			return Err(Error::<T>::PeriodicNotSupported.into());
+		}
 		Self::do_schedule(when.into(), priority, origin, call)
 	}
 
@@ -1290,9 +1310,9 @@ impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall
 	) -> Result<BlockNumberFor<T>, DispatchError> {
 		Agenda::<T>::get(when)
 			.get(index as usize)
+			.and_then(|slot| slot.as_ref()) // Verify slot contains a task, not just exists
 			.ok_or(DispatchError::Unavailable)
-			.map(|_| when.as_block_number())
-			.and_then(|x| x.ok_or(DispatchError::Unavailable))
+			.and_then(|_| when.as_block_number().ok_or(DispatchError::Unavailable))
 	}
 }
 
@@ -1310,10 +1330,9 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<Self::Address, DispatchError> {
-		assert!(
-			maybe_periodic.is_none(),
-			"Periodic scheduling is not supported for schedule named"
-		);
+		if maybe_periodic.is_some() {
+			return Err(Error::<T>::PeriodicNotSupported.into());
+		}
 		Self::do_schedule_named(id, when.into(), priority, origin, call)
 	}
 
@@ -1331,7 +1350,10 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 	fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
 		Lookup::<T>::get(id)
 			.and_then(|(when, index)| {
-				Agenda::<T>::get(when).get(index as usize).map(|_| when.as_block_number())
+				Agenda::<T>::get(when)
+					.get(index as usize)
+					.and_then(|slot| slot.as_ref()) // Verify slot contains a task
+					.map(|_| when.as_block_number())
 			})
 			.ok_or(DispatchError::Unavailable)
 			.and_then(|x| x.ok_or(DispatchError::Unavailable))
@@ -1375,6 +1397,7 @@ impl<T: Config>
 			.and_then(|(when, index)| {
 				Agenda::<T>::get(when)
 					.get(index as usize)
+					.and_then(|slot| slot.as_ref()) // Verify slot contains a task
 					.ok_or(DispatchError::Unavailable)
 					.and_then(|_| when.as_block_number().ok_or(DispatchError::Unavailable))
 			})
