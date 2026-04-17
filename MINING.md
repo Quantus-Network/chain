@@ -242,18 +242,13 @@ For high-performance mining, you can offload the mining process to a separate se
 
 ### Prerequisites
 
-1. **Build Node:**
-   ```bash
-   # From workspace root
-   cargo build --release -p quantus-node
-   ```
+1. **Download Node Binary:**
 
-2. **Get External Miner:**
-   ```bash
-   git clone https://github.com/Quantus-Network/quantus-miner
-   cd quantus-miner
-   cargo build --release
-   ```
+   Get the latest `quantus-node` binary from [GitHub Releases](https://github.com/Quantus-Network/chain/releases/latest).
+
+2. **Download External Miner Binary:**
+
+   Get the latest `quantus-miner` binary from [GitHub Releases](https://github.com/Quantus-Network/quantus-miner/releases/latest).
 
 ### Setup with Wormhole Addresses
 
@@ -263,21 +258,22 @@ For high-performance mining, you can offload the mining process to a separate se
    ```
    Save the `inner_hash` value.
 
-2. **Start External Miner** (in separate terminal):
-   ```bash
-   RUST_LOG=info ./target/release/quantus-miner
-   ```
-   *(Default: `http://127.0.0.1:9833`)*
-
-3. **Start Node with External Miner** (in another terminal):
+2. **Start the Node** (QUIC server for miners):
    ```bash
    # Replace <YOUR_PREIMAGE> with the inner_hash from step 1
-   RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
+   RUST_LOG=info,sc_consensus_pow=debug ./quantus-node \
     --validator \
     --chain planck \
-    --external-miner-url http://127.0.0.1:9833 \
+    --miner-listen-port 9833 \
     --rewards-inner-hash <YOUR_PREIMAGE>
    ```
+   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled.
+
+3. **Start External Miner** (in separate terminal, connects to the node):
+   ```bash
+   RUST_LOG=info ./quantus-miner serve --node-addr 127.0.0.1:9833
+   ```
+   Useful flags: `--cpu-workers <N>`, `--gpu-devices <N>`, `--metrics-port <PORT>` (default `9900`). If the node is on another host, replace `127.0.0.1` with its IP.
 
 For developers building custom miner implementations, see the [External Miner Protocol Specification](#external-miner-protocol-specification) section below.
 
