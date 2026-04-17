@@ -8485,7 +8485,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-node"
-version = "0.6.1"
+version = "0.6.2-zero-noise"
 dependencies = [
  "clap",
  "frame-benchmarking-cli",
@@ -8549,7 +8549,7 @@ dependencies = [
 
 [[package]]
 name = "quantus-runtime"
-version = "0.6.0-perfect-resonance"
+version = "0.6.2-zero-noise"
 dependencies = [
  "env_logger",
  "frame-benchmarking",
