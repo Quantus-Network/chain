@@ -338,6 +338,18 @@ pub fn run() -> sc_cli::Result<()> {
 									println!(
                                         "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
                                     );
+									if let Some(phrase) = &details.secret_phrase {
+										println!("Secret phrase: {}", phrase);
+									}
+									println!("Account index: {}", wallet_index);
+									if *no_derivation {
+										println!("Derivation path: master (no derivation)");
+									} else {
+										println!(
+											"Derivation path: m/44'/{}/{}'/0'/0'",
+											QUANTUS_WORMHOLE_CHAIN_ID, wallet_index
+										);
+									}
 									println!("Address: {}", details.address);
 									println!("Address hex: {}", details.public_key_hex);
 									println!(
@@ -345,8 +357,6 @@ pub fn run() -> sc_cli::Result<()> {
 										details.inner_hash.unwrap_or_default()
 									);
 									println!("Secret: {}", details.secret_key_hex);
-									// Pub key and Seed are N/A for wormhole as per
-									// QuantusKeyDetails
 									println!(
                                         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                                     );
