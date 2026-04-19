@@ -2,13 +2,9 @@
 
 extern crate alloc;
 
-use core::marker::PhantomData;
-
-use codec::{Decode, MaxEncodedLen};
-use frame_support::StorageHasher;
 use lazy_static::lazy_static;
 pub use pallet::*;
-pub use qp_poseidon::{PoseidonHasher as PoseidonCore, ToFelts};
+pub use qp_poseidon::ToFelts;
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -18,13 +14,12 @@ mod mock;
 #[cfg(test)]
 mod tests;
 pub mod weights;
-use sp_metadata_ir::StorageHasherIR;
 pub use weights::*;
 
 lazy_static! {
 	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
-		let verifier_bytes = include_bytes!("../aggregated_verifier.bin");
-		let common_bytes = include_bytes!("../aggregated_common.bin");
+		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_verifier.bin"));
+		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_common.bin"));
 		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
 	};
 }
@@ -40,83 +35,126 @@ pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static s
 /// converting from circuit amounts to on-chain amounts.
 pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
-// We use a generic struct so we can pass the specific Key type to the hasher
-pub struct PoseidonStorageHasher<Key>(PhantomData<Key>);
-
-impl<Key: Decode + ToFelts + 'static> StorageHasher for PoseidonStorageHasher<Key> {
-	// We are lying here, but maybe it's ok because it's just metadata
-	const METADATA: StorageHasherIR = StorageHasherIR::Identity;
-	type Output = [u8; 32];
-
-	fn hash(x: &[u8]) -> Self::Output {
-		PoseidonCore::hash_storage::<Key>(x)
-	}
-
-	fn max_len<K: MaxEncodedLen>() -> usize {
-		32
-	}
-}
-
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::{PoseidonStorageHasher, ToFelts, WeightInfo};
+	use crate::{ToFelts, WeightInfo};
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
-		dispatch::DispatchResult,
+		dispatch::{DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo},
 		pallet_prelude::*,
 		traits::{
-			fungible::{Mutate, Unbalanced},
-			fungibles::{self, Mutate as FungiblesMutate},
-			Currency,
+			fungible::{Inspect as FungibleInspect, Mutate, Unbalanced},
+			fungibles::{self},
+			BuildGenesisConfig, Currency,
 		},
 	};
 	use frame_system::pallet_prelude::*;
-	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, D, F};
+	use pallet_zk_tree::ZkTreeRecorder;
+	use qp_wormhole_verifier::{
+		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, D,
+		F,
+	};
 	use sp_runtime::{
-		traits::{MaybeDisplay, Saturating, Zero},
+		traits::{MaybeDisplay, One, Saturating, Zero},
 		transaction_validity::{
-			InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
-			ValidTransaction,
+			InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 		},
 		Permill,
 	};
 
-	pub type BalanceOf<T> =
-		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-	pub type AssetIdOf<T> = <<T as Config>::Assets as fungibles::Inspect<
-		<T as frame_system::Config>::AccountId,
-	>>::AssetId;
-	pub type AssetBalanceOf<T> = <<T as Config>::Assets as fungibles::Inspect<
-		<T as frame_system::Config>::AccountId,
-	>>::Balance;
-	pub type TransferProofKey<T> = (
-		AssetIdOf<T>,
-		<T as Config>::TransferCount,
-		<T as Config>::WormholeAccountId,
-		<T as Config>::WormholeAccountId,
-		BalanceOf<T>,
-	);
+	pub type BalanceOf<T> = <T as Config>::NativeBalance;
+	pub type AssetBalanceOf<T> = <T as Config>::AssetBalance;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
-	#[pallet::config]
-	pub trait Config: frame_system::Config
-	where
-		AssetIdOf<Self>: Default + From<u32> + Clone + ToFelts,
-		BalanceOf<Self>: Default + ToFelts,
-		AssetBalanceOf<Self>: Into<BalanceOf<Self>> + From<BalanceOf<Self>>,
-	{
-		/// Currency type used for native token transfers and minting
-		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = BalanceOf<Self>>
-			+ Unbalanced<<Self as frame_system::Config>::AccountId>
-			+ Currency<<Self as frame_system::Config>::AccountId>;
+	/// Genesis configuration for recording transfer proofs.
+	///
+	/// This allows addresses to be endowed at genesis with funds that can be spent
+	/// using ZK proofs. The endowments are stored during genesis and processed in
+	/// `on_initialize` at block 1, which calls `record_transfer` for each address.
+	/// This records both the TransferProof in storage AND emits NativeTransferred events.
+	///
+	/// We defer to block 1 because events emitted during genesis_build are not
+	/// persisted (Substrate limitation). By processing at block 1, indexers like
+	/// Subsquid can track these transfers.
+	///
+	/// The chain does not distinguish between "wormhole addresses" and regular addresses -
+	/// any address can have transfer proofs recorded and spend via ZK proofs.
+	///
+	/// Note: The actual balance must also be set via BalancesConfig separately.
+	#[pallet::genesis_config]
+	#[derive(frame_support::DefaultNoBound)]
+	pub struct GenesisConfig<T: Config> {
+		/// Addresses to record transfer proofs for at genesis: (address, amount).
+		/// A TransferProof will be recorded for each, enabling ZK spending.
+		/// Uses u128 for serde compatibility; converted to BalanceOf<T> at build time.
+		pub endowed_addresses: Vec<(T::WormholeAccountId, u128)>,
+	}
 
-		/// Assets type used for managing fungible assets
-		type Assets: fungibles::Inspect<<Self as frame_system::Config>::AccountId>
-			+ fungibles::Mutate<<Self as frame_system::Config>::AccountId>
+	#[pallet::genesis_build]
+	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+		fn build(&self) {
+			// Store endowments to be processed in on_initialize at block 1.
+			// We can't call record_transfer here because events emitted during
+			// genesis_build are not persisted (Substrate limitation).
+			// By deferring to block 1, both storage and events are handled correctly.
+			let pending: Vec<(T::WormholeAccountId, BalanceOf<T>)> = self
+				.endowed_addresses
+				.iter()
+				.map(|(to, amount)| {
+					let balance: BalanceOf<T> = (*amount).try_into().unwrap_or_else(|_| {
+						panic!("Genesis endowment amount {} exceeds Balance capacity", amount)
+					});
+					(to.clone(), balance)
+				})
+				.collect();
+
+			if !pending.is_empty() {
+				GenesisEndowmentsPending::<T>::put(pending);
+			}
+		}
+	}
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config {
+		/// Native balance type with ToFelts bound for Poseidon hashing in transfer proofs.
+		type NativeBalance: Parameter
+			+ Member
+			+ Default
+			+ Copy
+			+ ToFelts
+			+ MaxEncodedLen
+			+ sp_runtime::traits::AtLeast32BitUnsigned
+			+ sp_runtime::traits::CheckedAdd
+			+ sp_runtime::traits::CheckedSub
+			+ sp_runtime::traits::Zero
+			+ sp_runtime::traits::Saturating;
+
+		/// Currency type used for native token transfers and minting.
+		type Currency: Mutate<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>
+			+ Unbalanced<<Self as frame_system::Config>::AccountId>
+			+ Currency<<Self as frame_system::Config>::AccountId, Balance = Self::NativeBalance>;
+
+		/// Assets type used for managing fungible assets.
+		/// The AssetId must match Self::AssetId for consistency.
+		type Assets: fungibles::Inspect<
+				<Self as frame_system::Config>::AccountId,
+				AssetId = Self::AssetId,
+				Balance = Self::AssetBalance,
+			> + fungibles::Mutate<<Self as frame_system::Config>::AccountId>
 			+ fungibles::Create<<Self as frame_system::Config>::AccountId>;
+
+		/// Asset ID type with bounds needed for Poseidon hashing in transfer proofs.
+		type AssetId: Parameter + Member + Default + From<u32> + Clone + ToFelts + MaxEncodedLen;
+
+		/// Asset balance type that can convert to/from native balance.
+		type AssetBalance: Parameter
+			+ Member
+			+ Into<Self::NativeBalance>
+			+ From<Self::NativeBalance>
+			+ MaxEncodedLen;
 
 		/// Transfer count type used in storage
 		type TransferCount: Parameter
@@ -125,6 +163,7 @@ pub mod pallet {
 			+ Saturating
 			+ Copy
 			+ sp_runtime::traits::One
+			+ Into<u64>
 			+ ToFelts;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
@@ -160,6 +199,14 @@ pub mod pallet {
 			+ ToFelts
 			+ Into<<Self as frame_system::Config>::AccountId>
 			+ From<<Self as frame_system::Config>::AccountId>;
+
+		/// ZK Tree recorder for inserting transfer leaves into the Merkle tree.
+		/// Set to `()` to disable ZK tree recording.
+		type ZkTree: pallet_zk_tree::ZkTreeRecorder<
+			<Self as frame_system::Config>::AccountId,
+			Self::AssetId,
+			Self::NativeBalance,
+		>;
 	}
 
 	#[pallet::storage]
@@ -167,38 +214,50 @@ pub mod pallet {
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
 
-	/// Transfer proofs for wormhole transfers (both native and assets)
-	#[pallet::storage]
-	#[pallet::getter(fn transfer_proof)]
-	pub type TransferProof<T: Config> = StorageMap<
-		_,
-		PoseidonStorageHasher<TransferProofKey<T>>,
-		TransferProofKey<T>,
-		(),
-		OptionQuery,
-	>;
-
-	/// Transfer count for all wormhole transfers
+	/// Transfer count per recipient - used to generate unique leaf indices in the ZK trie.
 	#[pallet::storage]
 	#[pallet::getter(fn transfer_count)]
 	pub type TransferCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::WormholeAccountId, T::TransferCount, ValueQuery>;
 
+	/// Genesis endowments pending event emission.
+	/// Stores (to_address, amount) for each genesis endowment.
+	/// These are processed in on_initialize at block 1 to emit NativeTransferred events,
+	/// then cleared. This ensures indexers like Subsquid can track genesis transfers.
+	///
+	/// Unbounded because it's only populated at genesis and cleared on block 1.
+	#[pallet::storage]
+	#[pallet::unbounded]
+	pub type GenesisEndowmentsPending<T: Config> =
+		StorageValue<_, Vec<(T::WormholeAccountId, BalanceOf<T>)>, ValueQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
+		/// A native token transfer was recorded.
+		///
+		/// The `leaf_index` can be used to fetch Merkle proofs via the
+		/// `zkTrie_getMerkleProof` RPC for ZK circuit verification.
 		NativeTransferred {
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: BalanceOf<T>,
 			transfer_count: T::TransferCount,
+			/// Index of this transfer in the ZK trie (for Merkle proof lookup)
+			leaf_index: u64,
 		},
+		/// A non-native asset transfer was recorded.
+		///
+		/// The `leaf_index` can be used to fetch Merkle proofs via the
+		/// `zkTrie_getMerkleProof` RPC for ZK circuit verification.
 		AssetTransferred {
-			asset_id: AssetIdOf<T>,
+			asset_id: T::AssetId,
 			from: <T as frame_system::Config>::AccountId,
 			to: <T as frame_system::Config>::AccountId,
 			amount: AssetBalanceOf<T>,
 			transfer_count: T::TransferCount,
+			/// Index of this transfer in the ZK trie (for Merkle proof lookup)
+			leaf_index: u64,
 		},
 		ProofVerified {
 			exit_amount: BalanceOf<T>,
@@ -208,16 +267,9 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		InvalidProof,
-		ProofDeserializationFailed,
-		VerificationFailed,
 		InvalidPublicInputs,
 		NullifierAlreadyUsed,
-		VerifierNotAvailable,
-		InvalidStorageRoot,
-		StorageRootMismatch,
 		BlockNotFound,
-		InvalidBlockNumber,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
@@ -226,85 +278,85 @@ pub mod pallet {
 		InvalidVolumeFeeRate,
 		/// Transfer amount is below the minimum required
 		TransferAmountBelowMinimum,
+		/// Only native asset (asset_id = 0) is supported in this version
+		NonNativeAssetNotSupported,
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		/// On block 1, process all genesis endowments by calling record_transfer.
+		/// This records transfer proofs and emits NativeTransferred events.
+		/// We defer this from genesis_build because events emitted during genesis
+		/// are not persisted (Substrate limitation).
+		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+			// Only process on block 1
+			if n != One::one() {
+				return Weight::zero();
+			}
+
+			let pending = GenesisEndowmentsPending::<T>::take();
+			if pending.is_empty() {
+				return Weight::zero();
+			}
+
+			let minting_account: T::WormholeAccountId = T::MintingAccount::get().into();
+			let num_endowments = pending.len() as u64;
+
+			for (to, amount) in pending {
+				// Record transfer proof and emit event
+				Self::record_transfer(T::AssetId::default(), &minting_account, &to, amount);
+			}
+
+			// Weight: 1 read (take pending) + N * (2 reads + 2 writes + 1 event) per endowment
+			T::DbWeight::get().reads_writes(1 + num_endowments * 2, num_endowments * 2)
+		}
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Verify an aggregated wormhole proof and process all transfers in the batch
+		/// Verify an aggregated wormhole proof and process all transfers in the batch.
+		///
+		/// Returns `DispatchResultWithPostInfo` to allow weight correction on early failures.
+		/// If validation fails before ZK verification, we return minimal weight.
+		/// If ZK verification fails, we return full weight since the work was done.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
 		pub fn verify_aggregated_proof(
 			origin: OriginFor<T>,
 			proof_bytes: Vec<u8>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			let verifier = crate::get_aggregated_verifier()
-				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			// Full validation including ZK verification (defense-in-depth, also done in
+			// validate_unsigned). Weight returned depends on which stage failed.
+			let (_proof, aggregated_inputs) = match Self::validate_proof(&proof_bytes) {
+				Ok(result) => result,
+				Err(e) => {
+					// Determine weight based on which stage failed
+					let actual_weight = match e {
+						// ZK verification was attempted - full weight consumed
+						Error::<T>::AggregatedVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_aggregated_proof()),
+						// Failed before ZK verification - minimal weight
+						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
+					};
+					return Err(DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo { actual_weight, pays_fee: Pays::No },
+						error: e.into(),
+					});
+				},
+			};
 
-			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
-				proof_bytes,
-				&verifier.circuit_data.common,
-			)
-			.map_err(|e| {
-				log::error!("Failed to deserialize aggregated proof: {:?}", e);
-				Error::<T>::AggregatedProofDeserializationFailed
-			})?;
-
-			// Verify the aggregated proof
-			verifier.verify(proof.clone()).map_err(|e| {
-				log::error!("Aggregated proof verification failed: {:?}", e);
-				Error::<T>::AggregatedVerificationFailed
-			})?;
-
-			// Parse aggregated public inputs
-			let aggregated_inputs = parse_aggregated_public_inputs(&proof).map_err(|e| {
-				log::error!("Failed to parse aggregated public inputs: {:?}", e);
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-
-			// Verify all nullifiers haven't been used and then mark them as used
+			// Mark nullifiers as used (validate_proof only checks existence)
 			let mut nullifier_list = Vec::<[u8; 32]>::new();
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
 					.as_ref()
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(nullifier_bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
 				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 				nullifier_list.push(nullifier_bytes);
 			}
-
-			// Convert block number from u32 to BlockNumberFor<T>
-			let block_number = BlockNumberFor::<T>::from(aggregated_inputs.block_data.block_number);
-
-			// Get the block hash for the specified block number
-			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
-
-			// Validate that the block exists by checking if it's not the default hash
-			// The default hash (all zeros) indicates the block doesn't exist
-			// If we don't check this a malicious prover can set the block_hash to 0
-			// and block_number in the future and this check will pass
-			let default_hash = T::Hash::default();
-			ensure!(block_hash != default_hash, Error::<T>::BlockNotFound);
-
-			// Ensure that the block hash from storage matches the one in public inputs
-			ensure!(
-				block_hash.as_ref() == aggregated_inputs.block_data.block_hash.as_ref(),
-				Error::<T>::InvalidPublicInputs
-			);
-
-			// Extract asset_id from aggregated public inputs
-			let asset_id: AssetIdOf<T> = aggregated_inputs.asset_id.into();
-
-			// Verify the volume fee rate matches our configured rate
-			ensure!(
-				aggregated_inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
-				Error::<T>::InvalidVolumeFeeRate
-			);
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
@@ -387,99 +439,95 @@ pub mod pallet {
 			//   - Burning: decreases total issuance by burn_amount
 			//   - Net change: +sum(output_amounts) - burn_amount
 			let burn_rate = T::VolumeFeesBurnRate::get();
-			let burn_amount_u128 = burn_rate * total_fee_u128;
+			let mut burn_amount_u128 = burn_rate * total_fee_u128;
 			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
 			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
-			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-			log::debug!(
-				"Fee calculation done: miner_fee={:?}, burn_amount={:?}",
-				miner_fee,
-				burn_amount
-			);
-
-			// Burn the burned portion by reducing total issuance
-			// This offsets the supply increase from minting exit amounts + miner_fee
-			// The PositiveImbalance is dropped, which is a no-op (already reduced issuance)
-			if !burn_amount.is_zero() {
-				let _ = <T::Currency as Currency<_>>::burn(burn_amount);
-			}
-
-			// Second pass: process transfers and record proofs
-			for (exit_account, exit_balance) in &processed_accounts {
-				// Handle native (asset_id = 0) or asset transfers
-				if asset_id == AssetIdOf::<T>::default() {
-					// Native token transfer - mint tokens to the exit account
-					<T::Currency as Unbalanced<_>>::increase_balance(
-						exit_account,
-						*exit_balance,
-						frame_support::traits::tokens::Precision::Exact,
-					)?;
-				} else {
-					// Asset transfer
-					let asset_balance: AssetBalanceOf<T> = (*exit_balance).into();
-					<T::Assets as FungiblesMutate<_>>::mint_into(
-						asset_id.clone(),
-						exit_account,
-						asset_balance,
-					)?;
-				}
-
-				// Record transfer proof for the minted tokens
-				Self::record_transfer(
-					asset_id.clone(),
-					mint_account.clone().into(),
-					exit_account.clone().into(),
-					*exit_balance,
-				)?;
-			}
 
 			// Mint miner's portion of volume fee to block author
-			// The remaining portion (fee - miner_fee) is not minted, effectively burned
+			// If no author is found, add to burn amount instead of silently losing it
 			if !miner_fee.is_zero() {
-				if let Some(author) = frame_system::Pallet::<T>::digest()
-					.logs
-					.iter()
-					.find_map(|item| item.as_pre_runtime())
-					.and_then(|(_, data)| {
-						<T as frame_system::Config>::AccountId::decode(&mut &data[..]).ok()
-					}) {
+				let digest = frame_system::Pallet::<T>::digest();
+				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+					<T as frame_system::Config>::AccountId,
+					_,
+				>(digest.logs.iter().cloned())
+				{
 					<T::Currency as Unbalanced<_>>::increase_balance(
 						&author,
 						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
 					)?;
+				} else {
+					// No block author found - add miner fee to burn amount
+					log::warn!(
+						"No block author found, burning miner fee of {:?} instead",
+						miner_fee
+					);
+					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
 				}
 			}
 
-			Ok(())
+			// Burn the total burn amount (base burn + any orphaned miner fee)
+			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+			if !burn_amount.is_zero() {
+				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
+				<T::Currency as Unbalanced<_>>::set_total_issuance(
+					current.saturating_sub(burn_amount),
+				);
+			}
+
+			// Process transfers and record proofs
+			for (exit_account, exit_balance) in &processed_accounts {
+				// Native token transfer - mint tokens to the exit account
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					exit_account,
+					*exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
+				)?;
+
+				// Record transfer proof for the minted tokens
+				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
+				Self::record_transfer(
+					T::AssetId::default(),
+					&from_account,
+					&to_account,
+					*exit_balance,
+				);
+			}
+
+			// Success - use declared weight (actual_weight: None means use declared weight)
+			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 		}
 	}
 
 	#[pallet::validate_unsigned]
-	impl<T: Config> ValidateUnsigned for Pallet<T>
-	where
-		AssetIdOf<T>: Default + From<u32> + Clone + ToFelts,
-		BalanceOf<T>: Default + ToFelts,
-		AssetBalanceOf<T>: Into<BalanceOf<T>> + From<BalanceOf<T>>,
-	{
+	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
 				Call::verify_aggregated_proof { proof_bytes } => {
-					// Basic validation: check proof bytes are not empty
-					if proof_bytes.is_empty() {
-						return InvalidTransaction::Custom(2).into();
-					}
+					// Full validation including ZK verification - prevents invalid proofs
+					// with high amounts from entering the pool and crowding out valid txs
+					let (_proof, inputs) =
+						Self::validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
+
+					// Priority based on total transfer volume - higher value transfers get
+					// priority. This prevents DoS since attackers must transfer real value
+					// (and valid proofs) to get high priority.
+					let total_amount: u64 =
+						inputs.account_data.iter().map(|a| a.summed_output_amount as u64).sum();
+
 					ValidTransaction::with_tag_prefix("WormholeAggregatedVerify")
 						.and_provides(sp_io::hashing::blake2_256(proof_bytes))
-						.priority(TransactionPriority::MAX)
+						.priority(total_amount)
 						.longevity(5)
 						.propagate(true)
 						.build()
@@ -487,43 +535,113 @@ pub mod pallet {
 				_ => InvalidTransaction::Call.into(),
 			}
 		}
+
+		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
+			// Skip re-validation - validate_unsigned already did full verification,
+			// and dispatch will verify again as defense-in-depth
+			match call {
+				Call::verify_aggregated_proof { .. } => Ok(()),
+				_ => Err(InvalidTransaction::Call.into()),
+			}
+		}
 	}
 
-	// Helper functions for recording transfer proofs
 	impl<T: Config> Pallet<T> {
-		/// Record a transfer proof
-		/// This should be called by transaction extensions or other runtime components
-		pub fn record_transfer(
-			asset_id: AssetIdOf<T>,
-			from: <T as Config>::WormholeAccountId,
-			to: <T as Config>::WormholeAccountId,
-			amount: BalanceOf<T>,
-		) -> DispatchResult {
-			let current_count = TransferCount::<T>::get(&to);
-			TransferProof::<T>::insert(
-				(asset_id.clone(), current_count, from.clone(), to.clone(), amount),
-				(),
+		/// Validate an aggregated proof (cheap checks + full ZK verification).
+		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
+		///
+		/// Errors before ZK verification (deserialization, nullifier checks, etc.) allow
+		/// dispatch to return minimal weight. `AggregatedVerificationFailed` indicates
+		/// full ZK verification was attempted.
+		fn validate_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes.to_vec(),
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
+			let inputs = parse_aggregated_public_inputs(&proof)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+			ensure!(
+				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
 			);
-			TransferCount::<T>::insert(&to, current_count.saturating_add(T::TransferCount::one()));
+			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
+			ensure!(
+				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
+			for nullifier in &inputs.nullifiers {
+				let bytes: [u8; 32] = (*nullifier)
+					.as_ref()
+					.try_into()
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				ensure!(
+					!UsedNullifiers::<T>::contains_key(bytes),
+					Error::<T>::NullifierAlreadyUsed
+				);
+			}
 
-			if asset_id == AssetIdOf::<T>::default() {
+			// Full ZK verification - if this fails, full verification weight was consumed
+			verifier.verify(proof.clone()).map_err(|e| {
+				log::error!("Aggregated proof verification failed: {:?}", e);
+				Error::<T>::AggregatedVerificationFailed
+			})?;
+
+			Ok((proof, inputs))
+		}
+
+		/// Record a transfer in the ZK tree and emit events.
+		///
+		/// This inserts the transfer data into the 4-ary Poseidon Merkle tree
+		/// managed by pallet-zk-tree, which provides Merkle proofs for ZK circuits.
+		///
+		/// The emitted event includes `leaf_index` which clients can use to fetch
+		/// Merkle proofs via `zkTree_getMerkleProof(leaf_index)` RPC.
+		pub fn record_transfer(
+			asset_id: T::AssetId,
+			from: &<T as Config>::WormholeAccountId,
+			to: &<T as Config>::WormholeAccountId,
+			amount: BalanceOf<T>,
+		) {
+			let current_count = TransferCount::<T>::get(to);
+
+			// Increment transfer count for this recipient
+			TransferCount::<T>::insert(to, current_count.saturating_add(T::TransferCount::one()));
+
+			// Insert into ZK tree for Merkle proof generation
+			// Returns the leaf index for clients to use when fetching proofs
+			let leaf_index = T::ZkTree::record_transfer(
+				to.clone().into(),
+				current_count.into(),
+				asset_id.clone(),
+				amount,
+			);
+
+			if asset_id == T::AssetId::default() {
 				Self::deposit_event(Event::<T>::NativeTransferred {
-					from: from.into(),
-					to: to.into(),
+					from: from.clone().into(),
+					to: to.clone().into(),
 					amount,
 					transfer_count: current_count,
+					leaf_index,
 				});
 			} else {
 				Self::deposit_event(Event::<T>::AssetTransferred {
-					from: from.into(),
-					to: to.into(),
+					from: from.clone().into(),
+					to: to.clone().into(),
 					asset_id,
 					amount: amount.into(),
 					transfer_count: current_count,
+					leaf_index,
 				});
 			}
-
-			Ok(())
 		}
 	}
 
@@ -531,20 +649,18 @@ pub mod pallet {
 	impl<T: Config>
 		qp_wormhole::TransferProofRecorder<
 			<T as Config>::WormholeAccountId,
-			AssetIdOf<T>,
+			<T as Config>::AssetId,
 			BalanceOf<T>,
 		> for Pallet<T>
 	{
-		type Error = DispatchError;
-
 		fn record_transfer_proof(
-			asset_id: Option<AssetIdOf<T>>,
+			asset_id: Option<<T as Config>::AssetId>,
 			from: <T as Config>::WormholeAccountId,
 			to: <T as Config>::WormholeAccountId,
 			amount: BalanceOf<T>,
-		) -> Result<(), Self::Error> {
+		) {
 			let asset_id_value = asset_id.unwrap_or_default();
-			Self::record_transfer(asset_id_value, from, to, amount)
+			Self::record_transfer(asset_id_value, &from, &to, amount);
 		}
 	}
 }

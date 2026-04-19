@@ -16,21 +16,18 @@ pub use weights::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use codec::Decode;
-	use core::{convert::TryInto, marker::PhantomData};
+	use core::marker::PhantomData;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
 			fungible::{Inspect, Mutate},
-			Defensive, Get, Imbalance, OnUnbalanced,
+			Get, Imbalance, OnUnbalanced,
 		},
 	};
 	use frame_system::pallet_prelude::*;
 	use pallet_treasury::TreasuryProvider;
-	use qp_poseidon::PoseidonHasher;
 	use qp_wormhole::TransferProofRecorder;
-	use sp_consensus_pow::POW_ENGINE_ID;
-	use sp_runtime::{generic::DigestItem, traits::Saturating, Permill};
+	use sp_runtime::traits::Saturating;
 
 	pub(crate) type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
@@ -102,19 +99,38 @@ pub mod pallet {
 			/// Total reward (base + fees)
 			reward: BalanceOf<T>,
 		},
+		/// Miner reward was redirected to treasury due to mint failure
+		MinerRewardRedirected {
+			/// The miner who should have received the reward
+			miner: T::AccountId,
+			/// The reward amount redirected to treasury
+			reward: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn integrity_test() {
+			assert!(!T::EmissionDivisor::get().is_zero(), "EmissionDivisor must be non-zero");
+			assert!(!T::MaxSupply::get().is_zero(), "MaxSupply must be non-zero");
+		}
+
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
 			// Return weight consumed for on finalize hook
 			<T as crate::pallet::Config>::WeightInfo::on_finalize_rewarded_miner()
 		}
 
 		fn on_finalize(_block_number: BlockNumberFor<T>) {
-			// Calculate dynamic block reward based on remaining supply
+			// Take collected fees first - needed for accurate supply calculation below.
+			let tx_fees = <CollectedFees<T>>::take();
+
+			// Calculate dynamic block reward based on remaining supply.
+			// Note: Transaction fees were burned when the NegativeImbalance was dropped
+			// (during transaction execution), so we add them back to get the true
+			// current supply before re-minting them to the miner. This prevents the
+			// block reward calculation from being slightly inflated by the burned fees.
 			let max_supply = T::MaxSupply::get();
-			let current_supply = T::Currency::total_issuance();
+			let current_supply = T::Currency::total_issuance().saturating_add(tx_fees);
 			let emission_divisor = T::EmissionDivisor::get();
 
 			let remaining_supply = max_supply.saturating_sub(current_supply);
@@ -130,13 +146,10 @@ pub mod pallet {
 				.checked_div(&emission_divisor)
 				.unwrap_or_else(BalanceOf::<T>::zero);
 
-			// Split the reward between treasury and miner (portion is 0-100)
+			// Split the reward between treasury and miner
 			let treasury_portion = T::Treasury::portion();
-			let treasury_reward =
-				Permill::from_percent(u32::from(treasury_portion)).mul_floor(total_reward);
+			let treasury_reward = treasury_portion.mul_floor(total_reward);
 			let miner_reward = total_reward.saturating_sub(treasury_reward);
-
-			let tx_fees = <CollectedFees<T>>::take();
 
 			// Extract miner ID from the pre-runtime digest
 			let miner = Self::extract_miner_from_digest();
@@ -167,10 +180,10 @@ pub mod pallet {
 			}
 
 			// Send fees to miner if any
-			Self::mint_reward(miner.clone(), tx_fees);
+			Self::mint_reward(miner.as_ref(), tx_fees);
 
 			// Send block rewards to miner
-			Self::mint_reward(miner, miner_reward);
+			Self::mint_reward(miner.as_ref(), miner_reward);
 
 			// Send treasury portion to treasury
 			Self::mint_reward(None, treasury_reward);
@@ -180,34 +193,8 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Extract miner wormhole address by hashing the preimage from pre-runtime digest
 		fn extract_miner_from_digest() -> Option<T::AccountId> {
-			// Get the digest from the current block
 			let digest = <frame_system::Pallet<T>>::digest();
-
-			// Look for pre-runtime digest with POW_ENGINE_ID
-			for log in digest.logs.iter() {
-				if let DigestItem::PreRuntime(engine_id, data) = log {
-					if engine_id == &POW_ENGINE_ID {
-						// The data is a 32-byte preimage from the incoming block
-						if data.len() == 32 {
-							let preimage: [u8; 32] = match data.as_slice().try_into() {
-								Ok(arr) => arr,
-								Err(_) => continue,
-							};
-
-							// Hash the preimage with Poseidon2 to derive the wormhole address
-							let wormhole_address_bytes = PoseidonHasher::hash_padded(&preimage);
-
-							// Convert to AccountId
-							if let Ok(miner) =
-								T::AccountId::decode(&mut &wormhole_address_bytes[..])
-							{
-								return Some(miner);
-							}
-						}
-					}
-				}
-			}
-			None
+			qp_wormhole::extract_author_from_digest(digest.logs.iter().cloned())
 		}
 
 		pub fn collect_transaction_fees(fees: BalanceOf<T>) {
@@ -220,38 +207,79 @@ pub mod pallet {
 			});
 		}
 
-		fn mint_reward(maybe_miner: Option<T::AccountId>, reward: BalanceOf<T>) {
+		fn mint_reward(maybe_miner: Option<&T::AccountId>, reward: BalanceOf<T>) {
 			if reward.is_zero() {
 				return;
 			}
 
 			let mint_account = T::MintingAccount::get();
+			let treasury = T::Treasury::account_id();
 
 			match maybe_miner {
 				Some(miner) => {
-					let _ = T::Currency::mint_into(&miner, reward).defensive();
-
-					let _ = T::ProofRecorder::record_transfer_proof(
-						None,
-						mint_account.clone(),
-						miner.clone(),
-						reward,
-					);
-
-					Self::deposit_event(Event::MinerRewarded { miner: miner.clone(), reward });
+					match T::Currency::mint_into(miner, reward) {
+						Ok(_) => {
+							T::ProofRecorder::record_transfer_proof(
+								None, // Native token
+								mint_account,
+								miner.clone(),
+								reward,
+							);
+							Self::deposit_event(Event::MinerRewarded {
+								miner: miner.clone(),
+								reward,
+							});
+						},
+						Err(e) => {
+							log::warn!(
+								target: "mining-rewards",
+								"Failed to mint {:?} to miner {:?}: {:?}, redirecting to treasury",
+								reward, miner, e
+							);
+							// Fallback: redirect to treasury
+							match T::Currency::mint_into(&treasury, reward) {
+								Ok(_) => {
+									T::ProofRecorder::record_transfer_proof(
+										None, // Native token
+										mint_account,
+										treasury,
+										reward,
+									);
+									Self::deposit_event(Event::MinerRewardRedirected {
+										miner: miner.clone(),
+										reward,
+									});
+								},
+								Err(e2) => {
+									log::error!(
+										target: "mining-rewards",
+										"Failed to redirect {:?} to treasury: {:?}",
+										reward, e2
+									);
+								},
+							}
+						},
+					}
 				},
 				None => {
-					let treasury = T::Treasury::account_id();
-					let _ = T::Currency::mint_into(&treasury, reward).defensive();
-
-					let _ = T::ProofRecorder::record_transfer_proof(
-						None,
-						mint_account.clone(),
-						treasury.clone(),
-						reward,
-					);
-
-					Self::deposit_event(Event::TreasuryRewarded { reward });
+					match T::Currency::mint_into(&treasury, reward) {
+						Ok(_) => {
+							T::ProofRecorder::record_transfer_proof(
+								None, // Native token
+								mint_account,
+								treasury,
+								reward,
+							);
+							Self::deposit_event(Event::TreasuryRewarded { reward });
+						},
+						Err(e) => {
+							log::error!(
+								target: "mining-rewards",
+								"Failed to mint {:?} to treasury: {:?}",
+								reward, e
+							);
+						},
+					}
 				},
 			};
 		}

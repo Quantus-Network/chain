@@ -1,21 +1,15 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-use codec::{Decode, Encode};
-use scale_info::TypeInfo;
 extern crate alloc;
 use alloc::vec::Vec;
 use primitive_types::U512;
+use sp_runtime::ConsensusEngineId;
 
-/// Engine ID for QPoW consensus.
-pub const QPOW_ENGINE_ID: [u8; 4] = *b"QPoW";
+pub const POW_ENGINE_ID: ConsensusEngineId = [b'p', b'o', b'w', b'_'];
+
+pub type Seal = Vec<u8>;
 
 sp_api::decl_runtime_apis! {
 	pub trait QPoWApi {
-		/// calculate hash of header with nonce using Bitcoin-style double Poseidon2
-		fn get_nonce_distance(
-			block_hash: [u8; 32],  // 256-bit block hash
-			nonce: [u8; 64], // 512-bit nonce
-		) -> U512;
-
 		/// Get the max possible reorg depth
 		fn get_max_reorg_depth() -> u32;
 
@@ -25,11 +19,6 @@ sp_api::decl_runtime_apis! {
 		/// Get the current difficulty (max_distance / distance_threshold)
 		fn get_difficulty() -> U512;
 
-
-
-		/// Get total work
-		fn get_total_work() -> U512;
-
 		/// Get block ema
 		fn get_block_time_ema() -> u64;
 
@@ -38,20 +27,9 @@ sp_api::decl_runtime_apis! {
 
 		// Get last block mining time
 		fn get_last_block_duration() -> u64;
-
 		fn get_chain_height() -> u32;
-
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
+		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
 	}
-}
-
-#[derive(Debug, Encode, Decode, TypeInfo)]
-pub enum Error {
-	/// Invalid proof submitted
-	InvalidProof,
-	/// Arithmetic calculation error
-	ArithmeticError,
-	/// Other error occurred
-	Other(Vec<u8>),
 }

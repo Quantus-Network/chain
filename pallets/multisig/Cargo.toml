@@ -40,6 +40,7 @@ pallet-scheduler = { workspace = true, default-features = true }
 pallet-timestamp.workspace = true
 pallet-utility = { workspace = true, default-features = true }
 qp-scheduler = { workspace = true, default-features = true }
+qp-wormhole = { workspace = true, default-features = true }
 sp-core.workspace = true
 sp-io.workspace = true
 sp-runtime = { workspace = true, default-features = true }
@@ -53,7 +54,6 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-reversible-transfers",
 	"pallet-reversible-transfers?/runtime-benchmarks",
-	"qp-high-security/runtime-benchmarks",
 	"qp-scheduler",
 	"sp-runtime/runtime-benchmarks",
 ]

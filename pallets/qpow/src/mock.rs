@@ -2,7 +2,7 @@ use crate as pallet_qpow;
 use frame_support::{
 	pallet_prelude::ConstU32,
 	parameter_types,
-	traits::{ConstU128, ConstU64, Everything},
+	traits::{ConstU64, Everything},
 };
 use primitive_types::U512;
 use sp_core::H256;
@@ -80,7 +80,6 @@ impl pallet_qpow::Config for Test {
 	type DifficultyAdjustPercentClamp = TestDifficultyAdjustPercentClamp;
 	type TargetBlockTime = ConstU64<1000>;
 	type MaxReorgDepth = ConstU32<10>;
-	type FixedU128Scale = ConstU128<1_000_000_000_000_000_000>;
 }
 
 // Build genesis storage according to the mock runtime

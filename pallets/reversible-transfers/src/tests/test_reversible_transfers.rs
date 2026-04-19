@@ -284,7 +284,6 @@ fn schedule_transfer_works() {
 				amount,
 			}
 		);
-		assert_eq!(ReversibleTransfers::account_pending_index(&user), 1);
 
 		// Check scheduler
 		assert!(!Agenda::<Test>::get(expected_block).is_empty());
@@ -392,8 +391,11 @@ fn schedule_transfer_with_timestamp_works() {
 			user_delay.as_timestamp().unwrap();
 
 		let bounded = Preimage::bound(call.clone()).unwrap();
-		let expected_timestamp =
-			BlockNumberOrTimestamp::Timestamp(expected_raw_timestamp + TimestampBucketSize::get());
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		// normalize() adds one bucket, then scheduler adds another for safety
+		let expected_timestamp = BlockNumberOrTimestamp::Timestamp(
+			expected_raw_timestamp + TimestampBucketSize::get() + TimestampBucketSize::get(),
+		);
 
 		assert!(Agenda::<Test>::get(expected_timestamp).is_empty());
 
@@ -415,13 +417,16 @@ fn schedule_transfer_with_timestamp_works() {
 				amount,
 			}
 		);
-		assert_eq!(ReversibleTransfers::account_pending_index(&user), 1);
 
 		// Check scheduler
 		assert!(!Agenda::<Test>::get(expected_timestamp).is_empty());
 
 		// Advance to expected execution time and ensure it executed
-		MockTimestamp::<Test>::set_timestamp(expected_raw_timestamp);
+		// With the extra bucket, we need to advance to when the bucket starts processing
+		// (bucket starts at expected_timestamp - bucket_size + 1)
+		MockTimestamp::<Test>::set_timestamp(
+			expected_timestamp.as_timestamp().unwrap() - timestamp_bucket_size + 1,
+		);
 		run_to_block(2);
 		let eps: Balance = 10; // tolerate tiny fee differences
 		assert!(approx_eq_balance(Balances::free_balance(&user), user_balance - amount, eps));
@@ -535,54 +540,17 @@ fn schedule_multiple_transfer_works() {
 			amount
 		));
 
-		// Check that the count of pending transactions for the user is 2
-		assert_eq!(ReversibleTransfers::account_pending_index(&user), 2);
-
-		// Check that the pending transaction count decreases to 1
+		// Cancel the first pending transaction
 		assert_ok!(ReversibleTransfers::cancel(
 			RuntimeOrigin::signed(bob()), // interceptor from genesis config
 			tx_id
 		));
-		assert_eq!(ReversibleTransfers::account_pending_index(&user), 1);
 
-		// Check that the pending transaction count decreases to 0 when executed
+		// Check that the pending transaction is removed when executed
 		let execute_block = System::block_number() + 10;
 		run_to_block(execute_block);
 
-		assert_eq!(ReversibleTransfers::account_pending_index(&user), 0);
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-	});
-}
-
-#[test]
-fn schedule_transfer_fails_too_many_pending() {
-	new_test_ext().execute_with(|| {
-		let user = alice();
-		let max_pending = MaxReversibleTransfers::get();
-
-		// Fill up pending slots
-		for i in 0..max_pending {
-			assert_ok!(ReversibleTransfers::schedule_transfer(
-				RuntimeOrigin::signed(user.clone()),
-				bob(),
-				i as u128 + 1
-			));
-			// Max pending per block is 10, so we increment the block number
-			// after every 10 calls
-			if i % 10 == 9 {
-				System::set_block_number(System::block_number() + 1);
-			}
-		}
-
-		// Try to schedule one more
-		assert_err!(
-			ReversibleTransfers::schedule_transfer(
-				RuntimeOrigin::signed(user.clone()),
-				charlie(),
-				100
-			),
-			Error::<Test>::TooManyPendingTransactions
-		);
 	});
 }
 
@@ -614,7 +582,6 @@ fn cancel_dispatch_works() {
 			amount,
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
-		assert!(!ReversibleTransfers::account_pending_index(&user).is_zero());
 
 		// Check the expected block agendas count
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 1);
@@ -627,7 +594,6 @@ fn cancel_dispatch_works() {
 
 		// Check state cleared
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert!(ReversibleTransfers::account_pending_index(&user).is_zero());
 
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
 
@@ -822,9 +788,13 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 		));
 
 		// The transfer should be scheduled at: current_time + user_delay_duration
-		let expected_execution_time =
-			BlockNumberOrTimestamp::Timestamp(initial_mock_time + user_delay_duration)
-				.normalize(bucket_size);
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		let expected_execution_time = BlockNumberOrTimestamp::<u64, u64>::Timestamp(
+			BlockNumberOrTimestamp::<u64, u64>::Timestamp(initial_mock_time + user_delay_duration)
+				.normalize(bucket_size)
+				.as_timestamp()
+				.unwrap() + bucket_size,
+		);
 
 		assert!(
 			!Agenda::<Test>::get(expected_execution_time).is_empty(),
@@ -908,7 +878,6 @@ fn full_flow_execute_works() {
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance + amount);
 
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert!(ReversibleTransfers::account_pending_index(&user).is_zero());
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0); // Task removed after execution
 	});
 }
@@ -944,16 +913,22 @@ fn full_flow_execute_with_timestamp_delay_works() {
 			amount,
 		));
 
-		let expected_execution_time =
-			BlockNumberOrTimestamp::Timestamp(initial_mock_time + user_delay_duration)
-				.normalize(TimestampBucketSize::get());
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		let expected_execution_time = BlockNumberOrTimestamp::<u64, u64>::Timestamp(
+			BlockNumberOrTimestamp::<u64, u64>::Timestamp(initial_mock_time + user_delay_duration)
+				.normalize(TimestampBucketSize::get())
+				.as_timestamp()
+				.unwrap() + TimestampBucketSize::get(),
+		);
 
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 		assert!(!Agenda::<Test>::get(expected_execution_time).is_empty());
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount); // On hold
 
-		// Advance time to execution
-		MockTimestamp::<Test>::set_timestamp(expected_execution_time.as_timestamp().unwrap() - 1);
+		// Advance time to execution (bucket starts at expected_execution_time - bucket_size + 1)
+		MockTimestamp::<Test>::set_timestamp(
+			expected_execution_time.as_timestamp().unwrap() - TimestampBucketSize::get(),
+		);
 		run_to_block(2);
 
 		let expected_event = Event::TransactionExecuted { tx_id, result: Ok(().into()) };
@@ -965,7 +940,6 @@ fn full_flow_execute_with_timestamp_delay_works() {
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount);
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance + amount);
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert!(ReversibleTransfers::account_pending_index(&user).is_zero());
 		assert_eq!(Agenda::<Test>::get(expected_execution_time).len(), 0);
 	});
 }
@@ -1007,7 +981,6 @@ fn full_flow_cancel_prevents_execution() {
 			tx_id
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert!(ReversibleTransfers::account_pending_index(&user).is_zero());
 
 		// Run past the execution block
 		run_to_block(execute_block.as_block_number().unwrap() + 1);
@@ -1083,7 +1056,6 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 			tx_id
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-		assert!(ReversibleTransfers::account_pending_index(&user).is_zero());
 		assert_eq!(
 			Balances::balance_on_hold(
 				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
@@ -1320,10 +1292,6 @@ fn schedule_asset_transfer_works() {
 			amount,
 		));
 
-		// Should be frozen (assets path uses freeze, not balances hold)
-		// Verify pending index increments
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
-
 		// Advance to execution and ensure balances moved
 		let HighSecurityAccountData { delay, .. } =
 			ReversibleTransfers::is_high_security(&sender).unwrap();
@@ -1383,6 +1351,15 @@ fn asset_hold_does_not_block_spending() {
 		let third_before = asset_balance(asset_id, &third_party);
 		let hold_amount = sender_before - spend_amount / 2;
 
+		// Calculate tx_id before scheduling
+		let asset_transfer_call: RuntimeCall = pallet_assets::Call::<Test>::transfer_keep_alive {
+			id: codec::Compact(asset_id),
+			target: recipient.clone(),
+			amount: hold_amount,
+		}
+		.into();
+		let tx_id = calculate_tx_id::<Test>(sender.clone(), &asset_transfer_call);
+
 		// Schedule an asset transfer to create a hold on `sender`.
 		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
 			RuntimeOrigin::signed(sender.clone()),
@@ -1413,9 +1390,6 @@ fn asset_hold_does_not_block_spending() {
 		assert_eq!(asset_balance(asset_id, &third_party), third_before + spend);
 
 		// Pending remains and will execute later; cancel it now to clean up and credit interceptor.
-		let ids = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		assert_eq!(ids.len(), 1);
-		let tx_id = ids[0];
 		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor.clone()), tx_id));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 		assert_eq!(asset_holds(asset_id, &sender), 0);
@@ -1618,17 +1592,17 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 		);
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
 
-		// Verify storage indexes are properly updated after scheduling
-		let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
-		assert_eq!(sender_pending.len(), 1);
-		assert_eq!(sender_pending[0], tx_id);
-		assert_eq!(recipient_pending.len(), 1);
-		assert_eq!(recipient_pending[0], tx_id);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
+		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
+		// Calculate the actual execution bucket
+		let bucket_size = 1000u64; // TimestampBucketSize
+		let normalized = BlockNumberOrTimestamp::<u64, u64>::Timestamp(1_000_000 + custom_delay_ms)
+			.normalize(bucket_size)
+			.as_timestamp()
+			.unwrap();
+		let actual_execution_bucket = normalized + bucket_size;
 
-		// Set time before execution time
-		MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms - one_minute_ms);
+		// Set time before execution time (before bucket starts)
+		MockTimestamp::<Test>::set_timestamp(actual_execution_bucket - bucket_size - 1);
 		let execute_block = System::block_number() + 3;
 		run_to_block(execute_block);
 
@@ -1638,8 +1612,8 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 		// recipient balance not yet changed
 		assert_eq!(Balances::free_balance(&recipient), initial_recipient_balance);
 
-		// Set time past execution time
-		MockTimestamp::<Test>::set_timestamp(1_000_000 + custom_delay_ms + 1);
+		// Set time past execution time (bucket starts at actual_execution_bucket - bucket_size + 1)
+		MockTimestamp::<Test>::set_timestamp(actual_execution_bucket - bucket_size + 1);
 		let execute_block = System::block_number() + 2;
 		run_to_block(execute_block);
 
@@ -1652,285 +1626,12 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 
 		// Check that the pending dispatch is removed
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
-
-		// Verify storage indexes are cleaned up after execution
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 0);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 0);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
 		assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
 
 		// Check for the execution event
 		System::assert_has_event(
 			Event::TransactionExecuted { tx_id, result: Ok(().into()) }.into(),
 		);
-	});
-}
-
-#[test]
-fn storage_indexes_maintained_correctly_on_schedule() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let sender: AccountId = alice(); // delay of 10
-		let recipient: AccountId = dave();
-		let amount: Balance = 1000;
-
-		// Initially no pending transfers
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 0);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 0);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
-
-		let call = transfer_call(recipient.clone(), amount);
-		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
-
-		// Schedule transfer
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient.clone(),
-			amount,
-		));
-
-		// Verify storage indexes are properly updated
-		let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
-
-		assert_eq!(sender_pending.len(), 1);
-		assert_eq!(sender_pending[0], tx_id);
-		assert_eq!(recipient_pending.len(), 1);
-		assert_eq!(recipient_pending[0], tx_id);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
-
-		// Verify transfer details
-		let transfer_details = ReversibleTransfers::get_pending_transfer_details(&tx_id);
-		assert!(transfer_details.is_some());
-		let details = transfer_details.unwrap();
-		assert_eq!(details.from, sender);
-		assert_eq!(details.amount, amount);
-
-		// Schedule another transfer to the same recipient
-		let amount2 = 2000;
-		let call2 = transfer_call(recipient.clone(), amount2);
-		let tx_id2 = calculate_tx_id::<Test>(sender.clone(), &call2);
-
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient.clone(),
-			amount2,
-		));
-
-		// Verify both transfers are indexed
-		let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
-
-		assert_eq!(sender_pending.len(), 2);
-		assert!(sender_pending.contains(&tx_id));
-		assert!(sender_pending.contains(&tx_id2));
-		assert_eq!(recipient_pending.len(), 2);
-		assert!(recipient_pending.contains(&tx_id));
-		assert!(recipient_pending.contains(&tx_id2));
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 2);
-	});
-}
-
-#[test]
-fn storage_indexes_maintained_correctly_on_execution() {
-	new_test_ext().execute_with(|| {
-		let start_block = 1;
-		let sender: AccountId = charlie();
-		let recipient: AccountId = dave();
-		let amount: Balance = 1000;
-		let delay_blocks = 10;
-
-		System::set_block_number(start_block);
-
-		// Schedule a transfer
-		assert_ok!(ReversibleTransfers::schedule_transfer_with_delay(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient.clone(),
-			amount,
-			BlockNumberOrTimestamp::BlockNumber(delay_blocks),
-		));
-
-		let call = transfer_call(recipient.clone(), amount);
-		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
-
-		// Verify storage indexes are populated
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 1);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 1);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
-
-		// Execute the transfer by running to the delay block
-		run_to_block(start_block + delay_blocks + 1);
-
-		// Verify storage indexes are cleaned up
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 0);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 0);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
-
-		// Verify transfer is no longer in main storage
-		assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
-	});
-}
-
-#[test]
-fn storage_indexes_maintained_correctly_on_cancel() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let sender: AccountId = alice();
-		let recipient: AccountId = dave();
-		let amount: Balance = 1000;
-
-		let call = transfer_call(recipient.clone(), amount);
-		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
-
-		// Schedule a transfer
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient.clone(),
-			amount,
-		));
-
-		// Verify storage indexes are populated
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 1);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 1);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
-
-		// Cancel the transfer
-		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(bob()), // interceptor from genesis config
-			tx_id
-		));
-
-		// Verify storage indexes are cleaned up
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 0);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 0);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
-
-		// Verify transfer is no longer in main storage
-		assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
-	});
-}
-
-#[test]
-fn storage_indexes_handle_multiple_identical_transfers_correctly() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let sender: AccountId = alice(); // delay of 10
-		let recipient: AccountId = dave();
-		let amount: Balance = 1000;
-
-		let call = transfer_call(recipient.clone(), amount);
-		let tx_id = calculate_tx_id::<Test>(sender.clone(), &call);
-
-		// Schedule the same transfer twice (identical transfers)
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient.clone(),
-			amount,
-		));
-
-		let tx_id1 = calculate_tx_id::<Test>(sender.clone(), &call);
-
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient.clone(),
-			amount
-		));
-
-		let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		let recipient_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient);
-
-		assert_eq!(sender_pending.len(), 2);
-		assert_eq!(sender_pending[0], tx_id);
-		assert_eq!(sender_pending[1], tx_id1);
-		assert_eq!(recipient_pending.len(), 2);
-		assert_eq!(recipient_pending[0], tx_id);
-		assert_eq!(recipient_pending[1], tx_id1);
-
-		// But account count should reflect both transfers
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 2);
-
-		// Cancel one instance
-		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(bob()), // interceptor from genesis config
-			tx_id
-		));
-
-		// Indexes should still contain the transfer (since count > 1)
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 1);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 1);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
-
-		// Cancel the last instance
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(bob()), tx_id1));
-
-		// Now indexes should be completely cleaned up
-		assert_eq!(ReversibleTransfers::pending_transfers_by_sender(&sender).len(), 0);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient).len(), 0);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 0);
-		assert!(ReversibleTransfers::get_pending_transfer_details(&tx_id).is_none());
-	});
-}
-
-#[test]
-fn storage_indexes_handle_multiple_recipients_correctly() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let sender: AccountId = alice();
-		let recipient1: AccountId = dave();
-		let recipient2: AccountId = eve();
-		let amount: Balance = 1000;
-
-		let call1 = transfer_call(recipient1.clone(), amount);
-		let tx_id1 = calculate_tx_id::<Test>(sender.clone(), &call1);
-
-		// Schedule transfers to different recipients
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient1.clone(),
-			amount,
-		));
-
-		let call2 = transfer_call(recipient2.clone(), amount);
-		let tx_id2 = calculate_tx_id::<Test>(sender.clone(), &call2);
-
-		assert_ok!(ReversibleTransfers::schedule_transfer(
-			RuntimeOrigin::signed(sender.clone()),
-			recipient2.clone(),
-			amount,
-		));
-
-		// Sender should have both transfers
-		let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		assert_eq!(sender_pending.len(), 2);
-		assert!(sender_pending.contains(&tx_id1));
-		assert!(sender_pending.contains(&tx_id2));
-
-		// Each recipient should have their own transfer
-		let recipient1_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient1);
-		let recipient2_pending = ReversibleTransfers::pending_transfers_by_recipient(&recipient2);
-
-		assert_eq!(recipient1_pending.len(), 1);
-		assert_eq!(recipient1_pending[0], tx_id1);
-		assert_eq!(recipient2_pending.len(), 1);
-		assert_eq!(recipient2_pending[0], tx_id2);
-
-		// Account count should reflect both transfers
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 2);
-
-		// Cancel one transfer
-		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(bob()), // interceptor from genesis config
-			tx_id1
-		));
-
-		// Verify selective cleanup
-		let sender_pending = ReversibleTransfers::pending_transfers_by_sender(&sender);
-		assert_eq!(sender_pending.len(), 1);
-		assert_eq!(sender_pending[0], tx_id2);
-
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient1).len(), 0);
-		assert_eq!(ReversibleTransfers::pending_transfers_by_recipient(&recipient2).len(), 1);
-		assert_eq!(ReversibleTransfers::account_pending_index(&sender), 1);
 	});
 }
 
@@ -2199,5 +1900,151 @@ fn global_nonce_works() {
 		));
 
 		assert_eq!(ReversibleTransfers::global_nonce(), 4);
+	});
+}
+
+#[test]
+fn reversible_transfer_records_transfer_proof_on_execution() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = alice(); // Reversible, delay 10
+		let dest = bob();
+		let amount = 50;
+		let call = transfer_call(dest.clone(), amount);
+		let _tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+		let HighSecurityAccountData { delay, .. } =
+			ReversibleTransfers::is_high_security(&user).unwrap();
+		let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
+		let execute_block = start_block.saturating_add(&delay).unwrap();
+
+		// No proofs recorded yet
+		assert!(MockProofRecorder::get_recorded_proofs().is_empty());
+
+		// Schedule the transfer
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(user.clone()),
+			dest.clone(),
+			amount,
+		));
+
+		// Still no proofs (transfer not executed yet)
+		assert!(MockProofRecorder::get_recorded_proofs().is_empty());
+
+		// Run to execution block
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		// Now the transfer proof should be recorded
+		let proofs = MockProofRecorder::get_recorded_proofs();
+		assert_eq!(proofs.len(), 1, "Expected exactly one transfer proof to be recorded");
+
+		let proof = &proofs[0];
+		assert_eq!(proof.asset_id, None, "Native transfer should have None asset_id");
+		assert_eq!(proof.from, user, "Transfer proof 'from' should match sender");
+		assert_eq!(proof.to, dest, "Transfer proof 'to' should match destination");
+		assert_eq!(proof.amount, amount, "Transfer proof amount should match");
+	});
+}
+
+#[test]
+fn reversible_asset_transfer_records_transfer_proof_with_asset_id() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = alice(); // Reversible, delay 10
+		let dest = charlie();
+		let asset_id = 1u32;
+		let amount = 100;
+
+		// Create and mint asset to user
+		create_asset(asset_id, user.clone(), Some(1000));
+
+		let HighSecurityAccountData { delay, .. } =
+			ReversibleTransfers::is_high_security(&user).unwrap();
+		let start_block = BlockNumberOrTimestamp::BlockNumber(System::block_number());
+		let execute_block = start_block.saturating_add(&delay).unwrap();
+
+		// Schedule asset transfer (no delay parameter - uses account's default)
+		assert_ok!(ReversibleTransfers::schedule_asset_transfer(
+			RuntimeOrigin::signed(user.clone()),
+			asset_id,
+			dest.clone(),
+			amount,
+		));
+
+		// Run to execution block
+		run_to_block(execute_block.as_block_number().unwrap());
+
+		// Transfer proof should be recorded with asset_id
+		let proofs = MockProofRecorder::get_recorded_proofs();
+		assert_eq!(proofs.len(), 1, "Expected exactly one transfer proof to be recorded");
+
+		let proof = &proofs[0];
+		assert_eq!(proof.asset_id, Some(asset_id), "Asset transfer should have Some(asset_id)");
+		assert_eq!(proof.from, user, "Transfer proof 'from' should match sender");
+		assert_eq!(proof.to, dest, "Transfer proof 'to' should match destination");
+		assert_eq!(proof.amount, amount, "Transfer proof amount should match");
+	});
+}
+
+#[test]
+fn cancelled_reversible_transfer_does_not_record_proof() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		MockProofRecorder::clear();
+
+		let user = alice(); // Reversible, delay 10
+		let interceptor = bob(); // interceptor from genesis config
+		let amount = 50;
+		let call = transfer_call(interceptor.clone(), amount);
+		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
+
+		// Schedule the transfer
+		assert_ok!(ReversibleTransfers::schedule_transfer(
+			RuntimeOrigin::signed(user.clone()),
+			interceptor.clone(),
+			amount,
+		));
+
+		// Cancel it before execution (must be called by interceptor)
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
+
+		// No proofs should be recorded
+		assert!(
+			MockProofRecorder::get_recorded_proofs().is_empty(),
+			"Cancelled transfer should not record any proof"
+		);
+	});
+}
+
+#[test]
+fn validate_delay_accepts_delay_equal_to_minimum() {
+	new_test_ext().execute_with(|| {
+		let user = charlie();
+		let interceptor = dave();
+		let delay = BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get());
+
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(user),
+			delay,
+			interceptor,
+		));
+	});
+}
+
+#[test]
+fn validate_delay_accepts_timestamp_equal_to_minimum() {
+	new_test_ext().execute_with(|| {
+		let user = charlie();
+		let interceptor = dave();
+		let delay = BlockNumberOrTimestamp::Timestamp(MinDelayPeriodMoment::get());
+
+		assert_ok!(ReversibleTransfers::set_high_security(
+			RuntimeOrigin::signed(user),
+			delay,
+			interceptor,
+		));
 	});
 }

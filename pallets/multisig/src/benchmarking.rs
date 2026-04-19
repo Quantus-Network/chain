@@ -44,8 +44,9 @@ where
 
 #[benchmarks(
 	where
-	T: Config + pallet_balances::Config,
+	T: Config + pallet_balances::Config + pallet_reversible_transfers::Config,
 	BalanceOf2<T>: From<u128>,
+	<T as Config>::RuntimeCall: From<pallet_reversible_transfers::Call<T>>,
 )]
 mod benchmarks {
 	use super::*;
@@ -208,7 +209,8 @@ mod benchmarks {
 		set_block::<T>(100);
 
 		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
-		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
+		let runtime_call: <T as Config>::RuntimeCall = new_call.into();
+		let encoded_call = runtime_call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
@@ -220,9 +222,7 @@ mod benchmarks {
 	}
 
 	/// Benchmark `propose` for high-security multisigs.
-	/// Uses signer1/signer2 so multisig address matches genesis (ReversibleTransfers::
-	/// initial_high_security_accounts) or mock's HighSecurity (unit tests).
-	/// Uses whitelisted call (remark "safe") so HS path accepts it.
+	/// Uses signer1/signer2 so multisig address matches genesis or mock's HighSecurity.
 	#[benchmark]
 	fn propose_high_security(
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
@@ -237,8 +237,10 @@ mod benchmarks {
 		);
 		set_block::<T>(100);
 
-		let new_call = frame_system::Call::<T>::remark { remark: b"safe".to_vec() };
-		let encoded_call = <T as Config>::RuntimeCall::from(new_call).encode();
+		let whitelisted_call =
+			pallet_reversible_transfers::Call::<T>::cancel { tx_id: Default::default() };
+		let runtime_call: <T as Config>::RuntimeCall = whitelisted_call.into();
+		let encoded_call = runtime_call.encode();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
@@ -380,12 +382,20 @@ mod benchmarks {
 	/// Benchmark `claim_deposits` extrinsic. Uses MaxSigners approvals per proposal for worst-case
 	/// decode. Parameters: i = iterated proposals, r = removed (cleaned) proposals,
 	/// c = average stored call size (affects iteration cost)
+	///
+	/// Note: We restrict the sampled region so r <= i is always true, avoiding the min(r,i) clamp
+	/// distortion. This doesn't cover the full valid domain (especially small i values), but
+	/// Substrate doesn't support dependent variables in benchmarks.
 	#[benchmark]
 	fn claim_deposits(
-		i: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
-		r: Linear<1, { T::MaxTotalProposalsInStorage::get() }>,
+		i: Linear<
+			{ T::MaxTotalProposalsInStorage::get() / 2 },
+			{ T::MaxTotalProposalsInStorage::get() },
+		>,
+		r: Linear<0, { T::MaxTotalProposalsInStorage::get() / 2 }>,
 		c: Linear<0, { T::MaxCallSize::get().saturating_sub(100) }>,
 	) -> Result<(), BenchmarkError> {
+		// With the restricted ranges above, r <= i is always true, so min(r,i) == r
 		let cleaned_target = (r as u32).min(i);
 		let total_proposals = i;
 

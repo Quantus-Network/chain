@@ -125,7 +125,10 @@ parameter_types! {
 	pub const MultisigFeeParam: Balance = 1000;
 	pub const MultisigDepositParam: Balance = 500;
 	pub const ProposalDepositParam: Balance = 100;
-	pub const ProposalFeeParam: Balance = 1000;
+	// Use 999 instead of 1000 to catch early floor truncation bugs.
+	// With step_factor=1%, per-signer increase = floor(999 * 1%) = 9 (truncated from 9.99)
+	// The correct formula multiplies first: floor(999 * signers * 1%) to preserve precision.
+	pub const ProposalFeeParam: Balance = 999;
 	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000);
 	pub const MaxExpiryDurationParam: u64 = 10000;
 }
@@ -173,13 +176,26 @@ impl<T> Time for MockTimestamp<T> {
 
 parameter_types! {
 	pub const ReversibleTransfersPalletIdValue: PalletId = PalletId(*b"rtpallet");
-	pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> =
-		BlockNumberOrTimestamp::BlockNumber(10);
+	pub const DefaultDelay: BlockNumberOrTimestamp<u64, u64> = BlockNumberOrTimestamp::BlockNumber(10);
 	pub const MinDelayPeriodBlocks: u64 = 2;
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const MaxPendingPerAccount: u32 = 16;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
+}
+
+/// Mock proof recorder that does nothing (for tests)
+pub struct MockProofRecorder;
+
+impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRecorder {
+	fn record_transfer_proof(
+		_asset_id: Option<u32>,
+		_from: AccountId,
+		_to: AccountId,
+		_amount: Balance,
+	) {
+	}
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -187,7 +203,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Scheduler = Scheduler;
 	type BlockNumberProvider = System;
-	type MaxPendingPerAccount = MaxReversibleTransfers;
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = MinDelayPeriodMoment;
@@ -197,7 +212,9 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type MaxPendingPerAccount = MaxPendingPerAccount;
 	type VolumeFee = HighSecurityVolumeFee;
+	type ProofRecorder = MockProofRecorder;
 }
 
 parameter_types! {

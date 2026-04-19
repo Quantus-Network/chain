@@ -26,17 +26,15 @@ pub mod pallet {
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
-	use qpow_math::{get_nonce_hash, is_valid_nonce};
+	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
 	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
-	/// Type definitions for QPoW pallet
 	pub type NonceType = [u8; 64];
 	pub type Difficulty = U512;
 	pub type WorkValue = U512;
 	pub type Timestamp = u64;
 	pub type BlockDuration = u64;
-	pub type PercentageClamp = u8;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -49,9 +47,6 @@ pub mod pallet {
 
 	#[pallet::storage]
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, Difficulty, ValueQuery>;
-
-	#[pallet::storage]
-	pub type TotalWork<T: Config> = StorageValue<_, WorkValue, ValueQuery>;
 
 	// Exponential Moving Average of block times (in milliseconds)
 	#[pallet::storage]
@@ -76,11 +71,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxReorgDepth: Get<u32>;
 
-		/// Fixed point scale for calculations (default: 10^18)
-		#[pallet::constant]
-		type FixedU128Scale: Get<u128>;
-
-		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 	}
 
@@ -110,9 +100,6 @@ pub mod pallet {
 
 			// Initialize EMA with target block time
 			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
-
-			// Initialize the total work with the genesis block's difficulty
-			<TotalWork<T>>::put(WorkValue::one());
 		}
 	}
 
@@ -133,12 +120,12 @@ pub mod pallet {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		// TODO: update this
 		fn on_initialize(_block_number: BlockNumberFor<T>) -> Weight {
-			<T as crate::Config>::WeightInfo::on_finalize_max_history()
+			<T as crate::Config>::WeightInfo::on_finalize()
 		}
 
-		/// Called at the end of each block.
+		/// Called at the end of each block to adjust mining difficulty based on
+		/// observed block times using Exponential Moving Average (EMA).
 		fn on_finalize(block_number: BlockNumberFor<T>) {
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
@@ -202,18 +189,6 @@ pub mod pallet {
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
 
-			// Update TotalWork
-			let old_total_work = <TotalWork<T>>::get();
-			let current_work = Self::get_difficulty();
-			let new_total_work = old_total_work.saturating_add(current_work);
-			<TotalWork<T>>::put(new_total_work);
-			log::debug!(target: "qpow",
-				"Total work: now={}, last_time={}, diff={}",
-				new_total_work,
-				old_total_work,
-				new_total_work - old_total_work
-			);
-
 			// Only calculate block time if we're past the genesis block
 			if current_block_number > One::one() {
 				let block_time = now.saturating_sub(last_time);
@@ -273,8 +248,8 @@ pub mod pallet {
 			target_block_time: u64,
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
-			// Calculate ratio using FixedU128
-			let clamp = T::DifficultyAdjustPercentClamp::get();
+			let observed_block_time = observed_block_time.max(1);
+			let clamp = T::DifficultyAdjustPercentClamp::get(); // 10%
 			let one = FixedU128::one();
 			let ratio =
 				FixedU128::from_rational(target_block_time as u128, observed_block_time as u128)
@@ -379,6 +354,24 @@ pub mod pallet {
 			verify
 		}
 
+		/// Verify nonce validity and return achieved difficulty in a single call.
+		/// This avoids computing the nonce hash twice when both validation and
+		/// achieved difficulty are needed during block import.
+		///
+		/// Note: This is called via runtime API from the client side. Runtime API
+		/// calls execute in a temporary context where state changes are discarded,
+		/// so we don't emit events here.
+		pub fn verify_and_get_achieved_difficulty(
+			block_hash: [u8; 32],
+			nonce: NonceType,
+		) -> (bool, U512) {
+			let (valid, _, hash_achieved) = Self::verify_nonce_internal(block_hash, nonce);
+			let achieved_difficulty = valid
+				.then(|| achieved_difficulty_from_hash(hash_achieved))
+				.unwrap_or(U512::zero());
+			(valid, achieved_difficulty)
+		}
+
 		pub fn initial_difficulty() -> Difficulty {
 			T::InitialDifficulty::get()
 		}
@@ -395,15 +388,14 @@ pub mod pallet {
 		}
 
 		pub fn get_min_difficulty() -> Difficulty {
-			Difficulty::one()
+			// This value is related to clamp value,
+			// ie, if clamp is 10% this value must be at least 10
+			// 1000 is safe for clamp values >= 0.01%
+			U512::from(1000u64)
 		}
 
 		pub fn get_max_difficulty() -> Difficulty {
 			U512::MAX
-		}
-
-		pub fn get_total_work() -> WorkValue {
-			<TotalWork<T>>::get()
 		}
 
 		pub fn get_block_time_ema() -> u64 {

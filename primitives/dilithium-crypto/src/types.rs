@@ -32,16 +32,17 @@ pub struct DilithiumCryptoTag;
 /// Dilithium cryptographic key pair
 ///
 /// Contains both secret and public key material for Dilithium ML-DSA-87 operations
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct DilithiumPair {
-	pub secret: [u8; SECRETKEYBYTES],
-	pub public: [u8; PUBLICKEYBYTES],
+	pub(crate) secret: [u8; SECRETKEYBYTES],
+	pub(crate) public: [u8; PUBLICKEYBYTES],
 }
 
-impl Default for DilithiumPair {
-	fn default() -> Self {
-		let seed = alloc::vec![0u8; 32];
-		DilithiumPair::from_seed(&seed).expect("Failed to generate keypair")
+impl alloc::fmt::Debug for DilithiumPair {
+	fn fmt(&self, f: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
+		f.debug_struct("DilithiumPair")
+			.field("public", &self.public)
+			.finish_non_exhaustive()
 	}
 }
 

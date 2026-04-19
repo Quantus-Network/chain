@@ -367,7 +367,7 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "dirac",
+    "planck",
     "business-metrics"
   ],
   "templating": {
@@ -380,7 +380,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Quantus - Business Metrics",
-  "uid": "dirac-business-metrics",
+  "uid": "planck-business-metrics",
   "version": 1,
   "weekStart": ""
 }

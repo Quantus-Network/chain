@@ -9,9 +9,9 @@ pub struct Cli {
 	#[clap(flatten)]
 	pub run: RunCmd,
 
-	/// Specify a rewards preimage for the miner (32-byte hex from wormhole key generation)
-	#[arg(long, value_name = "REWARDS_PREIMAGE")]
-	pub rewards_preimage: Option<String>,
+	/// Inner hash for mining rewards (0x-prefixed, 32-byte hex from wormhole key generation)
+	#[arg(long, value_name = "INNER_HASH")]
+	pub rewards_inner_hash: Option<String>,
 
 	/// Port to listen for external miner connections (e.g., 9833).
 	/// When set, the node will wait for miners to connect instead of mining locally.
@@ -21,6 +21,18 @@ pub struct Cli {
 	/// Enable peer sharing via RPC endpoint
 	#[arg(long)]
 	pub enable_peer_sharing: bool,
+
+	/// Sync: maximum timeouts before dropping a peer during major sync.
+	#[arg(long, default_value_t = 20)]
+	pub sync_max_timeouts_before_drop: u32,
+
+	/// Sync: disable gating peer drops during major sync (fast-ban even in major sync).
+	#[arg(long, default_value_t = false)]
+	pub sync_disable_major_sync_gating: bool,
+
+	/// Sync: block request timeout in seconds (default: 30).
+	#[arg(long, default_value_t = 30)]
+	pub sync_block_request_timeout: u64,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -52,6 +64,7 @@ pub enum Subcommand {
 	Revert(sc_cli::RevertCmd),
 
 	/// Sub-commands concerned with benchmarking.
+	#[cfg(feature = "runtime-benchmarks")]
 	#[command(subcommand)]
 	Benchmark(frame_benchmarking_cli::BenchmarkCmd),
 

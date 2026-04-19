@@ -25,9 +25,7 @@ pub fn format_hex_truncated(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
 	use qp_dilithium_crypto::{DilithiumPublic, DilithiumSignature};
-	use qp_poseidon::PoseidonHasher;
-
-	use sp_runtime::traits::Hash;
+	use qp_poseidon_core::hash_bytes;
 
 	use super::*;
 
@@ -67,7 +65,8 @@ mod tests {
 		println!("Gen Signature length: {:?}", bytes.len());
 
 		// Step 3: Derive AccountId and create extrinsic
-		let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+		// Use injective encoding for account ID derivation (collision-resistant)
+		let account_id = hash_bytes(&pk_bytes).into();
 		let id = Address::Id(account_id);
 		println!("Payload AccountId: {:?}", &id);
 		let signed_extra: SignedExtra = ();
@@ -152,7 +151,8 @@ mod tests {
 		let entropy = [0u8; 32]; // Fixed entropy of all zeros
 		let keypair = qp_dilithium_crypto::generate(&entropy).expect("Failed to generate keypair");
 		let pk_bytes: [u8; PUB_KEY_BYTES] = keypair.public.to_bytes();
-		let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+		// Use injective encoding for account ID derivation (collision-resistant)
+		let account_id = hash_bytes(&pk_bytes).into();
 		let id = Address::Id(account_id);
 		let signed_extra: SignedExtra = ();
 
@@ -222,7 +222,8 @@ mod tests {
 			DilithiumSignature::try_from(&sig_bytes[..]).expect("Signature length mismatch");
 
 		// Create a second account
-		let account_id_2 = PoseidonHasher::hash(&[0u8; PUB_KEY_BYTES]).0.into();
+		// Use injective encoding for account ID derivation (collision-resistant)
+		let account_id_2 = hash_bytes(&[0u8; PUB_KEY_BYTES]).into();
 		let id_2 = Address::Id(account_id_2);
 		let signed_extra: SignedExtra = ();
 
@@ -281,7 +282,8 @@ mod tests {
 		let signature =
 			DilithiumSignature::from_slice(&sig_bytes).expect("Signature length mismatch");
 
-		let account_id = PoseidonHasher::hash(&pk_bytes).0.into();
+		// Use injective encoding for account ID derivation (collision-resistant)
+		let account_id = hash_bytes(&pk_bytes).into();
 		let id = Address::Id(account_id);
 		let signed_extra: SignedExtra = ();
 

@@ -166,7 +166,7 @@ jobs:
           set -eo pipefail
           JSON_OUTPUT=$(docker run --rm \
             -e RUSTC_BOOTSTRAP=1 \
-            -e RUSTC_VERSION="1.86.0" \
+            -e RUSTC_VERSION="1.88.0" \
             -e PACKAGE="quantus-runtime" \
             -e RUNTIME_DIR="runtime" \
             -e "BUILD_OPTS=--features on-chain-release-build" \

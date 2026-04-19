@@ -9,12 +9,11 @@ mod tests {
 	};
 	use pallet_conviction_voting::{AccountVote::Standard, Vote};
 	use pallet_referenda::TracksInfo;
-	use qp_poseidon::PoseidonHasher;
 	use quantus_runtime::{
 		Balances, BlockNumber, ConvictionVoting, OriginCaller, Preimage, Referenda, Runtime,
 		RuntimeCall, RuntimeOrigin, Scheduler, UNIT,
 	};
-	use sp_runtime::traits::Hash;
+	use sp_runtime::traits::{BlakeTwo256, Hash};
 
 	// Helper function to create governance test data
 	fn bounded(s: &[u8]) -> BoundedVec<u8, ConstU32<100>> {
@@ -30,7 +29,7 @@ mod tests {
 
 			// Create test data
 			let preimage_data = bounded(b"test_preimage_data");
-			let hash = PoseidonHasher::hash(&preimage_data);
+			let hash = BlakeTwo256::hash(&preimage_data);
 
 			// Note the preimage
 			assert_ok!(Preimage::note_preimage(
@@ -62,7 +61,7 @@ mod tests {
 
 			// Create test data
 			let preimage_data = bounded(b"test_preimage_data");
-			let hash = PoseidonHasher::hash(&preimage_data);
+			let hash = BlakeTwo256::hash(&preimage_data);
 
 			// Note the preimage
 			assert_ok!(Preimage::note_preimage(
@@ -97,7 +96,7 @@ mod tests {
 
 			// Create test data
 			let preimage_data = bounded(b"test_preimage_data");
-			let hash = PoseidonHasher::hash(&preimage_data);
+			let hash = BlakeTwo256::hash(&preimage_data);
 
 			// Note the preimage
 			assert_ok!(Preimage::note_preimage(
@@ -128,7 +127,7 @@ mod tests {
 
 			// Create test data
 			let preimage_data = bounded(b"test_preimage_data");
-			let hash = PoseidonHasher::hash(&preimage_data);
+			let hash = BlakeTwo256::hash(&preimage_data);
 
 			// Note the preimage
 			assert_ok!(Preimage::note_preimage(
@@ -216,7 +215,6 @@ mod tests {
 			assert_ok!(Scheduler::schedule(
 				RuntimeOrigin::root(),
 				when,
-				None,
 				127,
 				Box::new(transfer_call),
 			));

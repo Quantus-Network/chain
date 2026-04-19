@@ -30,8 +30,7 @@ use sc_client_api::ImportNotifications;
 use sc_consensus::{BlockImportParams, BoxBlockImport, StateAction, StorageChanges};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::{BlockOrigin, Proposal};
-use sp_consensus_pow::{Seal, POW_ENGINE_ID};
-use sp_consensus_qpow::QPoWApi;
+use sp_consensus_qpow::{QPoWApi, Seal, POW_ENGINE_ID};
 use sp_runtime::{
 	traits::{Block as BlockT, Header as HeaderT},
 	DigestItem,
@@ -76,7 +75,7 @@ pub struct MiningHandle<Block: BlockT, AC, L: sc_consensus::JustificationSyncLin
 	client: Arc<AC>,
 	justification_sync_link: Arc<L>,
 	build: Arc<Mutex<Option<MiningBuild<Block, Proof>>>>,
-	block_import: Arc<Mutex<BoxBlockImport<Block>>>,
+	block_import: Arc<BoxBlockImport<Block>>,
 }
 
 impl<Block, AC, L, Proof> MiningHandle<Block, AC, L, Proof>
@@ -100,7 +99,7 @@ where
 			client,
 			justification_sync_link: Arc::new(justification_sync_link),
 			build: Arc::new(Mutex::new(None)),
-			block_import: Arc::new(Mutex::new(block_import)),
+			block_import: Arc::new(block_import),
 		}
 	}
 
@@ -139,28 +138,51 @@ where
 	///
 	/// Returns `true` if the seal is valid for the current block, `false` otherwise.
 	/// Returns `false` if there's no current build.
+	/// Logs detailed information on failure for debugging.
 	pub fn verify_seal(&self, seal: &Seal) -> bool {
 		let build = self.build.lock();
 		let build = match build.as_ref() {
 			Some(b) => b,
-			None => return false,
+			None => {
+				warn!(target: LOG_TARGET, "verify_seal: No current build available");
+				return false;
+			},
 		};
 
 		// Convert seal to nonce [u8; 64]
 		let nonce: [u8; 64] = match seal.as_slice().try_into() {
 			Ok(arr) => arr,
 			Err(_) => {
-				warn!(target: LOG_TARGET, "Seal does not have exactly 64 bytes");
+				warn!(target: LOG_TARGET, "Seal does not have exactly 64 bytes, got {}", seal.len());
 				return false;
 			},
 		};
 
 		let pre_hash = build.metadata.pre_hash.0;
 		let best_hash = build.metadata.best_hash;
+		let difficulty = build.metadata.difficulty;
+		let extrinsic_count = build.proposal.block.extrinsics().len();
 
 		// Verify using runtime API
 		match self.client.runtime_api().verify_nonce_local_mining(best_hash, pre_hash, nonce) {
-			Ok(valid) => valid,
+			Ok(true) => true,
+			Ok(false) => {
+				log::error!(
+					target: LOG_TARGET,
+					"verify_seal FAILED:\n\
+					  pre_hash (block template):  {}\n\
+					  best_hash (parent block):   {}\n\
+					  difficulty:                 {}\n\
+					  nonce (seal):               {}\n\
+					  extrinsics in block:        {}",
+					hex::encode(pre_hash),
+					best_hash,
+					difficulty,
+					hex::encode(nonce),
+					extrinsic_count,
+				);
+				false
+			},
 			Err(e) => {
 				warn!(target: LOG_TARGET, "Runtime API error verifying seal: {:?}", e);
 				false
@@ -170,7 +192,6 @@ where
 
 	/// Submit a mined seal. The seal will be validated again. Returns true if the submission is
 	/// successful.
-	#[allow(clippy::await_holding_lock)]
 	pub async fn submit(&self, seal: Seal) -> bool {
 		let build = if let Some(build) = {
 			let mut build = self.build.lock();
@@ -189,22 +210,20 @@ where
 		let seal = DigestItem::Seal(POW_ENGINE_ID, seal);
 		let (header, body) = build.proposal.block.deconstruct();
 
-		let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
+		let mut import_block: BlockImportParams<Block> =
+			BlockImportParams::new(BlockOrigin::Own, header);
 		import_block.post_digests.push(seal);
 		import_block.body = Some(body);
 		import_block.state_action =
 			StateAction::ApplyChanges(StorageChanges::Changes(build.proposal.storage_changes));
 
-		let header = import_block.post_header();
-		let import_result = self.block_import.lock().import_block(import_block).await;
+		let block_number = *import_block.header.number();
+		let post_hash = import_block.post_header().hash();
+		let import_result = self.block_import.import_block(import_block).await;
 
 		match import_result {
 			Ok(res) => {
-				res.handle_justification(
-					&header.hash(),
-					*header.number(),
-					&self.justification_sync_link,
-				);
+				res.handle_justification(&post_hash, block_number, &self.justification_sync_link);
 
 				true
 			},

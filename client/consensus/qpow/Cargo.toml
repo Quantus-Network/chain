@@ -22,7 +22,6 @@ sp-api = { workspace = true, default-features = false }
 sp-block-builder = { workspace = true, default-features = true }
 sp-blockchain = { workspace = true, default-features = false }
 sp-consensus = { workspace = true, default-features = false }
-sp-consensus-pow = { workspace = true, default-features = false }
 sp-consensus-qpow = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = true }
 sp-inherents = { workspace = true, default-features = true }
@@ -35,7 +34,6 @@ std = [
 	"codec/std",
 	"primitive-types/std",
 	"sp-api/std",
-	"sp-consensus-pow/std",
 	"sp-consensus-qpow/std",
 	"sp-runtime/std",
 ]

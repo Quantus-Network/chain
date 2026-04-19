@@ -2,6 +2,42 @@
 
 Get started mining on the Quantus Network testnet in minutes.
 
+## Table of Contents
+
+### Getting Started
+- [Important: Wormhole Address System](#important-wormhole-address-system)
+- [System Requirements](#system-requirements)
+- [Setup](#setup)
+  - [Manual Installation](#manual-installation)
+  - [Docker Installation](#docker-installation)
+- [External Miner Setup](#external-miner-setup)
+
+### Configuration & Monitoring
+- [Configuration Options](#configuration-options)
+- [Monitoring Your Node](#monitoring-your-node)
+- [Testnet Information](#testnet-information)
+
+### Support & Best Practices
+- [Troubleshooting](#troubleshooting)
+- [Mining Economics](#mining-economics)
+- [Security Best Practices](#security-best-practices)
+- [Next Steps](#next-steps)
+
+### Technical Documentation (For Developers)
+- [External Miner Protocol Specification](#external-miner-protocol-specification)
+  - [Overview](#overview)
+  - [Architecture](#architecture)
+  - [Data Types](#data-types)
+  - [Protocol Flow](#protocol-flow)
+  - [Configuration](#configuration-1)
+  - [TLS Configuration](#tls-configuration)
+  - [Error Handling](#error-handling)
+  - [Implementation Notes](#implementation-notes)
+
+---
+
+> **Note:** This guide contains both practical setup instructions for miners and technical protocol specifications for developers. If you're building custom miner implementations, see the [External Miner Protocol Specification](#external-miner-protocol-specification) section at the end.
+
 ## Important: Wormhole Address System
 
 **⚠️ Mining rewards are automatically sent to wormhole addresses derived from your preimage.**
@@ -17,8 +53,10 @@ Get started mining on the Quantus Network testnet in minutes.
 - **CPU**: 2+ cores
 - **RAM**: 4GB
 - **Storage**: 100GB available space
-- **Network**: Stable internet connection
+- **Network**: Stable internet connection (3+ Mbps)
 - **OS**: Linux (Ubuntu 20.04+), macOS (10.15+), or Windows WSL2
+
+> ⚠️ Connections below 3 Mbps will likely fail to keep the node synced with the network.
 
 ### Recommended Requirements
 - **CPU**: 4+ cores (higher core count improves mining performance - coming soon)
@@ -53,20 +91,20 @@ If you prefer manual installation or the script doesn't work for your system:
    
    **Save the preimage** - you'll need it for the `--rewards-address` parameter.
 
-4. **Run the node (Dirac testnet)**
+4. **Run the node (Planck network)**
 
 Minimal command - see --help for many more options
 ```sh
 ./quantus-node \
     --validator \
-    --chain dirac \
+    --chain planck \
     --node-key-file ~/.quantus/node_key.p2p \
-    --rewards-preimage <YOUR_PREIMAGE_FROM_STEP_3> \
+    --rewards-inner-hash <YOUR_PREIMAGE_FROM_STEP_3> \
     --max-blocks-per-request 64 \
     --sync full
 ```
 
-**Note:** Use the `inner_hash` from step 3 as your `--rewards-preimage`. The node will derive your wormhole address and log it on startup.
+**Note:** Use the `inner_hash` from step 3 as your `--rewards-inner-hash`. The node will derive your wormhole address and log it on startup.
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:
@@ -126,9 +164,9 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain dirac \
+  --chain planck \
   --node-key-file /var/lib/quantus/node_key.p2p \
-  --rewards-preimage <YOUR_PREIMAGE>
+  --rewards-inner-hash <YOUR_PREIMAGE>
 ```
 
 *Note for Apple Silicon (M1/M2/M3) users:* As mentioned above, if you are using an `amd64` based Docker image on an ARM-based Mac, you will likely need to add the `--platform linux/amd64` flag to your `docker run` commands.
@@ -190,7 +228,7 @@ docker run -d \
   ghcr.io/quantus-network/quantus-node:latest \
   --validator \
   --base-path /var/lib/quantus \
-  --chain dirac \
+  --chain planck \
   --rewards-address YOUR_ADDRESS_HERE
 ```
 
@@ -200,22 +238,17 @@ docker run -d \
 
 ## External Miner Setup
 
-For high-performance mining, you can offload the QPoW mining process to a separate service, freeing up node resources.
+For high-performance mining, you can offload the mining process to a separate service, freeing up node resources.
 
 ### Prerequisites
 
-1. **Build Node:**
-   ```bash
-   # From workspace root
-   cargo build --release -p quantus-node
-   ```
+1. **Download Node Binary:**
 
-2. **Get External Miner:**
-   ```bash
-   git clone https://github.com/Quantus-Network/quantus-miner
-   cd quantus-miner
-   cargo build --release
-   ```
+   Get the latest `quantus-node` binary from [GitHub Releases](https://github.com/Quantus-Network/chain/releases/latest).
+
+2. **Download External Miner Binary:**
+
+   Get the latest `quantus-miner` binary from [GitHub Releases](https://github.com/Quantus-Network/quantus-miner/releases/latest).
 
 ### Setup with Wormhole Addresses
 
@@ -225,21 +258,24 @@ For high-performance mining, you can offload the QPoW mining process to a separa
    ```
    Save the `inner_hash` value.
 
-2. **Start External Miner** (in separate terminal):
-   ```bash
-   RUST_LOG=info ./target/release/quantus-miner
-   ```
-   *(Default: `http://127.0.0.1:9833`)*
-
-3. **Start Node with External Miner** (in another terminal):
+2. **Start the Node** (QUIC server for miners):
    ```bash
    # Replace <YOUR_PREIMAGE> with the inner_hash from step 1
-   RUST_LOG=info,sc_consensus_pow=debug ./target/release/quantus-node \
+   RUST_LOG=info,sc_consensus_pow=debug ./quantus-node \
     --validator \
-    --chain dirac \
-    --external-miner-url http://127.0.0.1:9833 \
-    --rewards-preimage <YOUR_PREIMAGE>
+    --chain planck \
+    --miner-listen-port 9833 \
+    --rewards-inner-hash <YOUR_PREIMAGE>
    ```
+   The node binds a QUIC server on `0.0.0.0:9833` and waits for miners to connect. When `--miner-listen-port` is set, local mining is disabled.
+
+3. **Start External Miner** (in separate terminal, connects to the node):
+   ```bash
+   RUST_LOG=info ./quantus-miner serve --node-addr 127.0.0.1:9833
+   ```
+   Useful flags: `--cpu-workers <N>`, `--gpu-devices <N>`, `--metrics-port <PORT>` (default `9900`). If the node is on another host, replace `127.0.0.1` with its IP.
+
+For developers building custom miner implementations, see the [External Miner Protocol Specification](#external-miner-protocol-specification) section below.
 
 ## Configuration Options
 
@@ -248,8 +284,8 @@ For high-performance mining, you can offload the QPoW mining process to a separa
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--node-key-file` | Path to P2P identity file | Required |
-| `--rewards-preimage` | Wormhole preimage (inner_hash from key generation) | Required |
-| `--chain` | Chain specification | `dirac` |
+| `--rewards-inner-hash` | Wormhole preimage (inner_hash from key generation) | Required |
+| `--chain` | Chain specification | `planck` |
 | `--port` | P2P networking port | `30333` |
 | `--prometheus-port` | Metrics endpoint port | `9616` |
 | `--name` | Node display name | Auto-generated |
@@ -264,7 +300,7 @@ For high-performance mining, you can offload the QPoW mining process to a separa
 **View Logs**
 ```bash
 # Real-time logs
-tail -f ~/.local/share/quantus-node/chains/dirac/network/quantus-node.log
+tail -f ~/.local/share/quantus-node/chains/planck/network/quantus-node.log
 
 # Or run with verbose logging
 RUST_LOG=info quantus-node [options]
@@ -299,7 +335,7 @@ curl -H "Content-Type: application/json" \
 
 ## Testnet Information
 
-- **Chain**: Dirac Testnet
+- **Chain**: Planck network
 - **Consensus**: Quantum Proof of Work (QPoW)
 - **Block Time**: ~6 seconds target
 - **Network Explorer**: Coming soon
@@ -318,7 +354,7 @@ quantus-node --port 30334 --prometheus-port 9617 [other options]
 **Database Corruption**
 ```bash
 # Purge and resync
-quantus-node purge-chain --chain dirac
+quantus-node purge-chain --chain planck
 ```
 
 **Mining Not Working**
@@ -408,6 +444,252 @@ This is testnet software for testing purposes only:
 4. **Contribute**: Help improve the network by reporting issues and feedback
 
 Happy mining! 🚀
+
+---
+
+# External Miner Protocol Specification
+
+This section defines the QUIC-based protocol for communication between the Quantus Network node and external miner services. **This is technical documentation for developers building custom miner implementations.**
+
+## Overview
+
+The node delegates the mining task (finding a valid nonce) to external miner services over persistent QUIC connections. The node provides the necessary parameters (header hash, difficulty) and each external miner independently searches for a valid nonce according to the PoW rules defined in the `qpow-math` crate (using Poseidon2 hash function). Miners push results back when found.
+
+### Key Benefits of QUIC
+
+- **Lower latency**: Results are pushed immediately when found (no polling)
+- **Connection resilience**: Built-in connection migration and recovery
+- **Multiplexed streams**: Multiple operations on single connection
+- **Built-in TLS**: Encrypted by default
+
+## Architecture
+
+### Connection Model
+
+```
+                           ┌─────────────────────────────────┐
+                           │            Node                 │
+                           │   (QUIC Server on port 9833)    │
+                           │                                 │
+┌──────────┐               │  Broadcasts: NewJob             │
+│  Miner 1 │ ──connect───► │  Receives: JobResult            │
+└──────────┘               │                                 │
+                           │  Supports multiple miners       │
+┌──────────┐               │  First valid result wins        │
+│  Miner 2 │ ──connect───► │                                 │
+└──────────┘               └─────────────────────────────────┘
+                           
+┌──────────┐                         
+│  Miner 3 │ ──connect───►           
+└──────────┘                         
+```
+
+- **Node** acts as the QUIC server, listening on port 9833 (default)
+- **Miners** act as QUIC clients, connecting to the node
+- Single bidirectional stream per miner connection
+- Connection persists across multiple mining jobs
+- Multiple miners can connect simultaneously
+
+### Multi-Miner Operation
+
+When multiple miners are connected:
+1. Node broadcasts the same `NewJob` to all connected miners
+2. Each miner independently selects a random starting nonce
+3. First miner to find a valid solution sends `JobResult`
+4. Node uses the first valid result, ignores subsequent results for same job
+5. New job broadcast implicitly cancels work on all miners
+
+### Message Types
+
+The protocol uses **three message types**:
+
+| Direction | Message | Description |
+|-----------|---------|-------------|
+| Miner → Node | `Ready` | Sent immediately after connecting to establish the stream |
+| Node → Miner | `NewJob` | Submit a mining job (implicitly cancels any previous job) |
+| Miner → Node | `JobResult` | Mining result (completed, failed, or cancelled) |
+
+### Wire Format
+
+Messages are length-prefixed JSON:
+
+```
+┌─────────────────┬─────────────────────────────────┐
+│ Length (4 bytes)│ JSON payload (MinerMessage)     │
+│ big-endian u32  │                                 │
+└─────────────────┴─────────────────────────────────┘
+```
+
+Maximum message size: 16 MB
+
+## Data Types
+
+See the `quantus-miner-api` crate for the canonical Rust definitions.
+
+### MinerMessage (Enum)
+
+```rust
+pub enum MinerMessage {
+    Ready,                      // Miner → Node: establish stream
+    NewJob(MiningRequest),      // Node → Miner: submit job
+    JobResult(MiningResult),    // Miner → Node: return result
+}
+```
+
+### MiningRequest
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `job_id` | String | Unique identifier (UUID recommended) |
+| `mining_hash` | String | Header hash (64 hex chars, no 0x prefix) |
+| `distance_threshold` | String | Difficulty (U512 as decimal string) |
+
+Note: Nonce range is not specified - each miner independently selects a random starting point.
+
+### MiningResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | ApiResponseStatus | Result status (see below) |
+| `job_id` | String | Job identifier |
+| `nonce` | Option<String> | Winning nonce (U512 hex, no 0x prefix) |
+| `work` | Option<String> | Winning nonce as bytes (128 hex chars) |
+| `hash_count` | u64 | Number of nonces checked |
+| `elapsed_time` | f64 | Time spent mining (seconds) |
+| `miner_id` | Option<u64> | Miner ID (set by node, not miner) |
+
+### ApiResponseStatus (Enum)
+
+| Value | Description |
+|-------|-------------|
+| `completed` | Valid nonce found |
+| `failed` | Nonce range exhausted without finding solution |
+| `cancelled` | Job was cancelled (new job received) |
+| `running` | Job still in progress (not typically sent) |
+
+## Protocol Flow
+
+### Normal Mining Flow
+
+```
+Miner                                        Node
+  │                                            │
+  │──── QUIC Connect ─────────────────────────►│
+  │◄─── Connection Established ────────────────│
+  │                                            │
+  │──── Ready ────────────────────────────────►│ (establish stream)
+  │                                            │
+  │◄─── NewJob { job_id: "abc", ... } ─────────│
+  │                                            │
+  │     (picks random nonce, starts mining)    │
+  │                                            │
+  │──── JobResult { job_id: "abc", ... } ─────►│ (found solution!)
+  │                                            │
+  │     (node submits block, gets new work)    │
+  │                                            │
+  │◄─── NewJob { job_id: "def", ... } ─────────│
+  │                                            │
+```
+
+### Job Cancellation (Implicit)
+
+When a new block arrives before the miner finds a solution, the node simply sends a new `NewJob`. The miner automatically cancels the previous job:
+
+```
+Miner                                        Node
+  │                                            │
+  │◄─── NewJob { job_id: "abc", ... } ─────────│
+  │                                            │
+  │     (mining "abc")                         │
+  │                                            │
+  │     (new block arrives at node!)           │
+  │                                            │
+  │◄─── NewJob { job_id: "def", ... } ─────────│
+  │                                            │
+  │     (cancels "abc", starts "def")          │
+  │                                            │
+  │──── JobResult { job_id: "def", ... } ─────►│
+```
+
+### Miner Connect During Active Job
+
+When a miner connects while a job is active, it immediately receives the current job:
+
+```
+Miner (new)                                  Node
+  │                                            │ (already mining job "abc")
+  │──── QUIC Connect ─────────────────────────►│
+  │◄─── Connection Established ────────────────│
+  │                                            │
+  │──── Ready ────────────────────────────────►│ (establish stream)
+  │                                            │
+  │◄─── NewJob { job_id: "abc", ... } ─────────│ (current job sent immediately)
+  │                                            │
+  │     (joins mining effort)                  │
+```
+
+### Stale Result Handling
+
+If a result arrives for an old job, the node discards it:
+
+```
+Miner                                        Node
+  │                                            │
+  │◄─── NewJob { job_id: "abc", ... } ─────────│
+  │                                            │
+  │◄─── NewJob { job_id: "def", ... } ─────────│ (almost simultaneous)
+  │                                            │
+  │──── JobResult { job_id: "abc", ... } ─────►│ (stale, node ignores)
+  │                                            │
+  │──── JobResult { job_id: "def", ... } ─────►│ (current, node uses)
+```
+
+## Configuration
+
+### Node
+
+```bash
+# Listen for external miner connections on port 9833
+quantus-node --miner-listen-port 9833
+```
+
+### Miner
+
+```bash
+# Connect to node
+quantus-miner serve --node-addr 127.0.0.1:9833
+```
+
+## TLS Configuration
+
+The node generates a self-signed TLS certificate at startup. The miner skips certificate verification by default (insecure mode). For production deployments, consider:
+
+1. **Certificate pinning**: Configure the miner to accept only specific certificate fingerprints
+2. **Proper CA**: Use certificates signed by a trusted CA
+3. **Network isolation**: Run node and miner on a private network
+
+## Error Handling
+
+### Connection Loss
+
+The miner automatically reconnects with exponential backoff:
+- Initial delay: 1 second
+- Maximum delay: 30 seconds
+
+The node continues operating with remaining connected miners.
+
+### Validation Errors
+
+If the miner receives an invalid `MiningRequest`, it sends a `JobResult` with status `failed`.
+
+## Implementation Notes
+
+- All hex values should be sent **without** the `0x` prefix
+- The miner implements validation logic from `qpow_math::is_valid_nonce`
+- The node uses the `work` field from `MiningResult` to construct `QPoWSeal`
+- ALPN protocol identifier: `quantus-miner`
+- Each miner independently generates a random nonce starting point using cryptographically secure randomness
+- With a 512-bit nonce space, collision between miners is statistically impossible
 
 ---
 

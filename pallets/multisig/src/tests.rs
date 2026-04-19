@@ -23,9 +23,12 @@ impl HighSecurityInspector<AccountId32, RuntimeCall> for MockHighSecurity {
 		false
 	}
 	fn is_whitelisted(call: &RuntimeCall) -> bool {
-		// For testing, only remarks with "safe" are whitelisted
 		match call {
-			RuntimeCall::System(frame_system::Call::remark { remark }) => remark == b"safe",
+			RuntimeCall::System(frame_system::Call::remark { remark }) =>
+				remark.as_slice() == b"safe",
+			RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel {
+				..
+			}) => true,
 			_ => false,
 		}
 	}
@@ -264,9 +267,10 @@ fn propose_works() {
 		let expiry = 1000;
 
 		let initial_balance = Balances::free_balance(proposer.clone());
-		let proposal_deposit = 100; // ProposalDepositParam (Changed in mock)
-							  // Fee calculation: Base(1000) + (Base(1000) * 1% * 2 signers) = 1000 + 20 = 1020
-		let proposal_fee = 1020;
+		let proposal_deposit = 100; // ProposalDepositParam
+							  // Fee calculation: Base(999) + floor(1% * 999 * 2 signers) = 999 + floor(19.98) = 999 + 19
+							  // = 1018
+		let proposal_fee = 1018;
 
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(proposer.clone()),
@@ -696,6 +700,177 @@ fn remove_expired_fails_for_non_signer() {
 }
 
 #[test]
+fn remove_expired_works_for_approved_expired_proposal() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let call = make_call(vec![1, 2, 3]);
+		let expiry = 100;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			call.clone(),
+			expiry
+		));
+
+		let proposal_id = get_last_proposal_id(&multisig_address);
+
+		// Charlie approves → status becomes Approved
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		let proposal = Proposals::<Test>::get(&multisig_address, proposal_id).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		// Move past expiry - proposal can no longer be executed
+		System::set_block_number(expiry + 1);
+
+		// Any signer (charlie, not proposer) can remove expired Approved proposal
+		// This unblocks deposits and enables multisig dissolution when proposer unavailable
+		assert_ok!(Multisig::remove_expired(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Proposal should be gone
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+
+		// Deposit returned to proposer (bob)
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+#[test]
+fn claim_deposits_works_for_approved_expired_proposals() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Bob creates 2 proposals
+		for i in 0..2 {
+			let call = make_call(vec![i as u8; 32]);
+			assert_ok!(Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				call,
+				100
+			));
+		}
+
+		// Charlie approves both → Approved
+		for proposal_id in 0..=1 {
+			assert_ok!(Multisig::approve(
+				RuntimeOrigin::signed(charlie()),
+				multisig_address.clone(),
+				proposal_id
+			));
+		}
+
+		// Move past expiry
+		System::set_block_number(201);
+
+		// Bob (proposer) claims deposits from expired Approved proposals
+		assert_ok!(Multisig::claim_deposits(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone()
+		));
+
+		// All deposits returned
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+
+		// Proposals removed
+		assert!(Proposals::<Test>::get(&multisig_address, 0).is_none());
+		assert!(Proposals::<Test>::get(&multisig_address, 1).is_none());
+	});
+}
+
+#[test]
+fn remove_expired_unblocks_undecodable_approved_proposal() {
+	// Non-high-security multisig can have proposals with invalid call bytes.
+	// Execute fails with InvalidCall, proposal stays. After expiry, remove_expired unblocks.
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+		// Non-high-security (not account 100), so no decode at propose
+		assert!(!MockHighSecurity::is_high_security(&multisig_address));
+
+		// Invalid call bytes - will fail decode at execute
+		let undecodable_call = vec![0xff; 32];
+		let expiry = 100;
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			undecodable_call,
+			expiry
+		));
+
+		let proposal_id = get_last_proposal_id(&multisig_address);
+
+		// Charlie approves → Approved
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		// Execute fails (InvalidCall) - proposal stays in storage
+		assert_err_ignore_postinfo(
+			Multisig::execute(RuntimeOrigin::signed(bob()), multisig_address.clone(), proposal_id),
+			Error::<Test>::InvalidCall.into(),
+		);
+		assert!(Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+
+		// Move past expiry
+		System::set_block_number(expiry + 1);
+
+		// Any signer can remove expired Approved proposal (even with undecodable call)
+		assert_ok!(Multisig::remove_expired(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			proposal_id
+		));
+
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+		assert_eq!(Balances::reserved_balance(bob()), 0);
+	});
+}
+
+#[test]
 fn claim_deposits_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
@@ -748,6 +923,41 @@ fn claim_deposits_works() {
 			}
 			.into(),
 		);
+	});
+}
+
+#[test]
+fn claim_deposits_fails_for_non_signer() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		let signers = vec![bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			2,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			make_call(vec![1, 2, 3]),
+			100
+		));
+
+		System::set_block_number(201);
+
+		assert_noop!(
+			Multisig::claim_deposits(RuntimeOrigin::signed(dave()), multisig_address.clone()),
+			Error::<Test>::NotASigner
+		);
+
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Balances::reserved_balance(bob()), 100);
 	});
 }
 
@@ -1140,11 +1350,11 @@ fn propose_charges_correct_fee_with_signer_factor() {
 			1000
 		));
 
-		// ProposalFeeParam = 1000
+		// ProposalFeeParam = 999
 		// SignerStepFactor = 1%
 		// Signers = 3
-		// Calculation: 1000 + (1000 * 1% * 3) = 1000 + 30 = 1030
-		let expected_fee = 1030;
+		// Calculation: 999 + floor(1% * 999 * 3) = 999 + floor(29.97) = 999 + 29 = 1028
+		let expected_fee = 1028;
 		let deposit = 100; // ProposalDepositParam
 
 		assert_eq!(
@@ -1152,6 +1362,96 @@ fn propose_charges_correct_fee_with_signer_factor() {
 			initial_balance - deposit - expected_fee
 		);
 		// Fee is burned (reduces total issuance)
+	});
+}
+
+#[test]
+fn fee_calculation_order_of_operations_is_correct() {
+	// This test verifies that the fee calculation uses the correct order of operations:
+	// Fee = Base + floor(StepFactor * Base * SignerCount)
+	//
+	// The WRONG formula would be:
+	// Fee = Base + floor(StepFactor * Base) * SignerCount
+	//
+	// The difference matters when floor(StepFactor * Base) truncates.
+	// Example with base=99, factor=1%, signers=100:
+	//   Wrong:   99 + floor(0.99) * 100 = 99 + 0 * 100 = 99  (no increase!)
+	//   Correct: 99 + floor(0.99 * 100) = 99 + floor(99) = 198
+	use sp_runtime::Permill;
+
+	// Test case where early floor truncation would cause loss of precision
+	let base_fee: u128 = 99;
+	let step_factor = Permill::from_percent(1); // 1%
+	let signers_count: u128 = 100;
+
+	// WRONG way (early floor truncation):
+	let wrong_per_signer = step_factor.mul_floor(base_fee); // floor(0.99) = 0
+	let wrong_total_increase = wrong_per_signer.saturating_mul(signers_count); // 0 * 100 = 0
+	let wrong_fee = base_fee.saturating_add(wrong_total_increase); // 99 + 0 = 99
+
+	// CORRECT way (multiply first, then floor):
+	let multiplier = base_fee.saturating_mul(signers_count); // 99 * 100 = 9900
+	let correct_total_increase = step_factor.mul_floor(multiplier); // floor(1% * 9900) = 99
+	let correct_fee = base_fee.saturating_add(correct_total_increase); // 99 + 99 = 198
+
+	// Verify the formulas produce different results
+	assert_eq!(wrong_fee, 99, "Wrong formula should give 99");
+	assert_eq!(correct_fee, 198, "Correct formula should give 198");
+	assert_ne!(wrong_fee, correct_fee, "The two formulas should differ for this input");
+}
+
+#[test]
+fn propose_charges_correct_fee_with_max_signers() {
+	// Integration test with max signers to verify fee scaling works correctly
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let creator = alice();
+		// Use max signers (10) to maximize the fee increase
+		let signers = vec![
+			bob(),
+			charlie(),
+			dave(),
+			account_id(5),
+			account_id(6),
+			account_id(7),
+			account_id(8),
+			account_id(9),
+			account_id(10),
+			account_id(11),
+		];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers.clone(),
+			5,
+			0
+		));
+
+		let multisig_address = Multisig::derive_multisig_address(&signers, 5, 0);
+
+		let proposer = bob();
+		let call = make_call(vec![1, 2, 3]);
+		let initial_balance = Balances::free_balance(proposer.clone());
+
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(proposer.clone()),
+			multisig_address,
+			call,
+			1000
+		));
+
+		// ProposalFeeParam = 999
+		// SignerStepFactor = 1% (Permill::from_parts(10_000))
+		// Signers = 10
+		//
+		// Correct calculation: 999 + floor(1% * 999 * 10) = 999 + floor(99.9) = 999 + 99 = 1098
+		let expected_fee = 1098;
+		let deposit = 100; // ProposalDepositParam
+
+		assert_eq!(
+			Balances::free_balance(proposer.clone()),
+			initial_balance - deposit - expected_fee
+		);
 	});
 }
 

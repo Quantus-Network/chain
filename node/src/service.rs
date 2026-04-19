@@ -11,7 +11,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use quantus_runtime::{self, apis::RuntimeApi, opaque::Block};
 use sc_client_api::Backend;
-use sc_consensus_qpow::{ChainManagement, MiningHandle};
+use sc_consensus_qpow::MiningHandle;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 #[cfg(feature = "tx-logging")]
@@ -184,30 +184,44 @@ async fn handle_external_mining(
 	server.broadcast_job(job).await;
 
 	// Wait for results from miners, retrying on invalid seals
+	// Track both best_hash (parent) and pre_hash (block template) to detect rebuilds
 	let best_hash = metadata.best_hash;
+	let original_pre_hash = metadata.pre_hash;
 	loop {
 		let (miner_id, seal) = match wait_for_mining_result(server, &job_id, || {
+			// Interrupt if cancelled, parent block changed, OR block template was rebuilt
 			cancellation_token.is_cancelled() ||
-				worker_handle.metadata().map(|m| m.best_hash != best_hash).unwrap_or(true)
+				worker_handle
+					.metadata()
+					.map(|m| m.best_hash != best_hash || m.pre_hash != original_pre_hash)
+					.unwrap_or(true)
 		})
 		.await
 		{
 			Some(result) => result,
-			None => return ExternalMiningOutcome::Interrupted,
+			None => {
+				// Check why we were interrupted - log if it was a rebuild
+				if let Some(current) = worker_handle.metadata() {
+					if current.best_hash == best_hash && current.pre_hash != original_pre_hash {
+						log::info!(
+							"⛏️ Block template rebuilt while mining job {}. Old pre_hash: {}, New pre_hash: {}. Rebroadcasting...",
+							job_id,
+							hex::encode(original_pre_hash.as_bytes()),
+							hex::encode(current.pre_hash.as_bytes())
+						);
+					}
+				}
+				return ExternalMiningOutcome::Interrupted;
+			},
 		};
 
 		// Verify the seal before attempting to submit (submit consumes the build)
 		if !worker_handle.verify_seal(&seal) {
-			log::error!(
-				"🚨🚨🚨 INVALID SEAL FROM MINER {}! Job {} - seal failed verification. This may indicate a miner bug or stale work. Continuing to wait for valid seals...",
-				miner_id,
-				job_id
-			);
 			continue;
 		}
 
 		// Seal is valid, submit it
-		if futures::executor::block_on(worker_handle.submit(seal.clone())) {
+		if worker_handle.submit(seal.clone()).await {
 			let mining_time = mining_start_time.elapsed().as_secs();
 			log::info!(
 				"🥇 Successfully mined and submitted a new block via external miner {} (mining time: {}s)",
@@ -276,7 +290,7 @@ async fn handle_local_mining(
 /// Submit a mined seal to the worker handle.
 ///
 /// Returns `true` if submission was successful, `false` otherwise.
-fn submit_mined_block(
+async fn submit_mined_block(
 	worker_handle: &MiningHandle<
 		Block,
 		FullClient,
@@ -287,7 +301,7 @@ fn submit_mined_block(
 	mining_start_time: &mut std::time::Instant,
 	source: &str,
 ) -> bool {
-	if futures::executor::block_on(worker_handle.submit(seal)) {
+	if worker_handle.submit(seal).await {
 		let mining_time = mining_start_time.elapsed().as_secs();
 		log::info!(
 			"🥇 Successfully mined and submitted a new block{} (mining time: {}s)",
@@ -315,11 +329,16 @@ async fn mining_loop(
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	miner_server: Option<Arc<MinerServer>>,
 	cancellation_token: CancellationToken,
+	allow_mining_without_peers: bool,
 ) {
 	log::info!("⛏️ QPoW Mining task spawned");
 
 	let mut mining_start_time = std::time::Instant::now();
 	let mut job_counter: u64 = 0;
+
+	// Track when we first detected offline status for grace period
+	let mut offline_since: Option<std::time::Instant> = None;
+	const OFFLINE_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 	loop {
 		if cancellation_token.is_cancelled() {
@@ -335,6 +354,38 @@ async fn mining_loop(
 				_ = cancellation_token.cancelled() => continue
 			}
 			continue;
+		}
+
+		// Don't mine if we have no peers (unless --dev or --force-authoring)
+		// Use a grace period to handle brief network hiccups
+		if !allow_mining_without_peers && sync_service.is_offline() {
+			let now = std::time::Instant::now();
+			match offline_since {
+				None => {
+					// First time detecting offline, start grace period
+					offline_since = Some(now);
+					log::debug!(target: "pow", "No peers detected, starting {}s grace period before pausing mining", OFFLINE_GRACE_PERIOD.as_secs());
+				},
+				Some(since) if now.duration_since(since) >= OFFLINE_GRACE_PERIOD => {
+					// Grace period exceeded, pause mining
+					log::warn!(target: "pow", "Mining paused: no connected peers for {}s (node is offline)", OFFLINE_GRACE_PERIOD.as_secs());
+					tokio::select! {
+						_ = tokio::time::sleep(Duration::from_secs(5)) => {}
+						_ = cancellation_token.cancelled() => continue
+					}
+					continue;
+				},
+				Some(_) => {
+					// Still within grace period, continue mining but log
+					log::debug!(target: "pow", "No peers but still within grace period, continuing mining");
+				},
+			}
+		} else {
+			// We have peers (or are in dev mode), reset offline tracking
+			if offline_since.is_some() {
+				log::info!(target: "pow", "Peers reconnected, resuming normal mining");
+			}
+			offline_since = None;
 		}
 
 		// Wait for mining metadata to be available
@@ -360,7 +411,7 @@ async fn mining_loop(
 			.await;
 		} else if let Some(seal) = handle_local_mining(&client, &worker_handle).await {
 			// Local mining path
-			submit_mined_block(&worker_handle, seal, &mut mining_start_time, "");
+			submit_mined_block(&worker_handle, seal, &mut mining_start_time, "").await;
 		}
 
 		// Yield to let other async tasks run
@@ -403,7 +454,6 @@ fn spawn_authority_tasks(
 	task_manager: &mut TaskManager,
 	client: Arc<FullClient>,
 	transaction_pool: Arc<sc_transaction_pool::TransactionPoolHandle<Block, FullClient>>,
-	select_chain: FullSelectChain,
 	pow_block_import: PowBlockImport,
 	sync_service: Arc<sc_network_sync::SyncingService<Block>>,
 	prometheus_registry: Option<prometheus::Registry>,
@@ -413,6 +463,7 @@ fn spawn_authority_tasks(
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
 		+ 'static,
+	allow_mining_without_peers: bool,
 ) {
 	// Create block proposer factory
 	let proposer = ProposerFactory::new(
@@ -442,7 +493,6 @@ fn spawn_authority_tasks(
 	let (worker_handle, worker_task) = sc_consensus_qpow::start_mining_worker(
 		Box::new(pow_block_import),
 		client.clone(),
-		select_chain,
 		proposer,
 		sync_service.clone(),
 		sync_service.clone(),
@@ -481,12 +531,19 @@ fn spawn_authority_tasks(
 				},
 			}
 		} else {
-			log::warn!("⚠️ No --miner-listen-port specified. Using LOCAL mining only.");
+			log::warn!("⚠️  No --miner-listen-port specified. Using LOCAL mining only.");
 			None
 		};
 
-		mining_loop(client, worker_handle, sync_service, miner_server, mining_cancellation_token)
-			.await;
+		mining_loop(
+			client,
+			worker_handle,
+			sync_service,
+			miner_server,
+			mining_cancellation_token,
+			allow_mining_without_peers,
+		)
+		.await;
 	});
 
 	// Spawn transaction logger (only when tx-logging feature is enabled)
@@ -506,12 +563,10 @@ pub(crate) type FullClient = sc_service::TFullClient<
 	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
-type FullSelectChain = sc_consensus_qpow::HeaviestChain<Block, FullClient, FullBackend>;
 pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 	Block,
 	Arc<FullClient>,
 	FullClient,
-	FullSelectChain,
 	Box<
 		dyn sp_inherents::CreateInherentDataProviders<
 			Block,
@@ -519,13 +574,14 @@ pub type PowBlockImport = sc_consensus_qpow::PowBlockImport<
 			InherentDataProviders = sp_timestamp::InherentDataProvider,
 		>,
 	>,
+	FullBackend,
 	LOG_FREQUENCY,
 >;
 
 pub type Service = sc_service::PartialComponents<
 	FullClient,
 	FullBackend,
-	FullSelectChain,
+	(),
 	sc_consensus::DefaultImportQueue<Block>,
 	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
 	(PowBlockImport, Option<Telemetry>),
@@ -553,19 +609,23 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		)?;
 	let client = Arc::new(client);
 
+	// Initialize genesis block's achieved work if not already set.
+	// Genesis has achieved work = 1 (represents the start of the chain).
+	if let Err(e) = sc_consensus_qpow::initialize_genesis_achieved_work::<Block, _>(&*client) {
+		log::warn!(target: "qpow", "Failed to initialize genesis achieved work: {:?}", e);
+	}
+
 	let telemetry = telemetry.map(|(worker, telemetry)| {
 		task_manager.spawn_handle().spawn("telemetry", None, worker.run());
 		telemetry
 	});
-
-	let select_chain = sc_consensus_qpow::HeaviestChain::new(backend.clone(), Arc::clone(&client));
 
 	let pool_options = TransactionPoolOptions::new_with_params(
 		36772, /* each tx is about 7300 bytes so if we have 268MB for the pool we can fit this
 		        * many txs */
 		268_435_456,
 		None,
-		TransactionPoolType::ForkAware.into(),
+		TransactionPoolType::SingleState.into(),
 		false,
 	);
 	let transaction_pool = Arc::from(
@@ -595,7 +655,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		Arc::clone(&client),
 		Arc::clone(&client),
 		0, // check inherents starting at block 0
-		select_chain.clone(),
 		inherent_data_providers,
 	);
 
@@ -612,14 +671,14 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 		task_manager,
 		import_queue,
 		keystore_container,
-		select_chain,
+		select_chain: (),
 		transaction_pool,
 		other: (pow_block_import, telemetry),
 	})
 }
 
 /// Builds a new service for a full client.
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn new_full<
 	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
 >(
@@ -627,6 +686,10 @@ pub fn new_full<
 	rewards_address: AccountId32,
 	miner_listen_port: Option<u16>,
 	enable_peer_sharing: bool,
+	sync_max_timeouts_before_drop: u32,
+	sync_disable_major_sync_gating: bool,
+	sync_block_request_timeout: u64,
+	allow_mining_without_peers: bool,
 ) -> Result<TaskManager, ServiceError> {
 	let sc_service::PartialComponents {
 		client,
@@ -634,7 +697,7 @@ pub fn new_full<
 		mut task_manager,
 		import_queue,
 		keystore_container,
-		select_chain,
+		select_chain: _,
 		transaction_pool,
 		other: (pow_block_import, mut telemetry),
 	} = new_partial(&config)?;
@@ -642,6 +705,10 @@ pub fn new_full<
 	let tx_stream_for_worker = transaction_pool.clone().import_notification_stream();
 	#[cfg(feature = "tx-logging")]
 	let tx_stream_for_logger = transaction_pool.clone().import_notification_stream();
+
+	let timeout = std::time::Duration::from_secs(sync_block_request_timeout);
+	sc_network_sync::set_block_request_timeout(timeout);
+	sc_network::set_transport_timeout(timeout);
 
 	let net_config = sc_network::config::FullNetworkConfiguration::<
 		Block,
@@ -663,6 +730,14 @@ pub fn new_full<
 			block_relay: None,
 			metrics,
 		})?;
+
+	sync_service.set_max_timeouts_before_drop(sync_max_timeouts_before_drop);
+	sync_service.set_disable_major_sync_gating(sync_disable_major_sync_gating);
+	log::debug!(
+		"Applied CLI sync flags: max_timeouts_before_drop={}, disable_major_sync_gating={}",
+		sync_max_timeouts_before_drop,
+		sync_disable_major_sync_gating
+	);
 
 	if config.offchain_worker.enabled {
 		let offchain_workers =
@@ -728,7 +803,6 @@ pub fn new_full<
 			&mut task_manager,
 			client,
 			transaction_pool,
-			select_chain.clone(),
 			pow_block_import,
 			sync_service,
 			prometheus_registry,
@@ -736,24 +810,25 @@ pub fn new_full<
 			miner_listen_port,
 			tx_stream_for_worker,
 			tx_stream_for_logger,
+			allow_mining_without_peers,
 		);
 		#[cfg(not(feature = "tx-logging"))]
 		spawn_authority_tasks(
 			&mut task_manager,
 			client,
 			transaction_pool,
-			select_chain.clone(),
 			pow_block_import,
 			sync_service,
 			prometheus_registry,
 			rewards_address,
 			miner_listen_port,
 			tx_stream_for_worker,
+			allow_mining_without_peers,
 		);
 	}
 
-	// Start deterministic-depth finalization task
-	ChainManagement::spawn_finalization_task(Arc::new(select_chain.clone()), &task_manager);
+	// Note: Finalization is now handled synchronously in import_block,
+	// so we don't need a separate finalization task.
 
 	Ok(task_manager)
 }

@@ -6,7 +6,13 @@ use frame_support::{
 use frame_system::mocking::MockUncheckedExtrinsic;
 use qp_poseidon::PoseidonHasher;
 use sp_core::H256;
-use sp_runtime::{traits::IdentityLookup, BuildStorage, Permill};
+use sp_runtime::{
+	traits::{BlakeTwo256, IdentityLookup},
+	BuildStorage, Permill,
+};
+
+// Re-export shared test helpers from qp_wormhole
+pub use qp_wormhole::{account_id, MINTING_ACCOUNT};
 
 construct_runtime!(
 	pub enum Test {
@@ -22,16 +28,9 @@ pub type Balance = u128;
 pub const UNIT: Balance = 1_000_000_000_000;
 pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block<T> = sp_runtime::generic::Block<
-	qp_header::Header<u64, PoseidonHasher>,
+	qp_header::Header<u64, PoseidonHasher, sp_runtime::traits::BlakeTwo256>,
 	MockUncheckedExtrinsic<T, qp_dilithium_crypto::DilithiumSignatureScheme>,
 >;
-
-/// Helper function to convert a u64 to an AccountId32
-pub fn account_id(id: u64) -> AccountId {
-	let mut bytes = [0u8; 32];
-	bytes[0..8].copy_from_slice(&id.to_le_bytes());
-	AccountId::new(bytes)
-}
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -47,7 +46,7 @@ impl frame_system::Config for Test {
 	type RuntimeTask = ();
 	type Nonce = u64;
 	type Hash = H256;
-	type Hashing = PoseidonHasher;
+	type Hashing = BlakeTwo256;
 	type AccountId = AccountId;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block<Self>;
@@ -116,10 +115,9 @@ impl pallet_assets::Config for Test {
 }
 
 parameter_types! {
-	pub const MintingAccount: AccountId = AccountId::new([
-		231, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	]);
+	/// The "from" account used when recording transfer proofs for minted tokens.
+	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
+	pub const MintingAccount: AccountId = MINTING_ACCOUNT;
 	/// Minimum transfer amount (10 QUAN)
 	pub const MinimumTransferAmount: Balance = 10 * UNIT;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
@@ -129,19 +127,55 @@ parameter_types! {
 }
 
 impl pallet_wormhole::Config for Test {
-	type WeightInfo = crate::weights::SubstrateWeight<Test>;
+	type NativeBalance = Balance;
 	type Currency = Balances;
 	type Assets = Assets;
+	type AssetId = u32;
+	type AssetBalance = Balance;
 	type TransferCount = u64;
 	type MintingAccount = MintingAccount;
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type WormholeAccountId = AccountId;
+	type WeightInfo = crate::weights::SubstrateWeight<Test>;
+	type ZkTree = (); // Disabled in tests - use () no-op implementation
 }
 
 // Helper function to build a genesis configuration
 pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
 	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	t.into()
+}
+
+/// Build test externalities with genesis endowments.
+/// Each endowment is (address, amount) and will have both balance and TransferProof recorded
+/// (after block 1 initialization), enabling the address to spend via ZK proofs.
+///
+/// Note: This sets up the genesis state, but TransferProofs are recorded in on_initialize
+/// at block 1. Tests should call `System::set_block_number(1)` and then trigger
+/// `Wormhole::on_initialize(1)` to process the endowments.
+pub fn new_test_ext_with_endowments(
+	endowments: Vec<(AccountId, Balance)>,
+) -> sp_state_machine::TestExternalities<PoseidonHasher> {
+	use sp_runtime::BuildStorage;
+
+	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+
+	// Set up balances for the endowed accounts
+	pallet_balances::GenesisConfig::<Test> {
+		balances: endowments.iter().cloned().collect(),
+		dev_accounts: None,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	// Set up endowments to be processed at block 1
+	pallet_wormhole::GenesisConfig::<Test> {
+		endowed_addresses: endowments.into_iter().map(|(a, b)| (a, b)).collect(),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
 	t.into()
 }

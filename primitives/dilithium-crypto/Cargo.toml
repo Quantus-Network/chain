@@ -16,12 +16,13 @@ license = "MIT"
 name = "qp-dilithium-crypto"
 readme = "README.md"
 repository = "https://github.com/Quantus-Network/chain"
-version = "0.2.2"
+version = "0.3.1"
 
 [dependencies]
 codec = { workspace = true, default-features = false }
 log = { workspace = true }
 qp-poseidon = { workspace = true }
+qp-poseidon-core = { workspace = true }
 qp-rusty-crystals-dilithium = { workspace = true, default-features = false }
 qp-rusty-crystals-hdwallet = { workspace = true, optional = true }
 scale-info = { workspace = true, default-features = false }

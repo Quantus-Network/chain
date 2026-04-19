@@ -42,13 +42,25 @@ impl Pair for DilithiumPair {
 	type Signature = DilithiumSignatureWithPublic;
 	type ProofOfPossession = DilithiumSignatureWithPublic;
 
+	// Dilithium doesn't support path-based derivation - use hdwallet in qp-rusty-crystals instead.
+	// However, an empty path is a valid no-op that returns self unchanged.
 	fn derive<Iter: Iterator<Item = DeriveJunction>>(
 		&self,
-		_path_iter: Iter,
+		path_iter: Iter,
 		seed: Option<<DilithiumPair as Pair>::Seed>,
 	) -> Result<(Self, Option<<DilithiumPair as Pair>::Seed>), DeriveError> {
-		// TODO: derive child keys from path
-		Ok((self.clone(), seed))
+		// Check if any junctions are present - empty path is a no-op
+		let mut path_iter = path_iter.peekable();
+		if path_iter.peek().is_none() {
+			return Ok((self.clone(), seed));
+		}
+
+		log::error!(
+			"Pair::derive() is not supported for Dilithium. \
+			 Use qp_rusty_crystals_hdwallet::derive_key_from_mnemonic() for HD key derivation."
+		);
+		// SoftKeyInPath is the only error available for this trait definition.
+		Err(DeriveError::SoftKeyInPath)
 	}
 
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError> {
@@ -109,8 +121,7 @@ impl Pair for DilithiumPair {
 		const DEFAULT_PATH: &str = "m/44'/189189'/0'/0'/0'";
 		let keypair = derive_key_from_mnemonic(phrase, password, DEFAULT_PATH)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
-		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
-		// Get seed for return value
+		let pair = DilithiumPair::from_keypair(keypair);
 		let seed_bytes = mnemonic_to_seed(phrase.to_string(), password)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
 		let mut seed = [0u8; 32];
@@ -130,7 +141,7 @@ impl Pair for DilithiumPair {
 		// We combine the string with the password if provided
 		let keypair = derive_key_from_mnemonic(s, password, DEFAULT_PATH)
 			.map_err(|_| SecretStringError::InvalidPhrase)?;
-		let pair = DilithiumPair { secret: keypair.secret.bytes, public: keypair.public.bytes };
+		let pair = DilithiumPair::from_keypair(keypair);
 
 		// Return the pair with no seed since Dilithium doesn't use traditional seed-based
 		// generation
@@ -301,5 +312,27 @@ mod tests {
 			pub2.as_ref(),
 			"Different seeds should produce different public keys"
 		);
+	}
+
+	#[test]
+	fn test_from_raw_matching_keys_succeeds() {
+		let seed = [0u8; 32];
+		let pair = DilithiumPair::from_seed(&seed).expect("Failed to create pair");
+		let public = pair.public().as_ref().to_vec();
+		let secret = pair.secret_bytes().to_vec();
+		let restored =
+			DilithiumPair::from_raw(&public, &secret).expect("Matching keys should succeed");
+		assert_eq!(restored.public().as_ref(), pair.public().as_ref());
+	}
+
+	#[test]
+	fn test_from_raw_mismatched_keys_fails() {
+		let seed1 = [0u8; 32];
+		let seed2 = [1u8; 32];
+		let pair1 = DilithiumPair::from_seed(&seed1).expect("Failed to create pair1");
+		let pair2 = DilithiumPair::from_seed(&seed2).expect("Failed to create pair2");
+		// Swap: pair1's secret with pair2's public - should fail validation
+		let result = DilithiumPair::from_raw(pair2.public().as_ref(), pair1.secret_bytes());
+		assert!(result.is_err(), "Mismatched public/secret should be rejected");
 	}
 }

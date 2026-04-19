@@ -50,7 +50,7 @@ Edit `.env` file:
 ```bash
 # Required
 REWARDS_ADDRESS=your_ss58_address_here
-CHAIN=dirac
+CHAIN=planck
 NODE_NAME=my-quantus-node
 ```
 

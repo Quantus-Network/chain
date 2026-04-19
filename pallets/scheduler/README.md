@@ -23,7 +23,7 @@ then those filter will not be used when dispatching the schedule call.
 
 ### Dispatchable Functions
 
-- `schedule` - schedule a dispatch, which may be periodic, to occur at a
+- `schedule` - schedule a dispatch to occur at a
   specified block and with a specified priority.
 - `cancel` - cancel a scheduled dispatch, specified by block number and
   index.

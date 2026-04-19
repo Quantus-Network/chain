@@ -195,7 +195,55 @@ parameter_types! {
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
 	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const MaxPendingPerAccount: u32 = 16;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
+}
+
+/// Recorded transfer proof for testing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedTransferProof {
+	pub asset_id: Option<u32>,
+	pub from: AccountId,
+	pub to: AccountId,
+	pub amount: Balance,
+}
+
+thread_local! {
+	/// Storage for recorded transfer proofs (for test verification)
+	static RECORDED_PROOFS: RefCell<Vec<RecordedTransferProof>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Mock proof recorder that tracks recorded proofs for test verification
+pub struct MockProofRecorder;
+
+impl MockProofRecorder {
+	/// Get all recorded transfer proofs
+	pub fn get_recorded_proofs() -> Vec<RecordedTransferProof> {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow().clone())
+	}
+
+	/// Clear all recorded proofs (call at start of tests)
+	pub fn clear() {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow_mut().clear());
+	}
+
+	/// Get the last recorded proof
+	pub fn last_proof() -> Option<RecordedTransferProof> {
+		RECORDED_PROOFS.with(|proofs| proofs.borrow().last().cloned())
+	}
+}
+
+impl qp_wormhole::TransferProofRecorder<AccountId, u32, Balance> for MockProofRecorder {
+	fn record_transfer_proof(
+		asset_id: Option<u32>,
+		from: AccountId,
+		to: AccountId,
+		amount: Balance,
+	) {
+		RECORDED_PROOFS.with(|proofs| {
+			proofs.borrow_mut().push(RecordedTransferProof { asset_id, from, to, amount });
+		});
+	}
 }
 
 impl pallet_reversible_transfers::Config for Test {
@@ -203,7 +251,6 @@ impl pallet_reversible_transfers::Config for Test {
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type Scheduler = Scheduler;
 	type BlockNumberProvider = System;
-	type MaxPendingPerAccount = MaxReversibleTransfers;
 	type DefaultDelay = DefaultDelay;
 	type MinDelayPeriodBlocks = MinDelayPeriodBlocks;
 	type MinDelayPeriodMoment = MinDelayPeriodMoment;
@@ -213,7 +260,9 @@ impl pallet_reversible_transfers::Config for Test {
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
 	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type MaxPendingPerAccount = MaxPendingPerAccount;
 	type VolumeFee = HighSecurityVolumeFee;
+	type ProofRecorder = MockProofRecorder;
 }
 
 parameter_types! {

@@ -1,32 +1,53 @@
 #!/bin/zsh
 
-# Kill any previous node processes
+# Usage: ./run_local_nodes.sh [num_nodes]
+# Default: 2 nodes
+
+NUM_NODES=${1:-2}
+
+if [ "$NUM_NODES" -lt 1 ]; then
+  echo "Error: Must run at least 1 node"
+  exit 1
+fi
+
+echo "Starting $NUM_NODES local nodes..."
+
 pkill -f "quantus-node"
+sleep 1
 
-# Clean up old chain data
-rm -rf /tmp/validator1 /tmp/validator2 /tmp/listener
+# Clean up old data
+for i in $(seq 1 $NUM_NODES); do
+  rm -rf /tmp/validator$i
+done
 
-# Calculate expected Peer ID from the node key
-# -----------------------------
-# 1) Start Node1 (Alice)
-#    WebSocket on 127.0.0.1:9944
-# -----------------------------
-./target/release/quantus-node \
+BINARY=./target/release/quantus-node
+
+if [ ! -f "$BINARY" ]; then
+  echo "Binary not found at $BINARY — building release..."
+  cargo build --release -p quantus-node || exit 1
+fi
+
+# Base ports
+BASE_P2P_PORT=30333
+BASE_RPC_PORT=9944
+
+# Start Node1 (bootstrap node)
+echo "Starting Node1..."
+$BINARY \
   --base-path /tmp/validator1 \
   --dev \
-  --port 30333 \
-  --prometheus-port 9616 \
+  --port $BASE_P2P_PORT \
   --name Node1 \
-  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9944,methods=unsafe,cors=all" \
+  --experimental-rpc-endpoint "listen-addr=127.0.0.1:$BASE_RPC_PORT,methods=unsafe,cors=all" \
   --validator \
-  &
+  -lqpow=debug \
+  2>&1 | sed 's/^/[Node1] /' &
 
-# Wait for Node1 to come online
-sleep 5
+sleep 3
 
-# Retrieve its peer ID via HTTP on the same endpoint
+# Get Node1's peer ID for other nodes to connect to
 NODE1_PEER_ID=$(
-  curl -s http://127.0.0.1:9944 \
+  curl -s http://127.0.0.1:$BASE_RPC_PORT \
     -H "Content-Type: application/json" \
     --data '{"jsonrpc":"2.0","method":"system_localPeerId","id":1}' \
   | jq -r '.result'
@@ -39,31 +60,29 @@ fi
 
 echo "Node1 Peer ID: $NODE1_PEER_ID"
 
-# -----------------------------
-# 2) Start Node2 (Bob)
-#    WebSocket on 127.0.0.1:9945
-# -----------------------------
-./target/release/quantus-node \
-  --base-path /tmp/validator2 \
-  --dev \
-  --port 30334 \
-  --prometheus-port 9617 \
-  --name Node2 \
-  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9945,methods=unsafe,cors=all" \
-  --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/$NODE1_PEER_ID \
-  --validator \
-  &
+# Start remaining nodes
+for i in $(seq 2 $NUM_NODES); do
+  P2P_PORT=$((BASE_P2P_PORT + i - 1))
+  RPC_PORT=$((BASE_RPC_PORT + i - 1))
+  
+  echo "Starting Node$i (P2P: $P2P_PORT, RPC: $RPC_PORT)..."
+  
+  $BINARY \
+    --base-path /tmp/validator$i \
+    --dev \
+    --port $P2P_PORT \
+    --name Node$i \
+    --experimental-rpc-endpoint "listen-addr=127.0.0.1:$RPC_PORT,methods=unsafe,cors=all" \
+    --bootnodes /ip4/127.0.0.1/tcp/$BASE_P2P_PORT/p2p/$NODE1_PEER_ID \
+    --validator \
+    -lqpow=debug \
+    2>&1 | sed "s/^/[Node$i] /" &
+  
+  sleep 1
+done
 
-# -----------------------------
-# 3) Start Listener (non-mining node)
-#    WebSocket on 127.0.0.1:9946
-# -----------------------------
-./target/release/quantus-node \
-  --base-path /tmp/listener \
-  --dev \
-  --port 30335 \
-  --prometheus-port 9618 \
-  --name Listener \
-  --experimental-rpc-endpoint "listen-addr=127.0.0.1:9946,methods=unsafe,cors=all" \
-  --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/$NODE1_PEER_ID \
-  &
+echo ""
+echo "Started $NUM_NODES nodes. Ctrl+C to stop."
+echo "RPC endpoints: $(for i in $(seq 1 $NUM_NODES); do echo -n "127.0.0.1:$((BASE_RPC_PORT + i - 1)) "; done)"
+echo ""
+wait

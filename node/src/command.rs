@@ -1,24 +1,30 @@
+#[cfg(feature = "runtime-benchmarks")]
+use crate::benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder};
 use crate::{
-	benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder},
 	chain_spec,
 	cli::{Cli, QuantusAddressType, QuantusKeySubcommand, Subcommand},
 	service,
 };
+#[cfg(feature = "runtime-benchmarks")]
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
 use qp_dilithium_crypto::{traits::WormholeAddress, DilithiumPair};
 use qp_rusty_crystals_hdwallet::{
-	derive_key_from_mnemonic, generate_mnemonic, mnemonic_to_seed, wormhole::WormholePair,
-	SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
+	derive_key_from_mnemonic, derive_wormhole_from_mnemonic, generate_mnemonic, mnemonic_to_seed,
+	wormhole::WormholePair, SensitiveBytes32, QUANTUS_DILITHIUM_CHAIN_ID,
+	QUANTUS_WORMHOLE_CHAIN_ID,
 };
-use quantus_runtime::{Block, EXISTENTIAL_DEPOSIT};
+use quantus_runtime::Block;
+#[cfg(feature = "runtime-benchmarks")]
+use quantus_runtime::EXISTENTIAL_DEPOSIT;
 use rand::Rng;
 use sc_cli::SubstrateCli;
 use sc_network::config::{NetworkBackendType, NodeKeyConfig, Secret};
 use sc_service::{BlocksPruning, PartialComponents, PruningMode};
 use sp_core::{
 	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
-	H256,
+	Pair, H256,
 };
+#[cfg(feature = "runtime-benchmarks")]
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount};
 
@@ -61,26 +67,20 @@ pub fn generate_quantus_key(
 					})?;
 					seed_for_pair = seed64.to_vec();
 				} else {
-					// Derive keypair directly from mnemonic, then create DilithiumPair from it
 					println!("Deriving HD path: {}", path);
 					let keypair =
 						derive_key_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
 							eprintln!("Error deriving from mnemonic: {:?}", e);
 							sc_cli::Error::Input("Failed to derive from mnemonic".into())
 						})?;
-					// Create DilithiumPair from the derived keypair's secret
-					let dilithium_pair = DilithiumPair::from_seed(&keypair.secret.to_bytes())
-						.map_err(|e| {
-							eprintln!("Error creating DilithiumPair: {:?}", e);
-							sc_cli::Error::Input("Failed to create keypair".into())
-						})?;
+					let dilithium_pair = DilithiumPair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
 						address: account_id
 							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 						raw_address: format!("0x{}", hex::encode(account_id)),
 						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
 						seed_hex: "N/A (derived from mnemonic)".to_string(),
 						secret_phrase: words_to_print,
 						inner_hash: None,
@@ -127,26 +127,20 @@ pub fn generate_quantus_key(
 					})?;
 					seed_for_pair = seed64.to_vec();
 				} else {
-					// Derive keypair directly from mnemonic, then create DilithiumPair from it
 					println!("Deriving HD path: {}", path);
 					let keypair =
 						derive_key_from_mnemonic(&new_words, None, &path).map_err(|e| {
 							eprintln!("Error deriving from mnemonic: {:?}", e);
 							sc_cli::Error::Input("Failed to derive from mnemonic".into())
 						})?;
-					// Create DilithiumPair from the derived keypair's secret
-					let dilithium_pair = DilithiumPair::from_seed(&keypair.secret.to_bytes())
-						.map_err(|e| {
-							eprintln!("Error creating DilithiumPair: {:?}", e);
-							sc_cli::Error::Input("Failed to create keypair".into())
-						})?;
+					let dilithium_pair = DilithiumPair::from_keypair(keypair);
 					let account_id = AccountId32::from(dilithium_pair.public());
 					return Ok(QuantusKeyDetails {
 						address: account_id
 							.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 						raw_address: format!("0x{}", hex::encode(account_id)),
 						public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+						secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
 						seed_hex: "N/A (derived from mnemonic)".to_string(),
 						secret_phrase: words_to_print,
 						inner_hash: None,
@@ -165,22 +159,47 @@ pub fn generate_quantus_key(
 				address: account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
 				raw_address: format!("0x{}", hex::encode(account_id)),
 				public_key_hex: format!("0x{}", hex::encode(dilithium_pair.public())),
-				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret)),
+				secret_key_hex: format!("0x{}", hex::encode(dilithium_pair.secret_bytes())),
 				seed_hex: format!("0x{}", hex::encode(&seed_for_pair)),
 				secret_phrase: words_to_print,
 				inner_hash: None,
 			})
 		},
 		QuantusAddressType::Wormhole => {
-			let mut seed = [0u8; 32];
-			rand::thread_rng().fill(&mut seed);
-			let sensitive_seed = SensitiveBytes32::from(&mut seed);
-			let wormhole_pair = WormholePair::generate_new(sensitive_seed).map_err(|e| {
-				eprintln!("Error generating WormholePair: {:?}", e);
-				sc_cli::Error::Input(format!("Wormhole generation error: {:?}", e))
-			})?;
+			let path =
+				format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/{index}'/0'/0'", index = wallet_index);
+			let words_to_print;
+			let words_phrase = if let Some(w) = words {
+				words_to_print = Some(w.clone());
+				w
+			} else {
+				let mut entropy = [0u8; 32];
+				rand::thread_rng().fill(&mut entropy);
+				let sensitive_entropy = SensitiveBytes32::from(&mut entropy);
+				let new_words = generate_mnemonic(sensitive_entropy).map_err(|e| {
+					eprintln!("Error generating new words: {:?}", e);
+					sc_cli::Error::Input("Failed to generate new words".into())
+				})?;
+				words_to_print = Some(new_words.clone());
+				new_words
+			};
 
-			// Convert wormhole address to account ID using WormholeAddress type
+			let wormhole_pair = if no_derivation {
+				let seed64 = mnemonic_to_seed(words_phrase, None).map_err(|e| {
+					eprintln!("Error processing provided words: {:?}", e);
+					sc_cli::Error::Input("Failed to process provided words".into())
+				})?;
+				let mut seed32 = [0u8; 32];
+				seed32.copy_from_slice(&seed64[..32]);
+				WormholePair::generate_new(SensitiveBytes32::from(&mut seed32))
+			} else {
+				println!("Deriving wormhole HD path: {}", path);
+				derive_wormhole_from_mnemonic(&words_phrase, None, &path).map_err(|e| {
+					eprintln!("Error deriving wormhole from mnemonic: {:?}", e);
+					sc_cli::Error::Input("Failed to derive wormhole from mnemonic".into())
+				})?
+			};
+
 			let wormhole_address = WormholeAddress(H256::from(wormhole_pair.address));
 			let account_id = wormhole_address.into_account();
 
@@ -190,7 +209,7 @@ pub fn generate_quantus_key(
 				public_key_hex: format!("0x{}", hex::encode(wormhole_pair.address)),
 				secret_key_hex: format!("0x{}", hex::encode(wormhole_pair.secret)),
 				seed_hex: "N/A (Wormhole)".to_string(),
-				secret_phrase: None,
+				secret_phrase: words_to_print,
 				inner_hash: Some(hex::encode(wormhole_pair.first_hash)),
 			})
 		},
@@ -226,15 +245,15 @@ impl SubstrateCli for Cli {
 		Ok(match id {
 			"dev" =>
 				Box::new(chain_spec::development_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"dirac_live_spec" =>
-				Box::new(chain_spec::dirac_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
-			"dirac" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
-				"chain-specs/dirac.json"
-			))?) as Box<dyn sc_service::ChainSpec>,
 			"heisenberg_live_spec" =>
 				Box::new(chain_spec::heisenberg_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
 			"" | "heisenberg" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
 				"chain-specs/heisenberg.json"
+			))?) as Box<dyn sc_service::ChainSpec>,
+			"planck_live_spec" =>
+				Box::new(chain_spec::planck_chain_spec()?) as Box<dyn sc_service::ChainSpec>,
+			"planck" => Box::new(chain_spec::ChainSpec::from_json_bytes(include_bytes!(
+				"chain-specs/planck.json"
 			))?) as Box<dyn sc_service::ChainSpec>,
 			path =>
 				Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)
@@ -302,7 +321,7 @@ pub fn run() -> sc_cli::Result<()> {
 										println!("Derivation path: master (no derivation)");
 									} else {
 										println!(
-											"Derivation path: m/44'/{}/{}'/0/0",
+											"Derivation path: m/44'/{}/{}'/0'/0'",
 											QUANTUS_DILITHIUM_CHAIN_ID, wallet_index
 										);
 									}
@@ -319,15 +338,25 @@ pub fn run() -> sc_cli::Result<()> {
 									println!(
                                         "XXXXXXXXXXXXXXX Quantus Wormhole Details XXXXXXXXXXXXXXXXX"
                                     );
+									if let Some(phrase) = &details.secret_phrase {
+										println!("Secret phrase: {}", phrase);
+									}
+									println!("Account index: {}", wallet_index);
+									if *no_derivation {
+										println!("Derivation path: master (no derivation)");
+									} else {
+										println!(
+											"Derivation path: m/44'/{}/{}'/0'/0'",
+											QUANTUS_WORMHOLE_CHAIN_ID, wallet_index
+										);
+									}
 									println!("Address: {}", details.address);
+									println!("Address hex: {}", details.public_key_hex);
 									println!(
 										"Inner Hash: 0x{}",
 										details.inner_hash.unwrap_or_default()
 									);
-									println!("Wormhole Address: {}", details.public_key_hex);
 									println!("Secret: {}", details.secret_key_hex);
-									// Pub key and Seed are N/A for wormhole as per
-									// QuantusKeyDetails
 									println!(
                                         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                                     );
@@ -389,6 +418,7 @@ pub fn run() -> sc_cli::Result<()> {
 				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
 			})
 		},
+		#[cfg(feature = "runtime-benchmarks")]
 		Some(Subcommand::Benchmark(cmd)) => {
 			let runner = cli.create_runner(cmd)?;
 
@@ -396,29 +426,14 @@ pub fn run() -> sc_cli::Result<()> {
 				// This switch needs to be in the client, since the client decides
 				// which sub-commands it wants to support.
 				match cmd {
-					BenchmarkCmd::Pallet(cmd) => {
-						if !cfg!(feature = "runtime-benchmarks") {
-							return Err(
-								"Runtime benchmarking wasn't enabled when building the node. \
-            You can enable it with `--features runtime-benchmarks`."
-									.into(),
-							);
-						}
-
-						cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
+					BenchmarkCmd::Pallet(cmd) => cmd
+						.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
 							config.chain_spec,
-						))
-					},
+						)),
 					BenchmarkCmd::Block(cmd) => {
 						let PartialComponents { client, .. } = service::new_partial(&config)?;
 						cmd.run(client)
 					},
-					#[cfg(not(feature = "runtime-benchmarks"))]
-					BenchmarkCmd::Storage(_) => Err(
-						"Storage benchmarking can be enabled with `--features runtime-benchmarks`."
-							.into(),
-					),
-					#[cfg(feature = "runtime-benchmarks")]
 					BenchmarkCmd::Storage(cmd) => {
 						let PartialComponents { client, backend, .. } =
 							service::new_partial(&config)?;
@@ -493,16 +508,52 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.network_backend = NetworkBackendType::Libp2p;
 
-				let rewards_account = match cli.rewards_preimage {
-					Some(address) => {
-						let account = address.parse::<AccountId32>().map_err(|_| {
-							sc_cli::Error::Input("Invalid rewards preimage format".into())
+				let rewards_account = match cli.rewards_inner_hash {
+					Some(ref inner_hash) => {
+						let hex_str = match inner_hash.strip_prefix("0x") {
+							Some(s) => s,
+							None => {
+								eprintln!("Error: --rewards-inner-hash must start with '0x'.\n");
+								eprintln!("To generate an inner hash, run:");
+								eprintln!("  quantus-node key quantus --scheme wormhole\n");
+								eprintln!(
+									"Then pass the 'Inner Hash' value as --rewards-inner-hash."
+								);
+								return Err(sc_cli::Error::Input("Missing 0x prefix".into()));
+							},
+						};
+						if hex_str.len() != 64 {
+							eprintln!(
+						"Error: --rewards-inner-hash must be a 0x-prefixed 32-byte hex string."
+					);
+							eprintln!("  Provided: {}", inner_hash);
+							eprintln!("  Expected 66 characters, got {}.\n", inner_hash.len());
+							eprintln!("To generate an inner hash, run:");
+							eprintln!("  quantus-node key quantus --scheme wormhole\n");
+							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+							return Err(sc_cli::Error::Input("Invalid inner hash length".into()));
+						}
+						let bytes = hex::decode(hex_str).map_err(|_| {
+							eprintln!(
+								"Error: --rewards-inner-hash contains invalid hex characters.\n"
+							);
+							eprintln!("To generate an inner hash, run:");
+							eprintln!("  quantus-node key quantus --scheme wormhole\n");
+							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+							sc_cli::Error::Input("Invalid hex characters".into())
 						})?;
-						log::info!("⛏️ Using address for rewards: {:?}", account);
-						account
+						let inner_bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+							sc_cli::Error::Input("Failed to convert inner hash to account".into())
+						})?;
+						let wormhole_address =
+							AccountId32::from(qp_wormhole::derive_wormhole_address(inner_bytes));
+						log::info!(
+							"⛏️ Rewards wormhole address: {}",
+							wormhole_address.to_ss58check()
+						);
+						AccountId32::new(inner_bytes)
 					},
-					None => {
-						// Automatically set rewards_preimage to Treasury when --dev is used
+					None =>
 						if cli.run.shared_params.is_dev() {
 							let treasury_account =
 								quantus_runtime::configs::TreasuryPalletId::get()
@@ -511,21 +562,34 @@ pub fn run() -> sc_cli::Result<()> {
 								"⛏️ Using treasury address for rewards: {:?}",
 								treasury_account
 							);
-
 							treasury_account
 						} else {
-							// Should never happen
-							return Err(sc_cli::Error::Input("No rewards preimage provided".into()));
-						}
-					},
+							eprintln!("Error: --rewards-inner-hash is required.\n");
+							eprintln!("To generate an inner hash, run:");
+							eprintln!("  quantus-node key quantus --scheme wormhole\n");
+							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
+							return Err(sc_cli::Error::Input("Missing --rewards-inner-hash".into()));
+						},
 				};
+
+				// Allow mining without peers if --dev or --force-authoring is set
+				let allow_mining_without_peers = config.force_authoring;
 
 				service::new_full::<
 					sc_network::NetworkWorker<
 						quantus_runtime::opaque::Block,
 						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
 					>,
-				>(config, rewards_account, cli.miner_listen_port, cli.enable_peer_sharing)
+				>(
+					config,
+					rewards_account,
+					cli.miner_listen_port,
+					cli.enable_peer_sharing,
+					cli.sync_max_timeouts_before_drop,
+					cli.sync_disable_major_sync_gating,
+					cli.sync_block_request_timeout,
+					allow_mining_without_peers,
+				)
 				.map_err(sc_cli::Error::Service)
 			})
 		},
@@ -539,7 +603,8 @@ mod tests {
 		cli::QuantusAddressType,
 		tests::data::quantus_key_test_data::{
 			EXPECTED_PUBLIC_KEY_HEX, EXPECTED_SECRET_KEY_HEX, TEST_ADDRESS, TEST_ADDRESS_HD_0,
-			TEST_ADDRESS_HD_1, TEST_MNEMONIC, TEST_SEED_HEX,
+			TEST_ADDRESS_HD_1, TEST_MNEMONIC, TEST_SEED_HEX, TEST_WORMHOLE_ADDRESS,
+			TEST_WORMHOLE_PREIMAGE,
 		},
 	};
 
@@ -609,7 +674,7 @@ mod tests {
 		assert!(details.public_key_hex.starts_with("0x"));
 		assert!(details.secret_key_hex.starts_with("0x"));
 		assert_eq!(details.seed_hex, "N/A (Wormhole)");
-		assert!(details.secret_phrase.is_none());
+		assert!(details.secret_phrase.is_some());
 		let address = details.address;
 		assert!(
 			AccountId32::from_ss58check_with_version(&address).is_ok(),
@@ -717,5 +782,20 @@ mod tests {
 		assert_eq!(master.address, TEST_ADDRESS);
 		assert_eq!(child0.address, TEST_ADDRESS_HD_0);
 		assert_eq!(child1.address, TEST_ADDRESS_HD_1);
+	}
+
+	#[test]
+	fn test_derive_wormhole_from_mnemonic_known_values() {
+		let path = format!("m/44'/{QUANTUS_WORMHOLE_CHAIN_ID}/0'/0'/0'");
+		let pair = derive_wormhole_from_mnemonic(TEST_MNEMONIC, None, &path).unwrap();
+
+		let wormhole_address = WormholeAddress(H256::from(pair.address));
+		let account_id = wormhole_address.into_account();
+
+		assert_eq!(
+			account_id.to_ss58check_with_version(Ss58AddressFormat::custom(189)),
+			TEST_WORMHOLE_ADDRESS
+		);
+		assert_eq!(hex::encode(pair.first_hash), TEST_WORMHOLE_PREIMAGE);
 	}
 }

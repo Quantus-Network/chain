@@ -9,6 +9,9 @@ log = { version = "0.4.22", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
 qp-poseidon-core = { workspace = true }
 
+[dev-dependencies]
+proptest = "1"
+
 [features]
 default = ["std"]
 std = [

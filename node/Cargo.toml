@@ -9,7 +9,7 @@ license = "Apache-2.0"
 name = "quantus-node"
 publish = false
 repository.workspace = true
-version = "0.4.6"
+version = "0.6.2-zero-noise"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -17,8 +17,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 clap = { features = ["derive"], workspace = true }
 codec.workspace = true
-frame-benchmarking-cli.default-features = true
-frame-benchmarking-cli.workspace = true
+frame-benchmarking-cli = { workspace = true, default-features = true, optional = true }
 frame-metadata-hash-extension.default-features = true
 frame-metadata-hash-extension.workspace = true
 frame-system.default-features = true
@@ -27,15 +26,24 @@ futures = { features = ["thread-pool"], workspace = true }
 hex = { workspace = true, default-features = false }
 jsonrpsee = { features = ["server"], workspace = true }
 log.workspace = true
+pallet-assets.default-features = true
+pallet-assets.workspace = true
+pallet-balances.default-features = true
+pallet-balances.workspace = true
 pallet-transaction-payment.default-features = true
 pallet-transaction-payment.workspace = true
 pallet-transaction-payment-rpc.default-features = true
 pallet-transaction-payment-rpc.workspace = true
+pallet-utility.default-features = true
+pallet-utility.workspace = true
+pallet-zk-tree.default-features = true
+pallet-zk-tree.workspace = true
 prometheus.workspace = true
 qp-dilithium-crypto = { workspace = true }
 qp-poseidon.workspace = true
 qp-rusty-crystals-dilithium.workspace = true
 qp-rusty-crystals-hdwallet.workspace = true
+qp-wormhole.workspace = true
 qpow-math.workspace = true
 quantus-miner-api = { workspace = true }
 quantus-runtime.workspace = true
@@ -100,7 +108,6 @@ substrate-frame-rpc-system.workspace = true
 tokio-util.workspace = true
 
 [build-dependencies]
-qp-wormhole-verifier.workspace = true
 substrate-build-script-utils.default-features = true
 substrate-build-script-utils.workspace = true
 
@@ -111,7 +118,6 @@ std = [
 	"hex/std",
 	"log/std",
 	"qp-dilithium-crypto/std",
-	"qp-wormhole-verifier/std",
 	"quantus-runtime/std",
 	"rand/std",
 	"sc-consensus-qpow/std",
@@ -121,7 +127,8 @@ std = [
 tx-logging = [] # Enable transaction pool logging for debugging
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
-	"frame-benchmarking-cli/runtime-benchmarks",
+	"dep:frame-benchmarking-cli",
+	"frame-benchmarking-cli?/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"quantus-runtime/runtime-benchmarks",

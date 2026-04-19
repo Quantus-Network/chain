@@ -27,7 +27,7 @@ use libp2p::{
 	},
 	dns, identity, noise, tcp, websocket, PeerId, Transport, TransportExt,
 };
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 // TODO: Create a wrapper similar to upstream `BandwidthTransport` that tracks sent/received bytes
 #[allow(deprecated)]
@@ -85,7 +85,7 @@ pub fn build_transport(
 		.upgrade(upgrade::Version::V1Lazy)
 		.authenticate(authentication_config)
 		.multiplex(multiplexing_config)
-		.timeout(Duration::from_secs(20))
+		.timeout(crate::transport_timeout())
 		.boxed();
 
 	transport.with_bandwidth_logging()

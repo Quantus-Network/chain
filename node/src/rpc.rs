@@ -55,7 +55,6 @@ impl Peer {
 impl PeerApiServer for Peer {
 	fn get_basic_info(&self) -> RpcResult<PeerInfo> {
 		if let Some(network) = &self.network {
-			// Get network state
 			let network_state =
 				futures::executor::block_on(network.network_state()).map_err(|_| {
 					jsonrpsee::types::error::ErrorObject::owned(
@@ -112,9 +111,14 @@ where
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: sp_consensus_qpow::QPoWApi<Block>,
+	C::Api: pallet_zk_tree::ZkTreeApi<Block>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool<Block = Block> + 'static,
 {
+	use crate::{
+		txwatch::{TxWatch, TxWatchApiServer},
+		zktree_rpc::{ZkTree, ZkTreeApiServer},
+	};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
@@ -124,6 +128,8 @@ where
 	module.merge(System::new(client.clone(), pool.clone()).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(Peer::new(network).into_rpc())?;
+	module.merge(TxWatch::new(pool).into_rpc())?;
+	module.merge(ZkTree::new(client).into_rpc())?;
 
 	Ok(module)
 }
