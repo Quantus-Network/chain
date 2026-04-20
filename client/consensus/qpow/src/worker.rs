@@ -269,7 +269,7 @@ pub enum RebuildTrigger {
 /// the block being mined when transactions arrive, rather than waiting for the
 /// next block import or timeout.
 ///
-/// Rate limiting prevents excessive rebuilds - we limit to `max_rebuilds_per_sec`.
+/// Rate limiting prevents excessive rebuilds via `min_rebuild_interval`.
 pub struct UntilImportedOrTransaction<Block: BlockT, TxHash> {
 	/// Block import notifications stream.
 	import_notifications: ImportNotifications<Block>,

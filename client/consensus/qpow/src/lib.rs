@@ -426,10 +426,10 @@ where
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
-/// Minimum seconds between transaction-triggered rebuilds.
+/// Minimum interval between transaction-triggered rebuilds.
 /// Set high enough to prevent the "rebuild loop" under high tx load where block construction
 /// time dominates and effective mining time approaches zero, causing block times to spike.
-const MIN_SECS_BETWEEN_TX_REBUILDS: u64 = 2;
+const MIN_INTERVAL_BETWEEN_TX_REBUILDS: Duration = Duration::from_secs(2);
 
 /// Start the mining worker for QPoW. This function provides the necessary helper functions that can
 /// be used to implement a miner. However, it does not do the CPU-intensive mining itself.
@@ -440,7 +440,7 @@ const MIN_SECS_BETWEEN_TX_REBUILDS: u64 = 2;
 ///
 /// The worker will rebuild blocks when:
 /// - A new block is imported from the network
-/// - New transactions arrive (rate limited to MAX_REBUILDS_PER_SEC)
+/// - New transactions arrive (rate limited to MIN_INTERVAL_BETWEEN_TX_REBUILDS)
 ///
 /// This allows transactions to be included faster since we don't wait for the next block import
 /// to rebuild. Mining on a new block vs the old block has the same probability of success per
@@ -481,7 +481,7 @@ where
 	let mut trigger_stream = UntilImportedOrTransaction::new(
 		client.import_notification_stream(),
 		tx_notifications,
-		Duration::from_secs(MIN_SECS_BETWEEN_TX_REBUILDS),
+		MIN_INTERVAL_BETWEEN_TX_REBUILDS,
 	);
 	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
 	let worker_ret = worker.clone();
@@ -516,7 +516,7 @@ where
 
 				// Set the latest build request (overwrites any previous)
 				*pending_build.lock() = Some(best_hash);
-				let _ = notify_tx.try_send(());
+				let _ = notify_tx.try_send(()); // Err is ok: Full (wake queued) or Disconnected (will exit)
 			}
 		}
 	};
@@ -630,7 +630,7 @@ where
 
 	// Check if best_hash changed during building
 	if client.info().best_hash != best_hash {
-		debug!(target: LOG_TARGET, "Best hash changed during block building, discarding");
+		info!(target: LOG_TARGET, "Best hash changed during block building, discarding proposal");
 		return None;
 	}
 
