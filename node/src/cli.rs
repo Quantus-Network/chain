@@ -99,6 +99,10 @@ pub enum QuantusKeySubcommand {
 		/// Disable HD derivation. Generates the same result as current behavior.
 		#[arg(long, default_value_t = false)]
 		no_derivation: bool,
+
+		/// Print sensitive key material (seed, public key, secret key). Useful for debugging.
+		#[arg(long, short = 'v', default_value_t = false)]
+		verbose: bool,
 	},
 }
 

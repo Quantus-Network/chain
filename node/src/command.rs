@@ -278,6 +278,7 @@ pub fn run() -> sc_cli::Result<()> {
 					words,
 					wallet_index,
 					no_derivation,
+					verbose,
 				} => {
 					match generate_quantus_key(
 						scheme.clone(),
@@ -326,6 +327,11 @@ pub fn run() -> sc_cli::Result<()> {
 										);
 									}
 									println!("Address: {}", details.address);
+									if *verbose {
+										println!("Seed: {}", details.seed_hex);
+										println!("Pub key: {}", details.public_key_hex);
+										println!("Secret key: {}", details.secret_key_hex);
+									}
 									println!(
                                         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                                     );
@@ -352,6 +358,10 @@ pub fn run() -> sc_cli::Result<()> {
 										"Inner Hash: 0x{}",
 										details.inner_hash.unwrap_or_default()
 									);
+									if *verbose {
+										println!("Address hex: {}", details.public_key_hex);
+										println!("Secret: {}", details.secret_key_hex);
+									}
 									println!(
                                         "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                                     );
