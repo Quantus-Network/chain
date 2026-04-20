@@ -44,7 +44,6 @@ jobs:
           - "pallets/scheduler"
           - "pallets/treasury"
           - "pallets/wormhole"
-          - "primitives/consensus/pow"
           - "primitives/consensus/qpow"
           - "primitives/dilithium-crypto"
           - "primitives/header"
