@@ -291,18 +291,12 @@ impl<Block: BlockT, TxHash> UntilImportedOrTransaction<Block, TxHash> {
 	/// # Arguments
 	/// * `import_notifications` - Stream of block import notifications
 	/// * `tx_notifications` - Stream of transaction import notifications
-	/// * `max_rebuilds_per_sec` - Maximum transaction-triggered rebuilds per second
+	/// * `min_rebuild_interval` - Minimum time between transaction-triggered rebuilds
 	pub fn new(
 		import_notifications: ImportNotifications<Block>,
 		tx_notifications: impl Stream<Item = TxHash> + Send + 'static,
-		max_rebuilds_per_sec: u32,
+		min_rebuild_interval: Duration,
 	) -> Self {
-		let min_rebuild_interval = if max_rebuilds_per_sec > 0 {
-			Duration::from_millis(1000 / max_rebuilds_per_sec as u64)
-		} else {
-			Duration::from_secs(u64::MAX) // Effectively disable tx-triggered rebuilds
-		};
-
 		Self {
 			import_notifications,
 			tx_notifications: Box::pin(tx_notifications),

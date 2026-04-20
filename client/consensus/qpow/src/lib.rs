@@ -426,9 +426,10 @@ where
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
-/// Maximum transaction-triggered rebuilds per second.
-/// Hardcoded for now but could be made configurable later.
-const MAX_REBUILDS_PER_SEC: u32 = 2;
+/// Minimum seconds between transaction-triggered rebuilds.
+/// Set high enough to prevent the "rebuild loop" under high tx load where block construction
+/// time dominates and effective mining time approaches zero, causing block times to spike.
+const MIN_SECS_BETWEEN_TX_REBUILDS: u64 = 2;
 
 /// Start the mining worker for QPoW. This function provides the necessary helper functions that can
 /// be used to implement a miner. However, it does not do the CPU-intensive mining itself.
@@ -480,7 +481,7 @@ where
 	let mut trigger_stream = UntilImportedOrTransaction::new(
 		client.import_notification_stream(),
 		tx_notifications,
-		MAX_REBUILDS_PER_SEC,
+		Duration::from_secs(MIN_SECS_BETWEEN_TX_REBUILDS),
 	);
 	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
 	let worker_ret = worker.clone();
