@@ -366,9 +366,8 @@ pub mod pallet {
 			nonce: NonceType,
 		) -> (bool, U512) {
 			let (valid, _, hash_achieved) = Self::verify_nonce_internal(block_hash, nonce);
-			let achieved_difficulty = valid
-				.then(|| achieved_difficulty_from_hash(hash_achieved))
-				.unwrap_or(U512::zero());
+			let achieved_difficulty =
+				if valid { achieved_difficulty_from_hash(hash_achieved) } else { U512::zero() };
 			(valid, achieved_difficulty)
 		}
 
