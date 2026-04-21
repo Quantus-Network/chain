@@ -577,8 +577,7 @@ pub fn run() -> sc_cli::Result<()> {
 							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
 							return Err(sc_cli::Error::Input("Missing --rewards-inner-hash".into()));
 						} else {
-							// Non-validator node: rewards_address is never consumed by
-							// service::new_full, use zero placeholder.
+							// unused for non-validator nodes, use zero placeholder.
 							AccountId32::new([0u8; 32])
 						},
 				};
