@@ -20,11 +20,11 @@
 
 //! Signature-related code
 
-pub use libp2p::identity::SigningError;
+pub use libp2p::identity::{DecodingError, SigningError};
 
-/// Public key.
+/// Public key (libp2p-identity, supports Dilithium via feature).
 pub enum PublicKey {
-	/// Libp2p public key.
+	/// Libp2p public key (ed25519 or Dilithium from libp2p-identity).
 	Libp2p(libp2p::identity::PublicKey),
 }
 
@@ -42,19 +42,50 @@ impl PublicKey {
 			Self::Libp2p(public) => public.to_peer_id().into(),
 		}
 	}
+
+	/// Try to decode public key from protobuf.
+	pub fn try_decode_protobuf(bytes: &[u8]) -> Result<Self, libp2p::identity::DecodingError> {
+		libp2p::identity::PublicKey::try_decode_protobuf(bytes).map(PublicKey::Libp2p)
+	}
+
+	/// Verify a signature.
+	pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
+		match self {
+			Self::Libp2p(public) => public.verify(msg, sig),
+		}
+	}
 }
 
-/// Keypair.
+/// Keypair (libp2p-identity, supports Dilithium via feature).
 pub enum Keypair {
-	/// Libp2p keypair.
+	/// Libp2p keypair (ed25519 or Dilithium from libp2p-identity).
 	Libp2p(libp2p::identity::Keypair),
 }
 
 impl Keypair {
+	/// Generate ed25519 keypair.
+	pub fn generate_ed25519() -> Self {
+		Keypair::Libp2p(libp2p::identity::Keypair::generate_ed25519())
+	}
+
 	/// Get [`Keypair`]'s public key.
 	pub fn public(&self) -> PublicKey {
 		match self {
 			Keypair::Libp2p(keypair) => PublicKey::Libp2p(keypair.public()),
+		}
+	}
+
+	/// Sign a message.
+	pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SigningError> {
+		match self {
+			Keypair::Libp2p(keypair) => keypair.sign(msg),
+		}
+	}
+
+	/// Encode the secret key (for comparison in tests / CLI).
+	pub fn secret(&self) -> Option<Vec<u8>> {
+		match self {
+			Keypair::Libp2p(keypair) => keypair.secret(),
 		}
 	}
 }
