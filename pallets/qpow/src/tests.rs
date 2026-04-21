@@ -1,6 +1,5 @@
 use crate::{mock::*, Config};
 use frame_support::{pallet_prelude::TypedGet, traits::Hooks};
-use pallet_timestamp;
 use primitive_types::U512;
 use qpow_math::{get_nonce_hash, is_valid_nonce};
 

@@ -41,7 +41,7 @@ pub fn register(registry: &Registry, sources: MetricSources) -> Result<Metrics, 
 }
 
 // Register `sc-network` metrics without bandwidth/connected peer sources.
-#[allow(unused)]
+#[allow(dead_code)]
 pub fn register_without_sources(registry: &Registry) -> Result<Metrics, PrometheusError> {
 	Metrics::register(registry)
 }
@@ -53,7 +53,7 @@ pub struct MetricSources {
 }
 
 impl MetricSources {
-	#[allow(unused)]
+	#[allow(dead_code)]
 	pub fn register(
 		registry: &Registry,
 		bandwidth: Arc<dyn BandwidthSink>,

@@ -426,9 +426,10 @@ where
 	Ok(BasicQueue::new(verifier, block_import, justification_import, spawner, registry))
 }
 
-/// Maximum transaction-triggered rebuilds per second.
-/// Hardcoded for now but could be made configurable later.
-const MAX_REBUILDS_PER_SEC: u32 = 2;
+/// Minimum interval between transaction-triggered rebuilds.
+/// Set high enough to prevent the "rebuild loop" under high tx load where block construction
+/// time dominates and effective mining time approaches zero, causing block times to spike.
+const MIN_INTERVAL_BETWEEN_TX_REBUILDS: Duration = Duration::from_secs(2);
 
 /// Start the mining worker for QPoW. This function provides the necessary helper functions that can
 /// be used to implement a miner. However, it does not do the CPU-intensive mining itself.
@@ -439,7 +440,7 @@ const MAX_REBUILDS_PER_SEC: u32 = 2;
 ///
 /// The worker will rebuild blocks when:
 /// - A new block is imported from the network
-/// - New transactions arrive (rate limited to MAX_REBUILDS_PER_SEC)
+/// - New transactions arrive (rate limited to MIN_INTERVAL_BETWEEN_TX_REBUILDS)
 ///
 /// This allows transactions to be included faster since we don't wait for the next block import
 /// to rebuild. Mining on a new block vs the old block has the same probability of success per
@@ -480,142 +481,168 @@ where
 	let mut trigger_stream = UntilImportedOrTransaction::new(
 		client.import_notification_stream(),
 		tx_notifications,
-		MAX_REBUILDS_PER_SEC,
+		MIN_INTERVAL_BETWEEN_TX_REBUILDS,
 	);
 	let worker = MiningHandle::new(client.clone(), block_import, justification_sync_link);
 	let worker_ret = worker.clone();
 
-	let task = async move {
-		// Main block building loop - runs until trigger stream closes
-		// Wait for a trigger (Initial, BlockImported, or NewTransactions)
-		// continue skips to the next iteration to wait for another trigger
-		while let Some(trigger) = trigger_stream.next().await {
-			if sync_oracle.is_major_syncing() {
-				debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
-				worker.on_major_syncing();
-				continue;
+	// Latest build request - overwrites previous if builder is slow.
+	// Uses a Mutex<Option> for the value + a channel for wake notification.
+	let pending_build: Arc<parking_lot::Mutex<Option<Block::Hash>>> =
+		Arc::new(parking_lot::Mutex::new(None));
+	let (notify_tx, mut notify_rx) = futures::channel::mpsc::channel::<()>(1);
+
+	// Task 1: Convert triggers into build requests
+	let trigger_task = {
+		let client = client.clone();
+		let worker = worker.clone();
+		let pending_build = pending_build.clone();
+		let mut notify_tx = notify_tx;
+		async move {
+			while let Some(trigger) = trigger_stream.next().await {
+				if sync_oracle.is_major_syncing() {
+					debug!(target: LOG_TARGET, "Skipping proposal due to sync.");
+					worker.on_major_syncing();
+					continue;
+				}
+
+				let best_hash = client.info().best_hash;
+
+				// Optimization, skip if we already imported this block
+				if trigger == RebuildTrigger::BlockImported && worker.best_hash() == Some(best_hash)
+				{
+					continue;
+				}
+
+				// Set the latest build request (overwrites any previous)
+				*pending_build.lock() = Some(best_hash);
+				let _ = notify_tx.try_send(()); // Err is ok: Full (wake queued) or Disconnected (will exit)
 			}
-
-			let best_hash = client.info().best_hash;
-			let best_header = match client.header(best_hash) {
-				Ok(Some(header)) => header,
-				Ok(None) => {
-					warn!(
-						target: LOG_TARGET,
-						"Unable to pull new block for authoring. \
-						 Best header not found for hash: {:?}",
-						best_hash
-					);
-					continue;
-				},
-				Err(err) => {
-					warn!(
-						target: LOG_TARGET,
-						"Unable to pull new block for authoring. \
-						 Header lookup error: {}",
-						err
-					);
-					continue;
-				},
-			};
-
-			// Skip redundant block import triggers if we're already building on this hash.
-			// Initial and NewTransactions triggers should proceed to rebuild.
-			if trigger == RebuildTrigger::BlockImported && worker.best_hash() == Some(best_hash) {
-				continue;
-			}
-
-			// The worker is locked for the duration of the whole proposing period. Within this
-			// period, the mining target is outdated and useless anyway.
-
-			let difficulty = match qpow_get_difficulty::<Block, C>(&*client, best_hash) {
-				Ok(x) => x,
-				Err(err) => {
-					warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Fetch difficulty failed: {}",
-						err,
-					);
-					continue;
-				},
-			};
-
-			let inherent_data_providers = match create_inherent_data_providers
-				.create_inherent_data_providers(best_hash, ())
-				.await
-			{
-				Ok(x) => x,
-				Err(err) => {
-					warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Creating inherent data providers failed: {}",
-						err,
-					);
-					continue;
-				},
-			};
-
-			let inherent_data = match inherent_data_providers.create_inherent_data().await {
-				Ok(r) => r,
-				Err(e) => {
-					warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Creating inherent data failed: {}",
-						e,
-					);
-					continue;
-				},
-			};
-
-			let mut inherent_digest = Digest::default();
-			let rewards_preimage_bytes = rewards_preimage.to_vec();
-			inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, rewards_preimage_bytes));
-
-			let proposer = match env.init(&best_header).await {
-				Ok(x) => x,
-				Err(err) => {
-					warn!(
-						target: LOG_TARGET,
-						"Unable to propose new block for authoring. \
-						 Creating proposer failed: {:?}",
-						err,
-					);
-					continue;
-				},
-			};
-
-			let proposal =
-				match proposer.propose(inherent_data, inherent_digest, build_time, None).await {
-					Ok(x) => x,
-					Err(err) => {
-						warn!(
-							target: LOG_TARGET,
-							"Unable to propose new block for authoring. \
-							 Creating proposal failed: {}",
-							err,
-						);
-						continue;
-					},
-				};
-
-			let build = MiningBuild::<Block, _> {
-				metadata: MiningMetadata {
-					best_hash,
-					pre_hash: proposal.block.header().hash(),
-					rewards_preimage,
-					difficulty,
-				},
-				proposal,
-			};
-
-			worker.on_build(build);
 		}
 	};
 
+	// Task 2: Process build requests and update worker
+	let build_task = async move {
+		while notify_rx.next().await.is_some() {
+			// Take the latest request (may have been overwritten multiple times)
+			let Some(target_hash) = pending_build.lock().take() else {
+				continue;
+			};
+
+			// Build the block
+			if let Some(build) = create_proposal(
+				&client,
+				&mut env,
+				&create_inherent_data_providers,
+				target_hash,
+				rewards_preimage,
+				build_time,
+			)
+			.await
+			{
+				worker.on_build(build);
+			}
+		}
+	};
+
+	let task = async move {
+		futures::join!(trigger_task, build_task);
+	};
+
 	(worker_ret, task)
+}
+
+/// Create a block proposal. Returns None if any step fails (errors are logged).
+async fn create_proposal<Block, C, E, CIDP>(
+	client: &Arc<C>,
+	env: &mut E,
+	create_inherent_data_providers: &CIDP,
+	best_hash: Block::Hash,
+	rewards_preimage: [u8; 32],
+	build_time: Duration,
+) -> Option<MiningBuild<Block, <E::Proposer as Proposer<Block>>::Proof>>
+where
+	Block: BlockT<Hash = H256>,
+	C: HeaderBackend<Block> + ProvideRuntimeApi<Block> + Send + Sync + 'static,
+	C::Api: QPoWApi<Block>,
+	E: Environment<Block>,
+	E::Error: std::fmt::Debug,
+	E::Proposer: Proposer<Block>,
+	CIDP: CreateInherentDataProviders<Block, ()>,
+{
+	let best_header = match client.header(best_hash) {
+		Ok(Some(h)) => h,
+		Ok(None) => {
+			warn!(target: LOG_TARGET, "Best header not found for hash: {:?}", best_hash);
+			return None;
+		},
+		Err(e) => {
+			warn!(target: LOG_TARGET, "Header lookup error: {}", e);
+			return None;
+		},
+	};
+
+	let difficulty = match qpow_get_difficulty::<Block, C>(client, best_hash) {
+		Ok(d) => d,
+		Err(e) => {
+			warn!(target: LOG_TARGET, "Fetch difficulty failed: {}", e);
+			return None;
+		},
+	};
+
+	let inherent_data_providers = match create_inherent_data_providers
+		.create_inherent_data_providers(best_hash, ())
+		.await
+	{
+		Ok(p) => p,
+		Err(e) => {
+			warn!(target: LOG_TARGET, "Creating inherent data providers failed: {}", e);
+			return None;
+		},
+	};
+
+	let inherent_data = match inherent_data_providers.create_inherent_data().await {
+		Ok(d) => d,
+		Err(e) => {
+			warn!(target: LOG_TARGET, "Creating inherent data failed: {}", e);
+			return None;
+		},
+	};
+
+	let proposer = match env.init(&best_header).await {
+		Ok(p) => p,
+		Err(e) => {
+			warn!(target: LOG_TARGET, "Creating proposer failed: {:?}", e);
+			return None;
+		},
+	};
+
+	let mut inherent_digest = Digest::default();
+	inherent_digest.push(DigestItem::PreRuntime(POW_ENGINE_ID, rewards_preimage.to_vec()));
+
+	let proposal = match proposer.propose(inherent_data, inherent_digest, build_time, None).await {
+		Ok(p) => p,
+		Err(e) => {
+			warn!(target: LOG_TARGET, "Creating proposal failed: {}", e);
+			return None;
+		},
+	};
+
+	// Check if best_hash changed during building
+	if client.info().best_hash != best_hash {
+		info!(target: LOG_TARGET, "Best hash changed during block building, discarding proposal");
+		return None;
+	}
+
+	Some(MiningBuild {
+		metadata: MiningMetadata {
+			best_hash,
+			pre_hash: proposal.block.header().hash(),
+			rewards_preimage,
+			difficulty,
+		},
+		proposal,
+	})
 }
 
 /// Fetch the QPoW seal from the given digest, if present and valid.
