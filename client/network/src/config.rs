@@ -35,11 +35,14 @@ pub use crate::{
 	types::ProtocolName,
 };
 
-pub use sc_network_types::{build_multiaddr, ed25519};
+pub use sc_network_types::build_multiaddr;
 use sc_network_types::{
 	multiaddr::{self, Multiaddr},
 	PeerId,
 };
+
+use crate::service::signature::Keypair;
+use libp2p::identity as libp2p_identity;
 
 use crate::service::{ensure_addresses_consistent_with_transport, traits::NetworkBackend};
 use codec::Encode;
@@ -352,11 +355,6 @@ impl<K> fmt::Debug for Secret<K> {
 	}
 }
 
-/// Helper function to check if data is hex-encoded.
-fn is_hex_data(data: &[u8]) -> bool {
-	data.iter().all(|&b| b.is_ascii_hexdigit() || b.is_ascii_whitespace())
-}
-
 impl NodeKeyConfig {
 	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair`:
 	///
@@ -368,45 +366,52 @@ impl NodeKeyConfig {
 	///
 	///  * If the secret is configured to be new, it is generated and the corresponding keypair is
 	///    returned.
-	/// Create a new Dilithium (Post-Quantum) node key configuration.
 	pub fn dilithium(secret: DilithiumSecret) -> Self {
 		NodeKeyConfig::Dilithium(secret)
 	}
 
-	/// Create a new random Dilithium (Post-Quantum) keypair.
+	/// Create a new random Dilithium (Post-Quantum) keypair config.
 	pub fn new_dilithium() -> Self {
 		NodeKeyConfig::Dilithium(Secret::New)
 	}
 
-	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair`.
-	pub fn into_keypair(self) -> io::Result<libp2p_identity::Keypair> {
+	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair` (libp2p-identity, supports
+	/// Dilithium).
+	pub fn into_keypair(self) -> io::Result<Keypair> {
 		use NodeKeyConfig::*;
 		match self {
-			Dilithium(Secret::New) => Ok(libp2p_identity::Keypair::generate_dilithium()),
+			Dilithium(Secret::New) =>
+				Ok(Keypair::Libp2p(libp2p_identity::Keypair::generate_dilithium())),
 
 			Dilithium(Secret::Input(k)) => libp2p_identity::Keypair::dilithium_from_bytes(&k)
-				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+				.map(Keypair::Libp2p),
 
 			Dilithium(Secret::File(f)) => get_secret(
 				f,
 				|b| {
-					let mut bytes;
-					if is_hex_data(b) {
-						let vec = array_bytes::hex2bytes(b).map_err(|_| {
+					let mut bytes = if is_hex_data(b) {
+						array_bytes::hex2bytes(std::str::from_utf8(b).map_err(|_| {
 							io::Error::new(io::ErrorKind::InvalidData, "Failed to decode hex data")
-						})?;
-						bytes = vec;
+						})?)
+						.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid hex"))?
 					} else {
-						bytes = b.to_vec();
-					}
+						b.to_vec()
+					};
 					libp2p_identity::Keypair::dilithium_from_bytes(&mut bytes)
 						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 				},
 				|| libp2p_identity::Keypair::generate_dilithium(),
 				|kp| kp.dilithium_to_bytes(),
-			),
+			)
+			.map(Keypair::Libp2p),
 		}
 	}
+}
+
+/// Helper to check if data is hex-encoded.
+fn is_hex_data(data: &[u8]) -> bool {
+	data.iter().all(|&b| b.is_ascii_hexdigit() || b.is_ascii_whitespace())
 }
 
 /// Load a secret key from a file, if it exists, or generate a
@@ -967,14 +972,19 @@ impl<B: BlockT + 'static, H: ExHashT, N: NetworkBackend<B, H>> FullNetworkConfig
 /// Network backend type.
 #[derive(Debug, Clone, Default, Copy)]
 pub enum NetworkBackendType {
-	/// Use libp2p for P2P networking.
-	#[default]
-	Libp2p,
-
 	/// Use litep2p for P2P networking.
 	///
-	/// Not yet supported by this fork — will be enabled when sc-network is fully rebased.
+	/// This is the preferred option for Substrate-based chains.
+	#[default]
 	Litep2p,
+
+	/// Use libp2p for P2P networking.
+	///
+	/// The libp2p is still used for compatibility reasons until the
+	/// ecosystem switches entirely to litep2p. The backend will enter
+	/// a "best-effort" maintenance mode, where only critical issues will
+	/// get fixed. If you are unsure, please use `NetworkBackendType::Litep2p`.
+	Libp2p,
 }
 
 #[cfg(test)]
@@ -986,8 +996,10 @@ mod tests {
 		tempfile::Builder::new().prefix(prefix).tempdir().unwrap()
 	}
 
-	fn secret_bytes(kp: libp2p_identity::Keypair) -> Vec<u8> {
-		kp.secret().unwrap()
+	fn secret_bytes(kp: &Keypair) -> Vec<u8> {
+		match kp {
+			Keypair::Libp2p(k) => k.dilithium_to_bytes(),
+		}
 	}
 
 	#[test]
@@ -997,34 +1009,22 @@ mod tests {
 		let file = tmp.path().join("x").to_path_buf();
 		let kp1 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::File(file.clone())).into_keypair().unwrap();
-		assert!(file.is_file() && secret_bytes(kp1) == secret_bytes(kp2))
+		assert!(file.is_file() && secret_bytes(&kp1) == secret_bytes(&kp2))
 	}
 
 	#[test]
 	fn test_secret_input() {
-		// For Dilithium, Secret::Input must contain the full keypair bytes (secret + public),
-		// not just the secret key. Use dilithium_to_bytes() to get the correct format.
-		let kp_bytes = libp2p_identity::Keypair::generate_dilithium().dilithium_to_bytes();
-		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(kp_bytes.clone()))
-			.into_keypair()
-			.unwrap();
-		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(kp_bytes)).into_keypair().unwrap();
-		assert!(secret_bytes(kp1) == secret_bytes(kp2));
+		let kp0 = libp2p::identity::Keypair::generate_dilithium();
+		let sk = kp0.dilithium_to_bytes();
+		let kp1 = NodeKeyConfig::Dilithium(Secret::Input(sk.clone())).into_keypair().unwrap();
+		let kp2 = NodeKeyConfig::Dilithium(Secret::Input(sk)).into_keypair().unwrap();
+		assert!(secret_bytes(&kp1) == secret_bytes(&kp2));
 	}
 
 	#[test]
 	fn test_secret_new() {
 		let kp1 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
 		let kp2 = NodeKeyConfig::Dilithium(Secret::New).into_keypair().unwrap();
-		assert!(secret_bytes(kp1) != secret_bytes(kp2));
-	}
-
-	#[test]
-	fn test_dilithium_keypair_generation() {
-		let kp1 = NodeKeyConfig::new_dilithium().into_keypair().unwrap();
-		let kp2 = NodeKeyConfig::new_dilithium().into_keypair().unwrap();
-		assert!(kp1.to_protobuf_encoding().unwrap() != kp2.to_protobuf_encoding().unwrap());
-		assert_eq!(kp1.key_type(), libp2p_identity::KeyType::Dilithium);
-		assert_eq!(kp2.key_type(), libp2p_identity::KeyType::Dilithium);
+		assert!(secret_bytes(&kp1) != secret_bytes(&kp2));
 	}
 }

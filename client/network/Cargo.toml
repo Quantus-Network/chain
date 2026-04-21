@@ -10,13 +10,16 @@ readme = "README.md"
 repository.workspace = true
 version = "0.55.1"
 
+[lints]
+workspace = true
+
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+# Stub benchmarks only (full protocol benches need Litep2p + substrate_test_runtime_client).
 [[bench]]
 harness = false
 name = "notifications_protocol"
-
 [[bench]]
 harness = false
 name = "request_response_protocol"
@@ -85,3 +88,8 @@ criterion = { workspace = true, default-features = true, features = ["async_toki
 
 [build-dependencies]
 prost-build = { workspace = true }
+
+[features]
+default = []
+# Enable to compile bitswap integration tests (needs extra dev-dependencies).
+bitswap-tests = []

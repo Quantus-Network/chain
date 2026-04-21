@@ -109,10 +109,6 @@ const GET_RECORD_REDUNDANCY_FACTOR: u32 = 4;
 /// to not timeout most of the time.
 const KAD_QUERY_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Maximum packet size for Kademlia messages.
-/// Increased to 2MB to handle large peer lists in FIND_NODE responses from bootnodes.
-const KAD_MAX_PACKET_SIZE: usize = 2 * 1024 * 1024;
-
 /// `DiscoveryBehaviour` configuration.
 ///
 ///
@@ -250,7 +246,6 @@ impl DiscoveryConfig {
 			config.set_kbucket_inserts(BucketInserts::Manual);
 			config.disjoint_query_paths(kademlia_disjoint_query_paths);
 
-			config.set_max_packet_size(KAD_MAX_PACKET_SIZE);
 			config.set_provider_record_ttl(Some(KADEMLIA_PROVIDER_RECORD_TTL));
 			config.set_provider_publication_interval(Some(KADEMLIA_PROVIDER_REPUBLISH_INTERVAL));
 
