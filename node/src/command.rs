@@ -568,12 +568,17 @@ pub fn run() -> sc_cli::Result<()> {
 								treasury_account
 							);
 							treasury_account
-						} else {
-							eprintln!("Error: --rewards-inner-hash is required.\n");
+						} else if config.role.is_authority() {
+							eprintln!(
+								"Error: --rewards-inner-hash is required when running with --validator.\n"
+							);
 							eprintln!("To generate an inner hash, run:");
 							eprintln!("  quantus-node key quantus --scheme wormhole\n");
 							eprintln!("Then pass the 'Inner Hash' value as --rewards-inner-hash.");
 							return Err(sc_cli::Error::Input("Missing --rewards-inner-hash".into()));
+						} else {
+							// unused for non-validator nodes, use zero placeholder.
+							AccountId32::new([0u8; 32])
 						},
 				};
 
