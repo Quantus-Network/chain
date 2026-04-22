@@ -1735,7 +1735,6 @@ fn high_security_propose_fails_for_non_whitelisted_call() {
 				threshold: 2,
 				proposal_nonce: 0,
 				deposit: 500,
-				active_proposals: 0,
 				proposals_per_signer: Default::default(),
 			},
 		);

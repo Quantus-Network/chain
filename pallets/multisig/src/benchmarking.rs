@@ -102,7 +102,6 @@ mod benchmarks {
 		threshold: u32,
 		nonce: u64,
 		proposal_nonce: u32,
-		active_proposals: u32,
 	) -> T::AccountId {
 		let multisig_address = Multisig::<T>::derive_multisig_address(signers, threshold, nonce);
 		let bounded_signers: BoundedSignersOf<T> = signers.to_vec().try_into().unwrap();
@@ -112,7 +111,6 @@ mod benchmarks {
 			threshold,
 			proposal_nonce,
 			deposit: T::MultisigDeposit::get(),
-			active_proposals,
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, data);
@@ -201,7 +199,7 @@ mod benchmarks {
 		// Uses account("signer", 0/1) so multisig address differs from genesis (signer1/signer2).
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0);
 		assert!(
 			!T::HighSecurity::is_high_security(&multisig_address),
 			"propose must hit non-HS path"
@@ -210,14 +208,14 @@ mod benchmarks {
 
 		let new_call = frame_system::Call::<T>::remark { remark: vec![99u8; c as usize] };
 		let runtime_call: <T as Config>::RuntimeCall = new_call.into();
-		let encoded_call = runtime_call.encode();
+		let encoded_call: BoundedCallOf<T> = runtime_call.encode().try_into().unwrap();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), multisig_address.clone(), encoded_call, expiry);
 
 		let multisig = Multisigs::<T>::get(&multisig_address).unwrap();
-		assert_eq!(multisig.active_proposals, 1);
+		assert_eq!(multisig.active_proposals(), 1);
 		Ok(())
 	}
 
@@ -230,7 +228,7 @@ mod benchmarks {
 		let _ = c;
 		let (caller, signers) = setup_funded_signer_set_hs::<T>();
 		let threshold = 2u32;
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0);
 		assert!(
 			T::HighSecurity::is_high_security(&multisig_address),
 			"propose_high_security must hit HS path"
@@ -240,14 +238,14 @@ mod benchmarks {
 		let whitelisted_call =
 			pallet_reversible_transfers::Call::<T>::cancel { tx_id: Default::default() };
 		let runtime_call: <T as Config>::RuntimeCall = whitelisted_call.into();
-		let encoded_call = runtime_call.encode();
+		let encoded_call: BoundedCallOf<T> = runtime_call.encode().try_into().unwrap();
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 
 		#[extrinsic_call]
 		propose(RawOrigin::Signed(caller.clone()), multisig_address.clone(), encoded_call, expiry);
 
 		let multisig = Multisigs::<T>::get(&multisig_address).unwrap();
-		assert_eq!(multisig.active_proposals, 1);
+		assert_eq!(multisig.active_proposals(), 1);
 		Ok(())
 	}
 
@@ -261,7 +259,7 @@ mod benchmarks {
 		let max_s = T::MaxSigners::get();
 		let (caller, signers) = setup_funded_signer_set::<T>(max_s);
 		let threshold = max_s;
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1);
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 		// Worst-case approvals decode: threshold-1 approvals (99 for MaxSigners=100)
@@ -295,7 +293,7 @@ mod benchmarks {
 		let max_s = T::MaxSigners::get();
 		let (caller, signers) = setup_funded_signer_set::<T>(max_s);
 		let threshold = max_s;
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1);
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 		// Worst-case approvals decode: MaxSigners approvals (Approved)
@@ -326,7 +324,7 @@ mod benchmarks {
 	) -> Result<(), BenchmarkError> {
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1);
 		set_block::<T>(100);
 		let expiry = frame_system::Pallet::<T>::block_number() + 1000u32.into();
 		let approvals = approvals_max::<T>();
@@ -357,7 +355,7 @@ mod benchmarks {
 	) -> Result<(), BenchmarkError> {
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1, 1);
+		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 1);
 		let expiry = 10u32.into();
 		let approvals = approvals_max::<T>();
 		insert_proposal::<T>(
@@ -402,7 +400,7 @@ mod benchmarks {
 		let (caller, signers) = setup_funded_signer_set::<T>(3);
 		let threshold = 2u32;
 		let multisig_address =
-			insert_multisig::<T>(&caller, &signers, threshold, 0, total_proposals, total_proposals);
+			insert_multisig::<T>(&caller, &signers, threshold, 0, total_proposals);
 
 		let approvals = approvals_max::<T>();
 		let expired_block = 10u32.into();

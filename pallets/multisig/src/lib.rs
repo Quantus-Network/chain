@@ -63,11 +63,21 @@ pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerS
 	pub proposal_nonce: u32,
 	/// Deposit reserved by the creator (for storage rent)
 	pub deposit: Balance,
-	/// Number of active proposals (for global limit checking)
-	pub active_proposals: u32,
 	/// Per-signer proposal count (for filibuster protection)
 	/// Maps AccountId -> number of active proposals
 	pub proposals_per_signer: BoundedProposalsPerSigner,
+}
+
+impl<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
+	MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
+where
+	BoundedProposalsPerSigner: AsRef<alloc::collections::btree_map::BTreeMap<AccountId, u32>>,
+{
+	/// Returns the total number of active proposals across all signers.
+	/// Derived from proposals_per_signer to avoid redundant state.
+	pub fn active_proposals(&self) -> u32 {
+		self.proposals_per_signer.as_ref().values().sum()
+	}
 }
 
 impl<
@@ -84,7 +94,6 @@ impl<
 			threshold: 1,
 			proposal_nonce: 0,
 			deposit: Default::default(),
-			active_proposals: 0,
 			proposals_per_signer: Default::default(),
 		}
 	}
@@ -465,7 +474,6 @@ pub mod pallet {
 					threshold,
 					proposal_nonce: 0,
 					deposit,
-					active_proposals: 0,
 					proposals_per_signer: BoundedProposalsPerSignerOf::<T>::default(),
 				},
 			);
@@ -530,8 +538,8 @@ pub mod pallet {
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
-			// Check proposal limits (cheap, no additional reads)
-			if multisig_data.active_proposals >= T::MaxTotalProposalsInStorage::get() {
+			// Check proposal limits (derived from per-signer counts)
+			if multisig_data.active_proposals() >= T::MaxTotalProposalsInStorage::get() {
 				return Self::err_with_weight(Error::<T>::TooManyProposalsInStorage, 1);
 			}
 
@@ -614,7 +622,7 @@ pub mod pallet {
 					// Explicit check for nonce exhaustion instead of silent saturation
 					multisig.proposal_nonce =
 						nonce.checked_add(1).ok_or(Error::<T>::ProposalNonceExhausted)?;
-					multisig.active_proposals = multisig.active_proposals.saturating_add(1);
+					// Update per-signer count (active_proposals is derived from this)
 					let count = multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
 					multisig
 						.proposals_per_signer
@@ -947,7 +955,7 @@ pub mod pallet {
 			}
 
 			let (cleaned, total_proposals_iterated, total_call_bytes, total_returned) =
-				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
+				Self::cleanup_expired_proposals_for_signer(&multisig_address, &caller);
 
 			// Emit summary event (total_returned is the actual sum of stored deposits unreserved)
 			Self::deposit_event(Event::DepositsClaimed {
@@ -1185,7 +1193,7 @@ pub mod pallet {
 		/// Cleanup ALL expired proposals for a specific proposer
 		///
 		/// Iterates through all proposals in the multisig and removes expired ones
-		/// belonging to the specified proposer.
+		/// belonging to the specified signer (who is also the caller).
 		///
 		/// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes, total_deposits)
 		/// - cleaned_count: number of proposals actually removed
@@ -1193,10 +1201,9 @@ pub mod pallet {
 		///   calculation)
 		/// - total_call_bytes: sum of proposal.call.len() over iterated proposals (for weight)
 		/// - total_deposits: sum of actual deposits unreserved (from stored proposal data)
-		fn cleanup_proposer_expired(
+		fn cleanup_expired_proposals_for_signer(
 			multisig_address: &T::AccountId,
-			proposer: &T::AccountId,
-			caller: &T::AccountId,
+			signer: &T::AccountId,
 		) -> (u32, u32, u32, BalanceOf<T>) {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			let mut total_iterated = 0u32;
@@ -1205,19 +1212,19 @@ pub mod pallet {
 
 			// Collect expired proposals to remove
 			// IMPORTANT: We count ALL proposals during iteration (for weight calculation)
-			let expired_proposals: Vec<(u32, T::AccountId, BalanceOf<T>)> =
+			let expired_proposals: Vec<(u32, BalanceOf<T>)> =
 				Proposals::<T>::iter_prefix(multisig_address)
 					.filter_map(|(proposal_id, proposal)| {
 						total_iterated += 1; // Count every proposal we iterate through
 						total_call_bytes += proposal.call.len() as u32;
 
-						// Only proposer's expired proposals (Active or Approved)
-						if proposal.proposer == *proposer &&
+						// Only signer's expired proposals (Active or Approved)
+						if proposal.proposer == *signer &&
 							(proposal.status == ProposalStatus::Active ||
 								proposal.status == ProposalStatus::Approved) &&
 							current_block > proposal.expiry
 						{
-							Some((proposal_id, proposal.proposer, proposal.deposit))
+							Some((proposal_id, proposal.deposit))
 						} else {
 							None
 						}
@@ -1227,21 +1234,16 @@ pub mod pallet {
 			let cleaned = expired_proposals.len() as u32;
 
 			// Remove proposals and emit events
-			for (proposal_id, expired_proposer, deposit) in expired_proposals {
+			for (proposal_id, deposit) in expired_proposals {
 				total_deposits = total_deposits.saturating_add(deposit);
 
-				Self::remove_proposal_and_return_deposit(
-					multisig_address,
-					proposal_id,
-					&expired_proposer,
-					deposit,
-				);
+				Self::remove_proposal_and_return_deposit(multisig_address, proposal_id, signer, deposit);
 
 				Self::deposit_event(Event::ProposalRemoved {
 					multisig_address: multisig_address.clone(),
 					proposal_id,
-					proposer: expired_proposer,
-					removed_by: caller.clone(),
+					proposer: signer.clone(),
+					removed_by: signer.clone(),
 				});
 			}
 
@@ -1259,10 +1261,9 @@ pub mod pallet {
 			// Remove from storage
 			Proposals::<T>::remove(multisig_address, proposal_id);
 
-			// Decrement proposal counters
+			// Decrement per-signer proposal count (active_proposals is derived from this)
 			Multisigs::<T>::mutate(multisig_address, |maybe_data| {
 				if let Some(ref mut data) = maybe_data {
-					data.active_proposals = data.active_proposals.saturating_sub(1);
 					if let Some(count) = data.proposals_per_signer.get_mut(proposer) {
 						*count = count.saturating_sub(1);
 						// Remove entry if count reaches 0 to save storage
