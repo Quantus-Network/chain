@@ -870,28 +870,49 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
 			proposal_id: u32,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let caller = ensure_signed(origin)?;
 
-			// Verify caller is a signer
-			let _multisig_data = Self::ensure_is_signer(&multisig_address, &caller)?;
+			// Verify caller is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&caller) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
 
-			// Get proposal
-			let proposal = Proposals::<T>::get(&multisig_address, proposal_id)
-				.ok_or(Error::<T>::ProposalNotFound)?;
+			// Get proposal (2 reads: Multisigs + Proposals)
+			let proposal =
+				Proposals::<T>::get(&multisig_address, proposal_id).ok_or_else(|| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(2)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::ProposalNotFound.into(),
+					}
+				})?;
 
 			// Active or Approved proposals can be removed when expired (Executed/Cancelled
 			// are auto-removed). Approved+expired would otherwise be stuck if proposer
 			// unavailable.
-			ensure!(
-				proposal.status == ProposalStatus::Active ||
-					proposal.status == ProposalStatus::Approved,
-				Error::<T>::ProposalNotActive,
-			);
+			if proposal.status != ProposalStatus::Active &&
+				proposal.status != ProposalStatus::Approved
+			{
+				return Self::err_with_weight(Error::<T>::ProposalNotActive, 2);
+			}
 
 			// Check if expired
 			let current_block = frame_system::Pallet::<T>::block_number();
-			ensure!(current_block > proposal.expiry, Error::<T>::ProposalNotExpired);
+			if current_block <= proposal.expiry {
+				return Self::err_with_weight(Error::<T>::ProposalNotExpired, 2);
+			}
 
 			// Remove proposal from storage and return deposit
 			Self::remove_proposal_and_return_deposit(
@@ -909,7 +930,10 @@ pub mod pallet {
 				removed_by: caller,
 			});
 
-			Ok(())
+			// Return actual weight based on proposal call size
+			let actual_weight =
+				<T as Config>::WeightInfo::remove_expired(proposal.call.len() as u32);
+			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
 		}
 
 		/// Claim all deposits from expired proposals
@@ -935,7 +959,19 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let caller = ensure_signed(origin)?;
 
-			Self::ensure_is_signer(&multisig_address, &caller)?;
+			// Verify caller is a signer (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
+			if !multisig_data.signers.contains(&caller) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
+			}
 
 			let (cleaned, total_proposals_iterated, total_call_bytes) =
 				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
@@ -1106,30 +1142,46 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
-			// 1. Get multisig data
-			let multisig_data =
-				Multisigs::<T>::get(&multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
+			// 1. Get multisig data (1 read: Multisigs)
+			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
+				DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(T::DbWeight::get().reads(1)),
+						pays_fee: Pays::Yes,
+					},
+					error: Error::<T>::MultisigNotFound.into(),
+				}
+			})?;
 
 			// 2. Check permissions: Must be a signer
-			ensure!(multisig_data.signers.contains(&approver), Error::<T>::NotASigner);
-
-			// 3. Check if account is clean (no proposals at all)
-			if Proposals::<T>::iter_prefix(&multisig_address).next().is_some() {
-				return Err(Error::<T>::ProposalsExist.into());
+			if !multisig_data.signers.contains(&approver) {
+				return Self::err_with_weight(Error::<T>::NotASigner, 1);
 			}
 
-			// 4. Check if account balance is zero
-			let balance = T::Currency::total_balance(&multisig_address);
-			ensure!(balance.is_zero(), Error::<T>::MultisigAccountNotZero);
+			// 3. Check if account is clean (no proposals at all)
+			// This requires iterating, so count it as 1 read + iteration cost
+			if Proposals::<T>::iter_prefix(&multisig_address).next().is_some() {
+				return Self::err_with_weight(Error::<T>::ProposalsExist, 2);
+			}
 
-			// 5. Get or create approval list
+			// 4. Check if account balance is zero (1 more read for balance)
+			let balance = T::Currency::total_balance(&multisig_address);
+			if !balance.is_zero() {
+				return Self::err_with_weight(Error::<T>::MultisigAccountNotZero, 3);
+			}
+
+			// 5. Get or create approval list (1 more read: DissolveApprovals)
 			let mut approvals = DissolveApprovals::<T>::get(&multisig_address).unwrap_or_default();
 
 			// 6. Check if already approved
-			ensure!(!approvals.contains(&approver), Error::<T>::AlreadyApproved);
+			if approvals.contains(&approver) {
+				return Self::err_with_weight(Error::<T>::AlreadyApproved, 4);
+			}
 
 			// 7. Add approval
-			approvals.try_push(approver.clone()).map_err(|_| Error::<T>::TooManySigners)?;
+			if approvals.try_push(approver.clone()).is_err() {
+				return Self::err_with_weight(Error::<T>::TooManySigners, 4);
+			}
 
 			let approvals_count = approvals.len() as u32;
 
@@ -1246,18 +1298,6 @@ pub mod pallet {
 			} else {
 				false
 			}
-		}
-
-		/// Ensure account is a signer, otherwise return error
-		/// Returns multisig data if successful
-		fn ensure_is_signer(
-			multisig_address: &T::AccountId,
-			account: &T::AccountId,
-		) -> Result<MultisigDataOf<T>, DispatchError> {
-			let multisig_data =
-				Multisigs::<T>::get(multisig_address).ok_or(Error::<T>::MultisigNotFound)?;
-			ensure!(multisig_data.signers.contains(account), Error::<T>::NotASigner);
-			Ok(multisig_data)
 		}
 
 		/// Cleanup ALL expired proposals for a specific proposer

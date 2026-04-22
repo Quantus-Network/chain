@@ -639,13 +639,13 @@ fn executed_proposals_removed_from_storage() {
 		assert_eq!(Balances::reserved_balance(bob()), 0);
 
 		// Trying to remove again should fail
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(charlie()),
 				multisig_address.clone(),
 				proposal_id
 			),
-			Error::<Test>::ProposalNotFound
+			Error::<Test>::ProposalNotFound.into(),
 		);
 	});
 }
@@ -681,13 +681,13 @@ fn remove_expired_fails_for_non_signer() {
 		System::set_block_number(expiry + 1);
 
 		// Dave is not a signer, should fail
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(dave()),
 				multisig_address.clone(),
 				proposal_id
 			),
-			Error::<Test>::NotASigner
+			Error::<Test>::NotASigner.into(),
 		);
 
 		// But charlie (who is a signer) can do it
@@ -955,9 +955,9 @@ fn claim_deposits_fails_for_non_signer() {
 
 		System::set_block_number(201);
 
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::claim_deposits(RuntimeOrigin::signed(dave()), multisig_address.clone()),
-			Error::<Test>::NotASigner
+			Error::<Test>::NotASigner.into(),
 		);
 
 		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
@@ -1524,9 +1524,9 @@ fn dissolve_multisig_fails_with_proposals() {
 		));
 
 		// Try to approve dissolve - should fail because proposals exist
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::approve_dissolve(RuntimeOrigin::signed(bob()), multisig_address.clone()),
-			Error::<Test>::ProposalsExist
+			Error::<Test>::ProposalsExist.into(),
 		);
 	});
 }
