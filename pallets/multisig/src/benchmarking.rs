@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::{
-	BoundedApprovalsOf, BoundedCallOf, BoundedSignersOf, DissolveApprovals, MultisigDataOf,
-	Multisigs, Pallet as Multisig, ProposalDataOf, ProposalStatus, Proposals,
+	BoundedApprovalsOf, BoundedCallOf, BoundedSignersOf, MultisigDataOf, Multisigs,
+	Pallet as Multisig, ProposalDataOf, ProposalStatus, Proposals,
 };
 use alloc::vec;
 use frame_benchmarking::v2::*;
@@ -428,48 +428,6 @@ mod benchmarks {
 
 		let remaining = Proposals::<T>::iter_key_prefix(&multisig_address).count() as u32;
 		assert_eq!(remaining, total_proposals - cleaned_target);
-		Ok(())
-	}
-
-	/// Benchmark `approve_dissolve` when threshold is NOT reached.
-	/// Just adds an approval to DissolveApprovals (cheap path).
-	#[benchmark]
-	fn approve_dissolve() -> Result<(), BenchmarkError> {
-		let (caller, signers) = setup_funded_signer_set::<T>(3);
-		let threshold = 3u32; // Need 3 approvals, we add 1st
-		let deposit = T::MultisigDeposit::get();
-		<T as crate::Config>::Currency::reserve(&caller, deposit)?;
-
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
-		// No pre-inserted approvals - caller adds first approval (threshold not reached)
-
-		#[extrinsic_call]
-		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone(), caller.clone());
-
-		assert!(Multisigs::<T>::contains_key(&multisig_address));
-		assert!(DissolveApprovals::<T>::get(&multisig_address).unwrap().len() == 1);
-		Ok(())
-	}
-
-	/// Benchmark `approve_dissolve` when threshold IS reached (dissolves multisig).
-	#[benchmark]
-	fn approve_dissolve_threshold_reached() -> Result<(), BenchmarkError> {
-		let (caller, signers) = setup_funded_signer_set::<T>(3);
-		let threshold = 2u32;
-		let deposit = T::MultisigDeposit::get();
-		<T as crate::Config>::Currency::reserve(&caller, deposit)?;
-
-		let multisig_address = insert_multisig::<T>(&caller, &signers, threshold, 0, 0, 0);
-		// Pre-insert one approval from a signer that is NOT the caller (avoid AlreadyApproved).
-		let first_approval = signers.iter().find(|s| *s != &caller).unwrap().clone();
-		let mut approvals = BoundedApprovalsOf::<T>::default();
-		approvals.try_push(first_approval).unwrap();
-		DissolveApprovals::<T>::insert(&multisig_address, approvals);
-
-		#[extrinsic_call]
-		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone(), caller.clone());
-
-		assert!(!Multisigs::<T>::contains_key(&multisig_address));
 		Ok(())
 	}
 

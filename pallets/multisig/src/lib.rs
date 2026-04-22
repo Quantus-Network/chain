@@ -13,12 +13,19 @@
 //! - Cleanup of expired proposals via claim_deposits() and remove_expired()
 //! - Per-signer proposal limits for filibuster protection
 //!
+//! ## Design Notes
+//!
+//! Multisigs are permanent once created. There is no dissolution mechanism by design:
+//! - Avoids complexity around native/non-native asset handling during dissolution
+//! - Prevents griefing attacks (e.g., sending dust to block dissolution)
+//! - The multisig deposit acts as storage rent rather than a refundable deposit
+//! - Users who want to "close" a multisig simply stop using it
+//!
 //! ## Data Structures
 //!
 //! - **MultisigData**: Contains signers, threshold, proposal counter, deposit, and per-signer
 //!   tracking
 //! - **ProposalData**: Contains transaction data, proposer, expiry, approvals, deposit, and status
-//! - **DissolveApprovals**: Tracks threshold-based approvals for multisig dissolution
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -46,7 +53,7 @@ use sp_runtime::RuntimeDebug;
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
 pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner> {
-	/// Account that created this multisig (receives deposit back on dissolve)
+	/// Account that created this multisig
 	pub creator: AccountId,
 	/// List of signers who can approve transactions
 	pub signers: BoundedSigners,
@@ -54,7 +61,7 @@ pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerS
 	pub threshold: u32,
 	/// Proposal counter for unique proposal IDs
 	pub proposal_nonce: u32,
-	/// Deposit reserved by the creator (returned on dissolve)
+	/// Deposit reserved by the creator (for storage rent)
 	pub deposit: Balance,
 	/// Number of active proposals (for global limit checking)
 	pub active_proposals: u32,
@@ -179,8 +186,8 @@ pub mod pallet {
 		#[pallet::constant]
 		type MultisigFee: Get<BalanceOf<Self>>;
 
-		/// Deposit reserved for creating a multisig (returned when dissolved).
-		/// Keeps the state clean by incentivizing removal of unused multisigs.
+		/// Deposit reserved for creating a multisig (storage rent, non-refundable).
+		/// This prevents spam creation of multisig accounts.
 		#[pallet::constant]
 		type MultisigDeposit: Get<BalanceOf<Self>>;
 
@@ -273,12 +280,6 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Dissolve approvals: tracks which signers approved dissolving the multisig
-	/// Maps multisig_address -> Vec<approver_accounts>
-	#[pallet::storage]
-	pub type DissolveApprovals<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, BoundedApprovalsOf<T>, OptionQuery>;
-
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -335,19 +336,6 @@ pub mod pallet {
 			claimer: T::AccountId,
 			total_returned: BalanceOf<T>,
 			proposals_removed: u32,
-			multisig_removed: bool,
-		},
-		/// A signer approved dissolving the multisig
-		DissolveApproved {
-			multisig_address: T::AccountId,
-			approver: T::AccountId,
-			approvals_count: u32,
-		},
-		/// A multisig account was dissolved (threshold reached)
-		MultisigDissolved {
-			multisig_address: T::AccountId,
-			deposit_returned: T::AccountId, // Creator who receives the deposit back
-			approvers: Vec<T::AccountId>,
 		},
 	}
 
@@ -401,8 +389,6 @@ pub mod pallet {
 		ProposalNotActive,
 		/// Proposal has not been approved yet (threshold not reached)
 		ProposalNotApproved,
-		/// Cannot dissolve multisig with existing proposals (clear them first)
-		ProposalsExist,
 		/// Call is not allowed for high-security multisig
 		CallNotAllowedForHighSecurityMultisig,
 	}
@@ -980,7 +966,6 @@ pub mod pallet {
 				claimer: caller,
 				total_returned,
 				proposals_removed: cleaned,
-				multisig_removed: false,
 			});
 
 			// Average call size over iterated proposals (for weight)
@@ -1115,122 +1100,6 @@ pub mod pallet {
 				})
 		}
 
-		/// Approve dissolving a multisig account
-		///
-		/// Signers call this to approve dissolving the multisig.
-		/// When threshold is reached, the multisig is automatically dissolved.
-		///
-		/// Requirements:
-		/// - Caller must be a signer
-		/// - No proposals exist (active, executed, or cancelled) - must be fully cleaned up
-		///
-		/// When threshold is reached:
-		/// - Any remaining balance is transferred to `sweep_beneficiary`
-		/// - Deposit is returned to creator
-		/// - Multisig storage is removed
-		///
-		/// The `sweep_beneficiary` parameter specifies where to send any remaining balance
-		/// in the multisig account. This prevents griefing attacks where someone sends dust
-		/// to the multisig to block dissolution. The beneficiary is only used when threshold
-		/// is reached; for non-final approvals it can be any value (typically the caller).
-		#[pallet::call_index(6)]
-		#[pallet::weight(<T as Config>::WeightInfo::approve_dissolve_threshold_reached())]
-		#[allow(clippy::useless_conversion)]
-		pub fn approve_dissolve(
-			origin: OriginFor<T>,
-			multisig_address: T::AccountId,
-			sweep_beneficiary: T::AccountId,
-		) -> DispatchResultWithPostInfo {
-			let approver = ensure_signed(origin)?;
-
-			// 1. Get multisig data (1 read: Multisigs)
-			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
-				DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo {
-						actual_weight: Some(T::DbWeight::get().reads(1)),
-						pays_fee: Pays::Yes,
-					},
-					error: Error::<T>::MultisigNotFound.into(),
-				}
-			})?;
-
-			// 2. Check permissions: Must be a signer
-			if !multisig_data.signers.contains(&approver) {
-				return Self::err_with_weight(Error::<T>::NotASigner, 1);
-			}
-
-			// 3. Check if account is clean (no proposals at all)
-			// This requires iterating, so count it as 1 read + iteration cost
-			if Proposals::<T>::iter_prefix(&multisig_address).next().is_some() {
-				return Self::err_with_weight(Error::<T>::ProposalsExist, 2);
-			}
-
-			// 4. Get or create approval list (1 more read: DissolveApprovals)
-			let mut approvals = DissolveApprovals::<T>::get(&multisig_address).unwrap_or_default();
-
-			// 5. Check if already approved
-			if approvals.contains(&approver) {
-				return Self::err_with_weight(Error::<T>::AlreadyApproved, 3);
-			}
-
-			// 6. Add approval
-			if approvals.try_push(approver.clone()).is_err() {
-				return Self::err_with_weight(Error::<T>::TooManySigners, 3);
-			}
-
-			let approvals_count = approvals.len() as u32;
-
-			// 7. Emit approval event
-			Self::deposit_event(Event::DissolveApproved {
-				multisig_address: multisig_address.clone(),
-				approver: approver.clone(),
-				approvals_count,
-			});
-
-			// 8. Check if threshold reached
-			let threshold_reached = approvals_count >= multisig_data.threshold;
-			if threshold_reached {
-				// Threshold reached - dissolve multisig
-				let deposit = multisig_data.deposit;
-				let creator = multisig_data.creator.clone();
-
-				// Sweep any remaining balance to the beneficiary (handles dust griefing)
-				let remaining_balance = T::Currency::free_balance(&multisig_address);
-				if !remaining_balance.is_zero() {
-					// Transfer all remaining balance; ignore errors (e.g., if below ED)
-					let _ = T::Currency::transfer(
-						&multisig_address,
-						&sweep_beneficiary,
-						remaining_balance,
-						frame_support::traits::ExistenceRequirement::AllowDeath,
-					);
-				}
-
-				// Remove multisig from storage
-				Multisigs::<T>::remove(&multisig_address);
-				DissolveApprovals::<T>::remove(&multisig_address);
-
-				// Return deposit to creator
-				T::Currency::unreserve(&creator, deposit);
-
-				// Emit dissolved event
-				Self::deposit_event(Event::MultisigDissolved {
-					multisig_address,
-					deposit_returned: creator,
-					approvers: approvals.to_vec(),
-				});
-			} else {
-				// Not ready yet, save approvals
-				DissolveApprovals::<T>::insert(&multisig_address, approvals);
-			}
-
-			let actual_weight = if threshold_reached {
-				<T as Config>::WeightInfo::approve_dissolve_threshold_reached()
-			} else {
-				<T as Config>::WeightInfo::approve_dissolve()
-			};
-			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
-		}
 	}
 
 	impl<T: Config> Pallet<T> {
