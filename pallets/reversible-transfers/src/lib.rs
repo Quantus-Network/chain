@@ -884,7 +884,8 @@ pub mod pallet {
 				})
 				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-			if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) = call.clone().try_into() {
+			if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) = call.clone().try_into()
+			{
 				let reason = Self::asset_hold_reason();
 				let asset_id = id.into();
 

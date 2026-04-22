@@ -128,7 +128,10 @@ pub mod pallet {
 			ensure!(account != zero, Error::<T>::InvalidTreasuryAccount);
 			let old_account = TreasuryAccount::<T>::get();
 			TreasuryAccount::<T>::put(&account);
-			Self::deposit_event(Event::TreasuryAccountUpdated { old_account, new_account: account });
+			Self::deposit_event(Event::TreasuryAccountUpdated {
+				old_account,
+				new_account: account,
+			});
 			Ok(())
 		}
 

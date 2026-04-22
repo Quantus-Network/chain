@@ -511,14 +511,8 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
 
+			// Call size is enforced by BoundedVec type - no runtime check needed
 
-			// Check call size FIRST, before any heavy operations
-			let call_size = call.len() as u32;
-			if call_size > T::MaxCallSize::get() {
-				return Self::err_with_weight(Error::<T>::CallTooLarge, 0);
-			}
-
-			// ===== PHASE 2: Storage reads and simple checks =====
 			// ===== PHASE 1: Storage reads and simple checks =====
 
 			// Check if proposer is a signer (1 read: Multisigs)

@@ -80,8 +80,8 @@ use frame_support::{
 	ensure,
 	traits::{
 		schedule::{self, DispatchTime as DispatchBlock},
-		Bounded, CallerTrait, DefensiveOption, EnsureOrigin, Get, IsType, OriginTrait, PrivilegeCmp,
-		QueryPreimage, StorageVersion, StorePreimage, Time,
+		Bounded, CallerTrait, DefensiveOption, EnsureOrigin, Get, IsType, OriginTrait,
+		PrivilegeCmp, QueryPreimage, StorageVersion, StorePreimage, Time,
 	},
 	weights::{Weight, WeightMeter},
 };
@@ -857,9 +857,7 @@ impl<T: Config> Pallet<T> {
 		let task = Agenda::<T>::try_mutate(when, |agenda| {
 			// These defensive checks handle cases where Lookup and Agenda have fallen out of sync,
 			// which indicates an internal invariant violation rather than a user-triggerable error.
-			let task = agenda
-				.get_mut(index as usize)
-				.defensive_ok_or(Error::<T>::NotFound)?;
+			let task = agenda.get_mut(index as usize).defensive_ok_or(Error::<T>::NotFound)?;
 			task.take().defensive_ok_or(Error::<T>::NotFound)
 		})?;
 		Self::cleanup_agenda(when);

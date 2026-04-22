@@ -448,35 +448,35 @@ impl pallet_scheduler::Config for Runtime {
 //
 // For this solo PoW chain, proof_size constraints are intentionally disabled because:
 //
-// 1. **No relay chain constraints:** Unlike parachains, solo chains have no external
-//    entity imposing PoV size limits. Validators have full state access.
+// 1. **No relay chain constraints:** Unlike parachains, solo chains have no external entity
+//    imposing PoV size limits. Validators have full state access.
 //
-// 2. **Full nodes validate blocks:** All validators maintain complete state, so they
-//    don't need witnesses to re-execute transactions.
+// 2. **Full nodes validate blocks:** All validators maintain complete state, so they don't need
+//    witnesses to re-execute transactions.
 //
-// 3. **ref_time provides sufficient protection:** Compute-bound benchmarking (ref_time)
-//    naturally correlates with state access patterns. Heavy state reads/writes increase
-//    ref_time, providing indirect protection against state-heavy transactions.
+// 3. **ref_time provides sufficient protection:** Compute-bound benchmarking (ref_time) naturally
+//    correlates with state access patterns. Heavy state reads/writes increase ref_time, providing
+//    indirect protection against state-heavy transactions.
 //
-// 4. **Block length limits storage abuse:** The 5 MB block size limit caps the amount
-//    of data that can be included per block, preventing bandwidth-based attacks.
+// 4. **Block length limits storage abuse:** The 5 MB block size limit caps the amount of data that
+//    can be included per block, preventing bandwidth-based attacks.
 //
 // **When to revisit this decision:**
 //
 // This design should be reconsidered if the chain adopts features where proof/witness
 // size becomes a meaningful resource constraint:
 //
-// - **Light client support:** Light clients verify blocks using state proofs. Large
-//   witnesses increase sync times and bandwidth requirements for light clients.
+// - **Light client support:** Light clients verify blocks using state proofs. Large witnesses
+//   increase sync times and bandwidth requirements for light clients.
 //
-// - **Cross-chain bridges:** Bridge protocols often require merkle proofs of state.
-//   Unbounded proof sizes could make bridge operations expensive or impractical.
+// - **Cross-chain bridges:** Bridge protocols often require merkle proofs of state. Unbounded proof
+//   sizes could make bridge operations expensive or impractical.
 //
-// - **Stateless validation:** If the chain moves toward stateless block validation
-//   (validators don't keep full state), witness size becomes a critical resource.
+// - **Stateless validation:** If the chain moves toward stateless block validation (validators
+//   don't keep full state), witness size becomes a critical resource.
 //
-// - **ZK proof generation:** If state proofs are used as inputs to ZK circuits,
-//   proof size directly impacts prover time and memory requirements.
+// - **ZK proof generation:** If state proofs are used as inputs to ZK circuits, proof size directly
+//   impacts prover time and memory requirements.
 //
 // To enable proof_size enforcement in the future:
 // 1. Set a concrete proof_size limit in RuntimeBlockWeights (instead of u64::MAX)
