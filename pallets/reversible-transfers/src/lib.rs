@@ -26,10 +26,11 @@ pub use weights::WeightInfo;
 
 use alloc::vec::Vec;
 use frame_support::{
+	defensive,
 	pallet_prelude::*,
 	traits::{
 		tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
-		Bounded,
+		Bounded, DefensiveResult,
 	},
 };
 use frame_system::pallet_prelude::*;
@@ -505,26 +506,38 @@ pub mod pallet {
 			let mut num_cancelled: u64 = 0;
 
 			for tx_id in PendingTransfersBySender::<T>::take(&account).iter() {
-				if let Some(pending) = PendingTransfers::<T>::take(tx_id) {
-					let schedule_id = Self::make_schedule_id(tx_id).ok();
-					if let Some(id) = schedule_id {
-						let _ = T::Scheduler::cancel_named(id);
-					}
+				// If tx_id is in PendingTransfersBySender but not in PendingTransfers, this
+				// indicates an internal state inconsistency between the two storage maps.
+				let Some(pending) = PendingTransfers::<T>::take(tx_id) else {
+					defensive!(
+						"PendingTransfersBySender contains tx_id not in PendingTransfers - \
+						 state inconsistency"
+					);
+					continue;
+				};
 
-					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
-						log::warn!(
-							"Failed to release held funds for tx {:?} during recovery: {:?}",
-							tx_id,
-							e
-						);
+				let schedule_id = Self::make_schedule_id(tx_id).ok();
+				if let Some(id) = schedule_id {
+					// Scheduler task should exist if pending transfer exists. Failure indicates
+					// an invariant violation, but we continue recovery to avoid blocking funds.
+					if T::Scheduler::cancel_named(id).is_err() {
+						defensive!("Failed to cancel scheduler task during recovery");
 					}
-
-					num_cancelled = num_cancelled.saturating_add(1);
-					Self::deposit_event(Event::TransactionCancelled {
-						who: who.clone(),
-						tx_id: *tx_id,
-					});
 				}
+
+				if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+					log::warn!(
+						"Failed to release held funds for tx {:?} during recovery: {:?}",
+						tx_id,
+						e
+					);
+				}
+
+				num_cancelled = num_cancelled.saturating_add(1);
+				Self::deposit_event(Event::TransactionCancelled {
+					who: who.clone(),
+					tx_id: *tx_id,
+				});
 			}
 
 			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_all {
@@ -608,9 +621,11 @@ pub mod pallet {
 		fn do_execute_transfer(tx_id: &T::Hash) -> DispatchResultWithPostInfo {
 			let pending = PendingTransfers::<T>::get(tx_id).ok_or(Error::<T>::PendingTxNotFound)?;
 
-			// get from preimages
+			// Realize the call from preimages. This defensive check handles the case where
+			// the pallet cannot realize a call preimage that it previously stored and scheduled.
+			// This indicates an internal invariant violation rather than a user-triggerable error.
 			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
-				.map_err(|_| Error::<T>::CallDecodingFailed)?;
+				.defensive_map_err(|_| Error::<T>::CallDecodingFailed)?;
 
 			// Release held funds and determine asset_id for transfer proof recording
 			let asset_id: Option<AssetIdOf<T>> =
@@ -824,9 +839,12 @@ pub mod pallet {
 				list.retain(|id| *id != tx_id);
 			});
 
-			// Cancel scheduler (must succeed for normal cancel)
+			// Cancel scheduler. If the pending transfer exists, the corresponding scheduled task
+			// should also exist. Failure here indicates an invariant violation between this pallet
+			// and the scheduler.
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
-			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
+			T::Scheduler::cancel_named(schedule_id)
+				.defensive_map_err(|_| Error::<T>::CancellationFailed)?;
 
 			// Release funds (must succeed for normal cancel)
 			Self::release_held_funds_with_fee(&pending, &recipient, apply_fee)?;
@@ -850,57 +868,62 @@ pub mod pallet {
 				(Zero::zero(), pending.amount)
 			};
 
-			if let Ok((call, _)) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call) {
-				if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) =
-					call.clone().try_into()
-				{
-					let reason = Self::asset_hold_reason();
-					let asset_id = id.into();
+			// The preimage should always be available since this pallet stored it when creating
+			// the pending transfer. If it's missing, this is an internal invariant violation.
+			let (call, _) = T::Preimages::realize::<RuntimeCallOf<T>>(&pending.call)
+				.map_err(|e| {
+					defensive!("Preimage missing for pending transfer - invariant violation");
+					e
+				})
+				.map_err(|_| Error::<T>::CallDecodingFailed)?;
 
-					// Burn fee amount
-					<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::burn_held(
-						asset_id.clone(),
-						&reason,
-						&pending.from,
-						fee_amount,
-						Precision::Exact,
-						Fortitude::Polite,
-					)?;
+			if let Ok(pallet_assets::Call::transfer_keep_alive { id, .. }) = call.clone().try_into() {
+				let reason = Self::asset_hold_reason();
+				let asset_id = id.into();
 
-					// Transfer remaining amount to recipient
-					<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
-						asset_id,
-						&reason,
-						&pending.from,
-						recipient,
-						remaining_amount,
-						Precision::Exact,
-						Restriction::Free,
-						Fortitude::Polite,
-					)?;
-				} else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
-					call.clone().try_into()
-				{
-					// Burn fee amount
-					pallet_balances::Pallet::<T>::burn_held(
-						&HoldReason::ScheduledTransfer.into(),
-						&pending.from,
-						fee_amount,
-						Precision::Exact,
-						Fortitude::Polite,
-					)?;
+				// Burn fee amount
+				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::burn_held(
+					asset_id.clone(),
+					&reason,
+					&pending.from,
+					fee_amount,
+					Precision::Exact,
+					Fortitude::Polite,
+				)?;
 
-					// Transfer remaining amount to recipient
-					pallet_balances::Pallet::<T>::transfer_on_hold(
-						&HoldReason::ScheduledTransfer.into(),
-						&pending.from,
-						recipient,
-						remaining_amount,
-						Precision::Exact,
-						Restriction::Free,
-						Fortitude::Polite,
-					)?;
-				}
+				// Transfer remaining amount to recipient
+				<AssetsHolderOf<T> as AssetsHold<AccountIdOf<T>>>::transfer_on_hold(
+					asset_id,
+					&reason,
+					&pending.from,
+					recipient,
+					remaining_amount,
+					Precision::Exact,
+					Restriction::Free,
+					Fortitude::Polite,
+				)?;
+			} else if let Ok(pallet_balances::Call::transfer_keep_alive { .. }) =
+				call.clone().try_into()
+			{
+				// Burn fee amount
+				pallet_balances::Pallet::<T>::burn_held(
+					&HoldReason::ScheduledTransfer.into(),
+					&pending.from,
+					fee_amount,
+					Precision::Exact,
+					Fortitude::Polite,
+				)?;
+
+				// Transfer remaining amount to recipient
+				pallet_balances::Pallet::<T>::transfer_on_hold(
+					&HoldReason::ScheduledTransfer.into(),
+					&pending.from,
+					recipient,
+					remaining_amount,
+					Precision::Exact,
+					Restriction::Free,
+					Fortitude::Polite,
+				)?;
 			}
 
 			Ok(())
