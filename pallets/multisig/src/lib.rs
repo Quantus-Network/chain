@@ -333,6 +333,7 @@ pub mod pallet {
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Not enough signers provided
+		/// Multisig requires at least 2 unique signers
 		NotEnoughSigners,
 		/// Threshold must be greater than zero
 		ThresholdZero,
@@ -410,12 +411,13 @@ pub mod pallet {
 
 			// Validate inputs
 			ensure!(threshold > 0, Error::<T>::ThresholdZero);
-			ensure!(!signers.is_empty(), Error::<T>::NotEnoughSigners);
+			ensure!(signers.len() >= 2, Error::<T>::NotEnoughSigners);
 
 			// Normalize signers: sort and deduplicate (single authoritative place)
 			let normalized_signers = Self::normalize_signers(&signers);
 
-			// Validate against normalized count (after dedup)
+			// Validate against normalized count (after dedup) - must have at least 2 unique signers
+			ensure!(normalized_signers.len() >= 2, Error::<T>::NotEnoughSigners);
 			ensure!(threshold <= normalized_signers.len() as u32, Error::<T>::ThresholdTooHigh);
 			ensure!(
 				normalized_signers.len() <= T::MaxSigners::get() as usize,

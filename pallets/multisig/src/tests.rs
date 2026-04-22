@@ -171,6 +171,26 @@ fn create_multisig_fails_with_empty_signers() {
 }
 
 #[test]
+fn create_multisig_fails_with_single_signer() {
+	new_test_ext().execute_with(|| {
+		let creator = alice();
+		// Single signer is not allowed - use a regular account instead
+		let signers = vec![alice()];
+		let threshold = 1;
+
+		assert_noop!(
+			Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers,
+				threshold,
+				0
+			),
+			Error::<Test>::NotEnoughSigners
+		);
+	});
+}
+
+#[test]
 fn create_multisig_fails_with_threshold_too_high() {
 	new_test_ext().execute_with(|| {
 		let creator = alice();
@@ -1555,7 +1575,7 @@ fn propose_with_threshold_one_sets_approved() {
 		// Proposal removed, deposit returned
 		assert!(Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
 		let alice_reserved = Balances::reserved_balance(alice());
-		assert_eq!(alice_reserved, 500); // Only MultisigDeposit, no ProposalDeposit
+		assert_eq!(alice_reserved, 0); // ProposalDeposit returned after execution
 	});
 }
 
@@ -1881,8 +1901,8 @@ fn execute_proposal_that_calls_back_into_multisig() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
-		// Create threshold=1 multisig so proposals are immediately approved
-		let signers = vec![alice()];
+		// Create 1-of-2 multisig so proposals are immediately approved
+		let signers = vec![alice(), bob()];
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(alice()),
 			signers.clone(),
@@ -1896,7 +1916,7 @@ fn execute_proposal_that_calls_back_into_multisig() {
 
 		// Create a call that will create another multisig (calls back into pallet)
 		let inner_call = RuntimeCall::Multisig(crate::Call::create_multisig {
-			signers: vec![bob(), charlie()],
+			signers: vec![charlie(), dave()],
 			threshold: 2,
 			nonce: 99,
 		});
@@ -1919,7 +1939,7 @@ fn execute_proposal_that_calls_back_into_multisig() {
 
 		// Verify the inner call succeeded - new multisig should exist
 		let new_multisig_address =
-			Multisig::derive_multisig_address(&vec![bob(), charlie()], 2, 99);
+			Multisig::derive_multisig_address(&vec![charlie(), dave()], 2, 99);
 		assert!(Multisigs::<Test>::contains_key(&new_multisig_address));
 	});
 }
@@ -2015,14 +2035,14 @@ fn propose_does_not_burn_fee_if_deposit_fails() {
 	});
 }
 
-/// Test 9: claim_deposits for single-signer multisig
+/// Test 9: claim_deposits for threshold-1 multisig (1-of-2)
 #[test]
-fn claim_deposits_single_signer_multisig() {
+fn claim_deposits_threshold_one_multisig() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
-		// Create single-signer multisig
-		let signers = vec![alice()];
+		// Create 1-of-2 multisig (threshold=1 requires at least 2 signers)
+		let signers = vec![alice(), bob()];
 		assert_ok!(Multisig::create_multisig(
 			RuntimeOrigin::signed(alice()),
 			signers.clone(),

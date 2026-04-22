@@ -37,16 +37,19 @@ Multisig::execute(Origin::signed(charlie), multisig_addr, proposal_id);
 Creates a new multisig account with deterministic address generation.
 
 **Required Parameters:**
-- `signers: Vec<AccountId>` - List of authorized signers (REQUIRED, 1 to MaxSigners)
+- `signers: Vec<AccountId>` - List of authorized signers (REQUIRED, 2 to MaxSigners)
 - `threshold: u32` - Number of approvals needed (REQUIRED, 1 ≤ threshold ≤ signers.len())
 - `nonce: u64` - User-provided nonce for address uniqueness (REQUIRED)
 
 **Validation:**
+- At least 2 unique signers required (single-signer "multisigs" are rejected - use a regular account)
 - No duplicate signers
 - Threshold must be > 0
 - Threshold cannot exceed number of signers
 - Signers count must be ≤ MaxSigners
 - Multisig address (derived from signers+threshold+nonce) must not already exist
+
+**Threshold=1 multisigs:** A 1-of-N multisig (threshold=1 with N≥2 signers) is valid and useful for operational accounts where any authorized signer can act independently. Proposals are immediately `Approved` upon creation and can be executed right away.
 
 **Important:** Signers are automatically sorted before storing and address generation. Order doesn't matter:
 - `[alice, bob, charlie]` + threshold=2 + nonce=0 → `address_1`
@@ -336,7 +339,7 @@ enum ProposalStatus {
 
 ## Errors
 
-- `NotEnoughSigners` - Less than 1 signer provided
+- `NotEnoughSigners` - Less than 2 unique signers provided (single-signer multisigs not allowed)
 - `ThresholdZero` - Threshold cannot be 0
 - `ThresholdTooHigh` - Threshold exceeds number of signers
 - `TooManySigners` - Exceeds MaxSigners limit
