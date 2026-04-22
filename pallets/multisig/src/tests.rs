@@ -62,9 +62,9 @@ fn dave() -> AccountId32 {
 }
 
 /// Helper function to create a simple encoded call
-fn make_call(remark: Vec<u8>) -> Vec<u8> {
+fn make_call(remark: Vec<u8>) -> crate::BoundedCallOf<Test> {
 	let call = RuntimeCall::System(frame_system::Call::remark { remark });
-	call.encode()
+	call.encode().try_into().expect("Test call should fit in MaxCallSize")
 }
 
 /// Helper function to get the ID of the last proposal created
@@ -447,7 +447,7 @@ fn approve_sets_approved_when_threshold_reached() {
 				multisig_address,
 				proposal_id,
 				proposer: bob(),
-				call: call.clone(),
+				call: call.to_vec(),
 				approvers: vec![bob(), charlie()],
 				result: Ok(()),
 			}
@@ -651,7 +651,7 @@ fn executed_proposals_removed_from_storage() {
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(charlie()),
 				multisig_address.clone(),
-				proposal_id
+				proposal_id,
 			),
 			Error::<Test>::ProposalNotFound.into(),
 		);
@@ -693,7 +693,7 @@ fn remove_expired_fails_for_non_signer() {
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(dave()),
 				multisig_address.clone(),
-				proposal_id
+				proposal_id,
 			),
 			Error::<Test>::NotASigner.into(),
 		);
@@ -836,14 +836,14 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
 		// Invalid call bytes - will fail decode at propose time (not execute)
-		let undecodable_call = vec![0xff; 32];
+		let undecodable_call: crate::BoundedCallOf<Test> = vec![0xffu8; 32].try_into().unwrap();
 		let expiry = 100;
 		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				undecodable_call,
-				expiry
+				expiry,
 			),
 			Error::<Test>::InvalidCall.into(),
 		);
@@ -1115,7 +1115,7 @@ fn only_active_proposals_remain_in_storage() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				3000
+				3000,
 			),
 			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
@@ -1154,7 +1154,7 @@ fn per_signer_limit_blocks_new_proposals_until_cleanup() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				200
+				200,
 			),
 			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
@@ -1168,7 +1168,7 @@ fn per_signer_limit_blocks_new_proposals_until_cleanup() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				200
+				200,
 			),
 			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
@@ -1217,7 +1217,7 @@ fn propose_fails_with_expiry_in_past() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				50
+				50,
 			),
 			Error::<Test>::ExpiryInPast.into(),
 		);
@@ -1228,7 +1228,7 @@ fn propose_fails_with_expiry_in_past() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				100
+				100,
 			),
 			Error::<Test>::ExpiryInPast.into(),
 		);
@@ -1271,7 +1271,7 @@ fn propose_fails_with_expiry_too_far() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				10101
+				10101,
 			),
 			Error::<Test>::ExpiryTooFar.into(),
 		);
@@ -1282,7 +1282,7 @@ fn propose_fails_with_expiry_too_far() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				20000
+				20000,
 			),
 			Error::<Test>::ExpiryTooFar.into(),
 		);
@@ -1474,7 +1474,7 @@ fn per_signer_proposal_limit_enforced() {
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				2000
+				2000,
 			),
 			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
@@ -1522,7 +1522,7 @@ fn propose_with_threshold_one_sets_approved() {
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
-			transfer_call.encode(),
+			transfer_call.encode().try_into().unwrap(),
 			100
 		));
 
@@ -1595,7 +1595,7 @@ fn propose_with_threshold_two_waits_for_approval() {
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
-			transfer_call.encode(),
+			transfer_call.encode().try_into().unwrap(),
 			100
 		));
 

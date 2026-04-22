@@ -369,8 +369,6 @@ pub mod pallet {
 		ExpiryTooFar,
 		/// Proposal has expired
 		ProposalExpired,
-		/// Call data too large
-		CallTooLarge,
 		/// Failed to decode call data
 		InvalidCall,
 		/// Too many total proposals in storage for this multisig (cleanup required)
@@ -426,10 +424,7 @@ pub mod pallet {
 			let normalized_signers = Self::normalize_signers(&signers);
 
 			// Validate against normalized count (after dedup)
-			ensure!(
-				threshold <= normalized_signers.len() as u32,
-				Error::<T>::ThresholdTooHigh
-			);
+			ensure!(threshold <= normalized_signers.len() as u32, Error::<T>::ThresholdTooHigh);
 			ensure!(
 				normalized_signers.len() <= T::MaxSigners::get() as usize,
 				Error::<T>::TooManySigners
@@ -511,12 +506,11 @@ pub mod pallet {
 		pub fn propose(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
-			call: Vec<u8>,
+			call: BoundedCallOf<T>,
 			expiry: BlockNumberFor<T>,
 		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
 
-			// ===== PHASE 1: Cheap validation (no storage reads, no decoding) =====
 
 			// Check call size FIRST, before any heavy operations
 			let call_size = call.len() as u32;
@@ -525,6 +519,7 @@ pub mod pallet {
 			}
 
 			// ===== PHASE 2: Storage reads and simple checks =====
+			// ===== PHASE 1: Storage reads and simple checks =====
 
 			// Check if proposer is a signer (1 read: Multisigs)
 			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
@@ -614,11 +609,10 @@ pub mod pallet {
 			T::Currency::reserve(&proposer, deposit)
 				.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Convert to bounded vec (call_size already computed and validated above)
-			let bounded_call: BoundedCallOf<T> =
-				call.try_into().map_err(|_| Error::<T>::CallTooLarge)?;
-
 			let threshold_met = 1 >= multisig_data.threshold;
+
+			// Capture call length before moving into storage
+			let call_len = call.len() as u32;
 
 			let proposal_id = Multisigs::<T>::try_mutate(
 				&multisig_address,
@@ -644,7 +638,7 @@ pub mod pallet {
 				proposal_id,
 				ProposalData {
 					proposer: proposer.clone(),
-					call: bounded_call,
+					call,
 					expiry,
 					approvals,
 					deposit,
@@ -672,9 +666,9 @@ pub mod pallet {
 
 			// Refund weight: HS path was charged upfront, refund if non-HS
 			let actual_weight = if is_high_security {
-				<T as Config>::WeightInfo::propose_high_security(call_size)
+				<T as Config>::WeightInfo::propose_high_security(call_len)
 			} else {
-				<T as Config>::WeightInfo::propose(call_size)
+				<T as Config>::WeightInfo::propose(call_len)
 			};
 
 			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
@@ -1081,15 +1075,17 @@ pub mod pallet {
 
 			// Calculate actual weight: bookkeeping + inner call's actual weight
 			let actual_call_weight = match &result {
-				Ok(info) | Err(DispatchErrorWithPostInfo { post_info: info, .. }) => {
-					info.actual_weight.unwrap_or(call_weight)
-				},
+				Ok(info) | Err(DispatchErrorWithPostInfo { post_info: info, .. }) =>
+					info.actual_weight.unwrap_or(call_weight),
 			};
 			let total_weight = bookkeeping_weight.saturating_add(actual_call_weight);
 
 			// Return result with proper weight accounting
 			result
-				.map(|_| PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
+				.map(|_| PostDispatchInfo {
+					actual_weight: Some(total_weight),
+					pays_fee: Pays::Yes,
+				})
 				.map_err(|e| DispatchErrorWithPostInfo {
 					post_info: PostDispatchInfo {
 						actual_weight: Some(total_weight),
@@ -1098,7 +1094,6 @@ pub mod pallet {
 					error: e.error,
 				})
 		}
-
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -1285,6 +1280,5 @@ pub mod pallet {
 			// Return deposit to proposer
 			T::Currency::unreserve(proposer, deposit);
 		}
-
 	}
 }
