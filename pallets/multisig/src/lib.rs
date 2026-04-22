@@ -18,13 +18,11 @@
 //! Multisigs are permanent once created. There is no dissolution mechanism by design:
 //! - Avoids complexity around native/non-native asset handling during dissolution
 //! - Prevents griefing attacks (e.g., sending dust to block dissolution)
-//! - The multisig deposit acts as storage rent rather than a refundable deposit
 //! - Users who want to "close" a multisig simply stop using it
 //!
 //! ## Data Structures
 //!
-//! - **MultisigData**: Contains signers, threshold, proposal counter, deposit, and per-signer
-//!   tracking
+//! - **MultisigData**: Contains signers, threshold, proposal counter, and per-signer tracking
 //! - **ProposalData**: Contains transaction data, proposer, expiry, approvals, deposit, and status
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -52,7 +50,7 @@ use sp_runtime::RuntimeDebug;
 
 /// Multisig account data
 #[derive(Encode, Decode, MaxEncodedLen, Clone, TypeInfo, RuntimeDebug, PartialEq, Eq)]
-pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner> {
+pub struct MultisigData<AccountId, BoundedSigners, BoundedProposalsPerSigner> {
 	/// Account that created this multisig
 	pub creator: AccountId,
 	/// List of signers who can approve transactions
@@ -61,15 +59,13 @@ pub struct MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerS
 	pub threshold: u32,
 	/// Proposal counter for unique proposal IDs
 	pub proposal_nonce: u32,
-	/// Deposit reserved by the creator (for storage rent)
-	pub deposit: Balance,
 	/// Per-signer proposal count (for filibuster protection)
 	/// Maps AccountId -> number of active proposals
 	pub proposals_per_signer: BoundedProposalsPerSigner,
 }
 
-impl<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
-	MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
+impl<AccountId, BoundedSigners, BoundedProposalsPerSigner>
+	MultisigData<AccountId, BoundedSigners, BoundedProposalsPerSigner>
 where
 	BoundedProposalsPerSigner: AsRef<alloc::collections::btree_map::BTreeMap<AccountId, u32>>,
 {
@@ -80,12 +76,8 @@ where
 	}
 }
 
-impl<
-		AccountId: Default,
-		BoundedSigners: Default,
-		Balance: Default,
-		BoundedProposalsPerSigner: Default,
-	> Default for MultisigData<AccountId, BoundedSigners, Balance, BoundedProposalsPerSigner>
+impl<AccountId: Default, BoundedSigners: Default, BoundedProposalsPerSigner: Default> Default
+	for MultisigData<AccountId, BoundedSigners, BoundedProposalsPerSigner>
 {
 	fn default() -> Self {
 		Self {
@@ -93,7 +85,6 @@ impl<
 			signers: Default::default(),
 			threshold: 1,
 			proposal_nonce: 0,
-			deposit: Default::default(),
 			proposals_per_signer: Default::default(),
 		}
 	}
@@ -187,14 +178,10 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxCallSize: Get<u32>;
 
-		/// Fee charged for creating a multisig (non-refundable, burned)
-		#[pallet::constant]
-		type MultisigFee: Get<BalanceOf<Self>>;
-
-		/// Deposit reserved for creating a multisig (storage rent, non-refundable).
+		/// Fee charged for creating a multisig (non-refundable, burned).
 		/// This prevents spam creation of multisig accounts.
 		#[pallet::constant]
-		type MultisigDeposit: Get<BalanceOf<Self>>;
+		type MultisigFee: Get<BalanceOf<Self>>;
 
 		/// Deposit required per proposal (returned on execute or cancel)
 		#[pallet::constant]
@@ -253,7 +240,6 @@ pub mod pallet {
 	pub type MultisigDataOf<T> = MultisigData<
 		<T as frame_system::Config>::AccountId,
 		BoundedSignersOf<T>,
-		BalanceOf<T>,
 		BoundedProposalsPerSignerOf<T>,
 	>;
 
@@ -412,7 +398,6 @@ pub mod pallet {
 		///
 		/// Economic costs:
 		/// - MultisigFee: burned immediately (spam prevention)
-		/// - MultisigDeposit: reserved until dissolution, then returned to creator (storage bond)
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::create_multisig(signers.len() as u32))]
 		pub fn create_multisig(
@@ -457,10 +442,6 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Reserve deposit from creator (storage rent)
-			let deposit = T::MultisigDeposit::get();
-			T::Currency::reserve(&creator, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
-
 			// Convert normalized signers to bounded vec
 			let bounded_signers: BoundedSignersOf<T> =
 				normalized_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
@@ -473,7 +454,6 @@ pub mod pallet {
 					signers: bounded_signers.clone(),
 					threshold,
 					proposal_nonce: 0,
-					deposit,
 					proposals_per_signer: BoundedProposalsPerSignerOf::<T>::default(),
 				},
 			);

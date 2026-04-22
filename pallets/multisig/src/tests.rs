@@ -102,7 +102,6 @@ fn create_multisig_works() {
 		// Get initial balance
 		let initial_balance = Balances::free_balance(creator.clone());
 		let fee = 1000; // MultisigFeeParam
-		let deposit = 500; // MultisigDepositParam
 
 		// Create multisig
 		assert_ok!(Multisig::create_multisig(
@@ -112,10 +111,9 @@ fn create_multisig_works() {
 			0, // nonce
 		));
 
-		// Check balances
-		// Deposit is reserved, fee is burned
-		assert_eq!(Balances::reserved_balance(creator.clone()), deposit);
-		assert_eq!(Balances::free_balance(creator.clone()), initial_balance - fee - deposit);
+		// Check balances - fee is burned, no deposit reserved
+		assert_eq!(Balances::reserved_balance(creator.clone()), 0);
+		assert_eq!(Balances::free_balance(creator.clone()), initial_balance - fee);
 
 		// Check that multisig was created
 		// Get multisig address
@@ -125,7 +123,6 @@ fn create_multisig_works() {
 		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
 		assert_eq!(multisig_data.threshold, threshold);
 		assert_eq!(multisig_data.signers.to_vec(), signers);
-		assert_eq!(multisig_data.deposit, deposit);
 
 		// Check that event was emitted
 		System::assert_last_event(
@@ -1734,7 +1731,6 @@ fn high_security_propose_fails_for_non_whitelisted_call() {
 				signers: signers.try_into().unwrap(),
 				threshold: 2,
 				proposal_nonce: 0,
-				deposit: 500,
 				proposals_per_signer: Default::default(),
 			},
 		);

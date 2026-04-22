@@ -4,7 +4,7 @@ A multisignature wallet pallet for the Quantus blockchain with an economic secur
 
 ## Overview
 
-This pallet provides functionality for creating and managing multisig accounts that require multiple approvals before executing transactions. It implements a dual fee+deposit system for spam prevention and storage cleanup mechanisms with grace periods.
+This pallet provides functionality for creating and managing multisig accounts that require multiple approvals before executing transactions. It implements a fee+deposit system for spam prevention and storage cleanup mechanisms with grace periods.
 
 ## Quick Start
 
@@ -57,7 +57,6 @@ Creates a new multisig account with deterministic address generation.
 
 **Economic Costs:**
 - **MultisigFee**: Non-refundable fee (spam prevention) → burned immediately
-- **MultisigDeposit**: Reserved deposit (storage bond) → returned to creator when multisig dissolved
 
 ### 2. Propose Transaction
 Creates a new proposal for multisig execution.
@@ -194,35 +193,6 @@ Batch cleanup operation to recover all caller's expired proposal deposits.
 
 **Note:** This is the main way to clean up a proposer's expired proposals and free per-signer quota (there is no auto-cleanup in `propose()`).
 
-### 8. Approve Dissolve
-Approve dissolving a multisig account. Requires threshold approvals to complete.
-
-**Required Parameters:**
-- `multisig_address: AccountId` - Target multisig (REQUIRED)
-
-**Pre-conditions:**
-- Caller must be a signer
-- NO proposals can exist (any status)
-- Multisig balance MUST be zero
-
-**Approval Process:**
-- Each signer calls `approve_dissolve()`
-- Approvals are tracked in `DissolveApprovals` storage
-- When threshold reached, multisig is automatically dissolved
-
-**Post-conditions (when threshold reached):**
-- MultisigDeposit is **returned to creator**
-- Multisig removed from storage
-- DissolveApprovals cleared
-- Cannot be used after dissolution
-
-**Economic Costs:** None (deposit returned to creator)
-
-**Important:** 
-- MultisigFee is NEVER returned (burned on creation)
-- MultisigDeposit IS returned to the original creator
-- Requires threshold approvals (not just any signer or creator)
-
 ## Use Cases
 
 **Payroll Multisig (transfers only):**
@@ -248,7 +218,7 @@ matches!(call,
 - **MultisigFee**:
   - Charged on multisig creation
   - Burned immediately (reduces total supply)
-  - **Never returned** (even if multisig dissolved)
+  - **Never returned** (multisigs are permanent)
   - Creates economic barrier to prevent spam multisig creation
   
 - **ProposalFee**:
@@ -267,12 +237,6 @@ matches!(call,
 ### Deposits (Locked as storage rent)
 **Purpose:** Compensate for on-chain storage, incentivize cleanup
 
-- **MultisigDeposit**:
-  - Reserved on multisig creation
-  - **Returned to creator** when multisig is dissolved (via `approve_dissolve` after threshold approvals)
-  - Locked until no proposals exist and balance is zero
-  - Opportunity cost incentivizes cleanup
-  
 - **ProposalDeposit**:
   - Reserved on proposal creation
   - **Refundable** - returned in following scenarios:
@@ -311,13 +275,11 @@ matches!(call,
 Stores multisig account data:
 ```rust
 MultisigData {
-    creator: AccountId,                                     // Original creator (receives deposit back on dissolve)
+    creator: AccountId,                                     // Original creator
     signers: BoundedVec<AccountId>,                        // List of authorized signers (sorted)
     threshold: u32,                                         // Required approvals
     proposal_nonce: u32,                                    // Counter for unique proposal IDs
-    deposit: Balance,                                       // Reserved deposit (returned to creator on dissolve)
-    active_proposals: u32,                                  // Count of active proposals (for limits)
-    proposals_per_signer: BoundedBTreeMap<AccountId, u32>,  // Per-signer proposal count (filibuster protection)
+    proposals_per_signer: BoundedBTreeMap<AccountId, u32>, // Per-signer proposal count (filibuster protection)
 }
 ```
 
@@ -344,12 +306,6 @@ enum ProposalStatus {
 
 **Important:** Only **Active** and **Approved** proposals are stored. When a proposal is executed or cancelled, it is **immediately removed** from storage and the deposit is returned. Historical data is available through events (see Historical Data section below).
 
-### DissolveApprovals: Map<AccountId, BoundedVec<AccountId>>
-Tracks which signers have approved dissolving each multisig.
-- Key: Multisig address
-- Value: List of signers who approved dissolution
-- Cleared when multisig is dissolved or when threshold reached
-
 ## Events
 
 - `MultisigCreated { creator, multisig_address, signers, threshold, nonce }`
@@ -359,9 +315,7 @@ Tracks which signers have approved dissolving each multisig.
 - `ProposalExecuted { multisig_address, proposal_id, proposer, call, approvers, result }`
 - `ProposalCancelled { multisig_address, proposer, proposal_id }`
 - `ProposalRemoved { multisig_address, proposal_id, proposer, removed_by }`
-- `DepositsClaimed { multisig_address, claimer, total_returned, proposals_removed, multisig_removed }`
-- `DissolveApproved { multisig_address, approver, approvals_count }`
-- `MultisigDissolved { multisig_address, deposit_returned, approvers }`
+- `DepositsClaimed { multisig_address, claimer, total_returned, proposals_removed }`
 
 ## Errors
 
@@ -388,8 +342,6 @@ Tracks which signers have approved dissolving each multisig.
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
 - `ProposalNotActive` - Proposal is not active or approved (already executed or cancelled)
 - `ProposalNotApproved` - Proposal is not in Approved status (for `execute()`)
-- `ProposalsExist` - Cannot dissolve multisig while proposals exist
-- `MultisigAccountNotZero` - Cannot dissolve multisig with non-zero balance
 
 ## Important Behavior
 
@@ -525,8 +477,7 @@ impl pallet_multisig::Config for Runtime {
     type MaxExpiryDuration = ConstU32<100_800>;         // Max proposal lifetime (~2 weeks @ 12s)
     
     // Economic parameters (example values - adjust per runtime)
-    type MultisigFee = ConstU128<{ 100 * MILLI_UNIT }>;      // Creation barrier (burned)
-    type MultisigDeposit = ConstU128<{ 500 * MILLI_UNIT }>;  // Storage bond (returned to creator on dissolve)
+    type MultisigFee = ConstU128<{ 600 * MILLI_UNIT }>;      // Creation barrier (burned)
     type ProposalFee = ConstU128<{ 1000 * MILLI_UNIT }>;     // Base proposal cost (burned)
     type ProposalDeposit = ConstU128<{ 1000 * MILLI_UNIT }>; // Storage rent (refundable)
     type SignerStepFactor = Permill::from_percent(1);        // Dynamic pricing (1% per signer)

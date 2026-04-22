@@ -123,7 +123,6 @@ parameter_types! {
 	pub const MaxTotalProposalsInStorageParam: u32 = 20;
 	pub const MaxCallSizeParam: u32 = 1024;
 	pub const MultisigFeeParam: Balance = 1000;
-	pub const MultisigDepositParam: Balance = 500;
 	pub const ProposalDepositParam: Balance = 100;
 	// Use 999 instead of 1000 to catch early floor truncation bugs.
 	// With step_factor=1%, per-signer increase = floor(999 * 1%) = 9 (truncated from 9.99)
@@ -140,7 +139,6 @@ impl pallet_multisig::Config for Test {
 	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorageParam;
 	type MaxCallSize = MaxCallSizeParam;
 	type MultisigFee = MultisigFeeParam;
-	type MultisigDeposit = MultisigDepositParam;
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
 	type SignerStepFactor = SignerStepFactorParam;

@@ -110,7 +110,6 @@ mod benchmarks {
 			signers: bounded_signers,
 			threshold,
 			proposal_nonce,
-			deposit: T::MultisigDeposit::get(),
 			proposals_per_signer: BoundedBTreeMap::new(),
 		};
 		Multisigs::<T>::insert(&multisig_address, data);
