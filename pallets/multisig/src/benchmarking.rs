@@ -444,7 +444,7 @@ mod benchmarks {
 		// No pre-inserted approvals - caller adds first approval (threshold not reached)
 
 		#[extrinsic_call]
-		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone());
+		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone(), caller.clone());
 
 		assert!(Multisigs::<T>::contains_key(&multisig_address));
 		assert!(DissolveApprovals::<T>::get(&multisig_address).unwrap().len() == 1);
@@ -467,7 +467,7 @@ mod benchmarks {
 		DissolveApprovals::<T>::insert(&multisig_address, approvals);
 
 		#[extrinsic_call]
-		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone());
+		approve_dissolve(RawOrigin::Signed(caller.clone()), multisig_address.clone(), caller.clone());
 
 		assert!(!Multisigs::<T>::contains_key(&multisig_address));
 		Ok(())

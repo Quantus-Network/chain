@@ -403,8 +403,6 @@ pub mod pallet {
 		ProposalNotApproved,
 		/// Cannot dissolve multisig with existing proposals (clear them first)
 		ProposalsExist,
-		/// Multisig account must have zero balance before dissolution
-		MultisigAccountNotZero,
 		/// Call is not allowed for high-security multisig
 		CallNotAllowedForHighSecurityMultisig,
 	}
@@ -1125,17 +1123,23 @@ pub mod pallet {
 		/// Requirements:
 		/// - Caller must be a signer
 		/// - No proposals exist (active, executed, or cancelled) - must be fully cleaned up
-		/// - Multisig account balance must be zero
 		///
 		/// When threshold is reached:
+		/// - Any remaining balance is transferred to `sweep_beneficiary`
 		/// - Deposit is returned to creator
 		/// - Multisig storage is removed
+		///
+		/// The `sweep_beneficiary` parameter specifies where to send any remaining balance
+		/// in the multisig account. This prevents griefing attacks where someone sends dust
+		/// to the multisig to block dissolution. The beneficiary is only used when threshold
+		/// is reached; for non-final approvals it can be any value (typically the caller).
 		#[pallet::call_index(6)]
 		#[pallet::weight(<T as Config>::WeightInfo::approve_dissolve_threshold_reached())]
 		#[allow(clippy::useless_conversion)]
 		pub fn approve_dissolve(
 			origin: OriginFor<T>,
 			multisig_address: T::AccountId,
+			sweep_beneficiary: T::AccountId,
 		) -> DispatchResultWithPostInfo {
 			let approver = ensure_signed(origin)?;
 
@@ -1161,40 +1165,46 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::ProposalsExist, 2);
 			}
 
-			// 4. Check if account balance is zero (1 more read for balance)
-			let balance = T::Currency::total_balance(&multisig_address);
-			if !balance.is_zero() {
-				return Self::err_with_weight(Error::<T>::MultisigAccountNotZero, 3);
-			}
-
-			// 5. Get or create approval list (1 more read: DissolveApprovals)
+			// 4. Get or create approval list (1 more read: DissolveApprovals)
 			let mut approvals = DissolveApprovals::<T>::get(&multisig_address).unwrap_or_default();
 
-			// 6. Check if already approved
+			// 5. Check if already approved
 			if approvals.contains(&approver) {
-				return Self::err_with_weight(Error::<T>::AlreadyApproved, 4);
+				return Self::err_with_weight(Error::<T>::AlreadyApproved, 3);
 			}
 
-			// 7. Add approval
+			// 6. Add approval
 			if approvals.try_push(approver.clone()).is_err() {
-				return Self::err_with_weight(Error::<T>::TooManySigners, 4);
+				return Self::err_with_weight(Error::<T>::TooManySigners, 3);
 			}
 
 			let approvals_count = approvals.len() as u32;
 
-			// 8. Emit approval event
+			// 7. Emit approval event
 			Self::deposit_event(Event::DissolveApproved {
 				multisig_address: multisig_address.clone(),
 				approver: approver.clone(),
 				approvals_count,
 			});
 
-			// 9. Check if threshold reached
+			// 8. Check if threshold reached
 			let threshold_reached = approvals_count >= multisig_data.threshold;
 			if threshold_reached {
 				// Threshold reached - dissolve multisig
 				let deposit = multisig_data.deposit;
 				let creator = multisig_data.creator.clone();
+
+				// Sweep any remaining balance to the beneficiary (handles dust griefing)
+				let remaining_balance = T::Currency::free_balance(&multisig_address);
+				if !remaining_balance.is_zero() {
+					// Transfer all remaining balance; ignore errors (e.g., if below ED)
+					let _ = T::Currency::transfer(
+						&multisig_address,
+						&sweep_beneficiary,
+						remaining_balance,
+						frame_support::traits::ExistenceRequirement::AllowDeath,
+					);
+				}
 
 				// Remove multisig from storage
 				Multisigs::<T>::remove(&multisig_address);
