@@ -517,12 +517,15 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			let proposer = ensure_signed(origin)?;
 
-			// CRITICAL: Check call size FIRST, before any heavy operations (especially decode)
-			// This prevents DoS via oversized payloads that would be decoded before size validation
+			// ===== PHASE 1: Cheap validation (no storage reads, no decoding) =====
+
+			// Check call size FIRST, before any heavy operations
 			let call_size = call.len() as u32;
 			if call_size > T::MaxCallSize::get() {
 				return Self::err_with_weight(Error::<T>::CallTooLarge, 0);
 			}
+
+			// ===== PHASE 2: Storage reads and simple checks =====
 
 			// Check if proposer is a signer (1 read: Multisigs)
 			let multisig_data = Multisigs::<T>::get(&multisig_address).ok_or_else(|| {
@@ -538,56 +541,53 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::NotASigner, 1);
 			}
 
-			// High-security check: if multisig is high-security, only whitelisted calls allowed
-			// Size already validated above, so decode is now safe
-			// (2 reads: Multisigs + HighSecurityAccounts)
-			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
-			if is_high_security {
-				let decoded_call =
-					<T as Config>::RuntimeCall::decode(&mut &call[..]).map_err(|_| {
-						DispatchErrorWithPostInfo {
-							post_info: PostDispatchInfo {
-								actual_weight: Some(T::DbWeight::get().reads(2)),
-								pays_fee: Pays::Yes,
-							},
-							error: Error::<T>::InvalidCall.into(),
-						}
-					})?;
-				if !T::HighSecurity::is_whitelisted(&decoded_call) {
-					return Self::err_with_weight(
-						Error::<T>::CallNotAllowedForHighSecurityMultisig,
-						2,
-					);
-				}
-			}
-
-			let current_block = frame_system::Pallet::<T>::block_number();
-
 			// Get signers count (used for multiple checks below)
 			let signers_count = multisig_data.signers.len() as u32;
 
-			ensure!(
-				multisig_data.active_proposals < T::MaxTotalProposalsInStorage::get(),
-				Error::<T>::TooManyProposalsInStorage
-			);
+			// Check proposal limits (cheap, no additional reads)
+			if multisig_data.active_proposals >= T::MaxTotalProposalsInStorage::get() {
+				return Self::err_with_weight(Error::<T>::TooManyProposalsInStorage, 1);
+			}
 
 			// Check per-signer proposal limit (filibuster protection)
-			// Each signer can have max (TotalLimit / SignersCount) proposals
 			let max_proposals_per_signer =
 				T::MaxTotalProposalsInStorage::get().saturating_div(signers_count);
 			let proposer_current_count =
 				multisig_data.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
-			ensure!(
-				proposer_current_count < max_proposals_per_signer,
-				Error::<T>::TooManyProposalsPerSigner
-			);
+			if proposer_current_count >= max_proposals_per_signer {
+				return Self::err_with_weight(Error::<T>::TooManyProposalsPerSigner, 1);
+			}
 
-			// Validate expiry is in the future
-			ensure!(expiry > current_block, Error::<T>::ExpiryInPast);
-
-			// Validate expiry is not too far in the future
+			// Validate expiry
+			let current_block = frame_system::Pallet::<T>::block_number();
+			if expiry <= current_block {
+				return Self::err_with_weight(Error::<T>::ExpiryInPast, 1);
+			}
 			let max_expiry = current_block.saturating_add(T::MaxExpiryDuration::get());
-			ensure!(expiry <= max_expiry, Error::<T>::ExpiryTooFar);
+			if expiry > max_expiry {
+				return Self::err_with_weight(Error::<T>::ExpiryTooFar, 1);
+			}
+
+			// ===== PHASE 3: Decode call (validates call is well-formed for ALL proposals) =====
+			// This catches malformed calls at propose time rather than execute time,
+			// providing consistent error behavior for both HS and non-HS multisigs.
+			let decoded_call =
+				<T as Config>::RuntimeCall::decode(&mut &call[..]).map_err(|_| {
+					DispatchErrorWithPostInfo {
+						post_info: PostDispatchInfo {
+							actual_weight: Some(T::DbWeight::get().reads(1)),
+							pays_fee: Pays::Yes,
+						},
+						error: Error::<T>::InvalidCall.into(),
+					}
+				})?;
+
+			// ===== PHASE 4: High-security whitelist check (if applicable) =====
+			// (additional read: HighSecurityAccounts)
+			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
+			if is_high_security && !T::HighSecurity::is_whitelisted(&decoded_call) {
+				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
+			}
 
 			// Calculate dynamic fee based on number of signers
 			// Fee = Base + floor(StepFactor * Base * SignerCount)

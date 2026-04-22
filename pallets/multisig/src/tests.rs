@@ -811,8 +811,8 @@ fn claim_deposits_works_for_approved_expired_proposals() {
 
 #[test]
 fn remove_expired_unblocks_undecodable_approved_proposal() {
-	// Non-high-security multisig can have proposals with invalid call bytes.
-	// Execute fails with InvalidCall, proposal stays. After expiry, remove_expired unblocks.
+	// Calls are now decoded at propose time for ALL multisigs (not just high-security).
+	// This test verifies that invalid call bytes are rejected at propose time.
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -826,50 +826,24 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 		));
 
 		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
-		// Non-high-security (not account 100), so no decode at propose
-		assert!(!MockHighSecurity::is_high_security(&multisig_address));
 
-		// Invalid call bytes - will fail decode at execute
+		// Invalid call bytes - will fail decode at propose time (not execute)
 		let undecodable_call = vec![0xff; 32];
 		let expiry = 100;
-		assert_ok!(Multisig::propose(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			undecodable_call,
-			expiry
-		));
-
-		let proposal_id = get_last_proposal_id(&multisig_address);
-
-		// Charlie approves → Approved
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address.clone(),
-			proposal_id
-		));
-
-		// Execute fails (InvalidCall) - proposal stays in storage
 		assert_err_ignore_postinfo(
-			Multisig::execute(
+			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
-				proposal_id
+				undecodable_call,
+				expiry
 			),
 			Error::<Test>::InvalidCall.into(),
 		);
-		assert!(Proposals::<Test>::contains_key(&multisig_address, proposal_id));
 
-		// Move past expiry
-		System::set_block_number(expiry + 1);
+		// No proposal was created
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
 
-		// Any signer can remove expired Approved proposal (even with undecodable call)
-		assert_ok!(Multisig::remove_expired(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address.clone(),
-			proposal_id
-		));
-
-		assert!(!Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+		// No deposit was reserved (proposal failed before that)
 		assert_eq!(Balances::reserved_balance(bob()), 0);
 	});
 }
@@ -1056,9 +1030,9 @@ fn too_many_proposals_in_storage_fails() {
 
 		// Try to add 21st - should fail on total limit
 		let call = make_call(vec![99]);
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address.clone(), call, 2000),
-			Error::<Test>::TooManyProposalsInStorage
+			Error::<Test>::TooManyProposalsInStorage.into(),
 		);
 	});
 }
@@ -1128,14 +1102,14 @@ fn only_active_proposals_remain_in_storage() {
 		// Bob: 10 Active (at per-signer limit: 20 total / 2 signers = 10 per signer)
 
 		// Bob cannot create 11th (exceeds per-signer limit)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
 				3000
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 	});
 }
@@ -1167,28 +1141,28 @@ fn per_signer_limit_blocks_new_proposals_until_cleanup() {
 		// Bob: 10 Active (at per-signer limit: 20 total / 2 signers = 10 per signer)
 
 		// Bob cannot create more (at limit)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
 				200
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 
 		// Move past expiry
 		System::set_block_number(101);
 
 		// propose() no longer auto-cleans, so Bob is still blocked
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
 				200
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 
 		// Bob must explicitly claim deposits to free space
@@ -1230,25 +1204,25 @@ fn propose_fails_with_expiry_in_past() {
 		let call = make_call(vec![1, 2, 3]);
 
 		// Try to create proposal with expiry in the past (< current_block)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
 				50
 			),
-			Error::<Test>::ExpiryInPast
+			Error::<Test>::ExpiryInPast.into(),
 		);
 
 		// Try with expiry equal to current block (not > current_block)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
 				100
 			),
-			Error::<Test>::ExpiryInPast
+			Error::<Test>::ExpiryInPast.into(),
 		);
 
 		// Valid: expiry in the future
@@ -1284,25 +1258,25 @@ fn propose_fails_with_expiry_too_far() {
 		// Max allowed expiry = 100 + 10000 = 10100
 
 		// Try to create proposal with expiry too far in the future
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
 				10101
 			),
-			Error::<Test>::ExpiryTooFar
+			Error::<Test>::ExpiryTooFar.into(),
 		);
 
 		// Try with expiry way beyond the limit
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
 				20000
 			),
-			Error::<Test>::ExpiryTooFar
+			Error::<Test>::ExpiryTooFar.into(),
 		);
 
 		// Valid: expiry exactly at max allowed
@@ -1487,14 +1461,14 @@ fn per_signer_proposal_limit_enforced() {
 		}
 
 		// Bob at limit - tries to create 11th
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
 				2000
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 
 		// But Charlie can still create (independent limit)
