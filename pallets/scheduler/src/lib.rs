@@ -189,6 +189,18 @@ pub mod pallet {
 	use sp_runtime::traits::{AtLeast32Bit, Scale};
 
 	/// The in-code storage version.
+	///
+	/// **Fork baseline:** This scheduler is forked from upstream pallet-scheduler at version 4.
+	/// The fork introduced timestamp-aware agenda keys (`BlockNumberOrTimestamp`) and modified
+	/// task addresses, but retained the upstream version number as the established baseline.
+	///
+	/// For future storage layout changes in this fork:
+	/// 1. Increment this version (e.g., to 5)
+	/// 2. Add a migration hook in `Hooks::on_runtime_upgrade`
+	/// 3. Document the migration in release notes
+	///
+	/// Note: There is no migration path FROM upstream v4 TO this fork's v4, as they have
+	/// incompatible storage layouts. This fork's v4 is the genesis baseline for this chain.
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(4);
 
 	#[pallet::pallet]

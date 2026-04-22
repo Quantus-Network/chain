@@ -23,7 +23,14 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use sp_runtime::Permill;
 
+	/// The in-code storage version.
+	///
+	/// This establishes an explicit baseline for future storage migrations.
+	/// Increment this and add a migration hook when storage layout changes.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
