@@ -1,10 +1,7 @@
-use frame_support::{
-	traits::{Currency, OnFinalize, OnInitialize},
-	PalletId,
-};
-use quantus_runtime::{Balances, Runtime, System, UNIT};
+use frame_support::traits::{Currency, OnFinalize, OnInitialize};
+use quantus_runtime::{configs::TreasuryPalletId, Balances, Runtime, System, UNIT};
 use sp_core::crypto::AccountId32;
-use sp_runtime::{traits::AccountIdConversion, BuildStorage};
+use sp_runtime::{traits::AccountIdConversion, BuildStorage, Permill};
 
 pub struct TestCommons;
 
@@ -15,21 +12,38 @@ impl TestCommons {
 		AccountId32::new(bytes)
 	}
 
-	// Create a test externality
+	/// Get the treasury account derived from the runtime's TreasuryPalletId.
+	pub fn treasury_account() -> AccountId32 {
+		TreasuryPalletId::get().into_account_truncating()
+	}
+
+	/// Create a test externality with properly initialized pallets.
+	///
+	/// This initializes:
+	/// - Test accounts 1-4 with 1000 UNIT each
+	/// - Treasury pallet storage (account and portion)
+	/// - Treasury account balance
 	pub fn new_test_ext() -> sp_io::TestExternalities {
-		let t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
+		let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
+
+		// Initialize treasury pallet storage properly
+		let treasury_account = Self::treasury_account();
+		pallet_treasury::GenesisConfig::<Runtime> {
+			treasury_account: Some(treasury_account.clone()),
+			treasury_portion: Some(Permill::from_percent(30)), // 30% to treasury, 70% to miner
+		}
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 		let mut ext = sp_io::TestExternalities::new(t);
 
-		// Add balances in the ext
+		// Add balances after storage is built
 		ext.execute_with(|| {
 			Balances::make_free_balance_be(&Self::account_id(1), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(2), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(3), 1000 * UNIT);
 			Balances::make_free_balance_be(&Self::account_id(4), 1000 * UNIT);
-			// Set up treasury account for volume fee collection
-			let treasury_pallet_id = PalletId(*b"py/trsry");
-			let treasury_account = treasury_pallet_id.into_account_truncating();
+			// Fund the treasury account
 			Balances::make_free_balance_be(&treasury_account, 1000 * UNIT);
 		});
 
