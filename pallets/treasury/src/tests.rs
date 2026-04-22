@@ -23,13 +23,18 @@ fn genesis_sets_treasury_config() {
 #[test]
 fn set_treasury_account_works() {
 	new_test_ext().execute_with(|| {
+		let old_account = Treasury::account_id();
 		assert_ok!(Treasury::set_treasury_account(
 			frame_system::RawOrigin::Root.into(),
 			account_id(99)
 		));
 		assert_eq!(Treasury::account_id(), account_id(99));
 		System::<Test>::assert_has_event(
-			Event::<Test>::TreasuryAccountUpdated { new_account: account_id(99) }.into(),
+			Event::<Test>::TreasuryAccountUpdated {
+				old_account: Some(old_account),
+				new_account: account_id(99),
+			}
+			.into(),
 		);
 	});
 }

@@ -94,7 +94,18 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		TreasuryAccountUpdated { new_account: T::AccountId },
+		/// The treasury account was updated.
+		///
+		/// Note: This only redirects where future mining rewards are sent. Any balance
+		/// accumulated in the old account remains there and is NOT automatically migrated.
+		/// Use a separate balance transfer if funds need to be moved.
+		TreasuryAccountUpdated {
+			/// The previous treasury account (None if this is the first time setting it).
+			old_account: Option<T::AccountId>,
+			/// The new treasury account that will receive future rewards.
+			new_account: T::AccountId,
+		},
+		/// The treasury portion (share of mining rewards) was updated.
 		TreasuryPortionUpdated { new_portion: Permill },
 	}
 
@@ -104,14 +115,20 @@ pub mod pallet {
 		T::AccountId: From<[u8; 32]> + PartialEq,
 	{
 		/// Set the treasury account. Root only. Zero address is rejected (funds would be locked).
+		///
+		/// **Important**: This only changes where *future* mining rewards are sent. Any balance
+		/// that has already accumulated in the current treasury account is NOT automatically
+		/// migrated to the new account. If you need to move existing funds, perform a separate
+		/// balance transfer (e.g., via governance proposal) after updating the account.
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::set_treasury_account())]
 		pub fn set_treasury_account(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
 			ensure_root(origin)?;
 			let zero: T::AccountId = [0u8; 32].into();
 			ensure!(account != zero, Error::<T>::InvalidTreasuryAccount);
+			let old_account = TreasuryAccount::<T>::get();
 			TreasuryAccount::<T>::put(&account);
-			Self::deposit_event(Event::TreasuryAccountUpdated { new_account: account });
+			Self::deposit_event(Event::TreasuryAccountUpdated { old_account, new_account: account });
 			Ok(())
 		}
 
