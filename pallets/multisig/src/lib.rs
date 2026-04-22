@@ -349,8 +349,6 @@ pub mod pallet {
 		ThresholdTooHigh,
 		/// Too many signers
 		TooManySigners,
-		/// Duplicate signer in list
-		DuplicateSigner,
 		/// Multisig already exists
 		MultisigAlreadyExists,
 		/// Multisig not found
@@ -423,22 +421,23 @@ pub mod pallet {
 			// Validate inputs
 			ensure!(threshold > 0, Error::<T>::ThresholdZero);
 			ensure!(!signers.is_empty(), Error::<T>::NotEnoughSigners);
-			ensure!(threshold <= signers.len() as u32, Error::<T>::ThresholdTooHigh);
-			ensure!(signers.len() <= T::MaxSigners::get() as usize, Error::<T>::TooManySigners);
 
-			// Sort signers for duplicate check and storage
-			let mut sorted_signers = signers.clone();
-			sorted_signers.sort();
+			// Normalize signers: sort and deduplicate (single authoritative place)
+			let normalized_signers = Self::normalize_signers(&signers);
 
-			// Check for duplicate signers
-			for i in 1..sorted_signers.len() {
-				ensure!(sorted_signers[i] != sorted_signers[i - 1], Error::<T>::DuplicateSigner);
-			}
+			// Validate against normalized count (after dedup)
+			ensure!(
+				threshold <= normalized_signers.len() as u32,
+				Error::<T>::ThresholdTooHigh
+			);
+			ensure!(
+				normalized_signers.len() <= T::MaxSigners::get() as usize,
+				Error::<T>::TooManySigners
+			);
 
-			// Generate deterministic multisig address
-			// Note: derive_multisig_address() will sort internally, but we already have sorted
-			// for duplicate check, so we pass sorted to avoid double sorting
-			let multisig_address = Self::derive_multisig_address(&sorted_signers, threshold, nonce);
+			// Generate deterministic multisig address from normalized signers
+			let multisig_address =
+				Self::derive_multisig_address_inner(&normalized_signers, threshold, nonce);
 
 			// Ensure multisig doesn't already exist
 			ensure!(
@@ -456,13 +455,13 @@ pub mod pallet {
 			)
 			.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Reserve deposit from creator (will be returned on dissolve)
+			// Reserve deposit from creator (storage rent)
 			let deposit = T::MultisigDeposit::get();
 			T::Currency::reserve(&creator, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Convert sorted signers to bounded vec
+			// Convert normalized signers to bounded vec
 			let bounded_signers: BoundedSignersOf<T> =
-				sorted_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
+				normalized_signers.try_into().map_err(|_| Error::<T>::TooManySigners)?;
 
 			// Store multisig data
 			Multisigs::<T>::insert(
@@ -1132,22 +1131,38 @@ pub mod pallet {
 			<T as Config>::WeightInfo::execute(call_size)
 		}
 
+		/// Normalize signers: sort and deduplicate.
+		///
+		/// Returns sorted, deduplicated signers. This is the single authoritative
+		/// place for signer normalization - used by both address derivation and creation.
+		fn normalize_signers(signers: &[T::AccountId]) -> Vec<T::AccountId> {
+			let mut sorted = signers.to_vec();
+			sorted.sort();
+			sorted.dedup();
+			sorted
+		}
+
 		/// Derive a deterministic multisig address from signers, threshold, and nonce
 		///
-		/// The address is computed as: hash(pallet_id || sorted_signers || threshold || nonce)
-		/// Signers are automatically sorted internally for deterministic results.
+		/// The address is computed as: hash(pallet_id || normalized_signers || threshold || nonce)
+		/// Signers are automatically sorted and deduplicated internally for deterministic results.
 		/// This allows users to pre-compute the address before creating the multisig.
 		pub fn derive_multisig_address(
 			signers: &[T::AccountId],
 			threshold: u32,
 			nonce: u64,
 		) -> T::AccountId {
-			// Sort signers for deterministic address generation
-			// User doesn't need to worry about order
-			let mut sorted_signers = signers.to_vec();
-			sorted_signers.sort();
+			let normalized = Self::normalize_signers(signers);
+			Self::derive_multisig_address_inner(&normalized, threshold, nonce)
+		}
 
-			// Create a unique identifier from pallet id + sorted signers + threshold + nonce.
+		/// Derive multisig address from pre-normalized signers (internal use).
+		fn derive_multisig_address_inner(
+			normalized_signers: &[T::AccountId],
+			threshold: u32,
+			nonce: u64,
+		) -> T::AccountId {
+			// Create a unique identifier from pallet id + normalized signers + threshold + nonce.
 			//
 			// IMPORTANT:
 			// - Do NOT `Decode` directly from a finite byte-slice and then "fallback" to a constant
@@ -1157,7 +1172,7 @@ pub mod pallet {
 			let pallet_id = T::PalletId::get();
 			let mut data = Vec::new();
 			data.extend_from_slice(&pallet_id.0);
-			data.extend_from_slice(&sorted_signers.encode());
+			data.extend_from_slice(&normalized_signers.encode());
 			data.extend_from_slice(&threshold.encode());
 			data.extend_from_slice(&nonce.encode());
 

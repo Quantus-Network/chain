@@ -193,21 +193,29 @@ fn create_multisig_fails_with_threshold_too_high() {
 }
 
 #[test]
-fn create_multisig_fails_with_duplicate_signers() {
+fn create_multisig_deduplicates_signers() {
 	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
 		let creator = alice();
 		let signers = vec![bob(), bob(), charlie()]; // Bob twice
 		let threshold = 2;
 
-		assert_noop!(
-			Multisig::create_multisig(
-				RuntimeOrigin::signed(creator.clone()),
-				signers,
-				threshold,
-				0
-			),
-			Error::<Test>::DuplicateSigner
-		);
+		// Should succeed - duplicates are silently removed
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers,
+			threshold,
+			0
+		));
+
+		// The multisig should have only 2 unique signers (bob, charlie)
+		let normalized_signers = vec![bob(), charlie()];
+		let mut sorted = normalized_signers.clone();
+		sorted.sort();
+		let multisig_address = Multisig::derive_multisig_address(&sorted, threshold, 0);
+
+		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
+		assert_eq!(multisig_data.signers.len(), 2);
 	});
 }
 
