@@ -248,6 +248,19 @@ matches!(call,
   - **When proposal is cancelled:** Proposer calls `cancel()` (Active or Approved) → deposit returned to proposer
   - **Expired proposals:** No auto-cleanup in `propose()`. Proposer recovers deposits via `claim_deposits()`; any signer can remove a single expired proposal via `remove_expired()` (deposit → proposer)
 
+### Transaction Fee Attribution
+**Design choice:** The caller of each extrinsic pays the transaction fee.
+
+This is an intentional simplification. An alternative model could deduct cleanup fees (`remove_expired`, `execute`, `claim_deposits`) from the proposal's reserved deposit, aligning costs with the proposal that created them. However, this would add significant complexity:
+- Requires partial deposit releases and accounting
+- Complicates weight refund logic
+- May leave insufficient deposit for storage rent if fees fluctuate
+
+The current "caller pays" model is simpler and predictable:
+- **Proposers** are incentivized to clean up their own expired proposals (via `claim_deposits`) to recover deposits
+- **Any signer** can trigger cleanup (`remove_expired`, `execute`) if they want the operation done, paying the fee themselves
+- Deposit is always returned in full to the original proposer
+
 ### Storage Limits & Configuration
 **Purpose:** Prevent unbounded storage growth and resource exhaustion
 
