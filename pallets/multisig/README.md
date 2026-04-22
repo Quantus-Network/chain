@@ -354,8 +354,8 @@ Tracks which signers have approved dissolving each multisig.
 
 - `MultisigCreated { creator, multisig_address, signers, threshold, nonce }`
 - `ProposalCreated { multisig_address, proposer, proposal_id }`
-- `ProposalApproved { multisig_address, approver, proposal_id, approvals_count }`
-- `ProposalReadyToExecute { multisig_address, proposal_id, approvals_count }` — emitted when threshold is reached (approve or propose with threshold=1); proposal is Approved until someone calls `execute()`
+- `SignerApproved { multisig_address, approver, proposal_id, approvals_count }` — emitted each time a signer approves (does not imply threshold reached)
+- `ProposalReadyToExecute { multisig_address, proposal_id, approvals_count }` — emitted once when threshold is first reached (approve or propose with threshold=1); proposal is Approved until someone calls `execute()`
 - `ProposalExecuted { multisig_address, proposal_id, proposer, call, approvers, result }`
 - `ProposalCancelled { multisig_address, proposer, proposal_id }`
 - `ProposalRemoved { multisig_address, proposal_id, proposer, removed_by }`
@@ -460,7 +460,7 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 **All events** for complete history:
 - `MultisigCreated` - When a multisig is created
 - `ProposalCreated` - When a proposal is submitted
-- `ProposalApproved` - Each time someone approves (includes current approval count)
+- `SignerApproved` - Each time someone approves (includes current approval count)
 - `ProposalExecuted` - When a proposal is executed (includes full execution details)
 - `ProposalCancelled` - When a proposal is cancelled by proposer
 - `ProposalRemoved` - When a proposal is removed from storage (deposits returned)

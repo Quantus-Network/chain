@@ -97,10 +97,6 @@ pub enum ProposalStatus {
 	Active,
 	/// Proposal has reached threshold and is ready to execute
 	Approved,
-	/// Proposal was executed successfully
-	Executed,
-	/// Proposal was cancelled by proposer
-	Cancelled,
 }
 
 /// Proposal data
@@ -294,8 +290,8 @@ pub mod pallet {
 		},
 		/// A proposal has been created
 		ProposalCreated { multisig_address: T::AccountId, proposer: T::AccountId, proposal_id: u32 },
-		/// A proposal has been approved by a signer
-		ProposalApproved {
+		/// A signer has approved a proposal (does not imply threshold reached)
+		SignerApproved {
 			multisig_address: T::AccountId,
 			approver: T::AccountId,
 			proposal_id: u32,
@@ -381,7 +377,7 @@ pub mod pallet {
 		ProposalHasDeposit,
 		/// Proposal has not expired yet
 		ProposalNotExpired,
-		/// Proposal is not active (already executed or cancelled)
+		/// Proposal is not in a cancellable state (must be Active or Approved)
 		ProposalNotActive,
 		/// Proposal has not been approved yet (threshold not reached)
 		ProposalNotApproved,
@@ -736,7 +732,9 @@ pub mod pallet {
 			let approvals_count = proposal.approvals.len() as u32;
 
 			// Check if threshold is reached - if so, mark as Approved
-			if approvals_count >= multisig_data.threshold {
+			let threshold_just_reached = proposal.status == ProposalStatus::Active &&
+				approvals_count >= multisig_data.threshold;
+			if threshold_just_reached {
 				proposal.status = ProposalStatus::Approved;
 			}
 
@@ -744,15 +742,15 @@ pub mod pallet {
 			Proposals::<T>::insert(&multisig_address, proposal_id, &proposal);
 
 			// Emit approval event
-			Self::deposit_event(Event::ProposalApproved {
+			Self::deposit_event(Event::SignerApproved {
 				multisig_address: multisig_address.clone(),
 				approver,
 				proposal_id,
 				approvals_count,
 			});
 
-			// Emit ready-to-execute event if threshold just reached
-			if proposal.status == ProposalStatus::Approved {
+			// Emit ready-to-execute event only when threshold is first crossed
+			if threshold_just_reached {
 				Self::deposit_event(Event::ProposalReadyToExecute {
 					multisig_address,
 					proposal_id,

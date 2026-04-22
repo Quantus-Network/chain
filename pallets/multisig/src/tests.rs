@@ -364,7 +364,7 @@ fn approve_works() {
 
 		// Check event
 		System::assert_last_event(
-			Event::ProposalApproved {
+			Event::SignerApproved {
 				multisig_address: multisig_address.clone(),
 				approver: charlie(),
 				proposal_id,
