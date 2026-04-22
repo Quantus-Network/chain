@@ -126,6 +126,7 @@ pub mod pallet {
 	use super::*;
 	use codec::Encode;
 	use frame_support::{
+		defensive,
 		dispatch::{
 			DispatchErrorWithPostInfo, DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo,
 			Pays, PostDispatchInfo,
@@ -526,8 +527,14 @@ pub mod pallet {
 			}
 
 			// Check per-signer proposal limit (filibuster protection)
-			let max_proposals_per_signer =
-				T::MaxTotalProposalsInStorage::get().saturating_div(signers_count);
+			// Use checked_div with defensive fallback - signers_count should never be 0
+			// (enforced by create_multisig requiring >= 2 signers), but we handle it defensively
+			let max_proposals_per_signer = T::MaxTotalProposalsInStorage::get()
+				.checked_div(signers_count)
+				.unwrap_or_else(|| {
+					defensive!("signers_count is zero - invariant violation");
+					1 // Fallback: allow at least 1 proposal per signer
+				});
 			let proposer_current_count =
 				multisig_data.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
 			if proposer_current_count >= max_proposals_per_signer {
