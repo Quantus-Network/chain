@@ -850,7 +850,11 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 
 		// Execute fails (InvalidCall) - proposal stays in storage
 		assert_err_ignore_postinfo(
-			Multisig::execute(RuntimeOrigin::signed(bob()), multisig_address.clone(), proposal_id),
+			Multisig::execute(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				proposal_id
+			),
 			Error::<Test>::InvalidCall.into(),
 		);
 		assert!(Proposals::<Test>::contains_key(&multisig_address, proposal_id));

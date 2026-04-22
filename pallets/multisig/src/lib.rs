@@ -129,6 +129,7 @@ pub mod pallet {
 		},
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
+		weights::Weight,
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
@@ -979,8 +980,15 @@ pub mod pallet {
 		/// Parameters:
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to execute
+		///
+		/// Note: The weight charged includes both multisig bookkeeping and the inner call's
+		/// declared weight. Actual weight is refunded based on post-dispatch info.
 		#[pallet::call_index(7)]
-		#[pallet::weight(<T as Config>::WeightInfo::execute(T::MaxCallSize::get()))]
+		#[pallet::weight({
+			// Worst case: max bookkeeping + max possible call weight (from benchmarks)
+			// The actual weight will be refunded based on the real call's weight
+			<T as Config>::WeightInfo::execute(T::MaxCallSize::get())
+		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn execute(
 			origin: OriginFor<T>,
@@ -1026,14 +1034,54 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::ProposalExpired, 2);
 			}
 
-			// Calculate actual weight based on real call size
-			let actual_call_size = proposal.call.len() as u32;
-			let actual_weight = <T as Config>::WeightInfo::execute(actual_call_size);
+			// Decode the call
+			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
+				.map_err(|_| Self::err_with_weight_raw(Error::<T>::InvalidCall, 2))?;
 
-			// Execute the proposal
-			Self::do_execute(multisig_address, proposal_id, proposal)?;
+			// Get weight info for accounting
+			let call_weight = call.get_dispatch_info().call_weight;
+			let bookkeeping_weight = Self::bookkeeping_weight(proposal.call.len() as u32);
 
-			Ok(PostDispatchInfo { actual_weight: Some(actual_weight), pays_fee: Pays::Yes })
+			// EFFECTS: Remove proposal and return deposit BEFORE dispatch (reentrancy protection)
+			Self::remove_proposal_and_return_deposit(
+				&multisig_address,
+				proposal_id,
+				&proposal.proposer,
+				proposal.deposit,
+			);
+
+			// INTERACTIONS: Dispatch the call as the multisig account
+			let result =
+				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
+
+			// Emit event with execution details
+			Self::deposit_event(Event::ProposalExecuted {
+				multisig_address,
+				proposal_id,
+				proposer: proposal.proposer,
+				call: proposal.call.to_vec(),
+				approvers: proposal.approvals.to_vec(),
+				result: result.as_ref().map(|_| ()).map_err(|e| e.error),
+			});
+
+			// Calculate actual weight: bookkeeping + inner call's actual weight
+			let actual_call_weight = match &result {
+				Ok(info) | Err(DispatchErrorWithPostInfo { post_info: info, .. }) => {
+					info.actual_weight.unwrap_or(call_weight)
+				},
+			};
+			let total_weight = bookkeeping_weight.saturating_add(actual_call_weight);
+
+			// Return result with proper weight accounting
+			result
+				.map(|_| PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
+				.map_err(|e| DispatchErrorWithPostInfo {
+					post_info: PostDispatchInfo {
+						actual_weight: Some(total_weight),
+						pays_fee: Pays::Yes,
+					},
+					error: e.error,
+				})
 		}
 
 		/// Approve dissolving a multisig account
@@ -1137,6 +1185,23 @@ pub mod pallet {
 				},
 				error: error.into(),
 			})
+		}
+
+		/// Return a raw DispatchErrorWithPostInfo (not wrapped in Result).
+		/// Use when you need to map_err with a custom error.
+		fn err_with_weight_raw(error: Error<T>, reads: u64) -> DispatchErrorWithPostInfo {
+			DispatchErrorWithPostInfo {
+				post_info: PostDispatchInfo {
+					actual_weight: Some(T::DbWeight::get().reads(reads)),
+					pays_fee: Pays::Yes,
+				},
+				error: error.into(),
+			}
+		}
+
+		/// Returns the multisig bookkeeping weight for execute (excludes inner call weight).
+		fn bookkeeping_weight(call_size: u32) -> Weight {
+			<T as Config>::WeightInfo::execute(call_size)
 		}
 
 		/// Derive a deterministic multisig address from signers, threshold, and nonce
@@ -1287,49 +1352,5 @@ pub mod pallet {
 			T::Currency::unreserve(proposer, deposit);
 		}
 
-		/// Internal function to execute a proposal
-		/// Called automatically from `approve()` when threshold is reached
-		///
-		/// Removes the proposal immediately and returns deposit.
-		///
-		/// This function is private and cannot be called from outside the pallet
-		///
-		/// SECURITY: Uses Checks-Effects-Interactions pattern to prevent reentrancy attacks.
-		/// Storage is updated BEFORE dispatching the call.
-		fn do_execute(
-			multisig_address: T::AccountId,
-			proposal_id: u32,
-			proposal: ProposalDataOf<T>,
-		) -> DispatchResult {
-			// CHECKS: Decode the call (validation)
-			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
-				.map_err(|_| Error::<T>::InvalidCall)?;
-
-			// EFFECTS: Remove proposal from storage and return deposit BEFORE external interaction
-			// (reentrancy protection)
-			Self::remove_proposal_and_return_deposit(
-				&multisig_address,
-				proposal_id,
-				&proposal.proposer,
-				proposal.deposit,
-			);
-
-			// INTERACTIONS: NOW execute the call as the multisig account
-			// Proposal already removed, so reentrancy cannot affect storage
-			let result =
-				call.dispatch(frame_system::RawOrigin::Signed(multisig_address.clone()).into());
-
-			// Emit event with all execution details for SubSquid indexing
-			Self::deposit_event(Event::ProposalExecuted {
-				multisig_address,
-				proposal_id,
-				proposer: proposal.proposer,
-				call: proposal.call.to_vec(),
-				approvers: proposal.approvals.to_vec(),
-				result: result.map(|_| ()).map_err(|e| e.error),
-			});
-
-			Ok(())
-		}
 	}
 }
