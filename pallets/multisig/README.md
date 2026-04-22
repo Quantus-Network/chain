@@ -55,6 +55,8 @@ Creates a new multisig account with deterministic address generation.
   - `signers=[alice, bob], threshold=2, nonce=0` → `address_A`
   - `signers=[alice, bob], threshold=2, nonce=1` → `address_B` (different!)
 
+**Note:** The creator does not need to be one of the signers. Anyone can create a multisig for a set of signers by paying the creation fee.
+
 **Economic Costs:**
 - **MultisigFee**: Non-refundable fee (spam prevention) → burned immediately
 
@@ -140,9 +142,11 @@ Dispatches an **Approved** proposal. Can be called by any signer of the multisig
 
 **Effects:**
 - Call is decoded and dispatched with multisig_address as origin
-- Proposal is removed from storage
+- Proposal is **always removed** from storage (regardless of inner call success/failure)
 - ProposalDeposit is returned to the proposer
-- `ProposalExecuted` event is emitted
+- `ProposalExecuted` event is emitted with the inner call's `result` (Ok or Err)
+
+**Important:** The `execute` extrinsic itself succeeds even if the inner call fails. The proposal is removed and deposit returned in both cases. Check the `ProposalExecuted` event's `result` field to determine if the inner call succeeded.
 
 **Economic Costs:** Weight depends on call size (charged upfront for MaxCallSize, refunded for actual size).
 
@@ -564,6 +568,7 @@ at the cost of:
    - ✅ `ReversibleTransfers::schedule_transfer`
    - ✅ `ReversibleTransfers::schedule_asset_transfer`
    - ✅ `ReversibleTransfers::cancel`
+   - ✅ `ReversibleTransfers::recover_funds`
    - ❌ All other calls → `CallNotAllowedForHighSecurityMultisig` error
 3. **Approve:** Standard multisig approval process
 4. **Execute:** Threshold reached → transfer scheduled with delay
@@ -636,9 +641,7 @@ Normal multisigs automatically get refunded for unused high-security overhead.
 **Security notes:**
 - Call size is validated BEFORE decode to prevent DoS via oversized payloads
 - Weight formula includes O(call_size) component for decode (HS path) to prevent underpayment
-- Benchmarks must be regenerated after logic changes (see README / MULTISIG_REQ benchmarking section)
-
-See `MULTISIG_REQ.md` for detailed cost breakdown and benchmarking instructions.
+- Benchmarks must be regenerated after logic changes
 
 ### Configuration
 
@@ -660,7 +663,8 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
         matches!(call,
             RuntimeCall::ReversibleTransfers(Call::schedule_transfer { .. }) |
             RuntimeCall::ReversibleTransfers(Call::schedule_asset_transfer { .. }) |
-            RuntimeCall::ReversibleTransfers(Call::cancel { .. })
+            RuntimeCall::ReversibleTransfers(Call::cancel { .. }) |
+            RuntimeCall::ReversibleTransfers(Call::recover_funds { .. })
         )
     }
     
@@ -672,7 +676,6 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 
 ### Documentation
 
-- See `MULTISIG_REQ.md` for complete high-security integration requirements
 - See `pallet-reversible-transfers` docs for guardian management and delay configuration
 
 ## License
