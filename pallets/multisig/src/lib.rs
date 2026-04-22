@@ -383,6 +383,8 @@ pub mod pallet {
 		ProposalNotApproved,
 		/// Call is not allowed for high-security multisig
 		CallNotAllowedForHighSecurityMultisig,
+		/// Proposal nonce exhausted (u32::MAX reached)
+		ProposalNonceExhausted,
 	}
 
 	#[pallet::call]
@@ -609,7 +611,9 @@ pub mod pallet {
 				|maybe_multisig| -> Result<u32, DispatchError> {
 					let multisig = maybe_multisig.as_mut().ok_or(Error::<T>::MultisigNotFound)?;
 					let nonce = multisig.proposal_nonce;
-					multisig.proposal_nonce = nonce.saturating_add(1);
+					// Explicit check for nonce exhaustion instead of silent saturation
+					multisig.proposal_nonce =
+						nonce.checked_add(1).ok_or(Error::<T>::ProposalNonceExhausted)?;
 					multisig.active_proposals = multisig.active_proposals.saturating_add(1);
 					let count = multisig.proposals_per_signer.get(&proposer).copied().unwrap_or(0);
 					multisig
