@@ -973,13 +973,10 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::NotASigner, 1);
 			}
 
-			let (cleaned, total_proposals_iterated, total_call_bytes) =
+			let (cleaned, total_proposals_iterated, total_call_bytes, total_returned) =
 				Self::cleanup_proposer_expired(&multisig_address, &caller, &caller);
 
-			let deposit_per_proposal = T::ProposalDeposit::get();
-			let total_returned = deposit_per_proposal.saturating_mul(cleaned.into());
-
-			// Emit summary event
+			// Emit summary event (total_returned is the actual sum of stored deposits unreserved)
 			Self::deposit_event(Event::DepositsClaimed {
 				multisig_address: multisig_address.clone(),
 				claimer: caller,
@@ -1305,20 +1302,21 @@ pub mod pallet {
 		/// Iterates through all proposals in the multisig and removes expired ones
 		/// belonging to the specified proposer.
 		///
-		/// Returns: (cleaned_count, total_proposals_iterated)
+		/// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes, total_deposits)
 		/// - cleaned_count: number of proposals actually removed
 		/// - total_proposals_iterated: total proposals that existed before cleanup (for weight
 		///   calculation)
-		/// Returns: (cleaned_count, total_proposals_iterated, total_call_bytes)
 		/// - total_call_bytes: sum of proposal.call.len() over iterated proposals (for weight)
+		/// - total_deposits: sum of actual deposits unreserved (from stored proposal data)
 		fn cleanup_proposer_expired(
 			multisig_address: &T::AccountId,
 			proposer: &T::AccountId,
 			caller: &T::AccountId,
-		) -> (u32, u32, u32) {
+		) -> (u32, u32, u32, BalanceOf<T>) {
 			let current_block = frame_system::Pallet::<T>::block_number();
 			let mut total_iterated = 0u32;
 			let mut total_call_bytes = 0u32;
+			let mut total_deposits = BalanceOf::<T>::zero();
 
 			// Collect expired proposals to remove
 			// IMPORTANT: We count ALL proposals during iteration (for weight calculation)
@@ -1345,6 +1343,8 @@ pub mod pallet {
 
 			// Remove proposals and emit events
 			for (proposal_id, expired_proposer, deposit) in expired_proposals {
+				total_deposits = total_deposits.saturating_add(deposit);
+
 				Self::remove_proposal_and_return_deposit(
 					multisig_address,
 					proposal_id,
@@ -1360,7 +1360,7 @@ pub mod pallet {
 				});
 			}
 
-			(cleaned, total_iterated, total_call_bytes)
+			(cleaned, total_iterated, total_call_bytes, total_deposits)
 		}
 
 		/// Remove a proposal from storage and return deposit to proposer
