@@ -356,7 +356,7 @@ pub mod pallet {
 
 			log::debug!(target: "scheduler", "on_initialize: now: {:?}", now);
 
-			// Consume base weight for agenda processing
+			// Consume base weight for block-based agenda processing
 			if weight_counter.try_consume(T::WeightInfo::service_agendas_base()).is_err() {
 				return weight_counter.consumed();
 			}
@@ -376,6 +376,15 @@ pub mod pallet {
 
 			log::debug!(target: "scheduler", "on_initialize: current_timestamp: {:?}", current_timestamp);
 			if current_timestamp > T::Moment::zero() {
+				// Consume base weight for timestamp-based agenda housekeeping
+				// (IncompleteTimestampSince and LastProcessedTimestamp reads/writes)
+				if weight_counter
+					.try_consume(T::WeightInfo::service_timestamp_agendas_base())
+					.is_err()
+				{
+					return weight_counter.consumed();
+				}
+
 				Self::service_timestamp_agendas(
 					&mut weight_counter,
 					&mut executed,

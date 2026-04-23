@@ -159,6 +159,9 @@ impl WeightInfo for TestWeightInfo {
 	fn service_agendas_base() -> Weight {
 		Weight::from_parts(0b0000_0001, 0)
 	}
+	fn service_timestamp_agendas_base() -> Weight {
+		Weight::from_parts(0b0000_0011, 0)
+	}
 	fn service_agenda_base(i: u32) -> Weight {
 		Weight::from_parts((i << 8) as u64 + 0b0000_0010, 0)
 	}
