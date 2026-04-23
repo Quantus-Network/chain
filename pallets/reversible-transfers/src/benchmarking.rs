@@ -237,7 +237,7 @@ mod benchmarks {
 
 		let transfer_amount: BalanceOf<T> = 100u128.into();
 		for i in 0..n {
-			if i > 0 && i % 8 == 0 {
+			if i > 0 && i.is_multiple_of(8) {
 				let bn = frame_system::Pallet::<T>::block_number();
 				frame_system::Pallet::<T>::set_block_number(bn + BlockNumberFor::<T>::one());
 			}

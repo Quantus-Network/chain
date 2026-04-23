@@ -164,7 +164,7 @@ pub fn new_test_ext_with_endowments(
 
 	// Set up balances for the endowed accounts
 	pallet_balances::GenesisConfig::<Test> {
-		balances: endowments.iter().cloned().collect(),
+		balances: endowments.to_vec(),
 		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)
@@ -172,7 +172,7 @@ pub fn new_test_ext_with_endowments(
 
 	// Set up endowments to be processed at block 1
 	pallet_wormhole::GenesisConfig::<Test> {
-		endowed_addresses: endowments.into_iter().map(|(a, b)| (a, b)).collect(),
+		endowed_addresses: endowments,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

@@ -1951,39 +1951,36 @@ where
 					last_finalized,
 					best_queued,
 				) {
-					if req.max.is_some() {
-						loop {
-							let already = {
-								let max = req.max.unwrap();
-								let start_number_u64 = match req.from {
-									FromBlock::Number(n) => n.saturated_into::<u64>(),
-									FromBlock::Hash(h) => client_ref
-										.number(h)
-										.ok()
-										.flatten()
-										.map(|n| n.saturated_into::<u64>())
-										.unwrap_or(0),
-								};
-								let sig = SyncRequestParams {
-									start_number_u64,
-									is_descending: matches!(req.direction, Direction::Descending),
-									fields_mask: req.fields.to_be_u32(),
-									max_blocks: max,
-								};
-								!peer.request_signatures.insert(sig)
+					while let Some(max) = req.max {
+						let already = {
+							let start_number_u64 = match req.from {
+								FromBlock::Number(n) => n.saturated_into::<u64>(),
+								FromBlock::Hash(h) => client_ref
+									.number(h)
+									.ok()
+									.flatten()
+									.map(|n| n.saturated_into::<u64>())
+									.unwrap_or(0),
 							};
-							if !already { break; }
-							if let Some(m) = req.max.as_mut() {
-								if *m <= 1 {
-									debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
-									break;
-								}
-								let new_m = (*m).saturating_div(2).max(1);
-								debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, *m, new_m);
-								*m = new_m;
-							} else {
+							let sig = SyncRequestParams {
+								start_number_u64,
+								is_descending: matches!(req.direction, Direction::Descending),
+								fields_mask: req.fields.to_be_u32(),
+								max_blocks: max,
+							};
+							!peer.request_signatures.insert(sig)
+						};
+						if !already { break; }
+						if let Some(m) = req.max.as_mut() {
+							if *m <= 1 {
+								debug!(target: LOG_TARGET, "Proceeding with duplicate signature at max=1 for {:?}", id);
 								break;
 							}
+							let new_m = (*m).saturating_div(2).max(1);
+							debug!(target: LOG_TARGET, "Duplicate request to {:?}, reducing max from {} to {}", id, *m, new_m);
+							*m = new_m;
+						} else {
+							break;
 						}
 					}
 					peer.state = PeerSyncState::DownloadingNew(range.start);
