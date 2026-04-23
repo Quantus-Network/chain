@@ -45,7 +45,25 @@ where
 	BlockNumber: Saturating + Copy + Parameter + One + Zero,
 	Moment: Saturating + Copy + Parameter + Zero + CheckedDiv,
 {
-	/// Normalize timestamp value
+	/// Normalize a timestamp to its bucket boundary.
+	///
+	/// Timestamps are grouped into buckets of size `precision` for efficient batch processing.
+	/// This function rounds a timestamp **up** to the next bucket boundary.
+	///
+	/// # Behavior
+	/// - Block numbers are returned unchanged
+	/// - Timestamps are rounded up: `floor(t / precision) * precision + precision`
+	///
+	/// # Examples (with precision = 10000ms)
+	/// - `Timestamp(0)` -> `Timestamp(10000)` (bucket 1)
+	/// - `Timestamp(1)` -> `Timestamp(10000)` (bucket 1)
+	/// - `Timestamp(9999)` -> `Timestamp(10000)` (bucket 1)
+	/// - `Timestamp(10000)` -> `Timestamp(20000)` (bucket 2, exact boundaries advance)
+	/// - `Timestamp(15000)` -> `Timestamp(20000)` (bucket 2)
+	///
+	/// # Edge Cases
+	/// - If `precision` is zero, returns `Timestamp(precision)` (zero) due to checked_div
+	///   returning None. Callers should ensure precision > 0.
 	pub fn normalize(&self, precision: Moment) -> Self {
 		match self {
 			BlockNumberOrTimestamp::BlockNumber(_) => *self,
@@ -102,6 +120,34 @@ where
 /// This is an extended version of `frame_support::traits::schedule::DispatchTime` which allows
 /// for a task to be scheduled at or close to specific timestamps. This is useful for chains that
 /// does not have a fixed block time, such as PoW chains.
+///
+/// # Timestamp Scheduling Semantics
+///
+/// **Important:** Timestamp-based scheduling uses bucket normalization for efficiency.
+/// Tasks are grouped into time buckets (configured via `TimestampBucketSize`) and processed
+/// together when the bucket boundary is reached.
+///
+/// When using `After(Timestamp(x))`:
+/// - The value `x` is treated as an **absolute target timestamp**, not a relative delay
+/// - The timestamp is normalized to a bucket boundary, then advanced by one bucket
+/// - This ensures the task executes **after** the target time, but with bucket granularity
+///
+/// ## Example (with 24-second bucket size):
+/// - Current time: 10000ms
+/// - `After(Timestamp(35000))` schedules for bucket 48000ms (not 10000 + 35000 = 45000)
+/// - The task will execute when timestamp >= 48000ms
+///
+/// ## For relative delays:
+/// Callers wanting "execute after X milliseconds from now" should compute the absolute
+/// target time first:
+/// ```ignore
+/// let target = current_time.saturating_add(delay_ms);
+/// DispatchTime::After(BlockNumberOrTimestamp::Timestamp(target))
+/// ```
+///
+/// This bucketed approach reduces storage overhead and ensures consistent execution
+/// ordering, but means execution time has bucket-sized granularity rather than
+/// millisecond precision.
 #[derive(
 	Encode,
 	Decode,
@@ -115,9 +161,13 @@ where
 	DecodeWithMemTracking,
 )]
 pub enum DispatchTime<BlockNumber, Moment> {
-	/// At specified block.
+	/// At specified block number.
 	At(BlockNumber),
-	/// After specified number of blocks.
+	/// After a specified point in time.
+	///
+	/// - `BlockNumber(x)`: Execute after `x` blocks from the current block (relative).
+	/// - `Timestamp(x)`: Execute after timestamp `x` is reached (absolute, bucketed).
+	///   See type-level docs for timestamp bucketing semantics.
 	After(BlockNumberOrTimestamp<BlockNumber, Moment>),
 }
 

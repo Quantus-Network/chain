@@ -622,6 +622,22 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+	/// Resolve a [`DispatchTime`] into a concrete [`BlockNumberOrTimestamp`] for storage.
+	///
+	/// # Block-based scheduling
+	/// - `At(block)`: Schedule at exact block number
+	/// - `After(BlockNumber(n))`: Schedule at `current_block + n + 1` (relative)
+	///
+	/// # Timestamp-based scheduling
+	/// - `After(Timestamp(target))`: Schedule in a bucket guaranteed to execute after `target`
+	///
+	/// **Important:** Timestamp scheduling uses bucket normalization. The `target` value is
+	/// treated as an absolute timestamp, not a relative delay. The task is placed in the
+	/// bucket following the one containing `target`, ensuring execution occurs strictly
+	/// after the target time (with bucket-sized granularity).
+	///
+	/// For relative delays, callers should compute `now + delay` before calling.
+	/// See [`DispatchTime`] documentation for details and examples.
 	fn resolve_time(
 		when: DispatchTime<BlockNumberFor<T>, T::Moment>,
 	) -> Result<BlockNumberOrTimestampOf<T>, DispatchError> {
@@ -630,25 +646,22 @@ impl<T: Config> Pallet<T> {
 
 		let when = match when {
 			DispatchTime::At(x) => BlockNumberOrTimestamp::BlockNumber(x),
-			// The current block has already completed it's scheduled tasks, so
-			// Schedule the task at lest one block after this current block.
+			// The current block has already completed its scheduled tasks, so
+			// schedule the task at least one block after this current block.
 			DispatchTime::After(x) => {
-				// get the median block time
 				let res = match x {
+					// Block-based: truly relative (current + delay + 1)
 					BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
 						current_block.saturating_add(x).saturating_add(One::one()),
 					),
+					// Timestamp-based: bucket the target time, then advance one bucket.
+					// This ensures the task executes strictly AFTER the target timestamp.
+					//
+					// Example with bucket_size = 24000ms:
+					// - Target = 35000ms -> normalize() = 48000ms (next bucket boundary)
+					// - Then advance: 48000 + 24000 = 72000ms
+					// - Task executes when timestamp >= 72000ms, guaranteed > 35000ms
 					BlockNumberOrTimestamp::Timestamp(target) => {
-						// For timestamp-based scheduling, we need to ensure the task doesn't
-						// fire before the target time. The normalize function places the task
-						// in a bucket, but that bucket could start processing before the target.
-						//
-						// Example with bucket_size = 10000:
-						// - Target = 35000 -> normalize() = 40000 (bucket covers 30001-40000)
-						// - But time 31000 is in this bucket, so task could fire at 31000 < 35000!
-						//
-						// Fix: Schedule in the next bucket after normalization, guaranteeing
-						// the bucket's start time is > target time.
 						let bucket = x.normalize(T::TimestampBucketSize::get());
 						let bucket_time = bucket.as_timestamp().unwrap_or(target);
 						BlockNumberOrTimestamp::Timestamp(
