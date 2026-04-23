@@ -3057,13 +3057,11 @@ fn cancel_named_without_origin_cleans_up_retries() {
 	});
 }
 
-/// A retry whose period type mismatches the task domain (e.g. Timestamp retry period on a
-/// BlockNumber task) emits RetryFailed rather than silently dropping the retry.
+/// Setting a retry whose period type mismatches the task domain (e.g. Timestamp retry period on a
+/// BlockNumber task) is rejected upfront with RetryPeriodMismatch error.
 #[test]
-fn mismatched_retry_period_emits_failure_event() {
+fn mismatched_retry_period_rejected_at_set_retry() {
 	new_test_ext().execute_with(|| {
-		Threshold::<Test>::put((99, 100));
-
 		let call =
 			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
 		assert_ok!(Scheduler::do_schedule(
@@ -3073,36 +3071,72 @@ fn mismatched_retry_period_emits_failure_event() {
 			Preimage::bound(call).unwrap(),
 		));
 
-		// Set a Timestamp-based retry period on a BlockNumber-based task. This is a type mismatch.
+		// Setting a Timestamp-based retry period on a BlockNumber-based task should fail.
+		assert_noop!(
+			Scheduler::set_retry(
+				root().into(),
+				(BlockNumberOrTimestamp::BlockNumber(4), 0),
+				10,
+				BlockNumberOrTimestamp::Timestamp(3000u64)
+			),
+			Error::<Test>::RetryPeriodMismatch
+		);
+		assert_eq!(Retries::<Test>::iter().count(), 0, "No retry config should be stored");
+
+		// Setting a BlockNumber-based retry period on the same task should succeed.
 		assert_ok!(Scheduler::set_retry(
 			root().into(),
 			(BlockNumberOrTimestamp::BlockNumber(4), 0),
 			10,
-			BlockNumberOrTimestamp::Timestamp(3000u64)
+			BlockNumberOrTimestamp::BlockNumber(2)
 		));
 		assert_eq!(Retries::<Test>::iter().count(), 1);
+	});
+}
 
-		// Task fails at block 4 (threshold not met). The retry should fire, but the
-		// mismatched period means schedule_retry's saturating_add returns Err.
-		run_to_block(4);
+/// Setting a retry whose period type mismatches the task domain for timestamp-scheduled tasks
+/// is also rejected upfront.
+#[test]
+fn mismatched_retry_period_rejected_for_timestamp_task() {
+	new_test_ext().execute_with(|| {
+		MockTimestamp::set_timestamp(10000);
 
-		// The retry config was consumed but no retry was actually scheduled.
-		assert_eq!(
-			Agenda::<Test>::iter().count(),
-			0,
-			"No retry should be scheduled when period type mismatches"
+		// Schedule a timestamp-based task
+		assert_ok!(Scheduler::schedule_after(
+			RuntimeOrigin::root(),
+			BlockNumberOrTimestamp::Timestamp(50000),
+			127,
+			Box::new(RuntimeCall::Logger(LoggerCall::timed_log {
+				i: 42,
+				weight: Weight::from_parts(10, 0)
+			})),
+		));
+
+		// Get the scheduled task address (it will be at a normalized timestamp bucket)
+		let agenda_entries: Vec<_> = Agenda::<Test>::iter().collect();
+		assert_eq!(agenda_entries.len(), 1);
+		let (when, _) = &agenda_entries[0];
+
+		// Setting a BlockNumber-based retry period on a Timestamp-based task should fail.
+		assert_noop!(
+			Scheduler::set_retry(
+				root().into(),
+				(when.clone(), 0),
+				10,
+				BlockNumberOrTimestamp::BlockNumber(2)
+			),
+			Error::<Test>::RetryPeriodMismatch
 		);
+		assert_eq!(Retries::<Test>::iter().count(), 0, "No retry config should be stored");
 
-		// There should be a RetryFailed event, but there won't be one because the code
-		// silently returns without emitting any event when saturating_add fails.
-		let events = System::events();
-		let has_retry_failed = events
-			.iter()
-			.any(|e| matches!(e.event, RuntimeEvent::Scheduler(crate::Event::RetryFailed { .. })));
-		assert!(
-			has_retry_failed,
-			"RetryFailed event must be emitted when retry period type mismatches"
-		);
+		// Setting a Timestamp-based retry period on the same task should succeed.
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(when.clone(), 0),
+			10,
+			BlockNumberOrTimestamp::Timestamp(5000u64)
+		));
+		assert_eq!(Retries::<Test>::iter().count(), 1);
 	});
 }
 

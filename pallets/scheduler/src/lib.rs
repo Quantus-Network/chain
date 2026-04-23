@@ -346,6 +346,11 @@ pub mod pallet {
 		Named,
 		/// Periodic scheduling is not supported.
 		PeriodicNotSupported,
+		/// Retry period type does not match task scheduling type.
+		///
+		/// Block-scheduled tasks require a block-number retry period,
+		/// and timestamp-scheduled tasks require a timestamp retry period.
+		RetryPeriodMismatch,
 	}
 
 	#[pallet::hooks]
@@ -514,6 +519,10 @@ pub mod pallet {
 		/// clones of the original task. Their retry configuration will be derived from the
 		/// original task's configuration, but will have a lower value for `remaining` than the
 		/// original `total_retries`.
+		///
+		/// The `period` type must match the task's scheduling type: block-scheduled tasks
+		/// require a block-number period, and timestamp-scheduled tasks require a timestamp
+		/// period. Mismatched types will return [`Error::RetryPeriodMismatch`].
 		#[pallet::call_index(6)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_retry())]
 		pub fn set_retry(
@@ -531,6 +540,8 @@ pub mod pallet {
 				.and_then(Option::as_ref)
 				.ok_or(Error::<T>::NotFound)?;
 			Self::ensure_privilege(origin.caller(), &scheduled.origin)?;
+			// Ensure retry period type matches task scheduling type
+			Self::ensure_period_matches_task_type(&when, &period)?;
 			Retries::<T>::insert(
 				(when, index),
 				RetryConfig { total_retries: retries, remaining: retries, period },
@@ -550,6 +561,10 @@ pub mod pallet {
 		/// clones of the original task. Their retry configuration will be derived from the
 		/// original task's configuration, but will have a lower value for `remaining` than the
 		/// original `total_retries`.
+		///
+		/// The `period` type must match the task's scheduling type: block-scheduled tasks
+		/// require a block-number period, and timestamp-scheduled tasks require a timestamp
+		/// period. Mismatched types will return [`Error::RetryPeriodMismatch`].
 		#[pallet::call_index(7)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_retry_named())]
 		pub fn set_retry_named(
@@ -567,6 +582,8 @@ pub mod pallet {
 				.and_then(Option::as_ref)
 				.ok_or(Error::<T>::NotFound)?;
 			Self::ensure_privilege(origin.caller(), &scheduled.origin)?;
+			// Ensure retry period type matches task scheduling type
+			Self::ensure_period_matches_task_type(&when, &period)?;
 			Retries::<T>::insert(
 				(when, agenda_index),
 				RetryConfig { total_retries: retries, remaining: retries, period },
@@ -1288,6 +1305,26 @@ impl<T: Config> Pallet<T> {
 		{
 			return Err(BadOrigin.into());
 		}
+		Ok(())
+	}
+
+	/// Ensure the retry period type matches the task's scheduling type.
+	///
+	/// Block-scheduled tasks (with a `BlockNumber` address) require a block-number retry period,
+	/// and timestamp-scheduled tasks require a timestamp retry period. This validation prevents
+	/// retry configuration that would fail at retry time due to type mismatch.
+	fn ensure_period_matches_task_type(
+		task_when: &BlockNumberOrTimestampOf<T>,
+		period: &BlockNumberOrTimestampOf<T>,
+	) -> Result<(), DispatchError> {
+		let types_match = match (task_when, period) {
+			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_)) => {
+				true
+			},
+			(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_)) => true,
+			_ => false,
+		};
+		ensure!(types_match, Error::<T>::RetryPeriodMismatch);
 		Ok(())
 	}
 }
