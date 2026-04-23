@@ -1077,7 +1077,9 @@ fn on_initialize_weight_is_correct() {
 				<TestWeightInfo as MarginalWeightInfo>::service_task(None, true) +
 				TestWeightInfo::execute_dispatch_unsigned() +
 				call_weight + Weight::from_parts(4, 0) +
-				Weight::from_parts(2, 0) // add for time based
+				// Timestamp path: base housekeeping + service_agenda for empty timestamp agenda
+				TestWeightInfo::service_timestamp_agendas_base() +
+				TestWeightInfo::service_agenda_base(0)
 		);
 		assert_eq!(IncompleteBlockSince::<Test>::get(), None);
 		assert_eq!(logger::log(), vec![(root(), 2600u32)]);
@@ -1093,7 +1095,9 @@ fn on_initialize_weight_is_correct() {
 				<TestWeightInfo as MarginalWeightInfo>::service_task(None, false) +
 				TestWeightInfo::execute_dispatch_unsigned() +
 				call_weight + Weight::from_parts(2, 0) +
-				Weight::from_parts(2, 0) // add for time based
+				// Timestamp path: base housekeeping + service_agenda for empty timestamp agenda
+				TestWeightInfo::service_timestamp_agendas_base() +
+				TestWeightInfo::service_agenda_base(0)
 		);
 		assert_eq!(IncompleteBlockSince::<Test>::get(), None);
 		assert_eq!(logger::log(), vec![(root(), 2600u32), (root(), 69u32), (root(), 42u32)]);
@@ -1106,7 +1110,9 @@ fn on_initialize_weight_is_correct() {
 				<TestWeightInfo as MarginalWeightInfo>::service_task(None, true) +
 				TestWeightInfo::execute_dispatch_unsigned() +
 				call_weight + Weight::from_parts(1, 0) +
-				Weight::from_parts(2, 0) // add for time based
+				// Timestamp path: base housekeeping + service_agenda for empty timestamp agenda
+				TestWeightInfo::service_timestamp_agendas_base() +
+				TestWeightInfo::service_agenda_base(0)
 		);
 		assert_eq!(IncompleteBlockSince::<Test>::get(), None);
 		assert_eq!(
@@ -1120,7 +1126,9 @@ fn on_initialize_weight_is_correct() {
 			actual_weight,
 			TestWeightInfo::service_agendas_base() +
 				TestWeightInfo::service_agenda_base(0) +
-				Weight::from_parts(2, 0) // add for time based
+				// Timestamp path: base housekeeping + service_agenda for empty timestamp agenda
+				TestWeightInfo::service_timestamp_agendas_base() +
+				TestWeightInfo::service_agenda_base(0)
 		);
 	});
 }
