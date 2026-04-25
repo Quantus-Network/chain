@@ -1,4 +1,3 @@
-#![allow(clippy::all)]
 //! > Made with *Substrate*, for *Polkadot*.
 //!
 //! [![github]](https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame/scheduler) -
@@ -66,14 +65,13 @@ mod benchmarking;
 mod mock;
 #[cfg(test)]
 mod tests;
-pub mod traits;
 pub mod weights;
 
 extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
 use codec::{Decode, Encode, MaxEncodedLen};
-use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData, u32};
+use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
 use frame_support::{
 	dispatch::{DispatchResult, GetDispatchInfo, Parameter, RawOrigin},
 	ensure,
@@ -373,7 +371,7 @@ pub mod pallet {
 			let mut executed = 0u32;
 
 			// Process block-based agendas
-			Self::service_block_agendas(&mut weight_counter, &mut executed, now, u32::max_value());
+			Self::service_block_agendas(&mut weight_counter, &mut executed, now, u32::MAX);
 
 			// Process timestamp-based agendas using current system time
 			// This ensures no buckets are skipped if block times are longer than bucket intervals
@@ -394,7 +392,7 @@ pub mod pallet {
 					&mut weight_counter,
 					&mut executed,
 					current_timestamp,
-					u32::max_value(),
+					u32::MAX,
 				);
 			}
 
@@ -575,7 +573,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			let (when, agenda_index) = Lookup::<T>::get(&id).ok_or(Error::<T>::NotFound)?;
+			let (when, agenda_index) = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
 			let agenda = Agenda::<T>::get(when);
 			let scheduled = agenda
 				.get(agenda_index as usize)
@@ -614,7 +612,7 @@ pub mod pallet {
 		pub fn cancel_retry_named(origin: OriginFor<T>, id: TaskName) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			let task = Lookup::<T>::get(&id).ok_or(Error::<T>::NotFound)?;
+			let task = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
 			Self::do_cancel_retry(origin.caller(), task)?;
 			Self::deposit_event(Event::RetryCancelled { task, id: Some(id) });
 			Ok(())
@@ -649,8 +647,7 @@ impl<T: Config> Pallet<T> {
 			DispatchTime::At(x) => BlockNumberOrTimestamp::BlockNumber(x),
 			// The current block has already completed its scheduled tasks, so
 			// schedule the task at least one block after this current block.
-			DispatchTime::After(x) => {
-				let res = match x {
+			DispatchTime::After(x) => match x {
 					// Block-based: truly relative (current + delay + 1)
 					BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
 						current_block.saturating_add(x).saturating_add(One::one()),
@@ -665,12 +662,10 @@ impl<T: Config> Pallet<T> {
 					BlockNumberOrTimestamp::Timestamp(target) => {
 						let bucket = x.normalize(T::TimestampBucketSize::get());
 						let bucket_time = bucket.as_timestamp().unwrap_or(target);
-						BlockNumberOrTimestamp::Timestamp(
-							bucket_time.saturating_add(T::TimestampBucketSize::get()),
-						)
-					},
-				};
-				res
+					BlockNumberOrTimestamp::Timestamp(
+						bucket_time.saturating_add(T::TimestampBucketSize::get()),
+					)
+				},
 			},
 		};
 
@@ -711,14 +706,12 @@ impl<T: Config> Pallet<T> {
 			// will always succeed due to the above check.
 			let _ = agenda.try_push(Some(what));
 			agenda.len() as u32 - 1
-		} else {
-			if let Some(hole_index) = agenda.iter().position(|i| i.is_none()) {
-				agenda[hole_index] = Some(what);
-				hole_index as u32
-			} else {
-				return Err((DispatchError::Exhausted, what));
-			}
-		};
+		} else if let Some(hole_index) = agenda.iter().position(|i| i.is_none()) {
+  				agenda[hole_index] = Some(what);
+  				hole_index as u32
+  			} else {
+  				return Err((DispatchError::Exhausted, what));
+  			};
 		Agenda::<T>::insert(when, agenda);
 		Ok(index)
 	}
@@ -780,7 +773,7 @@ impl<T: Config> Pallet<T> {
 			Self::deposit_event(Event::Canceled { when, index });
 			Ok(())
 		} else {
-			return Err(Error::<T>::NotFound.into());
+			Err(Error::<T>::NotFound.into())
 		}
 	}
 
@@ -817,7 +810,7 @@ impl<T: Config> Pallet<T> {
 		origin: T::PalletsOrigin,
 		call: BoundedCallOf<T>,
 	) -> Result<TaskAddressOf<T>, DispatchError> {
-		if Lookup::<T>::contains_key(&id) {
+		if Lookup::<T>::contains_key(id) {
 			return Err(Error::<T>::FailedToSchedule.into());
 		}
 		let when = Self::resolve_time(when)?;
@@ -858,7 +851,7 @@ impl<T: Config> Pallet<T> {
 				Self::deposit_event(Event::Canceled { when, index });
 				Ok(())
 			} else {
-				return Err(Error::<T>::NotFound.into());
+				Err(Error::<T>::NotFound.into())
 			}
 		})
 	}
@@ -940,7 +933,7 @@ impl<T: Config> Pallet<T> {
 				executed,
 				BlockNumberOrTimestamp::BlockNumber(current_block),
 				BlockNumberOrTimestamp::BlockNumber(when),
-				u32::max_value(),
+				u32::MAX,
 			) {
 				incomplete_since = incomplete_since.min(when);
 			}
@@ -1115,8 +1108,9 @@ impl<T: Config> Pallet<T> {
 	/// This involves:
 	/// - removing and potentially replacing the `Lookup` entry for the task.
 	/// - realizing the task's call which can include a preimage lookup.
-	/// Execute a single scheduled task. Returns Ok(()) on successful dispatch, or Err with
-	/// the task back (Some) for retry / postponement, or None if permanently removed.
+	///
+	/// Returns `Ok(())` on successful dispatch, or `Err` with the task back (`Some`) for
+	/// retry / postponement, or `None` if permanently removed.
 	fn service_task(
 		weight: &mut WeightMeter,
 		now: BlockNumberOrTimestampOf<T>,
@@ -1260,13 +1254,6 @@ impl<T: Config> Pallet<T> {
 	/// - there was no retry configuration in place
 	/// - there were no more retry attempts left
 	/// - the agenda was full.
-	/// Check if a task has a retry configuration in place and, if so, try to reschedule it.
-	///
-	/// Possible causes for failure to schedule a retry for a task:
-	/// - there wasn't enough weight to run the task reschedule logic
-	/// - there was no retry configuration in place
-	/// - there were no more retry attempts left
-	/// - the agenda was full.
 	///
 	/// Returns `true` if a retry was successfully scheduled, `false` otherwise.
 	/// The caller should only drop the original task's preimage reference if this returns `false`,
@@ -1350,13 +1337,11 @@ impl<T: Config> Pallet<T> {
 		task_when: &BlockNumberOrTimestampOf<T>,
 		period: &BlockNumberOrTimestampOf<T>,
 	) -> Result<(), DispatchError> {
-		let types_match = match (task_when, period) {
-			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_)) => {
-				true
-			},
-			(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_)) => true,
-			_ => false,
-		};
+		let types_match = matches!(
+			(task_when, period),
+			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_))
+				| (BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_))
+		);
 		ensure!(types_match, Error::<T>::RetryPeriodMismatch);
 		Ok(())
 	}
