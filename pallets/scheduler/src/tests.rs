@@ -3475,3 +3475,126 @@ fn timestamp_task_does_not_fire_before_target_time() {
 		);
 	});
 }
+
+/// Verifies that preimage ownership is correctly transferred when a task is retried.
+/// The preimage should remain requested while retries are pending, and only be
+/// unrequested when the task succeeds or all retries are exhausted.
+#[test]
+fn retry_preserves_preimage_ownership() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 20 is reached
+		Threshold::<Test>::put((20, 100));
+
+		// Create a call with a lookup hash (not inline)
+		let call = RuntimeCall::Logger(LoggerCall::timed_log {
+			i: 42,
+			weight: Weight::from_parts(10, 0),
+		});
+		let hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let len = call.using_encoded(|x| x.len()) as u32;
+		// Use Bounded::Lookup to ensure we have a preimage reference
+		let bound = Bounded::Lookup { hash, len };
+
+		// Register the preimage
+		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(0), call.encode()));
+
+		// Schedule task at block 4
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 127, root(), bound));
+
+		// Preimage should be requested
+		assert!(Preimage::is_requested(&hash), "Preimage should be requested after scheduling");
+
+		// Set retry config: 3 retries every 2 blocks
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			3,
+			BlockNumberOrTimestamp::BlockNumber(2)
+		));
+
+		// Run to block 4 - task fails, retry scheduled for block 6
+		run_to_block(4);
+		assert!(logger::log().is_empty(), "Task should have failed");
+		assert!(
+			Preimage::is_requested(&hash),
+			"Preimage should still be requested after first failure (retry pending)"
+		);
+		assert!(
+			Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(6))[0].is_some(),
+			"Retry should be scheduled at block 6"
+		);
+
+		// Run to block 6 - task fails again, retry scheduled for block 8
+		run_to_block(6);
+		assert!(logger::log().is_empty(), "Task should have failed again");
+		assert!(
+			Preimage::is_requested(&hash),
+			"Preimage should still be requested after second failure (retry pending)"
+		);
+
+		// Run to block 8 - task fails again, retry scheduled for block 10
+		run_to_block(8);
+		assert!(logger::log().is_empty(), "Task should have failed again");
+		assert!(
+			Preimage::is_requested(&hash),
+			"Preimage should still be requested after third failure (retry pending)"
+		);
+
+		// Run to block 10 - task fails, but no more retries (remaining=0)
+		run_to_block(10);
+		assert!(logger::log().is_empty(), "Task should have failed one last time");
+		assert!(
+			!Preimage::is_requested(&hash),
+			"Preimage should be unrequested after all retries exhausted"
+		);
+	});
+}
+
+/// Verifies that preimage is unrequested when retry succeeds.
+#[test]
+fn retry_unrequests_preimage_on_success() {
+	new_test_ext().execute_with(|| {
+		// Task fails until block 6 is reached
+		Threshold::<Test>::put((6, 100));
+
+		// Create a call with a lookup hash (not inline)
+		let call = RuntimeCall::Logger(LoggerCall::timed_log {
+			i: 42,
+			weight: Weight::from_parts(10, 0),
+		});
+		let hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
+		let len = call.using_encoded(|x| x.len()) as u32;
+		// Use Bounded::Lookup to ensure we have a preimage reference
+		let bound = Bounded::Lookup { hash, len };
+
+		// Register the preimage
+		assert_ok!(Preimage::note_preimage(RuntimeOrigin::signed(0), call.encode()));
+
+		// Schedule task at block 4
+		assert_ok!(Scheduler::do_schedule(DispatchTime::At(4), 127, root(), bound));
+
+		// Set retry config: 5 retries every 2 blocks
+		assert_ok!(Scheduler::set_retry(
+			root().into(),
+			(BlockNumberOrTimestamp::BlockNumber(4), 0),
+			5,
+			BlockNumberOrTimestamp::BlockNumber(2)
+		));
+
+		// Preimage should be requested
+		assert!(Preimage::is_requested(&hash));
+
+		// Run to block 4 - task fails, retry scheduled for block 6
+		run_to_block(4);
+		assert!(logger::log().is_empty());
+		assert!(Preimage::is_requested(&hash), "Preimage should still be requested (retry pending)");
+
+		// Run to block 6 - task succeeds (threshold met)
+		run_to_block(6);
+		assert_eq!(logger::log(), vec![(root(), 42u32)], "Task should have succeeded");
+		assert!(
+			!Preimage::is_requested(&hash),
+			"Preimage should be unrequested after successful execution"
+		);
+	});
+}

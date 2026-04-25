@@ -1192,13 +1192,25 @@ impl<T: Config> Pallet<T> {
 					result,
 				});
 
-				if let Some(retry_config) = maybe_retry_config {
+				// Handle retry and preimage ownership:
+				// - If retry succeeds, ownership transfers to the retry clone (don't drop)
+				// - If retry fails or no retry configured, drop the original preimage
+				let retry_scheduled = if let Some(retry_config) = maybe_retry_config {
 					if failed {
-						Self::schedule_retry(weight, now, when, agenda_index, &task, retry_config);
+						Self::schedule_retry(weight, now, when, agenda_index, &task, retry_config)
+					} else {
+						// Task succeeded, no retry needed
+						false
 					}
-				}
+				} else {
+					// No retry config
+					false
+				};
 
-				T::Preimages::drop(&task.call);
+				// Only drop preimage if retry wasn't scheduled (ownership not transferred)
+				if !retry_scheduled {
+					T::Preimages::drop(&task.call);
+				}
 				Ok(())
 			},
 		}
@@ -1248,6 +1260,17 @@ impl<T: Config> Pallet<T> {
 	/// - there was no retry configuration in place
 	/// - there were no more retry attempts left
 	/// - the agenda was full.
+	/// Check if a task has a retry configuration in place and, if so, try to reschedule it.
+	///
+	/// Possible causes for failure to schedule a retry for a task:
+	/// - there wasn't enough weight to run the task reschedule logic
+	/// - there was no retry configuration in place
+	/// - there were no more retry attempts left
+	/// - the agenda was full.
+	///
+	/// Returns `true` if a retry was successfully scheduled, `false` otherwise.
+	/// The caller should only drop the original task's preimage reference if this returns `false`,
+	/// as a successful retry transfers ownership of that reference to the retry clone.
 	fn schedule_retry(
 		weight: &mut WeightMeter,
 		now: BlockNumberOrTimestampOf<T>,
@@ -1255,7 +1278,7 @@ impl<T: Config> Pallet<T> {
 		agenda_index: u32,
 		task: &ScheduledOf<T>,
 		retry_config: RetryConfig<BlockNumberOrTimestampOf<T>>,
-	) {
+	) -> bool {
 		if weight
 			.try_consume(T::WeightInfo::schedule_retry(T::MaxScheduledPerBlock::get()))
 			.is_err()
@@ -1264,32 +1287,42 @@ impl<T: Config> Pallet<T> {
 				task: (when, agenda_index),
 				id: task.maybe_id,
 			});
-			return;
+			return false;
 		}
 
 		let RetryConfig { total_retries, mut remaining, period } = retry_config;
 		remaining = match remaining.checked_sub(1) {
 			Some(n) => n,
-			None => return,
+			None => return false,
 		};
 		match now.saturating_add(&period) {
 			Ok(wake) => match Self::place_task(wake, task.as_retry()) {
 				Ok(address) => {
+					// Retry successfully placed. The retry clone now "owns" the preimage
+					// reference that was held by the original task. The caller should NOT
+					// drop the original task's preimage since ownership has transferred.
 					Retries::<T>::insert(address, RetryConfig { total_retries, remaining, period });
+					true
 				},
-				Err((_, task)) => {
-					T::Preimages::drop(&task.call);
+				Err((_, retry_task)) => {
+					// Retry placement failed (agenda full). The retry clone was never
+					// successfully placed, so it doesn't own a preimage reference.
+					// Do NOT drop the retry clone's preimage here - it never acquired one.
+					// The caller will drop the original task's preimage.
 					Self::deposit_event(Event::RetryFailed {
 						task: (when, agenda_index),
-						id: task.maybe_id,
+						id: retry_task.maybe_id,
 					});
+					false
 				},
 			},
 			Err(_) => {
+				// Period type mismatch (saturating_add failed).
 				Self::deposit_event(Event::RetryFailed {
 					task: (when, agenda_index),
 					id: task.maybe_id,
 				});
+				false
 			},
 		}
 	}
