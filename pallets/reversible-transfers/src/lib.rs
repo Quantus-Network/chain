@@ -334,10 +334,31 @@ pub mod pallet {
 		/// Once an account is set as high security it can only make reversible
 		/// transfers. It is not allowed any other calls.
 		///
+		/// # Warning: Permanent and Irreversible
+		///
+		/// **Enabling high security mode is a one-way operation that cannot be undone.**
+		///
+		/// Once this function is called successfully, the account is permanently restricted
+		/// to only the following operations:
+		/// - [`schedule_transfer`](Self::schedule_transfer) - Schedule delayed native token transfers
+		/// - [`schedule_asset_transfer`](Self::schedule_asset_transfer) - Schedule delayed asset transfers
+		/// - [`cancel`](Self::cancel) - Cancel pending transfers
+		/// - [`recover_funds`](Self::recover_funds) - Guardian-initiated emergency fund recovery
+		///
+		/// There is no mechanism to disable high security mode or restore normal account
+		/// functionality. This design is intentional to provide maximum security guarantees:
+		/// an attacker who gains access to the account cannot simply disable the protections.
+		///
+		/// Users who no longer wish to use high-security features can simply transfer their
+		/// funds to a different account using [`schedule_transfer`](Self::schedule_transfer)
+		/// or [`schedule_asset_transfer`](Self::schedule_asset_transfer).
+		///
+		/// # Parameters
+		///
 		/// - `delay`: The reversibility time for any transfer made by the high
 		/// security account.
-		/// - interceptor: The account that can intercept transctions from the
-		/// high security account.
+		/// - `interceptor`: The account that can intercept transactions from the
+		/// high security account (also known as the guardian).
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_high_security())]
 		pub fn set_high_security(

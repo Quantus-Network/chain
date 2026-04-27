@@ -41,6 +41,44 @@ Pending/delayed transfers can be tracked at `PendingTransfers` storage and by su
 
 - Transaction id is `((who, call).hash())` where `who` is the account that called the transaction and `call` is the call itself. This is used to identify the transaction in the scheduler and preimage. For identical transfers, there is a counter in `PendingTransfer` to differentiate between them.
 
+## High-Security Mode
+
+### Overview
+
+High-security mode provides enhanced protection for accounts by requiring all outgoing transfers to go through a time-delayed, cancellable process with guardian oversight.
+
+### Permanence (By Design)
+
+**Enabling high-security mode is permanent and irreversible.** There is no extrinsic to disable or downgrade a high-security account back to a normal account.
+
+This is an intentional security design, not a limitation:
+
+| Design Goal | Rationale |
+|-------------|-----------|
+| **Attacker resistance** | An attacker who compromises account keys cannot disable protections to steal funds immediately |
+| **Social engineering defense** | Users cannot be tricked into disabling security during a scam |
+| **Consistent security model** | Guardian can always rely on the delay period being enforced |
+| **Regulatory clarity** | Compliance processes can depend on the immutable security configuration |
+
+### Allowed Operations for High-Security Accounts
+
+Once an account becomes high-security, it can **only** perform these operations:
+
+| Operation | Description |
+|-----------|-------------|
+| `schedule_transfer` | Schedule a delayed native token transfer |
+| `schedule_asset_transfer` | Schedule a delayed asset transfer |
+| `cancel` | Cancel a pending transfer (owner or guardian) |
+| `recover_funds` | Guardian-initiated emergency recovery of all funds |
+
+All other blockchain operations (staking, governance, contract calls, etc.) are blocked by the transaction extension whitelist.
+
+### Exiting High-Security Mode
+
+While accounts cannot disable high-security mode, users who no longer want the high-security restrictions can simply transfer their funds to a different account using `schedule_transfer` or `schedule_asset_transfer`. After the delay period, the funds will be available in a normal account without restrictions.
+
+This ensures that users always have a straightforward path to unrestricted funds, while attackers cannot bypass the delay period and guardian oversight.
+
 ## High-Security Integration
 
 This pallet provides the **HighSecurityInspector** trait for integrating high-security features with other pallets (like `pallet-multisig`).
