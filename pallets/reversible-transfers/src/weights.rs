@@ -49,6 +49,7 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn set_high_security() -> Weight;
 	fn schedule_transfer() -> Weight;
+	fn schedule_asset_transfer() -> Weight;
 	fn cancel() -> Weight;
 	fn execute_transfer() -> Weight;
 	fn recover_funds(n: u32, ) -> Weight;
@@ -94,6 +95,40 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(296_000_000, 13483)
 			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
+	}
+	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
+	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::GlobalNonce` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::Lookup` (r:1 w:1)
+	/// Proof: `Scheduler::Lookup` (`max_values`: None, `max_size`: Some(53), added: 2528, mode: `MaxEncodedLen`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::Agenda` (r:1 w:1)
+	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10018), added: 12493, mode: `MaxEncodedLen`)
+	/// Storage: `Assets::Asset` (r:1 w:1)
+	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
+	/// Storage: `Assets::Account` (r:1 w:1)
+	/// Proof: `Assets::Account` (`max_values`: None, `max_size`: Some(134), added: 2609, mode: `MaxEncodedLen`)
+	/// Storage: `AssetsHolder::Holds` (r:1 w:1)
+	/// Proof: `AssetsHolder::Holds` (`max_values`: None, `max_size`: Some(85), added: 2560, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::PendingTransfers` (r:0 w:1)
+	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(291), added: 2766, mode: `MaxEncodedLen`)
+	///
+	/// NOTE: This is a conservative estimate based on the native transfer benchmark plus
+	/// additional storage accesses for pallet_assets and pallet_assets_holder.
+	/// Run benchmarks to get accurate weights for your runtime.
+	fn schedule_asset_transfer() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `693 + asset overhead (~200)`
+		//  Estimated: `13483 + 2685 + 2609 + 2560 = ~21337`
+		// Conservative estimate: native transfer weight + 20% overhead for asset operations
+		// This should be replaced with actual benchmark results
+		Weight::from_parts(355_000_000, 21337)
+			.saturating_add(T::DbWeight::get().reads(9_u64))  // 7 base + 2 for assets (Asset, Account) + Holds
+			.saturating_add(T::DbWeight::get().writes(7_u64)) // 6 base + 1 for AssetsHolder::Holds
 	}
 	/// Storage: `ReversibleTransfers::PendingTransfers` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(291), added: 2766, mode: `MaxEncodedLen`)
@@ -213,6 +248,40 @@ impl WeightInfo for () {
 		Weight::from_parts(296_000_000, 13483)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
+	}
+	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
+	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::GlobalNonce` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::Lookup` (r:1 w:1)
+	/// Proof: `Scheduler::Lookup` (`max_values`: None, `max_size`: Some(53), added: 2528, mode: `MaxEncodedLen`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::Agenda` (r:1 w:1)
+	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10018), added: 12493, mode: `MaxEncodedLen`)
+	/// Storage: `Assets::Asset` (r:1 w:1)
+	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
+	/// Storage: `Assets::Account` (r:1 w:1)
+	/// Proof: `Assets::Account` (`max_values`: None, `max_size`: Some(134), added: 2609, mode: `MaxEncodedLen`)
+	/// Storage: `AssetsHolder::Holds` (r:1 w:1)
+	/// Proof: `AssetsHolder::Holds` (`max_values`: None, `max_size`: Some(85), added: 2560, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::PendingTransfers` (r:0 w:1)
+	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(291), added: 2766, mode: `MaxEncodedLen`)
+	///
+	/// NOTE: This is a conservative estimate based on the native transfer benchmark plus
+	/// additional storage accesses for pallet_assets and pallet_assets_holder.
+	/// Run benchmarks to get accurate weights for your runtime.
+	fn schedule_asset_transfer() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `693 + asset overhead (~200)`
+		//  Estimated: `13483 + 2685 + 2609 + 2560 = ~21337`
+		// Conservative estimate: native transfer weight + 20% overhead for asset operations
+		// This should be replaced with actual benchmark results
+		Weight::from_parts(355_000_000, 21337)
+			.saturating_add(RocksDbWeight::get().reads(9_u64))  // 7 base + 2 for assets (Asset, Account) + Holds
+			.saturating_add(RocksDbWeight::get().writes(7_u64)) // 6 base + 1 for AssetsHolder::Holds
 	}
 	/// Storage: `ReversibleTransfers::PendingTransfers` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfers` (`max_values`: None, `max_size`: Some(291), added: 2766, mode: `MaxEncodedLen`)

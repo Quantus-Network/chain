@@ -465,7 +465,7 @@ pub mod pallet {
 		/// Schedule an asset transfer (pallet-assets) for delayed execution using the configured
 		/// delay.
 		#[pallet::call_index(5)]
-		#[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+		#[pallet::weight(<T as Config>::WeightInfo::schedule_asset_transfer())]
 		pub fn schedule_asset_transfer(
 			origin: OriginFor<T>,
 			asset_id: AssetIdOf<T>,
@@ -481,7 +481,7 @@ pub mod pallet {
 
 		/// Schedule an asset transfer (pallet-assets) with a custom one-time delay.
 		#[pallet::call_index(6)]
-		#[pallet::weight(<T as Config>::WeightInfo::schedule_transfer())]
+		#[pallet::weight(<T as Config>::WeightInfo::schedule_asset_transfer())]
 		pub fn schedule_asset_transfer_with_delay(
 			origin: OriginFor<T>,
 			asset_id: AssetIdOf<T>,
