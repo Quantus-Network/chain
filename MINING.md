@@ -132,7 +132,7 @@ These flags are recommended for all platforms but are especially important on Wi
 
 #### Alternative: WSL2
 
-If you cannot add a Defender exclusion (e.g. managed device, no admin rights), running the Linux build under WSL2 is also supported — follow the Manual Installation instructions above from inside your WSL2 shell.
+If you cannot add a Defender exclusion (e.g. managed device, no admin rights), running the Linux build under WSL2 is also supported: follow the Manual Installation instructions above from inside your WSL2 shell.
 
 ### Docker Installation
 
