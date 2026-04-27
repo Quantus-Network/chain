@@ -303,7 +303,7 @@ where
 		// Log block import progress every LOGGING_FREQUENCY blocks
 		let block_number = block_import_params.header.number();
 		let block_number_u64: u64 = (*block_number).try_into().unwrap_or(0);
-		if block_number_u64 % LOGGING_FREQUENCY == 0 {
+		if block_number_u64.is_multiple_of(LOGGING_FREQUENCY) {
 			log::info!(
 				"⛏️ Imported blocks #{}-{}: {:?} - extrinsics_root={:?}, state_root={:?}",
 				block_number_u64.saturating_sub(LOGGING_FREQUENCY),

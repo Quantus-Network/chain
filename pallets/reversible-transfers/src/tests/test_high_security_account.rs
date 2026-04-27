@@ -214,9 +214,9 @@ fn too_many_pending_transactions_error() {
 
 		// Schedule MaxPendingPerAccount transfers (16)
 		// Need to advance block number between batches to avoid scheduler max per block limit
-		for i in 0..16 {
+		for i in 0u32..16 {
 			// Advance block every 8 transfers to stay under scheduler's MaxScheduledPerBlock (10)
-			if i > 0 && i % 8 == 0 {
+			if i > 0 && i.is_multiple_of(8) {
 				System::set_block_number(System::block_number() + 1);
 			}
 			assert_ok!(ReversibleTransfers::schedule_transfer(

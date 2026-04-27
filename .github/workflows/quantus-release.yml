@@ -173,14 +173,14 @@ jobs:
           set -eo pipefail
           JSON_OUTPUT=$(docker run --rm \
             -e RUSTC_BOOTSTRAP=1 \
-            -e RUSTC_VERSION="1.88.0" \
+            -e RUSTC_VERSION="1.93.0" \
             -e PACKAGE="quantus-runtime" \
             -e RUNTIME_DIR="runtime" \
             -e "BUILD_OPTS=--features on-chain-release-build" \
             -e PROFILE="release" \
             -v "$(pwd):/build" \
             -v "/tmp/cargo:/cargo-home" \
-            paritytech/srtool:1.88.0 \
+            paritytech/srtool:1.93.0 \
             build --app --json -cM \
             | tee /dev/stderr | tail -n 1)
           if ! echo "$JSON_OUTPUT" | jq .; then

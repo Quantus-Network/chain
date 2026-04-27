@@ -1432,7 +1432,7 @@ mod tests {
 												.unwrap();
 											// Test both genesis hash-based and legacy
 											// protocol names.
-											let protocol_names = if swarm_n % 2 == 0 {
+											let protocol_names = if swarm_n.is_multiple_of(2) {
 												vec![kademlia_protocol_name(genesis_hash, fork_id)]
 											} else {
 												vec![

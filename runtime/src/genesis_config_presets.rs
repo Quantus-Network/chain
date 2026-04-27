@@ -177,10 +177,7 @@ fn genesis_template(
 		wormhole: pallet_wormhole::GenesisConfig::<crate::Runtime> {
 			// Record transfer proofs for ALL endowed addresses, enabling ZK spending.
 			// Events are emitted in on_initialize at block 1 for indexer compatibility.
-			endowed_addresses: balances
-				.into_iter()
-				.map(|(account, amount)| (account, amount))
-				.collect(),
+			endowed_addresses: balances,
 		},
 		..Default::default()
 	};
