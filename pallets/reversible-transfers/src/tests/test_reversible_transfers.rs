@@ -262,7 +262,6 @@ fn schedule_transfer_works() {
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
 		let expected_block = System::block_number() + user_delay.as_block_number().unwrap();
-		let bounded = Preimage::bound(call.clone()).unwrap();
 		let expected_block = BlockNumberOrTimestamp::BlockNumber(expected_block);
 
 		assert!(Agenda::<Test>::get(expected_block).is_empty());
@@ -280,7 +279,7 @@ fn schedule_transfer_works() {
 				from: user.clone(),
 				to: dest_user.clone(),
 				interceptor: bob(), // From genesis config
-				call: bounded,
+				asset_id: None,     // Native balance transfer
 				amount,
 			}
 		);
@@ -390,7 +389,6 @@ fn schedule_transfer_with_timestamp_works() {
 		let expected_raw_timestamp = (current_time / timestamp_bucket_size) * timestamp_bucket_size +
 			user_delay.as_timestamp().unwrap();
 
-		let bounded = Preimage::bound(call.clone()).unwrap();
 		// With the scheduler fix, After(Timestamp) tasks go to next bucket after normalization
 		// normalize() adds one bucket, then scheduler adds another for safety
 		let expected_timestamp = BlockNumberOrTimestamp::Timestamp(
@@ -413,7 +411,7 @@ fn schedule_transfer_with_timestamp_works() {
 				to: dest_user.clone(),
 				interceptor: interceptor_255(), /* This should match the actual interceptor from
 				                                 * the test setup */
-				call: bounded,
+				asset_id: None, // Native balance transfer
 				amount,
 			}
 		);
