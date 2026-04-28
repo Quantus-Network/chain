@@ -1072,8 +1072,8 @@ pub mod pallet {
 			// The multisig's HS status may have changed since the proposal was created,
 			// or the whitelist may have been updated via runtime upgrade.
 			// This prevents bypassing HS restrictions by proposing before enabling HS.
-			if T::HighSecurity::is_high_security(&multisig_address)
-				&& !T::HighSecurity::is_whitelisted(&call)
+			if T::HighSecurity::is_high_security(&multisig_address) &&
+				!T::HighSecurity::is_whitelisted(&call)
 			{
 				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
 			}
@@ -1111,13 +1111,11 @@ pub mod pallet {
 			};
 			let total_weight = bookkeeping_weight.saturating_add(actual_call_weight);
 
-			// Always return Ok - the execute extrinsic itself succeeds even if the inner call fails.
-			// The proposal has been removed and deposit returned regardless of inner call outcome.
-			// Check the ProposalExecuted event's `result` field to determine inner call success.
-			Ok(PostDispatchInfo {
-				actual_weight: Some(total_weight),
-				pays_fee: Pays::Yes,
-			})
+			// Always return Ok - the execute extrinsic itself succeeds even if the inner call
+			// fails. The proposal has been removed and deposit returned regardless of inner call
+			// outcome. Check the ProposalExecuted event's `result` field to determine inner call
+			// success.
+			Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
 		}
 	}
 
@@ -1258,7 +1256,12 @@ pub mod pallet {
 			for (proposal_id, deposit) in expired_proposals {
 				total_deposits = total_deposits.saturating_add(deposit);
 
-				Self::remove_proposal_and_return_deposit(multisig_address, proposal_id, signer, deposit);
+				Self::remove_proposal_and_return_deposit(
+					multisig_address,
+					proposal_id,
+					signer,
+					deposit,
+				);
 
 				Self::deposit_event(Event::ProposalRemoved {
 					multisig_address: multisig_address.clone(),

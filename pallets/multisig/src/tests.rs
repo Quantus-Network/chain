@@ -2,12 +2,14 @@
 
 use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
-use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate, traits::Currency};
+use frame_support::{
+	assert_noop, assert_ok,
+	traits::{fungible::Mutate, Currency},
+};
 use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
 use sp_runtime::DispatchError;
-use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::{cell::RefCell, collections::BTreeSet};
 
 // Thread-local storage for dynamically toggling high-security status in tests
 thread_local! {
@@ -1852,11 +1854,7 @@ fn approve_on_already_approved_proposal_emits_signer_approved_only() {
 		));
 
 		// Bob approves - this reaches threshold (2), status becomes Approved
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			0
-		));
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0));
 
 		// Verify proposal is Approved
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -1916,7 +1914,7 @@ fn proposal_nonce_overflow_returns_error() {
 		let call = make_call(b"test".to_vec());
 		assert_err_ignore_postinfo(
 			Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address, call, 1000),
-			Error::<Test>::ProposalNonceExhausted.into()
+			Error::<Test>::ProposalNonceExhausted.into(),
 		);
 	});
 }
@@ -1957,11 +1955,7 @@ fn execute_proposal_that_calls_back_into_multisig() {
 		));
 
 		// Execute - this should work without reentrancy issues
-		assert_ok!(Multisig::execute(
-			RuntimeOrigin::signed(alice()),
-			multisig_address.clone(),
-			0
-		));
+		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0));
 
 		// Verify the inner call succeeded - new multisig should exist
 		let new_multisig_address =
@@ -2048,7 +2042,7 @@ fn propose_does_not_burn_fee_if_deposit_fails() {
 		let call = make_call(b"test".to_vec());
 		assert_err_ignore_postinfo(
 			Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address, call, 1000),
-			Error::<Test>::InsufficientBalance.into()
+			Error::<Test>::InsufficientBalance.into(),
 		);
 
 		// Check that balance is unchanged (fee was NOT burned)
@@ -2182,11 +2176,7 @@ fn cancel_works_on_approved_proposal() {
 		));
 
 		// Bob approves - reaches threshold, status becomes Approved
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			0
-		));
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0));
 
 		// Verify it's approved
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2196,11 +2186,7 @@ fn cancel_works_on_approved_proposal() {
 		let balance_before = Balances::free_balance(alice());
 
 		// Alice (proposer) cancels the approved proposal
-		assert_ok!(Multisig::cancel(
-			RuntimeOrigin::signed(alice()),
-			multisig_address.clone(),
-			0
-		));
+		assert_ok!(Multisig::cancel(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0));
 
 		// Proposal should be removed
 		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
@@ -2258,11 +2244,7 @@ fn execute_succeeds_even_when_inner_call_fails() {
 
 		// Execute - the inner call will fail due to insufficient balance
 		// But execute itself should succeed (return Ok)
-		let result = Multisig::execute(
-			RuntimeOrigin::signed(alice()),
-			multisig_address.clone(),
-			0,
-		);
+		let result = Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0);
 
 		// The extrinsic itself should succeed
 		assert_ok!(result);
@@ -2318,9 +2300,10 @@ fn propose_rejects_call_exceeding_max_inner_weight() {
 		// to test the mechanism differently. The check uses call.get_dispatch_info().call_weight
 		// which for remark is minimal. For a real test we'd need a call with large declared weight.
 		// For now, we test that the mechanism is in place by verifying normal calls work.
-		
+
 		// This test verifies the positive case - normal calls should still work
-		let normal_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1u8; 100] });
+		let normal_call =
+			RuntimeCall::System(frame_system::Call::remark { remark: vec![1u8; 100] });
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
@@ -2336,8 +2319,8 @@ fn propose_rejects_call_exceeding_max_inner_weight() {
 	});
 }
 
-/// Regression test: propose while non-HS, enable HS, then attempt to execute non-whitelisted proposal.
-/// The execute should fail because the HS check is re-run at execute time.
+/// Regression test: propose while non-HS, enable HS, then attempt to execute non-whitelisted
+/// proposal. The execute should fail because the HS check is re-run at execute time.
 #[test]
 fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
 	new_test_ext().execute_with(|| {
@@ -2368,11 +2351,7 @@ fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
 		));
 
 		// Bob approves -> threshold reached, status = Approved
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			0,
-		));
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
 
 		// Verify proposal is approved and ready to execute
 		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
@@ -2422,21 +2401,13 @@ fn execute_allows_whitelisted_call_after_hs_enabled() {
 		));
 
 		// Bob approves
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			0,
-		));
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
 
 		// Enable high-security
 		set_high_security(&multisig_address);
 
 		// Execute should succeed because the call is whitelisted
-		assert_ok!(Multisig::execute(
-			RuntimeOrigin::signed(alice()),
-			multisig_address.clone(),
-			0,
-		));
+		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0,));
 
 		// Proposal should be removed
 		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
