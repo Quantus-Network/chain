@@ -653,6 +653,10 @@ parameter_types! {
 	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
 	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
+	// Maximum weight for inner calls executed via multisig.
+	// Set to ~50% of max block weight to allow for multisig bookkeeping overhead.
+	// ref_time: 1 second (half of 2s max), proof_size: 2.5 MB (half of 5 MB max)
+	pub MaxInnerCallWeight: Weight = Weight::from_parts(1_000_000_000_000, 2_621_440);
 }
 
 /// High-Security configuration wrapper for Runtime
@@ -707,6 +711,7 @@ impl pallet_multisig::Config for Runtime {
 	type ProposalFee = ProposalFee;
 	type SignerStepFactor = SignerStepFactorParam;
 	type MaxExpiryDuration = MaxExpiryDuration;
+	type MaxInnerCallWeight = MaxInnerCallWeight;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 	type HighSecurity = HighSecurityConfig;

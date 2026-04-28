@@ -140,13 +140,17 @@ mod benchmarks {
 		status: ProposalStatus,
 		deposit: crate::BalanceOf<T>,
 	) {
+		use frame_support::dispatch::GetDispatchInfo;
 		let system_call = frame_system::Call::<T>::remark { remark: vec![1u8; call_size as usize] };
-		let encoded = <T as Config>::RuntimeCall::from(system_call).encode();
+		let runtime_call = <T as Config>::RuntimeCall::from(system_call);
+		let call_weight = runtime_call.get_dispatch_info().call_weight;
+		let encoded = runtime_call.encode();
 		let bounded_call: BoundedCallOf<T> = encoded.try_into().unwrap();
 		let bounded_approvals: BoundedApprovalsOf<T> = approvals.to_vec().try_into().unwrap();
 		let proposal_data = ProposalDataOf::<T> {
 			proposer: proposer.clone(),
 			call: bounded_call,
+			call_weight,
 			expiry,
 			approvals: bounded_approvals,
 			deposit,

@@ -44,7 +44,7 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
+use frame_support::{traits::Get, weights::Weight, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
@@ -106,6 +106,8 @@ pub struct ProposalData<AccountId, Balance, BlockNumber, BoundedCall, BoundedApp
 	pub proposer: AccountId,
 	/// The encoded call to be executed
 	pub call: BoundedCall,
+	/// The declared weight of the inner call (captured at propose time)
+	pub call_weight: Weight,
 	/// Expiry block number
 	pub expiry: BlockNumber,
 	/// List of accounts that have approved this proposal
@@ -211,6 +213,17 @@ pub mod pallet {
 		/// a proposal created at block 1000 cannot have expiry > 101_000.
 		#[pallet::constant]
 		type MaxExpiryDuration: Get<BlockNumberFor<Self>>;
+
+		/// Maximum weight allowed for inner calls executed through the multisig.
+		///
+		/// This bound ensures that the `execute` extrinsic can safely reserve weight
+		/// for the inner call at pre-dispatch time. Proposals with calls exceeding
+		/// this weight limit are rejected at propose time.
+		///
+		/// The execute extrinsic's weight annotation is: bookkeeping + MaxInnerCallWeight.
+		/// This guarantees the block weight is never exceeded by arbitrary inner calls.
+		#[pallet::constant]
+		type MaxInnerCallWeight: Get<Weight>;
 
 		/// Weight information for extrinsics
 		type WeightInfo: WeightInfo;
@@ -382,6 +395,8 @@ pub mod pallet {
 		CallNotAllowedForHighSecurityMultisig,
 		/// Proposal nonce exhausted (u32::MAX reached)
 		ProposalNonceExhausted,
+		/// Call weight exceeds MaxInnerCallWeight limit
+		CallWeightExceedsLimit,
 	}
 
 	#[pallet::call]
@@ -565,6 +580,14 @@ pub mod pallet {
 					}
 				})?;
 
+			// ===== PHASE 3b: Check inner call weight against limit =====
+			// This ensures execute() can safely reserve weight at pre-dispatch time.
+			let call_weight = decoded_call.get_dispatch_info().call_weight;
+			let max_inner_weight = T::MaxInnerCallWeight::get();
+			if call_weight.any_gt(max_inner_weight) {
+				return Self::err_with_weight(Error::<T>::CallWeightExceedsLimit, 1);
+			}
+
 			// ===== PHASE 4: High-security whitelist check (if applicable) =====
 			// (additional read: HighSecurityAccounts)
 			let is_high_security = T::HighSecurity::is_high_security(&multisig_address);
@@ -630,6 +653,7 @@ pub mod pallet {
 				ProposalData {
 					proposer: proposer.clone(),
 					call,
+					call_weight,
 					expiry,
 					approvals,
 					deposit,
@@ -983,13 +1007,16 @@ pub mod pallet {
 		/// - `multisig_address`: The multisig account
 		/// - `proposal_id`: ID (nonce) of the proposal to execute
 		///
-		/// Note: The weight charged includes both multisig bookkeeping and the inner call's
-		/// declared weight. Actual weight is refunded based on post-dispatch info.
+		/// Note: The weight charged includes both multisig bookkeeping and MaxInnerCallWeight.
+		/// Actual weight is refunded based on the inner call's post-dispatch info.
+		/// The inner call's weight is validated against MaxInnerCallWeight at propose time.
 		#[pallet::call_index(6)]
 		#[pallet::weight({
-			// Worst case: max bookkeeping + max possible call weight (from benchmarks)
-			// The actual weight will be refunded based on the real call's weight
+			// Bookkeeping weight (storage reads/writes) + maximum allowed inner call weight.
+			// The inner call weight was validated at propose time to not exceed MaxInnerCallWeight.
+			// Actual weight is refunded post-dispatch based on real call weight.
 			<T as Config>::WeightInfo::execute(T::MaxCallSize::get())
+				.saturating_add(T::MaxInnerCallWeight::get())
 		})]
 		#[allow(clippy::useless_conversion)]
 		pub fn execute(
@@ -1040,8 +1067,7 @@ pub mod pallet {
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Self::err_with_weight_raw(Error::<T>::InvalidCall, 2))?;
 
-			// Get weight info for accounting
-			let call_weight = call.get_dispatch_info().call_weight;
+			// Use the stored call weight (validated at propose time)
 			let bookkeeping_weight = Self::bookkeeping_weight(proposal.call.len() as u32);
 
 			// EFFECTS: Remove proposal and return deposit BEFORE dispatch (reentrancy protection)
@@ -1067,9 +1093,10 @@ pub mod pallet {
 			});
 
 			// Calculate actual weight: bookkeeping + inner call's actual weight
+			// Use stored call_weight as fallback when post-dispatch info is unavailable
 			let actual_call_weight = match &result {
 				Ok(info) | Err(DispatchErrorWithPostInfo { post_info: info, .. }) =>
-					info.actual_weight.unwrap_or(call_weight),
+					info.actual_weight.unwrap_or(proposal.call_weight),
 			};
 			let total_weight = bookkeeping_weight.saturating_add(actual_call_weight);
 
