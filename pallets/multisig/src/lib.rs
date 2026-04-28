@@ -985,7 +985,7 @@ pub mod pallet {
 		///
 		/// Note: The weight charged includes both multisig bookkeeping and the inner call's
 		/// declared weight. Actual weight is refunded based on post-dispatch info.
-		#[pallet::call_index(7)]
+		#[pallet::call_index(6)]
 		#[pallet::weight({
 			// Worst case: max bookkeeping + max possible call weight (from benchmarks)
 			// The actual weight will be refunded based on the real call's weight
