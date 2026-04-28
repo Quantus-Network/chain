@@ -62,8 +62,8 @@ where
 	/// - `Timestamp(15000)` -> `Timestamp(20000)` (bucket 2)
 	///
 	/// # Edge Cases
-	/// - If `precision` is zero, returns `Timestamp(precision)` (zero) due to checked_div
-	///   returning None. Callers should ensure precision > 0.
+	/// - If `precision` is zero, returns `Timestamp(precision)` (zero) due to checked_div returning
+	///   None. Callers should ensure precision > 0.
 	pub fn normalize(&self, precision: Moment) -> Self {
 		match self {
 			BlockNumberOrTimestamp::BlockNumber(_) => *self,
@@ -166,8 +166,8 @@ pub enum DispatchTime<BlockNumber, Moment> {
 	/// After a specified point in time.
 	///
 	/// - `BlockNumber(x)`: Execute after `x` blocks from the current block (relative).
-	/// - `Timestamp(x)`: Execute after timestamp `x` is reached (absolute, bucketed).
-	///   See type-level docs for timestamp bucketing semantics.
+	/// - `Timestamp(x)`: Execute after timestamp `x` is reached (absolute, bucketed). See
+	///   type-level docs for timestamp bucketing semantics.
 	After(BlockNumberOrTimestamp<BlockNumber, Moment>),
 }
 

@@ -1226,7 +1226,12 @@ pub mod pallet {
 			for (proposal_id, deposit) in expired_proposals {
 				total_deposits = total_deposits.saturating_add(deposit);
 
-				Self::remove_proposal_and_return_deposit(multisig_address, proposal_id, signer, deposit);
+				Self::remove_proposal_and_return_deposit(
+					multisig_address,
+					proposal_id,
+					signer,
+					deposit,
+				);
 
 				Self::deposit_event(Event::ProposalRemoved {
 					multisig_address: multisig_address.clone(),
