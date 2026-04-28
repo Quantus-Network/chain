@@ -379,7 +379,7 @@ fn schedule_transfer_with_timestamp_works() {
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user.clone()),
 			BlockNumberOrTimestamp::Timestamp(10_000),
-			guardian_255(), // Interceptor for ferdie
+			guardian_255(), // Guardian for ferdie
 		));
 
 		let timestamp_bucket_size = TimestampBucketSize::get();
@@ -1069,7 +1069,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount);
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance);
-		// Interceptor should have received the cancelled amount
+		// Guardian should have received the cancelled amount
 		let guardian_balance = Balances::free_balance(guardian_255());
 		assert_eq!(guardian_balance, amount); // guardian started with 0, now has the cancelled amount
 

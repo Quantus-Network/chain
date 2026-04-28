@@ -111,7 +111,7 @@ pub mod pallet {
 		dispatch::PostDispatchInfo,
 		traits::{
 			fungible::MutateHold, schedule::v3::TaskName, tokens::Precision, CallerTrait,
-			QueryPreimage, StorePreimage, Time,
+			StorePreimage, Time,
 		},
 		PalletId,
 	};
@@ -180,8 +180,9 @@ pub mod pallet {
 		/// Pallet Id
 		type PalletId: Get<PalletId>;
 
-		/// The preimage provider with which we look up call hashes to get the call.
-		type Preimages: QueryPreimage<H = Self::Hashing> + StorePreimage;
+		/// The preimage provider used to store scheduled call data.
+		/// Only `StorePreimage::bound()` is used to create bounded calls for scheduling.
+		type Preimages: StorePreimage<H = Self::Hashing>;
 
 		/// A type representing the weights required by the dispatchables of this pallet.
 		type WeightInfo: WeightInfo;

@@ -73,8 +73,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::GlobalNonce` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::NextTransactionId` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::NextTransactionId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Lookup` (r:1 w:1)
@@ -98,8 +98,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::GlobalNonce` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::NextTransactionId` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::NextTransactionId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Lookup` (r:1 w:1)
@@ -226,8 +226,8 @@ impl WeightInfo for () {
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::GlobalNonce` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::NextTransactionId` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::NextTransactionId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Lookup` (r:1 w:1)
@@ -251,8 +251,8 @@ impl WeightInfo for () {
 	}
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:0)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::GlobalNonce` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::GlobalNonce` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::NextTransactionId` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::NextTransactionId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `ReversibleTransfers::PendingTransfersBySender` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::PendingTransfersBySender` (`max_values`: None, `max_size`: Some(561), added: 3036, mode: `MaxEncodedLen`)
 	/// Storage: `Scheduler::Lookup` (r:1 w:1)
