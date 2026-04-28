@@ -4,7 +4,7 @@ use frame_support::{
 	assert_err, assert_ok,
 	traits::{
 		fungible::InspectHold, fungibles::Inspect as AssetsInspect,
-		tokens::fungibles::InspectHold as AssetsInspectHold, StorePreimage, Time,
+		tokens::fungibles::InspectHold as AssetsInspectHold, Time,
 	},
 };
 use pallet_scheduler::Agenda;
@@ -28,8 +28,8 @@ fn approx_eq_balance(a: Balance, b: Balance, epsilon: Balance) -> bool {
 
 // Helper function to calculate TxId (matching the logic in schedule_transfer)
 pub(crate) fn calculate_tx_id<T: Config>(who: AccountId, call: &RuntimeCall) -> H256 {
-	let global_nonce = GlobalNonce::<T>::get();
-	BlakeTwo256::hash_of(&(who, call, global_nonce).encode())
+	let current_tx_id = NextTransactionId::<T>::get();
+	BlakeTwo256::hash_of(&(who, call, current_tx_id).encode())
 }
 
 // Helper to run to the next block
@@ -84,27 +84,27 @@ fn set_high_security_works() {
 			ReversibleTransfers::is_high_security(&genesis_user),
 			Some(HighSecurityAccountData {
 				delay: BlockNumberOrTimestampOf::<Test>::BlockNumber(10),
-				interceptor: bob(),
+				guardian: bob(),
 			})
 		);
 
 		// Set the delay
 		let another_user = account_id(4);
-		let interceptor = account_id(5);
+		let guardian = account_id(5);
 		let delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(5);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(another_user.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&another_user),
-			Some(HighSecurityAccountData { delay, interceptor: interceptor.clone() })
+			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
 		);
 		System::assert_last_event(
 			Event::HighSecuritySet {
 				who: another_user.clone(),
-				interceptor: interceptor.clone(),
+				guardian: guardian.clone(),
 				delay,
 			}
 			.into(),
@@ -115,30 +115,30 @@ fn set_high_security_works() {
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(another_user.clone()),
 				delay,
-				interceptor.clone(),
+				guardian.clone(),
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
 
 		// Use default delay
 		let default_user = account_id(7);
-		let default_interceptor = account_id(8);
+		let default_guardian = account_id(8);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(default_user.clone()),
 			DefaultDelay::get(),
-			default_interceptor.clone(),
+			default_guardian.clone(),
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&default_user),
 			Some(HighSecurityAccountData {
 				delay: DefaultDelay::get(),
-				interceptor: default_interceptor.clone(),
+				guardian: default_guardian.clone(),
 			})
 		);
 		System::assert_last_event(
 			Event::HighSecuritySet {
 				who: default_user,
-				interceptor: default_interceptor.clone(),
+				guardian: default_guardian.clone(),
 				delay: DefaultDelay::get(),
 			}
 			.into(),
@@ -149,13 +149,13 @@ fn set_high_security_works() {
 			BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get() - 1);
 
 		let new_user = account_id(10);
-		let new_interceptor = account_id(11);
+		let new_guardian = account_id(11);
 		let short_delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(1);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(new_user.clone()),
 				short_delay,
-				new_interceptor.clone(),
+				new_guardian.clone(),
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -167,22 +167,22 @@ fn set_high_security_works() {
 				delay,
 				new_user.clone(),
 			),
-			Error::<Test>::InterceptorCannotBeSelf
+			Error::<Test>::GuardianCannotBeSelf
 		);
 
 		assert_eq!(ReversibleTransfers::is_high_security(&new_user), None);
 
 		// Use explicit reverser
 		let reversible_account = account_id(6);
-		let interceptor = account_id(7);
+		let guardian = account_id(7);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, interceptor })
+			Some(HighSecurityAccountData { delay, guardian })
 		);
 	});
 }
@@ -199,16 +199,16 @@ fn set_reversibility_with_timestamp_delay_works() {
 		// A delay of 5 * TimestampBucketSize = 5000.
 		let delay = BlockNumberOrTimestamp::Timestamp(5 * TimestampBucketSize::get());
 
-		let interceptor = account_id(16);
+		let guardian = account_id(16);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&user),
-			Some(HighSecurityAccountData { delay, interceptor })
+			Some(HighSecurityAccountData { delay, guardian })
 		);
 
 		// Try to set a delay that's too short - timestamp based
@@ -216,12 +216,12 @@ fn set_reversibility_with_timestamp_delay_works() {
 		let short_delay_ts = BlockNumberOrTimestamp::Timestamp(TimestampBucketSize::get());
 		let another_user = account_id(5);
 
-		let another_interceptor = account_id(18);
+		let another_guardian = account_id(18);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(another_user.clone()),
 				short_delay_ts,
-				another_interceptor.clone(),
+				another_guardian.clone(),
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -233,13 +233,13 @@ fn set_reversibility_fails_delay_too_short() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 		let user = account_id(20);
-		let interceptor = account_id(21);
+		let guardian = account_id(21);
 		let short_delay = BlockNumberOrTimestampOf::<Test>::BlockNumber(1);
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(user.clone()),
 				short_delay,
-				interceptor.clone(),
+				guardian.clone(),
 			),
 			Error::<Test>::DelayTooShort
 		);
@@ -278,7 +278,7 @@ fn schedule_transfer_works() {
 			PendingTransfer {
 				from: user.clone(),
 				to: dest_user.clone(),
-				interceptor: bob(), // From genesis config
+				guardian: bob(), // From genesis config
 				asset_id: None,     // Native balance transfer
 				amount,
 			}
@@ -297,13 +297,13 @@ fn schedule_transfer_works() {
 
 		// Use explicit reverser
 		let reversible_account = ferdie();
-		let interceptor = user.clone();
+		let guardian = user.clone();
 
 		// Set reversibility
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			BlockNumberOrTimestamp::BlockNumber(10),
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		let tx_id = calculate_tx_id::<Test>(reversible_account.clone(), &call);
@@ -320,19 +320,19 @@ fn schedule_transfer_works() {
 			Error::<Test>::InvalidReverser
 		);
 
-		let interceptor_balance = Balances::free_balance(&interceptor);
+		let guardian_balance = Balances::free_balance(&guardian);
 		let reversible_account_balance = Balances::free_balance(&reversible_account);
-		let interceptor_hold = Balances::balance_on_hold(
+		let guardian_hold = Balances::balance_on_hold(
 			&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
-			&interceptor,
+			&guardian,
 		);
-		assert_eq!(interceptor_hold, 0);
+		assert_eq!(guardian_hold, 0);
 
 		// Try reversing with explicit reverser
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor.clone()), tx_id,));
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id,));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 
-		// Funds should be release as free balance to `interceptor`
+		// Funds should be release as free balance to `guardian`
 		assert_eq!(
 			Balances::balance_on_hold(
 				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
@@ -343,10 +343,10 @@ fn schedule_transfer_works() {
 
 		// With 100 tokens and 100 basis points (1%) fee: 100 * 100 / 10000 = 1 token fee
 		let expected_fee = 1;
-		let expected_amount_to_interceptor = amount - expected_fee;
+		let expected_amount_to_guardian = amount - expected_fee;
 		assert_eq!(
-			Balances::free_balance(&interceptor),
-			interceptor_balance + expected_amount_to_interceptor
+			Balances::free_balance(&guardian),
+			guardian_balance + expected_amount_to_guardian
 		);
 
 		// Unchanged balance for `reversible_account`
@@ -355,7 +355,7 @@ fn schedule_transfer_works() {
 		assert_eq!(
 			Balances::balance_on_hold(
 				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
-				&interceptor,
+				&guardian,
 			),
 			0
 		);
@@ -379,7 +379,7 @@ fn schedule_transfer_with_timestamp_works() {
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user.clone()),
 			BlockNumberOrTimestamp::Timestamp(10_000),
-			interceptor_255(), // Interceptor for ferdie
+			guardian_255(), // Interceptor for ferdie
 		));
 
 		let timestamp_bucket_size = TimestampBucketSize::get();
@@ -409,7 +409,7 @@ fn schedule_transfer_with_timestamp_works() {
 			PendingTransfer {
 				from: user.clone(),
 				to: dest_user.clone(),
-				interceptor: interceptor_255(), /* This should match the actual interceptor from
+				guardian: guardian_255(), /* This should match the actual guardian from
 				                                 * the test setup */
 				asset_id: None, // Native balance transfer
 				amount,
@@ -432,13 +432,13 @@ fn schedule_transfer_with_timestamp_works() {
 
 		// Use explicit reverser
 		let reversible_account = account_256();
-		let interceptor = alice();
+		let guardian = alice();
 
 		// Set reversibility
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			BlockNumberOrTimestamp::BlockNumber(10),
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		let call = transfer_call(dest_user.clone(), amount);
@@ -456,19 +456,19 @@ fn schedule_transfer_with_timestamp_works() {
 			Error::<Test>::InvalidReverser
 		);
 
-		let interceptor_balance = Balances::free_balance(&interceptor);
+		let guardian_balance = Balances::free_balance(&guardian);
 		let reversible_account_balance = Balances::free_balance(&reversible_account);
-		let interceptor_hold = Balances::balance_on_hold(
+		let guardian_hold = Balances::balance_on_hold(
 			&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
-			&interceptor,
+			&guardian,
 		);
-		assert_eq!(interceptor_hold, 0);
+		assert_eq!(guardian_hold, 0);
 
 		// Try reversing with explicit reverser
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor.clone()), tx_id,));
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id,));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 
-		// Funds should be release as free balance to `interceptor`
+		// Funds should be release as free balance to `guardian`
 		assert_eq!(
 			Balances::balance_on_hold(
 				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
@@ -479,10 +479,10 @@ fn schedule_transfer_with_timestamp_works() {
 
 		// With 100 tokens and 100 basis points (1%) fee: 100 * 100 / 10000 = 1 token fee
 		let expected_fee = 1;
-		let expected_amount_to_interceptor = amount - expected_fee;
+		let expected_amount_to_guardian = amount - expected_fee;
 		assert_eq!(
-			Balances::free_balance(&interceptor),
-			interceptor_balance + expected_amount_to_interceptor
+			Balances::free_balance(&guardian),
+			guardian_balance + expected_amount_to_guardian
 		);
 
 		// Unchanged balance for `reversible_account`
@@ -491,7 +491,7 @@ fn schedule_transfer_with_timestamp_works() {
 		assert_eq!(
 			Balances::balance_on_hold(
 				&RuntimeHoldReason::ReversibleTransfers(HoldReason::ScheduledTransfer),
-				&interceptor,
+				&guardian,
 			),
 			0
 		);
@@ -517,7 +517,7 @@ fn schedule_transfer_fails_not_reversible() {
 #[test]
 fn schedule_multiple_transfer_works() {
 	new_test_ext().execute_with(|| {
-		let user = alice(); // User 1 is reversible from genesis with interceptor=2, recoverer=3
+		let user = alice(); // User 1 is reversible from genesis with guardian=2, recoverer=3
 		let dest_user = bob();
 		let amount = 100;
 
@@ -540,7 +540,7 @@ fn schedule_multiple_transfer_works() {
 
 		// Cancel the first pending transaction
 		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(bob()), // interceptor from genesis config
+			RuntimeOrigin::signed(bob()), // guardian from genesis config
 			tx_id
 		));
 
@@ -557,9 +557,9 @@ fn cancel_dispatch_works() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 		let user = alice(); // High-security account from genesis
-		let interceptor = bob();
+		let guardian = bob();
 		let amount = 10_000;
-		let call = transfer_call(interceptor.clone(), amount);
+		let call = transfer_call(guardian.clone(), amount);
 		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
 		let HighSecurityAccountData { delay: user_delay, .. } =
 			ReversibleTransfers::is_high_security(&user).unwrap();
@@ -568,7 +568,7 @@ fn cancel_dispatch_works() {
 		);
 
 		// Record initial balances
-		let initial_interceptor_balance = Balances::free_balance(&interceptor);
+		let initial_guardian_balance = Balances::free_balance(&guardian);
 		let initial_total_issuance = pallet_balances::TotalIssuance::<Test>::get();
 
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 0);
@@ -576,7 +576,7 @@ fn cancel_dispatch_works() {
 		// Schedule first
 		assert_ok!(ReversibleTransfers::schedule_transfer(
 			RuntimeOrigin::signed(user.clone()),
-			interceptor.clone(),
+			guardian.clone(),
 			amount,
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_some());
@@ -584,9 +584,9 @@ fn cancel_dispatch_works() {
 		// Check the expected block agendas count
 		assert_eq!(Agenda::<Test>::get(execute_block).len(), 1);
 
-		// Now cancel (must be called by interceptor, which is user 2 from genesis)
+		// Now cancel (must be called by guardian, which is user 2 from genesis)
 		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(interceptor.clone()), // interceptor from genesis config
+			RuntimeOrigin::signed(guardian.clone()), // guardian from genesis config
 			tx_id
 		));
 
@@ -600,11 +600,11 @@ fn cancel_dispatch_works() {
 		let expected_fee = 100;
 		let expected_remaining = amount - expected_fee;
 
-		// Check that interceptor received the remaining amount (after fee)
+		// Check that guardian received the remaining amount (after fee)
 		// Check final balances after cancellation
 		assert_eq!(
-			Balances::free_balance(&interceptor),
-			initial_interceptor_balance + expected_remaining,
+			Balances::free_balance(&guardian),
+			initial_guardian_balance + expected_remaining,
 			"High-security account should have volume fee deducted"
 		);
 
@@ -616,7 +616,7 @@ fn cancel_dispatch_works() {
 		);
 
 		// Check event
-		System::assert_last_event(Event::TransactionCancelled { who: interceptor, tx_id }.into());
+		System::assert_last_event(Event::TransactionCancelled { who: guardian, tx_id }.into());
 	});
 }
 
@@ -770,7 +770,7 @@ fn schedule_transfer_with_timestamp_delay_executes() {
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user.clone()),
 			user_timestamp_delay,
-			interceptor_1(), // interceptor for alice
+			guardian_1(), // guardian for alice
 		));
 
 		let user_balance_before = Balances::free_balance(&user);
@@ -897,7 +897,7 @@ fn full_flow_execute_with_timestamp_delay_works() {
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user.clone()),
 			user_timestamp_delay,
-			interceptor_255(), // interceptor for ferdie
+			guardian_255(), // guardian for ferdie
 		));
 
 		let initial_user_balance = Balances::free_balance(&user);
@@ -975,7 +975,7 @@ fn full_flow_cancel_prevents_execution() {
 		);
 
 		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(bob()), // interceptor from genesis config
+			RuntimeOrigin::signed(bob()), // guardian from genesis config
 			tx_id
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
@@ -993,7 +993,7 @@ fn full_flow_cancel_prevents_execution() {
 			0
 		);
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount);
-		// dest (user 2) is also the interceptor, so they receive the cancelled amount
+		// dest (user 2) is also the guardian, so they receive the cancelled amount
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance + amount);
 
 		// No events were emitted
@@ -1024,7 +1024,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user.clone()),
 			BlockNumberOrTimestamp::Timestamp(user_delay_duration),
-			interceptor_255(),
+			guardian_255(),
 		));
 
 		let initial_user_balance = Balances::free_balance(&user);
@@ -1050,7 +1050,7 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 		run_to_block(1);
 
 		assert_ok!(ReversibleTransfers::cancel(
-			RuntimeOrigin::signed(interceptor_255()), // interceptor from test setup
+			RuntimeOrigin::signed(guardian_255()), // guardian from test setup
 			tx_id
 		));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
@@ -1070,8 +1070,8 @@ fn full_flow_cancel_prevents_execution_with_timestamp_delay() {
 		assert_eq!(Balances::free_balance(&user), initial_user_balance - amount);
 		assert_eq!(Balances::free_balance(&dest), initial_dest_balance);
 		// Interceptor should have received the cancelled amount
-		let interceptor_balance = Balances::free_balance(interceptor_255());
-		assert_eq!(interceptor_balance, amount); // interceptor started with 0, now has the cancelled amount
+		let guardian_balance = Balances::free_balance(guardian_255());
+		assert_eq!(guardian_balance, amount); // guardian started with 0, now has the cancelled amount
 
 		let expected_event_pattern = |e: &RuntimeEvent| {
 			matches!(e, RuntimeEvent::ReversibleTransfers(Event::TransactionExecuted {
@@ -1337,7 +1337,7 @@ fn asset_hold_does_not_block_spending() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 		let sender: AccountId = alice(); // high-security from genesis
-		let interceptor = bob(); // from genesis config for 1
+		let guardian = bob(); // from genesis config for 1
 		let recipient: AccountId = dave();
 		let third_party: AccountId = account_id(9);
 		let asset_id: u32 = 314;
@@ -1387,8 +1387,8 @@ fn asset_hold_does_not_block_spending() {
 		assert_eq!(asset_balance(asset_id, &sender), min);
 		assert_eq!(asset_balance(asset_id, &third_party), third_before + spend);
 
-		// Pending remains and will execute later; cancel it now to clean up and credit interceptor.
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor.clone()), tx_id));
+		// Pending remains and will execute later; cancel it now to clean up and credit guardian.
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian.clone()), tx_id));
 		assert!(ReversibleTransfers::pending_dispatches(tx_id).is_none());
 		assert_eq!(asset_holds(asset_id, &sender), 0);
 	});
@@ -1634,146 +1634,146 @@ fn schedule_transfer_with_timestamp_delay_executes_correctly() {
 }
 
 #[test]
-fn interceptor_index_works_with_interceptor() {
+fn guardian_index_works_with_guardian() {
 	new_test_ext().execute_with(|| {
 		let reversible_account = account_id(100);
-		let interceptor = account_id(101);
+		let guardian = account_id(101);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
-		// Initially, interceptor should have empty list
-		assert_eq!(ReversibleTransfers::interceptor_index(&interceptor).len(), 0);
+		// Initially, guardian should have empty list
+		assert_eq!(ReversibleTransfers::guardian_index(&guardian).len(), 0);
 
 		// Set up reversibility with explicit reverser
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
-		// Verify interceptor index is updated
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 1);
-		assert_eq!(interceptor_accounts[0], reversible_account.clone());
+		// Verify guardian index is updated
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 1);
+		assert_eq!(guardian_accounts[0], reversible_account.clone());
 
 		// Verify account has correct reversibility data
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, interceptor: interceptor.clone() })
+			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
 		);
 	});
 }
 
 #[test]
-fn interceptor_index_handles_multiple_accounts() {
+fn guardian_index_handles_multiple_accounts() {
 	new_test_ext().execute_with(|| {
-		let interceptor = account_id(100);
+		let guardian = account_id(100);
 		let account1 = account_id(101);
 		let account2 = account_id(102);
 		let account3 = account_id(103);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
-		// Set up multiple accounts with same interceptor
+		// Set up multiple accounts with same guardian
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account1.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account2.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account3.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
-		// Verify interceptor index contains all accounts
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 3);
-		assert!(interceptor_accounts.contains(&account1));
-		assert!(interceptor_accounts.contains(&account2));
-		assert!(interceptor_accounts.contains(&account3));
+		// Verify guardian index contains all accounts
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 3);
+		assert!(guardian_accounts.contains(&account1));
+		assert!(guardian_accounts.contains(&account2));
+		assert!(guardian_accounts.contains(&account3));
 	});
 }
 
 #[test]
-fn interceptor_index_prevents_duplicates() {
+fn guardian_index_prevents_duplicates() {
 	new_test_ext().execute_with(|| {
 		let reversible_account = account_id(100);
-		let interceptor = account_id(101);
+		let guardian = account_id(101);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
 		// Set up reversibility with explicit reverser
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		// Verify initial state
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 1);
-		assert_eq!(interceptor_accounts[0], reversible_account.clone());
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 1);
+		assert_eq!(guardian_accounts[0], reversible_account.clone());
 
 		// Try to add the same account again (this should fail due to AccountAlreadyReversible)
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(reversible_account.clone()),
 				delay,
-				interceptor.clone(),
+				guardian.clone(),
 			),
 			Error::<Test>::AccountAlreadyHighSecurity
 		);
 
-		// Verify no duplicates in interceptor index
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 1);
+		// Verify no duplicates in guardian index
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 1);
 	});
 }
 
 #[test]
-fn interceptor_index_respects_max_limit() {
+fn guardian_index_respects_max_limit() {
 	new_test_ext().execute_with(|| {
-		let interceptor = account_id(100);
+		let guardian = account_id(100);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
-		// Add accounts up to the limit (MaxInterceptorAccounts = 10 in mock)
+		// Add accounts up to the limit (MaxGuardianAccounts = 10 in mock)
 		for i in 101..=110 {
 			assert_ok!(ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(account_id(i)),
 				delay,
-				interceptor.clone(),
+				guardian.clone(),
 			));
 		}
 
 		// Verify we have the maximum number of accounts
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 10);
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 10);
 
 		// Try to add one more account - should fail
 		assert_err!(
 			ReversibleTransfers::set_high_security(
 				RuntimeOrigin::signed(account_id(111)),
 				delay,
-				interceptor.clone(),
+				guardian.clone(),
 			),
-			Error::<Test>::TooManyInterceptorAccounts
+			Error::<Test>::TooManyGuardianAccounts
 		);
 
 		// Verify count didn't change
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 10);
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 10);
 	});
 }
 
 #[test]
-fn interceptor_index_empty_for_non_interceptors() {
+fn guardian_index_empty_for_non_guardians() {
 	new_test_ext().execute_with(|| {
-		let non_interceptor = account_id(100);
+		let non_guardian = account_id(100);
 		let reversible_account = account_id(101);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
@@ -1784,77 +1784,77 @@ fn interceptor_index_empty_for_non_interceptors() {
 			account_id(201),
 		));
 
-		// Verify non-interceptor has empty list
-		assert_eq!(ReversibleTransfers::interceptor_index(&non_interceptor).len(), 0);
-		assert_eq!(ReversibleTransfers::interceptor_index(&reversible_account).len(), 0);
+		// Verify non-guardian has empty list
+		assert_eq!(ReversibleTransfers::guardian_index(&non_guardian).len(), 0);
+		assert_eq!(ReversibleTransfers::guardian_index(&reversible_account).len(), 0);
 	});
 }
 
 #[test]
-fn interceptor_index_different_interceptors_separate_lists() {
+fn guardian_index_different_guardians_separate_lists() {
 	new_test_ext().execute_with(|| {
-		let interceptor1 = account_id(101);
-		let interceptor2 = account_id(102);
+		let guardian1 = account_id(101);
+		let guardian2 = account_id(102);
 		let account1 = account_id(102);
 		let account2 = account_id(103);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
-		// Set up accounts with different interceptors
+		// Set up accounts with different guardians
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account1.clone()),
 			delay,
-			interceptor1.clone(),
+			guardian1.clone(),
 		));
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(account2.clone()),
 			delay,
-			interceptor2.clone(),
+			guardian2.clone(),
 		));
 
-		// Verify each interceptor has their own separate list
-		let interceptor1_accounts = ReversibleTransfers::interceptor_index(&interceptor1);
-		assert_eq!(interceptor1_accounts.len(), 1);
-		assert_eq!(interceptor1_accounts[0], account1);
+		// Verify each guardian has their own separate list
+		let guardian1_accounts = ReversibleTransfers::guardian_index(&guardian1);
+		assert_eq!(guardian1_accounts.len(), 1);
+		assert_eq!(guardian1_accounts[0], account1);
 
-		let interceptor2_accounts = ReversibleTransfers::interceptor_index(&interceptor2);
-		assert_eq!(interceptor2_accounts.len(), 1);
-		assert_eq!(interceptor2_accounts[0], account2);
+		let guardian2_accounts = ReversibleTransfers::guardian_index(&guardian2);
+		assert_eq!(guardian2_accounts.len(), 1);
+		assert_eq!(guardian2_accounts[0], account2);
 	});
 }
 
 #[test]
-fn interceptor_index_works_with_intercept_policy() {
+fn guardian_index_works_with_policy() {
 	new_test_ext().execute_with(|| {
 		let reversible_account = account_id(100);
-		let interceptor = account_id(101);
+		let guardian = account_id(101);
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
 		// Set up reversibility with Intercept policy and explicit reverser
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
-		// Verify interceptor index is updated regardless of policy
-		let interceptor_accounts = ReversibleTransfers::interceptor_index(&interceptor);
-		assert_eq!(interceptor_accounts.len(), 1);
-		assert_eq!(interceptor_accounts[0], reversible_account.clone());
+		// Verify guardian index is updated regardless of policy
+		let guardian_accounts = ReversibleTransfers::guardian_index(&guardian);
+		assert_eq!(guardian_accounts.len(), 1);
+		assert_eq!(guardian_accounts[0], reversible_account.clone());
 
 		// Verify account has correct policy
 		assert_eq!(
 			ReversibleTransfers::is_high_security(&reversible_account),
-			Some(HighSecurityAccountData { delay, interceptor: interceptor.clone() })
+			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
 		);
 	});
 }
 
 #[test]
-fn global_nonce_works() {
+fn next_transaction_id_increments_correctly() {
 	new_test_ext().execute_with(|| {
-		let nonce = ReversibleTransfers::global_nonce();
-		assert_eq!(nonce, 0);
+		let tx_id = ReversibleTransfers::next_transaction_id();
+		assert_eq!(tx_id, 0);
 
 		// Perform a reversible transfer
 		let reversible_account = account_id(100);
@@ -1862,11 +1862,11 @@ fn global_nonce_works() {
 		let amount = 100;
 		let delay = BlockNumberOrTimestamp::BlockNumber(10);
 
-		let interceptor = account_id(201);
+		let guardian = account_id(201);
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			delay,
-			interceptor.clone(),
+			guardian.clone(),
 		));
 
 		assert_ok!(ReversibleTransfers::schedule_transfer(
@@ -1875,10 +1875,10 @@ fn global_nonce_works() {
 			amount,
 		));
 
-		let nonce = ReversibleTransfers::global_nonce();
-		assert_eq!(nonce, 1);
+		let tx_id = ReversibleTransfers::next_transaction_id();
+		assert_eq!(tx_id, 1);
 
-		// batch call should have all unique tx ids and increment nonce
+		// batch call should have all unique tx ids and increment counter
 		assert_ok!(Utility::batch(
 			RuntimeOrigin::signed(reversible_account.clone()),
 			vec![
@@ -1897,7 +1897,7 @@ fn global_nonce_works() {
 			],
 		));
 
-		assert_eq!(ReversibleTransfers::global_nonce(), 4);
+		assert_eq!(ReversibleTransfers::next_transaction_id(), 4);
 	});
 }
 
@@ -1994,20 +1994,20 @@ fn cancelled_reversible_transfer_does_not_record_proof() {
 		MockProofRecorder::clear();
 
 		let user = alice(); // Reversible, delay 10
-		let interceptor = bob(); // interceptor from genesis config
+		let guardian = bob(); // guardian from genesis config
 		let amount = 50;
-		let call = transfer_call(interceptor.clone(), amount);
+		let call = transfer_call(guardian.clone(), amount);
 		let tx_id = calculate_tx_id::<Test>(user.clone(), &call);
 
 		// Schedule the transfer
 		assert_ok!(ReversibleTransfers::schedule_transfer(
 			RuntimeOrigin::signed(user.clone()),
-			interceptor.clone(),
+			guardian.clone(),
 			amount,
 		));
 
-		// Cancel it before execution (must be called by interceptor)
-		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(interceptor), tx_id));
+		// Cancel it before execution (must be called by guardian)
+		assert_ok!(ReversibleTransfers::cancel(RuntimeOrigin::signed(guardian), tx_id));
 
 		// No proofs should be recorded
 		assert!(
@@ -2021,13 +2021,13 @@ fn cancelled_reversible_transfer_does_not_record_proof() {
 fn validate_delay_accepts_delay_equal_to_minimum() {
 	new_test_ext().execute_with(|| {
 		let user = charlie();
-		let interceptor = dave();
+		let guardian = dave();
 		let delay = BlockNumberOrTimestamp::BlockNumber(MinDelayPeriodBlocks::get());
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user),
 			delay,
-			interceptor,
+			guardian,
 		));
 	});
 }
@@ -2036,13 +2036,13 @@ fn validate_delay_accepts_delay_equal_to_minimum() {
 fn validate_delay_accepts_timestamp_equal_to_minimum() {
 	new_test_ext().execute_with(|| {
 		let user = charlie();
-		let interceptor = dave();
+		let guardian = dave();
 		let delay = BlockNumberOrTimestamp::Timestamp(MinDelayPeriodMoment::get());
 
 		assert_ok!(ReversibleTransfers::set_high_security(
 			RuntimeOrigin::signed(user),
 			delay,
-			interceptor,
+			guardian,
 		));
 	});
 }

@@ -60,8 +60,8 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::InterceptorIndex` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::InterceptorIndex` (`max_values`: None, `max_size`: Some(1073), added: 3548, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::GuardianIndex` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::GuardianIndex` (`max_values`: None, `max_size`: Some(1073), added: 3548, mode: `MaxEncodedLen`)
 	fn set_high_security() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `312`
@@ -213,8 +213,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	/// Storage: `ReversibleTransfers::HighSecurityAccounts` (r:1 w:1)
 	/// Proof: `ReversibleTransfers::HighSecurityAccounts` (`max_values`: None, `max_size`: Some(89), added: 2564, mode: `MaxEncodedLen`)
-	/// Storage: `ReversibleTransfers::InterceptorIndex` (r:1 w:1)
-	/// Proof: `ReversibleTransfers::InterceptorIndex` (`max_values`: None, `max_size`: Some(1073), added: 3548, mode: `MaxEncodedLen`)
+	/// Storage: `ReversibleTransfers::GuardianIndex` (r:1 w:1)
+	/// Proof: `ReversibleTransfers::GuardianIndex` (`max_values`: None, `max_size`: Some(1073), added: 3548, mode: `MaxEncodedLen`)
 	fn set_high_security() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `312`

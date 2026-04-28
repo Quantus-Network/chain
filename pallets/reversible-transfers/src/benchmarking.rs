@@ -46,9 +46,9 @@ where
 fn setup_high_security_account<T: Config>(
 	who: T::AccountId,
 	delay: BlockNumberOrTimestampOf<T>,
-	interceptor: T::AccountId,
+	guardian: T::AccountId,
 ) {
-	HighSecurityAccounts::<T>::insert(who, HighSecurityAccountData { delay, interceptor });
+	HighSecurityAccounts::<T>::insert(who, HighSecurityAccountData { delay, guardian });
 }
 
 // Helper to fund an account (requires Balances pallet in mock runtime)
@@ -88,15 +88,15 @@ mod benchmarks {
 	fn set_high_security() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
-		let interceptor: T::AccountId = benchmark_account("interceptor", 0, SEED);
+		let guardian: T::AccountId = benchmark_account("guardian", 0, SEED);
 		let delay: BlockNumberOrTimestampOf<T> = T::DefaultDelay::get();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), delay, interceptor.clone());
+		_(RawOrigin::Signed(caller.clone()), delay, guardian.clone());
 
 		assert_eq!(
 			HighSecurityAccounts::<T>::get(&caller),
-			Some(HighSecurityAccountData { delay, interceptor })
+			Some(HighSecurityAccountData { delay, guardian })
 		);
 
 		Ok(())
@@ -107,16 +107,16 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
-		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
+		let guardian: T::AccountId = benchmark_account("guardian", 1, SEED);
 		let transfer_amount = 100u128;
 
 		// Setup caller as reversible
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone());
+		setup_high_security_account::<T>(caller.clone(), delay, guardian.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
-		let global_nonce = GlobalNonce::<T>::get();
-		let tx_id = T::Hashing::hash_of(&(caller.clone(), call, global_nonce).encode());
+		let current_tx_id = NextTransactionId::<T>::get();
+		let tx_id = T::Hashing::hash_of(&(caller.clone(), call, current_tx_id).encode());
 
 		let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
 		// Schedule the dispatch
@@ -140,7 +140,7 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
-		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
+		let guardian: T::AccountId = benchmark_account("guardian", 1, SEED);
 		let transfer_amount: BalanceOf<T> = 100u128.into();
 
 		// Create and mint an asset for the benchmark
@@ -165,7 +165,7 @@ mod benchmarks {
 
 		// Setup caller as high security
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone());
+		setup_high_security_account::<T>(caller.clone(), delay, guardian.clone());
 
 		// Build the expected call for tx_id calculation
 		let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient.clone());
@@ -175,8 +175,8 @@ mod benchmarks {
 			amount: transfer_amount,
 		}
 		.into();
-		let global_nonce = GlobalNonce::<T>::get();
-		let tx_id = T::Hashing::hash_of(&(caller.clone(), asset_call, global_nonce).encode());
+		let current_tx_id = NextTransactionId::<T>::get();
+		let tx_id = T::Hashing::hash_of(&(caller.clone(), asset_call, current_tx_id).encode());
 
 		// Schedule the asset transfer
 		#[extrinsic_call]
@@ -196,24 +196,24 @@ mod benchmarks {
 	#[benchmark]
 	fn cancel() -> Result<(), BenchmarkError> {
 		let caller: T::AccountId = whitelisted_caller();
-		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
+		let guardian: T::AccountId = benchmark_account("guardian", 1, SEED);
 
 		fund_account::<T>(&caller, BalanceOf::<T>::from(10000u128));
-		fund_account::<T>(&interceptor, BalanceOf::<T>::from(10000u128));
+		fund_account::<T>(&guardian, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 		let transfer_amount = 100u128;
 
 		// Setup caller as reversible and schedule a task in setup
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(caller.clone(), delay, interceptor.clone());
+		setup_high_security_account::<T>(caller.clone(), delay, guardian.clone());
 
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
 		let origin = RawOrigin::Signed(caller.clone()).into();
 
 		let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient);
-		let global_nonce = GlobalNonce::<T>::get();
-		let tx_id = T::Hashing::hash_of(&(caller.clone(), call, global_nonce).encode());
+		let current_tx_id = NextTransactionId::<T>::get();
+		let tx_id = T::Hashing::hash_of(&(caller.clone(), call, current_tx_id).encode());
 
 		ReversibleTransfers::<T>::do_schedule_transfer(
 			origin,
@@ -226,7 +226,7 @@ mod benchmarks {
 
 		// Benchmark the cancel extrinsic
 		#[extrinsic_call]
-		_(RawOrigin::Signed(interceptor), tx_id);
+		_(RawOrigin::Signed(guardian), tx_id);
 
 		assert!(!PendingTransfers::<T>::contains_key(tx_id));
 		// Check scheduler cancelled (agenda item removed)
@@ -242,18 +242,18 @@ mod benchmarks {
 		fund_account::<T>(&owner, BalanceOf::<T>::from(10000u128));
 		let recipient: T::AccountId = benchmark_account("recipient", 0, SEED);
 		fund_account::<T>(&recipient, BalanceOf::<T>::from(100u128));
-		let interceptor: T::AccountId = benchmark_account("interceptor", 1, SEED);
+		let guardian: T::AccountId = benchmark_account("guardian", 1, SEED);
 		let transfer_amount = 100u128;
 
 		// Setup owner as reversible and schedule a task in setup
 		let delay = T::DefaultDelay::get();
-		setup_high_security_account::<T>(owner.clone(), delay, interceptor);
+		setup_high_security_account::<T>(owner.clone(), delay, guardian);
 		let call = make_transfer_call::<T>(recipient.clone(), transfer_amount)?;
 
 		let owner_origin = RawOrigin::Signed(owner.clone()).into();
 		let recipient_lookup = <T as frame_system::Config>::Lookup::unlookup(recipient.clone());
-		let global_nonce = GlobalNonce::<T>::get();
-		let tx_id = T::Hashing::hash_of(&(owner.clone(), call, global_nonce).encode());
+		let current_tx_id = NextTransactionId::<T>::get();
+		let tx_id = T::Hashing::hash_of(&(owner.clone(), call, current_tx_id).encode());
 
 		ReversibleTransfers::<T>::do_schedule_transfer(
 			owner_origin,
