@@ -172,8 +172,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxSigners: Get<u32>;
 
-		/// Maximum total number of proposals in storage per multisig (Active + Executed +
-		/// Cancelled) This prevents unbounded storage growth and incentivizes cleanup
+		/// Maximum number of proposals in storage per multisig.
+		/// Only Active and Approved proposals are stored; executed and cancelled
+		/// proposals are removed immediately. This limit prevents unbounded storage growth.
 		#[pallet::constant]
 		type MaxTotalProposalsInStorage: Get<u32>;
 

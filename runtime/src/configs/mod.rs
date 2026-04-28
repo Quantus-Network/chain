@@ -646,7 +646,7 @@ impl pallet_assets_holder::Config for Runtime {
 parameter_types! {
 	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
 	pub const MaxSigners: u32 = 100;
-	pub const MaxTotalProposalsInStorage: u32 = 200; // Max total in storage (Active + Executed + Cancelled)
+	pub const MaxTotalProposalsInStorage: u32 = 200; // Max Active + Approved proposals per multisig
 	pub const MaxCallSize: u32 = 10240; // 10KB
 	pub const MultisigFee: Balance = 600 * MILLI_UNIT; // 0.6 UNIT (non-refundable, burned)
 	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
