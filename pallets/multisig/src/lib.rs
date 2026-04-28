@@ -1073,19 +1073,13 @@ pub mod pallet {
 			};
 			let total_weight = bookkeeping_weight.saturating_add(actual_call_weight);
 
-			// Return result with proper weight accounting
-			result
-				.map(|_| PostDispatchInfo {
-					actual_weight: Some(total_weight),
-					pays_fee: Pays::Yes,
-				})
-				.map_err(|e| DispatchErrorWithPostInfo {
-					post_info: PostDispatchInfo {
-						actual_weight: Some(total_weight),
-						pays_fee: Pays::Yes,
-					},
-					error: e.error,
-				})
+			// Always return Ok - the execute extrinsic itself succeeds even if the inner call fails.
+			// The proposal has been removed and deposit returned regardless of inner call outcome.
+			// Check the ProposalExecuted event's `result` field to determine inner call success.
+			Ok(PostDispatchInfo {
+				actual_weight: Some(total_weight),
+				pays_fee: Pays::Yes,
+			})
 		}
 	}
 

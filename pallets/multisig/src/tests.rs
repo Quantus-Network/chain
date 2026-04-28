@@ -2188,3 +2188,83 @@ fn cancel_works_on_approved_proposal() {
 		);
 	});
 }
+
+/// Test that execute succeeds (removes proposal) even when the inner call fails.
+/// This is critical because FRAME rolls back on Err, so we must return Ok regardless
+/// of inner call outcome to ensure proposal removal is persisted.
+#[test]
+fn execute_succeeds_even_when_inner_call_fails() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+		// Create a 1-of-2 multisig (threshold 1, so proposal is immediately approved)
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			1,
+			0, // nonce
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 1, 0);
+
+		// Fund the multisig with a small amount (not enough for the transfer)
+		let _ = Balances::mint_into(&multisig_address, 100);
+
+		// Create a transfer call that will fail (trying to transfer more than balance)
+		let transfer_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+			dest: charlie(),
+			value: 1_000_000, // Way more than the multisig has
+		});
+
+		// Propose - should immediately be approved since threshold is 1
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			transfer_call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Verify proposal is approved
+		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		let proposer_balance_before = Balances::free_balance(alice());
+		let deposit = proposal.deposit;
+
+		// Execute - the inner call will fail due to insufficient balance
+		// But execute itself should succeed (return Ok)
+		let result = Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+		);
+
+		// The extrinsic itself should succeed
+		assert_ok!(result);
+
+		// Proposal should be removed from storage
+		assert!(
+			!Proposals::<Test>::contains_key(&multisig_address, 0),
+			"Proposal must be removed even when inner call fails"
+		);
+
+		// Deposit should be returned to proposer
+		assert_eq!(
+			Balances::free_balance(alice()),
+			proposer_balance_before + deposit,
+			"Deposit must be returned even when inner call fails"
+		);
+
+		// ProposalExecuted event should be emitted with the inner call's error
+		System::assert_has_event(
+			Event::ProposalExecuted {
+				multisig_address,
+				proposal_id: 0,
+				proposer: alice(),
+				call: transfer_call.encode(),
+				approvers: vec![alice()],
+				result: Err(DispatchError::Token(sp_runtime::TokenError::FundsUnavailable)),
+			}
+			.into(),
+		);
+	});
+}
