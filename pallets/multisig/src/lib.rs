@@ -1067,6 +1067,16 @@ pub mod pallet {
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Self::err_with_weight_raw(Error::<T>::InvalidCall, 2))?;
 
+			// Re-check high-security whitelist at execute time.
+			// The multisig's HS status may have changed since the proposal was created,
+			// or the whitelist may have been updated via runtime upgrade.
+			// This prevents bypassing HS restrictions by proposing before enabling HS.
+			if T::HighSecurity::is_high_security(&multisig_address)
+				&& !T::HighSecurity::is_whitelisted(&call)
+			{
+				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
+			}
+
 			// Use the stored call weight (validated at propose time)
 			let bookkeeping_weight = Self::bookkeeping_weight(proposal.call.len() as u32);
 

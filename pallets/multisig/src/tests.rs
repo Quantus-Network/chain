@@ -6,12 +6,38 @@ use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate, traits::Cu
 use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
 use sp_runtime::DispatchError;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+
+// Thread-local storage for dynamically toggling high-security status in tests
+thread_local! {
+	static DYNAMIC_HS_ACCOUNTS: RefCell<BTreeSet<AccountId32>> = RefCell::new(BTreeSet::new());
+}
+
+/// Add an account to the dynamic high-security set (for testing)
+pub fn set_high_security(account: &AccountId32) {
+	DYNAMIC_HS_ACCOUNTS.with(|set| {
+		set.borrow_mut().insert(account.clone());
+	});
+}
+
+/// Remove an account from the dynamic high-security set (for testing)
+#[allow(dead_code)]
+pub fn clear_high_security(account: &AccountId32) {
+	DYNAMIC_HS_ACCOUNTS.with(|set| {
+		set.borrow_mut().remove(account);
+	});
+}
 
 /// Mock implementation for HighSecurityInspector
 pub struct MockHighSecurity;
 impl HighSecurityInspector<AccountId32, RuntimeCall> for MockHighSecurity {
 	fn is_high_security(who: &AccountId32) -> bool {
-		// For testing, account 100 is high security
+		// Check dynamic set first (for tests that toggle HS status)
+		if DYNAMIC_HS_ACCOUNTS.with(|set| set.borrow().contains(who)) {
+			return true;
+		}
+		// For testing, account 100 is always high security
 		if who == &account_id(100) {
 			return true;
 		}
@@ -2307,5 +2333,112 @@ fn propose_rejects_call_exceeding_max_inner_weight() {
 		// The call_weight should be set (remark has minimal but non-zero weight)
 		// We just verify the field exists and is populated
 		let _ = proposal.call_weight; // call_weight field is now part of ProposalData
+	});
+}
+
+/// Regression test: propose while non-HS, enable HS, then attempt to execute non-whitelisted proposal.
+/// The execute should fail because the HS check is re-run at execute time.
+#[test]
+fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+
+		// Create a multisig (not high-security initially)
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Verify multisig is NOT high-security
+		assert!(!MockHighSecurity::is_high_security(&multisig_address));
+
+		// Propose a non-whitelisted call (remark with non-"safe" content)
+		// This should succeed because the multisig is not HS yet
+		let non_whitelisted_call =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"not_safe".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			non_whitelisted_call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Bob approves -> threshold reached, status = Approved
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+		));
+
+		// Verify proposal is approved and ready to execute
+		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		// NOW enable high-security on the multisig address
+		set_high_security(&multisig_address);
+		assert!(MockHighSecurity::is_high_security(&multisig_address));
+
+		// Attempt to execute - should FAIL because:
+		// 1. Multisig is now high-security
+		// 2. The proposed call is not whitelisted
+		let result = Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0);
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert_eq!(err.error, Error::<Test>::CallNotAllowedForHighSecurityMultisig.into());
+
+		// Proposal should still exist (not removed on failure)
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+	});
+}
+
+/// Test that whitelisted calls CAN still be executed after HS is enabled.
+#[test]
+fn execute_allows_whitelisted_call_after_hs_enabled() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+
+		// Create a multisig (not high-security initially)
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Propose a whitelisted call (remark with "safe" content)
+		let whitelisted_call =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"safe".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			whitelisted_call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Bob approves
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(bob()),
+			multisig_address.clone(),
+			0,
+		));
+
+		// Enable high-security
+		set_high_security(&multisig_address);
+
+		// Execute should succeed because the call is whitelisted
+		assert_ok!(Multisig::execute(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			0,
+		));
+
+		// Proposal should be removed
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
 	});
 }
