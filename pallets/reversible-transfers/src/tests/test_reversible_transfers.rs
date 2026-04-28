@@ -102,12 +102,8 @@ fn set_high_security_works() {
 			Some(HighSecurityAccountData { delay, guardian: guardian.clone() })
 		);
 		System::assert_last_event(
-			Event::HighSecuritySet {
-				who: another_user.clone(),
-				guardian: guardian.clone(),
-				delay,
-			}
-			.into(),
+			Event::HighSecuritySet { who: another_user.clone(), guardian: guardian.clone(), delay }
+				.into(),
 		);
 
 		// Calling this again should err
@@ -279,7 +275,7 @@ fn schedule_transfer_works() {
 				from: user.clone(),
 				to: dest_user.clone(),
 				guardian: bob(), // From genesis config
-				asset_id: None,     // Native balance transfer
+				asset_id: None,  // Native balance transfer
 				amount,
 			}
 		);
@@ -410,7 +406,7 @@ fn schedule_transfer_with_timestamp_works() {
 				from: user.clone(),
 				to: dest_user.clone(),
 				guardian: guardian_255(), /* This should match the actual guardian from
-				                                 * the test setup */
+				                           * the test setup */
 				asset_id: None, // Native balance transfer
 				amount,
 			}

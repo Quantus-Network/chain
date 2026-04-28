@@ -97,11 +97,8 @@ type AssetsHoldReasonOf<T> = <T as pallet_assets_holder::Config>::RuntimeHoldRea
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type AssetsHolderOf<T> = pallet_assets_holder::Pallet<T>;
 
-type PendingTransferOf<T> = PendingTransfer<
-	<T as frame_system::Config>::AccountId,
-	BalanceOf<T>,
-	AssetIdOf<T>,
->;
+type PendingTransferOf<T> =
+	PendingTransfer<<T as frame_system::Config>::AccountId, BalanceOf<T>, AssetIdOf<T>>;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -342,8 +339,10 @@ pub mod pallet {
 		///
 		/// Once this function is called successfully, the account is permanently restricted
 		/// to only the following operations:
-		/// - [`schedule_transfer`](Self::schedule_transfer) - Schedule delayed native token transfers
-		/// - [`schedule_asset_transfer`](Self::schedule_asset_transfer) - Schedule delayed asset transfers
+		/// - [`schedule_transfer`](Self::schedule_transfer) - Schedule delayed native token
+		///   transfers
+		/// - [`schedule_asset_transfer`](Self::schedule_asset_transfer) - Schedule delayed asset
+		///   transfers
 		/// - [`cancel`](Self::cancel) - Cancel pending transfers
 		/// - [`recover_funds`](Self::recover_funds) - Guardian-initiated emergency fund recovery
 		///
@@ -358,8 +357,8 @@ pub mod pallet {
 		/// # Parameters
 		///
 		/// - `delay`: The reversibility time for any transfer made by the high-security account.
-		/// - `guardian`: The guardian account that can cancel pending transfers and recover
-		///   funds from this high-security account.
+		/// - `guardian`: The guardian account that can cancel pending transfers and recover funds
+		///   from this high-security account.
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::set_high_security())]
 		pub fn set_high_security(
@@ -382,9 +381,7 @@ pub mod pallet {
 
 			GuardianIndex::<T>::try_mutate(guardian.clone(), |accounts| {
 				if !accounts.contains(&who) {
-					accounts
-						.try_push(who.clone())
-						.map_err(|_| Error::<T>::TooManyGuardianAccounts)
+					accounts.try_push(who.clone()).map_err(|_| Error::<T>::TooManyGuardianAccounts)
 				} else {
 					Ok(())
 				}
@@ -419,8 +416,8 @@ pub mod pallet {
 		///
 		/// # Errors
 		///
-		/// - [`InvalidSchedulerOrigin`](Error::InvalidSchedulerOrigin): Called by an account
-		///   other than this pallet's account.
+		/// - [`InvalidSchedulerOrigin`](Error::InvalidSchedulerOrigin): Called by an account other
+		///   than this pallet's account.
 		/// - [`PendingTxNotFound`](Error::PendingTxNotFound): No pending transfer with this ID.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::execute_transfer())]
