@@ -12,34 +12,45 @@ To have accounts for which all outgoing transfers are subject to a variable time
 
 ## Design
 
-Pallet uses `Scheduler` and `Preimages` pallets internally to handle scheduling and lookup calls, respectively. For every transfer submitted by the reversible account, in order:
-1. Preimage note is taken 
-2. Stored in the pallet's `PendingTransfers` which maps the unique tx ID `((who, call).hash())` to `(origin, pending_transfer)`. 
-3. Schedules the `ReversibleTransfers::execute_transfer` with name `tx_id`, so that user is able to cancel the dispatch by the `tx_id`
-4. At the execution block, scheduler calls the `execute_transfer` which *takes* the call from `Preimage` and dispatches it, cleaning up the storage.
+Pallet uses the `Scheduler` pallet internally to handle scheduling transfer execution. For every transfer submitted by a high-security account:
 
-NOTE: failed transfers are not retried, in this version
+1. The transfer details (from, to, guardian, amount, asset_id) are stored in `PendingTransfers`
+2. Funds are held (frozen) from the sender's balance
+3. A unique `tx_id` is generated using `hash(who, call, NextTransactionId)`
+4. The `execute_transfer` call is scheduled via the Scheduler pallet
+5. At execution time, the scheduler calls `execute_transfer` which performs the actual transfer and cleans up storage
 
-### Delay policy
+NOTE: Failed transfers are not retried in this version.
 
-Pallet currently offers two policies/ways for transaction delaying: `Explicit` and `Intercept`:
+### Delay Policy
 
-- `Explicit`: default behaviour, where reversible accounts need to call delayed transfers through `pallet_reversible_transfers::schedule_transfer` extrinsic. Directly calling the transaction will be rejected by `ReversibleTransactionExtension` as invalid.
-- `Intercept`: this is the superset of `Explicit`, and allows the `ReversibleTransactionExtension` to intercept delayed transactions in the validation phase and internally call `do_schedule_dispatch` function. The downside is, since we are delaying the call in validation level, we should reject the transaction as invalid, which is not really good for UX. In theory, it should be possible to introduce `Pending` state to `TransactionValidity` by forking crates, but that's not implemented yet.
+High-security accounts **must** use the pallet's transfer extrinsics. Direct balance transfers are blocked by the `ReversibleTransactionExtension` which validates that high-security accounts only call whitelisted operations.
 
 ### Tracking
 
-Pending/delayed transfers can be tracked at `PendingTransfers` storage and by subscribing to `ReversibleTransfersEvent::TransactionScheduled{..}` event.
+Pending/delayed transfers can be tracked via:
+- `PendingTransfers` storage (by `tx_id`)
+- `PendingTransfersBySender` storage (list of `tx_id`s per sender)
+- `TransactionScheduled` event
 
-### Storages
+### Storage Items
 
-- `ReversibleAccounts`: list of accounts that are `reversible` accounts. Accounts can call `ReversibleTransfers::set_reversability` extrinsic to join this set.
-- `PendingTransfers`: stores current pending dispatches for the user. Maps `tx_id` to `(caller, pending_dispatch)`. We store the caller so that we can validate the user who's canceling the dispatch.
-- `AccountPendingIndex`: stores the current count of pending transactions for the user so that they don't exceed `MaxPendingPerAccount`
+| Storage | Description |
+|---------|-------------|
+| `HighSecurityAccounts` | Maps account to `HighSecurityAccountData { guardian, delay }`. Accounts call `set_high_security` to join. |
+| `PendingTransfers` | Maps `tx_id` to `PendingTransfer { from, to, guardian, asset_id, amount }`. |
+| `PendingTransfersBySender` | Maps sender to list of their pending `tx_id`s (bounded by `MaxPendingPerAccount`). |
+| `GuardianIndex` | Maps guardian to list of accounts they protect (bounded by `MaxGuardianAccounts`). |
+| `NextTransactionId` | Monotonic counter for unique `tx_id` generation. |
 
-### Notes
+### Transaction ID
 
-- Transaction id is `((who, call).hash())` where `who` is the account that called the transaction and `call` is the call itself. This is used to identify the transaction in the scheduler and preimage. For identical transfers, there is a counter in `PendingTransfer` to differentiate between them.
+Transaction ID is computed as `hash((who, call, NextTransactionId))` where:
+- `who` is the sender account
+- `call` is the transfer call being scheduled  
+- `NextTransactionId` is a monotonically increasing counter
+
+This ensures unique IDs even for identical transfers.
 
 ## High-Security Mode
 
@@ -81,11 +92,19 @@ This ensures that users always have a straightforward path to unrestricted funds
 
 ## High-Security Integration
 
-This pallet provides the **HighSecurityInspector** trait for integrating high-security features with other pallets (like `pallet-multisig`).
+The **HighSecurityInspector** trait enables integration of high-security features with other pallets (like `pallet-multisig`) and transaction extensions.
+
+### Trait Location
+
+The trait is defined in the **`qp-high-security`** primitives crate (`primitives/high-security/`), not in this pallet. This separation allows:
+- Runtime-level implementation with access to `RuntimeCall` for whitelist pattern matching
+- Consumption by multiple pallets without circular dependencies
+- Clean separation between storage (this pallet) and inspection interface (primitives)
 
 ### HighSecurityInspector Trait
 
 ```rust
+// Defined in qp-high-security crate
 pub trait HighSecurityInspector<AccountId, RuntimeCall> {
     /// Check if account is registered as high-security
     fn is_high_security(who: &AccountId) -> bool;
@@ -104,24 +123,24 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 - Used by transaction extensions for EOA whitelisting
 - Implemented by runtime for call pattern matching
 
-### Implementation
+### Implementation Pattern
 
-**This pallet provides:**
-- Trait definition (`pub trait HighSecurityInspector`)
-- Helper functions for runtime implementation:
-  - `is_high_security_account(who)` - checks `HighSecurityAccounts` storage
-  - `get_guardian(who)` - retrieves guardian from storage
-- Default no-op implementation: `impl HighSecurityInspector for ()`
+**This pallet provides helper functions:**
+```rust
+impl<T: Config> Pallet<T> {
+    /// Check if account is registered as high-security
+    pub fn is_high_security_account(who: &T::AccountId) -> bool;
+    
+    /// Get guardian for high-security account
+    pub fn get_guardian(who: &T::AccountId) -> Option<T::AccountId>;
+}
+```
 
-**Runtime implements:**
-- The actual `is_whitelisted(call)` logic (requires `RuntimeCall` access)
-- Delegates `is_high_security` and `guardian` to pallet helper functions
-- Example:
-
+**Runtime implements the trait** (in `runtime/src/configs/mod.rs`):
 ```rust
 pub struct HighSecurityConfig;
 
-impl HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
+impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
     fn is_high_security(who: &AccountId) -> bool {
         // Delegate to pallet helper
         ReversibleTransfers::is_high_security_account(who)
@@ -131,9 +150,12 @@ impl HighSecurityInspector<AccountId, RuntimeCall> for HighSecurityConfig {
         // Runtime implements pattern matching (has RuntimeCall access)
         matches!(
             call,
-            RuntimeCall::ReversibleTransfers(Call::schedule_transfer { .. }) |
-            RuntimeCall::ReversibleTransfers(Call::schedule_asset_transfer { .. }) |
-            RuntimeCall::ReversibleTransfers(Call::cancel { .. })
+            RuntimeCall::ReversibleTransfers(
+                pallet_reversible_transfers::Call::schedule_transfer { .. } |
+                pallet_reversible_transfers::Call::schedule_asset_transfer { .. } |
+                pallet_reversible_transfers::Call::cancel { .. } |
+                // ... other whitelisted calls
+            )
         )
     }
 
@@ -153,11 +175,10 @@ impl pallet_multisig::Config for Runtime {
     // ...
 }
 
-// In multisig propose():
+// In multisig as_multi():
 if T::HighSecurity::is_high_security(&multisig_address) {
-    let decoded_call = RuntimeCall::decode(&call)?;
     ensure!(
-        T::HighSecurity::is_whitelisted(&decoded_call),
+        T::HighSecurity::is_whitelisted(&call),
         Error::CallNotAllowedForHighSecurityMultisig
     );
 }
@@ -182,7 +203,8 @@ if HighSecurityConfig::is_high_security(&who) {
 - Easy to maintain and update
 
 **Modularity:**
-- Trait defined in this pallet (storage owner)
+- Trait defined in primitives crate (shared dependency)
+- Storage and helpers in this pallet
 - Implementation in runtime (has `RuntimeCall` access)
 - Consumers use trait without coupling to implementation
 
