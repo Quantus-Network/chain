@@ -286,6 +286,9 @@ pub mod pallet {
 		TransactionExecuted { tx_id: T::Hash, result: DispatchResultWithPostInfo },
 		/// All funds were recovered from a high-security account by its guardian.
 		FundsRecovered { account: T::AccountId, guardian: T::AccountId },
+		/// Failed to release held funds during recovery. The transfer metadata is preserved
+		/// for manual retry via `cancel`.
+		TransferRecoveryFailed { tx_id: T::Hash },
 	}
 
 	#[pallet::error]
@@ -520,6 +523,10 @@ pub mod pallet {
 		/// This is an emergency function for when the high-security account may be compromised.
 		/// It cancels all pending transfers first (applying volume fees), then transfers
 		/// the remaining free balance to the guardian.
+		///
+		/// If releasing held funds fails for any transfer, that transfer is skipped (metadata
+		/// preserved for manual retry via `cancel`) and a `TransferRecoveryFailed` event is
+		/// emitted. Other transfers continue to be processed.
 		#[pallet::call_index(7)]
 		#[pallet::weight(<T as Config>::WeightInfo::recover_funds(T::MaxPendingPerAccount::get()))]
 		#[allow(clippy::useless_conversion)]
@@ -536,19 +543,35 @@ pub mod pallet {
 
 			let mut num_cancelled: u64 = 0;
 
-			for tx_id in PendingTransfersBySender::<T>::take(&account).iter() {
-				if let Some(pending) = PendingTransfers::<T>::take(tx_id) {
-					let schedule_id = Self::make_schedule_id(tx_id).ok();
-					if let Some(id) = schedule_id {
-						let _ = T::Scheduler::cancel_named(id);
-					}
+			// Get pending tx_ids without removing - only remove on successful release
+			let pending_tx_ids: Vec<_> =
+				PendingTransfersBySender::<T>::get(&account).into_iter().collect();
 
+			for tx_id in pending_tx_ids.iter() {
+				if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
+					// Try to release held funds first
 					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
 						log::warn!(
 							"Failed to release held funds for tx {:?} during recovery: {:?}",
 							tx_id,
 							e
 						);
+						// Skip - leave metadata intact for manual recovery via cancel
+						Self::deposit_event(Event::TransferRecoveryFailed { tx_id: *tx_id });
+						continue;
+					}
+
+					// Release succeeded - now remove metadata and cancel scheduler
+					PendingTransfers::<T>::remove(tx_id);
+
+					if let Some(id) = Self::make_schedule_id(tx_id).ok() {
+						if let Err(e) = T::Scheduler::cancel_named(id) {
+							log::warn!(
+								"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",
+								tx_id,
+								e
+							);
+						}
 					}
 
 					num_cancelled = num_cancelled.saturating_add(1);
@@ -557,6 +580,16 @@ pub mod pallet {
 						tx_id: *tx_id,
 					});
 				}
+			}
+
+			// Update sender index to only contain transfers that weren't cancelled
+			PendingTransfersBySender::<T>::mutate(&account, |list| {
+				list.retain(|tx_id| PendingTransfers::<T>::contains_key(tx_id));
+			});
+
+			// Remove empty entry
+			if PendingTransfersBySender::<T>::get(&account).is_empty() {
+				PendingTransfersBySender::<T>::remove(&account);
 			}
 
 			let call: RuntimeCallOf<T> = pallet_balances::Call::<T>::transfer_all {
