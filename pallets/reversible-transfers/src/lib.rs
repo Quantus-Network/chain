@@ -990,6 +990,20 @@ pub mod pallet {
 							delay: wrapped_delay,
 						},
 					);
+
+					// Update GuardianIndex so guardian can look up their protected accounts
+					GuardianIndex::<T>::mutate(guardian, |accounts| {
+						if !accounts.contains(who) {
+							// In genesis, we use saturating push - if limit exceeded, log warning
+							if accounts.try_push(who.clone()).is_err() {
+								log::warn!(
+									"Guardian {:?} has too many accounts, cannot add {:?} to index",
+									guardian,
+									who
+								);
+							}
+						}
+					});
 				} else {
 					// Optionally log a warning during genesis build
 					log::warn!(
