@@ -3486,10 +3486,8 @@ fn retry_preserves_preimage_ownership() {
 		Threshold::<Test>::put((20, 100));
 
 		// Create a call with a lookup hash (not inline)
-		let call = RuntimeCall::Logger(LoggerCall::timed_log {
-			i: 42,
-			weight: Weight::from_parts(10, 0),
-		});
+		let call =
+			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
 		let hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 		let len = call.using_encoded(|x| x.len()) as u32;
 		// Use Bounded::Lookup to ensure we have a preimage reference
@@ -3558,10 +3556,8 @@ fn retry_unrequests_preimage_on_success() {
 		Threshold::<Test>::put((6, 100));
 
 		// Create a call with a lookup hash (not inline)
-		let call = RuntimeCall::Logger(LoggerCall::timed_log {
-			i: 42,
-			weight: Weight::from_parts(10, 0),
-		});
+		let call =
+			RuntimeCall::Logger(LoggerCall::timed_log { i: 42, weight: Weight::from_parts(10, 0) });
 		let hash = <Test as frame_system::Config>::Hashing::hash_of(&call);
 		let len = call.using_encoded(|x| x.len()) as u32;
 		// Use Bounded::Lookup to ensure we have a preimage reference
@@ -3587,7 +3583,10 @@ fn retry_unrequests_preimage_on_success() {
 		// Run to block 4 - task fails, retry scheduled for block 6
 		run_to_block(4);
 		assert!(logger::log().is_empty());
-		assert!(Preimage::is_requested(&hash), "Preimage should still be requested (retry pending)");
+		assert!(
+			Preimage::is_requested(&hash),
+			"Preimage should still be requested (retry pending)"
+		);
 
 		// Run to block 6 - task succeeds (threshold met)
 		run_to_block(6);
@@ -3623,7 +3622,10 @@ fn schedule_after_timestamp_zero_rejected() {
 		// With bucket_size=10000: normalize(0) = 10000, +bucket = 20000
 		// But 20000 > 10000, so this actually succeeds!
 		// Let's verify the actual behavior
-		assert!(result.is_ok(), "Timestamp(0) scheduling should succeed when resolved time is in future");
+		assert!(
+			result.is_ok(),
+			"Timestamp(0) scheduling should succeed when resolved time is in future"
+		);
 
 		// Verify task is scheduled at the expected bucket
 		// normalize(0) = 10000, +bucket = 20000
@@ -3797,22 +3799,15 @@ fn cancel_task_after_retry_rescheduling() {
 		);
 
 		// Try to cancel by name - should fail since lookup is gone
-		assert_noop!(
-			Scheduler::cancel_named(root().into(), task_name),
-			Error::<Test>::NotFound
-		);
+		assert_noop!(Scheduler::cancel_named(root().into(), task_name), Error::<Test>::NotFound);
 
 		// But we can cancel by address if we know it
-		assert_ok!(Scheduler::cancel(
-			root().into(),
-			BlockNumberOrTimestamp::BlockNumber(7),
-			0
-		));
+		assert_ok!(Scheduler::cancel(root().into(), BlockNumberOrTimestamp::BlockNumber(7), 0));
 
 		// Verify task is cancelled
 		assert!(
-			Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty()
-				|| Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_none(),
+			Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7)).is_empty() ||
+				Agenda::<Test>::get(BlockNumberOrTimestamp::BlockNumber(7))[0].is_none(),
 			"Task should be cancelled"
 		);
 
@@ -3873,14 +3868,7 @@ fn timestamp_retry_scheduling_and_cancellation() {
 		assert_ok!(Scheduler::cancel(root().into(), retry_when.clone(), 0));
 
 		// Verify cancellation
-		assert!(
-			Agenda::<Test>::iter().count() == 0,
-			"All tasks should be cancelled"
-		);
-		assert_eq!(
-			Retries::<Test>::iter().count(),
-			0,
-			"Retry config should be cleaned up"
-		);
+		assert!(Agenda::<Test>::iter().count() == 0, "All tasks should be cancelled");
+		assert_eq!(Retries::<Test>::iter().count(), 0, "Retry config should be cleaned up");
 	});
 }

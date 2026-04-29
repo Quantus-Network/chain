@@ -648,20 +648,20 @@ impl<T: Config> Pallet<T> {
 			// The current block has already completed its scheduled tasks, so
 			// schedule the task at least one block after this current block.
 			DispatchTime::After(x) => match x {
-					// Block-based: truly relative (current + delay + 1)
-					BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
-						current_block.saturating_add(x).saturating_add(One::one()),
-					),
-					// Timestamp-based: bucket the target time, then advance one bucket.
-					// This ensures the task executes strictly AFTER the target timestamp.
-					//
-					// Example with bucket_size = 24000ms:
-					// - Target = 35000ms -> normalize() = 48000ms (next bucket boundary)
-					// - Then advance: 48000 + 24000 = 72000ms
-					// - Task executes when timestamp >= 72000ms, guaranteed > 35000ms
-					BlockNumberOrTimestamp::Timestamp(target) => {
-						let bucket = x.normalize(T::TimestampBucketSize::get());
-						let bucket_time = bucket.as_timestamp().unwrap_or(target);
+				// Block-based: truly relative (current + delay + 1)
+				BlockNumberOrTimestamp::BlockNumber(x) => BlockNumberOrTimestamp::BlockNumber(
+					current_block.saturating_add(x).saturating_add(One::one()),
+				),
+				// Timestamp-based: bucket the target time, then advance one bucket.
+				// This ensures the task executes strictly AFTER the target timestamp.
+				//
+				// Example with bucket_size = 24000ms:
+				// - Target = 35000ms -> normalize() = 48000ms (next bucket boundary)
+				// - Then advance: 48000 + 24000 = 72000ms
+				// - Task executes when timestamp >= 72000ms, guaranteed > 35000ms
+				BlockNumberOrTimestamp::Timestamp(target) => {
+					let bucket = x.normalize(T::TimestampBucketSize::get());
+					let bucket_time = bucket.as_timestamp().unwrap_or(target);
 					BlockNumberOrTimestamp::Timestamp(
 						bucket_time.saturating_add(T::TimestampBucketSize::get()),
 					)
@@ -707,11 +707,11 @@ impl<T: Config> Pallet<T> {
 			let _ = agenda.try_push(Some(what));
 			agenda.len() as u32 - 1
 		} else if let Some(hole_index) = agenda.iter().position(|i| i.is_none()) {
-  				agenda[hole_index] = Some(what);
-  				hole_index as u32
-  			} else {
-  				return Err((DispatchError::Exhausted, what));
-  			};
+			agenda[hole_index] = Some(what);
+			hole_index as u32
+		} else {
+			return Err((DispatchError::Exhausted, what));
+		};
 		Agenda::<T>::insert(when, agenda);
 		Ok(index)
 	}
@@ -1339,8 +1339,8 @@ impl<T: Config> Pallet<T> {
 	) -> Result<(), DispatchError> {
 		let types_match = matches!(
 			(task_when, period),
-			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_))
-				| (BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_))
+			(BlockNumberOrTimestamp::BlockNumber(_), BlockNumberOrTimestamp::BlockNumber(_)) |
+				(BlockNumberOrTimestamp::Timestamp(_), BlockNumberOrTimestamp::Timestamp(_))
 		);
 		ensure!(types_match, Error::<T>::RetryPeriodMismatch);
 		Ok(())
