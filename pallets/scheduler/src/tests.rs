@@ -2365,10 +2365,8 @@ fn unavailable_call_is_detected() {
 #[test]
 fn time_based_agenda_is_processed_correctly() {
 	new_test_ext().execute_with(|| {
-		// Bucket size is 10_000ms.
-		// Schedule a task for "after 15_000ms"
-		// With the fix: normalize(15000) = 20000, then +bucket = 30000
-		// This ensures the task won't fire until time >= 20001 (bucket 30000's start)
+		// Bucket size is 10_000ms. Schedule a task for "after 15_000ms".
+		// normalize(15000) = 20000, then +bucket = 30000 to ensure task fires after target.
 		let schedule_time_ms = 15_000;
 
 		assert_ok!(Scheduler::schedule_after(

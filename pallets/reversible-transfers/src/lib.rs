@@ -756,7 +756,6 @@ pub mod pallet {
 			log::debug!(target: "reversible-transfers", "Now time: {:?}", T::TimeProvider::now());
 			log::debug!(target: "reversible-transfers", "dispatch_time: {dispatch_time:?}");
 
-			// Store transfer details directly - no preimage needed
 			let new_pending = PendingTransfer {
 				from: from.clone(),
 				to: recipient.clone(),
@@ -826,10 +825,6 @@ pub mod pallet {
 		///
 		/// Schedules a native balance transfer for delayed execution using the caller's
 		/// pre-configured delay period.
-		///
-		/// Note: Despite the doc comment history, this is called by the `schedule_transfer`
-		/// extrinsic, not directly by a transaction extension. The extension only validates
-		/// that high-security accounts use whitelisted calls.
 		pub fn do_schedule_transfer(
 			origin: T::RuntimeOrigin,
 			dest: <<T as frame_system::Config>::Lookup as StaticLookup>::Source,

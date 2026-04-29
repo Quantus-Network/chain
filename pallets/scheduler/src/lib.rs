@@ -614,16 +614,9 @@ impl<T: Config> Pallet<T> {
 						current_block.saturating_add(x).saturating_add(One::one()),
 					),
 					BlockNumberOrTimestamp::Timestamp(target) => {
-						// For timestamp-based scheduling, we need to ensure the task doesn't
-						// fire before the target time. The normalize function places the task
-						// in a bucket, but that bucket could start processing before the target.
-						//
-						// Example with bucket_size = 10000:
-						// - Target = 35000 -> normalize() = 40000 (bucket covers 30001-40000)
-						// - But time 31000 is in this bucket, so task could fire at 31000 < 35000!
-						//
-						// Fix: Schedule in the next bucket after normalization, guaranteeing
-						// the bucket's start time is > target time.
+						// Schedule in the bucket AFTER the normalized target to ensure the task
+						// doesn't fire before the requested time (buckets can start processing
+						// before their end timestamp).
 						let bucket = x.normalize(T::TimestampBucketSize::get());
 						let bucket_time = bucket.as_timestamp().unwrap_or(target);
 						BlockNumberOrTimestamp::Timestamp(
@@ -1272,9 +1265,8 @@ impl<T: Config> Pallet<T> {
 
 use schedule::v3::TaskName;
 
-// Shims for Substrate's v3 scheduler traits, required by pallet_referenda (external crate).
-// Periodic scheduling is intentionally unsupported -- these impls exist solely to satisfy the
-// trait bounds. Once pallet_referenda is forked locally, these can be removed entirely.
+// Shims for Substrate's v3 scheduler traits, required by pallet_referenda.
+// Periodic scheduling is intentionally unsupported.
 impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
 	for Pallet<T>
 {
