@@ -4,6 +4,7 @@ use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
 use frame_support::{
 	assert_noop, assert_ok,
+	dispatch::GetDispatchInfo,
 	traits::{fungible::Mutate, Currency},
 };
 use qp_high_security::HighSecurityInspector;
@@ -2294,28 +2295,27 @@ fn propose_rejects_call_exceeding_max_inner_weight() {
 		));
 		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
 
-		// Create a call with weight that exceeds MaxInnerCallWeight
-		// We use a large remark to get a call with significant weight
-		// Note: System::remark has ~zero weight regardless of size, so we need
-		// to test the mechanism differently. The check uses call.get_dispatch_info().call_weight
-		// which for remark is minimal. For a real test we'd need a call with large declared weight.
-		// For now, we test that the mechanism is in place by verifying normal calls work.
+		let too_heavy_call = RuntimeCall::HeavyCall(mock_heavy_call::Call::too_heavy {});
+		assert!(too_heavy_call
+			.get_dispatch_info()
+			.call_weight
+			.any_gt(MaxInnerCallWeightParam::get()));
 
-		// This test verifies the positive case - normal calls should still work
-		let normal_call =
-			RuntimeCall::System(frame_system::Call::remark { remark: vec![1u8; 100] });
-		assert_ok!(Multisig::propose(
-			RuntimeOrigin::signed(alice()),
-			multisig_address.clone(),
-			normal_call.encode().try_into().unwrap(),
-			100,
-		));
+		let free_before_propose = Balances::free_balance(alice());
+		assert_err_ignore_postinfo(
+			Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				too_heavy_call.encode().try_into().unwrap(),
+				100,
+			),
+			Error::<Test>::CallWeightExceedsLimit.into(),
+		);
 
-		// Verify the proposal was created with the call_weight stored
-		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
-		// The call_weight should be set (remark has minimal but non-zero weight)
-		// We just verify the field exists and is populated
-		let _ = proposal.call_weight; // call_weight field is now part of ProposalData
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Multisigs::<Test>::get(&multisig_address).unwrap().proposal_nonce, 0);
+		assert_eq!(Balances::reserved_balance(alice()), 0);
+		assert_eq!(Balances::free_balance(alice()), free_before_propose);
 	});
 }
 

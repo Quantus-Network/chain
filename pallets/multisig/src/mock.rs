@@ -26,6 +26,28 @@ pub fn account_id(id: u64) -> AccountId {
 	AccountId::new(data)
 }
 
+#[frame_support::pallet]
+pub mod mock_heavy_call {
+	use frame_support::{dispatch::DispatchResult, weights::Weight};
+	use frame_system::pallet_prelude::*;
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config {}
+
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		#[pallet::call_index(0)]
+		#[pallet::weight(Weight::from_parts(2_000_000_000, 2_097_152))]
+		pub fn too_heavy(origin: OriginFor<T>) -> DispatchResult {
+			ensure_signed(origin)?;
+			Ok(())
+		}
+	}
+}
+
 #[frame_support::runtime]
 mod runtime {
 	use super::*;
@@ -73,6 +95,9 @@ mod runtime {
 
 	#[runtime::pallet_index(9)]
 	pub type ReversibleTransfers = pallet_reversible_transfers::Pallet<Test>;
+
+	#[runtime::pallet_index(10)]
+	pub type HeavyCall = mock_heavy_call::Pallet<Test>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
@@ -150,6 +175,8 @@ impl pallet_multisig::Config for Test {
 	type WeightInfo = ();
 	type HighSecurity = crate::tests::MockHighSecurity;
 }
+
+impl mock_heavy_call::Config for Test {}
 
 type Moment = u64;
 

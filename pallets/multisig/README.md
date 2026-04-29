@@ -43,17 +43,18 @@ Creates a new multisig account with deterministic address generation.
 
 **Validation:**
 - At least 2 unique signers required (single-signer "multisigs" are rejected - use a regular account)
-- No duplicate signers
 - Threshold must be > 0
-- Threshold cannot exceed number of signers
+- Signers are sorted and deduplicated before validation and address derivation
+- Threshold cannot exceed the number of unique signers after deduplication
 - Signers count must be ≤ MaxSigners
 - Multisig address (derived from signers+threshold+nonce) must not already exist
 
 **Threshold=1 multisigs:** A 1-of-N multisig (threshold=1 with N≥2 signers) is valid and useful for operational accounts where any authorized signer can act independently. Proposals are immediately `Approved` upon creation and can be executed right away.
 
-**Important:** Signers are automatically sorted before storing and address generation. Order doesn't matter:
+**Important:** Signers are automatically sorted and deduplicated before validation, storage, and address generation. Order doesn't matter:
 - `[alice, bob, charlie]` + threshold=2 + nonce=0 → `address_1`
 - `[charlie, bob, alice]` + threshold=2 + nonce=0 → `address_1` (same!)
+- `[alice, bob, bob, charlie]` + threshold=2 + nonce=0 → `address_1` (duplicates ignored)
 - To create multiple multisigs with same signers, use different nonce:
   - `signers=[alice, bob], threshold=2, nonce=0` → `address_A`
   - `signers=[alice, bob], threshold=2, nonce=1` → `address_B` (different!)
@@ -73,8 +74,10 @@ Creates a new proposal for multisig execution.
 
 **Validation:**
 - Caller must be a signer
-- **High-Security Check:** If multisig is high-security, only whitelisted calls are allowed (see High-Security Integration section)
-- Call size must be ≤ MaxCallSize
+- Call must fit `MaxCallSize` as bounded call bytes
+- Call must decode as a valid `RuntimeCall`
+- Declared call weight must not exceed `MaxInnerCallWeight`
+- **High-Security Check:** If multisig is currently high-security, only whitelisted calls are allowed (see High-Security Integration section)
 - Multisig cannot have MaxTotalProposalsInStorage or more total proposals in storage
 - Caller cannot exceed their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - Expiry must be in the future (expiry > current_block)
@@ -142,16 +145,18 @@ Dispatches an **Approved** proposal. Can be called by any signer of the multisig
 - Caller must be a signer
 - Proposal must exist and have status **Approved**
 - Proposal must not be expired (current_block ≤ expiry)
+- Stored call bytes must decode as a valid `RuntimeCall`
+- If the multisig is high-security at execution time, the call must still be whitelisted
 
 **Effects:**
-- Call is decoded and dispatched with multisig_address as origin
+- Call is decoded again and dispatched with multisig_address as origin after wrapper-level validation
 - Proposal is **always removed** from storage (regardless of inner call success/failure)
 - ProposalDeposit is returned to the proposer
 - `ProposalExecuted` event is emitted with the inner call's `result` (Ok or Err)
 
-**Important:** The `execute` extrinsic itself succeeds even if the inner call fails. The proposal is removed and deposit returned in both cases. Check the `ProposalExecuted` event's `result` field to determine if the inner call succeeded.
+**Important:** After wrapper-level validation succeeds, the `execute` extrinsic itself succeeds even if the inner call fails. The proposal is removed and deposit returned in both cases. Check the `ProposalExecuted` event's `result` field to determine if the inner call succeeded.
 
-**Economic Costs:** Weight depends on call size (charged upfront for MaxCallSize, refunded for actual size).
+**Economic Costs:** Weight charges multisig bookkeeping plus the configured maximum inner-call weight upfront, then refunds based on actual bookkeeping and the inner call's post-dispatch weight.
 
 ### 6. Remove Expired
 Manually removes a single expired **Active or Approved** proposal from storage. Only signers can call this. Deposit is returned to the original proposer.
@@ -311,6 +316,7 @@ Stores proposal data indexed by (multisig_address, proposal_id):
 ProposalData {
     proposer: AccountId,                // Who proposed (receives deposit back)
     call: BoundedVec<u8>,               // Encoded RuntimeCall to execute
+    call_weight: Weight,                // Declared inner-call weight captured at propose time
     expiry: BlockNumber,                // Deadline for approvals
     approvals: BoundedVec<AccountId>,   // List of signers who approved
     deposit: Balance,                   // Reserved deposit (refundable)
@@ -341,9 +347,8 @@ enum ProposalStatus {
 
 - `NotEnoughSigners` - Less than 2 unique signers provided (single-signer multisigs not allowed)
 - `ThresholdZero` - Threshold cannot be 0
-- `ThresholdTooHigh` - Threshold exceeds number of signers
+- `ThresholdTooHigh` - Threshold exceeds number of unique signers after deduplication
 - `TooManySigners` - Exceeds MaxSigners limit
-- `DuplicateSigner` - Duplicate address in signers list
 - `MultisigAlreadyExists` - Multisig with this address already exists
 - `MultisigNotFound` - Multisig does not exist
 - `NotASigner` - Caller is not authorized signer
@@ -354,14 +359,16 @@ enum ProposalStatus {
 - `ExpiryInPast` - Proposal expiry is not in the future (for propose)
 - `ExpiryTooFar` - Proposal expiry exceeds MaxExpiryDuration (for propose)
 - `ProposalExpired` - Proposal deadline passed (for approve)
-- `CallTooLarge` - Encoded call exceeds MaxCallSize
-- `InvalidCall` - Call decoding failed during execution
+- `InvalidCall` - Call decoding failed during proposal validation or execution
+- `CallNotAllowedForHighSecurityMultisig` - Call is not whitelisted for a high-security multisig
+- `CallWeightExceedsLimit` - Declared call weight exceeds MaxInnerCallWeight
 - `InsufficientBalance` - Not enough funds for fee/deposit
 - `TooManyProposalsInStorage` - Multisig has MaxTotalProposalsInStorage total proposals (cleanup required to create new)
 - `TooManyProposalsPerSigner` - Caller has reached their per-signer proposal limit (`MaxTotalProposalsInStorage / signers_count`)
 - `ProposalNotExpired` - Proposal not yet expired (for remove_expired)
 - `ProposalNotActive` - Proposal is not active or approved (already executed or cancelled)
 - `ProposalNotApproved` - Proposal is not in Approved status (for `execute()`)
+- `ProposalNonceExhausted` - Proposal nonce reached u32::MAX
 
 ## Important Behavior
 
@@ -383,10 +390,12 @@ approve(multisig, 1) // Approve proposal #1
 ```
 
 ### Signer Order Doesn't Matter
-Signers are **automatically sorted** before address generation and storage:
+Signers are **automatically sorted and deduplicated** before validation, address generation, and storage:
 - Input order is irrelevant - signers are always sorted deterministically
+- Duplicate signer entries are ignored before threshold validation
 - Address is derived from `Hash(PalletId + sorted_signers + threshold + nonce)`
 - Same signers+threshold+nonce in any order = same multisig address
+- Threshold is checked against the deduplicated signer count
 - User must provide unique nonce to create multiple multisigs with same signers
 
 **Example:**
@@ -477,15 +486,22 @@ This event structure is optimized for indexing by SubSquid and similar indexers:
 - **No global limits:** Only per-multisig limits (decentralized resistance)
 
 ### Call Execution
-- Calls execute with multisig_address as origin
-- Multisig can call ANY pallet (including recursive multisig calls)
-- Call validation happens at execution time
-- Failed calls emit event with error but don't revert proposal removal
+- Calls are decoded and validated at `propose()` time, then stored as bounded call bytes with the declared `call_weight`
+- Calls are decoded again at `execute()` time before dispatch
+- High-security whitelist enforcement runs at proposal creation for currently high-security multisigs and again at execution time
+- Allowed calls execute with multisig_address as origin
+- Standard multisigs can call any pallet (including recursive multisig calls) as long as the call fits size and weight limits
+- Failed inner calls emit `ProposalExecuted` with an `Err` result, but `execute()` itself succeeds after wrapper-level validation so proposal removal and deposit return persist
 
 ## Configuration Example
 
 
 ```rust
+parameter_types! {
+    // Maximum weight for inner calls executed through multisig.
+    pub MaxInnerCallWeight: Weight = Weight::from_parts(1_000_000_000_000, 2_621_440);
+}
+
 impl pallet_multisig::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
@@ -495,6 +511,7 @@ impl pallet_multisig::Config for Runtime {
     type MaxTotalProposalsInStorage = ConstU32<200>;    // Total storage cap (cleanup via claim_deposits/remove_expired)
     type MaxCallSize = ConstU32<10240>;                 // Per-proposal storage limit
     type MaxExpiryDuration = ConstU32<100_800>;         // Max proposal lifetime (~2 weeks @ 12s)
+    type MaxInnerCallWeight = MaxInnerCallWeight;        // Per-proposal inner-call weight limit
     
     // Economic parameters (example values - adjust per runtime)
     type MultisigFee = ConstU128<{ 600 * MILLI_UNIT }>;      // Creation barrier (burned)
@@ -504,6 +521,7 @@ impl pallet_multisig::Config for Runtime {
     
     type PalletId = ConstPalletId(*b"py/mltsg");
     type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
+    type HighSecurity = runtime::HighSecurityConfig;
 }
 ```
 
@@ -525,38 +543,29 @@ The multisig pallet integrates with **pallet-reversible-transfers** to support h
 - No restrictions
 
 **High-Security Multisig:**
-- **Whitelist enforced:** Only allowed calls can be proposed
+- **Whitelist enforced:** Only allowed calls can be proposed and executed
 - **Delayed execution:** Via `ReversibleTransfers::schedule_transfer()`
 - **Guardian oversight:** Guardian can cancel during delay period
 - **Use case:** Corporate treasury, regulated operations, high-value custody
 
-### ⚠️ Important: Enabling High-Security
+### Important: Enabling High-Security
 
-**Risk Window:**
-When enabling high-security for an existing multisig with active proposals:
-1. **Existing proposals** are NOT automatically blocked
-2. **Whitelist check** only happens at proposal creation time (`propose()`)
-3. **Proposals created before HS** can still be executed after HS is enabled
+High-security whitelist checks happen at proposal creation for multisigs that are already high-security, and the whitelist is re-run at execution time before the stored call is removed or dispatched. This closes the former "propose before enabling high-security, execute after enabling high-security" bypass.
 
-**Mitigation:**
-Before enabling high-security, ensure:
-- ✅ All active proposals are **completed** (executed or cancelled)
-- ✅ All proposals have **expired** or been **removed**
-- ✅ No pending approvals exist
+Existing non-whitelisted proposals may become non-executable after high-security is enabled. They remain in storage until the proposer cancels them or they are cleaned up after expiry with `claim_deposits()` or `remove_expired()`.
 
-**Safe workflow:**
+**Recommended workflow:**
 ```rust
 // 1. Check for active proposals
 let proposals = query_proposals(multisig_address);
-assert_eq!(proposals.len(), 0, "Must cleanup proposals first");
 
-// 2. Cancel or wait for expiry
+// 2. Cancel non-whitelisted proposals or wait for expiry and cleanup
 for proposal_id in proposals {
     Multisig::cancel(Origin::signed(proposer), multisig_address, proposal_id);
     // OR: wait for expiry
 }
 
-// 3. NOW enable high-security
+// 3. Enable high-security
 ReversibleTransfers::set_high_security(
     Origin::signed(multisig_address),
     delay: 100_800,
@@ -564,31 +573,18 @@ ReversibleTransfers::set_high_security(
 );
 ```
 
-**Why this design:**
-- **Simplicity:** Single check point (`propose`) easier to reason about
-- **Gas efficiency:** No decode overhead on every approval
-- **User control:** Explicit transition management
-- **Trade-off:** Performance and simplicity over defense-in-depth
-
-**Could be changed:**
-Adding whitelist check in `approve()` (before execution) would close this window,
-at the cost of:
-- Higher gas on every approval for HS multisigs (~70M units for decode + check)
-- More complex execution path
-- Would make this a non-issue
-
 ### How It Works
 
-1. **Setup:** Multisig account calls `ReversibleTransfers::set_high_security(delay, guardian)`
-2. **Propose:** Only whitelisted calls allowed:
+1. **Setup:** Multisig enables high-security through reversible transfers.
+2. **Propose:** The call is decoded, its declared call weight is checked against `MaxInnerCallWeight`, and if the multisig is currently high-security the whitelist is enforced:
    - ✅ `ReversibleTransfers::schedule_transfer`
    - ✅ `ReversibleTransfers::schedule_asset_transfer`
    - ✅ `ReversibleTransfers::cancel`
    - ✅ `ReversibleTransfers::recover_funds`
    - ❌ All other calls → `CallNotAllowedForHighSecurityMultisig` error
-3. **Approve:** Standard multisig approval process
-4. **Execute:** Threshold reached → transfer scheduled with delay
-5. **Guardian:** Can cancel via `ReversibleTransfers::cancel(tx_id)` during delay
+3. **Approve:** Approvals only move the proposal to `Approved` when threshold is reached; approval does not dispatch the call.
+4. **Execute:** The call is decoded again, the high-security whitelist is re-checked, and the call is dispatched as the multisig account if still allowed.
+5. **Guardian:** Can cancel reversible transfers via `ReversibleTransfers::cancel(tx_id)` during delay.
 
 ### Code Example
 
@@ -639,24 +635,27 @@ Multisig::propose(
 
 ### Performance Impact
 
-High-security multisigs have higher costs due to call validation:
+High-security multisigs have higher proposal costs due to the extra high-security account lookup and whitelist enforcement. Calls are decoded for all proposals.
 
 - **+1 DB read:** Check `ReversibleTransfers::HighSecurityAccounts`
-- **+Decode overhead:** Variable cost based on call size (O(call_size))
 - **+Whitelist check:** ~10k units for pattern matching
-- **Total overhead:** Base cost + decode cost proportional to call size
+- **Total overhead:** Additional read plus whitelist matching on top of the standard decode path
 
 **Dynamic weight refund:**
 Normal multisigs automatically get refunded for unused high-security overhead.
 
 **Weight calculation:**
-- `propose()` charges upfront for worst-case high-security path: `propose_high_security(call.len())`. Actual weight refunded based on path: `propose(call_size)` for normal multisig, `propose_high_security(call_size)` for HS. No cleanup in propose (no iteration/cleanup parameters).
-- `execute()` charges upfront for `execute(MaxCallSize)`; actual weight refunded as `execute(actual_call_size)`.
+- `propose()` charges upfront for the current worst-case proposal path used by the implementation: `propose_high_security(call.len())`. Actual weight is refunded based on path: `propose(call_size)` for normal multisigs, `propose_high_security(call_size)` for high-security multisigs. No cleanup runs in propose.
+- `propose()` rejects calls whose declared `call_weight` exceeds `MaxInnerCallWeight`.
+- `execute()` charges upfront for bookkeeping worst-case plus the maximum allowed inner-call weight: `WeightInfo::execute(T::MaxCallSize::get()) + T::MaxInnerCallWeight::get()`.
+- `execute()` returns actual weight as bookkeeping for the stored call size plus the inner call's post-dispatch weight, using the stored `call_weight` as fallback when the inner call does not report actual weight.
 - `claim_deposits()` charges upfront for worst-case iteration and cleanup; actual weight based on proposals iterated and cleaned (dynamic refund).
 
 **Security notes:**
-- Call size is validated BEFORE decode to prevent DoS via oversized payloads
-- Weight formula includes O(call_size) component for decode (HS path) to prevent underpayment
+- `MaxCallSize` is enforced by bounded call bytes before decode
+- Calls are decoded at proposal creation and execution
+- `MaxInnerCallWeight` prevents storing a proposal that cannot be safely budgeted by `execute()`
+- Weight formula includes O(call_size) component for decode to prevent underpayment
 - Benchmarks must be regenerated after logic changes
 
 ### Configuration
