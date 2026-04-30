@@ -52,6 +52,7 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_scheduler`.
 pub trait WeightInfo {
 	fn service_agendas_base() -> Weight;
+	fn service_timestamp_agendas_base() -> Weight;
 	fn service_agenda_base(s: u32, ) -> Weight;
 	fn service_task_base() -> Weight;
 	fn service_task_fetched(s: u32, ) -> Weight;
@@ -72,8 +73,8 @@ pub trait WeightInfo {
 /// Weights for `pallet_scheduler` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `Scheduler::IncompleteSince` (r:1 w:1)
-	/// Proof: `Scheduler::IncompleteSince` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::IncompleteBlockSince` (r:1 w:1)
+	/// Proof: `Scheduler::IncompleteBlockSince` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
 	fn service_agendas_base() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `32`
@@ -82,6 +83,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(4_000_000, 1494)
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `Scheduler::IncompleteTimestampSince` (r:1 w:1)
+	/// Proof: `Scheduler::IncompleteTimestampSince` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::LastProcessedTimestamp` (r:1 w:1)
+	/// Proof: `Scheduler::LastProcessedTimestamp` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
+	fn service_timestamp_agendas_base() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `32`
+		//  Estimated: `1494`
+		// Minimum execution time: 4_000_000 picoseconds.
+		Weight::from_parts(5_000_000, 1494)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Scheduler::Agenda` (r:1 w:1)
 	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10718), added: 13193, mode: `MaxEncodedLen`)
@@ -293,8 +307,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-	/// Storage: `Scheduler::IncompleteSince` (r:1 w:1)
-	/// Proof: `Scheduler::IncompleteSince` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::IncompleteBlockSince` (r:1 w:1)
+	/// Proof: `Scheduler::IncompleteBlockSince` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
 	fn service_agendas_base() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `32`
@@ -303,6 +317,19 @@ impl WeightInfo for () {
 		Weight::from_parts(4_000_000, 1494)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `Scheduler::IncompleteTimestampSince` (r:1 w:1)
+	/// Proof: `Scheduler::IncompleteTimestampSince` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
+	/// Storage: `Scheduler::LastProcessedTimestamp` (r:1 w:1)
+	/// Proof: `Scheduler::LastProcessedTimestamp` (`max_values`: Some(1), `max_size`: Some(9), added: 504, mode: `MaxEncodedLen`)
+	fn service_timestamp_agendas_base() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `32`
+		//  Estimated: `1494`
+		// Minimum execution time: 4_000_000 picoseconds.
+		Weight::from_parts(5_000_000, 1494)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Scheduler::Agenda` (r:1 w:1)
 	/// Proof: `Scheduler::Agenda` (`max_values`: None, `max_size`: Some(10718), added: 13193, mode: `MaxEncodedLen`)
