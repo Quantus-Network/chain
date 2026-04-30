@@ -5,7 +5,7 @@
 //! and high-value accounts that require additional security controls:
 //!
 //! - **Call whitelisting**: Only approved operations can be executed
-//! - **Guardian/interceptor role**: Designated account can cancel malicious transactions
+//! - **Guardian role**: Designated account can cancel malicious transactions
 //! - **Delayed execution**: Time window for intervention before irreversible actions
 //!
 //! ## Architecture
@@ -108,7 +108,7 @@ pub trait HighSecurityInspector<AccountId, RuntimeCall> {
 	/// ```
 	fn is_whitelisted(call: &RuntimeCall) -> bool;
 
-	/// Get the guardian/interceptor account for a High-Security account
+	/// Get the guardian account for a High-Security account
 	///
 	/// The guardian has special privileges to cancel pending transactions
 	/// initiated by the High-Security account.
