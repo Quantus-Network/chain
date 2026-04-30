@@ -143,6 +143,21 @@ benchmarks! {
 		assert_eq!(IncompleteBlockSince::<T>::get(), Some(now - One::one()));
 	}
 
+	// `service_timestamp_agendas` when no work is done.
+	// This benchmarks the base housekeeping cost for the timestamp agenda path.
+	service_timestamp_agendas_base {
+		let bucket_size = T::TimestampBucketSize::get();
+		let current_time = bucket_size.saturating_mul(2u32.into());
+		let last_processed = bucket_size;
+		LastProcessedTimestamp::<T>::put(last_processed);
+		IncompleteTimestampSince::<T>::put(last_processed);
+	}: {
+		Scheduler::<T>::service_timestamp_agendas(&mut WeightMeter::new(), &mut 0, current_time, 0);
+	} verify {
+		// LastProcessedTimestamp should be updated to the normalized current time
+		assert_eq!(LastProcessedTimestamp::<T>::get(), Some(current_time));
+	}
+
 	// `service_agenda` when no work is done.
 	service_agenda_base {
 		let now = BLOCK_NUMBER.into();

@@ -87,10 +87,10 @@ where
 	let top = 45 + (desired.len() * 48);
 	let mut best = 0;
 	let mut seed = Pair::Seed::default();
-	let mut done = 0;
+	let mut done: u64 = 0;
 
 	loop {
-		if done % 100000 == 0 {
+		if done.is_multiple_of(100000) {
 			OsRng.fill_bytes(seed.as_mut());
 		} else {
 			next_seed(seed.as_mut());

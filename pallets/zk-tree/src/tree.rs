@@ -39,6 +39,7 @@ pub const AMOUNT_SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 /// - transfer_count: 2 felts (u64 split into two 32-bit limbs, high then low)
 /// - asset_id: 1 felt (u32 as u64, then to felt via 8 bytes compact)
 /// - amount: 1 felt (u32 quantized, as u64, then to felt via 8 bytes compact)
+///
 /// Total: 8 felts
 ///
 /// This encoding must exactly match `ZkLeafTargets::collect_for_hash()` in the circuit.
@@ -154,24 +155,24 @@ where
 		if level == 1 {
 			// Children are leaves
 			let base_leaf_index = parent_index * (ARITY as u64);
-			for i in 0..ARITY {
+			for (i, child) in children.iter_mut().enumerate() {
 				let child_leaf_index = base_leaf_index + (i as u64);
-				if child_leaf_index == leaf_index {
-					children[i] = current_hash;
+				*child = if child_leaf_index == leaf_index {
+					current_hash
 				} else {
-					children[i] = get_leaf_hash::<T>(child_leaf_index);
-				}
+					get_leaf_hash::<T>(child_leaf_index)
+				};
 			}
 		} else {
 			// Children are internal nodes
 			let base_child_index = parent_index * (ARITY as u64);
-			for i in 0..ARITY {
+			for (i, child) in children.iter_mut().enumerate() {
 				let child_index = base_child_index + (i as u64);
-				if child_index == current_index {
-					children[i] = current_hash;
+				*child = if child_index == current_index {
+					current_hash
 				} else {
-					children[i] = get_node_hash::<T>(level - 1, child_index);
-				}
+					get_node_hash::<T>(level - 1, child_index)
+				};
 			}
 		}
 

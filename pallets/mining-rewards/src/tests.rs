@@ -615,7 +615,7 @@ fn test_emission_simulation_120m_blocks() {
 			block += 1;
 
 			// Print progress report at intervals
-			if block % REPORT_INTERVAL == 0 {
+			if block.is_multiple_of(REPORT_INTERVAL) {
 				let remaining = MaxSupply::get().saturating_sub(current_supply);
 				let next_block_reward = if remaining > 0 { remaining / EmissionDivisor::get() } else { 0 };
 				let next_treasury = Treasury::portion().mul_floor(next_block_reward);

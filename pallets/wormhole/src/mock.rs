@@ -163,19 +163,14 @@ pub fn new_test_ext_with_endowments(
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	// Set up balances for the endowed accounts
-	pallet_balances::GenesisConfig::<Test> {
-		balances: endowments.iter().cloned().collect(),
-		dev_accounts: None,
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	pallet_balances::GenesisConfig::<Test> { balances: endowments.to_vec(), dev_accounts: None }
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 	// Set up endowments to be processed at block 1
-	pallet_wormhole::GenesisConfig::<Test> {
-		endowed_addresses: endowments.into_iter().map(|(a, b)| (a, b)).collect(),
-	}
-	.assimilate_storage(&mut t)
-	.unwrap();
+	pallet_wormhole::GenesisConfig::<Test> { endowed_addresses: endowments }
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 	t.into()
 }
