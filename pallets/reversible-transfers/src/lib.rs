@@ -109,7 +109,7 @@ pub mod pallet {
 		dispatch::PostDispatchInfo,
 		traits::{
 			fungible::MutateHold, schedule::v3::TaskName, tokens::Precision, CallerTrait,
-			StorePreimage, Time,
+			DefensiveResult, StorePreimage, Time,
 		},
 		PalletId,
 	};
