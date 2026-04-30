@@ -1349,9 +1349,8 @@ impl<T: Config> Pallet<T> {
 
 use schedule::v3::TaskName;
 
-// Shims for Substrate's v3 scheduler traits, required by pallet_referenda (external crate).
-// Periodic scheduling is intentionally unsupported -- these impls exist solely to satisfy the
-// trait bounds. Once pallet_referenda is forked locally, these can be removed entirely.
+// Shims for Substrate's v3 scheduler traits, required by pallet_referenda.
+// Periodic scheduling is intentionally unsupported.
 impl<T: Config> schedule::v3::Anon<BlockNumberFor<T>, <T as Config>::RuntimeCall, T::PalletsOrigin>
 	for Pallet<T>
 {

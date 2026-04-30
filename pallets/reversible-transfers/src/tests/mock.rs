@@ -50,13 +50,13 @@ pub fn ferdie() -> AccountId {
 	account_id(255)
 }
 
-/// Helper function for interceptor account (avoiding + 100 calculations)
-pub fn interceptor_1() -> AccountId {
+/// Helper function for guardian account (avoiding + 100 calculations)
+pub fn guardian_1() -> AccountId {
 	account_id(101)
 }
 
-/// Helper function for interceptor account 2
-pub fn interceptor_255() -> AccountId {
+/// Helper function for guardian account 2
+pub fn guardian_255() -> AccountId {
 	let mut bytes = [255u8; 32];
 	bytes[0] = 100; // Make it different from ferdie
 	AccountId::new(bytes)
@@ -194,7 +194,7 @@ parameter_types! {
 	pub const MinDelayPeriodBlocks: u64 = 2;
 	pub const MinDelayPeriodMoment: u64 = 2000;
 	pub const MaxReversibleTransfers: u32 = 100;
-	pub const MaxInterceptorAccounts: u32 = 10;
+	pub const MaxGuardianAccounts: u32 = 10;
 	pub const MaxPendingPerAccount: u32 = 16;
 	pub const HighSecurityVolumeFee: Permill = Permill::from_percent(1);
 }
@@ -259,7 +259,7 @@ impl pallet_reversible_transfers::Config for Test {
 	type WeightInfo = ();
 	type Moment = Moment;
 	type TimeProvider = MockTimestamp<Test>;
-	type MaxInterceptorAccounts = MaxInterceptorAccounts;
+	type MaxGuardianAccounts = MaxGuardianAccounts;
 	type MaxPendingPerAccount = MaxPendingPerAccount;
 	type VolumeFee = HighSecurityVolumeFee;
 	type ProofRecorder = MockProofRecorder;
@@ -381,7 +381,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(account_id(9), 100_000_000_000),
 			(account_id(255), 100_000_000_000),
 			(account_256(), 100_000_000_000), // 256
-			// Test accounts for interceptor tests
+			// Test accounts for guardian tests
 			(account_id(100), 100_000_000_000),
 			(account_id(101), 100_000_000_000),
 			(account_id(102), 100_000_000_000),

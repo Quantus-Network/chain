@@ -290,8 +290,8 @@ mod tests {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-		// high securiry account is charlie
-		// interceptor is alice
+		// high security account is charlie
+		// guardian is alice
 		pallet_reversible_transfers::GenesisConfig::<Runtime> {
 			initial_high_security_accounts: vec![(charlie(), alice(), 10)],
 		}

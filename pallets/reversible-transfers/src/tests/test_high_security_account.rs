@@ -65,7 +65,7 @@ fn recover_funds_fails_for_non_high_security_account() {
 #[test]
 fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 	new_test_ext().execute_with(|| {
-		let hs_user = alice(); // reversible from genesis with interceptor=2
+		let hs_user = alice(); // reversible from genesis with guardian=2
 		let guardian = bob();
 		let dest = charlie();
 		let amount = 10_000u128; // Use larger amount so volume fee is visible
@@ -74,7 +74,7 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 		let initial_guardian_balance = Balances::free_balance(&guardian);
 		let initial_total_issuance = TotalIssuance::<Test>::get();
 
-		// Compute tx_id BEFORE scheduling (matches pallet logic using current GlobalNonce)
+		// Compute tx_id BEFORE scheduling (matches pallet logic using current NextTransactionId)
 		let call = transfer_call(dest.clone(), amount);
 		let tx_id = calculate_tx_id::<Test>(hs_user.clone(), &call);
 

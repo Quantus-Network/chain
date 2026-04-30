@@ -244,11 +244,11 @@ pub fn development_config_genesis() -> Value {
 		let mut signers = vec![caller, signer1, signer2];
 		signers.sort();
 		let multisig_address = Multisig::<Runtime>::derive_multisig_address(&signers, 2, 0);
-		let interceptor = crystal_alice().into_account();
+		let guardian = crystal_alice().into_account();
 		let delay = 10u32;
 
 		let rt_genesis = pallet_reversible_transfers::GenesisConfig::<Runtime> {
-			initial_high_security_accounts: vec![(multisig_address, interceptor, delay)],
+			initial_high_security_accounts: vec![(multisig_address, guardian, delay)],
 		};
 
 		let treasury =
