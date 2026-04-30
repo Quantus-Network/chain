@@ -1205,7 +1205,7 @@ pub type Key = Vec<u8>;
 pub type KeyValue = (Vec<u8>, Vec<u8>);
 
 /// A phase of a block's execution.
-#[derive(Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+#[derive(Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen, Default)]
 #[cfg_attr(feature = "std", derive(Serialize, PartialEq, Eq, Clone))]
 pub enum Phase {
 	/// Applying an extrinsic.
@@ -1213,13 +1213,8 @@ pub enum Phase {
 	/// Finalizing the block.
 	Finalization,
 	/// Initializing the block.
+	#[default]
 	Initialization,
-}
-
-impl Default for Phase {
-	fn default() -> Self {
-		Self::Initialization
-	}
 }
 
 /// Record of an event happening.

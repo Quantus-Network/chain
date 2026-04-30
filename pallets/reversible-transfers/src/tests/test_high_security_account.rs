@@ -65,7 +65,7 @@ fn recover_funds_fails_for_non_high_security_account() {
 #[test]
 fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 	new_test_ext().execute_with(|| {
-		let hs_user = alice(); // reversible from genesis with interceptor=2
+		let hs_user = alice(); // reversible from genesis with guardian=2
 		let guardian = bob();
 		let dest = charlie();
 		let amount = 10_000u128; // Use larger amount so volume fee is visible
@@ -74,7 +74,7 @@ fn guardian_can_cancel_reversible_transactions_for_hs_account() {
 		let initial_guardian_balance = Balances::free_balance(&guardian);
 		let initial_total_issuance = TotalIssuance::<Test>::get();
 
-		// Compute tx_id BEFORE scheduling (matches pallet logic using current GlobalNonce)
+		// Compute tx_id BEFORE scheduling (matches pallet logic using current NextTransactionId)
 		let call = transfer_call(dest.clone(), amount);
 		let tx_id = calculate_tx_id::<Test>(hs_user.clone(), &call);
 
@@ -214,9 +214,9 @@ fn too_many_pending_transactions_error() {
 
 		// Schedule MaxPendingPerAccount transfers (16)
 		// Need to advance block number between batches to avoid scheduler max per block limit
-		for i in 0..16 {
+		for i in 0u32..16 {
 			// Advance block every 8 transfers to stay under scheduler's MaxScheduledPerBlock (10)
-			if i > 0 && i % 8 == 0 {
+			if i > 0 && i.is_multiple_of(8) {
 				System::set_block_number(System::block_number() + 1);
 			}
 			assert_ok!(ReversibleTransfers::schedule_transfer(
