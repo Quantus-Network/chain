@@ -1,0 +1,63 @@
+name: miner-stack compose config
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render default Compose config
+        working-directory: miner-stack
+        env:
+          REWARDS_INNER_HASH: "0x0000000000000000000000000000000000000000000000000000000000000000"
+        run: docker compose config >/tmp/quantus-miner-stack.default.yml
+
+      - name: Check default Compose config
+        run: |
+          set -euo pipefail
+          file=/tmp/quantus-miner-stack.default.yml
+          grep -Eq 'target: 9833' "$file"
+          grep -Eq 'published: "9833"' "$file"
+          grep -Eq 'protocol: udp' "$file"
+          grep -Eq 'target: 9900' "$file"
+          grep -Eq 'published: "9900"' "$file"
+          grep -Eq 'ipv4_address: 172\.28\.0\.10' "$file"
+          grep -Eq 'subnet: 172\.28\.0\.0/16' "$file"
+          grep -Eq 'MINER_CPU_WORKERS: "4"' "$file"
+          grep -Eq '172\.28\.0\.10:9833' "$file"
+          grep -Eq -- '--miner-listen-port' "$file"
+          grep -Eq -- '--metrics-port' "$file"
+
+      - name: Render override Compose config
+        working-directory: miner-stack
+        env:
+          REWARDS_INNER_HASH: "0x0000000000000000000000000000000000000000000000000000000000000000"
+          HOST_MINER_LISTEN_PORT: "9844"
+          HOST_MINER_METRICS_PORT: "9911"
+          QUANTUS_DOCKER_SUBNET: "172.29.0.0/16"
+          QUANTUS_NODE_IPV4: "172.29.0.10"
+          CPU_WORKERS: "8"
+        run: docker compose config >/tmp/quantus-miner-stack.override.yml
+
+      - name: Check override Compose config
+        run: |
+          set -euo pipefail
+          file=/tmp/quantus-miner-stack.override.yml
+          grep -Eq '172\.29\.0\.10:9833' "$file"
+          grep -Eq 'target: 9833' "$file"
+          grep -Eq 'published: "9844"' "$file"
+          grep -Eq 'protocol: udp' "$file"
+          grep -Eq 'target: 9900' "$file"
+          grep -Eq 'published: "9911"' "$file"
+          grep -Eq 'ipv4_address: 172\.29\.0\.10' "$file"
+          grep -Eq 'subnet: 172\.29\.0\.0/16' "$file"
+          grep -Eq 'MINER_CPU_WORKERS: "8"' "$file"
+          grep -Eq 'cpus: 8' "$file"
+          grep -Eq -- '--miner-listen-port' "$file"
+          grep -Eq -- '--metrics-port' "$file"

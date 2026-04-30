@@ -27,12 +27,14 @@ services:
       - "${P2P_PORT:-30333}:30333"
       - "${RPC_PORT:-9944}:9944"
       - "${PROMETHEUS_PORT:-9615}:9615"
-      - "${MINER_LISTEN_PORT:-9833}:9833/udp"
+      # Host-published UDP port only; the node still listens on internal QUIC port 9833.
+      - "${HOST_MINER_LISTEN_PORT:-9833}:9833/udp"
     networks:
       quantus:
-        # Pinned IPv4: quantus-miner needs --node-addr as IP:port (SocketAddr),
-        # it cannot resolve the "quantus-node" DNS name on its own.
-        ipv4_address: 172.28.0.10
+        # Pinned IPv4: quantus-miner needs --node-addr as IP:port (SocketAddr)
+        # and cannot rely on Docker DNS names. Change QUANTUS_DOCKER_SUBNET and
+        # QUANTUS_NODE_IPV4 if the default subnet overlaps another Docker network.
+        ipv4_address: ${QUANTUS_NODE_IPV4:-172.28.0.10}
     deploy:
       resources:
         limits:
@@ -46,7 +48,7 @@ services:
     restart: unless-stopped
     command: >
       serve
-      --node-addr ${MINER_NODE_ADDR:-172.28.0.10:9833}
+      --node-addr ${MINER_NODE_ADDR:-${QUANTUS_NODE_IPV4:-172.28.0.10}:9833}
       --metrics-port 9900
     environment:
       - MINER_CPU_WORKERS=${CPU_WORKERS:-4}
@@ -55,7 +57,8 @@ services:
     depends_on:
       - quantus-node
     ports:
-      - "${MINER_METRICS_PORT:-9900}:9900"
+      # Host-published TCP port only; the miner still exposes metrics internally on 9900.
+      - "${HOST_MINER_METRICS_PORT:-9900}:9900"
     networks:
       - quantus
     deploy:
@@ -70,4 +73,4 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 172.28.0.0/16
+        - subnet: ${QUANTUS_DOCKER_SUBNET:-172.28.0.0/16}

@@ -45,6 +45,10 @@ The output contains:
 **Save the mnemonic and inner_hash somewhere safe.** Without the inner_hash you
 cannot prove ownership of the rewards.
 
+Treat `REWARDS_INNER_HASH` as sensitive ownership material. Do not commit
+`.env`, paste it into support tickets, or share `docker inspect`,
+`docker compose config`, logs, or process output containing it.
+
 ## Quick Start
 
 ### 1. Configure
@@ -82,7 +86,8 @@ If monitoring is enabled:
   - Default login: `quantus` / `quantus` (change via `GRAFANA_USER` / `GRAFANA_PASSWORD` in `.env`)
 - **Prometheus**: http://localhost:9090
 - **Node Prometheus exporter**: http://localhost:9615/metrics
-- **Miner Prometheus exporter**: http://localhost:9900/metrics
+- **Miner Prometheus exporter**: http://localhost:9900/metrics by default. If
+  `HOST_MINER_METRICS_PORT` is changed, use that host port instead.
 
 ## Configuration
 
@@ -99,7 +104,7 @@ NODE_NAME=my-quantus-node
 # MINER_VERSION=latest
 
 # Optional - mining workers
-# CPU_WORKERS=4         # CPU worker threads (default: auto-detect)
+# CPU_WORKERS=4         # CPU worker threads and Docker CPU limit (Compose default: 4)
 # GPU_DEVICES=0         # GPU devices to use (0 = CPU-only)
 # MINER_LOG=info        # RUST_LOG for the miner
 
@@ -111,16 +116,25 @@ NODE_NAME=my-quantus-node
 # P2P_PORT=30333         # libp2p networking
 # RPC_PORT=9944          # JSON-RPC
 # PROMETHEUS_PORT=9615   # node Prometheus
-# MINER_LISTEN_PORT=9833 # QUIC port for miner connections (UDP)
-# MINER_METRICS_PORT=9900# miner Prometheus
+# HOST_MINER_LISTEN_PORT=9833  # Host UDP port mapped to node internal QUIC port 9833
+# HOST_MINER_METRICS_PORT=9900 # Host TCP port mapped to miner internal metrics port 9900
+
+# Optional - Docker network overrides
+# QUANTUS_DOCKER_SUBNET=172.28.0.0/16 # Change if this subnet overlaps another Docker network
+# QUANTUS_NODE_IPV4=172.28.0.10       # Static node IP inside the quantus Docker network
+# MINER_NODE_ADDR=172.28.0.10:9833    # Optional full override for bundled miner node address
 ```
 
-> The node maps `9833/udp` to the host so that miners on other machines can
-> connect. If you only run the bundled miner inside this Compose project, you
-> can comment out that mapping — the miner reaches the node via the internal
-> Docker network at `172.28.0.10:9833` (the node has a pinned IPv4 in the
-> `quantus` bridge network because `quantus-miner` parses `--node-addr` as a
-> `SocketAddr` and cannot resolve service names).
+Inside Compose, the node listens for miner QUIC connections on UDP `9833`.
+The bundled miner connects to `${QUANTUS_NODE_IPV4:-172.28.0.10}:9833` by
+default. `HOST_MINER_LISTEN_PORT` only changes the host-published UDP port for
+miners outside the Compose network, and `HOST_MINER_METRICS_PORT` only changes
+the host-published TCP port for reading miner metrics from the host.
+
+> The node has a pinned IPv4 in the `quantus` bridge network because
+> `quantus-miner` parses `--node-addr` as a `SocketAddr` and cannot rely on
+> Docker DNS names. If `172.28.0.0/16` overlaps another Docker network, set
+> `QUANTUS_DOCKER_SUBNET` and `QUANTUS_NODE_IPV4` in `.env`.
 
 ## Commands
 
@@ -199,7 +213,9 @@ means a new peer ID and a fresh sync.
 The miner reads worker counts from environment variables (forwarded from
 `.env`):
 
-- `CPU_WORKERS` → `MINER_CPU_WORKERS` (number of CPU threads, default auto-detect)
+- `CPU_WORKERS` → `MINER_CPU_WORKERS`; in this Compose stack, `CPU_WORKERS`
+  defaults to `4` and is also used as the miner container CPU limit. Set
+  `CPU_WORKERS=<n>` in `.env` to use a different number.
 - `GPU_DEVICES` → `MINER_GPU_DEVICES` (number of GPU devices, default `0`)
 - `MINER_LOG` → `RUST_LOG` for the miner
 
@@ -260,6 +276,9 @@ If the miner cannot reach the node, ensure:
 curl -s http://localhost:9900/metrics | grep -E "miner_(hash_rate|active_jobs|workers|cpu_workers|gpu_devices|hashes_total)"
 ```
 
+The default metrics endpoint is `http://localhost:9900/metrics`. If
+`HOST_MINER_METRICS_PORT` is changed, use that host port instead.
+
 You should see values for:
 
 - `miner_hash_rate` (total H/s)
@@ -270,8 +289,20 @@ You should see values for:
 
 ### Port conflicts
 
-Override ports in `.env` (see `MINER_LISTEN_PORT`, `MINER_METRICS_PORT`,
-`P2P_PORT`, `RPC_PORT`, `PROMETHEUS_PORT`).
+Override host-published ports in `.env` (see `HOST_MINER_LISTEN_PORT`,
+`HOST_MINER_METRICS_PORT`, `P2P_PORT`, `RPC_PORT`, `PROMETHEUS_PORT`).
+
+### Docker subnet conflicts
+
+If Docker reports an overlapping address pool or subnet, set
+`QUANTUS_DOCKER_SUBNET` and `QUANTUS_NODE_IPV4` in `.env` to an unused private
+subnet/IP, then recreate the stack. Update `MINER_NODE_ADDR` only if you need
+to override the full bundled miner node address.
+
+```bash
+QUANTUS_DOCKER_SUBNET=172.29.0.0/16
+QUANTUS_NODE_IPV4=172.29.0.10
+```
 
 ### Reset chain data
 
@@ -296,17 +327,23 @@ docker compose up -d   # init-node.sh will regenerate key_node on startup
 You can connect additional miners (on the same host or another host) to the
 node. The node broadcasts every job to all connected miners; whoever finds a
 valid solution first wins. To run an extra miner from another host, expose
-`MINER_LISTEN_PORT` (UDP) on the node's host and start a miner anywhere with:
+`HOST_MINER_LISTEN_PORT` (UDP) on the node's host and start a miner anywhere
+with:
 
 ```bash
 docker run --rm --platform linux/amd64 \
   -p 9900:9900 \
   ghcr.io/quantus-network/quantus-miner:latest \
   serve \
-  --node-addr <NODE_HOST>:9833 \
+  --node-addr <node-host-ip>:9833 \
   --cpu-workers 4 \
   --metrics-port 9900
 ```
+
+Replace `<node-host-ip>` with the Docker host's reachable IP or DNS name.
+Replace `9833` with `HOST_MINER_LISTEN_PORT` if changed. The `-p 9900:9900`
+mapping exposes that extra miner's metrics endpoint and can be changed if
+needed.
 
 ---
 
