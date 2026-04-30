@@ -62,8 +62,6 @@ pub trait WeightInfo {
 	fn cancel(c: u32, ) -> Weight;
 	fn remove_expired(c: u32, ) -> Weight;
 	fn claim_deposits(i: u32, r: u32, c: u32, ) -> Weight;
-	fn approve_dissolve() -> Weight;
-	fn approve_dissolve_threshold_reached() -> Weight;
 }
 
 /// Weights for `pallet_multisig` using the Substrate node and recommended hardware.
@@ -205,40 +203,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(r.into())))
 			.saturating_add(Weight::from_parts(0, 16032).saturating_mul(i.into()))
 	}
-	/// Storage: `Multisig::Multisigs` (r:1 w:0)
-	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6912), added: 9387, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::Proposals` (r:1 w:0)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:1 w:0)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::DissolveApprovals` (r:1 w:1)
-	/// Proof: `Multisig::DissolveApprovals` (`max_values`: None, `max_size`: Some(3250), added: 5725, mode: `MaxEncodedLen`)
-	fn approve_dissolve() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `526`
-		//  Estimated: `17022`
-		// Minimum execution time: 13_000_000 picoseconds.
-		Weight::from_parts(15_000_000, 17022)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
-	/// Storage: `Multisig::Multisigs` (r:1 w:1)
-	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6912), added: 9387, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::Proposals` (r:1 w:0)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:1 w:0)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::DissolveApprovals` (r:1 w:1)
-	/// Proof: `Multisig::DissolveApprovals` (`max_values`: None, `max_size`: Some(3250), added: 5725, mode: `MaxEncodedLen`)
-	fn approve_dissolve_threshold_reached() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `703`
-		//  Estimated: `17022`
-		// Minimum execution time: 27_000_000 picoseconds.
-		Weight::from_parts(28_000_000, 17022)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
-	}
 }
 
 // For backwards compatibility and tests.
@@ -378,39 +342,5 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(i.into())))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(r.into())))
 			.saturating_add(Weight::from_parts(0, 16032).saturating_mul(i.into()))
-	}
-	/// Storage: `Multisig::Multisigs` (r:1 w:0)
-	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6912), added: 9387, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::Proposals` (r:1 w:0)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:1 w:0)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::DissolveApprovals` (r:1 w:1)
-	/// Proof: `Multisig::DissolveApprovals` (`max_values`: None, `max_size`: Some(3250), added: 5725, mode: `MaxEncodedLen`)
-	fn approve_dissolve() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `526`
-		//  Estimated: `17022`
-		// Minimum execution time: 13_000_000 picoseconds.
-		Weight::from_parts(15_000_000, 17022)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
-	/// Storage: `Multisig::Multisigs` (r:1 w:1)
-	/// Proof: `Multisig::Multisigs` (`max_values`: None, `max_size`: Some(6912), added: 9387, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::Proposals` (r:1 w:0)
-	/// Proof: `Multisig::Proposals` (`max_values`: None, `max_size`: Some(13557), added: 16032, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:1 w:0)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Multisig::DissolveApprovals` (r:1 w:1)
-	/// Proof: `Multisig::DissolveApprovals` (`max_values`: None, `max_size`: Some(3250), added: 5725, mode: `MaxEncodedLen`)
-	fn approve_dissolve_threshold_reached() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `703`
-		//  Estimated: `17022`
-		// Minimum execution time: 27_000_000 picoseconds.
-		Weight::from_parts(28_000_000, 17022)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 }

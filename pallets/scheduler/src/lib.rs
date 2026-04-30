@@ -73,12 +73,13 @@ use alloc::{boxed::Box, vec::Vec};
 use codec::{Decode, Encode, MaxEncodedLen};
 use core::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
 use frame_support::{
+	defensive,
 	dispatch::{DispatchResult, GetDispatchInfo, Parameter, RawOrigin},
 	ensure,
 	traits::{
 		schedule::{self, DispatchTime as DispatchBlock},
-		Bounded, CallerTrait, EnsureOrigin, Get, IsType, OriginTrait, PrivilegeCmp, QueryPreimage,
-		StorageVersion, StorePreimage, Time,
+		Bounded, CallerTrait, DefensiveOption, EnsureOrigin, Get, IsType, OriginTrait,
+		PrivilegeCmp, QueryPreimage, StorageVersion, StorePreimage, Time,
 	},
 	weights::{Weight, WeightMeter},
 };
@@ -186,6 +187,18 @@ pub mod pallet {
 	use sp_runtime::traits::{AtLeast32Bit, Scale};
 
 	/// The in-code storage version.
+	///
+	/// **Fork baseline:** This scheduler is forked from upstream pallet-scheduler at version 4.
+	/// The fork introduced timestamp-aware agenda keys (`BlockNumberOrTimestamp`) and modified
+	/// task addresses, but retained the upstream version number as the established baseline.
+	///
+	/// For future storage layout changes in this fork:
+	/// 1. Increment this version (e.g., to 5)
+	/// 2. Add a migration hook in `Hooks::on_runtime_upgrade`
+	/// 3. Document the migration in release notes
+	///
+	/// Note: There is no migration path FROM upstream v4 TO this fork's v4, as they have
+	/// incompatible storage layouts. This fork's v4 is the genesis baseline for this chain.
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(4);
 
 	#[pallet::pallet]
@@ -575,10 +588,13 @@ pub mod pallet {
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
 			let (when, agenda_index) = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
 			let agenda = Agenda::<T>::get(when);
+			// This defensive check handles the case where Lookup and Agenda have fallen out of
+			// sync, which indicates an internal invariant violation rather than a user-triggerable
+			// error.
 			let scheduled = agenda
 				.get(agenda_index as usize)
 				.and_then(Option::as_ref)
-				.ok_or(Error::<T>::NotFound)?;
+				.defensive_ok_or(Error::<T>::NotFound)?;
 			Self::ensure_privilege(origin.caller(), &scheduled.origin)?;
 			// Ensure retry period type matches task scheduling type
 			Self::ensure_period_matches_task_type(&when, &period)?;
@@ -829,10 +845,11 @@ impl<T: Config> Pallet<T> {
 			if let Some((when, index)) = lookup.take() {
 				let i = index as usize;
 				Agenda::<T>::try_mutate(when, |agenda| -> DispatchResult {
-					// Validate that the slot exists and contains an actual task.
-					// Return NotFound if the Lookup pointed to an empty or out-of-range slot.
-					let slot = agenda.get_mut(i).ok_or(Error::<T>::NotFound)?;
-					let task = slot.as_ref().ok_or(Error::<T>::NotFound)?;
+					// These defensive checks handle cases where Lookup and Agenda have fallen out
+					// of sync, which indicates an internal invariant violation rather than a
+					// user-triggerable error.
+					let slot = agenda.get_mut(i).defensive_ok_or(Error::<T>::NotFound)?;
+					let task = slot.as_ref().defensive_ok_or(Error::<T>::NotFound)?;
 
 					// Check privilege if origin is provided.
 					if let Some(ref o) = origin {
@@ -870,8 +887,10 @@ impl<T: Config> Pallet<T> {
 		}
 
 		let task = Agenda::<T>::try_mutate(when, |agenda| {
-			let task = agenda.get_mut(index as usize).ok_or(Error::<T>::NotFound)?;
-			task.take().ok_or(Error::<T>::NotFound)
+			// These defensive checks handle cases where Lookup and Agenda have fallen out of sync,
+			// which indicates an internal invariant violation rather than a user-triggerable error.
+			let task = agenda.get_mut(index as usize).defensive_ok_or(Error::<T>::NotFound)?;
+			task.take().defensive_ok_or(Error::<T>::NotFound)
 		})?;
 		Self::cleanup_agenda(when);
 		Self::deposit_event(Event::Canceled { when, index });
@@ -1424,15 +1443,17 @@ impl<T: Config> schedule::v3::Named<BlockNumberFor<T>, <T as Config>::RuntimeCal
 	}
 
 	fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
-		Lookup::<T>::get(id)
-			.and_then(|(when, index)| {
-				Agenda::<T>::get(when)
-					.get(index as usize)
-					.and_then(|slot| slot.as_ref()) // Verify slot contains a task
-					.map(|_| when.as_block_number())
-			})
-			.ok_or(DispatchError::Unavailable)
-			.and_then(|x| x.ok_or(DispatchError::Unavailable))
+		let Some((when, index)) = Lookup::<T>::get(id) else {
+			return Err(DispatchError::Unavailable);
+		};
+		// If Lookup succeeds but Agenda doesn't have the task, this is an invariant violation.
+		let agenda = Agenda::<T>::get(when);
+		let task_exists = agenda.get(index as usize).and_then(|slot| slot.as_ref()).is_some();
+		if !task_exists {
+			defensive!("Lookup/Agenda inconsistency in next_dispatch_time (Named trait)");
+			return Err(DispatchError::Unavailable);
+		}
+		when.as_block_number().ok_or(DispatchError::Unavailable)
 	}
 }
 
@@ -1468,15 +1489,15 @@ impl<T: Config>
 	}
 
 	fn next_dispatch_time(id: TaskName) -> Result<BlockNumberFor<T>, DispatchError> {
-		Lookup::<T>::get(id)
-			.ok_or(DispatchError::Unavailable)
-			.and_then(|(when, index)| {
-				Agenda::<T>::get(when)
-					.get(index as usize)
-					.and_then(|slot| slot.as_ref()) // Verify slot contains a task
-					.ok_or(DispatchError::Unavailable)
-					.and_then(|_| when.as_block_number().ok_or(DispatchError::Unavailable))
-			})
+		let (when, index) = Lookup::<T>::get(id).ok_or(DispatchError::Unavailable)?;
+		// If Lookup succeeds but Agenda doesn't have the task, this is an invariant violation.
+		let agenda = Agenda::<T>::get(when);
+		let task_exists = agenda.get(index as usize).and_then(|slot| slot.as_ref()).is_some();
+		if !task_exists {
+			defensive!("Lookup/Agenda inconsistency in next_dispatch_time (ScheduleNamed trait)");
+			return Err(DispatchError::Unavailable);
+		}
+		when.as_block_number().ok_or(DispatchError::Unavailable)
 	}
 }
 

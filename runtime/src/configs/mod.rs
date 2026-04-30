@@ -74,13 +74,23 @@ parameter_types! {
 	pub const BlockHashCount: BlockNumber = 4096;
 	pub const Version: RuntimeVersion = VERSION;
 
-	/// We allow for 6 seconds of compute with a 12 second average block time.
+	/// Block weight limits for the runtime.
+	///
+	/// - `ref_time`: 6 seconds of compute (with 12 second block time, this leaves headroom)
+	/// - `proof_size`: Set to u64::MAX (uncapped) - this is intentional for a solo PoW chain
+	///   where stateless validation and PoV limits don't apply.
+	///
+	/// See "Proof Size Design Rationale" in the Transaction Fee Structure section below
+	/// for detailed explanation of why proof_size is uncapped and when to revisit this.
 	pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
 		Weight::from_parts(6u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 		NORMAL_DISPATCH_RATIO,
 	);
-	// We estimate to download 5MB blocks it takes a 100Mbs link 600ms and 200ms for 1Gbs link
-	// To upload, 10Mbs link takes 4.1s and 100Mbs takes 500ms
+	/// Maximum block length (5 MB).
+	///
+	/// Estimated network transfer times:
+	/// - Download: 100 Mbps link ~600ms, 1 Gbps link ~200ms
+	/// - Upload: 10 Mbps link ~4.1s, 100 Mbps link ~500ms
 	pub RuntimeBlockLength: BlockLength = BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 189;
 }
@@ -412,9 +422,9 @@ impl pallet_scheduler::Config for Runtime {
 //   - A typical 500-byte transfer costs ~0.0005 UNIT in length fees
 //   - Uses `LengthToFeeMultiplier` with 10^6 coefficient
 //
-// - **Proof Size:** Not charged (appropriate for solo chains)
+// - **Proof Size:** Not enforced or charged
 //   - Block weight limit uses u64::MAX for proof_size component
-//   - Parachains need PoV fees; solo chains do not
+//   - WeightToFee only considers ref_time, not proof_size
 //
 // Fee Destination:
 // - 100% of transaction fees go to the block miner
@@ -424,6 +434,54 @@ impl pallet_scheduler::Config for Runtime {
 // - Existential deposit: 0.001 UNIT
 // - Various pallet-specific deposits (multisig, governance, recovery, etc.)
 // - Miners can reject transactions below their minimum fee threshold
+//
+// ============================================================================
+// Proof Size Design Rationale
+// ============================================================================
+//
+// **Why proof_size is set to u64::MAX and not priced:**
+//
+// In Substrate's two-dimensional weight system, `proof_size` represents the amount of
+// state witness data required for stateless validation. This is critical for parachains
+// where validators must re-execute blocks using only the PoV (Proof of Validity) blob,
+// which has strict size limits imposed by the relay chain.
+//
+// For this solo PoW chain, proof_size constraints are intentionally disabled because:
+//
+// 1. **No relay chain constraints:** Unlike parachains, solo chains have no external entity
+//    imposing PoV size limits. Validators have full state access.
+//
+// 2. **Full nodes validate blocks:** All validators maintain complete state, so they don't need
+//    witnesses to re-execute transactions.
+//
+// 3. **ref_time provides sufficient protection:** Compute-bound benchmarking (ref_time) naturally
+//    correlates with state access patterns. Heavy state reads/writes increase ref_time, providing
+//    indirect protection against state-heavy transactions.
+//
+// 4. **Block length limits storage abuse:** The 5 MB block size limit caps the amount of data that
+//    can be included per block, preventing bandwidth-based attacks.
+//
+// **When to revisit this decision:**
+//
+// This design should be reconsidered if the chain adopts features where proof/witness
+// size becomes a meaningful resource constraint:
+//
+// - **Light client support:** Light clients verify blocks using state proofs. Large witnesses
+//   increase sync times and bandwidth requirements for light clients.
+//
+// - **Cross-chain bridges:** Bridge protocols often require merkle proofs of state. Unbounded proof
+//   sizes could make bridge operations expensive or impractical.
+//
+// - **Stateless validation:** If the chain moves toward stateless block validation (validators
+//   don't keep full state), witness size becomes a critical resource.
+//
+// - **ZK proof generation:** If state proofs are used as inputs to ZK circuits, proof size directly
+//   impacts prover time and memory requirements.
+//
+// To enable proof_size enforcement in the future:
+// 1. Set a concrete proof_size limit in RuntimeBlockWeights (instead of u64::MAX)
+// 2. Update WeightToFee to price both ref_time and proof_size dimensions
+// 3. Ensure all pallet benchmarks accurately measure proof_size
 
 /// Multiplier for converting extrinsic length (bytes) to fee.
 /// At 10^6, this means 1 MB of data costs approximately 1 UNIT in fees,
@@ -588,14 +646,17 @@ impl pallet_assets_holder::Config for Runtime {
 parameter_types! {
 	pub const MultisigPalletId: PalletId = PalletId(*b"py/mltsg");
 	pub const MaxSigners: u32 = 100;
-	pub const MaxTotalProposalsInStorage: u32 = 200; // Max total in storage (Active + Executed + Cancelled)
+	pub const MaxTotalProposalsInStorage: u32 = 200; // Max Active + Approved proposals per multisig
 	pub const MaxCallSize: u32 = 10240; // 10KB
-	pub const MultisigFee: Balance = 100 * MILLI_UNIT; // 0.1 UNIT (non-refundable)
-	pub const MultisigDeposit: Balance = 500 * MILLI_UNIT; // 0.5 UNIT (refundable)
+	pub const MultisigFee: Balance = 600 * MILLI_UNIT; // 0.6 UNIT (non-refundable, burned)
 	pub const ProposalDeposit: Balance = 1000 * MILLI_UNIT; // 1 UNIT (locked until cleanup)
 	pub const ProposalFee: Balance = 1000 * MILLI_UNIT; // 1 UNIT (non-refundable)
 	pub const SignerStepFactorParam: Permill = Permill::from_percent(1);
 	pub const MaxExpiryDuration: BlockNumber = 100_800; // ~2 weeks at 12s blocks (14 days * 24h * 60m * 60s / 12s)
+	// Maximum weight for inner calls executed via multisig.
+	// Set to ~50% of max block weight to allow for multisig bookkeeping overhead.
+	// ref_time: 1 second (half of 2s max), proof_size: 2.5 MB (half of 5 MB max)
+	pub MaxInnerCallWeight: Weight = Weight::from_parts(1_000_000_000_000, 2_621_440);
 }
 
 /// High-Security configuration wrapper for Runtime
@@ -646,11 +707,11 @@ impl pallet_multisig::Config for Runtime {
 	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorage;
 	type MaxCallSize = MaxCallSize;
 	type MultisigFee = MultisigFee;
-	type MultisigDeposit = MultisigDeposit;
 	type ProposalDeposit = ProposalDeposit;
 	type ProposalFee = ProposalFee;
 	type SignerStepFactor = SignerStepFactorParam;
 	type MaxExpiryDuration = MaxExpiryDuration;
+	type MaxInnerCallWeight = MaxInnerCallWeight;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = pallet_multisig::weights::SubstrateWeight<Runtime>;
 	type HighSecurity = HighSecurityConfig;

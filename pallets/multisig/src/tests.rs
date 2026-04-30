@@ -2,16 +2,45 @@
 
 use crate::{mock::*, Error, Event, Multisigs, ProposalStatus, Proposals};
 use codec::Encode;
-use frame_support::{assert_noop, assert_ok, traits::fungible::Mutate};
+use frame_support::{
+	assert_noop, assert_ok,
+	dispatch::GetDispatchInfo,
+	traits::{fungible::Mutate, Currency},
+};
 use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
 use sp_runtime::DispatchError;
+use std::{cell::RefCell, collections::BTreeSet};
+
+// Thread-local storage for dynamically toggling high-security status in tests
+thread_local! {
+	static DYNAMIC_HS_ACCOUNTS: RefCell<BTreeSet<AccountId32>> = RefCell::new(BTreeSet::new());
+}
+
+/// Add an account to the dynamic high-security set (for testing)
+pub fn set_high_security(account: &AccountId32) {
+	DYNAMIC_HS_ACCOUNTS.with(|set| {
+		set.borrow_mut().insert(account.clone());
+	});
+}
+
+/// Remove an account from the dynamic high-security set (for testing)
+#[allow(dead_code)]
+pub fn clear_high_security(account: &AccountId32) {
+	DYNAMIC_HS_ACCOUNTS.with(|set| {
+		set.borrow_mut().remove(account);
+	});
+}
 
 /// Mock implementation for HighSecurityInspector
 pub struct MockHighSecurity;
 impl HighSecurityInspector<AccountId32, RuntimeCall> for MockHighSecurity {
 	fn is_high_security(who: &AccountId32) -> bool {
-		// For testing, account 100 is high security
+		// Check dynamic set first (for tests that toggle HS status)
+		if DYNAMIC_HS_ACCOUNTS.with(|set| set.borrow().contains(who)) {
+			return true;
+		}
+		// For testing, account 100 is always high security
 		if who == &account_id(100) {
 			return true;
 		}
@@ -62,9 +91,9 @@ fn dave() -> AccountId32 {
 }
 
 /// Helper function to create a simple encoded call
-fn make_call(remark: Vec<u8>) -> Vec<u8> {
+fn make_call(remark: Vec<u8>) -> crate::BoundedCallOf<Test> {
 	let call = RuntimeCall::System(frame_system::Call::remark { remark });
-	call.encode()
+	call.encode().try_into().expect("Test call should fit in MaxCallSize")
 }
 
 /// Helper function to get the ID of the last proposal created
@@ -102,7 +131,6 @@ fn create_multisig_works() {
 		// Get initial balance
 		let initial_balance = Balances::free_balance(creator.clone());
 		let fee = 1000; // MultisigFeeParam
-		let deposit = 500; // MultisigDepositParam
 
 		// Create multisig
 		assert_ok!(Multisig::create_multisig(
@@ -112,10 +140,9 @@ fn create_multisig_works() {
 			0, // nonce
 		));
 
-		// Check balances
-		// Deposit is reserved, fee is burned
-		assert_eq!(Balances::reserved_balance(creator.clone()), deposit);
-		assert_eq!(Balances::free_balance(creator.clone()), initial_balance - fee - deposit);
+		// Check balances - fee is burned, no deposit reserved
+		assert_eq!(Balances::reserved_balance(creator.clone()), 0);
+		assert_eq!(Balances::free_balance(creator.clone()), initial_balance - fee);
 
 		// Check that multisig was created
 		// Get multisig address
@@ -125,7 +152,6 @@ fn create_multisig_works() {
 		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
 		assert_eq!(multisig_data.threshold, threshold);
 		assert_eq!(multisig_data.signers.to_vec(), signers);
-		assert_eq!(multisig_data.deposit, deposit);
 
 		// Check that event was emitted
 		System::assert_last_event(
@@ -174,6 +200,26 @@ fn create_multisig_fails_with_empty_signers() {
 }
 
 #[test]
+fn create_multisig_fails_with_single_signer() {
+	new_test_ext().execute_with(|| {
+		let creator = alice();
+		// Single signer is not allowed - use a regular account instead
+		let signers = vec![alice()];
+		let threshold = 1;
+
+		assert_noop!(
+			Multisig::create_multisig(
+				RuntimeOrigin::signed(creator.clone()),
+				signers,
+				threshold,
+				0
+			),
+			Error::<Test>::NotEnoughSigners
+		);
+	});
+}
+
+#[test]
 fn create_multisig_fails_with_threshold_too_high() {
 	new_test_ext().execute_with(|| {
 		let creator = alice();
@@ -193,21 +239,29 @@ fn create_multisig_fails_with_threshold_too_high() {
 }
 
 #[test]
-fn create_multisig_fails_with_duplicate_signers() {
+fn create_multisig_deduplicates_signers() {
 	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
 		let creator = alice();
 		let signers = vec![bob(), bob(), charlie()]; // Bob twice
 		let threshold = 2;
 
-		assert_noop!(
-			Multisig::create_multisig(
-				RuntimeOrigin::signed(creator.clone()),
-				signers,
-				threshold,
-				0
-			),
-			Error::<Test>::DuplicateSigner
-		);
+		// Should succeed - duplicates are silently removed
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(creator.clone()),
+			signers,
+			threshold,
+			0
+		));
+
+		// The multisig should have only 2 unique signers (bob, charlie)
+		let normalized_signers = vec![bob(), charlie()];
+		let mut sorted = normalized_signers.clone();
+		sorted.sort();
+		let multisig_address = Multisig::derive_multisig_address(&sorted, threshold, 0);
+
+		let multisig_data = Multisigs::<Test>::get(&multisig_address).unwrap();
+		assert_eq!(multisig_data.signers.len(), 2);
 	});
 }
 
@@ -356,7 +410,7 @@ fn approve_works() {
 
 		// Check event
 		System::assert_last_event(
-			Event::ProposalApproved {
+			Event::SignerApproved {
 				multisig_address: multisig_address.clone(),
 				approver: charlie(),
 				proposal_id,
@@ -439,7 +493,7 @@ fn approve_sets_approved_when_threshold_reached() {
 				multisig_address,
 				proposal_id,
 				proposer: bob(),
-				call: call.clone(),
+				call: call.to_vec(),
 				approvers: vec![bob(), charlie()],
 				result: Ok(()),
 			}
@@ -639,13 +693,13 @@ fn executed_proposals_removed_from_storage() {
 		assert_eq!(Balances::reserved_balance(bob()), 0);
 
 		// Trying to remove again should fail
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(charlie()),
 				multisig_address.clone(),
-				proposal_id
+				proposal_id,
 			),
-			Error::<Test>::ProposalNotFound
+			Error::<Test>::ProposalNotFound.into(),
 		);
 	});
 }
@@ -681,13 +735,13 @@ fn remove_expired_fails_for_non_signer() {
 		System::set_block_number(expiry + 1);
 
 		// Dave is not a signer, should fail
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::remove_expired(
 				RuntimeOrigin::signed(dave()),
 				multisig_address.clone(),
-				proposal_id
+				proposal_id,
 			),
-			Error::<Test>::NotASigner
+			Error::<Test>::NotASigner.into(),
 		);
 
 		// But charlie (who is a signer) can do it
@@ -811,8 +865,8 @@ fn claim_deposits_works_for_approved_expired_proposals() {
 
 #[test]
 fn remove_expired_unblocks_undecodable_approved_proposal() {
-	// Non-high-security multisig can have proposals with invalid call bytes.
-	// Execute fails with InvalidCall, proposal stays. After expiry, remove_expired unblocks.
+	// Calls are now decoded at propose time for ALL multisigs (not just high-security).
+	// This test verifies that invalid call bytes are rejected at propose time.
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
 
@@ -826,46 +880,24 @@ fn remove_expired_unblocks_undecodable_approved_proposal() {
 		));
 
 		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
-		// Non-high-security (not account 100), so no decode at propose
-		assert!(!MockHighSecurity::is_high_security(&multisig_address));
 
-		// Invalid call bytes - will fail decode at execute
-		let undecodable_call = vec![0xff; 32];
+		// Invalid call bytes - will fail decode at propose time (not execute)
+		let undecodable_call: crate::BoundedCallOf<Test> = vec![0xffu8; 32].try_into().unwrap();
 		let expiry = 100;
-		assert_ok!(Multisig::propose(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			undecodable_call,
-			expiry
-		));
-
-		let proposal_id = get_last_proposal_id(&multisig_address);
-
-		// Charlie approves → Approved
-		assert_ok!(Multisig::approve(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address.clone(),
-			proposal_id
-		));
-
-		// Execute fails (InvalidCall) - proposal stays in storage
 		assert_err_ignore_postinfo(
-			Multisig::execute(RuntimeOrigin::signed(bob()), multisig_address.clone(), proposal_id),
+			Multisig::propose(
+				RuntimeOrigin::signed(bob()),
+				multisig_address.clone(),
+				undecodable_call,
+				expiry,
+			),
 			Error::<Test>::InvalidCall.into(),
 		);
-		assert!(Proposals::<Test>::contains_key(&multisig_address, proposal_id));
 
-		// Move past expiry
-		System::set_block_number(expiry + 1);
+		// No proposal was created
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
 
-		// Any signer can remove expired Approved proposal (even with undecodable call)
-		assert_ok!(Multisig::remove_expired(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address.clone(),
-			proposal_id
-		));
-
-		assert!(!Proposals::<Test>::contains_key(&multisig_address, proposal_id));
+		// No deposit was reserved (proposal failed before that)
 		assert_eq!(Balances::reserved_balance(bob()), 0);
 	});
 }
@@ -919,7 +951,6 @@ fn claim_deposits_works() {
 				claimer: bob(),
 				total_returned: 300,
 				proposals_removed: 3,
-				multisig_removed: false,
 			}
 			.into(),
 		);
@@ -951,9 +982,9 @@ fn claim_deposits_fails_for_non_signer() {
 
 		System::set_block_number(201);
 
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::claim_deposits(RuntimeOrigin::signed(dave()), multisig_address.clone()),
-			Error::<Test>::NotASigner
+			Error::<Test>::NotASigner.into(),
 		);
 
 		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
@@ -1053,9 +1084,9 @@ fn too_many_proposals_in_storage_fails() {
 
 		// Try to add 21st - should fail on total limit
 		let call = make_call(vec![99]);
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(RuntimeOrigin::signed(bob()), multisig_address.clone(), call, 2000),
-			Error::<Test>::TooManyProposalsInStorage
+			Error::<Test>::TooManyProposalsInStorage.into(),
 		);
 	});
 }
@@ -1125,14 +1156,14 @@ fn only_active_proposals_remain_in_storage() {
 		// Bob: 10 Active (at per-signer limit: 20 total / 2 signers = 10 per signer)
 
 		// Bob cannot create 11th (exceeds per-signer limit)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				3000
+				3000,
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 	});
 }
@@ -1164,28 +1195,28 @@ fn per_signer_limit_blocks_new_proposals_until_cleanup() {
 		// Bob: 10 Active (at per-signer limit: 20 total / 2 signers = 10 per signer)
 
 		// Bob cannot create more (at limit)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				200
+				200,
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 
 		// Move past expiry
 		System::set_block_number(101);
 
 		// propose() no longer auto-cleans, so Bob is still blocked
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				200
+				200,
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 
 		// Bob must explicitly claim deposits to free space
@@ -1227,25 +1258,25 @@ fn propose_fails_with_expiry_in_past() {
 		let call = make_call(vec![1, 2, 3]);
 
 		// Try to create proposal with expiry in the past (< current_block)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				50
+				50,
 			),
-			Error::<Test>::ExpiryInPast
+			Error::<Test>::ExpiryInPast.into(),
 		);
 
 		// Try with expiry equal to current block (not > current_block)
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				100
+				100,
 			),
-			Error::<Test>::ExpiryInPast
+			Error::<Test>::ExpiryInPast.into(),
 		);
 
 		// Valid: expiry in the future
@@ -1281,25 +1312,25 @@ fn propose_fails_with_expiry_too_far() {
 		// Max allowed expiry = 100 + 10000 = 10100
 
 		// Try to create proposal with expiry too far in the future
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				10101
+				10101,
 			),
-			Error::<Test>::ExpiryTooFar
+			Error::<Test>::ExpiryTooFar.into(),
 		);
 
 		// Try with expiry way beyond the limit
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				call.clone(),
-				20000
+				20000,
 			),
-			Error::<Test>::ExpiryTooFar
+			Error::<Test>::ExpiryTooFar.into(),
 		);
 
 		// Valid: expiry exactly at max allowed
@@ -1456,78 +1487,6 @@ fn propose_charges_correct_fee_with_max_signers() {
 }
 
 #[test]
-fn dissolve_multisig_works() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let creator = alice();
-		let signers = vec![bob(), charlie()];
-		let deposit = 500;
-
-		// Create
-		assert_ok!(Multisig::create_multisig(
-			RuntimeOrigin::signed(creator.clone()),
-			signers.clone(),
-			2, // threshold
-			0  // nonce
-		));
-		assert_eq!(Balances::reserved_balance(creator.clone()), deposit);
-
-		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
-
-		// Approve dissolve by Bob (1st approval)
-		assert_ok!(Multisig::approve_dissolve(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone()
-		));
-
-		// Still exists (threshold not reached)
-		assert!(Multisigs::<Test>::contains_key(&multisig_address));
-
-		// Approve dissolve by Charlie (2nd approval - threshold reached!)
-		assert_ok!(Multisig::approve_dissolve(
-			RuntimeOrigin::signed(charlie()),
-			multisig_address.clone()
-		));
-
-		// Check cleanup - multisig removed
-		assert!(!Multisigs::<Test>::contains_key(&multisig_address));
-		// Deposit was returned to creator (unreserved)
-		assert_eq!(Balances::reserved_balance(creator.clone()), 0);
-	});
-}
-
-#[test]
-fn dissolve_multisig_fails_with_proposals() {
-	new_test_ext().execute_with(|| {
-		System::set_block_number(1);
-		let creator = alice();
-		let signers = vec![bob(), charlie()];
-		assert_ok!(Multisig::create_multisig(
-			RuntimeOrigin::signed(creator.clone()),
-			signers.clone(),
-			2, // threshold
-			0  // nonce
-		));
-		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
-
-		// Create proposal
-		let call = make_call(vec![1]);
-		assert_ok!(Multisig::propose(
-			RuntimeOrigin::signed(bob()),
-			multisig_address.clone(),
-			call,
-			100
-		));
-
-		// Try to approve dissolve - should fail because proposals exist
-		assert_noop!(
-			Multisig::approve_dissolve(RuntimeOrigin::signed(bob()), multisig_address.clone()),
-			Error::<Test>::ProposalsExist
-		);
-	});
-}
-
-#[test]
 fn per_signer_proposal_limit_enforced() {
 	new_test_ext().execute_with(|| {
 		System::set_block_number(1);
@@ -1556,14 +1515,14 @@ fn per_signer_proposal_limit_enforced() {
 		}
 
 		// Bob at limit - tries to create 11th
-		assert_noop!(
+		assert_err_ignore_postinfo(
 			Multisig::propose(
 				RuntimeOrigin::signed(bob()),
 				multisig_address.clone(),
 				make_call(vec![99]),
-				2000
+				2000,
 			),
-			Error::<Test>::TooManyProposalsPerSigner
+			Error::<Test>::TooManyProposalsPerSigner.into(),
 		);
 
 		// But Charlie can still create (independent limit)
@@ -1609,7 +1568,7 @@ fn propose_with_threshold_one_sets_approved() {
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
-			transfer_call.encode(),
+			transfer_call.encode().try_into().unwrap(),
 			100
 		));
 
@@ -1645,7 +1604,7 @@ fn propose_with_threshold_one_sets_approved() {
 		// Proposal removed, deposit returned
 		assert!(Proposals::<Test>::get(&multisig_address, proposal_id).is_none());
 		let alice_reserved = Balances::reserved_balance(alice());
-		assert_eq!(alice_reserved, 500); // Only MultisigDeposit, no ProposalDeposit
+		assert_eq!(alice_reserved, 0); // ProposalDeposit returned after execution
 	});
 }
 
@@ -1682,7 +1641,7 @@ fn propose_with_threshold_two_waits_for_approval() {
 		assert_ok!(Multisig::propose(
 			RuntimeOrigin::signed(alice()),
 			multisig_address.clone(),
-			transfer_call.encode(),
+			transfer_call.encode().try_into().unwrap(),
 			100
 		));
 
@@ -1821,8 +1780,6 @@ fn high_security_propose_fails_for_non_whitelisted_call() {
 				signers: signers.try_into().unwrap(),
 				threshold: 2,
 				proposal_nonce: 0,
-				deposit: 500,
-				active_proposals: 0,
 				proposals_per_signer: Default::default(),
 			},
 		);
@@ -1865,5 +1822,594 @@ fn normal_multisig_allows_any_call() {
 		// Any call should work for normal multisig
 		let call = make_call(b"anything".to_vec());
 		assert_ok!(Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address, call, 1000));
+	});
+}
+
+// ============================================================================
+// Audit Test Coverage (EQ-QNT-MULTISIG-O-09 / Appendix A)
+// ============================================================================
+
+/// Test 1: Approving an already-approved proposal should still work and emit correct events
+#[test]
+fn approve_on_already_approved_proposal_emits_signer_approved_only() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// Create 2-of-3 multisig
+		let signers = vec![alice(), bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Alice proposes
+		let call = make_call(b"test".to_vec());
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call,
+			1000
+		));
+
+		// Bob approves - this reaches threshold (2), status becomes Approved
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0));
+
+		// Verify proposal is Approved
+		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		// Clear events
+		System::reset_events();
+
+		// Charlie approves an already-approved proposal
+		assert_ok!(Multisig::approve(
+			RuntimeOrigin::signed(charlie()),
+			multisig_address.clone(),
+			0
+		));
+
+		// Should emit SignerApproved but NOT ProposalReadyToExecute (already approved)
+		let events = System::events();
+		let signer_approved_count = events
+			.iter()
+			.filter(|e| matches!(e.event, RuntimeEvent::Multisig(Event::SignerApproved { .. })))
+			.count();
+		let ready_to_execute_count = events
+			.iter()
+			.filter(|e| {
+				matches!(e.event, RuntimeEvent::Multisig(Event::ProposalReadyToExecute { .. }))
+			})
+			.count();
+
+		assert_eq!(signer_approved_count, 1, "Should emit SignerApproved");
+		assert_eq!(ready_to_execute_count, 0, "Should NOT emit ProposalReadyToExecute again");
+	});
+}
+
+/// Test 2: proposal_nonce overflow returns explicit error
+#[test]
+fn proposal_nonce_overflow_returns_error() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Manually set proposal_nonce to u32::MAX
+		Multisigs::<Test>::mutate(&multisig_address, |maybe_data| {
+			if let Some(ref mut data) = maybe_data {
+				data.proposal_nonce = u32::MAX;
+			}
+		});
+
+		// Attempt to propose should fail with ProposalNonceExhausted
+		let call = make_call(b"test".to_vec());
+		assert_err_ignore_postinfo(
+			Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address, call, 1000),
+			Error::<Test>::ProposalNonceExhausted.into(),
+		);
+	});
+}
+
+/// Test 3: Execute a proposal that dispatches back into multisig (reentrancy)
+#[test]
+fn execute_proposal_that_calls_back_into_multisig() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// Create 1-of-2 multisig so proposals are immediately approved
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			1,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 1, 0);
+
+		// Fund the multisig so it can pay for create_multisig
+		Balances::make_free_balance_be(&multisig_address, 100_000);
+
+		// Create a call that will create another multisig (calls back into pallet)
+		let inner_call = RuntimeCall::Multisig(crate::Call::create_multisig {
+			signers: vec![charlie(), dave()],
+			threshold: 2,
+			nonce: 99,
+		});
+		let encoded_call: crate::BoundedCallOf<Test> = inner_call.encode().try_into().unwrap();
+
+		// Propose (immediately Approved since threshold=1)
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			encoded_call,
+			1000
+		));
+
+		// Execute - this should work without reentrancy issues
+		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0));
+
+		// Verify the inner call succeeded - new multisig should exist
+		let new_multisig_address =
+			Multisig::derive_multisig_address(&vec![charlie(), dave()], 2, 99);
+		assert!(Multisigs::<Test>::contains_key(&new_multisig_address));
+	});
+}
+
+/// Test 5: claim_deposits with zero expired proposals succeeds with zero returned
+#[test]
+fn claim_deposits_with_zero_expired_proposals() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Create a proposal that is NOT expired
+		let call = make_call(b"test".to_vec());
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call,
+			10000 // expires far in the future
+		));
+
+		// claim_deposits should succeed but return 0
+		assert_ok!(Multisig::claim_deposits(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone()
+		));
+
+		// Check event shows 0 returned
+		System::assert_last_event(
+			Event::DepositsClaimed {
+				multisig_address,
+				claimer: alice(),
+				total_returned: 0,
+				proposals_removed: 0,
+			}
+			.into(),
+		);
+
+		// Proposal should still exist
+		assert!(Proposals::<Test>::contains_key(
+			&Multisig::derive_multisig_address(&signers, 2, 0),
+			0
+		));
+	});
+}
+
+/// Test 8: propose does not burn fee if deposit reservation fails
+#[test]
+fn propose_does_not_burn_fee_if_deposit_fails() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Give alice exactly enough for fee but not deposit
+		// Fee = 999 base + (999 * 2 signers * 1%) = 999 + 19 = 1018 (using mock values)
+		// Deposit = 100 (ProposalDepositParam)
+		// Total needed = 1118
+		// Give her only 1050 (enough for fee, not enough for fee + deposit)
+		let fee_only = 1050u128;
+		Balances::make_free_balance_be(&alice(), fee_only);
+
+		let initial_balance = Balances::free_balance(alice());
+
+		// Propose should fail
+		let call = make_call(b"test".to_vec());
+		assert_err_ignore_postinfo(
+			Multisig::propose(RuntimeOrigin::signed(alice()), multisig_address, call, 1000),
+			Error::<Test>::InsufficientBalance.into(),
+		);
+
+		// Check that balance is unchanged (fee was NOT burned)
+		// Note: This test will FAIL if the bug exists (fee burned before deposit check)
+		assert_eq!(
+			Balances::free_balance(alice()),
+			initial_balance,
+			"Balance should be unchanged - fee should not be burned if deposit fails"
+		);
+	});
+}
+
+/// Test 9: claim_deposits for threshold-1 multisig (1-of-2)
+#[test]
+fn claim_deposits_threshold_one_multisig() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// Create 1-of-2 multisig (threshold=1 requires at least 2 signers)
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			1,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 1, 0);
+
+		// Create an expired proposal
+		let call = make_call(b"test".to_vec());
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call,
+			5 // expires at block 5
+		));
+
+		// Advance past expiry
+		System::set_block_number(10);
+
+		let deposit = 100u128; // ProposalDepositParam
+		let balance_before = Balances::free_balance(alice());
+
+		// claim_deposits should work
+		assert_ok!(Multisig::claim_deposits(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone()
+		));
+
+		// Deposit should be returned
+		assert_eq!(Balances::free_balance(alice()), balance_before + deposit);
+
+		// Proposal should be removed
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+	});
+}
+
+/// Test 10: DepositsClaimed.total_returned accurately reflects actual deposits
+#[test]
+fn deposits_claimed_total_returned_is_accurate() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Create 3 proposals that will expire
+		for i in 0..3 {
+			let call = make_call(format!("test{}", i).into_bytes());
+			assert_ok!(Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				call,
+				5 // expires at block 5
+			));
+		}
+
+		// Advance past expiry
+		System::set_block_number(10);
+
+		let deposit_per_proposal = 100u128; // ProposalDepositParam
+		let expected_total = deposit_per_proposal * 3;
+
+		// claim_deposits
+		assert_ok!(Multisig::claim_deposits(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone()
+		));
+
+		// Verify event has correct total
+		System::assert_last_event(
+			Event::DepositsClaimed {
+				multisig_address,
+				claimer: alice(),
+				total_returned: expected_total,
+				proposals_removed: 3,
+			}
+			.into(),
+		);
+	});
+}
+
+/// Test 11: cancel on already-approved proposal works
+#[test]
+fn cancel_works_on_approved_proposal() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		let signers = vec![alice(), bob(), charlie()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Alice proposes
+		let call = make_call(b"test".to_vec());
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call,
+			1000
+		));
+
+		// Bob approves - reaches threshold, status becomes Approved
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0));
+
+		// Verify it's approved
+		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		let deposit = 100u128; // ProposalDepositParam
+		let balance_before = Balances::free_balance(alice());
+
+		// Alice (proposer) cancels the approved proposal
+		assert_ok!(Multisig::cancel(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0));
+
+		// Proposal should be removed
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+
+		// Deposit should be returned to proposer
+		assert_eq!(Balances::free_balance(alice()), balance_before + deposit);
+
+		// Event emitted
+		System::assert_last_event(
+			Event::ProposalCancelled { multisig_address, proposer: alice(), proposal_id: 0 }.into(),
+		);
+	});
+}
+
+/// Test that execute succeeds (removes proposal) even when the inner call fails.
+/// This is critical because FRAME rolls back on Err, so we must return Ok regardless
+/// of inner call outcome to ensure proposal removal is persisted.
+#[test]
+fn execute_succeeds_even_when_inner_call_fails() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+		// Create a 1-of-2 multisig (threshold 1, so proposal is immediately approved)
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			1,
+			0, // nonce
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 1, 0);
+
+		// Fund the multisig with a small amount (not enough for the transfer)
+		let _ = Balances::mint_into(&multisig_address, 100);
+
+		// Create a transfer call that will fail (trying to transfer more than balance)
+		let transfer_call = RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+			dest: charlie(),
+			value: 1_000_000, // Way more than the multisig has
+		});
+
+		// Propose - should immediately be approved since threshold is 1
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			transfer_call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Verify proposal is approved
+		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		let proposer_balance_before = Balances::free_balance(alice());
+		let deposit = proposal.deposit;
+
+		// Execute - the inner call will fail due to insufficient balance
+		// But execute itself should succeed (return Ok)
+		let result = Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0);
+
+		// The extrinsic itself should succeed
+		assert_ok!(result);
+
+		// Proposal should be removed from storage
+		assert!(
+			!Proposals::<Test>::contains_key(&multisig_address, 0),
+			"Proposal must be removed even when inner call fails"
+		);
+
+		// Deposit should be returned to proposer
+		assert_eq!(
+			Balances::free_balance(alice()),
+			proposer_balance_before + deposit,
+			"Deposit must be returned even when inner call fails"
+		);
+
+		// ProposalExecuted event should be emitted with the inner call's error
+		System::assert_has_event(
+			Event::ProposalExecuted {
+				multisig_address,
+				proposal_id: 0,
+				proposer: alice(),
+				call: transfer_call.encode(),
+				approvers: vec![alice()],
+				result: Err(DispatchError::Token(sp_runtime::TokenError::FundsUnavailable)),
+			}
+			.into(),
+		);
+	});
+}
+
+/// Test that propose rejects calls whose weight exceeds MaxInnerCallWeight.
+/// This ensures execute() can safely reserve weight at pre-dispatch time.
+#[test]
+fn propose_rejects_call_exceeding_max_inner_weight() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+
+		// Create a multisig
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		let too_heavy_call = RuntimeCall::HeavyCall(mock_heavy_call::Call::too_heavy {});
+		assert!(too_heavy_call
+			.get_dispatch_info()
+			.call_weight
+			.any_gt(MaxInnerCallWeightParam::get()));
+
+		let free_before_propose = Balances::free_balance(alice());
+		assert_err_ignore_postinfo(
+			Multisig::propose(
+				RuntimeOrigin::signed(alice()),
+				multisig_address.clone(),
+				too_heavy_call.encode().try_into().unwrap(),
+				100,
+			),
+			Error::<Test>::CallWeightExceedsLimit.into(),
+		);
+
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+		assert_eq!(Multisigs::<Test>::get(&multisig_address).unwrap().proposal_nonce, 0);
+		assert_eq!(Balances::reserved_balance(alice()), 0);
+		assert_eq!(Balances::free_balance(alice()), free_before_propose);
+	});
+}
+
+/// Regression test: propose while non-HS, enable HS, then attempt to execute non-whitelisted
+/// proposal. The execute should fail because the HS check is re-run at execute time.
+#[test]
+fn execute_rejects_non_whitelisted_call_after_hs_enabled() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+
+		// Create a multisig (not high-security initially)
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Verify multisig is NOT high-security
+		assert!(!MockHighSecurity::is_high_security(&multisig_address));
+
+		// Propose a non-whitelisted call (remark with non-"safe" content)
+		// This should succeed because the multisig is not HS yet
+		let non_whitelisted_call =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"not_safe".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			non_whitelisted_call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Bob approves -> threshold reached, status = Approved
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
+
+		// Verify proposal is approved and ready to execute
+		let proposal = Proposals::<Test>::get(&multisig_address, 0).unwrap();
+		assert_eq!(proposal.status, ProposalStatus::Approved);
+
+		// NOW enable high-security on the multisig address
+		set_high_security(&multisig_address);
+		assert!(MockHighSecurity::is_high_security(&multisig_address));
+
+		// Attempt to execute - should FAIL because:
+		// 1. Multisig is now high-security
+		// 2. The proposed call is not whitelisted
+		let result = Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0);
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert_eq!(err.error, Error::<Test>::CallNotAllowedForHighSecurityMultisig.into());
+
+		// Proposal should still exist (not removed on failure)
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+	});
+}
+
+/// Test that whitelisted calls CAN still be executed after HS is enabled.
+#[test]
+fn execute_allows_whitelisted_call_after_hs_enabled() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+		let signers = vec![alice(), bob()];
+
+		// Create a multisig (not high-security initially)
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Propose a whitelisted call (remark with "safe" content)
+		let whitelisted_call =
+			RuntimeCall::System(frame_system::Call::remark { remark: b"safe".to_vec() });
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			whitelisted_call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Bob approves
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
+
+		// Enable high-security
+		set_high_security(&multisig_address);
+
+		// Execute should succeed because the call is whitelisted
+		assert_ok!(Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0,));
+
+		// Proposal should be removed
+		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
 	});
 }

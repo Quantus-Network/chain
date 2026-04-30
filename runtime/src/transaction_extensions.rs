@@ -897,7 +897,7 @@ mod tests {
 			});
 
 			// Encode the call and set expiry
-			let encoded_call = inner_call.encode();
+			let encoded_call = inner_call.encode().try_into().unwrap();
 			let expiry = System::block_number() + 100;
 
 			// Alice proposes

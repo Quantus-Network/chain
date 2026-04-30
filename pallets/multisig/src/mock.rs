@@ -26,6 +26,28 @@ pub fn account_id(id: u64) -> AccountId {
 	AccountId::new(data)
 }
 
+#[frame_support::pallet]
+pub mod mock_heavy_call {
+	use frame_support::{dispatch::DispatchResult, weights::Weight};
+	use frame_system::pallet_prelude::*;
+
+	#[pallet::config]
+	pub trait Config: frame_system::Config {}
+
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		#[pallet::call_index(0)]
+		#[pallet::weight(Weight::from_parts(2_000_000_000, 2_097_152))]
+		pub fn too_heavy(origin: OriginFor<T>) -> DispatchResult {
+			ensure_signed(origin)?;
+			Ok(())
+		}
+	}
+}
+
 #[frame_support::runtime]
 mod runtime {
 	use super::*;
@@ -73,6 +95,9 @@ mod runtime {
 
 	#[runtime::pallet_index(9)]
 	pub type ReversibleTransfers = pallet_reversible_transfers::Pallet<Test>;
+
+	#[runtime::pallet_index(10)]
+	pub type HeavyCall = mock_heavy_call::Pallet<Test>;
 }
 
 impl TryFrom<RuntimeCall> for pallet_balances::Call<Test> {
@@ -123,7 +148,6 @@ parameter_types! {
 	pub const MaxTotalProposalsInStorageParam: u32 = 20;
 	pub const MaxCallSizeParam: u32 = 1024;
 	pub const MultisigFeeParam: Balance = 1000;
-	pub const MultisigDepositParam: Balance = 500;
 	pub const ProposalDepositParam: Balance = 100;
 	// Use 999 instead of 1000 to catch early floor truncation bugs.
 	// With step_factor=1%, per-signer increase = floor(999 * 1%) = 9 (truncated from 9.99)
@@ -131,6 +155,8 @@ parameter_types! {
 	pub const ProposalFeeParam: Balance = 999;
 	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000);
 	pub const MaxExpiryDurationParam: u64 = 10000;
+	// 1 billion ref_time, 1 MB proof_size - generous limit for testing
+	pub const MaxInnerCallWeightParam: Weight = Weight::from_parts(1_000_000_000, 1_048_576);
 }
 
 impl pallet_multisig::Config for Test {
@@ -140,15 +166,17 @@ impl pallet_multisig::Config for Test {
 	type MaxTotalProposalsInStorage = MaxTotalProposalsInStorageParam;
 	type MaxCallSize = MaxCallSizeParam;
 	type MultisigFee = MultisigFeeParam;
-	type MultisigDeposit = MultisigDepositParam;
 	type ProposalDeposit = ProposalDepositParam;
 	type ProposalFee = ProposalFeeParam;
 	type SignerStepFactor = SignerStepFactorParam;
 	type MaxExpiryDuration = MaxExpiryDurationParam;
+	type MaxInnerCallWeight = MaxInnerCallWeightParam;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 	type HighSecurity = crate::tests::MockHighSecurity;
 }
+
+impl mock_heavy_call::Config for Test {}
 
 type Moment = u64;
 

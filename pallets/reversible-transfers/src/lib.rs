@@ -26,6 +26,7 @@ pub use weights::WeightInfo;
 
 use alloc::vec::Vec;
 use frame_support::{
+	defensive,
 	pallet_prelude::*,
 	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };
@@ -108,7 +109,7 @@ pub mod pallet {
 		dispatch::PostDispatchInfo,
 		traits::{
 			fungible::MutateHold, schedule::v3::TaskName, tokens::Precision, CallerTrait,
-			StorePreimage, Time,
+			DefensiveResult, StorePreimage, Time,
 		},
 		PalletId,
 	};
@@ -119,7 +120,14 @@ pub mod pallet {
 		Saturating,
 	};
 
+	/// The in-code storage version.
+	///
+	/// This establishes an explicit baseline for future storage migrations.
+	/// Increment this and add a migration hook when storage layout changes.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
@@ -890,9 +898,12 @@ pub mod pallet {
 				list.retain(|id| *id != tx_id);
 			});
 
-			// Cancel scheduler (must succeed for normal cancel)
+			// Cancel scheduler. If the pending transfer exists, the corresponding scheduled task
+			// should also exist. Failure here indicates an invariant violation between this pallet
+			// and the scheduler.
 			let schedule_id = Self::make_schedule_id(&tx_id)?;
-			T::Scheduler::cancel_named(schedule_id).map_err(|_| Error::<T>::CancellationFailed)?;
+			T::Scheduler::cancel_named(schedule_id)
+				.defensive_map_err(|_| Error::<T>::CancellationFailed)?;
 
 			// Release funds (must succeed for normal cancel)
 			Self::release_held_funds_with_fee(&pending, &recipient, apply_fee)?;
