@@ -54,7 +54,7 @@ Get started mining on the Quantus Network testnet in minutes.
 - **RAM**: 4GB
 - **Storage**: 100GB available space
 - **Network**: Stable internet connection (3+ Mbps)
-- **OS**: Linux (Ubuntu 20.04+), macOS (10.15+), or Windows WSL2
+- **OS**: Linux (Ubuntu 20.04+), macOS (10.15+), or Windows 10/11 (native MSVC build or WSL2)
 
 > ⚠️ Connections below 3 Mbps will likely fail to keep the node synced with the network.
 
@@ -105,6 +105,35 @@ Minimal command - see --help for many more options
 ```
 
 **Note:** Use the `inner_hash` from step 3 as your `--rewards-inner-hash`. The node will derive your wormhole address and log it on startup.
+
+### Windows Setup
+
+The native Windows MSVC build (`quantus-node-*-x86_64-pc-windows-msvc.zip`) works on Windows 10/11, but requires two pieces of one-time setup before a full sync will complete.
+
+#### 1. Exclude the base-path from Windows Defender
+
+Real-time scanning on the RocksDB directory will block block-import IO and cause silent sync stalls (healthy peers, active network download, zero block progression).
+
+In an **elevated PowerShell** (Run as administrator):
+
+```powershell
+Add-MpPreference -ExclusionPath "$env:USERPROFILE\.quantus"
+```
+
+Adjust the path if you pass a custom `--base-path`. The exclusion only needs to be added once per machine.
+
+#### 2. Recommended sync flags
+
+```
+--sync full --max-blocks-per-request 64
+```
+
+These flags are recommended for all platforms but are especially important on Windows, where they reduce the blast radius of any residual IO hiccups during block-import.
+
+#### Alternative: WSL2
+
+If you cannot add a Defender exclusion (e.g. managed device, no admin rights), running the Linux build under WSL2 is also supported: follow the Manual Installation instructions above from inside your WSL2 shell.
+
 ### Docker Installation
 
 For users who prefer containerized deployment or have only Docker installed:
