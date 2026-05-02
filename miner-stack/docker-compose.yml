@@ -10,7 +10,7 @@ services:
       --base-path /var/lib/quantus
       --chain ${CHAIN:-planck}
       --node-key-file /node-keys/key_node
-      --rewards-address ${REWARDS_ADDRESS}
+      --rewards-inner-hash ${REWARDS_INNER_HASH}
       --name ${NODE_NAME:-my-quantus-node}
       --wasm-execution compiled
       --db-cache 2048
@@ -18,19 +18,23 @@ services:
       --in-peers ${IN_PEERS:-256}
       --out-peers ${OUT_PEERS:-256}
       --prometheus-external
-      --external-miner-url http://quantus-miner:9833
+      --miner-listen-port 9833
     volumes:
       - ./init-node.sh:/init-node.sh:ro
       - ./node-keys:/node-keys
       - ./node-data:/var/lib/quantus
-    depends_on:
-      - quantus-miner
     ports:
       - "${P2P_PORT:-30333}:30333"
       - "${RPC_PORT:-9944}:9944"
       - "${PROMETHEUS_PORT:-9615}:9615"
+      # Host-published UDP port only; the node still listens on internal QUIC port 9833.
+      - "${HOST_MINER_LISTEN_PORT:-9833}:9833/udp"
     networks:
-      - quantus
+      quantus:
+        # Pinned IPv4: quantus-miner needs --node-addr as IP:port (SocketAddr)
+        # and cannot rely on Docker DNS names. Change QUANTUS_DOCKER_SUBNET and
+        # QUANTUS_NODE_IPV4 if the default subnet overlaps another Docker network.
+        ipv4_address: ${QUANTUS_NODE_IPV4:-172.28.0.10}
     deploy:
       resources:
         limits:
@@ -42,20 +46,31 @@ services:
     container_name: ${MINER_CONTAINER_NAME:-quantus-miner}
     platform: linux/amd64
     restart: unless-stopped
-    command: --metrics-port 9900
+    command: >
+      serve
+      --node-addr ${MINER_NODE_ADDR:-${QUANTUS_NODE_IPV4:-172.28.0.10}:9833}
+      --metrics-port 9900
     environment:
-      - WORKERS=${WORKERS:-4}
+      - MINER_CPU_WORKERS=${CPU_WORKERS:-4}
+      - MINER_GPU_DEVICES=${GPU_DEVICES:-0}
+      - RUST_LOG=${MINER_LOG:-info}
+    depends_on:
+      - quantus-node
     ports:
-      - "9833:9833"  # Miner API
-      - "9900:9900"  # Miner metrics
+      # Host-published TCP port only; the miner still exposes metrics internally on 9900.
+      - "${HOST_MINER_METRICS_PORT:-9900}:9900"
     networks:
       - quantus
     deploy:
       resources:
         limits:
-          cpus: '${WORKERS:-4}'
+          cpus: '${CPU_WORKERS:-4}'
           memory: 4G
 
 networks:
   quantus:
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: ${QUANTUS_DOCKER_SUBNET:-172.28.0.0/16}
