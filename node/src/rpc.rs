@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, RpcModule};
 use quantus_runtime::{opaque::Block, AccountId, Balance, Nonce};
 use sc_network::service::traits::NetworkService;
@@ -36,7 +37,7 @@ pub struct PeerInfo {
 pub trait PeerApi {
 	/// Get basic peer information
 	#[method(name = "peer_getBasicInfo")]
-	fn get_basic_info(&self) -> RpcResult<PeerInfo>;
+	async fn get_basic_info(&self) -> RpcResult<PeerInfo>;
 }
 
 /// Peer RPC implementation
@@ -52,17 +53,17 @@ impl Peer {
 	}
 }
 
+#[async_trait]
 impl PeerApiServer for Peer {
-	fn get_basic_info(&self) -> RpcResult<PeerInfo> {
+	async fn get_basic_info(&self) -> RpcResult<PeerInfo> {
 		if let Some(network) = &self.network {
-			let network_state =
-				futures::executor::block_on(network.network_state()).map_err(|_| {
-					jsonrpsee::types::error::ErrorObject::owned(
-						5001,
-						"Failed to get network state",
-						None::<()>,
-					)
-				})?;
+			let network_state = network.network_state().await.map_err(|_| {
+				jsonrpsee::types::error::ErrorObject::owned(
+					5001,
+					"Failed to get network state",
+					None::<()>,
+				)
+			})?;
 
 			let connected_peers: Vec<String> =
 				network_state.connected_peers.keys().cloned().collect();
