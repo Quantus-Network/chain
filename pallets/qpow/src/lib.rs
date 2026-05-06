@@ -58,8 +58,15 @@ pub mod pallet {
 		#[pallet::constant]
 		type InitialDifficulty: Get<U512>;
 
+		/// Maximum percentage increase in difficulty per block (e.g., 3% = 3/100)
+		/// Used when blocks are faster than target (difficulty needs to increase)
 		#[pallet::constant]
-		type DifficultyAdjustPercentClamp: Get<FixedU128>;
+		type DifficultyIncreaseClamp: Get<FixedU128>;
+
+		/// Maximum percentage decrease in difficulty per block (e.g., 10% = 10/100)
+		/// Used when blocks are slower than target (difficulty needs to decrease)
+		#[pallet::constant]
+		type DifficultyDecreaseClamp: Get<FixedU128>;
 
 		#[pallet::constant]
 		type TargetBlockTime: Get<BlockDuration>;
@@ -249,13 +256,25 @@ pub mod pallet {
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
 			let observed_block_time = observed_block_time.max(1);
-			let clamp = T::DifficultyAdjustPercentClamp::get(); // 10%
 			let one = FixedU128::one();
-			let ratio =
-				FixedU128::from_rational(target_block_time as u128, observed_block_time as u128)
-					.min(one.saturating_add(clamp))
-					.max(one.saturating_sub(clamp));
-			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
+			
+			// Calculate raw ratio: target_time / observed_time
+			// If observed > target (slow blocks): ratio < 1 -> difficulty decreases
+			// If observed < target (fast blocks): ratio > 1 -> difficulty increases
+			let raw_ratio = FixedU128::from_rational(target_block_time as u128, observed_block_time as u128);
+			
+			// Apply asymmetric clamping based on direction
+			let ratio = if raw_ratio > one {
+				// Difficulty increasing (blocks too fast) - use smaller clamp
+				let increase_clamp = T::DifficultyIncreaseClamp::get();
+				raw_ratio.min(one.saturating_add(increase_clamp))
+			} else {
+				// Difficulty decreasing (blocks too slow) - use larger clamp
+				let decrease_clamp = T::DifficultyDecreaseClamp::get();
+				raw_ratio.max(one.saturating_sub(decrease_clamp))
+			};
+			
+			log::debug!(target: "qpow", "💧 Raw ratio: {}, Clamped ratio: {}", raw_ratio, ratio);
 
 			let ratio_512 = U512::from(ratio.into_inner());
 			let max_difficulty = Self::get_max_difficulty();

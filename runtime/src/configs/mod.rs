@@ -152,19 +152,24 @@ parameter_types! {
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
 	/// Initial mining difficulty - low value for development
 	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
-	/// Difficulty adjustment percent clamp
-	pub const DifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
+	/// Maximum difficulty increase per block (2%) - conservative to prevent flash mining attacks
+	pub const DifficultyIncreaseClamp: FixedU128 = FixedU128::from_rational(2, 100);
+	/// Maximum difficulty decrease per block (5%) - moderate for reasonable recovery
+	pub const DifficultyDecreaseClamp: FixedU128 = FixedU128::from_rational(5, 100);
 }
 
 impl pallet_qpow::Config for Runtime {
 	// Starting difficulty - should be challenging enough to require some work but not too high
 	type InitialDifficulty = QPoWInitialDifficulty;
-	type DifficultyAdjustPercentClamp = DifficultyAdjustPercentClamp;
+	type DifficultyIncreaseClamp = DifficultyIncreaseClamp;
+	type DifficultyDecreaseClamp = DifficultyDecreaseClamp;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
 
 	type WeightInfo = ();
-	type EmaAlpha = ConstU32<100>; // out of 1000, last_block_time * alpha + (previous_ema * (1 - alpha)) on moving average
+	// EMA smoothing factor: 20/1000 = 2% weight on new block, 98% on previous EMA
+	// This gives ~50 block effective window for very smooth difficulty curve
+	type EmaAlpha = ConstU32<20>;
 }
 
 parameter_types! {
