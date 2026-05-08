@@ -24,9 +24,30 @@ lazy_static! {
 	};
 }
 
+#[cfg(wormhole_layer1_verifier)]
+lazy_static! {
+	static ref LAYER1_VERIFIER: Option<WormholeVerifier> = {
+		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/layer1_verifier.bin"));
+		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/layer1_common.bin"));
+		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
+	};
+}
+
 /// Getter for the aggregated proof verifier
 pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static str> {
 	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
+}
+
+/// Getter for the layer-1 aggregated proof verifier.
+#[cfg(wormhole_layer1_verifier)]
+pub fn get_layer1_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+	LAYER1_VERIFIER.as_ref().ok_or("Layer1 verifier not available")
+}
+
+/// Getter for the layer-1 aggregated proof verifier when L1 artifacts were not generated.
+#[cfg(not(wormhole_layer1_verifier))]
+pub fn get_layer1_verifier() -> Result<&'static WormholeVerifier, &'static str> {
+	Err("Layer1 verifier not available")
 }
 
 /// Scale factor for quantizing amounts from 12 to 2 decimal places (10^10).
@@ -52,8 +73,9 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use pallet_zk_tree::ZkTreeRecorder;
 	use qp_wormhole_verifier::{
-		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, D,
-		F,
+		parse_aggregated_public_inputs, parse_layer1_aggregated_public_inputs,
+		AggregatedPublicCircuitInputs, Layer1AggregatedPublicCircuitInputs, ProofWithPublicInputs,
+		PublicInputsByAccount, C, D, F,
 	};
 	use sp_runtime::{
 		traits::{MaybeDisplay, One, Saturating, Zero},
@@ -209,10 +231,21 @@ pub mod pallet {
 		>;
 	}
 
+	#[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo, MaxEncodedLen)]
+	pub struct NullifierLock<BlockNumber> {
+		pub bundle_id: [u8; 32],
+		pub expires_at: BlockNumber,
+	}
+
 	#[pallet::storage]
 	#[pallet::getter(fn used_nullifiers)]
 	pub(super) type UsedNullifiers<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], bool, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn locked_nullifiers)]
+	pub type LockedNullifiers<T: Config> =
+		StorageMap<_, Blake2_128Concat, [u8; 32], NullifierLock<BlockNumberFor<T>>, OptionQuery>;
 
 	/// Transfer count per recipient - used to generate unique leaf indices in the ZK trie.
 	#[pallet::storage]
@@ -269,11 +302,19 @@ pub mod pallet {
 	pub enum Error<T> {
 		InvalidPublicInputs,
 		NullifierAlreadyUsed,
+		NullifierLocked,
+		DuplicateNullifier,
+		NullifierNotLocked,
+		NullifierLockMismatch,
 		BlockNotFound,
 		AggregatedVerifierNotAvailable,
 		AggregatedProofDeserializationFailed,
 		AggregatedVerificationFailed,
 		InvalidAggregatedPublicInputs,
+		Layer1VerifierNotAvailable,
+		Layer1ProofDeserializationFailed,
+		InvalidLayer1PublicInputs,
+		Layer1VerificationFailed,
 		/// The volume fee rate in the proof doesn't match the configured rate
 		InvalidVolumeFeeRate,
 		/// Transfer amount is below the minimum required
@@ -335,8 +376,9 @@ pub mod pallet {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::AggregatedVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_aggregated_proof()),
+						Error::<T>::AggregatedVerificationFailed => {
+							Some(<T as Config>::WeightInfo::verify_aggregated_proof())
+						},
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
@@ -347,16 +389,9 @@ pub mod pallet {
 				},
 			};
 
-			// Mark nullifiers as used (validate_proof only checks existence)
-			let mut nullifier_list = Vec::<[u8; 32]>::new();
-			for nullifier in &aggregated_inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				UsedNullifiers::<T>::insert(nullifier_bytes, true);
-				nullifier_list.push(nullifier_bytes);
-			}
+			// Mark nullifiers as used (validate_proof only checks availability)
+			let nullifier_list = Self::collect_aggregated_nullifier_bytes(&aggregated_inputs)?;
+			Self::mark_nullifiers_used(&nullifier_list)?;
 
 			// Get the minting account for recording transfer proofs
 			let mint_account = T::MintingAccount::get();
@@ -459,7 +494,8 @@ pub mod pallet {
 						&author,
 						miner_fee,
 						frame_support::traits::tokens::Precision::Exact,
-					)?;
+					)
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 				} else {
 					// No block author found - add miner fee to burn amount
 					log::warn!(
@@ -489,7 +525,8 @@ pub mod pallet {
 					exit_account,
 					*exit_balance,
 					frame_support::traits::tokens::Precision::Exact,
-				)?;
+				)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
 				// Record transfer proof for the minted tokens
 				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
@@ -547,24 +584,140 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Validate an aggregated proof (cheap checks + full ZK verification).
-		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
-		///
-		/// Errors before ZK verification (deserialization, nullifier checks, etc.) allow
-		/// dispatch to return minimal weight. `AggregatedVerificationFailed` indicates
-		/// full ZK verification was attempted.
-		fn validate_proof(
+		pub fn is_nullifier_used(nullifier: &[u8; 32]) -> bool {
+			UsedNullifiers::<T>::contains_key(*nullifier)
+		}
+
+		pub fn is_nullifier_locked(nullifier: &[u8; 32]) -> bool {
+			LockedNullifiers::<T>::contains_key(*nullifier)
+		}
+
+		pub fn ensure_no_duplicate_nullifiers(nullifiers: &[[u8; 32]]) -> Result<(), Error<T>> {
+			let mut sorted = nullifiers.to_vec();
+			sorted.sort();
+			for pair in sorted.windows(2) {
+				if pair[0] == pair[1] {
+					return Err(Error::<T>::DuplicateNullifier);
+				}
+			}
+			Ok(())
+		}
+
+		pub fn ensure_nullifiers_available_for_direct_settlement(
+			nullifiers: &[[u8; 32]],
+		) -> Result<(), Error<T>> {
+			Self::ensure_no_duplicate_nullifiers(nullifiers)?;
+			for nullifier in nullifiers {
+				ensure!(!Self::is_nullifier_used(nullifier), Error::<T>::NullifierAlreadyUsed);
+				ensure!(!Self::is_nullifier_locked(nullifier), Error::<T>::NullifierLocked);
+			}
+			Ok(())
+		}
+
+		pub fn lock_nullifiers_for_bundle(
+			bundle_id: [u8; 32],
+			expires_at: BlockNumberFor<T>,
+			nullifiers: &[[u8; 32]],
+		) -> Result<(), Error<T>> {
+			Self::ensure_nullifiers_available_for_direct_settlement(nullifiers)?;
+
+			for nullifier in nullifiers {
+				LockedNullifiers::<T>::insert(*nullifier, NullifierLock { bundle_id, expires_at });
+			}
+
+			Ok(())
+		}
+
+		pub fn unlock_nullifiers_for_bundle(
+			bundle_id: [u8; 32],
+			nullifiers: &[[u8; 32]],
+		) -> Result<(), Error<T>> {
+			Self::ensure_no_duplicate_nullifiers(nullifiers)?;
+
+			for nullifier in nullifiers {
+				let lock =
+					LockedNullifiers::<T>::get(*nullifier).ok_or(Error::<T>::NullifierNotLocked)?;
+				ensure!(lock.bundle_id == bundle_id, Error::<T>::NullifierLockMismatch);
+			}
+
+			for nullifier in nullifiers {
+				LockedNullifiers::<T>::remove(*nullifier);
+			}
+
+			Ok(())
+		}
+
+		pub fn mark_nullifiers_used(nullifiers: &[[u8; 32]]) -> Result<(), Error<T>> {
+			Self::ensure_no_duplicate_nullifiers(nullifiers)?;
+
+			for nullifier in nullifiers {
+				UsedNullifiers::<T>::insert(*nullifier, true);
+			}
+
+			Ok(())
+		}
+
+		pub fn mark_locked_nullifiers_used(
+			bundle_id: [u8; 32],
+			nullifiers: &[[u8; 32]],
+		) -> Result<(), Error<T>> {
+			Self::ensure_no_duplicate_nullifiers(nullifiers)?;
+
+			for nullifier in nullifiers {
+				let lock =
+					LockedNullifiers::<T>::get(*nullifier).ok_or(Error::<T>::NullifierNotLocked)?;
+				ensure!(lock.bundle_id == bundle_id, Error::<T>::NullifierLockMismatch);
+			}
+
+			for nullifier in nullifiers {
+				UsedNullifiers::<T>::insert(*nullifier, true);
+				LockedNullifiers::<T>::remove(*nullifier);
+			}
+
+			Ok(())
+		}
+
+		fn collect_aggregated_nullifier_bytes(
+			inputs: &AggregatedPublicCircuitInputs,
+		) -> Result<Vec<[u8; 32]>, Error<T>> {
+			inputs
+				.nullifiers
+				.iter()
+				.map(|nullifier| {
+					(*nullifier)
+						.as_ref()
+						.try_into()
+						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)
+				})
+				.collect()
+		}
+
+		pub fn deserialize_aggregated_proof(
 			proof_bytes: &[u8],
-		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
+		) -> Result<ProofWithPublicInputs<F, C, D>, Error<T>> {
 			let verifier = crate::get_aggregated_verifier()
 				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
-			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
+			ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
 				&verifier.circuit_data.common,
 			)
-			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
-			let inputs = parse_aggregated_public_inputs(&proof)
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)
+		}
+
+		pub fn parse_aggregated_inputs_from_proof(
+			proof: &ProofWithPublicInputs<F, C, D>,
+		) -> Result<AggregatedPublicCircuitInputs, Error<T>> {
+			parse_aggregated_public_inputs(proof)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)
+		}
+
+		pub fn verify_aggregated_proof_for_candidate(
+			proof_bytes: &[u8],
+		) -> Result<AggregatedPublicCircuitInputs, Error<T>> {
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			let proof = Self::deserialize_aggregated_proof(proof_bytes)?;
+			let inputs = Self::parse_aggregated_inputs_from_proof(&proof)?;
 			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 			ensure!(
 				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
@@ -577,16 +730,42 @@ pub mod pallet {
 				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
 				Error::<T>::InvalidPublicInputs
 			);
-			for nullifier in &inputs.nullifiers {
-				let bytes: [u8; 32] = (*nullifier)
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				ensure!(
-					!UsedNullifiers::<T>::contains_key(bytes),
-					Error::<T>::NullifierAlreadyUsed
-				);
-			}
+
+			verifier.verify(proof).map_err(|e| {
+				log::error!("Candidate aggregated proof verification failed: {:?}", e);
+				Error::<T>::AggregatedVerificationFailed
+			})?;
+
+			Ok(inputs)
+		}
+
+		/// Validate an aggregated proof (cheap checks + full ZK verification).
+		/// Called by both validate_unsigned (pool gating) and dispatch (defense-in-depth).
+		///
+		/// Errors before ZK verification (deserialization, nullifier checks, etc.) allow
+		/// dispatch to return minimal weight. `AggregatedVerificationFailed` indicates
+		/// full ZK verification was attempted.
+		fn validate_proof(
+			proof_bytes: &[u8],
+		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
+			let verifier = crate::get_aggregated_verifier()
+				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
+			let proof = Self::deserialize_aggregated_proof(proof_bytes)?;
+			let inputs = Self::parse_aggregated_inputs_from_proof(&proof)?;
+			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
+			ensure!(
+				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),
+				Error::<T>::InvalidVolumeFeeRate
+			);
+			let block_number = BlockNumberFor::<T>::from(inputs.block_data.block_number);
+			let block_hash = frame_system::Pallet::<T>::block_hash(block_number);
+			ensure!(block_hash != T::Hash::default(), Error::<T>::BlockNotFound);
+			ensure!(
+				block_hash.as_ref() == inputs.block_data.block_hash.as_ref(),
+				Error::<T>::InvalidPublicInputs
+			);
+			let nullifiers = Self::collect_aggregated_nullifier_bytes(&inputs)?;
+			Self::ensure_nullifiers_available_for_direct_settlement(&nullifiers)?;
 
 			// Full ZK verification - if this fails, full verification weight was consumed
 			verifier.verify(proof.clone()).map_err(|e| {
@@ -595,6 +774,150 @@ pub mod pallet {
 			})?;
 
 			Ok((proof, inputs))
+		}
+
+		/// Deserialize a layer-1 aggregated proof using the layer-1 common circuit data.
+		///
+		/// This intentionally does not verify the proof. Callers can parse public inputs and run
+		/// cheap bundle/effects checks before paying the full ZK verification cost.
+		pub fn deserialize_layer1_proof(
+			proof_bytes: &[u8],
+		) -> Result<ProofWithPublicInputs<F, C, D>, Error<T>> {
+			let verifier =
+				crate::get_layer1_verifier().map_err(|_| Error::<T>::Layer1VerifierNotAvailable)?;
+			ProofWithPublicInputs::<F, C, D>::from_bytes(
+				proof_bytes.to_vec(),
+				&verifier.circuit_data.common,
+			)
+			.map_err(|_| Error::<T>::Layer1ProofDeserializationFailed)
+		}
+
+		/// Parse layer-1 public inputs from an already-deserialized proof.
+		pub fn parse_layer1_inputs_from_proof(
+			proof: &ProofWithPublicInputs<F, C, D>,
+		) -> Result<Layer1AggregatedPublicCircuitInputs, Error<T>> {
+			parse_layer1_aggregated_public_inputs(proof)
+				.map_err(|_| Error::<T>::InvalidLayer1PublicInputs)
+		}
+
+		/// Verify an already-deserialized layer-1 aggregated proof.
+		pub fn verify_layer1_proof(proof: &ProofWithPublicInputs<F, C, D>) -> Result<(), Error<T>> {
+			let verifier =
+				crate::get_layer1_verifier().map_err(|_| Error::<T>::Layer1VerifierNotAvailable)?;
+			verifier.verify_ref(proof).map_err(|e| {
+				log::error!("Layer-1 aggregated proof verification failed: {:?}", e);
+				Error::<T>::Layer1VerificationFailed
+			})
+		}
+
+		pub fn settle_public_outputs(
+			account_data: &[PublicInputsByAccount],
+			volume_fee_bps: u32,
+		) -> Result<BalanceOf<T>, Error<T>> {
+			let mint_account = T::MintingAccount::get();
+			let mut total_exit_amount: BalanceOf<T> = Zero::zero();
+			let mut processed_accounts: Vec<(
+				<T as frame_system::Config>::AccountId,
+				BalanceOf<T>,
+			)> = Vec::with_capacity(account_data.len());
+
+			for (idx, account_data) in account_data.iter().enumerate() {
+				let exit_account_bytes: [u8; 32] =
+					(*account_data.exit_account).as_ref().try_into().map_err(|e| {
+						log::error!("Failed to convert exit_account at idx {}: {:?}", idx, e);
+						Error::<T>::InvalidAggregatedPublicInputs
+					})?;
+
+				if exit_account_bytes == [0u8; 32] || account_data.summed_output_amount == 0 {
+					continue;
+				}
+
+				let exit_balance_u128 = (account_data.summed_output_amount as u128)
+					.saturating_mul(crate::SCALE_DOWN_FACTOR);
+				let exit_balance: BalanceOf<T> = exit_balance_u128.try_into().map_err(|_| {
+					log::error!("Failed to convert exit_balance at idx {}", idx);
+					Error::<T>::InvalidAggregatedPublicInputs
+				})?;
+
+				let exit_account =
+					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
+						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
+				processed_accounts.push((exit_account, exit_balance));
+			}
+
+			ensure!(
+				total_exit_amount >= T::MinimumTransferAmount::get(),
+				Error::<T>::TransferAmountBelowMinimum
+			);
+
+			let fee_bps = volume_fee_bps as u128;
+			let total_exit_u128: u128 = total_exit_amount.try_into().map_err(|_| {
+				log::error!("Failed to convert total_exit_amount to u128");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+			let total_fee_u128 = total_exit_u128
+				.saturating_mul(fee_bps)
+				.checked_div(10000u128.saturating_sub(fee_bps))
+				.unwrap_or(0);
+
+			let burn_rate = T::VolumeFeesBurnRate::get();
+			let mut burn_amount_u128 = burn_rate * total_fee_u128;
+			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+
+			if !miner_fee.is_zero() {
+				let digest = frame_system::Pallet::<T>::digest();
+				if let Some(author) = qp_wormhole::extract_author_from_digest::<
+					<T as frame_system::Config>::AccountId,
+					_,
+				>(digest.logs.iter().cloned())
+				{
+					<T::Currency as Unbalanced<_>>::increase_balance(
+						&author,
+						miner_fee,
+						frame_support::traits::tokens::Precision::Exact,
+					)
+					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+				} else {
+					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
+				}
+			}
+
+			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
+			if !burn_amount.is_zero() {
+				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
+				<T::Currency as Unbalanced<_>>::set_total_issuance(
+					current.saturating_sub(burn_amount),
+				);
+			}
+
+			for (exit_account, exit_balance) in &processed_accounts {
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					exit_account,
+					*exit_balance,
+					frame_support::traits::tokens::Precision::Exact,
+				)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+
+				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
+				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
+				Self::record_transfer(
+					T::AssetId::default(),
+					&from_account,
+					&to_account,
+					*exit_balance,
+				);
+			}
+
+			Ok(total_exit_amount)
 		}
 
 		/// Record a transfer in the ZK tree and emit events.

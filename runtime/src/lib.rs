@@ -259,4 +259,7 @@ mod runtime {
 
 	#[runtime::pallet_index(21)]
 	pub type ZkTree = pallet_zk_tree;
+
+	#[runtime::pallet_index(22)]
+	pub type MinerAggregation = pallet_miner_aggregation;
 }

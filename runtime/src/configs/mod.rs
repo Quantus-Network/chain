@@ -687,8 +687,8 @@ impl qp_high_security::HighSecurityInspector<AccountId, RuntimeCall> for HighSec
 				pallet_reversible_transfers::Call::schedule_transfer { .. }
 			) | RuntimeCall::ReversibleTransfers(
 				pallet_reversible_transfers::Call::schedule_asset_transfer { .. }
-			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. }) |
-				RuntimeCall::ReversibleTransfers(
+			) | RuntimeCall::ReversibleTransfers(pallet_reversible_transfers::Call::cancel { .. })
+				| RuntimeCall::ReversibleTransfers(
 					pallet_reversible_transfers::Call::recover_funds { .. }
 				)
 		)
@@ -762,6 +762,41 @@ impl pallet_wormhole::Config for Runtime {
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 	type ZkTree = ZkTree;
+}
+
+parameter_types! {
+	pub const MinerAggregationMaxL0ProofBytes: u32 = 256 * 1024;
+	pub const MinerAggregationMaxNullifiersPerL0: u32 = 64;
+	pub const MinerAggregationMaxExitSlotsPerL0: u32 = 128;
+	pub const MinerAggregationMaxCandidatesPerQueue: u32 = 128;
+	pub const MinerAggregationCandidateLifetime: BlockNumber = 256;
+	pub const MinerAggregationStorageBond: Balance = UNIT / 100;
+	pub const MinerAggregationValidityBond: Balance = UNIT / 10;
+	pub const MinerAggregationNumLayer0Proofs: u32 = 2;
+	pub const MinerAggregationCircuitId: [u8; 32] = [0u8; 32];
+	pub const MinerAggregationMaxActiveBundlesPerMiner: u32 = 4;
+	pub const MinerAggregationBundleProvingPeriod: BlockNumber = 64;
+	pub const MinerAggregationMinMinerBond: Balance = UNIT;
+	pub const MinerAggregationMaxL1ProofBytes: u32 = 512 * 1024;
+}
+
+impl pallet_miner_aggregation::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type MaxL0ProofBytes = MinerAggregationMaxL0ProofBytes;
+	type MaxNullifiersPerL0 = MinerAggregationMaxNullifiersPerL0;
+	type MaxExitSlotsPerL0 = MinerAggregationMaxExitSlotsPerL0;
+	type MaxCandidatesPerQueue = MinerAggregationMaxCandidatesPerQueue;
+	type CandidateLifetime = MinerAggregationCandidateLifetime;
+	type StorageBond = MinerAggregationStorageBond;
+	type ValidityBond = MinerAggregationValidityBond;
+	type NumLayer0Proofs = MinerAggregationNumLayer0Proofs;
+	type CircuitId = MinerAggregationCircuitId;
+	type MaxActiveBundlesPerMiner = MinerAggregationMaxActiveBundlesPerMiner;
+	type BundleProvingPeriod = MinerAggregationBundleProvingPeriod;
+	type MinMinerBond = MinerAggregationMinMinerBond;
+	type MaxL1ProofBytes = MinerAggregationMaxL1ProofBytes;
+	type WeightInfo = pallet_miner_aggregation::weights::SubstrateWeight<Runtime>;
 }
 
 impl pallet_zk_tree::Config for Runtime {

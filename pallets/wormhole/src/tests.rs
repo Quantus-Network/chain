@@ -32,6 +32,79 @@ mod wormhole_tests {
 	}
 
 	#[test]
+	fn layer1_verifier_getter_reflects_build_configuration() {
+		#[cfg(wormhole_layer1_verifier)]
+		assert!(crate::get_layer1_verifier().is_ok());
+
+		#[cfg(not(wormhole_layer1_verifier))]
+		assert_eq!(crate::get_layer1_verifier().unwrap_err(), "Layer1 verifier not available");
+	}
+
+	#[test]
+	fn layer1_deserialization_uses_layer1_artifact_state() {
+		new_test_ext().execute_with(|| {
+			let err = Wormhole::deserialize_layer1_proof(&[]).unwrap_err();
+
+			#[cfg(wormhole_layer1_verifier)]
+			assert!(matches!(err, crate::Error::<Test>::Layer1ProofDeserializationFailed));
+
+			#[cfg(not(wormhole_layer1_verifier))]
+			assert!(matches!(err, crate::Error::<Test>::Layer1VerifierNotAvailable));
+		});
+	}
+
+	#[test]
+	fn direct_l0_nullifier_validation_rejects_used_locked_and_duplicates() {
+		new_test_ext().execute_with(|| {
+			let n1 = [1u8; 32];
+			let n2 = [2u8; 32];
+			let bundle_id = [9u8; 32];
+
+			assert_ok!(Wormhole::ensure_nullifiers_available_for_direct_settlement(&[n1, n2]));
+
+			let err =
+				Wormhole::ensure_nullifiers_available_for_direct_settlement(&[n1, n1]).unwrap_err();
+			assert!(matches!(err, crate::Error::<Test>::DuplicateNullifier));
+
+			assert_ok!(Wormhole::mark_nullifiers_used(&[n1]));
+			let err =
+				Wormhole::ensure_nullifiers_available_for_direct_settlement(&[n1]).unwrap_err();
+			assert!(matches!(err, crate::Error::<Test>::NullifierAlreadyUsed));
+
+			assert_ok!(Wormhole::lock_nullifiers_for_bundle(bundle_id, 10, &[n2]));
+			let err =
+				Wormhole::ensure_nullifiers_available_for_direct_settlement(&[n2]).unwrap_err();
+			assert!(matches!(err, crate::Error::<Test>::NullifierLocked));
+		});
+	}
+
+	#[test]
+	fn nullifier_lock_helpers_manage_lock_lifecycle() {
+		new_test_ext().execute_with(|| {
+			let n1 = [1u8; 32];
+			let n2 = [2u8; 32];
+			let bundle_id = [7u8; 32];
+			let other_bundle_id = [8u8; 32];
+
+			assert_ok!(Wormhole::lock_nullifiers_for_bundle(bundle_id, 10, &[n1, n2]));
+			assert!(Wormhole::is_nullifier_locked(&n1));
+			assert!(Wormhole::is_nullifier_locked(&n2));
+			assert_eq!(Wormhole::locked_nullifiers(n1).unwrap().bundle_id, bundle_id);
+
+			let err = Wormhole::unlock_nullifiers_for_bundle(other_bundle_id, &[n1]).unwrap_err();
+			assert!(matches!(err, crate::Error::<Test>::NullifierLockMismatch));
+
+			assert_ok!(Wormhole::unlock_nullifiers_for_bundle(bundle_id, &[n1]));
+			assert!(!Wormhole::is_nullifier_locked(&n1));
+			assert!(Wormhole::is_nullifier_locked(&n2));
+
+			assert_ok!(Wormhole::mark_locked_nullifiers_used(bundle_id, &[n2]));
+			assert!(!Wormhole::is_nullifier_locked(&n2));
+			assert!(Wormhole::is_nullifier_used(&n2));
+		});
+	}
+
+	#[test]
 	fn record_transfer_increments_count() {
 		new_test_ext().execute_with(|| {
 			let alice = account_id(1);
@@ -407,6 +480,36 @@ mod aggregated_proof_tests {
 	}
 
 	#[test]
+	fn test_verify_aggregated_proof_fails_with_locked_nullifier() {
+		new_test_ext().execute_with(|| {
+			let proof = deserialize_test_proof();
+			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+
+			// Set up block hash to match the proof
+			let block_number = inputs.block_data.block_number as u64;
+			let block_hash_bytes: [u8; 32] =
+				inputs.block_data.block_hash.as_ref().try_into().unwrap();
+			let block_hash = H256::from(block_hash_bytes);
+			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
+
+			let nullifier = inputs.nullifiers.first().expect("fixture has nullifiers");
+			let nullifier_bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+			assert_ok!(Wormhole::lock_nullifiers_for_bundle(
+				[7u8; 32],
+				block_number + 10,
+				&[nullifier_bytes]
+			));
+
+			let proof_bytes = get_test_proof_bytes();
+			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+
+			assert!(result.is_err());
+			let err = result.unwrap_err();
+			assert_eq!(err.error, Error::<Test>::NullifierLocked.into());
+		});
+	}
+
+	#[test]
 	fn test_verify_aggregated_proof_fails_with_wrong_block_hash() {
 		new_test_ext().execute_with(|| {
 			let proof = deserialize_test_proof();
@@ -466,8 +569,8 @@ mod aggregated_proof_tests {
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
 							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
+								total += (account_data.summed_output_amount as u128)
+									* crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total

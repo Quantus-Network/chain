@@ -15,6 +15,7 @@ members = [
 	"node",
 	"pallets/frame-system",
 	"pallets/mining-rewards",
+	"pallets/miner-aggregation",
 	"pallets/multisig",
 	"pallets/qpow",
 	"pallets/reversible-transfers",
@@ -133,6 +134,7 @@ zeroize = { version = "1.7.0", default-features = false }
 # Own dependencies
 pallet-balances = { version = "46.0.0", default-features = false }
 pallet-mining-rewards = { path = "./pallets/mining-rewards", default-features = false }
+pallet-miner-aggregation = { path = "./pallets/miner-aggregation", default-features = false }
 pallet-multisig = { path = "./pallets/multisig", default-features = false }
 pallet-qpow = { path = "./pallets/qpow", default-features = false }
 pallet-reversible-transfers = { path = "./pallets/reversible-transfers", default-features = false }
@@ -155,11 +157,11 @@ qp-poseidon = { version = "1.4.0", default-features = false }
 qp-poseidon-core = { version = "1.4.0", default-features = false }
 qp-rusty-crystals-dilithium = { version = "2.4.0", default-features = false }
 qp-rusty-crystals-hdwallet = { version = "2.3.1" }
-qp-wormhole-circuit = { version = "2.0.1", default-features = false }
-qp-wormhole-circuit-builder = { version = "2.0.1", default-features = false }
-qp-wormhole-prover = { version = "2.0.1", default-features = false }
-qp-wormhole-verifier = { version = "2.0.1", default-features = false }
-qp-zk-circuits-common = { version = "2.0.1", default-features = false }
+qp-wormhole-circuit = { version = "2.0.1", git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "miner-aggr", default-features = false }
+qp-wormhole-circuit-builder = { version = "2.0.1", git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "miner-aggr", default-features = false }
+qp-wormhole-prover = { version = "2.0.1", git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "miner-aggr", default-features = false }
+qp-wormhole-verifier = { version = "2.0.1", git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "miner-aggr", default-features = false }
+qp-zk-circuits-common = { version = "2.0.1", git = "https://github.com/Quantus-Network/qp-zk-circuits", branch = "miner-aggr", default-features = false }
 
 
 # polkadot-sdk dependencies
