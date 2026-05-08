@@ -321,8 +321,6 @@ pub mod pallet {
 		SchedulingFailed,
 		/// Failed to cancel the scheduled task with the scheduler pallet.
 		CancellationFailed,
-		/// Failed to decode the OpaqueCall back into a RuntimeCall.
-		CallDecodingFailed,
 		/// Call is invalid.
 		InvalidCall,
 		/// Invalid scheduler origin
