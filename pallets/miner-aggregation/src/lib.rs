@@ -503,8 +503,8 @@ pub mod pallet {
 				.ok_or(Error::<T>::AggregatorNotRegistered)?;
 			ensure!(info.active_jobs < info.max_active_jobs, Error::<T>::TooManyActiveJobs);
 			ensure!(
-				MinerActiveBundles::<T>::get(&miner).len()
-					< T::MaxActiveBundlesPerMiner::get() as usize,
+				MinerActiveBundles::<T>::get(&miner).len() <
+					T::MaxActiveBundlesPerMiner::get() as usize,
 				Error::<T>::ActiveBundleLimit
 			);
 			ensure!(group_key.circuit_id == T::CircuitId::get(), Error::<T>::UnsupportedCircuit);
@@ -812,9 +812,9 @@ pub mod pallet {
 				let Some(candidate) = L0Candidates::<T>::get(candidate_id) else {
 					continue;
 				};
-				if candidate.status != L0CandidateStatus::Pending
-					|| candidate.group_key != *group_key
-					|| now > candidate.expires_at
+				if candidate.status != L0CandidateStatus::Pending ||
+					candidate.group_key != *group_key ||
+					now > candidate.expires_at
 				{
 					continue;
 				}
@@ -949,8 +949,8 @@ pub mod pallet {
 				Error::<T>::ProofMismatch
 			);
 			ensure!(
-				Self::digest_to_bytes(&inputs.block_data.block_hash)?
-					== bundle.group_key.block_hash,
+				Self::digest_to_bytes(&inputs.block_data.block_hash)? ==
+					bundle.group_key.block_hash,
 				Error::<T>::ProofMismatch
 			);
 			ensure!(
