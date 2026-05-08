@@ -1,8 +1,36 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-//! Treasury configuration pallet.
+//! # Treasury Configuration Pallet
 //!
-//! Provides TreasuryProvider trait for mining-rewards integration.
+//! This pallet provides a centralized surface for treasury-related runtime parameters
+//! that can be adjusted by privileged origins (currently root/governance).
+//!
+//! ## Purpose & Rationale
+//!
+//! While the current functionality is limited to treasury account and portion settings
+//! consumed by the `mining-rewards` pallet, this separation is intentional. The long-term
+//! goal is to consolidate all "tunable knobs" that governance or a technical collective
+//! should be able to adjust into a small, well-defined set of pallets.
+//!
+//! This architecture enables:
+//!
+//! - **Minimal privilege surface**: The technical collective's authority can be limited
+//!   to a known set of configuration parameters rather than arbitrary runtime calls.
+//! - **Auditability**: All adjustable parameters are explicitly defined in dedicated
+//!   pallets, making it clear what can and cannot be changed post-genesis.
+//! - **Future extensibility**: As the treasury subsystem grows (e.g., budgets, spending
+//!   proposals, vesting schedules), this pallet provides a natural home for that logic.
+//!
+//! ## Current Features
+//!
+//! - [`TreasuryAccount`]: The account that receives the treasury's share of mining rewards.
+//! - [`TreasuryPortion`]: The percentage (as `Permill`) of mining rewards allocated to treasury.
+//! - [`TreasuryProvider`] trait: Consumed by `mining-rewards` to query treasury configuration.
+//!
+//! ## Integration
+//!
+//! The `mining-rewards` pallet uses the [`TreasuryProvider`] trait to determine where and
+//! how much of each block reward should be allocated to the treasury.
 
 pub mod weights;
 pub use weights::WeightInfo;
