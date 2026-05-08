@@ -106,6 +106,15 @@ pub mod pallet {
 			/// The reward amount redirected to treasury
 			reward: BalanceOf<T>,
 		},
+		/// Treasury mint failed - reward was not issued.
+		///
+		/// This is a critical operational signal. If this event is observed, it indicates
+		/// either a misconfigured treasury account or a currency invariant violation.
+		/// The reward amount was permanently lost (not minted).
+		TreasuryMintFailed {
+			/// The reward amount that failed to mint
+			reward: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::hooks]
@@ -256,6 +265,7 @@ pub mod pallet {
 										"Failed to redirect {:?} to treasury: {:?}",
 										reward, e2
 									);
+									Self::deposit_event(Event::TreasuryMintFailed { reward });
 								},
 							}
 						},
@@ -278,6 +288,7 @@ pub mod pallet {
 								"Failed to mint {:?} to treasury: {:?}",
 								reward, e
 							);
+							Self::deposit_event(Event::TreasuryMintFailed { reward });
 						},
 					}
 				},
