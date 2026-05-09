@@ -104,6 +104,7 @@ pub mod pallet {
 		pub block_author_fee: Balance,
 		pub aggregation_prover_fee: Balance,
 		pub block_author: Option<AccountId>,
+		pub aggregation_reward_account: Option<AccountId>,
 	}
 
 	#[pallet::pallet]
@@ -220,10 +221,16 @@ pub mod pallet {
 		#[pallet::constant]
 		type VolumeFeeRateBps: Get<u32>;
 
-		/// Proportion of volume fees to burn (not mint). The remainder goes to the block author.
-		/// Example: Permill::from_percent(50) means 50% burned, 50% to miner.
+		/// Proportion of volume fees to burn (not mint). For direct L0 settlements, the remainder
+		/// goes to the block author when one is available. For delegated L1 settlements, the
+		/// non-burned remainder is split between the aggregation prover and block author.
 		#[pallet::constant]
 		type VolumeFeesBurnRate: Get<Permill>;
+
+		/// Proportion of the non-burned delegated L1 fee paid to the aggregation prover.
+		/// Direct L0 settlement ignores this value to preserve existing fee behavior.
+		#[pallet::constant]
+		type AggregationProverFeeShare: Get<Permill>;
 
 		/// Weight information for pallet operations.
 		type WeightInfo: WeightInfo;
@@ -313,6 +320,12 @@ pub mod pallet {
 		ProofVerified {
 			exit_amount: BalanceOf<T>,
 			nullifiers: Vec<[u8; 32]>,
+		},
+		WormholeFeeSettled {
+			total_fee: BalanceOf<T>,
+			burn_amount: BalanceOf<T>,
+			block_author_fee: BalanceOf<T>,
+			aggregation_prover_fee: BalanceOf<T>,
 		},
 	}
 
@@ -422,7 +435,7 @@ pub mod pallet {
 				exit_amount: prepared.total_exit_amount,
 				nullifiers: nullifier_list,
 			});
-			Self::apply_public_output_settlement(prepared, None)?;
+			Self::apply_public_output_settlement(prepared)?;
 
 			// Success - use declared weight (actual_weight: None means use declared weight)
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
@@ -713,7 +726,7 @@ pub mod pallet {
 				volume_fee_bps,
 				SettlementKind::DirectL0,
 			)?;
-			Self::apply_public_output_settlement(prepared, None)
+			Self::apply_public_output_settlement(prepared)
 		}
 
 		pub fn prepare_public_output_settlement(
@@ -777,9 +790,12 @@ pub mod pallet {
 			let burn_rate = T::VolumeFeesBurnRate::get();
 			let mut burn_amount_u128 = burn_rate * total_fee_u128;
 			let non_burned_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
-			let aggregation_prover_fee_u128 = match settlement_kind {
-				SettlementKind::DirectL0 => 0,
-				SettlementKind::DelegatedL1 { aggregation_reward_account: _ } => 0,
+			let (aggregation_reward_account, aggregation_prover_fee_u128) = match settlement_kind {
+				SettlementKind::DirectL0 => (None, 0),
+				SettlementKind::DelegatedL1 { aggregation_reward_account } => (
+					Some(aggregation_reward_account),
+					T::AggregationProverFeeShare::get() * non_burned_fee_u128,
+				),
 			};
 			let block_author_fee_u128 =
 				non_burned_fee_u128.saturating_sub(aggregation_prover_fee_u128);
@@ -824,6 +840,7 @@ pub mod pallet {
 				block_author_fee,
 				aggregation_prover_fee,
 				block_author,
+				aggregation_reward_account,
 			})
 		}
 
@@ -832,7 +849,6 @@ pub mod pallet {
 				<T as frame_system::Config>::AccountId,
 				BalanceOf<T>,
 			>,
-			reward_target: Option<&<T as frame_system::Config>::AccountId>,
 		) -> Result<BalanceOf<T>, Error<T>> {
 			let mint_account = T::MintingAccount::get();
 
@@ -850,8 +866,10 @@ pub mod pallet {
 			}
 
 			if !prepared.aggregation_prover_fee.is_zero() {
-				let reward_target =
-					reward_target.ok_or(Error::<T>::InvalidAggregatedPublicInputs)?;
+				let reward_target = prepared
+					.aggregation_reward_account
+					.as_ref()
+					.ok_or(Error::<T>::InvalidAggregatedPublicInputs)?;
 				<T::Currency as Unbalanced<_>>::increase_balance(
 					reward_target,
 					prepared.aggregation_prover_fee,
@@ -884,6 +902,13 @@ pub mod pallet {
 					*exit_balance,
 				);
 			}
+
+			Self::deposit_event(Event::WormholeFeeSettled {
+				total_fee: prepared.total_fee,
+				burn_amount: prepared.burn_amount,
+				block_author_fee: prepared.block_author_fee,
+				aggregation_prover_fee: prepared.aggregation_prover_fee,
+			});
 
 			Ok(prepared.total_exit_amount)
 		}

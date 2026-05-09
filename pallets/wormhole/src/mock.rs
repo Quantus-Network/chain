@@ -124,6 +124,8 @@ parameter_types! {
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+	/// Proportion of non-burned delegated fees paid to aggregation prover.
+	pub const AggregationProverFeeShare: Permill = Permill::from_percent(25);
 }
 
 impl pallet_wormhole::Config for Test {
@@ -137,6 +139,7 @@ impl pallet_wormhole::Config for Test {
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type AggregationProverFeeShare = AggregationProverFeeShare;
 	type WormholeAccountId = AccountId;
 	type WeightInfo = crate::weights::SubstrateWeight<Test>;
 	type ZkTree = (); // Disabled in tests - use () no-op implementation

@@ -223,7 +223,10 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_wormhole::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-		type Currency: ReservableCurrency<Self::AccountId>;
+		type Currency: ReservableCurrency<
+			Self::AccountId,
+			Balance = <Self as pallet_wormhole::Config>::NativeBalance,
+		>;
 
 		#[pallet::constant]
 		type MaxL0ProofBytes: Get<u32>;
@@ -333,6 +336,12 @@ pub mod pallet {
 		BundleSettled {
 			bundle_id: BundleId,
 			miner: T::AccountId,
+		},
+		AggregationRewardPaid {
+			bundle_id: BundleId,
+			reward_account: T::AccountId,
+			tips_paid: BalanceOf<T>,
+			fee_share_paid: BalanceOf<T>,
 		},
 		L0CandidateChallengedInvalid {
 			candidate_id: CandidateId,
@@ -883,23 +892,23 @@ pub mod pallet {
 				},
 			)
 			.map_err(|_| Error::<T>::ProofMismatch)?;
+			let fee_share_paid = prepared.aggregation_prover_fee;
 			pallet_wormhole::Pallet::<T>::ensure_nullifiers_locked_by_bundle(
 				bundle_id,
 				&nullifiers,
 			)
 			.map_err(|_| Error::<T>::NullifierUnavailable)?;
 
-			pallet_wormhole::Pallet::<T>::apply_public_output_settlement(
-				prepared,
-				Some(&reward_account),
-			)
-			.map_err(|_| Error::<T>::ProofMismatch)?;
+			pallet_wormhole::Pallet::<T>::apply_public_output_settlement(prepared)
+				.map_err(|_| Error::<T>::ProofMismatch)?;
 			pallet_wormhole::Pallet::<T>::mark_locked_nullifiers_used(bundle_id, &nullifiers)
 				.map_err(|_| Error::<T>::NullifierUnavailable)?;
 
+			let mut tips_paid = BalanceOf::<T>::zero();
 			for candidate_id in bundle.ordered_candidates.iter() {
 				L0Candidates::<T>::try_mutate(candidate_id, |candidate| -> DispatchResult {
 					let candidate = candidate.as_mut().ok_or(Error::<T>::CandidateNotFound)?;
+					tips_paid = tips_paid.saturating_add(candidate.aggregation_tip);
 					Self::release_candidate_reserves(candidate, &reward_account)?;
 					candidate.status = L0CandidateStatus::Settled { bundle_id };
 					Ok(())
@@ -913,6 +922,12 @@ pub mod pallet {
 			let settled_miner = bundle.assigned_miner.clone();
 			bundle.status = BundleStatus::Settled;
 			Bundles::<T>::insert(bundle_id, bundle);
+			Self::deposit_event(Event::AggregationRewardPaid {
+				bundle_id,
+				reward_account,
+				tips_paid,
+				fee_share_paid,
+			});
 			Self::deposit_event(Event::BundleSettled { bundle_id, miner: settled_miner });
 			Ok(())
 		}

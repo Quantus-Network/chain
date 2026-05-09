@@ -10,6 +10,7 @@ mod wormhole_tests {
 	};
 	use qp_wormhole_verifier::{BytesDigest, PublicInputsByAccount};
 	use sp_core::crypto::AccountId32;
+	use sp_runtime::DigestItem;
 
 	/// Well-known test secret for genesis endowment (matches runtime preset).
 	/// This secret can be used with `quantus wormhole prove` to spend funds
@@ -112,6 +113,37 @@ mod wormhole_tests {
 		}
 	}
 
+	fn set_block_author(preimage: [u8; 32]) -> AccountId {
+		let author = qp_wormhole::derive_wormhole_account(preimage);
+		System::deposit_log(DigestItem::PreRuntime(*b"pow_", preimage.to_vec()));
+		author
+	}
+
+	fn expected_total_fee(total_exit_amount: Balance) -> Balance {
+		let fee_bps = VolumeFeeRateBps::get() as Balance;
+		total_exit_amount
+			.saturating_mul(fee_bps)
+			.checked_div(10_000u128.saturating_sub(fee_bps))
+			.unwrap_or(0)
+	}
+
+	fn expected_fee_split(
+		total_exit_amount: Balance,
+		delegated: bool,
+		has_author: bool,
+	) -> (Balance, Balance, Balance, Balance) {
+		let total_fee = expected_total_fee(total_exit_amount);
+		let base_burn = VolumeFeesBurnRate::get() * total_fee;
+		let non_burned_fee = total_fee.saturating_sub(base_burn);
+		let aggregation_prover_fee =
+			if delegated { AggregationProverFeeShare::get() * non_burned_fee } else { 0 };
+		let block_author_share = non_burned_fee.saturating_sub(aggregation_prover_fee);
+		let block_author_fee = if has_author { block_author_share } else { 0 };
+		let burn_amount =
+			if has_author { base_burn } else { base_burn.saturating_add(block_author_share) };
+		(total_fee, burn_amount, block_author_fee, aggregation_prover_fee)
+	}
+
 	#[test]
 	fn public_output_settlement_prepare_rejects_below_minimum_without_writes() {
 		new_test_ext().execute_with(|| {
@@ -150,10 +182,137 @@ mod wormhole_tests {
 			assert_eq!(prepared.transfers.as_slice(), &[(recipient.clone(), 10 * UNIT)]);
 			assert_eq!(prepared.block_author_fee, 0);
 
-			assert_ok!(Wormhole::apply_public_output_settlement(prepared, None));
+			assert_ok!(Wormhole::apply_public_output_settlement(prepared));
 
 			assert_eq!(Balances::balance(&recipient), balance_before + 10 * UNIT);
 			assert_eq!(Wormhole::transfer_count(&recipient), transfer_count_before + 1);
+		});
+	}
+
+	#[test]
+	fn direct_l0_fee_behavior_preserved() {
+		new_test_ext().execute_with(|| {
+			System::set_block_number(1);
+			let recipient = account_id(3);
+			let author = set_block_author([7u8; 32]);
+			let total_exit_amount = 10 * UNIT;
+			let (total_fee, burn_amount, block_author_fee, aggregation_prover_fee) =
+				expected_fee_split(total_exit_amount, false, true);
+			let author_balance_before = Balances::balance(&author);
+
+			let prepared = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient, 1_000)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DirectL0,
+			)
+			.unwrap();
+
+			assert_eq!(prepared.total_fee, total_fee);
+			assert_eq!(prepared.burn_amount, burn_amount);
+			assert_eq!(prepared.block_author_fee, block_author_fee);
+			assert_eq!(prepared.aggregation_prover_fee, aggregation_prover_fee);
+			assert_eq!(prepared.block_author, Some(author.clone()));
+			assert_eq!(prepared.aggregation_reward_account, None);
+
+			assert_ok!(Wormhole::apply_public_output_settlement(prepared));
+
+			assert_eq!(Balances::balance(&author), author_balance_before + block_author_fee);
+			System::assert_has_event(
+				crate::Event::<Test>::WormholeFeeSettled {
+					total_fee,
+					burn_amount,
+					block_author_fee,
+					aggregation_prover_fee,
+				}
+				.into(),
+			);
+		});
+	}
+
+	#[test]
+	fn delegated_l1_pays_aggregation_prover_fee_share() {
+		new_test_ext().execute_with(|| {
+			let recipient = account_id(3);
+			let reward_account = account_id(4);
+			let total_exit_amount = 10 * UNIT;
+			let (total_fee, burn_amount, block_author_fee, aggregation_prover_fee) =
+				expected_fee_split(total_exit_amount, true, false);
+			let reward_balance_before = Balances::balance(&reward_account);
+
+			let prepared = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient, 1_000)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DelegatedL1 {
+					aggregation_reward_account: reward_account.clone(),
+				},
+			)
+			.unwrap();
+
+			assert_eq!(prepared.total_fee, total_fee);
+			assert_eq!(prepared.burn_amount, burn_amount);
+			assert_eq!(prepared.block_author_fee, block_author_fee);
+			assert_eq!(prepared.aggregation_prover_fee, aggregation_prover_fee);
+			assert_eq!(prepared.aggregation_reward_account, Some(reward_account.clone()));
+
+			assert_ok!(Wormhole::apply_public_output_settlement(prepared));
+
+			assert_eq!(
+				Balances::balance(&reward_account),
+				reward_balance_before + aggregation_prover_fee
+			);
+		});
+	}
+
+	#[test]
+	fn no_author_redirects_block_author_fee_share_to_burn() {
+		new_test_ext().execute_with(|| {
+			let recipient = account_id(3);
+			let reward_account = account_id(4);
+			let total_exit_amount = 10 * UNIT;
+			let (_total_fee, burn_amount, block_author_fee, aggregation_prover_fee) =
+				expected_fee_split(total_exit_amount, true, false);
+
+			let prepared = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient, 1_000)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DelegatedL1 { aggregation_reward_account: reward_account },
+			)
+			.unwrap();
+
+			assert_eq!(prepared.block_author, None);
+			assert_eq!(prepared.block_author_fee, block_author_fee);
+			assert_eq!(prepared.aggregation_prover_fee, aggregation_prover_fee);
+			assert_eq!(prepared.burn_amount, burn_amount);
+		});
+	}
+
+	#[test]
+	fn settlement_helper_used_by_both_direct_and_delegated_paths() {
+		new_test_ext().execute_with(|| {
+			let recipient = account_id(3);
+			let reward_account = account_id(4);
+
+			let direct = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient.clone(), 1_000)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DirectL0,
+			)
+			.unwrap();
+			let delegated = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient, 1_000)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DelegatedL1 {
+					aggregation_reward_account: reward_account.clone(),
+				},
+			)
+			.unwrap();
+
+			assert_eq!(direct.total_exit_amount, delegated.total_exit_amount);
+			assert_eq!(direct.total_fee, delegated.total_fee);
+			assert_eq!(direct.transfers, delegated.transfers);
+			assert_eq!(direct.aggregation_prover_fee, 0);
+			assert!(delegated.aggregation_prover_fee > 0);
+			assert_eq!(delegated.aggregation_reward_account, Some(reward_account));
 		});
 	}
 

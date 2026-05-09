@@ -118,6 +118,7 @@ parameter_types! {
 	pub const MinimumTransferAmount: Balance = 10 * UNIT;
 	pub const VolumeFeeRateBps: u32 = 10;
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+	pub const AggregationProverFeeShare: Permill = Permill::from_percent(25);
 }
 
 impl pallet_wormhole::Config for Test {
@@ -131,6 +132,7 @@ impl pallet_wormhole::Config for Test {
 	type MinimumTransferAmount = MinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type AggregationProverFeeShare = AggregationProverFeeShare;
 	type WormholeAccountId = AccountId;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Test>;
 	type ZkTree = ();

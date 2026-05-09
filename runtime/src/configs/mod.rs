@@ -742,8 +742,10 @@ parameter_types! {
 	pub const WormholeMinimumTransferAmount: Balance = UNIT / 10;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
-	/// Proportion of volume fees to burn (50% burned, 50% to miner)
+	/// Proportion of volume fees to burn.
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+	/// Proportion of non-burned delegated L1 fees paid to aggregation prover.
+	pub const AggregationProverFeeShare: Permill = Permill::from_percent(50);
 }
 
 impl pallet_wormhole::Config for Runtime {
@@ -759,6 +761,7 @@ impl pallet_wormhole::Config for Runtime {
 	type MinimumTransferAmount = WormholeMinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type AggregationProverFeeShare = AggregationProverFeeShare;
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 	type ZkTree = ZkTree;

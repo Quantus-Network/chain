@@ -773,11 +773,21 @@ fn tips_are_paid_to_registered_reward_account() {
 		let reward_account = account_id(42);
 		let (candidate_id, bundle_id, nullifiers) =
 			claim_candidate_bundle_with_reward(reward_account.clone());
+		System::set_block_number(1);
 		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
 		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
 		let aggregation_tip = candidate.aggregation_tip;
 		let account_data = public_outputs_from_candidate(candidate_id);
 		let expected_exit_amount = expected_exit_amount_for(&account_data, &reward_account);
+		let expected_fee_share = pallet_wormhole::Pallet::<Test>::prepare_public_output_settlement(
+			&account_data,
+			VolumeFeeRateBps::get(),
+			pallet_wormhole::SettlementKind::DelegatedL1 {
+				aggregation_reward_account: reward_account.clone(),
+			},
+		)
+		.expect("settlement prepares")
+		.aggregation_prover_fee;
 		let reward_balance_before = Balances::balance(&reward_account);
 
 		assert_ok!(MinerAggregation::settle_verified_l1_bundle(
@@ -790,10 +800,57 @@ fn tips_are_paid_to_registered_reward_account() {
 
 		assert_eq!(
 			Balances::balance(&reward_account),
-			reward_balance_before + aggregation_tip + expected_exit_amount
+			reward_balance_before + aggregation_tip + expected_exit_amount + expected_fee_share
 		);
 		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
 		assert_eq!(candidate.status, L0CandidateStatus::Settled { bundle_id });
+	});
+}
+
+#[test]
+fn delegated_l1_pays_aggregation_prover_fee_share_to_registered_reward_account() {
+	new_test_ext().execute_with(|| {
+		let reward_account = account_id(42);
+		let (candidate_id, bundle_id, nullifiers) =
+			claim_candidate_bundle_with_reward(reward_account.clone());
+		System::set_block_number(1);
+		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		let account_data = public_outputs_from_candidate(candidate_id);
+		let prepared = pallet_wormhole::Pallet::<Test>::prepare_public_output_settlement(
+			&account_data,
+			VolumeFeeRateBps::get(),
+			pallet_wormhole::SettlementKind::DelegatedL1 {
+				aggregation_reward_account: reward_account.clone(),
+			},
+		)
+		.expect("settlement prepares");
+		let fee_share = prepared.aggregation_prover_fee;
+		let expected_exit_amount = expected_exit_amount_for(&account_data, &reward_account);
+		let reward_balance_before = Balances::balance(&reward_account);
+
+		assert!(fee_share > 0);
+		assert_ok!(MinerAggregation::settle_verified_l1_bundle(
+			bundle_id,
+			bundle,
+			nullifiers,
+			&account_data,
+			VolumeFeeRateBps::get()
+		));
+
+		assert_eq!(
+			Balances::balance(&reward_account),
+			reward_balance_before + candidate.aggregation_tip + expected_exit_amount + fee_share
+		);
+		System::assert_has_event(
+			crate::Event::<Test>::AggregationRewardPaid {
+				bundle_id,
+				reward_account,
+				tips_paid: candidate.aggregation_tip,
+				fee_share_paid: fee_share,
+			}
+			.into(),
+		);
 	});
 }
 
