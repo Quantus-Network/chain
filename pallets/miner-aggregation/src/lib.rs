@@ -316,6 +316,12 @@ pub mod pallet {
 		AggregatorRegistered {
 			account: T::AccountId,
 		},
+		AggregatorUpdated {
+			account: T::AccountId,
+		},
+		AggregatorUnregistered {
+			account: T::AccountId,
+		},
 		BundleClaimed {
 			bundle_id: BundleId,
 			miner: T::AccountId,
@@ -376,6 +382,8 @@ pub mod pallet {
 		ChallengeVerificationUnavailable,
 		InvalidRewardAddress,
 		AggregatorAddressMismatch,
+		AggregatorHasActiveJobs,
+		ActiveJobAccountingInconsistent,
 	}
 
 	#[pallet::call]
@@ -464,6 +472,7 @@ pub mod pallet {
 
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as Config>::WeightInfo::register_aggregator())]
+		#[transactional]
 		pub fn register_aggregator(
 			origin: OriginFor<T>,
 			reward_address: [u8; 32],
@@ -471,23 +480,13 @@ pub mod pallet {
 			bond: BalanceOf<T>,
 		) -> DispatchResult {
 			let account = ensure_signed(origin)?;
-			Self::decode_registered_reward_address(&reward_address)?;
-			let registered_at = frame_system::Pallet::<T>::block_number();
-			if !bond.is_zero() {
-				<T as Config>::Currency::reserve(&account, bond)
-					.map_err(|_| Error::<T>::BondReservationFailed)?;
-			}
-			RegisteredAggregators::<T>::insert(
+			Self::set_aggregator_registration(
 				&account,
-				AggregatorInfo {
-					registered_at,
-					reward_address,
-					bond,
-					max_active_jobs,
-					active_jobs: 0,
-				},
-			);
-			Self::deposit_event(Event::AggregatorRegistered { account });
+				reward_address,
+				max_active_jobs,
+				bond,
+				true,
+			)?;
 			Ok(())
 		}
 
@@ -584,6 +583,7 @@ pub mod pallet {
 			})?;
 			info.active_jobs = info.active_jobs.saturating_add(1);
 			RegisteredAggregators::<T>::insert(&miner, info);
+			Self::ensure_aggregator_active_jobs_consistent(&miner)?;
 
 			Self::deposit_event(Event::BundleClaimed { bundle_id, miner, group_key });
 			Ok(())
@@ -623,6 +623,7 @@ pub mod pallet {
 			<T as Config>::Currency::unreserve(&bundle.assigned_miner, bundle.miner_bond);
 			Self::remove_active_bundle(&bundle.assigned_miner, bundle_id);
 			Self::decrement_active_jobs(&bundle.assigned_miner);
+			Self::ensure_aggregator_active_jobs_consistent(&bundle.assigned_miner)?;
 			bundle.status = BundleStatus::Expired;
 			Bundles::<T>::insert(bundle_id, bundle);
 
@@ -734,9 +735,138 @@ pub mod pallet {
 			Self::deposit_event(Event::L0CandidateExpired { candidate_id });
 			Ok(())
 		}
+
+		#[pallet::call_index(7)]
+		#[pallet::weight(<T as Config>::WeightInfo::update_aggregator())]
+		#[transactional]
+		pub fn update_aggregator(
+			origin: OriginFor<T>,
+			reward_address: [u8; 32],
+			max_active_jobs: u32,
+			new_bond: BalanceOf<T>,
+		) -> DispatchResult {
+			let account = ensure_signed(origin)?;
+			Self::set_aggregator_registration(
+				&account,
+				reward_address,
+				max_active_jobs,
+				new_bond,
+				false,
+			)?;
+			Ok(())
+		}
+
+		#[pallet::call_index(8)]
+		#[pallet::weight(<T as Config>::WeightInfo::unregister_aggregator())]
+		#[transactional]
+		pub fn unregister_aggregator(origin: OriginFor<T>) -> DispatchResult {
+			let account = ensure_signed(origin)?;
+			let info = RegisteredAggregators::<T>::get(&account)
+				.ok_or(Error::<T>::AggregatorNotRegistered)?;
+			Self::ensure_aggregator_has_no_active_jobs(&account)?;
+			if !info.bond.is_zero() {
+				<T as Config>::Currency::unreserve(&account, info.bond);
+			}
+			RegisteredAggregators::<T>::remove(&account);
+			Self::ensure_aggregator_active_jobs_consistent(&account)?;
+			Self::deposit_event(Event::AggregatorUnregistered { account });
+			Ok(())
+		}
 	}
 
 	impl<T: Config> Pallet<T> {
+		fn set_aggregator_registration(
+			account: &T::AccountId,
+			reward_address: [u8; 32],
+			max_active_jobs: u32,
+			bond: BalanceOf<T>,
+			allow_create: bool,
+		) -> DispatchResult {
+			Self::decode_registered_reward_address(&reward_address)?;
+			match RegisteredAggregators::<T>::get(account) {
+				Some(info) => {
+					Self::ensure_aggregator_has_no_active_jobs(account)?;
+					Self::adjust_aggregator_bond(account, info.bond, bond)?;
+					RegisteredAggregators::<T>::insert(
+						account,
+						AggregatorInfo {
+							registered_at: info.registered_at,
+							reward_address,
+							bond,
+							max_active_jobs,
+							active_jobs: 0,
+						},
+					);
+					Self::ensure_aggregator_active_jobs_consistent(account)?;
+					Self::deposit_event(Event::AggregatorUpdated { account: account.clone() });
+				},
+				None => {
+					ensure!(allow_create, Error::<T>::AggregatorNotRegistered);
+					Self::ensure_aggregator_has_no_active_jobs(account)?;
+					Self::adjust_aggregator_bond(account, BalanceOf::<T>::zero(), bond)?;
+					RegisteredAggregators::<T>::insert(
+						account,
+						AggregatorInfo {
+							registered_at: frame_system::Pallet::<T>::block_number(),
+							reward_address,
+							bond,
+							max_active_jobs,
+							active_jobs: 0,
+						},
+					);
+					Self::ensure_aggregator_active_jobs_consistent(account)?;
+					Self::deposit_event(Event::AggregatorRegistered { account: account.clone() });
+				},
+			}
+			Ok(())
+		}
+
+		fn adjust_aggregator_bond(
+			account: &T::AccountId,
+			old_bond: BalanceOf<T>,
+			new_bond: BalanceOf<T>,
+		) -> Result<(), Error<T>> {
+			if new_bond > old_bond {
+				let additional = new_bond.saturating_sub(old_bond);
+				if !additional.is_zero() {
+					<T as Config>::Currency::reserve(account, additional)
+						.map_err(|_| Error::<T>::BondReservationFailed)?;
+				}
+			} else if old_bond > new_bond {
+				let release = old_bond.saturating_sub(new_bond);
+				if !release.is_zero() {
+					<T as Config>::Currency::unreserve(account, release);
+				}
+			}
+			Ok(())
+		}
+
+		fn ensure_aggregator_has_no_active_jobs(account: &T::AccountId) -> DispatchResult {
+			if let Some(info) = RegisteredAggregators::<T>::get(account) {
+				ensure!(info.active_jobs == 0, Error::<T>::AggregatorHasActiveJobs);
+			}
+			ensure!(
+				MinerActiveBundles::<T>::get(account).is_empty(),
+				Error::<T>::AggregatorHasActiveJobs
+			);
+			Ok(())
+		}
+
+		pub(crate) fn ensure_aggregator_active_jobs_consistent(
+			account: &T::AccountId,
+		) -> Result<(), Error<T>> {
+			let active_bundle_count = MinerActiveBundles::<T>::get(account).len() as u32;
+			if let Some(info) = RegisteredAggregators::<T>::get(account) {
+				ensure!(
+					info.active_jobs == active_bundle_count,
+					Error::<T>::ActiveJobAccountingInconsistent
+				);
+			} else {
+				ensure!(active_bundle_count == 0, Error::<T>::ActiveJobAccountingInconsistent);
+			}
+			Ok(())
+		}
+
 		pub(crate) fn settle_verified_l1_bundle(
 			bundle_id: BundleId,
 			mut bundle: BundleOf<T>,
@@ -779,6 +909,7 @@ pub mod pallet {
 			<T as Config>::Currency::unreserve(&bundle.assigned_miner, bundle.miner_bond);
 			Self::remove_active_bundle(&bundle.assigned_miner, bundle_id);
 			Self::decrement_active_jobs(&bundle.assigned_miner);
+			Self::ensure_aggregator_active_jobs_consistent(&bundle.assigned_miner)?;
 			let settled_miner = bundle.assigned_miner.clone();
 			bundle.status = BundleStatus::Settled;
 			Bundles::<T>::insert(bundle_id, bundle);

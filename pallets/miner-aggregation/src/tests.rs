@@ -274,6 +274,171 @@ fn aggregator_registration_is_stored() {
 }
 
 #[test]
+fn aggregator_registration_re_register_does_not_strand_old_bond() {
+	new_test_ext().execute_with(|| {
+		let miner = account_id(2);
+		let first_reward = account_id(42);
+		let second_reward = account_id(43);
+
+		assert_ok!(MinerAggregation::register_aggregator(
+			RuntimeOrigin::signed(miner.clone()),
+			*first_reward.as_ref(),
+			2,
+			100
+		));
+		assert_eq!(Balances::reserved_balance(&miner), 100);
+
+		assert_ok!(MinerAggregation::register_aggregator(
+			RuntimeOrigin::signed(miner.clone()),
+			*second_reward.as_ref(),
+			3,
+			40
+		));
+		let info = RegisteredAggregators::<Test>::get(&miner).expect("registered");
+		let second_reward_address: [u8; 32] = *second_reward.as_ref();
+		assert_eq!(info.reward_address, second_reward_address);
+		assert_eq!(info.max_active_jobs, 3);
+		assert_eq!(info.bond, 40);
+		assert_eq!(info.active_jobs, 0);
+		assert_eq!(Balances::reserved_balance(&miner), 40);
+
+		assert_ok!(MinerAggregation::register_aggregator(
+			RuntimeOrigin::signed(miner.clone()),
+			*first_reward.as_ref(),
+			4,
+			75
+		));
+		let info = RegisteredAggregators::<Test>::get(&miner).expect("registered");
+		let first_reward_address: [u8; 32] = *first_reward.as_ref();
+		assert_eq!(info.reward_address, first_reward_address);
+		assert_eq!(info.max_active_jobs, 4);
+		assert_eq!(info.bond, 75);
+		assert_eq!(Balances::reserved_balance(&miner), 75);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&miner));
+	});
+}
+
+#[test]
+fn aggregator_registration_update_extrinsic_adjusts_bond_and_reward_address() {
+	new_test_ext().execute_with(|| {
+		let miner = account_id(2);
+		let first_reward = account_id(42);
+		let second_reward = account_id(43);
+
+		assert_ok!(MinerAggregation::register_aggregator(
+			RuntimeOrigin::signed(miner.clone()),
+			*first_reward.as_ref(),
+			2,
+			100
+		));
+		assert_ok!(MinerAggregation::update_aggregator(
+			RuntimeOrigin::signed(miner.clone()),
+			*second_reward.as_ref(),
+			1,
+			25
+		));
+
+		let info = RegisteredAggregators::<Test>::get(&miner).expect("registered");
+		let second_reward_address: [u8; 32] = *second_reward.as_ref();
+		assert_eq!(info.reward_address, second_reward_address);
+		assert_eq!(info.max_active_jobs, 1);
+		assert_eq!(info.bond, 25);
+		assert_eq!(info.active_jobs, 0);
+		assert_eq!(Balances::reserved_balance(&miner), 25);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&miner));
+	});
+}
+
+#[test]
+fn aggregator_registration_re_register_rejects_active_jobs() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, group_key) = submit_candidate();
+		register_miner();
+
+		assert_ok!(MinerAggregation::claim_bundle(
+			RuntimeOrigin::signed(account_id(2)),
+			group_key,
+			*account_id(2).as_ref(),
+			MinMinerBond::get()
+		));
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		let L0CandidateStatus::Claimed { bundle_id } = candidate.status else {
+			panic!("candidate should be claimed");
+		};
+
+		assert_noop!(
+			MinerAggregation::register_aggregator(
+				RuntimeOrigin::signed(account_id(2)),
+				*account_id(42).as_ref(),
+				3,
+				75
+			),
+			Error::<Test>::AggregatorHasActiveJobs
+		);
+		assert_noop!(
+			MinerAggregation::update_aggregator(
+				RuntimeOrigin::signed(account_id(2)),
+				*account_id(42).as_ref(),
+				3,
+				75
+			),
+			Error::<Test>::AggregatorHasActiveJobs
+		);
+
+		let info = RegisteredAggregators::<Test>::get(account_id(2)).expect("registered");
+		let original_reward_address: [u8; 32] = *account_id(2).as_ref();
+		assert_eq!(info.reward_address, original_reward_address);
+		assert_eq!(info.bond, 100);
+		assert_eq!(info.active_jobs, 1);
+		assert_eq!(MinerActiveBundles::<Test>::get(account_id(2)).as_slice(), &[bundle_id]);
+		assert_eq!(Balances::reserved_balance(&account_id(2)), 100 + MinMinerBond::get());
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+	});
+}
+
+#[test]
+fn aggregator_registration_unregister_releases_bond_when_no_active_jobs() {
+	new_test_ext().execute_with(|| {
+		let miner = account_id(2);
+		assert_ok!(MinerAggregation::register_aggregator(
+			RuntimeOrigin::signed(miner.clone()),
+			*miner.as_ref(),
+			2,
+			100
+		));
+		assert_eq!(Balances::reserved_balance(&miner), 100);
+
+		assert_ok!(MinerAggregation::unregister_aggregator(RuntimeOrigin::signed(miner.clone())));
+
+		assert!(!RegisteredAggregators::<Test>::contains_key(&miner));
+		assert_eq!(Balances::reserved_balance(&miner), 0);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&miner));
+	});
+}
+
+#[test]
+fn aggregator_registration_unregister_rejects_when_active_bundle_exists() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, group_key) = submit_candidate();
+		register_miner();
+		assert_ok!(MinerAggregation::claim_bundle(
+			RuntimeOrigin::signed(account_id(2)),
+			group_key,
+			*account_id(2).as_ref(),
+			MinMinerBond::get()
+		));
+
+		assert_noop!(
+			MinerAggregation::unregister_aggregator(RuntimeOrigin::signed(account_id(2))),
+			Error::<Test>::AggregatorHasActiveJobs
+		);
+		assert!(RegisteredAggregators::<Test>::contains_key(account_id(2)));
+		assert_eq!(Balances::reserved_balance(&account_id(2)), 100 + MinMinerBond::get());
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+	});
+}
+
+#[test]
 fn claim_bundle_uses_registered_reward_address() {
 	new_test_ext().execute_with(|| {
 		let (_candidate_id, group_key) = submit_candidate();
@@ -462,6 +627,43 @@ fn timeout_bundle_refunds_expired_claimed_candidate() {
 }
 
 #[test]
+fn active_jobs_timeout_decrements_consistently() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, group_key) = submit_candidate();
+		register_miner();
+		assert_ok!(MinerAggregation::claim_bundle(
+			RuntimeOrigin::signed(account_id(2)),
+			group_key,
+			*account_id(2).as_ref(),
+			MinMinerBond::get()
+		));
+		let bundle_id = MinerActiveBundles::<Test>::get(account_id(2))[0];
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("registered")
+				.active_jobs,
+			1
+		);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+
+		System::set_block_number(BundleProvingPeriod::get() + 2);
+		assert_ok!(MinerAggregation::timeout_bundle(
+			RuntimeOrigin::signed(account_id(1)),
+			bundle_id
+		));
+
+		assert!(MinerActiveBundles::<Test>::get(account_id(2)).is_empty());
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("registered")
+				.active_jobs,
+			0
+		);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+	});
+}
+
+#[test]
 fn submit_l1_aggregate_rejects_malformed_proof_before_verification() {
 	new_test_ext().execute_with(|| {
 		let (_candidate_id, group_key) = submit_candidate();
@@ -482,6 +684,39 @@ fn submit_l1_aggregate_rejects_malformed_proof_before_verification() {
 			),
 			Error::<Test>::MalformedL1Proof
 		);
+	});
+}
+
+#[test]
+fn active_jobs_settlement_decrements_consistently() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, nullifiers) = claim_candidate_bundle();
+		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+		let account_data = public_outputs_from_candidate(candidate_id);
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("registered")
+				.active_jobs,
+			1
+		);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+
+		assert_ok!(MinerAggregation::settle_verified_l1_bundle(
+			bundle_id,
+			bundle,
+			nullifiers,
+			&account_data,
+			VolumeFeeRateBps::get()
+		));
+
+		assert!(MinerActiveBundles::<Test>::get(account_id(2)).is_empty());
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("registered")
+				.active_jobs,
+			0
+		);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
 	});
 }
 
