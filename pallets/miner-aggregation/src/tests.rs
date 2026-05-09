@@ -13,9 +13,23 @@ use qp_wormhole_verifier::{
 use sp_core::H256;
 
 const AGGREGATED_PROOF_HEX: &str = include_str!("../../wormhole/test-data/aggregated.hex");
+const L1_FIXTURE_L0_CANDIDATE_0_HEX: &str = include_str!("../test-data/l0_candidate_0.hex");
+const L1_FIXTURE_AGGREGATE_HEX: &str = include_str!("../test-data/l1_aggregate.hex");
+
+fn decode_hex_fixture(contents: &str) -> Vec<u8> {
+	hex::decode(contents.trim()).expect("valid proof hex")
+}
 
 fn proof_bytes() -> Vec<u8> {
-	hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("valid aggregated proof hex")
+	decode_hex_fixture(AGGREGATED_PROOF_HEX)
+}
+
+fn l1_fixture_l0_candidate_0_bytes() -> Vec<u8> {
+	decode_hex_fixture(L1_FIXTURE_L0_CANDIDATE_0_HEX)
+}
+
+fn l1_fixture_aggregate_bytes() -> Vec<u8> {
+	decode_hex_fixture(L1_FIXTURE_AGGREGATE_HEX)
 }
 
 fn setup_matching_block_hash(proof_bytes: &[u8]) {
@@ -134,6 +148,51 @@ fn claim_candidate_bundle_with_reward(
 	(candidate_id, bundle_id, candidate.nullifiers.to_vec())
 }
 
+struct ClaimedL1FixtureBundle {
+	candidate_id: [u8; 32],
+	bundle_id: [u8; 32],
+	l1_proof_bytes: Vec<u8>,
+}
+
+fn claim_l1_fixture_bundle() -> Option<ClaimedL1FixtureBundle> {
+	if pallet_wormhole::get_layer1_verifier().is_err() {
+		eprintln!(
+			"skipping L1 fixture test; rerun with QP_GENERATE_LAYER1=true \
+			QP_NUM_LAYER0_PROOFS=1"
+		);
+		return None;
+	}
+
+	let l0_proof_bytes = l1_fixture_l0_candidate_0_bytes();
+	setup_matching_block_hash(&l0_proof_bytes);
+	System::set_block_number(1);
+	assert_ok!(MinerAggregation::submit_l0_candidate(
+		RuntimeOrigin::signed(account_id(1)),
+		l0_proof_bytes.clone(),
+		5
+	));
+	let candidate_id = sp_io::hashing::blake2_256(&l0_proof_bytes);
+	let group_key = L0Candidates::<Test>::get(candidate_id).expect("candidate stored").group_key;
+	register_miner();
+	assert_ok!(MinerAggregation::claim_bundle(
+		RuntimeOrigin::signed(account_id(2)),
+		group_key,
+		*account_id(2).as_ref(),
+		MinMinerBond::get()
+	));
+	let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+	let bundle_id = match candidate.status {
+		L0CandidateStatus::Claimed { bundle_id } => bundle_id,
+		_ => panic!("candidate should be claimed"),
+	};
+
+	Some(ClaimedL1FixtureBundle {
+		candidate_id,
+		bundle_id,
+		l1_proof_bytes: l1_fixture_aggregate_bytes(),
+	})
+}
+
 fn add_synthetic_claimed_candidate_to_bundle(bundle_id: [u8; 32]) -> [u8; 32] {
 	let existing_id = Bundles::<Test>::get(bundle_id).expect("bundle stored").ordered_candidates[0];
 	let mut candidate = L0Candidates::<Test>::get(existing_id).expect("candidate stored");
@@ -174,6 +233,22 @@ fn public_outputs_from_candidate(candidate_id: [u8; 32]) -> Vec<PublicInputsByAc
 			exit_account: BytesDigest::new_unchecked(exit.exit_account),
 		})
 		.collect()
+}
+
+fn account_from_digest(digest: &BytesDigest) -> AccountId {
+	let bytes: [u8; 32] = digest.as_ref().try_into().expect("digest is 32 bytes");
+	AccountId::new(bytes)
+}
+
+fn unique_exit_accounts(account_data: &[PublicInputsByAccount]) -> Vec<AccountId> {
+	let mut accounts = Vec::new();
+	for exit in account_data {
+		let account = account_from_digest(&exit.exit_account);
+		if !accounts.contains(&account) {
+			accounts.push(account);
+		}
+	}
+	accounts
 }
 
 fn layer1_inputs_for_candidate(
@@ -762,6 +837,216 @@ fn bundle_root_is_metadata_until_constrained_by_l1_circuit() {
 		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
 
 		assert_ok!(MinerAggregation::ensure_l1_matches_bundle(&bundle, &inputs));
+	});
+}
+
+#[test]
+fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
+	new_test_ext().execute_with(|| {
+		let Some(fixture) = claim_l1_fixture_bundle() else {
+			return;
+		};
+		let miner = account_id(2);
+		let reward_account = account_id(2);
+		let proof = Wormhole::deserialize_layer1_proof(&fixture.l1_proof_bytes)
+			.expect("L1 fixture proof deserializes");
+		let inputs = Wormhole::parse_layer1_inputs_from_proof(&proof)
+			.expect("L1 fixture public inputs parse");
+		let candidate_before =
+			L0Candidates::<Test>::get(fixture.candidate_id).expect("candidate stored");
+		let bundle_before = Bundles::<Test>::get(fixture.bundle_id).expect("bundle stored");
+		let nullifiers = candidate_before.nullifiers.to_vec();
+		let prepared = Wormhole::prepare_public_output_settlement(
+			&inputs.account_data,
+			inputs.volume_fee_bps,
+			pallet_wormhole::SettlementKind::DelegatedL1 {
+				aggregation_reward_account: reward_account.clone(),
+			},
+		)
+		.expect("settlement prepares");
+		let exit_accounts = unique_exit_accounts(&inputs.account_data);
+		let exit_balances_before = exit_accounts
+			.iter()
+			.map(|account| (account.clone(), Balances::balance(account)))
+			.collect::<Vec<_>>();
+		let reward_balance_before = Balances::balance(&reward_account);
+		let miner_reserved_before = Balances::reserved_balance(&miner);
+
+		assert_eq!(bundle_before.status, BundleStatus::Claimed);
+		assert_eq!(MinerActiveBundles::<Test>::get(&miner).as_slice(), &[fixture.bundle_id]);
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(&miner)
+				.expect("registered aggregator")
+				.active_jobs,
+			1
+		);
+		for nullifier in &nullifiers {
+			assert!(Wormhole::is_nullifier_locked(nullifier));
+			assert!(!Wormhole::is_nullifier_used(nullifier));
+		}
+
+		assert_ok!(MinerAggregation::submit_l1_aggregate(
+			RuntimeOrigin::signed(miner.clone()),
+			fixture.bundle_id,
+			fixture.l1_proof_bytes
+		));
+
+		let settled_bundle = Bundles::<Test>::get(fixture.bundle_id).expect("bundle stored");
+		assert_eq!(settled_bundle.status, BundleStatus::Settled);
+		for candidate_id in settled_bundle.ordered_candidates.iter() {
+			let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+			assert_eq!(
+				candidate.status,
+				L0CandidateStatus::Settled { bundle_id: fixture.bundle_id }
+			);
+		}
+		for nullifier in &nullifiers {
+			assert!(!Wormhole::is_nullifier_locked(nullifier));
+			assert!(Wormhole::is_nullifier_used(nullifier));
+		}
+		for (account, balance_before) in exit_balances_before {
+			let mut expected_balance =
+				balance_before + expected_exit_amount_for(&inputs.account_data, &account);
+			if account == reward_account {
+				expected_balance = expected_balance
+					+ candidate_before.aggregation_tip
+					+ prepared.aggregation_prover_fee;
+			}
+			if account == miner {
+				expected_balance += bundle_before.miner_bond;
+			}
+			assert_eq!(Balances::balance(&account), expected_balance);
+		}
+		if !exit_accounts.contains(&reward_account) {
+			let mut expected_reward_balance = reward_balance_before
+				+ candidate_before.aggregation_tip
+				+ prepared.aggregation_prover_fee;
+			if reward_account == miner {
+				expected_reward_balance += bundle_before.miner_bond;
+			}
+			assert_eq!(Balances::balance(&reward_account), expected_reward_balance);
+		}
+		assert_eq!(
+			Balances::reserved_balance(&miner),
+			miner_reserved_before - bundle_before.miner_bond
+		);
+		assert!(MinerActiveBundles::<Test>::get(&miner).is_empty());
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(&miner)
+				.expect("registered aggregator")
+				.active_jobs,
+			0
+		);
+		System::assert_has_event(
+			crate::Event::<Test>::BundleSettled { bundle_id: fixture.bundle_id, miner }.into(),
+		);
+	});
+}
+
+#[test]
+fn l1_fixture_rejects_wrong_bundle_aggregator_address() {
+	new_test_ext().execute_with(|| {
+		let Some(fixture) = claim_l1_fixture_bundle() else {
+			return;
+		};
+		Bundles::<Test>::mutate(fixture.bundle_id, |bundle| {
+			bundle.as_mut().expect("bundle stored").aggregator_address = *account_id(42).as_ref();
+		});
+
+		assert_noop!(
+			MinerAggregation::submit_l1_aggregate(
+				RuntimeOrigin::signed(account_id(2)),
+				fixture.bundle_id,
+				fixture.l1_proof_bytes
+			),
+			Error::<Test>::ProofMismatch
+		);
+	});
+}
+
+#[test]
+fn l1_fixture_rejects_wrong_bundle_block_number() {
+	new_test_ext().execute_with(|| {
+		let Some(fixture) = claim_l1_fixture_bundle() else {
+			return;
+		};
+		Bundles::<Test>::mutate(fixture.bundle_id, |bundle| {
+			bundle.as_mut().expect("bundle stored").group_key.block_number += 1;
+		});
+
+		assert_noop!(
+			MinerAggregation::submit_l1_aggregate(
+				RuntimeOrigin::signed(account_id(2)),
+				fixture.bundle_id,
+				fixture.l1_proof_bytes
+			),
+			Error::<Test>::ProofMismatch
+		);
+	});
+}
+
+#[test]
+fn l1_fixture_rejects_wrong_bundle_block_hash() {
+	new_test_ext().execute_with(|| {
+		let Some(fixture) = claim_l1_fixture_bundle() else {
+			return;
+		};
+		Bundles::<Test>::mutate(fixture.bundle_id, |bundle| {
+			bundle.as_mut().expect("bundle stored").group_key.block_hash = [0x55; 32];
+		});
+
+		assert_noop!(
+			MinerAggregation::submit_l1_aggregate(
+				RuntimeOrigin::signed(account_id(2)),
+				fixture.bundle_id,
+				fixture.l1_proof_bytes
+			),
+			Error::<Test>::ProofMismatch
+		);
+	});
+}
+
+#[test]
+fn l1_fixture_rejects_wrong_candidate_nullifier_set() {
+	new_test_ext().execute_with(|| {
+		let Some(fixture) = claim_l1_fixture_bundle() else {
+			return;
+		};
+		L0Candidates::<Test>::mutate(fixture.candidate_id, |candidate| {
+			candidate.as_mut().expect("candidate stored").nullifiers[0] = [0x66; 32];
+		});
+
+		assert_noop!(
+			MinerAggregation::submit_l1_aggregate(
+				RuntimeOrigin::signed(account_id(2)),
+				fixture.bundle_id,
+				fixture.l1_proof_bytes
+			),
+			Error::<Test>::ProofMismatch
+		);
+	});
+}
+
+#[test]
+fn l1_fixture_rejects_wrong_candidate_exit_summary() {
+	new_test_ext().execute_with(|| {
+		let Some(fixture) = claim_l1_fixture_bundle() else {
+			return;
+		};
+		L0Candidates::<Test>::mutate(fixture.candidate_id, |candidate| {
+			let candidate = candidate.as_mut().expect("candidate stored");
+			candidate.exit_summary[0].summed_output_amount =
+				candidate.exit_summary[0].summed_output_amount.wrapping_add(1);
+		});
+
+		assert_noop!(
+			MinerAggregation::submit_l1_aggregate(
+				RuntimeOrigin::signed(account_id(2)),
+				fixture.bundle_id,
+				fixture.l1_proof_bytes
+			),
+			Error::<Test>::ProofMismatch
+		);
 	});
 }
 

@@ -16,15 +16,18 @@ Current scope:
 - L1 submission performs cheap public-input/effects checks before full L1 verification
 - pending expired candidates can be cleaned up and refunded
 - pending invalid candidates can be challenged and have their validity bond burned
+- claimed invalid candidates can be challenged before L1 settlement
 
 Nullifier locking remains owned by `pallet-wormhole`. Bundle claim must call the wormhole lock
 helpers; candidate submission must never lock nullifiers.
 
-Any test or command that generates ZK proofs must run with `--release`. The current pallet tests use
-precomputed fixture proof bytes and do not generate proofs.
+Any test or command that generates ZK proofs must run with `--release`. The default pallet test
+suite uses precomputed fixture proof bytes and does not generate proofs.
 
 MVP limitations:
 
-- Claimed-bundle invalid-candidate challenge and partial miner slashing are not implemented yet.
-- L1 proof settlement is wired to the L1 verifier helper, but the test suite currently covers cheap
-  rejection only because no local L1 aggregate proof fixture is available.
+- L1 fixture regeneration must use `chain/scripts/generate-delegated-l1-fixture.sh`, which runs
+  proving in release mode.
+- The positive L1 settlement fixture test requires `QP_GENERATE_LAYER1=true` and
+  `QP_NUM_LAYER0_PROOFS=1` so `pallet-wormhole` embeds matching L1 verifier artifacts.
+- `Bundle.bundle_root` remains metadata until the L1 circuit exposes a constrained public root.
