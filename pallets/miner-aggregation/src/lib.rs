@@ -204,6 +204,7 @@ pub mod pallet {
 		pub bundle_id: BundleId,
 		pub group_key: BundleGroupKey,
 		pub ordered_candidates: BoundedVec<CandidateId, MaxCandidates>,
+		// Metadata only until the L1 circuit exposes a constrained bundle-root public input.
 		pub bundle_root: [u8; 32],
 		pub public_inputs_root: [u8; 32],
 		pub assigned_miner: AccountId,
@@ -1354,6 +1355,8 @@ pub mod pallet {
 			bundle: &BundleOf<T>,
 			inputs: &Layer1AggregatedPublicCircuitInputs,
 		) -> Result<(), Error<T>> {
+			// Bundle roots are not security-critical for the MVP: settlement validates the full
+			// public effects below until the L1 circuit exposes a constrained bundle root.
 			ensure!(
 				Self::digest_to_bytes(&inputs.aggregator_address)? == bundle.aggregator_address,
 				Error::<T>::ProofMismatch
@@ -1383,6 +1386,10 @@ pub mod pallet {
 			ensure!(expected_nullifiers == actual_nullifiers, Error::<T>::ProofMismatch);
 
 			let expected_exits = Self::expected_exit_summary(&candidate_ids)?;
+			ensure!(
+				inputs.total_exit_slots as usize == inputs.account_data.len(),
+				Error::<T>::ProofMismatch
+			);
 			ensure!(expected_exits.len() == inputs.account_data.len(), Error::<T>::ProofMismatch);
 			for (expected, actual) in expected_exits.iter().zip(inputs.account_data.iter()) {
 				ensure!(

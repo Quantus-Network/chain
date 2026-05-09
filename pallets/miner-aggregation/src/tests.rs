@@ -207,6 +207,27 @@ fn layer1_inputs_for_candidate(
 	}
 }
 
+fn claimed_bundle_inputs() -> ([u8; 32], [u8; 32], Layer1AggregatedPublicCircuitInputs) {
+	let (candidate_id, bundle_id, _nullifiers) = claim_candidate_bundle();
+	let inputs = layer1_inputs_for_candidate(candidate_id, bundle_id, *account_id(2).as_ref());
+	(candidate_id, bundle_id, inputs)
+}
+
+fn assert_l1_proof_mismatch(bundle_id: [u8; 32], inputs: &Layer1AggregatedPublicCircuitInputs) {
+	let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+	let err = MinerAggregation::ensure_l1_matches_bundle(&bundle, inputs).unwrap_err();
+	assert!(matches!(err, Error::<Test>::ProofMismatch));
+}
+
+fn assert_l1_duplicate_nullifier(
+	bundle_id: [u8; 32],
+	inputs: &Layer1AggregatedPublicCircuitInputs,
+) {
+	let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+	let err = MinerAggregation::ensure_l1_matches_bundle(&bundle, inputs).unwrap_err();
+	assert!(matches!(err, Error::<Test>::DuplicateNullifier));
+}
+
 fn expected_exit_amount_for(
 	account_data: &[PublicInputsByAccount],
 	account: &AccountId,
@@ -630,6 +651,117 @@ fn submit_l1_aggregate_rejects_proof_with_wrong_aggregator_address() {
 
 		let err = MinerAggregation::ensure_l1_matches_bundle(&bundle, &wrong_inputs).unwrap_err();
 		assert!(matches!(err, Error::<Test>::ProofMismatch));
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_wrong_exit_amount() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		inputs.account_data[0].summed_output_amount =
+			inputs.account_data[0].summed_output_amount.wrapping_add(1);
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_wrong_exit_account() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		inputs.account_data[0].exit_account = BytesDigest::new_unchecked(*account_id(99).as_ref());
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_extra_exit() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		let mut extra_exit = inputs.account_data[0].clone();
+		extra_exit.summed_output_amount = extra_exit.summed_output_amount.wrapping_add(7);
+		inputs.account_data.push(extra_exit);
+		inputs.total_exit_slots = inputs.account_data.len() as u32;
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_missing_exit() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		inputs.account_data.pop();
+		inputs.total_exit_slots = inputs.account_data.len() as u32;
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_wrong_nullifier() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		inputs.nullifiers[0] = BytesDigest::new_unchecked([0xAB; 32]);
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_duplicate_nullifier() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		let duplicate = inputs.nullifiers[0].clone();
+		if inputs.nullifiers.len() == 1 {
+			inputs.nullifiers.push(duplicate);
+		} else {
+			inputs.nullifiers[1] = duplicate;
+		}
+
+		assert_l1_duplicate_nullifier(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_reordered_exits() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		let mut swap_pair = None;
+		'outer: for first in 0..inputs.account_data.len() {
+			for second in (first + 1)..inputs.account_data.len() {
+				if inputs.account_data[first] != inputs.account_data[second] {
+					swap_pair = Some((first, second));
+					break 'outer;
+				}
+			}
+		}
+		let (first, second) = swap_pair.expect("fixture has distinct exit entries");
+		inputs.account_data.swap(first, second);
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn l1_full_effect_comparison_rejects_exit_slot_count_mismatch() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		inputs.total_exit_slots = inputs.total_exit_slots.saturating_add(1);
+
+		assert_l1_proof_mismatch(bundle_id, &inputs);
+	});
+}
+
+#[test]
+fn bundle_root_is_metadata_until_constrained_by_l1_circuit() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, mut inputs) = claimed_bundle_inputs();
+		inputs.bundle_root = Some(BytesDigest::new_unchecked([0x42; 32]));
+		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+
+		assert_ok!(MinerAggregation::ensure_l1_matches_bundle(&bundle, &inputs));
 	});
 }
 
