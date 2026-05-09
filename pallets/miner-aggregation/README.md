@@ -31,3 +31,10 @@ MVP limitations:
 - The positive L1 settlement fixture test requires `QP_GENERATE_LAYER1=true` and
   `QP_NUM_LAYER0_PROOFS=1` so `pallet-wormhole` embeds matching L1 verifier artifacts.
 - `Bundle.bundle_root` remains metadata until the L1 circuit exposes a constrained public root.
+
+Weights:
+
+- `src/weights.rs` contains explicit conservative placeholder weights for every pallet extrinsic.
+- `submit_l1_aggregate_cheap_reject` and `submit_l1_aggregate_valid_proof` are both recorded; the
+  dispatchable declares the valid-proof placeholder because it is the safe upper bound.
+- These weights are not benchmark-generated and must be replaced with runtime benchmark output before release. 
