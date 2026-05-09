@@ -908,9 +908,9 @@ fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
 			let mut expected_balance =
 				balance_before + expected_exit_amount_for(&inputs.account_data, &account);
 			if account == reward_account {
-				expected_balance = expected_balance
-					+ candidate_before.aggregation_tip
-					+ prepared.aggregation_prover_fee;
+				expected_balance = expected_balance +
+					candidate_before.aggregation_tip +
+					prepared.aggregation_prover_fee;
 			}
 			if account == miner {
 				expected_balance += bundle_before.miner_bond;
@@ -918,9 +918,9 @@ fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
 			assert_eq!(Balances::balance(&account), expected_balance);
 		}
 		if !exit_accounts.contains(&reward_account) {
-			let mut expected_reward_balance = reward_balance_before
-				+ candidate_before.aggregation_tip
-				+ prepared.aggregation_prover_fee;
+			let mut expected_reward_balance = reward_balance_before +
+				candidate_before.aggregation_tip +
+				prepared.aggregation_prover_fee;
 			if reward_account == miner {
 				expected_reward_balance += bundle_before.miner_bond;
 			}
