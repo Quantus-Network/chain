@@ -28,6 +28,8 @@ MVP limitations:
 
 - L1 fixture regeneration must use `chain/scripts/generate-delegated-l1-fixture.sh`, which runs
   proving in release mode.
+- The local delegated aggregation E2E fixture can be run with
+  `./chain/scripts/e2e-delegated-l1-aggregation.sh` from the workspace root.
 - The positive L1 settlement fixture test requires `QP_GENERATE_LAYER1=true` and
   `QP_NUM_LAYER0_PROOFS=1` so `pallet-wormhole` embeds matching L1 verifier artifacts.
 - `Bundle.bundle_root` remains metadata until the L1 circuit exposes a constrained public root.

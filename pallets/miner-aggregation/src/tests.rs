@@ -172,7 +172,16 @@ fn claim_l1_fixture_bundle() -> Option<ClaimedL1FixtureBundle> {
 		5
 	));
 	let candidate_id = sp_io::hashing::blake2_256(&l0_proof_bytes);
-	let group_key = L0Candidates::<Test>::get(candidate_id).expect("candidate stored").group_key;
+	let submitted_candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+	let group_key = submitted_candidate.group_key;
+	let submitted_nullifiers = submitted_candidate.nullifiers.to_vec();
+	assert_eq!(submitted_candidate.status, L0CandidateStatus::Pending);
+	for nullifier in &submitted_nullifiers {
+		assert!(!Wormhole::is_nullifier_locked(nullifier));
+		assert!(!Wormhole::is_nullifier_used(nullifier));
+	}
+	assert_ok!(Wormhole::ensure_nullifiers_available_for_direct_settlement(&submitted_nullifiers));
+
 	register_miner();
 	assert_ok!(MinerAggregation::claim_bundle(
 		RuntimeOrigin::signed(account_id(2)),
@@ -185,6 +194,13 @@ fn claim_l1_fixture_bundle() -> Option<ClaimedL1FixtureBundle> {
 		L0CandidateStatus::Claimed { bundle_id } => bundle_id,
 		_ => panic!("candidate should be claimed"),
 	};
+	for nullifier in &submitted_nullifiers {
+		assert!(Wormhole::is_nullifier_locked(nullifier));
+		assert!(!Wormhole::is_nullifier_used(nullifier));
+	}
+	let err = Wormhole::ensure_nullifiers_available_for_direct_settlement(&submitted_nullifiers)
+		.expect_err("direct L0 settlement should reject claimed nullifiers");
+	assert!(matches!(err, pallet_wormhole::Error::<Test>::NullifierLocked));
 
 	Some(ClaimedL1FixtureBundle {
 		candidate_id,
@@ -908,9 +924,9 @@ fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
 			let mut expected_balance =
 				balance_before + expected_exit_amount_for(&inputs.account_data, &account);
 			if account == reward_account {
-				expected_balance = expected_balance +
-					candidate_before.aggregation_tip +
-					prepared.aggregation_prover_fee;
+				expected_balance = expected_balance
+					+ candidate_before.aggregation_tip
+					+ prepared.aggregation_prover_fee;
 			}
 			if account == miner {
 				expected_balance += bundle_before.miner_bond;
@@ -918,9 +934,9 @@ fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
 			assert_eq!(Balances::balance(&account), expected_balance);
 		}
 		if !exit_accounts.contains(&reward_account) {
-			let mut expected_reward_balance = reward_balance_before +
-				candidate_before.aggregation_tip +
-				prepared.aggregation_prover_fee;
+			let mut expected_reward_balance = reward_balance_before
+				+ candidate_before.aggregation_tip
+				+ prepared.aggregation_prover_fee;
 			if reward_account == miner {
 				expected_reward_balance += bundle_before.miner_bond;
 			}

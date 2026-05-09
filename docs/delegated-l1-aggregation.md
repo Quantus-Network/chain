@@ -76,3 +76,14 @@ cargo run --release -p <prover-binary> -- <args>
 
 Parser-only, storage-only, mock-runtime, and precomputed-proof fixture tests may run without
 `--release`.
+
+Local E2E fixture command:
+
+```bash
+./chain/scripts/e2e-delegated-l1-aggregation.sh
+```
+
+This command regenerates fixtures with release-mode proving, runs the release-mode chain settlement
+fixture, runs the miner worker state-machine test, and runs the miner real-prover fixture. The live
+external-miner RPC adapter remains behind `AggregationChainClient` and is not exercised by this
+fixture command.
