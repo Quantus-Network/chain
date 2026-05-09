@@ -69,6 +69,7 @@ pub mod pallet {
 			fungibles::{self},
 			BuildGenesisConfig, Currency,
 		},
+		transactional,
 	};
 	use frame_system::pallet_prelude::*;
 	use pallet_zk_tree::ZkTreeRecorder;
@@ -78,7 +79,7 @@ pub mod pallet {
 		PublicInputsByAccount, C, D, F,
 	};
 	use sp_runtime::{
-		traits::{MaybeDisplay, One, Saturating, Zero},
+		traits::{CheckedAdd, MaybeDisplay, One, Saturating, Zero},
 		transaction_validity::{
 			InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
 		},
@@ -87,6 +88,23 @@ pub mod pallet {
 
 	pub type BalanceOf<T> = <T as Config>::NativeBalance;
 	pub type AssetBalanceOf<T> = <T as Config>::AssetBalance;
+
+	#[derive(Clone, PartialEq, Eq, RuntimeDebug)]
+	pub enum SettlementKind<AccountId> {
+		DirectL0,
+		DelegatedL1 { aggregation_reward_account: AccountId },
+	}
+
+	#[derive(Clone, PartialEq, Eq, RuntimeDebug)]
+	pub struct PreparedPublicOutputSettlement<AccountId, Balance> {
+		pub transfers: Vec<(AccountId, Balance)>,
+		pub total_exit_amount: Balance,
+		pub total_fee: Balance,
+		pub burn_amount: Balance,
+		pub block_author_fee: Balance,
+		pub aggregation_prover_fee: Balance,
+		pub block_author: Option<AccountId>,
+	}
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -362,6 +380,7 @@ pub mod pallet {
 		/// If ZK verification fails, we return full weight since the work was done.
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::verify_aggregated_proof())]
+		#[transactional]
 		pub fn verify_aggregated_proof(
 			origin: OriginFor<T>,
 			proof_bytes: Vec<u8>,
@@ -376,8 +395,9 @@ pub mod pallet {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::AggregatedVerificationFailed =>
-							Some(<T as Config>::WeightInfo::verify_aggregated_proof()),
+						Error::<T>::AggregatedVerificationFailed => {
+							Some(<T as Config>::WeightInfo::verify_aggregated_proof())
+						},
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
@@ -388,155 +408,22 @@ pub mod pallet {
 				},
 			};
 
-			// Mark nullifiers as used (validate_proof only checks availability)
 			let nullifier_list = Self::collect_aggregated_nullifier_bytes(&aggregated_inputs)?;
+			let prepared = Self::prepare_public_output_settlement(
+				&aggregated_inputs.account_data,
+				aggregated_inputs.volume_fee_bps,
+				SettlementKind::DirectL0,
+			)?;
+
+			// Mark nullifiers as used (validate_proof only checks availability)
 			Self::mark_nullifiers_used(&nullifier_list)?;
-
-			// Get the minting account for recording transfer proofs
-			let mint_account = T::MintingAccount::get();
-
-			// First pass: compute total exit amount and prepare account data
-			let mut total_exit_amount: BalanceOf<T> = Zero::zero();
-			let mut processed_accounts: Vec<(
-				<T as frame_system::Config>::AccountId,
-				BalanceOf<T>,
-			)> = Vec::with_capacity(aggregated_inputs.account_data.len());
-
-			for (idx, account_data) in aggregated_inputs.account_data.iter().enumerate() {
-				// Skip dummy account slots (exit_account == 0 with zero amount)
-				// Dummy proofs from aggregation padding have all-zero exit accounts
-				// Also skip deduplicated slots (the circuit zeros out duplicate exit accounts)
-				let exit_account_bytes: [u8; 32] =
-					(*account_data.exit_account).as_ref().try_into().map_err(|e| {
-						log::error!("Failed to convert exit_account at idx {}: {:?}", idx, e);
-						Error::<T>::InvalidAggregatedPublicInputs
-					})?;
-
-				if exit_account_bytes == [0u8; 32] || account_data.summed_output_amount == 0 {
-					continue;
-				}
-
-				// Convert output amount to Balance type (scale up from quantized value)
-				let exit_balance_u128 = (account_data.summed_output_amount as u128)
-					.saturating_mul(crate::SCALE_DOWN_FACTOR);
-				let exit_balance: BalanceOf<T> = exit_balance_u128.try_into().map_err(|_| {
-					log::error!("Failed to convert exit_balance at idx {}", idx);
-					Error::<T>::InvalidAggregatedPublicInputs
-				})?;
-
-				// Decode exit account from public inputs
-				let exit_account =
-					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
-						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-
-				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
-				processed_accounts.push((exit_account, exit_balance));
-			}
-
-			// Ensure total exit amount meets the minimum transfer requirement
-			ensure!(
-				total_exit_amount >= T::MinimumTransferAmount::get(),
-				Error::<T>::TransferAmountBelowMinimum
-			);
 
 			// Emit event for each exit account
 			Self::deposit_event(Event::ProofVerified {
-				exit_amount: total_exit_amount,
+				exit_amount: prepared.total_exit_amount,
 				nullifiers: nullifier_list,
 			});
-
-			// Compute the total fee from the input amounts
-			// fee = total_output_amount * volume_fee_bps / (10000 - volume_fee_bps)
-			// This is the fee that was deducted from input to get output.
-			let fee_bps = T::VolumeFeeRateBps::get() as u128;
-			let total_exit_u128: u128 = total_exit_amount.try_into().map_err(|_| {
-				log::error!("Failed to convert total_exit_amount to u128");
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-			let total_fee_u128 = total_exit_u128
-				.saturating_mul(fee_bps)
-				.checked_div(10000u128.saturating_sub(fee_bps))
-				.unwrap_or(0);
-
-			// Fee distribution: configurable portion burned, remainder to miner
-			//
-			// Original deposit locked `input_amount` in an unspendable account (tokens still
-			// exist). On exit we mint `output_amount` to user, where: input >= output + fee
-			//
-			// Fee split (controlled by VolumeFeesBurnRate):
-			//   - burn_amount = fee * burn_rate  (reduces total issuance via Currency::burn)
-			//   - miner_fee = fee - burn_amount  (minted to block author via increase_balance)
-			//
-			// Supply accounting:
-			//   - Minting exit amounts: increases balances but NOT issuance by sum(output_amounts)
-			//   - Minting miner fee: increases balance but NOT issuance (increase_balance)
-			//   - Burning: decreases total issuance by burn_amount
-			//   - Net change: +sum(output_amounts) - burn_amount
-			let burn_rate = T::VolumeFeesBurnRate::get();
-			let mut burn_amount_u128 = burn_rate * total_fee_u128;
-			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
-			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-
-			// Mint miner's portion of volume fee to block author
-			// If no author is found, add to burn amount instead of silently losing it
-			if !miner_fee.is_zero() {
-				let digest = frame_system::Pallet::<T>::digest();
-				if let Some(author) = qp_wormhole::extract_author_from_digest::<
-					<T as frame_system::Config>::AccountId,
-					_,
-				>(digest.logs.iter().cloned())
-				{
-					<T::Currency as Unbalanced<_>>::increase_balance(
-						&author,
-						miner_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					)
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				} else {
-					// No block author found - add miner fee to burn amount
-					log::warn!(
-						"No block author found, burning miner fee of {:?} instead",
-						miner_fee
-					);
-					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
-				}
-			}
-
-			// Burn the total burn amount (base burn + any orphaned miner fee)
-			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-			if !burn_amount.is_zero() {
-				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
-				<T::Currency as Unbalanced<_>>::set_total_issuance(
-					current.saturating_sub(burn_amount),
-				);
-			}
-
-			// Process transfers and record proofs
-			for (exit_account, exit_balance) in &processed_accounts {
-				// Native token transfer - mint tokens to the exit account
-				<T::Currency as Unbalanced<_>>::increase_balance(
-					exit_account,
-					*exit_balance,
-					frame_support::traits::tokens::Precision::Exact,
-				)
-				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-
-				// Record transfer proof for the minted tokens
-				let from_account: <T as Config>::WormholeAccountId = mint_account.clone().into();
-				let to_account: <T as Config>::WormholeAccountId = exit_account.clone().into();
-				Self::record_transfer(
-					T::AssetId::default(),
-					&from_account,
-					&to_account,
-					*exit_balance,
-				);
-			}
+			Self::apply_public_output_settlement(prepared, None)?;
 
 			// Success - use declared weight (actual_weight: None means use declared weight)
 			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
@@ -660,17 +547,26 @@ pub mod pallet {
 			bundle_id: [u8; 32],
 			nullifiers: &[[u8; 32]],
 		) -> Result<(), Error<T>> {
+			Self::ensure_nullifiers_locked_by_bundle(bundle_id, nullifiers)?;
+
+			for nullifier in nullifiers {
+				UsedNullifiers::<T>::insert(*nullifier, true);
+				LockedNullifiers::<T>::remove(*nullifier);
+			}
+
+			Ok(())
+		}
+
+		pub fn ensure_nullifiers_locked_by_bundle(
+			bundle_id: [u8; 32],
+			nullifiers: &[[u8; 32]],
+		) -> Result<(), Error<T>> {
 			Self::ensure_no_duplicate_nullifiers(nullifiers)?;
 
 			for nullifier in nullifiers {
 				let lock =
 					LockedNullifiers::<T>::get(*nullifier).ok_or(Error::<T>::NullifierNotLocked)?;
 				ensure!(lock.bundle_id == bundle_id, Error::<T>::NullifierLockMismatch);
-			}
-
-			for nullifier in nullifiers {
-				UsedNullifiers::<T>::insert(*nullifier, true);
-				LockedNullifiers::<T>::remove(*nullifier);
 			}
 
 			Ok(())
@@ -813,12 +709,25 @@ pub mod pallet {
 			account_data: &[PublicInputsByAccount],
 			volume_fee_bps: u32,
 		) -> Result<BalanceOf<T>, Error<T>> {
-			let mint_account = T::MintingAccount::get();
+			let prepared = Self::prepare_public_output_settlement(
+				account_data,
+				volume_fee_bps,
+				SettlementKind::DirectL0,
+			)?;
+			Self::apply_public_output_settlement(prepared, None)
+		}
+
+		pub fn prepare_public_output_settlement(
+			account_data: &[PublicInputsByAccount],
+			volume_fee_bps: u32,
+			settlement_kind: SettlementKind<<T as frame_system::Config>::AccountId>,
+		) -> Result<
+			PreparedPublicOutputSettlement<<T as frame_system::Config>::AccountId, BalanceOf<T>>,
+			Error<T>,
+		> {
 			let mut total_exit_amount: BalanceOf<T> = Zero::zero();
-			let mut processed_accounts: Vec<(
-				<T as frame_system::Config>::AccountId,
-				BalanceOf<T>,
-			)> = Vec::with_capacity(account_data.len());
+			let mut transfers: Vec<(<T as frame_system::Config>::AccountId, BalanceOf<T>)> =
+				Vec::with_capacity(account_data.len());
 
 			for (idx, account_data) in account_data.iter().enumerate() {
 				let exit_account_bytes: [u8; 32] =
@@ -842,8 +751,12 @@ pub mod pallet {
 					<T as frame_system::Config>::AccountId::decode(&mut &exit_account_bytes[..])
 						.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
 
-				total_exit_amount = total_exit_amount.saturating_add(exit_balance);
-				processed_accounts.push((exit_account, exit_balance));
+				total_exit_amount =
+					total_exit_amount.checked_add(&exit_balance).ok_or_else(|| {
+						log::error!("Failed to add exit_balance at idx {}", idx);
+						Error::<T>::InvalidAggregatedPublicInputs
+					})?;
+				transfers.push((exit_account, exit_balance));
 			}
 
 			ensure!(
@@ -852,6 +765,7 @@ pub mod pallet {
 			);
 
 			let fee_bps = volume_fee_bps as u128;
+			ensure!(fee_bps < 10_000, Error::<T>::InvalidAggregatedPublicInputs);
 			let total_exit_u128: u128 = total_exit_amount.try_into().map_err(|_| {
 				log::error!("Failed to convert total_exit_amount to u128");
 				Error::<T>::InvalidAggregatedPublicInputs
@@ -863,42 +777,98 @@ pub mod pallet {
 
 			let burn_rate = T::VolumeFeesBurnRate::get();
 			let mut burn_amount_u128 = burn_rate * total_fee_u128;
-			let miner_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
-			let miner_fee: BalanceOf<T> = miner_fee_u128.try_into().map_err(|_| {
-				log::error!("Failed to convert miner_fee_u128 to BalanceOf");
-				Error::<T>::InvalidAggregatedPublicInputs
-			})?;
-
-			if !miner_fee.is_zero() {
+			let non_burned_fee_u128 = total_fee_u128.saturating_sub(burn_amount_u128);
+			let aggregation_prover_fee_u128 = match settlement_kind {
+				SettlementKind::DirectL0 => 0,
+				SettlementKind::DelegatedL1 { aggregation_reward_account: _ } => 0,
+			};
+			let block_author_fee_u128 =
+				non_burned_fee_u128.saturating_sub(aggregation_prover_fee_u128);
+			let block_author = if block_author_fee_u128 == 0 {
+				None
+			} else {
 				let digest = frame_system::Pallet::<T>::digest();
-				if let Some(author) = qp_wormhole::extract_author_from_digest::<
-					<T as frame_system::Config>::AccountId,
-					_,
-				>(digest.logs.iter().cloned())
-				{
-					<T::Currency as Unbalanced<_>>::increase_balance(
-						&author,
-						miner_fee,
-						frame_support::traits::tokens::Precision::Exact,
-					)
-					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				} else {
-					burn_amount_u128 = burn_amount_u128.saturating_add(miner_fee_u128);
-				}
+				qp_wormhole::extract_author_from_digest::<<T as frame_system::Config>::AccountId, _>(
+					digest.logs.iter().cloned(),
+				)
+			};
+			if block_author.is_none() {
+				burn_amount_u128 = burn_amount_u128.saturating_add(block_author_fee_u128);
 			}
 
+			let total_fee: BalanceOf<T> = total_fee_u128.try_into().map_err(|_| {
+				log::error!("Failed to convert total_fee_u128 to BalanceOf");
+				Error::<T>::InvalidAggregatedPublicInputs
+			})?;
 			let burn_amount: BalanceOf<T> = burn_amount_u128.try_into().map_err(|_| {
 				log::error!("Failed to convert burn_amount_u128 to BalanceOf");
 				Error::<T>::InvalidAggregatedPublicInputs
 			})?;
-			if !burn_amount.is_zero() {
+			let block_author_fee: BalanceOf<T> =
+				if block_author.is_some() { block_author_fee_u128 } else { 0 }
+					.try_into()
+					.map_err(|_| {
+						log::error!("Failed to convert block_author_fee_u128 to BalanceOf");
+						Error::<T>::InvalidAggregatedPublicInputs
+					})?;
+			let aggregation_prover_fee: BalanceOf<T> =
+				aggregation_prover_fee_u128.try_into().map_err(|_| {
+					log::error!("Failed to convert aggregation_prover_fee_u128 to BalanceOf");
+					Error::<T>::InvalidAggregatedPublicInputs
+				})?;
+
+			Ok(PreparedPublicOutputSettlement {
+				transfers,
+				total_exit_amount,
+				total_fee,
+				burn_amount,
+				block_author_fee,
+				aggregation_prover_fee,
+				block_author,
+			})
+		}
+
+		pub fn apply_public_output_settlement(
+			prepared: PreparedPublicOutputSettlement<
+				<T as frame_system::Config>::AccountId,
+				BalanceOf<T>,
+			>,
+			reward_target: Option<&<T as frame_system::Config>::AccountId>,
+		) -> Result<BalanceOf<T>, Error<T>> {
+			let mint_account = T::MintingAccount::get();
+
+			if !prepared.block_author_fee.is_zero() {
+				let author = prepared
+					.block_author
+					.as_ref()
+					.ok_or(Error::<T>::InvalidAggregatedPublicInputs)?;
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					author,
+					prepared.block_author_fee,
+					frame_support::traits::tokens::Precision::Exact,
+				)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			}
+
+			if !prepared.aggregation_prover_fee.is_zero() {
+				let reward_target =
+					reward_target.ok_or(Error::<T>::InvalidAggregatedPublicInputs)?;
+				<T::Currency as Unbalanced<_>>::increase_balance(
+					reward_target,
+					prepared.aggregation_prover_fee,
+					frame_support::traits::tokens::Precision::Exact,
+				)
+				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			}
+
+			if !prepared.burn_amount.is_zero() {
 				let current = <T::Currency as FungibleInspect<_>>::total_issuance();
 				<T::Currency as Unbalanced<_>>::set_total_issuance(
-					current.saturating_sub(burn_amount),
+					current.saturating_sub(prepared.burn_amount),
 				);
 			}
 
-			for (exit_account, exit_balance) in &processed_accounts {
+			for (exit_account, exit_balance) in &prepared.transfers {
 				<T::Currency as Unbalanced<_>>::increase_balance(
 					exit_account,
 					*exit_balance,
@@ -916,7 +886,7 @@ pub mod pallet {
 				);
 			}
 
-			Ok(total_exit_amount)
+			Ok(prepared.total_exit_amount)
 		}
 
 		/// Record a transfer in the ZK tree and emit events.

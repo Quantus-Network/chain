@@ -6,7 +6,7 @@ use crate::{
 	},
 };
 use frame_support::{assert_noop, assert_ok};
-use qp_wormhole_verifier::parse_aggregated_public_inputs;
+use qp_wormhole_verifier::{parse_aggregated_public_inputs, BytesDigest, PublicInputsByAccount};
 use sp_core::H256;
 
 const AGGREGATED_PROOF_HEX: &str = include_str!("../../wormhole/test-data/aggregated.hex");
@@ -45,6 +45,48 @@ fn register_miner() {
 		2,
 		100
 	));
+}
+
+fn claim_candidate_bundle() -> ([u8; 32], [u8; 32], Vec<[u8; 32]>) {
+	let (candidate_id, group_key) = submit_candidate();
+	register_miner();
+	assert_ok!(MinerAggregation::claim_bundle(
+		RuntimeOrigin::signed(account_id(2)),
+		group_key,
+		*account_id(2).as_ref(),
+		MinMinerBond::get()
+	));
+	let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+	let bundle_id = match candidate.status {
+		L0CandidateStatus::Claimed { bundle_id } => bundle_id,
+		_ => panic!("candidate should be claimed"),
+	};
+	(candidate_id, bundle_id, candidate.nullifiers.to_vec())
+}
+
+fn below_minimum_public_outputs() -> Vec<PublicInputsByAccount> {
+	vec![PublicInputsByAccount {
+		summed_output_amount: 1,
+		exit_account: BytesDigest::new_unchecked(*account_id(3).as_ref()),
+	}]
+}
+
+fn fail_verified_l1_settlement(candidate_id: [u8; 32], bundle_id: [u8; 32]) {
+	let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+	let nullifiers = L0Candidates::<Test>::get(candidate_id)
+		.expect("candidate stored")
+		.nullifiers
+		.to_vec();
+	let err = MinerAggregation::settle_verified_l1_bundle(
+		bundle_id,
+		bundle,
+		nullifiers,
+		&below_minimum_public_outputs(),
+		VolumeFeeRateBps::get(),
+	)
+	.unwrap_err();
+
+	assert_eq!(err, Error::<Test>::ProofMismatch.into());
 }
 
 #[test]
@@ -307,6 +349,53 @@ fn submit_l1_aggregate_rejects_malformed_proof_before_verification() {
 				Vec::new()
 			),
 			Error::<Test>::MalformedL1Proof
+		);
+	});
+}
+
+#[test]
+fn submit_l1_aggregate_settlement_failure_preserves_nullifier_locks() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, nullifiers) = claim_candidate_bundle();
+
+		fail_verified_l1_settlement(candidate_id, bundle_id);
+
+		for nullifier in nullifiers {
+			assert!(Wormhole::is_nullifier_locked(&nullifier));
+			assert!(!Wormhole::is_nullifier_used(&nullifier));
+		}
+	});
+}
+
+#[test]
+fn submit_l1_aggregate_settlement_failure_preserves_candidate_status() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, _nullifiers) = claim_candidate_bundle();
+
+		fail_verified_l1_settlement(candidate_id, bundle_id);
+
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		assert_eq!(candidate.status, L0CandidateStatus::Claimed { bundle_id });
+		assert_eq!(
+			Bundles::<Test>::get(bundle_id).expect("bundle stored").status,
+			BundleStatus::Claimed
+		);
+	});
+}
+
+#[test]
+fn submit_l1_aggregate_settlement_failure_preserves_miner_active_bundle() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, _nullifiers) = claim_candidate_bundle();
+
+		fail_verified_l1_settlement(candidate_id, bundle_id);
+
+		assert_eq!(MinerActiveBundles::<Test>::get(account_id(2)).as_slice(), &[bundle_id]);
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("aggregator registered")
+				.active_jobs,
+			1
 		);
 	});
 }

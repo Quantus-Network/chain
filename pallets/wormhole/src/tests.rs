@@ -8,6 +8,7 @@ mod wormhole_tests {
 			Currency,
 		},
 	};
+	use qp_wormhole_verifier::{BytesDigest, PublicInputsByAccount};
 	use sp_core::crypto::AccountId32;
 
 	/// Well-known test secret for genesis endowment (matches runtime preset).
@@ -101,6 +102,58 @@ mod wormhole_tests {
 			assert_ok!(Wormhole::mark_locked_nullifiers_used(bundle_id, &[n2]));
 			assert!(!Wormhole::is_nullifier_locked(&n2));
 			assert!(Wormhole::is_nullifier_used(&n2));
+		});
+	}
+
+	fn public_output(account: AccountId, summed_output_amount: u32) -> PublicInputsByAccount {
+		PublicInputsByAccount {
+			summed_output_amount,
+			exit_account: BytesDigest::new_unchecked(*account.as_ref()),
+		}
+	}
+
+	#[test]
+	fn public_output_settlement_prepare_rejects_below_minimum_without_writes() {
+		new_test_ext().execute_with(|| {
+			let recipient = account_id(3);
+			let balance_before = Balances::balance(&recipient);
+			let transfer_count_before = Wormhole::transfer_count(&recipient);
+
+			let err = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient.clone(), 1)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DirectL0,
+			)
+			.unwrap_err();
+
+			assert!(matches!(err, crate::Error::<Test>::TransferAmountBelowMinimum));
+			assert_eq!(Balances::balance(&recipient), balance_before);
+			assert_eq!(Wormhole::transfer_count(&recipient), transfer_count_before);
+		});
+	}
+
+	#[test]
+	fn public_output_settlement_prepare_and_apply_mints_and_records_transfer() {
+		new_test_ext().execute_with(|| {
+			let recipient = account_id(3);
+			let balance_before = Balances::balance(&recipient);
+			let transfer_count_before = Wormhole::transfer_count(&recipient);
+
+			let prepared = Wormhole::prepare_public_output_settlement(
+				&[public_output(recipient.clone(), 1_000)],
+				VolumeFeeRateBps::get(),
+				crate::SettlementKind::DirectL0,
+			)
+			.unwrap();
+
+			assert_eq!(prepared.total_exit_amount, 10 * UNIT);
+			assert_eq!(prepared.transfers.as_slice(), &[(recipient.clone(), 10 * UNIT)]);
+			assert_eq!(prepared.block_author_fee, 0);
+
+			assert_ok!(Wormhole::apply_public_output_settlement(prepared, None));
+
+			assert_eq!(Balances::balance(&recipient), balance_before + 10 * UNIT);
+			assert_eq!(Wormhole::transfer_count(&recipient), transfer_count_before + 1);
 		});
 	}
 
@@ -569,8 +622,8 @@ mod aggregated_proof_tests {
 						let mut total = 0u128;
 						for account_data in &inputs.account_data {
 							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
+								total += (account_data.summed_output_amount as u128)
+									* crate::SCALE_DOWN_FACTOR;
 							}
 						}
 						total

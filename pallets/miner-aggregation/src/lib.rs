@@ -18,12 +18,12 @@ pub mod pallet {
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{Currency, ReservableCurrency},
-		BoundedVec,
+		transactional, BoundedVec,
 	};
 	use frame_system::pallet_prelude::*;
 	use qp_wormhole_verifier::{
 		AggregatedPublicCircuitInputs, BytesDigest, Layer1AggregatedPublicCircuitInputs,
-		L0_AGGREGATED_PUBLIC_INPUT_LAYOUT_VERSION,
+		PublicInputsByAccount, L0_AGGREGATED_PUBLIC_INPUT_LAYOUT_VERSION,
 	};
 	use sp_runtime::traits::{Saturating, Zero};
 
@@ -490,6 +490,7 @@ pub mod pallet {
 
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::claim_bundle())]
+		#[transactional]
 		pub fn claim_bundle(
 			origin: OriginFor<T>,
 			group_key: BundleGroupKey,
@@ -503,8 +504,8 @@ pub mod pallet {
 				.ok_or(Error::<T>::AggregatorNotRegistered)?;
 			ensure!(info.active_jobs < info.max_active_jobs, Error::<T>::TooManyActiveJobs);
 			ensure!(
-				MinerActiveBundles::<T>::get(&miner).len() <
-					T::MaxActiveBundlesPerMiner::get() as usize,
+				MinerActiveBundles::<T>::get(&miner).len()
+					< T::MaxActiveBundlesPerMiner::get() as usize,
 				Error::<T>::ActiveBundleLimit
 			);
 			ensure!(group_key.circuit_id == T::CircuitId::get(), Error::<T>::UnsupportedCircuit);
@@ -583,6 +584,7 @@ pub mod pallet {
 
 		#[pallet::call_index(3)]
 		#[pallet::weight(<T as Config>::WeightInfo::timeout_bundle())]
+		#[transactional]
 		pub fn timeout_bundle(origin: OriginFor<T>, bundle_id: BundleId) -> DispatchResult {
 			let _who = ensure_signed(origin)?;
 			let mut bundle = Bundles::<T>::get(bundle_id).ok_or(Error::<T>::BundleNotFound)?;
@@ -623,6 +625,7 @@ pub mod pallet {
 
 		#[pallet::call_index(4)]
 		#[pallet::weight(<T as Config>::WeightInfo::submit_l1_aggregate())]
+		#[transactional]
 		pub fn submit_l1_aggregate(
 			origin: OriginFor<T>,
 			bundle_id: BundleId,
@@ -633,7 +636,7 @@ pub mod pallet {
 				proof_bytes.len() <= T::MaxL1ProofBytes::get() as usize,
 				Error::<T>::L1ProofTooLarge
 			);
-			let mut bundle = Bundles::<T>::get(bundle_id).ok_or(Error::<T>::BundleNotFound)?;
+			let bundle = Bundles::<T>::get(bundle_id).ok_or(Error::<T>::BundleNotFound)?;
 			ensure!(submitter == bundle.assigned_miner, Error::<T>::NotAssignedMiner);
 			ensure!(
 				matches!(bundle.status, BundleStatus::Claimed | BundleStatus::Proving),
@@ -651,36 +654,18 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::L1ProofRejected)?;
 
 			let nullifiers = Self::layer1_nullifier_bytes(&inputs)?;
-			pallet_wormhole::Pallet::<T>::mark_locked_nullifiers_used(bundle_id, &nullifiers)
-				.map_err(|_| Error::<T>::NullifierUnavailable)?;
-			pallet_wormhole::Pallet::<T>::settle_public_outputs(
+			Self::settle_verified_l1_bundle(
+				bundle_id,
+				bundle,
+				nullifiers,
 				&inputs.account_data,
 				inputs.volume_fee_bps,
 			)
-			.map_err(|_| Error::<T>::ProofMismatch)?;
-
-			let reward_account = Self::reward_account(&bundle);
-			for candidate_id in bundle.ordered_candidates.iter() {
-				L0Candidates::<T>::try_mutate(candidate_id, |candidate| -> DispatchResult {
-					let candidate = candidate.as_mut().ok_or(Error::<T>::CandidateNotFound)?;
-					Self::release_candidate_reserves(candidate, &reward_account)?;
-					candidate.status = L0CandidateStatus::Settled { bundle_id };
-					Ok(())
-				})?;
-			}
-
-			<T as Config>::Currency::unreserve(&bundle.assigned_miner, bundle.miner_bond);
-			Self::remove_active_bundle(&bundle.assigned_miner, bundle_id);
-			Self::decrement_active_jobs(&bundle.assigned_miner);
-			let settled_miner = bundle.assigned_miner.clone();
-			bundle.status = BundleStatus::Settled;
-			Bundles::<T>::insert(bundle_id, bundle);
-			Self::deposit_event(Event::BundleSettled { bundle_id, miner: settled_miner });
-			Ok(())
 		}
 
 		#[pallet::call_index(5)]
 		#[pallet::weight(<T as Config>::WeightInfo::challenge_invalid_l0_candidate())]
+		#[transactional]
 		pub fn challenge_invalid_l0_candidate(
 			origin: OriginFor<T>,
 			candidate_id: CandidateId,
@@ -719,6 +704,7 @@ pub mod pallet {
 
 		#[pallet::call_index(6)]
 		#[pallet::weight(<T as Config>::WeightInfo::drop_expired_candidate())]
+		#[transactional]
 		pub fn drop_expired_candidate(
 			origin: OriginFor<T>,
 			candidate_id: CandidateId,
@@ -744,6 +730,55 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		pub(crate) fn settle_verified_l1_bundle(
+			bundle_id: BundleId,
+			mut bundle: BundleOf<T>,
+			nullifiers: Vec<Nullifier>,
+			account_data: &[PublicInputsByAccount],
+			volume_fee_bps: u32,
+		) -> DispatchResult {
+			let reward_account = Self::reward_account(&bundle);
+			let prepared = pallet_wormhole::Pallet::<T>::prepare_public_output_settlement(
+				account_data,
+				volume_fee_bps,
+				pallet_wormhole::SettlementKind::DelegatedL1 {
+					aggregation_reward_account: reward_account.clone(),
+				},
+			)
+			.map_err(|_| Error::<T>::ProofMismatch)?;
+			pallet_wormhole::Pallet::<T>::ensure_nullifiers_locked_by_bundle(
+				bundle_id,
+				&nullifiers,
+			)
+			.map_err(|_| Error::<T>::NullifierUnavailable)?;
+
+			pallet_wormhole::Pallet::<T>::apply_public_output_settlement(
+				prepared,
+				Some(&reward_account),
+			)
+			.map_err(|_| Error::<T>::ProofMismatch)?;
+			pallet_wormhole::Pallet::<T>::mark_locked_nullifiers_used(bundle_id, &nullifiers)
+				.map_err(|_| Error::<T>::NullifierUnavailable)?;
+
+			for candidate_id in bundle.ordered_candidates.iter() {
+				L0Candidates::<T>::try_mutate(candidate_id, |candidate| -> DispatchResult {
+					let candidate = candidate.as_mut().ok_or(Error::<T>::CandidateNotFound)?;
+					Self::release_candidate_reserves(candidate, &reward_account)?;
+					candidate.status = L0CandidateStatus::Settled { bundle_id };
+					Ok(())
+				})?;
+			}
+
+			<T as Config>::Currency::unreserve(&bundle.assigned_miner, bundle.miner_bond);
+			Self::remove_active_bundle(&bundle.assigned_miner, bundle_id);
+			Self::decrement_active_jobs(&bundle.assigned_miner);
+			let settled_miner = bundle.assigned_miner.clone();
+			bundle.status = BundleStatus::Settled;
+			Bundles::<T>::insert(bundle_id, bundle);
+			Self::deposit_event(Event::BundleSettled { bundle_id, miner: settled_miner });
+			Ok(())
+		}
+
 		fn reserve_candidate_funds(
 			submitter: &T::AccountId,
 			storage_bond: BalanceOf<T>,
@@ -812,9 +847,9 @@ pub mod pallet {
 				let Some(candidate) = L0Candidates::<T>::get(candidate_id) else {
 					continue;
 				};
-				if candidate.status != L0CandidateStatus::Pending ||
-					candidate.group_key != *group_key ||
-					now > candidate.expires_at
+				if candidate.status != L0CandidateStatus::Pending
+					|| candidate.group_key != *group_key
+					|| now > candidate.expires_at
 				{
 					continue;
 				}
@@ -949,8 +984,8 @@ pub mod pallet {
 				Error::<T>::ProofMismatch
 			);
 			ensure!(
-				Self::digest_to_bytes(&inputs.block_data.block_hash)? ==
-					bundle.group_key.block_hash,
+				Self::digest_to_bytes(&inputs.block_data.block_hash)?
+					== bundle.group_key.block_hash,
 				Error::<T>::ProofMismatch
 			);
 			ensure!(
