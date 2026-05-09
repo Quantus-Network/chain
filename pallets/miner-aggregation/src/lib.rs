@@ -374,6 +374,8 @@ pub mod pallet {
 		CandidateValid,
 		CandidateNotExpired,
 		ChallengeVerificationUnavailable,
+		InvalidRewardAddress,
+		AggregatorAddressMismatch,
 	}
 
 	#[pallet::call]
@@ -469,6 +471,7 @@ pub mod pallet {
 			bond: BalanceOf<T>,
 		) -> DispatchResult {
 			let account = ensure_signed(origin)?;
+			Self::decode_registered_reward_address(&reward_address)?;
 			let registered_at = frame_system::Pallet::<T>::block_number();
 			if !bond.is_zero() {
 				<T as Config>::Currency::reserve(&account, bond)
@@ -502,10 +505,14 @@ pub mod pallet {
 
 			let mut info = RegisteredAggregators::<T>::get(&miner)
 				.ok_or(Error::<T>::AggregatorNotRegistered)?;
+			ensure!(
+				aggregator_address == info.reward_address,
+				Error::<T>::AggregatorAddressMismatch
+			);
 			ensure!(info.active_jobs < info.max_active_jobs, Error::<T>::TooManyActiveJobs);
 			ensure!(
-				MinerActiveBundles::<T>::get(&miner).len()
-					< T::MaxActiveBundlesPerMiner::get() as usize,
+				MinerActiveBundles::<T>::get(&miner).len() <
+					T::MaxActiveBundlesPerMiner::get() as usize,
 				Error::<T>::ActiveBundleLimit
 			);
 			ensure!(group_key.circuit_id == T::CircuitId::get(), Error::<T>::UnsupportedCircuit);
@@ -562,7 +569,7 @@ pub mod pallet {
 				bundle_root,
 				public_inputs_root,
 				assigned_miner: miner.clone(),
-				aggregator_address,
+				aggregator_address: info.reward_address,
 				claimed_at,
 				deadline,
 				miner_bond,
@@ -737,7 +744,7 @@ pub mod pallet {
 			account_data: &[PublicInputsByAccount],
 			volume_fee_bps: u32,
 		) -> DispatchResult {
-			let reward_account = Self::reward_account(&bundle);
+			let reward_account = Self::reward_account(&bundle)?;
 			let prepared = pallet_wormhole::Pallet::<T>::prepare_public_output_settlement(
 				account_data,
 				volume_fee_bps,
@@ -847,9 +854,9 @@ pub mod pallet {
 				let Some(candidate) = L0Candidates::<T>::get(candidate_id) else {
 					continue;
 				};
-				if candidate.status != L0CandidateStatus::Pending
-					|| candidate.group_key != *group_key
-					|| now > candidate.expires_at
+				if candidate.status != L0CandidateStatus::Pending ||
+					candidate.group_key != *group_key ||
+					now > candidate.expires_at
 				{
 					continue;
 				}
@@ -970,7 +977,7 @@ pub mod pallet {
 				.collect::<Result<Vec<_>, _>>()
 		}
 
-		fn ensure_l1_matches_bundle(
+		pub(crate) fn ensure_l1_matches_bundle(
 			bundle: &BundleOf<T>,
 			inputs: &Layer1AggregatedPublicCircuitInputs,
 		) -> Result<(), Error<T>> {
@@ -984,8 +991,8 @@ pub mod pallet {
 				Error::<T>::ProofMismatch
 			);
 			ensure!(
-				Self::digest_to_bytes(&inputs.block_data.block_hash)?
-					== bundle.group_key.block_hash,
+				Self::digest_to_bytes(&inputs.block_data.block_hash)? ==
+					bundle.group_key.block_hash,
 				Error::<T>::ProofMismatch
 			);
 			ensure!(
@@ -1017,11 +1024,20 @@ pub mod pallet {
 			Ok(())
 		}
 
-		fn reward_account(bundle: &BundleOf<T>) -> T::AccountId {
-			match T::AccountId::decode(&mut &bundle.aggregator_address[..]) {
-				Ok(account) => account,
-				Err(_) => bundle.assigned_miner.clone(),
-			}
+		fn decode_registered_reward_address(
+			reward_address: &[u8; 32],
+		) -> Result<T::AccountId, Error<T>> {
+			let account = T::AccountId::decode(&mut &reward_address[..])
+				.map_err(|_| Error::<T>::InvalidRewardAddress)?;
+			let encoded = account.encode();
+			let encoded: [u8; 32] =
+				encoded.as_slice().try_into().map_err(|_| Error::<T>::InvalidRewardAddress)?;
+			ensure!(encoded == *reward_address, Error::<T>::InvalidRewardAddress);
+			Ok(account)
+		}
+
+		fn reward_account(bundle: &BundleOf<T>) -> Result<T::AccountId, Error<T>> {
+			Self::decode_registered_reward_address(&bundle.aggregator_address)
 		}
 
 		fn remove_active_bundle(miner: &T::AccountId, bundle_id: BundleId) {

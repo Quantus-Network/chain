@@ -5,8 +5,11 @@ use crate::{
 		PendingQueues, RegisteredAggregators,
 	},
 };
-use frame_support::{assert_noop, assert_ok};
-use qp_wormhole_verifier::{parse_aggregated_public_inputs, BytesDigest, PublicInputsByAccount};
+use frame_support::{assert_noop, assert_ok, traits::fungible::Inspect};
+use qp_wormhole_verifier::{
+	parse_aggregated_public_inputs, BlockData, BytesDigest, Layer1AggregatedPublicCircuitInputs,
+	PublicInputsByAccount,
+};
 use sp_core::H256;
 
 const AGGREGATED_PROOF_HEX: &str = include_str!("../../wormhole/test-data/aggregated.hex");
@@ -37,7 +40,10 @@ fn submit_candidate() -> ([u8; 32], crate::BundleGroupKey) {
 }
 
 fn register_miner() {
-	let reward_account = account_id(2);
+	register_miner_with_reward(account_id(2));
+}
+
+fn register_miner_with_reward(reward_account: AccountId) {
 	let reward_address: [u8; 32] = *reward_account.as_ref();
 	assert_ok!(MinerAggregation::register_aggregator(
 		RuntimeOrigin::signed(account_id(2)),
@@ -48,12 +54,18 @@ fn register_miner() {
 }
 
 fn claim_candidate_bundle() -> ([u8; 32], [u8; 32], Vec<[u8; 32]>) {
+	claim_candidate_bundle_with_reward(account_id(2))
+}
+
+fn claim_candidate_bundle_with_reward(
+	reward_account: AccountId,
+) -> ([u8; 32], [u8; 32], Vec<[u8; 32]>) {
 	let (candidate_id, group_key) = submit_candidate();
-	register_miner();
+	register_miner_with_reward(reward_account.clone());
 	assert_ok!(MinerAggregation::claim_bundle(
 		RuntimeOrigin::signed(account_id(2)),
 		group_key,
-		*account_id(2).as_ref(),
+		*reward_account.as_ref(),
 		MinMinerBond::get()
 	));
 	let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
@@ -62,6 +74,64 @@ fn claim_candidate_bundle() -> ([u8; 32], [u8; 32], Vec<[u8; 32]>) {
 		_ => panic!("candidate should be claimed"),
 	};
 	(candidate_id, bundle_id, candidate.nullifiers.to_vec())
+}
+
+fn public_outputs_from_candidate(candidate_id: [u8; 32]) -> Vec<PublicInputsByAccount> {
+	let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+	candidate
+		.exit_summary
+		.iter()
+		.map(|exit| PublicInputsByAccount {
+			summed_output_amount: exit.summed_output_amount,
+			exit_account: BytesDigest::new_unchecked(exit.exit_account),
+		})
+		.collect()
+}
+
+fn layer1_inputs_for_candidate(
+	candidate_id: [u8; 32],
+	bundle_id: [u8; 32],
+	aggregator_address: [u8; 32],
+) -> Layer1AggregatedPublicCircuitInputs {
+	let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+	let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+	let account_data = public_outputs_from_candidate(candidate_id);
+	let nullifiers = candidate
+		.nullifiers
+		.iter()
+		.map(|nullifier| BytesDigest::new_unchecked(*nullifier))
+		.collect();
+
+	Layer1AggregatedPublicCircuitInputs {
+		aggregator_address: BytesDigest::new_unchecked(aggregator_address),
+		asset_id: bundle.group_key.asset_id,
+		volume_fee_bps: bundle.group_key.volume_fee_bps,
+		block_data: BlockData {
+			block_hash: BytesDigest::new_unchecked(bundle.group_key.block_hash),
+			block_number: bundle.group_key.block_number,
+		},
+		total_exit_slots: account_data.len() as u32,
+		account_data,
+		nullifiers,
+		bundle_root: None,
+		circuit_id: None,
+		layout_version: None,
+	}
+}
+
+fn expected_exit_amount_for(
+	account_data: &[PublicInputsByAccount],
+	account: &AccountId,
+) -> Balance {
+	let account_bytes: &[u8] = account.as_ref();
+	account_data
+		.iter()
+		.filter(|exit| exit.exit_account.as_ref() == account_bytes)
+		.map(|exit| {
+			(exit.summed_output_amount as Balance)
+				.saturating_mul(pallet_wormhole::SCALE_DOWN_FACTOR)
+		})
+		.sum()
 }
 
 fn below_minimum_public_outputs() -> Vec<PublicInputsByAccount> {
@@ -204,6 +274,55 @@ fn aggregator_registration_is_stored() {
 }
 
 #[test]
+fn claim_bundle_uses_registered_reward_address() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, group_key) = submit_candidate();
+		let reward_account = account_id(42);
+		register_miner_with_reward(reward_account.clone());
+
+		assert_ok!(MinerAggregation::claim_bundle(
+			RuntimeOrigin::signed(account_id(2)),
+			group_key,
+			*reward_account.as_ref(),
+			MinMinerBond::get()
+		));
+
+		let bundle_id = MinerActiveBundles::<Test>::get(account_id(2))[0];
+		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+		let reward_address: [u8; 32] = *reward_account.as_ref();
+		assert_eq!(bundle.aggregator_address, reward_address);
+	});
+}
+
+#[test]
+fn claim_bundle_rejects_mismatched_aggregator_address() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, group_key) = submit_candidate();
+		let reward_account = account_id(42);
+		let wrong_reward_account = account_id(43);
+		register_miner_with_reward(reward_account);
+
+		assert_noop!(
+			MinerAggregation::claim_bundle(
+				RuntimeOrigin::signed(account_id(2)),
+				group_key.clone(),
+				*wrong_reward_account.as_ref(),
+				MinMinerBond::get()
+			),
+			Error::<Test>::AggregatorAddressMismatch
+		);
+
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		assert_eq!(candidate.status, L0CandidateStatus::Pending);
+		for nullifier in candidate.nullifiers {
+			assert!(!Wormhole::is_nullifier_locked(&nullifier));
+		}
+		assert_eq!(PendingQueues::<Test>::get(&group_key).as_slice(), &[candidate_id]);
+		assert!(MinerActiveBundles::<Test>::get(account_id(2)).is_empty());
+	});
+}
+
+#[test]
 fn claim_bundle_requires_registration() {
 	new_test_ext().execute_with(|| {
 		let (_candidate_id, group_key) = submit_candidate();
@@ -245,6 +364,19 @@ fn claim_bundle_locks_nullifiers_and_marks_candidate_claimed() {
 			Bundles::<Test>::get(bundle_id).expect("bundle stored").status,
 			BundleStatus::Claimed
 		);
+	});
+}
+
+#[test]
+fn submit_l1_aggregate_rejects_proof_with_wrong_aggregator_address() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, _nullifiers) = claim_candidate_bundle();
+		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+		let wrong_inputs =
+			layer1_inputs_for_candidate(candidate_id, bundle_id, *account_id(42).as_ref());
+
+		let err = MinerAggregation::ensure_l1_matches_bundle(&bundle, &wrong_inputs).unwrap_err();
+		assert!(matches!(err, Error::<Test>::ProofMismatch));
 	});
 }
 
@@ -397,6 +529,36 @@ fn submit_l1_aggregate_settlement_failure_preserves_miner_active_bundle() {
 				.active_jobs,
 			1
 		);
+	});
+}
+
+#[test]
+fn tips_are_paid_to_registered_reward_account() {
+	new_test_ext().execute_with(|| {
+		let reward_account = account_id(42);
+		let (candidate_id, bundle_id, nullifiers) =
+			claim_candidate_bundle_with_reward(reward_account.clone());
+		let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		let aggregation_tip = candidate.aggregation_tip;
+		let account_data = public_outputs_from_candidate(candidate_id);
+		let expected_exit_amount = expected_exit_amount_for(&account_data, &reward_account);
+		let reward_balance_before = Balances::balance(&reward_account);
+
+		assert_ok!(MinerAggregation::settle_verified_l1_bundle(
+			bundle_id,
+			bundle,
+			nullifiers,
+			&account_data,
+			VolumeFeeRateBps::get()
+		));
+
+		assert_eq!(
+			Balances::balance(&reward_account),
+			reward_balance_before + aggregation_tip + expected_exit_amount
+		);
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		assert_eq!(candidate.status, L0CandidateStatus::Settled { bundle_id });
 	});
 }
 

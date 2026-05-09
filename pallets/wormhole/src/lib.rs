@@ -395,9 +395,8 @@ pub mod pallet {
 					// Determine weight based on which stage failed
 					let actual_weight = match e {
 						// ZK verification was attempted - full weight consumed
-						Error::<T>::AggregatedVerificationFailed => {
-							Some(<T as Config>::WeightInfo::verify_aggregated_proof())
-						},
+						Error::<T>::AggregatedVerificationFailed =>
+							Some(<T as Config>::WeightInfo::verify_aggregated_proof()),
 						// Failed before ZK verification - minimal weight
 						_ => Some(<T as Config>::WeightInfo::pre_validate_proof()),
 					};
