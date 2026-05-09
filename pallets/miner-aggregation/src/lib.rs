@@ -17,7 +17,7 @@ pub mod pallet {
 	use codec::{Decode, Encode};
 	use frame_support::{
 		pallet_prelude::*,
-		traits::{Currency, ReservableCurrency},
+		traits::{tokens::BalanceStatus, Currency, ReservableCurrency},
 		transactional, BoundedVec,
 	};
 	use frame_system::pallet_prelude::*;
@@ -25,7 +25,10 @@ pub mod pallet {
 		AggregatedPublicCircuitInputs, BytesDigest, Layer1AggregatedPublicCircuitInputs,
 		PublicInputsByAccount, L0_AGGREGATED_PUBLIC_INPUT_LAYOUT_VERSION,
 	};
-	use sp_runtime::traits::{Saturating, Zero};
+	use sp_runtime::{
+		traits::{Saturating, Zero},
+		Permill,
+	};
 
 	pub type CandidateId = [u8; 32];
 	pub type BundleId = [u8; 32];
@@ -267,6 +270,18 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxL1ProofBytes: Get<u32>;
 
+		#[pallet::constant]
+		type MinerTimeoutSlash: Get<Permill>;
+
+		#[pallet::constant]
+		type InvalidL1ProofSlash: Get<Permill>;
+
+		#[pallet::constant]
+		type InvalidClaimSlash: Get<Permill>;
+
+		#[pallet::constant]
+		type InvalidCandidateChallengeReward: Get<Permill>;
+
 		type WeightInfo: WeightInfo;
 	}
 
@@ -347,6 +362,26 @@ pub mod pallet {
 			candidate_id: CandidateId,
 			challenger: T::AccountId,
 		},
+		CandidateChallengeRewardPaid {
+			candidate_id: CandidateId,
+			challenger: T::AccountId,
+			reward: BalanceOf<T>,
+		},
+		BundleChallenged {
+			bundle_id: BundleId,
+			candidate_id: CandidateId,
+			challenger: T::AccountId,
+		},
+		MinerBondSlashed {
+			bundle_id: BundleId,
+			miner: T::AccountId,
+			amount: BalanceOf<T>,
+		},
+		L1ProofRejected {
+			bundle_id: BundleId,
+			miner: T::AccountId,
+			slashed: BalanceOf<T>,
+		},
 		L0CandidateExpired {
 			candidate_id: CandidateId,
 		},
@@ -393,6 +428,7 @@ pub mod pallet {
 		AggregatorAddressMismatch,
 		AggregatorHasActiveJobs,
 		ActiveJobAccountingInconsistent,
+		CandidateNotInBundle,
 	}
 
 	#[pallet::call]
@@ -629,13 +665,27 @@ pub mod pallet {
 				})?;
 			}
 			Self::return_unexpired_candidates_to_queue(&bundle.group_key, &candidate_ids, now)?;
-			<T as Config>::Currency::unreserve(&bundle.assigned_miner, bundle.miner_bond);
-			Self::remove_active_bundle(&bundle.assigned_miner, bundle_id);
-			Self::decrement_active_jobs(&bundle.assigned_miner);
-			Self::ensure_aggregator_active_jobs_consistent(&bundle.assigned_miner)?;
+			let assigned_miner = bundle.assigned_miner.clone();
+			let timeout_slash = Self::release_miner_bond_with_slash(
+				bundle_id,
+				&assigned_miner,
+				bundle.miner_bond,
+				T::MinerTimeoutSlash::get(),
+			)?;
+			Self::remove_active_bundle(&assigned_miner, bundle_id);
+			Self::decrement_active_jobs(&assigned_miner);
+			Self::ensure_aggregator_active_jobs_consistent(&assigned_miner)?;
+			bundle.miner_bond = BalanceOf::<T>::zero();
 			bundle.status = BundleStatus::Expired;
 			Bundles::<T>::insert(bundle_id, bundle);
 
+			if !timeout_slash.is_zero() {
+				Self::deposit_event(Event::MinerBondSlashed {
+					bundle_id,
+					miner: assigned_miner,
+					amount: timeout_slash,
+				});
+			}
 			Self::deposit_event(Event::BundleTimedOut { bundle_id });
 			Ok(())
 		}
@@ -653,7 +703,7 @@ pub mod pallet {
 				proof_bytes.len() <= T::MaxL1ProofBytes::get() as usize,
 				Error::<T>::L1ProofTooLarge
 			);
-			let bundle = Bundles::<T>::get(bundle_id).ok_or(Error::<T>::BundleNotFound)?;
+			let mut bundle = Bundles::<T>::get(bundle_id).ok_or(Error::<T>::BundleNotFound)?;
 			ensure!(submitter == bundle.assigned_miner, Error::<T>::NotAssignedMiner);
 			ensure!(
 				matches!(bundle.status, BundleStatus::Claimed | BundleStatus::Proving),
@@ -667,8 +717,16 @@ pub mod pallet {
 			let inputs = pallet_wormhole::Pallet::<T>::parse_layer1_inputs_from_proof(&proof)
 				.map_err(|_| Error::<T>::MalformedL1PublicInputs)?;
 			Self::ensure_l1_matches_bundle(&bundle, &inputs)?;
-			pallet_wormhole::Pallet::<T>::verify_layer1_proof(&proof)
-				.map_err(|_| Error::<T>::L1ProofRejected)?;
+			if pallet_wormhole::Pallet::<T>::verify_layer1_proof(&proof).is_err() {
+				let slashed = Self::record_invalid_l1_verification_failure(bundle_id, &mut bundle)?;
+				Bundles::<T>::insert(bundle_id, bundle);
+				Self::deposit_event(Event::L1ProofRejected {
+					bundle_id,
+					miner: submitter,
+					slashed,
+				});
+				return Ok(());
+			}
 
 			let nullifiers = Self::layer1_nullifier_bytes(&inputs)?;
 			Self::settle_verified_l1_bundle(
@@ -695,26 +753,119 @@ pub mod pallet {
 				Error::<T>::CandidateNotPending
 			);
 
-			match pallet_wormhole::Pallet::<T>::verify_aggregated_proof_for_candidate(
-				candidate.proof_bytes.as_slice(),
-			) {
-				Ok(_) => return Err(Error::<T>::CandidateValid.into()),
-				Err(pallet_wormhole::Error::<T>::AggregatedVerificationFailed) => {},
-				Err(_) => return Err(Error::<T>::ChallengeVerificationUnavailable.into()),
-			}
+			Self::ensure_l0_candidate_invalid(&candidate)?;
 
 			Self::remove_selected_from_queue(&candidate.group_key, &[candidate_id])?;
 			Self::refund_candidate_storage_and_tip(&candidate);
-			let (_slashed, _remaining) = <T as Config>::Currency::slash_reserved(
-				&candidate.submitter,
-				candidate.validity_bond,
-			);
+			let reward = Self::slash_candidate_validity_bond(&candidate, &challenger)?;
 			L0Candidates::<T>::mutate(candidate_id, |stored| {
 				if let Some(stored) = stored {
 					stored.status = L0CandidateStatus::ChallengedInvalid;
 				}
 			});
 
+			if !reward.is_zero() {
+				Self::deposit_event(Event::CandidateChallengeRewardPaid {
+					candidate_id,
+					challenger: challenger.clone(),
+					reward,
+				});
+			}
+			Self::deposit_event(Event::L0CandidateChallengedInvalid { candidate_id, challenger });
+			Ok(())
+		}
+
+		#[pallet::call_index(9)]
+		#[pallet::weight(<T as Config>::WeightInfo::challenge_invalid_l0_in_bundle())]
+		#[transactional]
+		pub fn challenge_invalid_l0_in_bundle(
+			origin: OriginFor<T>,
+			bundle_id: BundleId,
+			candidate_id: CandidateId,
+		) -> DispatchResult {
+			let challenger = ensure_signed(origin)?;
+			let mut bundle = Bundles::<T>::get(bundle_id).ok_or(Error::<T>::BundleNotFound)?;
+			ensure!(
+				matches!(bundle.status, BundleStatus::Claimed | BundleStatus::Proving),
+				Error::<T>::BundleNotActive
+			);
+			ensure!(
+				bundle.ordered_candidates.contains(&candidate_id),
+				Error::<T>::CandidateNotInBundle
+			);
+			let challenged_candidate =
+				L0Candidates::<T>::get(candidate_id).ok_or(Error::<T>::CandidateNotFound)?;
+			ensure!(
+				matches!(
+					challenged_candidate.status,
+					L0CandidateStatus::Claimed { bundle_id: claimed_bundle }
+						if claimed_bundle == bundle_id
+				),
+				Error::<T>::CandidateNotInBundle
+			);
+			Self::ensure_l0_candidate_invalid(&challenged_candidate)?;
+
+			let candidate_ids = bundle.ordered_candidates.to_vec();
+			let nullifiers = Self::candidate_nullifiers(&candidate_ids)?;
+			pallet_wormhole::Pallet::<T>::unlock_nullifiers_for_bundle(bundle_id, &nullifiers)
+				.map_err(|_| Error::<T>::NullifierUnavailable)?;
+
+			let now = frame_system::Pallet::<T>::block_number();
+			let reward = Self::slash_candidate_validity_bond(&challenged_candidate, &challenger)?;
+			Self::refund_candidate_storage_and_tip(&challenged_candidate);
+
+			for candidate_id_in_bundle in &candidate_ids {
+				L0Candidates::<T>::try_mutate(
+					candidate_id_in_bundle,
+					|candidate| -> DispatchResult {
+						let candidate = candidate.as_mut().ok_or(Error::<T>::CandidateNotFound)?;
+						if *candidate_id_in_bundle == candidate_id {
+							candidate.status = L0CandidateStatus::ChallengedInvalid;
+						} else if now > candidate.expires_at {
+							Self::refund_candidate_reserves(candidate);
+							candidate.status = L0CandidateStatus::Expired;
+						} else {
+							candidate.status = L0CandidateStatus::Pending;
+						}
+						Ok(())
+					},
+				)?;
+			}
+			Self::return_unexpired_candidates_to_queue(&bundle.group_key, &candidate_ids, now)?;
+
+			let assigned_miner = bundle.assigned_miner.clone();
+			let miner_slash = Self::release_miner_bond_with_slash(
+				bundle_id,
+				&assigned_miner,
+				bundle.miner_bond,
+				T::InvalidClaimSlash::get(),
+			)?;
+			Self::remove_active_bundle(&assigned_miner, bundle_id);
+			Self::decrement_active_jobs(&assigned_miner);
+			Self::ensure_aggregator_active_jobs_consistent(&assigned_miner)?;
+			bundle.miner_bond = BalanceOf::<T>::zero();
+			bundle.status = BundleStatus::Challenged;
+			Bundles::<T>::insert(bundle_id, bundle);
+
+			if !reward.is_zero() {
+				Self::deposit_event(Event::CandidateChallengeRewardPaid {
+					candidate_id,
+					challenger: challenger.clone(),
+					reward,
+				});
+			}
+			if !miner_slash.is_zero() {
+				Self::deposit_event(Event::MinerBondSlashed {
+					bundle_id,
+					miner: assigned_miner,
+					amount: miner_slash,
+				});
+			}
+			Self::deposit_event(Event::BundleChallenged {
+				bundle_id,
+				candidate_id,
+				challenger: challenger.clone(),
+			});
 			Self::deposit_event(Event::L0CandidateChallengedInvalid { candidate_id, challenger });
 			Ok(())
 		}
@@ -874,6 +1025,81 @@ pub mod pallet {
 				ensure!(active_bundle_count == 0, Error::<T>::ActiveJobAccountingInconsistent);
 			}
 			Ok(())
+		}
+
+		fn ensure_l0_candidate_invalid(candidate: &CandidateOf<T>) -> DispatchResult {
+			match pallet_wormhole::Pallet::<T>::verify_aggregated_proof_for_candidate(
+				candidate.proof_bytes.as_slice(),
+			) {
+				Ok(_) => Err(Error::<T>::CandidateValid.into()),
+				Err(pallet_wormhole::Error::<T>::AggregatedVerificationFailed) => Ok(()),
+				Err(_) => Err(Error::<T>::ChallengeVerificationUnavailable.into()),
+			}
+		}
+
+		fn slash_candidate_validity_bond(
+			candidate: &CandidateOf<T>,
+			challenger: &T::AccountId,
+		) -> Result<BalanceOf<T>, Error<T>> {
+			let reward = T::InvalidCandidateChallengeReward::get() * candidate.validity_bond;
+			if !reward.is_zero() {
+				let not_moved = <T as Config>::Currency::repatriate_reserved(
+					&candidate.submitter,
+					challenger,
+					reward,
+					BalanceStatus::Free,
+				)
+				.map_err(|_| Error::<T>::RewardTransferFailed)?;
+				ensure!(not_moved.is_zero(), Error::<T>::RewardTransferFailed);
+			}
+
+			let slash_amount = candidate.validity_bond.saturating_sub(reward);
+			Self::slash_reserved_balance(&candidate.submitter, slash_amount)?;
+			Ok(reward)
+		}
+
+		fn slash_reserved_balance(
+			who: &T::AccountId,
+			amount: BalanceOf<T>,
+		) -> Result<(), Error<T>> {
+			if amount.is_zero() {
+				return Ok(());
+			}
+			let (_slashed, remaining) = <T as Config>::Currency::slash_reserved(who, amount);
+			ensure!(remaining.is_zero(), Error::<T>::BondReservationFailed);
+			Ok(())
+		}
+
+		fn release_miner_bond_with_slash(
+			_bundle_id: BundleId,
+			miner: &T::AccountId,
+			miner_bond: BalanceOf<T>,
+			slash_rate: Permill,
+		) -> Result<BalanceOf<T>, Error<T>> {
+			let slash_amount = slash_rate * miner_bond;
+			Self::slash_reserved_balance(miner, slash_amount)?;
+			let release_amount = miner_bond.saturating_sub(slash_amount);
+			if !release_amount.is_zero() {
+				<T as Config>::Currency::unreserve(miner, release_amount);
+			}
+			Ok(slash_amount)
+		}
+
+		pub(crate) fn record_invalid_l1_verification_failure(
+			bundle_id: BundleId,
+			bundle: &mut BundleOf<T>,
+		) -> Result<BalanceOf<T>, Error<T>> {
+			let slash_amount = T::InvalidL1ProofSlash::get() * bundle.miner_bond;
+			Self::slash_reserved_balance(&bundle.assigned_miner, slash_amount)?;
+			bundle.miner_bond = bundle.miner_bond.saturating_sub(slash_amount);
+			if !slash_amount.is_zero() {
+				Self::deposit_event(Event::MinerBondSlashed {
+					bundle_id,
+					miner: bundle.assigned_miner.clone(),
+					amount: slash_amount,
+				});
+			}
+			Ok(slash_amount)
 		}
 
 		pub(crate) fn settle_verified_l1_bundle(
@@ -1043,7 +1269,8 @@ pub mod pallet {
 					let Some(candidate) = L0Candidates::<T>::get(candidate_id) else {
 						continue;
 					};
-					if now <= candidate.expires_at {
+					if now <= candidate.expires_at && candidate.status == L0CandidateStatus::Pending
+					{
 						queue.try_push(*candidate_id).map_err(|_| Error::<T>::QueueFull)?;
 					}
 				}

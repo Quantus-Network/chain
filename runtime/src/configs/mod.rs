@@ -781,6 +781,10 @@ parameter_types! {
 	pub const MinerAggregationBundleProvingPeriod: BlockNumber = 64;
 	pub const MinerAggregationMinMinerBond: Balance = UNIT;
 	pub const MinerAggregationMaxL1ProofBytes: u32 = 512 * 1024;
+	pub const MinerAggregationMinerTimeoutSlash: Permill = Permill::from_percent(10);
+	pub const MinerAggregationInvalidL1ProofSlash: Permill = Permill::from_percent(10);
+	pub const MinerAggregationInvalidClaimSlash: Permill = Permill::from_percent(25);
+	pub const MinerAggregationInvalidCandidateChallengeReward: Permill = Permill::from_percent(50);
 }
 
 impl pallet_miner_aggregation::Config for Runtime {
@@ -799,6 +803,10 @@ impl pallet_miner_aggregation::Config for Runtime {
 	type BundleProvingPeriod = MinerAggregationBundleProvingPeriod;
 	type MinMinerBond = MinerAggregationMinMinerBond;
 	type MaxL1ProofBytes = MinerAggregationMaxL1ProofBytes;
+	type MinerTimeoutSlash = MinerAggregationMinerTimeoutSlash;
+	type InvalidL1ProofSlash = MinerAggregationInvalidL1ProofSlash;
+	type InvalidClaimSlash = MinerAggregationInvalidClaimSlash;
+	type InvalidCandidateChallengeReward = MinerAggregationInvalidCandidateChallengeReward;
 	type WeightInfo = pallet_miner_aggregation::weights::SubstrateWeight<Runtime>;
 }
 

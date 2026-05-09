@@ -39,6 +39,47 @@ fn submit_candidate() -> ([u8; 32], crate::BundleGroupKey) {
 	(candidate_id, group_key)
 }
 
+fn invalid_l0_proof_bytes() -> Vec<u8> {
+	let valid_bytes = proof_bytes();
+	setup_matching_block_hash(&valid_bytes);
+
+	for idx in (0..valid_bytes.len()).rev() {
+		let mut mutated = valid_bytes.clone();
+		mutated[idx] ^= 1;
+		let Ok(proof) = Wormhole::deserialize_aggregated_proof(&mutated) else {
+			continue;
+		};
+		if Wormhole::parse_aggregated_inputs_from_proof(&proof).is_err() {
+			continue;
+		}
+		if matches!(
+			Wormhole::verify_aggregated_proof_for_candidate(&mutated),
+			Err(pallet_wormhole::Error::<Test>::AggregatedVerificationFailed)
+		) {
+			return mutated;
+		}
+	}
+
+	panic!("could not derive invalid proof bytes that still parse");
+}
+
+fn submit_invalid_candidate() -> ([u8; 32], crate::BundleGroupKey) {
+	let proof_bytes = invalid_l0_proof_bytes();
+	setup_matching_block_hash(&proof_bytes);
+	assert_ok!(MinerAggregation::submit_l0_candidate(
+		RuntimeOrigin::signed(account_id(1)),
+		proof_bytes.clone(),
+		5
+	));
+	let candidate_id = sp_io::hashing::blake2_256(&proof_bytes);
+	let group_key = L0Candidates::<Test>::get(candidate_id).expect("candidate stored").group_key;
+	(candidate_id, group_key)
+}
+
+fn total_balance(account: &AccountId) -> Balance {
+	Balances::balance(account).saturating_add(Balances::reserved_balance(account))
+}
+
 fn register_miner() {
 	register_miner_with_reward(account_id(2));
 }
@@ -55,6 +96,23 @@ fn register_miner_with_reward(reward_account: AccountId) {
 
 fn claim_candidate_bundle() -> ([u8; 32], [u8; 32], Vec<[u8; 32]>) {
 	claim_candidate_bundle_with_reward(account_id(2))
+}
+
+fn claim_invalid_candidate_bundle() -> ([u8; 32], [u8; 32], Vec<[u8; 32]>) {
+	let (candidate_id, group_key) = submit_invalid_candidate();
+	register_miner();
+	assert_ok!(MinerAggregation::claim_bundle(
+		RuntimeOrigin::signed(account_id(2)),
+		group_key,
+		*account_id(2).as_ref(),
+		MinMinerBond::get()
+	));
+	let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+	let bundle_id = match candidate.status {
+		L0CandidateStatus::Claimed { bundle_id } => bundle_id,
+		_ => panic!("candidate should be claimed"),
+	};
+	(candidate_id, bundle_id, candidate.nullifiers.to_vec())
 }
 
 fn claim_candidate_bundle_with_reward(
@@ -74,6 +132,36 @@ fn claim_candidate_bundle_with_reward(
 		_ => panic!("candidate should be claimed"),
 	};
 	(candidate_id, bundle_id, candidate.nullifiers.to_vec())
+}
+
+fn add_synthetic_claimed_candidate_to_bundle(bundle_id: [u8; 32]) -> [u8; 32] {
+	let existing_id = Bundles::<Test>::get(bundle_id).expect("bundle stored").ordered_candidates[0];
+	let mut candidate = L0Candidates::<Test>::get(existing_id).expect("candidate stored");
+	let synthetic_id = [77u8; 32];
+	let synthetic_nullifier = [88u8; 32];
+
+	candidate.proof_hash = synthetic_id;
+	candidate.public_inputs_hash = [99u8; 32];
+	candidate.nullifiers = vec![synthetic_nullifier].try_into().expect("bounded nullifiers");
+	candidate.status = L0CandidateStatus::Claimed { bundle_id };
+	L0Candidates::<Test>::insert(synthetic_id, candidate);
+
+	Bundles::<Test>::mutate(bundle_id, |bundle| {
+		bundle
+			.as_mut()
+			.expect("bundle stored")
+			.ordered_candidates
+			.try_push(synthetic_id)
+			.expect("bundle has capacity");
+	});
+	let bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+	assert_ok!(Wormhole::lock_nullifiers_for_bundle(
+		bundle_id,
+		bundle.deadline,
+		&[synthetic_nullifier]
+	));
+
+	synthetic_id
 }
 
 fn public_outputs_from_candidate(candidate_id: [u8; 32]) -> Vec<PublicInputsByAccount> {
@@ -627,6 +715,33 @@ fn timeout_bundle_refunds_expired_claimed_candidate() {
 }
 
 #[test]
+fn timeout_partially_slashes_miner_bond() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, group_key) = submit_candidate();
+		register_miner();
+		assert_ok!(MinerAggregation::claim_bundle(
+			RuntimeOrigin::signed(account_id(2)),
+			group_key,
+			*account_id(2).as_ref(),
+			MinMinerBond::get()
+		));
+		let bundle_id = MinerActiveBundles::<Test>::get(account_id(2))[0];
+		let miner_total_before = total_balance(&account_id(2));
+		let expected_slash = MinerTimeoutSlash::get() * MinMinerBond::get();
+
+		System::set_block_number(BundleProvingPeriod::get() + 2);
+		assert_ok!(MinerAggregation::timeout_bundle(
+			RuntimeOrigin::signed(account_id(1)),
+			bundle_id
+		));
+
+		assert_eq!(total_balance(&account_id(2)), miner_total_before - expected_slash);
+		assert_eq!(Balances::reserved_balance(&account_id(2)), 100);
+		assert_eq!(Bundles::<Test>::get(bundle_id).expect("bundle stored").miner_bond, 0);
+	});
+}
+
+#[test]
 fn active_jobs_timeout_decrements_consistently() {
 	new_test_ext().execute_with(|| {
 		let (_candidate_id, group_key) = submit_candidate();
@@ -660,6 +775,31 @@ fn active_jobs_timeout_decrements_consistently() {
 			0
 		);
 		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+	});
+}
+
+#[test]
+fn invalid_l1_full_verification_failure_slashes_assigned_miner() {
+	new_test_ext().execute_with(|| {
+		let (_candidate_id, bundle_id, _nullifiers) = claim_candidate_bundle();
+		let mut bundle = Bundles::<Test>::get(bundle_id).expect("bundle stored");
+		let miner_total_before = total_balance(&account_id(2));
+		let expected_slash = InvalidL1ProofSlash::get() * MinMinerBond::get();
+
+		let slashed =
+			MinerAggregation::record_invalid_l1_verification_failure(bundle_id, &mut bundle)
+				.expect("slashing succeeds");
+		let remaining_miner_bond = bundle.miner_bond;
+		Bundles::<Test>::insert(bundle_id, bundle);
+
+		assert_eq!(slashed, expected_slash);
+		assert_eq!(remaining_miner_bond, MinMinerBond::get() - expected_slash);
+		assert_eq!(total_balance(&account_id(2)), miner_total_before - expected_slash);
+		assert_eq!(
+			Bundles::<Test>::get(bundle_id).expect("bundle stored").status,
+			BundleStatus::Claimed
+		);
+		assert_eq!(MinerActiveBundles::<Test>::get(account_id(2)).as_slice(), &[bundle_id]);
 	});
 }
 
@@ -855,10 +995,37 @@ fn delegated_l1_pays_aggregation_prover_fee_share_to_registered_reward_account()
 }
 
 #[test]
-fn challenge_valid_candidate_does_not_slash_submitter() {
+fn pending_invalid_candidate_challenge_rewards_challenger() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, group_key) = submit_invalid_candidate();
+		let challenger = account_id(2);
+		let submitter = account_id(1);
+		let challenger_balance_before = Balances::balance(&challenger);
+		let submitter_total_before = total_balance(&submitter);
+		let expected_reward = InvalidCandidateChallengeReward::get() * ValidityBond::get();
+
+		assert_ok!(MinerAggregation::challenge_invalid_l0_candidate(
+			RuntimeOrigin::signed(challenger.clone()),
+			candidate_id
+		));
+
+		assert_eq!(Balances::balance(&challenger), challenger_balance_before + expected_reward);
+		assert_eq!(total_balance(&submitter), submitter_total_before - ValidityBond::get());
+		assert_eq!(Balances::reserved_balance(&submitter), 0);
+		assert!(PendingQueues::<Test>::get(&group_key).is_empty());
+		assert_eq!(
+			L0Candidates::<Test>::get(candidate_id).expect("candidate stored").status,
+			L0CandidateStatus::ChallengedInvalid
+		);
+	});
+}
+
+#[test]
+fn pending_valid_candidate_challenge_does_not_slash() {
 	new_test_ext().execute_with(|| {
 		let (candidate_id, _group_key) = submit_candidate();
 		let reserved_before = Balances::reserved_balance(&account_id(1));
+		let total_before = total_balance(&account_id(1));
 
 		assert_noop!(
 			MinerAggregation::challenge_invalid_l0_candidate(
@@ -871,6 +1038,90 @@ fn challenge_valid_candidate_does_not_slash_submitter() {
 		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
 		assert_eq!(candidate.status, L0CandidateStatus::Pending);
 		assert_eq!(Balances::reserved_balance(&account_id(1)), reserved_before);
+		assert_eq!(total_balance(&account_id(1)), total_before);
+	});
+}
+
+#[test]
+fn claimed_invalid_candidate_challenge_unlocks_nullifiers() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, nullifiers) = claim_invalid_candidate_bundle();
+		for nullifier in &nullifiers {
+			assert!(Wormhole::is_nullifier_locked(nullifier));
+		}
+
+		assert_ok!(MinerAggregation::challenge_invalid_l0_in_bundle(
+			RuntimeOrigin::signed(account_id(3)),
+			bundle_id,
+			candidate_id
+		));
+
+		for nullifier in &nullifiers {
+			assert!(!Wormhole::is_nullifier_locked(nullifier));
+			assert!(!Wormhole::is_nullifier_used(nullifier));
+		}
+		assert_eq!(
+			L0Candidates::<Test>::get(candidate_id).expect("candidate stored").status,
+			L0CandidateStatus::ChallengedInvalid
+		);
+		assert_eq!(
+			Bundles::<Test>::get(bundle_id).expect("bundle stored").status,
+			BundleStatus::Challenged
+		);
+	});
+}
+
+#[test]
+fn claimed_invalid_candidate_challenge_requeues_other_candidates() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, _nullifiers) = claim_invalid_candidate_bundle();
+		let synthetic_id = add_synthetic_claimed_candidate_to_bundle(bundle_id);
+		let synthetic_nullifier =
+			L0Candidates::<Test>::get(synthetic_id).expect("candidate stored").nullifiers[0];
+		assert!(Wormhole::is_nullifier_locked(&synthetic_nullifier));
+
+		assert_ok!(MinerAggregation::challenge_invalid_l0_in_bundle(
+			RuntimeOrigin::signed(account_id(3)),
+			bundle_id,
+			candidate_id
+		));
+
+		let synthetic = L0Candidates::<Test>::get(synthetic_id).expect("candidate stored");
+		assert_eq!(synthetic.status, L0CandidateStatus::Pending);
+		assert!(!Wormhole::is_nullifier_locked(&synthetic_nullifier));
+		assert_eq!(PendingQueues::<Test>::get(&synthetic.group_key).as_slice(), &[synthetic_id]);
+	});
+}
+
+#[test]
+fn claimed_invalid_candidate_challenge_decrements_active_jobs() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, bundle_id, _nullifiers) = claim_invalid_candidate_bundle();
+		let miner_total_before = total_balance(&account_id(2));
+		let challenger_balance_before = Balances::balance(&account_id(3));
+		let expected_miner_slash = InvalidClaimSlash::get() * MinMinerBond::get();
+		let expected_challenge_reward =
+			InvalidCandidateChallengeReward::get() * ValidityBond::get();
+
+		assert_ok!(MinerAggregation::challenge_invalid_l0_in_bundle(
+			RuntimeOrigin::signed(account_id(3)),
+			bundle_id,
+			candidate_id
+		));
+
+		assert!(MinerActiveBundles::<Test>::get(account_id(2)).is_empty());
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("aggregator registered")
+				.active_jobs,
+			0
+		);
+		assert_eq!(Balances::reserved_balance(&account_id(2)), 100);
+		assert_eq!(total_balance(&account_id(2)), miner_total_before - expected_miner_slash);
+		assert_eq!(
+			Balances::balance(&account_id(3)),
+			challenger_balance_before + expected_challenge_reward
+		);
 	});
 }
 

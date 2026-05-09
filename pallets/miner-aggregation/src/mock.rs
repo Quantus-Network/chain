@@ -152,6 +152,10 @@ parameter_types! {
 	pub const BundleProvingPeriod: u64 = 10;
 	pub const MinMinerBond: Balance = 50;
 	pub const MaxL1ProofBytes: u32 = 512 * 1024;
+	pub const MinerTimeoutSlash: Permill = Permill::from_percent(20);
+	pub const InvalidL1ProofSlash: Permill = Permill::from_percent(10);
+	pub const InvalidClaimSlash: Permill = Permill::from_percent(40);
+	pub const InvalidCandidateChallengeReward: Permill = Permill::from_percent(50);
 }
 
 impl pallet_miner_aggregation::Config for Test {
@@ -170,13 +174,21 @@ impl pallet_miner_aggregation::Config for Test {
 	type BundleProvingPeriod = BundleProvingPeriod;
 	type MinMinerBond = MinMinerBond;
 	type MaxL1ProofBytes = MaxL1ProofBytes;
+	type MinerTimeoutSlash = MinerTimeoutSlash;
+	type InvalidL1ProofSlash = InvalidL1ProofSlash;
+	type InvalidClaimSlash = InvalidClaimSlash;
+	type InvalidCandidateChallengeReward = InvalidCandidateChallengeReward;
 	type WeightInfo = ();
 }
 
 pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(account_id(1), 1_000 * UNIT), (account_id(2), 1_000 * UNIT)],
+		balances: vec![
+			(account_id(1), 1_000 * UNIT),
+			(account_id(2), 1_000 * UNIT),
+			(account_id(3), 1_000 * UNIT),
+		],
 		dev_accounts: None,
 	}
 	.assimilate_storage(&mut t)

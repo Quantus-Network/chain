@@ -10,6 +10,7 @@ pub trait WeightInfo {
 	fn timeout_bundle() -> Weight;
 	fn submit_l1_aggregate() -> Weight;
 	fn challenge_invalid_l0_candidate() -> Weight;
+	fn challenge_invalid_l0_in_bundle() -> Weight;
 	fn drop_expired_candidate() -> Weight;
 }
 
@@ -48,6 +49,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(500_000_000, 0)
 	}
 
+	fn challenge_invalid_l0_in_bundle() -> Weight {
+		Weight::from_parts(500_000_000, 0)
+	}
+
 	fn drop_expired_candidate() -> Weight {
 		Weight::from_parts(25_000_000, 0)
 	}
@@ -83,6 +88,10 @@ impl WeightInfo for () {
 	}
 
 	fn challenge_invalid_l0_candidate() -> Weight {
+		Weight::from_parts(500_000_000, 0)
+	}
+
+	fn challenge_invalid_l0_in_bundle() -> Weight {
 		Weight::from_parts(500_000_000, 0)
 	}
 
