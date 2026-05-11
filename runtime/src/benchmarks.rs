@@ -35,4 +35,5 @@ frame_benchmarking::define_benchmarks!(
 	[pallet_scheduler, Scheduler]
 	[pallet_qpow, QPoW]
 	[pallet_wormhole, Wormhole]
+	[pallet_miner_aggregation, MinerAggregation]
 );

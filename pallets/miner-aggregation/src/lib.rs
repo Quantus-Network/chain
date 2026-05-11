@@ -5,6 +5,8 @@ pub use pallet::*;
 pub mod weights;
 pub use weights::*;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]

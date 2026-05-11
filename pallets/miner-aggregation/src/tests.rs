@@ -733,6 +733,88 @@ fn claim_bundle_locks_nullifiers_and_marks_candidate_claimed() {
 }
 
 #[test]
+fn claim_bundle_rejects_locked_nullifier_without_side_effects() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, group_key) = submit_candidate();
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		let nullifiers = candidate.nullifiers.to_vec();
+		assert_ok!(Wormhole::lock_nullifiers_for_bundle(
+			[9u8; 32],
+			BundleProvingPeriod::get() + 10,
+			&nullifiers
+		));
+		register_miner();
+		let miner_reserved_before = Balances::reserved_balance(&account_id(2));
+
+		assert_noop!(
+			MinerAggregation::claim_bundle(
+				RuntimeOrigin::signed(account_id(2)),
+				group_key.clone(),
+				*account_id(2).as_ref(),
+				MinMinerBond::get()
+			),
+			Error::<Test>::NullifierUnavailable
+		);
+
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		assert_eq!(candidate.status, L0CandidateStatus::Pending);
+		assert_eq!(PendingQueues::<Test>::get(&group_key).as_slice(), &[candidate_id]);
+		for nullifier in &nullifiers {
+			assert!(Wormhole::is_nullifier_locked(nullifier));
+			assert!(!Wormhole::is_nullifier_used(nullifier));
+		}
+		assert_eq!(Balances::reserved_balance(&account_id(2)), miner_reserved_before);
+		assert!(MinerActiveBundles::<Test>::get(account_id(2)).is_empty());
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("aggregator registered")
+				.active_jobs,
+			0
+		);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+	});
+}
+
+#[test]
+fn claim_bundle_rejects_used_nullifier_without_side_effects() {
+	new_test_ext().execute_with(|| {
+		let (candidate_id, group_key) = submit_candidate();
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		let nullifiers = candidate.nullifiers.to_vec();
+		assert_ok!(Wormhole::mark_nullifiers_used(&nullifiers));
+		register_miner();
+		let miner_reserved_before = Balances::reserved_balance(&account_id(2));
+
+		assert_noop!(
+			MinerAggregation::claim_bundle(
+				RuntimeOrigin::signed(account_id(2)),
+				group_key.clone(),
+				*account_id(2).as_ref(),
+				MinMinerBond::get()
+			),
+			Error::<Test>::NullifierUnavailable
+		);
+
+		let candidate = L0Candidates::<Test>::get(candidate_id).expect("candidate stored");
+		assert_eq!(candidate.status, L0CandidateStatus::Pending);
+		assert_eq!(PendingQueues::<Test>::get(&group_key).as_slice(), &[candidate_id]);
+		for nullifier in &nullifiers {
+			assert!(!Wormhole::is_nullifier_locked(nullifier));
+			assert!(Wormhole::is_nullifier_used(nullifier));
+		}
+		assert_eq!(Balances::reserved_balance(&account_id(2)), miner_reserved_before);
+		assert!(MinerActiveBundles::<Test>::get(account_id(2)).is_empty());
+		assert_eq!(
+			RegisteredAggregators::<Test>::get(account_id(2))
+				.expect("aggregator registered")
+				.active_jobs,
+			0
+		);
+		assert_ok!(MinerAggregation::ensure_aggregator_active_jobs_consistent(&account_id(2)));
+	});
+}
+
+#[test]
 fn submit_l1_aggregate_rejects_proof_with_wrong_aggregator_address() {
 	new_test_ext().execute_with(|| {
 		let (candidate_id, bundle_id, _nullifiers) = claim_candidate_bundle();
@@ -924,9 +1006,9 @@ fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
 			let mut expected_balance =
 				balance_before + expected_exit_amount_for(&inputs.account_data, &account);
 			if account == reward_account {
-				expected_balance = expected_balance
-					+ candidate_before.aggregation_tip
-					+ prepared.aggregation_prover_fee;
+				expected_balance = expected_balance +
+					candidate_before.aggregation_tip +
+					prepared.aggregation_prover_fee;
 			}
 			if account == miner {
 				expected_balance += bundle_before.miner_bond;
@@ -934,9 +1016,9 @@ fn submit_l1_aggregate_accepts_valid_fixture_and_settles_bundle() {
 			assert_eq!(Balances::balance(&account), expected_balance);
 		}
 		if !exit_accounts.contains(&reward_account) {
-			let mut expected_reward_balance = reward_balance_before
-				+ candidate_before.aggregation_tip
-				+ prepared.aggregation_prover_fee;
+			let mut expected_reward_balance = reward_balance_before +
+				candidate_before.aggregation_tip +
+				prepared.aggregation_prover_fee;
 			if reward_account == miner {
 				expected_reward_balance += bundle_before.miner_bond;
 			}

@@ -9,8 +9,10 @@ version = "0.1.0"
 
 [dependencies]
 codec = { workspace = true, default-features = false, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
 frame-system.workspace = true
+hex = { workspace = true, optional = true, features = ["alloc"] }
 pallet-wormhole.workspace = true
 qp-wormhole-verifier = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = ["derive"] }
@@ -32,14 +34,19 @@ sp-state-machine.workspace = true
 [features]
 default = ["std"]
 runtime-benchmarks = [
+	"dep:frame-benchmarking",
+	"dep:hex",
+	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
 	"pallet-wormhole/runtime-benchmarks",
 ]
 std = [
 	"codec/std",
+	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
+	"hex?/std",
 	"pallet-wormhole/std",
 	"qp-wormhole-verifier/std",
 	"scale-info/std",

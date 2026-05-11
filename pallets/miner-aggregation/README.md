@@ -39,4 +39,25 @@ Weights:
 - `src/weights.rs` contains explicit conservative placeholder weights for every pallet extrinsic.
 - `submit_l1_aggregate_cheap_reject` and `submit_l1_aggregate_valid_proof` are both recorded; the
   dispatchable declares the valid-proof placeholder because it is the safe upper bound.
-- These weights are not benchmark-generated and must be replaced with runtime benchmark output before release. 
+- Benchmark scaffolding lives in `src/benchmarking.rs` and is registered in
+  `runtime/src/benchmarks.rs`.
+- These weights are not benchmark-generated and must be replaced with runtime benchmark output before release.
+
+Benchmark regeneration:
+
+```bash
+cargo test --locked -p pallet-miner-aggregation --features runtime-benchmarks
+cargo build --release --locked --features runtime-benchmarks
+./target/release/quantus-node benchmark pallet \
+  --chain dev \
+  --pallet pallet_miner_aggregation \
+  --extrinsic '*' \
+  --steps 50 \
+  --repeat 20 \
+  --output pallets/miner-aggregation/src/weights.rs
+```
+
+The `submit_l1_aggregate_valid_proof` benchmark requires matching L1 verifier artifacts and the
+current one-candidate L1 fixture. Run it with `QP_GENERATE_LAYER1=true` and
+`QP_NUM_LAYER0_PROOFS=1`, or regenerate the fixture for the runtime's configured
+`NumLayer0Proofs` before replacing `weights.rs`.
