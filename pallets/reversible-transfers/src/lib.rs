@@ -359,8 +359,9 @@ pub mod pallet {
 		///
 		/// This permanence also ensures that any funds subsequently sent to a compromised
 		/// account (e.g., from pending payments, contracts, or accidental deposits) remain
-		/// protected and can be recovered by the guardian via [`recover_funds`](Self::recover_funds).
-		/// The guardian can call `recover_funds` repeatedly as needed.
+		/// protected and can be recovered by the guardian via
+		/// [`recover_funds`](Self::recover_funds). The guardian can call `recover_funds`
+		/// repeatedly as needed.
 		///
 		/// Users who no longer wish to use high-security features can simply transfer their
 		/// funds to a different account using [`schedule_transfer`](Self::schedule_transfer)

@@ -14,12 +14,12 @@
 //!
 //! This architecture enables:
 //!
-//! - **Minimal privilege surface**: The technical collective's authority can be limited
-//!   to a known set of configuration parameters rather than arbitrary runtime calls.
-//! - **Auditability**: All adjustable parameters are explicitly defined in dedicated
-//!   pallets, making it clear what can and cannot be changed post-genesis.
-//! - **Future extensibility**: As the treasury subsystem grows (e.g., budgets, spending
-//!   proposals, vesting schedules), this pallet provides a natural home for that logic.
+//! - **Minimal privilege surface**: The technical collective's authority can be limited to a known
+//!   set of configuration parameters rather than arbitrary runtime calls.
+//! - **Auditability**: All adjustable parameters are explicitly defined in dedicated pallets,
+//!   making it clear what can and cannot be changed post-genesis.
+//! - **Future extensibility**: As the treasury subsystem grows (e.g., budgets, spending proposals,
+//!   vesting schedules), this pallet provides a natural home for that logic.
 //!
 //! ## Current Features
 //!
