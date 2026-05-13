@@ -566,38 +566,47 @@ pub mod pallet {
 				PendingTransfersBySender::<T>::get(&account).into_iter().collect();
 
 			for tx_id in pending_tx_ids.iter() {
-				if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
-					// Try to release held funds first
-					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+				// PendingTransfersBySender and PendingTransfers should always be in sync.
+				// If not, this is an invariant violation - log defensively and skip.
+				let Some(pending) = PendingTransfers::<T>::get(tx_id) else {
+					defensive!(
+						"PendingTransfersBySender/PendingTransfers inconsistency: \
+						tx {:?} in sender index but not in PendingTransfers",
+						tx_id
+					);
+					continue;
+				};
+
+				// Try to release held funds first
+				if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+					log::warn!(
+						"Failed to release held funds for tx {:?} during recovery: {:?}",
+						tx_id,
+						e
+					);
+					// Skip - leave metadata intact for manual recovery via cancel
+					Self::deposit_event(Event::TransferRecoveryFailed { tx_id: *tx_id });
+					continue;
+				}
+
+				// Release succeeded - now remove metadata and cancel scheduler
+				PendingTransfers::<T>::remove(tx_id);
+
+				if let Some(id) = Self::make_schedule_id(tx_id).ok() {
+					if let Err(e) = T::Scheduler::cancel_named(id) {
 						log::warn!(
-							"Failed to release held funds for tx {:?} during recovery: {:?}",
+							"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",
 							tx_id,
 							e
 						);
-						// Skip - leave metadata intact for manual recovery via cancel
-						Self::deposit_event(Event::TransferRecoveryFailed { tx_id: *tx_id });
-						continue;
 					}
-
-					// Release succeeded - now remove metadata and cancel scheduler
-					PendingTransfers::<T>::remove(tx_id);
-
-					if let Some(id) = Self::make_schedule_id(tx_id).ok() {
-						if let Err(e) = T::Scheduler::cancel_named(id) {
-							log::warn!(
-								"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",
-								tx_id,
-								e
-							);
-						}
-					}
-
-					num_cancelled = num_cancelled.saturating_add(1);
-					Self::deposit_event(Event::TransactionCancelled {
-						who: who.clone(),
-						tx_id: *tx_id,
-					});
 				}
+
+				num_cancelled = num_cancelled.saturating_add(1);
+				Self::deposit_event(Event::TransactionCancelled {
+					who: who.clone(),
+					tx_id: *tx_id,
+				});
 			}
 
 			// Update sender index to only contain transfers that weren't cancelled
