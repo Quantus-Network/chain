@@ -1068,6 +1068,14 @@ pub mod pallet {
 			let call = <T as Config>::RuntimeCall::decode(&mut &proposal.call[..])
 				.map_err(|_| Self::err_with_weight_raw(Error::<T>::InvalidCall, 2))?;
 
+			// Re-check call weight at execute time (belt-and-suspenders).
+			// MaxInnerCallWeight could have been lowered via runtime upgrade since propose time.
+			let current_call_weight = call.get_dispatch_info().call_weight;
+			let max_inner_weight = T::MaxInnerCallWeight::get();
+			if current_call_weight.any_gt(max_inner_weight) {
+				return Self::err_with_weight(Error::<T>::CallWeightExceedsLimit, 2);
+			}
+
 			// Re-check high-security whitelist at execute time.
 			// The multisig's HS status may have changed since the proposal was created,
 			// or the whitelist may have been updated via runtime upgrade.
@@ -1078,7 +1086,7 @@ pub mod pallet {
 				return Self::err_with_weight(Error::<T>::CallNotAllowedForHighSecurityMultisig, 2);
 			}
 
-			// Use the stored call weight (validated at propose time)
+			// Calculate bookkeeping weight based on call size
 			let bookkeeping_weight = Self::bookkeeping_weight(proposal.call.len() as u32);
 
 			// EFFECTS: Remove proposal and return deposit BEFORE dispatch (reentrancy protection)
@@ -1104,10 +1112,12 @@ pub mod pallet {
 			});
 
 			// Calculate actual weight: bookkeeping + inner call's actual weight
-			// Use stored call_weight as fallback when post-dispatch info is unavailable
+			// Use current_call_weight (computed at execute time) as fallback when post-dispatch
+			// info is unavailable. This is more accurate than the stored weight since
+			// dispatch_info could have changed via runtime upgrade.
 			let actual_call_weight = match &result {
 				Ok(info) | Err(DispatchErrorWithPostInfo { post_info: info, .. }) =>
-					info.actual_weight.unwrap_or(proposal.call_weight),
+					info.actual_weight.unwrap_or(current_call_weight),
 			};
 			let total_weight = bookkeeping_weight.saturating_add(actual_call_weight);
 
