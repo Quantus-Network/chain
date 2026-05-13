@@ -193,10 +193,10 @@ try-runtime = [
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]
 
 
-# Feature for running governance tests with production timing values
-# These tests use real mainnet timing (hours/days) instead of fast 2-block periods
-# Useful for comprehensive validation but much slower than default fast tests
-production-governance-tests = []
+# Collapses every referenda track timing window to 2 blocks at compile time.
+# Enabled by CI for fast integration tests. Production builds must NEVER enable
+# this — the feature being off is what guarantees mainnet timing.
+fast-governance = []
 
 # A convenience feature for enabling things when doing a build
 # for an on-chain release.

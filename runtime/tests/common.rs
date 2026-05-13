@@ -50,28 +50,16 @@ impl TestCommons {
 		ext
 	}
 
-	/// Create a test externality with governance track timing based on feature flags
-	/// - Without `production-governance-tests`: Uses fast 2-block periods for all governance tracks
-	/// - With `production-governance-tests`: Uses production timing (hours/days) This allows CI to
-	///   test both fast (for speed) and slow (for correctness) governance
+	/// Create a test externality. Governance track timing is selected at
+	/// compile time via the `quantus-runtime/fast-governance` feature:
+	/// - feature ON:  all referenda windows collapse to 2 blocks (fast tests)
+	/// - feature OFF: production timing (hours/days) — slow but mainnet-accurate
 	pub fn new_fast_governance_test_ext() -> sp_io::TestExternalities {
-		#[cfg(feature = "production-governance-tests")]
-		{
-			println!("Production governance test config: Using production timing (hours/days).");
-			Self::new_test_ext()
-		}
-
-		#[cfg(not(feature = "production-governance-tests"))]
-		{
-			use quantus_runtime::governance::definitions::GlobalTrackConfig;
-
-			// Set global fast timing for ALL governance tracks (Community, Treasury, Tech
-			// Collective)
-			GlobalTrackConfig::set_fast_test_timing(); // Sets 2 blocks for all periods
-
-			println!("Fast governance test config activated: All tracks use 2-block periods");
-			Self::new_test_ext()
-		}
+		#[cfg(feature = "fast-governance")]
+		println!("Fast governance: all referenda windows = 2 blocks (compile-time).");
+		#[cfg(not(feature = "fast-governance"))]
+		println!("Production governance: real mainnet timing (hours/days).");
+		Self::new_test_ext()
 	}
 
 	// Helper function to run blocks
