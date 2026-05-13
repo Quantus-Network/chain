@@ -307,8 +307,6 @@ pub mod pallet {
 		AccountNotHighSecurity,
 		/// Guardian cannot be the account itself, because it is redundant.
 		GuardianCannotBeSelf,
-		/// Recoverer cannot be the account itself, because it is redundant.
-		RecovererCannotBeSelf,
 		/// The specified pending transaction ID was not found.
 		PendingTxNotFound,
 		/// The caller is not the original submitter of the transaction they are trying to cancel.
