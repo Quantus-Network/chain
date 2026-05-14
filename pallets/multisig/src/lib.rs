@@ -44,7 +44,7 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{traits::Get, weights::Weight, BoundedBTreeMap, BoundedVec};
+use frame_support::{traits::Get, BoundedBTreeMap, BoundedVec};
 use scale_info::TypeInfo;
 use sp_runtime::RuntimeDebug;
 
@@ -106,8 +106,6 @@ pub struct ProposalData<AccountId, Balance, BlockNumber, BoundedCall, BoundedApp
 	pub proposer: AccountId,
 	/// The encoded call to be executed
 	pub call: BoundedCall,
-	/// The declared weight of the inner call (captured at propose time)
-	pub call_weight: Weight,
 	/// Expiry block number
 	pub expiry: BlockNumber,
 	/// List of accounts that have approved this proposal
@@ -150,7 +148,11 @@ pub mod pallet {
 	///
 	/// This establishes an explicit baseline for future storage migrations.
 	/// Increment this and add a migration hook when storage layout changes.
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+	///
+	/// Version history:
+	/// - 0: Initial version
+	/// - 1: Removed `call_weight` field from ProposalData (weight is recomputed at execute time)
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
@@ -654,7 +656,6 @@ pub mod pallet {
 				ProposalData {
 					proposer: proposer.clone(),
 					call,
-					call_weight,
 					expiry,
 					approvals,
 					deposit,
@@ -1111,10 +1112,9 @@ pub mod pallet {
 				result: result.as_ref().map(|_| ()).map_err(|e| e.error),
 			});
 
-			// Calculate actual weight: bookkeeping + inner call's actual weight
-			// Use current_call_weight (computed at execute time) as fallback when post-dispatch
-			// info is unavailable. This is more accurate than the stored weight since
-			// dispatch_info could have changed via runtime upgrade.
+			// Calculate actual weight: bookkeeping + inner call's actual weight.
+			// Use current_call_weight (recomputed at execute time) as fallback when
+			// post-dispatch info is unavailable.
 			let actual_call_weight = match &result {
 				Ok(info) | Err(DispatchErrorWithPostInfo { post_info: info, .. }) =>
 					info.actual_weight.unwrap_or(current_call_weight),
