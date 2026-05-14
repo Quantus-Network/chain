@@ -628,7 +628,14 @@ pub mod pallet {
 		pub fn cancel_retry_named(origin: OriginFor<T>, id: TaskName) -> DispatchResult {
 			T::ScheduleOrigin::ensure_origin(origin.clone())?;
 			let origin = <T as Config>::RuntimeOrigin::from(origin);
-			let task = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
+			let (when, index) = Lookup::<T>::get(id).ok_or(Error::<T>::NotFound)?;
+			// Lookup succeeded, so Agenda should have the task. Defensive check for sync.
+			let agenda = Agenda::<T>::get(when);
+			agenda
+				.get(index as usize)
+				.and_then(Option::as_ref)
+				.defensive_ok_or(Error::<T>::NotFound)?;
+			let task = (when, index);
 			Self::do_cancel_retry(origin.caller(), task)?;
 			Self::deposit_event(Event::RetryCancelled { task, id: Some(id) });
 			Ok(())
@@ -908,12 +915,10 @@ impl<T: Config> Pallet<T> {
 		(when, index): TaskAddressOf<T>,
 	) -> Result<(), DispatchError> {
 		let agenda = Agenda::<T>::get(when);
-		// When called via cancel_retry_named, the task address comes from Lookup, so
-		// the Agenda entry should exist. Use defensive check for Lookup/Agenda sync.
 		let scheduled = agenda
 			.get(index as usize)
 			.and_then(Option::as_ref)
-			.defensive_ok_or(Error::<T>::NotFound)?;
+			.ok_or(Error::<T>::NotFound)?;
 		Self::ensure_privilege(origin, &scheduled.origin)?;
 		Retries::<T>::remove((when, index));
 		Ok(())
