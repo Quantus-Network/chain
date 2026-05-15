@@ -20,7 +20,7 @@ fn high_security_end_to_end_flow() {
 	// Accounts:
 	// 1 = HS account (sender)
 	// 2 = guardian
-	// 3 = recoverer (friend)
+	// 3 = third party (friend)
 	// 4 = recipient of the initial transfer
 	let mut ext = TestCommons::new_test_ext();
 	ext.execute_with(|| {

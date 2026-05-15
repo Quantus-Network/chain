@@ -306,8 +306,6 @@ pub mod pallet {
 		AccountNotHighSecurity,
 		/// Guardian cannot be the account itself, because it is redundant.
 		GuardianCannotBeSelf,
-		/// Recoverer cannot be the account itself, because it is redundant.
-		RecovererCannotBeSelf,
 		/// The specified pending transaction ID was not found.
 		PendingTxNotFound,
 		/// The caller is not the original submitter of the transaction they are trying to cancel.
@@ -320,8 +318,6 @@ pub mod pallet {
 		SchedulingFailed,
 		/// Failed to cancel the scheduled task with the scheduler pallet.
 		CancellationFailed,
-		/// Failed to decode the OpaqueCall back into a RuntimeCall.
-		CallDecodingFailed,
 		/// Call is invalid.
 		InvalidCall,
 		/// Invalid scheduler origin
@@ -359,6 +355,12 @@ pub mod pallet {
 		/// There is no mechanism to disable high security mode or restore normal account
 		/// functionality. This design is intentional to provide maximum security guarantees:
 		/// an attacker who gains access to the account cannot simply disable the protections.
+		///
+		/// This permanence also ensures that any funds subsequently sent to a compromised
+		/// account (e.g., from pending payments, contracts, or accidental deposits) remain
+		/// protected and can be recovered by the guardian via
+		/// [`recover_funds`](Self::recover_funds). The guardian can call `recover_funds`
+		/// repeatedly as needed.
 		///
 		/// Users who no longer wish to use high-security features can simply transfer their
 		/// funds to a different account using [`schedule_transfer`](Self::schedule_transfer)
@@ -531,6 +533,15 @@ pub mod pallet {
 		/// It cancels all pending transfers first (applying volume fees), then transfers
 		/// the remaining free balance to the guardian.
 		///
+		/// # Repeated Recovery
+		///
+		/// This function can be called multiple times on the same account. The high-security
+		/// status and guardian relationship are intentionally preserved after recovery, ensuring
+		/// that any funds subsequently deposited to the account (e.g., from pending payments,
+		/// contracts, or accidental deposits) remain protected and recoverable.
+		///
+		/// # Error Handling
+		///
 		/// If releasing held funds fails for any transfer, that transfer is skipped (metadata
 		/// preserved for manual retry via `cancel`) and a `TransferRecoveryFailed` event is
 		/// emitted. Other transfers continue to be processed.
@@ -555,38 +566,47 @@ pub mod pallet {
 				PendingTransfersBySender::<T>::get(&account).into_iter().collect();
 
 			for tx_id in pending_tx_ids.iter() {
-				if let Some(pending) = PendingTransfers::<T>::get(tx_id) {
-					// Try to release held funds first
-					if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+				// PendingTransfersBySender and PendingTransfers should always be in sync.
+				// If not, this is an invariant violation - log defensively and skip.
+				let Some(pending) = PendingTransfers::<T>::get(tx_id) else {
+					defensive!(
+						"PendingTransfersBySender/PendingTransfers inconsistency: \
+						tx {:?} in sender index but not in PendingTransfers",
+						tx_id
+					);
+					continue;
+				};
+
+				// Try to release held funds first
+				if let Err(e) = Self::release_held_funds_with_fee(&pending, &who, true) {
+					log::warn!(
+						"Failed to release held funds for tx {:?} during recovery: {:?}",
+						tx_id,
+						e
+					);
+					// Skip - leave metadata intact for manual recovery via cancel
+					Self::deposit_event(Event::TransferRecoveryFailed { tx_id: *tx_id });
+					continue;
+				}
+
+				// Release succeeded - now remove metadata and cancel scheduler
+				PendingTransfers::<T>::remove(tx_id);
+
+				if let Some(id) = Self::make_schedule_id(tx_id).ok() {
+					if let Err(e) = T::Scheduler::cancel_named(id) {
 						log::warn!(
-							"Failed to release held funds for tx {:?} during recovery: {:?}",
+							"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",
 							tx_id,
 							e
 						);
-						// Skip - leave metadata intact for manual recovery via cancel
-						Self::deposit_event(Event::TransferRecoveryFailed { tx_id: *tx_id });
-						continue;
 					}
-
-					// Release succeeded - now remove metadata and cancel scheduler
-					PendingTransfers::<T>::remove(tx_id);
-
-					if let Some(id) = Self::make_schedule_id(tx_id).ok() {
-						if let Err(e) = T::Scheduler::cancel_named(id) {
-							log::warn!(
-								"Failed to cancel scheduled task for tx {:?}: {:?} (funds already released)",
-								tx_id,
-								e
-							);
-						}
-					}
-
-					num_cancelled = num_cancelled.saturating_add(1);
-					Self::deposit_event(Event::TransactionCancelled {
-						who: who.clone(),
-						tx_id: *tx_id,
-					});
 				}
+
+				num_cancelled = num_cancelled.saturating_add(1);
+				Self::deposit_event(Event::TransactionCancelled {
+					who: who.clone(),
+					tx_id: *tx_id,
+				});
 			}
 
 			// Update sender index to only contain transfers that weren't cancelled

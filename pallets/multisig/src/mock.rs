@@ -7,7 +7,7 @@ use core::{cell::RefCell, marker::PhantomData};
 use crate as pallet_multisig;
 use frame_support::{
 	derive_impl, ord_parameter_types, parameter_types,
-	traits::{ConstU32, EitherOfDiverse, EqualPrivilegeOnly, Time},
+	traits::{ConstU32, EitherOfDiverse, EqualPrivilegeOnly, Get, Time},
 	PalletId,
 };
 use frame_system::{limits::BlockWeights, EnsureRoot, EnsureSignedBy};
@@ -155,8 +155,28 @@ parameter_types! {
 	pub const ProposalFeeParam: Balance = 999;
 	pub const SignerStepFactorParam: Permill = Permill::from_parts(10_000);
 	pub const MaxExpiryDurationParam: u64 = 10000;
-	// 1 billion ref_time, 1 MB proof_size - generous limit for testing
-	pub const MaxInnerCallWeightParam: Weight = Weight::from_parts(1_000_000_000, 1_048_576);
+}
+
+// Dynamic MaxInnerCallWeight for testing runtime upgrade scenarios
+thread_local! {
+	static MAX_INNER_CALL_WEIGHT: RefCell<Weight> = RefCell::new(Weight::from_parts(1_000_000_000, 1_048_576));
+}
+
+pub struct DynamicMaxInnerCallWeight;
+impl Get<Weight> for DynamicMaxInnerCallWeight {
+	fn get() -> Weight {
+		MAX_INNER_CALL_WEIGHT.with(|v| *v.borrow())
+	}
+}
+
+/// Set the max inner call weight (for testing runtime upgrade scenarios)
+pub fn set_max_inner_call_weight(weight: Weight) {
+	MAX_INNER_CALL_WEIGHT.with(|v| *v.borrow_mut() = weight);
+}
+
+/// Reset max inner call weight to default
+pub fn reset_max_inner_call_weight() {
+	MAX_INNER_CALL_WEIGHT.with(|v| *v.borrow_mut() = Weight::from_parts(1_000_000_000, 1_048_576));
 }
 
 impl pallet_multisig::Config for Test {
@@ -170,7 +190,7 @@ impl pallet_multisig::Config for Test {
 	type ProposalFee = ProposalFeeParam;
 	type SignerStepFactor = SignerStepFactorParam;
 	type MaxExpiryDuration = MaxExpiryDurationParam;
-	type MaxInnerCallWeight = MaxInnerCallWeightParam;
+	type MaxInnerCallWeight = DynamicMaxInnerCallWeight;
 	type PalletId = MultisigPalletId;
 	type WeightInfo = ();
 	type HighSecurity = crate::tests::MockHighSecurity;
