@@ -81,8 +81,8 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
 }
 
 /// Collapses every referenda timing window to 2 blocks when the
-/// `fast-governance` feature is enabled; otherwise leaves the track untouched.
-/// Selected at compile time so production builds carry no override state.
+/// `fast-governance` feature is enabled. Only compiled into test builds; production
+/// builds never reference this function or its callers.
 #[cfg(feature = "fast-governance")]
 fn apply_test_timing(
 	mut info: pallet_referenda::TrackInfo<Balance, BlockNumber>,
@@ -94,14 +94,6 @@ fn apply_test_timing(
 	info
 }
 
-#[cfg(not(feature = "fast-governance"))]
-#[inline]
-fn apply_test_timing(
-	info: pallet_referenda::TrackInfo<Balance, BlockNumber>,
-) -> pallet_referenda::TrackInfo<Balance, BlockNumber> {
-	info
-}
-
 // Define tracks for referenda
 pub struct CommunityTracksInfo;
 
@@ -110,28 +102,28 @@ impl CommunityTracksInfo {
 	/// Only one track (Signed) - RawOrigin::None removed to fix F-04 (inherent-only call
 	/// vulnerability).
 	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
-		[pallet_referenda::Track {
-			id: 0,
-			info: apply_test_timing(pallet_referenda::TrackInfo {
-				name: str_array("signed"),
-				max_deciding: 5,
-				decision_deposit: 500_u128 * UNIT,
-				prepare_period: 12 * HOURS,
-				decision_period: 7 * DAYS,
-				confirm_period: 12 * HOURS,
-				min_enactment_period: DAYS,
-				min_approval: pallet_referenda::Curve::LinearDecreasing {
-					length: Perbill::from_percent(100),
-					floor: Perbill::from_percent(55),
-					ceil: Perbill::from_percent(70),
-				},
-				min_support: pallet_referenda::Curve::LinearDecreasing {
-					length: Perbill::from_percent(100),
-					floor: Perbill::from_percent(5),
-					ceil: Perbill::from_percent(25),
-				},
-			}),
-		}]
+		let info = pallet_referenda::TrackInfo {
+			name: str_array("signed"),
+			max_deciding: 5,
+			decision_deposit: 500_u128 * UNIT,
+			prepare_period: 12 * HOURS,
+			decision_period: 7 * DAYS,
+			confirm_period: 12 * HOURS,
+			min_enactment_period: DAYS,
+			min_approval: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(55),
+				ceil: Perbill::from_percent(70),
+			},
+			min_support: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(5),
+				ceil: Perbill::from_percent(25),
+			},
+		};
+		#[cfg(feature = "fast-governance")]
+		let info = apply_test_timing(info);
+		[pallet_referenda::Track { id: 0, info }]
 	}
 }
 
@@ -171,28 +163,28 @@ pub struct TechCollectiveTracksInfo;
 
 impl TechCollectiveTracksInfo {
 	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
-		[pallet_referenda::Track {
-			id: 0,
-			info: apply_test_timing(pallet_referenda::TrackInfo {
-				name: str_array("tech_collective_members"),
-				max_deciding: 1,
-				decision_deposit: 1000 * UNIT,
-				prepare_period: 20,
-				decision_period: DAYS,
-				confirm_period: 20,
-				min_enactment_period: 20,
-				min_approval: pallet_referenda::Curve::LinearDecreasing {
-					length: Perbill::from_percent(100),
-					floor: Perbill::from_percent(50),
-					ceil: Perbill::from_percent(100),
-				},
-				min_support: pallet_referenda::Curve::LinearDecreasing {
-					length: Perbill::from_percent(100),
-					floor: Perbill::from_percent(0),
-					ceil: Perbill::from_percent(0),
-				},
-			}),
-		}]
+		let info = pallet_referenda::TrackInfo {
+			name: str_array("tech_collective_members"),
+			max_deciding: 1,
+			decision_deposit: 1000 * UNIT,
+			prepare_period: 20,
+			decision_period: DAYS,
+			confirm_period: 20,
+			min_enactment_period: 20,
+			min_approval: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(50),
+				ceil: Perbill::from_percent(100),
+			},
+			min_support: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(0),
+				ceil: Perbill::from_percent(0),
+			},
+		};
+		#[cfg(feature = "fast-governance")]
+		let info = apply_test_timing(info);
+		[pallet_referenda::Track { id: 0, info }]
 	}
 }
 
