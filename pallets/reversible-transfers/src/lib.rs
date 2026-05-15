@@ -26,7 +26,6 @@ pub use weights::WeightInfo;
 
 use alloc::vec::Vec;
 use frame_support::{
-	defensive,
 	pallet_prelude::*,
 	traits::tokens::{fungibles::MutateHold as AssetsHold, Fortitude, Restriction},
 };

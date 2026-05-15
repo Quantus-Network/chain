@@ -80,57 +80,18 @@ impl Consideration<AccountId, Footprint> for PreimageDeposit {
 	}
 }
 
-/// Global dynamic configuration for ALL governance tracks
-/// This allows tests to override the production timing values at runtime
-pub struct GlobalTrackConfig;
-
-static mut GLOBAL_TRACK_OVERRIDE: Option<(BlockNumber, BlockNumber, BlockNumber, BlockNumber)> =
-	None;
-
-impl GlobalTrackConfig {
-	/// Set global track timing overrides for ALL governance tracks
-	/// This affects CommunityTracksInfo and TechCollectiveTracksInfo
-	pub fn set_track_override(
-		prepare_period: BlockNumber,
-		decision_period: BlockNumber,
-		confirm_period: BlockNumber,
-		min_enactment_period: BlockNumber,
-	) {
-		unsafe {
-			GLOBAL_TRACK_OVERRIDE =
-				Some((prepare_period, decision_period, confirm_period, min_enactment_period));
-		}
-	}
-
-	/// Get current global timing override, or None if using production values
-	pub fn get_track_override() -> Option<(BlockNumber, BlockNumber, BlockNumber, BlockNumber)> {
-		unsafe { GLOBAL_TRACK_OVERRIDE }
-	}
-
-	/// Clear global overrides - return to production values
-	pub fn clear_track_override() {
-		unsafe {
-			GLOBAL_TRACK_OVERRIDE = None;
-		}
-	}
-
-	/// Set fast test timing (2 blocks for all periods) for ALL tracks
-	pub fn set_fast_test_timing() {
-		Self::set_track_override(2, 2, 2, 2);
-	}
-
-	/// Apply timing overrides to a track if global overrides are set
-	pub fn apply_timing_override(
-		mut track: pallet_referenda::TrackInfo<Balance, BlockNumber>,
-	) -> pallet_referenda::TrackInfo<Balance, BlockNumber> {
-		if let Some((prepare, decision, confirm, enactment)) = Self::get_track_override() {
-			track.prepare_period = prepare;
-			track.decision_period = decision;
-			track.confirm_period = confirm;
-			track.min_enactment_period = enactment;
-		}
-		track
-	}
+/// Collapses every referenda timing window to 2 blocks when the
+/// `fast-governance` feature is enabled. Only compiled into test builds; production
+/// builds never reference this function or its callers.
+#[cfg(feature = "fast-governance")]
+fn apply_test_timing(
+	mut info: pallet_referenda::TrackInfo<Balance, BlockNumber>,
+) -> pallet_referenda::TrackInfo<Balance, BlockNumber> {
+	info.prepare_period = 2;
+	info.decision_period = 2;
+	info.confirm_period = 2;
+	info.min_enactment_period = 2;
+	info
 }
 
 // Define tracks for referenda
@@ -141,31 +102,28 @@ impl CommunityTracksInfo {
 	/// Only one track (Signed) - RawOrigin::None removed to fix F-04 (inherent-only call
 	/// vulnerability).
 	fn create_community_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
-		[
-			// Track 0: Signed Track (authenticated proposals, incl. System::remark for signaling)
-			pallet_referenda::Track {
-				id: 0,
-				info: pallet_referenda::TrackInfo {
-					name: str_array("signed"),
-					max_deciding: 5,                   // Allow several concurrent proposals
-					decision_deposit: 500_u128 * UNIT, // Moderate deposit
-					prepare_period: 12 * HOURS,        // Shorter preparation time
-					decision_period: 7 * DAYS,         // 1 week voting period
-					confirm_period: 12 * HOURS,        // 12 hours confirmation
-					min_enactment_period: DAYS,        // 1 day until execution
-					min_approval: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(55), // Majority approval required
-						ceil: Perbill::from_percent(70),
-					},
-					min_support: pallet_referenda::Curve::LinearDecreasing {
-						length: Perbill::from_percent(100),
-						floor: Perbill::from_percent(5),
-						ceil: Perbill::from_percent(25),
-					},
-				},
+		let info = pallet_referenda::TrackInfo {
+			name: str_array("signed"),
+			max_deciding: 5,
+			decision_deposit: 500_u128 * UNIT,
+			prepare_period: 12 * HOURS,
+			decision_period: 7 * DAYS,
+			confirm_period: 12 * HOURS,
+			min_enactment_period: DAYS,
+			min_approval: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(55),
+				ceil: Perbill::from_percent(70),
 			},
-		]
+			min_support: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(5),
+				ceil: Perbill::from_percent(25),
+			},
+		};
+		#[cfg(feature = "fast-governance")]
+		let info = apply_test_timing(info);
+		[pallet_referenda::Track { id: 0, info }]
 	}
 }
 
@@ -175,35 +133,11 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for CommunityTracksInfo 
 
 	fn tracks(
 	) -> impl Iterator<Item = alloc::borrow::Cow<'static, Track<Self::Id, Balance, BlockNumber>>> {
-		// Static tracks with production values
 		lazy_static! {
-			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
+			static ref TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
 				CommunityTracksInfo::create_community_tracks();
 		}
-
-		// Test tracks with fast governance timing
-		lazy_static! {
-			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] = {
-				let base_tracks = CommunityTracksInfo::create_community_tracks();
-				let mut test_tracks = base_tracks.clone();
-
-				// Apply global timing overrides to all tracks
-				for track in &mut test_tracks {
-					track.info = GlobalTrackConfig::apply_timing_override(track.info.clone());
-				}
-
-				test_tracks
-			};
-		}
-
-		// Return the appropriate tracks based on whether global overrides are set
-		let tracks_slice = if GlobalTrackConfig::get_track_override().is_some() {
-			&*TEST_TRACKS
-		} else {
-			&*STATIC_TRACKS
-		};
-
-		tracks_slice.iter().map(Cow::Borrowed)
+		TRACKS.iter().map(Cow::Borrowed)
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
@@ -229,28 +163,28 @@ pub struct TechCollectiveTracksInfo;
 
 impl TechCollectiveTracksInfo {
 	fn create_tech_collective_tracks() -> [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] {
-		[pallet_referenda::Track {
-			id: 0,
-			info: pallet_referenda::TrackInfo {
-				name: str_array("tech_collective_members"),
-				max_deciding: 1,
-				decision_deposit: 1000 * UNIT,
-				prepare_period: 20,
-				decision_period: DAYS,
-				confirm_period: 20,
-				min_enactment_period: 20,
-				min_approval: pallet_referenda::Curve::LinearDecreasing {
-					length: Perbill::from_percent(100),
-					floor: Perbill::from_percent(50),
-					ceil: Perbill::from_percent(100),
-				},
-				min_support: pallet_referenda::Curve::LinearDecreasing {
-					length: Perbill::from_percent(100),
-					floor: Perbill::from_percent(0),
-					ceil: Perbill::from_percent(0),
-				},
+		let info = pallet_referenda::TrackInfo {
+			name: str_array("tech_collective_members"),
+			max_deciding: 1,
+			decision_deposit: 1000 * UNIT,
+			prepare_period: 20,
+			decision_period: DAYS,
+			confirm_period: 20,
+			min_enactment_period: 20,
+			min_approval: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(50),
+				ceil: Perbill::from_percent(100),
 			},
-		}]
+			min_support: pallet_referenda::Curve::LinearDecreasing {
+				length: Perbill::from_percent(100),
+				floor: Perbill::from_percent(0),
+				ceil: Perbill::from_percent(0),
+			},
+		};
+		#[cfg(feature = "fast-governance")]
+		let info = apply_test_timing(info);
+		[pallet_referenda::Track { id: 0, info }]
 	}
 }
 
@@ -261,33 +195,11 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TechCollectiveTracks
 	fn tracks(
 	) -> impl Iterator<Item = Cow<'static, pallet_referenda::Track<Self::Id, Balance, BlockNumber>>>
 	{
-		// Static tracks with production values
 		lazy_static! {
-			static ref STATIC_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
+			static ref TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] =
 				TechCollectiveTracksInfo::create_tech_collective_tracks();
 		}
-
-		// Test tracks with fast governance timing
-		lazy_static! {
-			static ref TEST_TRACKS: [pallet_referenda::Track<u16, Balance, BlockNumber>; 1] = {
-				let base_tracks = TechCollectiveTracksInfo::create_tech_collective_tracks();
-				let mut test_tracks = [base_tracks[0].clone()];
-
-				// Apply global timing override to the track
-				test_tracks[0].info = GlobalTrackConfig::apply_timing_override(test_tracks[0].info.clone());
-
-				test_tracks
-			};
-		}
-
-		// Return the appropriate tracks based on whether global overrides are set
-		let tracks_slice = if GlobalTrackConfig::get_track_override().is_some() {
-			&*TEST_TRACKS
-		} else {
-			&*STATIC_TRACKS
-		};
-
-		tracks_slice.iter().map(Cow::Borrowed)
+		TRACKS.iter().map(Cow::Borrowed)
 	}
 
 	fn track_for(id: &Self::RuntimeOrigin) -> Result<Self::Id, ()> {
