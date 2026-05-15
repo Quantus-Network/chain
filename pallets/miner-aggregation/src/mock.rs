@@ -1,4 +1,4 @@
-use crate::{self as pallet_wormhole};
+use crate as pallet_miner_aggregation;
 use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{ConstU128, ConstU32, Everything},
@@ -11,7 +11,6 @@ use sp_runtime::{
 	BuildStorage, Permill,
 };
 
-// Re-export shared test helpers from qp_wormhole
 pub use qp_wormhole::{account_id, MINTING_ACCOUNT};
 
 construct_runtime!(
@@ -20,11 +19,11 @@ construct_runtime!(
 		Balances: pallet_balances,
 		Assets: pallet_assets,
 		Wormhole: pallet_wormhole,
+		MinerAggregation: pallet_miner_aggregation,
 	}
 );
 
 pub type Balance = u128;
-/// 1 QUAN = 10^12 (12 decimal places)
 pub const UNIT: Balance = 1_000_000_000_000;
 pub type AccountId = sp_core::crypto::AccountId32;
 pub type Block<T> = sp_runtime::generic::Block<
@@ -115,16 +114,10 @@ impl pallet_assets::Config for Test {
 }
 
 parameter_types! {
-	/// The "from" account used when recording transfer proofs for minted tokens.
-	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
 	pub const MintingAccount: AccountId = MINTING_ACCOUNT;
-	/// Minimum transfer amount (10 QUAN)
 	pub const MinimumTransferAmount: Balance = 10 * UNIT;
-	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
-	/// Proportion of volume fees to burn (50% burned, 50% to miner)
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
-	/// Proportion of non-burned delegated fees paid to aggregation prover.
 	pub const AggregationProverFeeShare: Permill = Permill::from_percent(25);
 }
 
@@ -141,39 +134,64 @@ impl pallet_wormhole::Config for Test {
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
 	type AggregationProverFeeShare = AggregationProverFeeShare;
 	type WormholeAccountId = AccountId;
-	type WeightInfo = crate::weights::SubstrateWeight<Test>;
-	type ZkTree = (); // Disabled in tests - use () no-op implementation
+	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Test>;
+	type ZkTree = ();
 }
 
-// Helper function to build a genesis configuration
+parameter_types! {
+	pub const MaxL0ProofBytes: u32 = 256 * 1024;
+	pub const MaxNullifiersPerL0: u32 = 32;
+	pub const MaxExitSlotsPerL0: u32 = 64;
+	pub const MaxCandidatesPerQueue: u32 = 4;
+	pub const CandidateLifetime: u64 = 100;
+	pub const StorageBond: Balance = 10;
+	pub const ValidityBond: Balance = 20;
+	pub const NumLayer0Proofs: u32 = 1;
+	pub const CircuitId: [u8; 32] = [42u8; 32];
+	pub const MaxActiveBundlesPerMiner: u32 = 4;
+	pub const BundleProvingPeriod: u64 = 10;
+	pub const MinMinerBond: Balance = 50;
+	pub const MaxL1ProofBytes: u32 = 512 * 1024;
+	pub const MinerTimeoutSlash: Permill = Permill::from_percent(20);
+	pub const InvalidL1ProofSlash: Permill = Permill::from_percent(10);
+	pub const InvalidClaimSlash: Permill = Permill::from_percent(40);
+	pub const InvalidCandidateChallengeReward: Permill = Permill::from_percent(50);
+}
+
+impl pallet_miner_aggregation::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type MaxL0ProofBytes = MaxL0ProofBytes;
+	type MaxNullifiersPerL0 = MaxNullifiersPerL0;
+	type MaxExitSlotsPerL0 = MaxExitSlotsPerL0;
+	type MaxCandidatesPerQueue = MaxCandidatesPerQueue;
+	type CandidateLifetime = CandidateLifetime;
+	type StorageBond = StorageBond;
+	type ValidityBond = ValidityBond;
+	type NumLayer0Proofs = NumLayer0Proofs;
+	type CircuitId = CircuitId;
+	type MaxActiveBundlesPerMiner = MaxActiveBundlesPerMiner;
+	type BundleProvingPeriod = BundleProvingPeriod;
+	type MinMinerBond = MinMinerBond;
+	type MaxL1ProofBytes = MaxL1ProofBytes;
+	type MinerTimeoutSlash = MinerTimeoutSlash;
+	type InvalidL1ProofSlash = InvalidL1ProofSlash;
+	type InvalidClaimSlash = InvalidClaimSlash;
+	type InvalidCandidateChallengeReward = InvalidCandidateChallengeReward;
+	type WeightInfo = ();
+}
+
 pub fn new_test_ext() -> sp_state_machine::TestExternalities<PoseidonHasher> {
-	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	t.into()
-}
-
-/// Build test externalities with genesis endowments.
-/// Each endowment is (address, amount) and will have both balance and TransferProof recorded
-/// (after block 1 initialization), enabling the address to spend via ZK proofs.
-///
-/// Note: This sets up the genesis state, but TransferProofs are recorded in on_initialize
-/// at block 1. Tests should call `System::set_block_number(1)` and then trigger
-/// `Wormhole::on_initialize(1)` to process the endowments.
-pub fn new_test_ext_with_endowments(
-	endowments: Vec<(AccountId, Balance)>,
-) -> sp_state_machine::TestExternalities<PoseidonHasher> {
-	use sp_runtime::BuildStorage;
-
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-
-	// Set up balances for the endowed accounts
-	pallet_balances::GenesisConfig::<Test> { balances: endowments.to_vec(), dev_accounts: None }
-		.assimilate_storage(&mut t)
-		.unwrap();
-
-	// Set up endowments to be processed at block 1
-	pallet_wormhole::GenesisConfig::<Test> { endowed_addresses: endowments }
-		.assimilate_storage(&mut t)
-		.unwrap();
-
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![
+			(account_id(1), 1_000 * UNIT),
+			(account_id(2), 1_000 * UNIT),
+			(account_id(3), 1_000 * UNIT),
+		],
+		dev_accounts: None,
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 	t.into()
 }

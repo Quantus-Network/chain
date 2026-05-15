@@ -742,8 +742,10 @@ parameter_types! {
 	pub const WormholeMinimumTransferAmount: Balance = UNIT / 10;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
-	/// Proportion of volume fees to burn (50% burned, 50% to miner)
+	/// Proportion of volume fees to burn.
 	pub const VolumeFeesBurnRate: Permill = Permill::from_percent(50);
+	/// Proportion of non-burned delegated L1 fees paid to aggregation prover.
+	pub const AggregationProverFeeShare: Permill = Permill::from_percent(50);
 }
 
 impl pallet_wormhole::Config for Runtime {
@@ -759,9 +761,53 @@ impl pallet_wormhole::Config for Runtime {
 	type MinimumTransferAmount = WormholeMinimumTransferAmount;
 	type VolumeFeeRateBps = VolumeFeeRateBps;
 	type VolumeFeesBurnRate = VolumeFeesBurnRate;
+	type AggregationProverFeeShare = AggregationProverFeeShare;
 	type WormholeAccountId = AccountId32;
 	type WeightInfo = pallet_wormhole::weights::SubstrateWeight<Runtime>;
 	type ZkTree = ZkTree;
+}
+
+parameter_types! {
+	pub const MinerAggregationMaxL0ProofBytes: u32 = 256 * 1024;
+	pub const MinerAggregationMaxNullifiersPerL0: u32 = 64;
+	pub const MinerAggregationMaxExitSlotsPerL0: u32 = 128;
+	pub const MinerAggregationMaxCandidatesPerQueue: u32 = 128;
+	pub const MinerAggregationCandidateLifetime: BlockNumber = 256;
+	pub const MinerAggregationStorageBond: Balance = UNIT / 100;
+	pub const MinerAggregationValidityBond: Balance = UNIT / 10;
+	pub const MinerAggregationNumLayer0Proofs: u32 = 2;
+	pub const MinerAggregationCircuitId: [u8; 32] = [0u8; 32];
+	pub const MinerAggregationMaxActiveBundlesPerMiner: u32 = 4;
+	pub const MinerAggregationBundleProvingPeriod: BlockNumber = 64;
+	pub const MinerAggregationMinMinerBond: Balance = UNIT;
+	pub const MinerAggregationMaxL1ProofBytes: u32 = 512 * 1024;
+	pub const MinerAggregationMinerTimeoutSlash: Permill = Permill::from_percent(10);
+	pub const MinerAggregationInvalidL1ProofSlash: Permill = Permill::from_percent(10);
+	pub const MinerAggregationInvalidClaimSlash: Permill = Permill::from_percent(25);
+	pub const MinerAggregationInvalidCandidateChallengeReward: Permill = Permill::from_percent(50);
+}
+
+impl pallet_miner_aggregation::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type MaxL0ProofBytes = MinerAggregationMaxL0ProofBytes;
+	type MaxNullifiersPerL0 = MinerAggregationMaxNullifiersPerL0;
+	type MaxExitSlotsPerL0 = MinerAggregationMaxExitSlotsPerL0;
+	type MaxCandidatesPerQueue = MinerAggregationMaxCandidatesPerQueue;
+	type CandidateLifetime = MinerAggregationCandidateLifetime;
+	type StorageBond = MinerAggregationStorageBond;
+	type ValidityBond = MinerAggregationValidityBond;
+	type NumLayer0Proofs = MinerAggregationNumLayer0Proofs;
+	type CircuitId = MinerAggregationCircuitId;
+	type MaxActiveBundlesPerMiner = MinerAggregationMaxActiveBundlesPerMiner;
+	type BundleProvingPeriod = MinerAggregationBundleProvingPeriod;
+	type MinMinerBond = MinerAggregationMinMinerBond;
+	type MaxL1ProofBytes = MinerAggregationMaxL1ProofBytes;
+	type MinerTimeoutSlash = MinerAggregationMinerTimeoutSlash;
+	type InvalidL1ProofSlash = MinerAggregationInvalidL1ProofSlash;
+	type InvalidClaimSlash = MinerAggregationInvalidClaimSlash;
+	type InvalidCandidateChallengeReward = MinerAggregationInvalidCandidateChallengeReward;
+	type WeightInfo = pallet_miner_aggregation::weights::SubstrateWeight<Runtime>;
 }
 
 impl pallet_zk_tree::Config for Runtime {

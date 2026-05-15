@@ -1,0 +1,63 @@
+# Miner Aggregation Pallet
+
+MVP pallet for delegated Wormhole L1 aggregation.
+
+Current scope:
+
+- signed users submit bounded on-chain L0 aggregate proof candidates
+- candidate submission parses public L0 metadata but does not verify the proof
+- candidate submission does not lock or mark nullifiers
+- compatible candidates are queued by `BundleGroupKey`
+- submitter storage bond, validity bond, and aggregation tip are reserved
+- aggregation miners register a reward address, job limit, and bond
+- registered miners can claim a full compatible bundle
+- bundle claim locks nullifiers through `pallet-wormhole`
+- bundle timeout unlocks nullifiers and returns unexpired candidates to the queue
+- L1 submission performs cheap public-input/effects checks before full L1 verification
+- pending expired candidates can be cleaned up and refunded
+- pending invalid candidates can be challenged and have their validity bond burned
+- claimed invalid candidates can be challenged before L1 settlement
+
+Nullifier locking remains owned by `pallet-wormhole`. Bundle claim must call the wormhole lock
+helpers; candidate submission must never lock nullifiers.
+
+Any test or command that generates ZK proofs must run with `--release`. The default pallet test
+suite uses precomputed fixture proof bytes and does not generate proofs.
+
+MVP limitations:
+
+- L1 fixture regeneration must use `chain/scripts/generate-delegated-l1-fixture.sh`, which runs
+  proving in release mode.
+- The local delegated aggregation E2E fixture can be run with
+  `./chain/scripts/e2e-delegated-l1-aggregation.sh` from the workspace root.
+- The positive L1 settlement fixture test requires `QP_GENERATE_LAYER1=true` and
+  `QP_NUM_LAYER0_PROOFS=1` so `pallet-wormhole` embeds matching L1 verifier artifacts.
+- `Bundle.bundle_root` remains metadata until the L1 circuit exposes a constrained public root.
+
+Weights:
+
+- `src/weights.rs` contains explicit conservative placeholder weights for every pallet extrinsic.
+- `submit_l1_aggregate_cheap_reject` and `submit_l1_aggregate_valid_proof` are both recorded; the
+  dispatchable declares the valid-proof placeholder because it is the safe upper bound.
+- Benchmark scaffolding lives in `src/benchmarking.rs` and is registered in
+  `runtime/src/benchmarks.rs`.
+- These weights are not benchmark-generated and must be replaced with runtime benchmark output before release.
+
+Benchmark regeneration:
+
+```bash
+cargo test --locked -p pallet-miner-aggregation --features runtime-benchmarks
+cargo build --release --locked --features runtime-benchmarks
+./target/release/quantus-node benchmark pallet \
+  --chain dev \
+  --pallet pallet_miner_aggregation \
+  --extrinsic '*' \
+  --steps 50 \
+  --repeat 20 \
+  --output pallets/miner-aggregation/src/weights.rs
+```
+
+The `submit_l1_aggregate_valid_proof` benchmark requires matching L1 verifier artifacts and the
+current one-candidate L1 fixture. Run it with `QP_GENERATE_LAYER1=true` and
+`QP_NUM_LAYER0_PROOFS=1`, or regenerate the fixture for the runtime's configured
+`NumLayer0Proofs` before replacing `weights.rs`.

@@ -1,0 +1,160 @@
+{
+  "l0_candidates": [
+    "l0_candidate_0.hex"
+  ],
+  "l1_aggregate": "l1_aggregate.hex",
+  "aggregator_address": "0200000000000000000000000000000000000000000000000000000000000000",
+  "asset_id": 0,
+  "volume_fee_bps": 10,
+  "block_hash": "a47a040727bce5a4c12f55e91e6cc9f6ec9aca51060a9fe6ad445a614639a2c8",
+  "block_number": 1,
+  "total_exit_slots": 32,
+  "exits": [
+    {
+      "summed_output_amount": 887,
+      "exit_account": "be36df3efbb982854f48093637c8d4571ce92f68c0762133e86a122886053f8f"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 440,
+      "exit_account": "e435efda037969339d021ce0a192e72a9e123e24942b3defa327876f357abfac"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 678,
+      "exit_account": "863c4e0d9db88550295cc48bb08488f8e4f3a577470e6f7b7087583f3a254873"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 567,
+      "exit_account": "9d1f3fcfed70c0ea694088789c46f3122b89a2d60e4e4d67389daecebdf6bdce"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 1120,
+      "exit_account": "e220391a99f15c724947394a504796b23678b61fcb3e795ed44451c70129fb9c"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 442,
+      "exit_account": "40f8e3d2f0a2abd81f7f58e700dad67f60e8b1ee144b1de6248a4db90ae6df77"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 445,
+      "exit_account": "21ec8e915dea37e08762f8663104d0f32e5d2a812bb23cf679f31ae881f3cb52"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 1461,
+      "exit_account": "0ca74f8a8a602f821c64429672376c5b3b0f4d33745f9c3c9c629550c81eb984"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 148,
+      "exit_account": "773d024efb8a5552d941df129bd536b8987fbb05fedd4656e8db30f2c5ce4947"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 224,
+      "exit_account": "552bf0c2394ae831c9ad2d772b339f4275ef455a6bb521d5be7ffeb21f58b411"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 181,
+      "exit_account": "4e009bebd7d46e0ab75003f92c5ca41c54978ea91f2a66100503c142546d0a82"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 599,
+      "exit_account": "a42ac4d6ce690210f38b532c81443eda19c7c2047e2ff5e11447b070608dfb27"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 1301,
+      "exit_account": "cde2304ddaf087e1097b383793e9975e4eb575017bbe1ef03d895788e54998b7"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 358,
+      "exit_account": "6a9e74c5ac1856189b64b338626a90f8bbef0704fa7b7d7ffbf392909363eeb8"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 957,
+      "exit_account": "6305d547687e54aee4d17dc9f33fc584776b878ef6d2c6522785c145aab7056a"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "summed_output_amount": 166,
+      "exit_account": "92d704b5ddbd0059615f64761285e0da77dcdfe285fdf3e4dd7d4ae57a75b347"
+    },
+    {
+      "summed_output_amount": 0,
+      "exit_account": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "nullifiers": [
+    "18c09077b62e273d650d1665c64869c00d4ac657092da76753ee19cd84aa952d",
+    "c6306fdf45973f254252f412aea21181ba8e33a04f5c39a9f123d3f95402d2c0",
+    "cf9c5d7dd64caed3112c3f76167a4e0d0f52300e9534a17eb305ea7334bb2013",
+    "671ff527956b7efe70b34f4e92ddcceebad8cd99ed188406698e744391621446",
+    "de6adb5434fd2c3c3894e0f7823b89a54e32a400fc2cd94a3a68998f2e2905ab",
+    "400425f36208f1ec3b3eaf9f78d85036a8ed9f594704db984c45ce97b0afdb81",
+    "19b1fb0e50891358bcbbd531bbb99fb644f9feddd518eaed0b46f115ffe63ae4",
+    "64af58a48c74169db2652e51870a993adf141a0e4cc8e47c7a2fcef44a89d1d1",
+    "77d1734005ed2a5eb65acb43cb9f724d7e92d749617e0b0c037df08f6e5a17de",
+    "2ed1f54354e7229b5ed65f49e9208ff0d3dd4a789d08b982876fe1e8b022cd25",
+    "86952f9c570279b34ad3fe27df1c14ae673ed93efb32c33dfef07cb7aae3c27a",
+    "dd29bc300a2920c608dbcf31721e9efee2e02a90aa7754b29430a824a902da59",
+    "b15ec962d5a79806cda3d546fae3ad89760070b6762086ca473ded79c632a544",
+    "c0fbb95f42975020fec41460f456293783c2b50b6c9464b2c8b2ae418e32f539",
+    "9c3a16e64478d497695a026dbc964a2761f7f3f2cb86f5e157f6c5829716324f",
+    "0155d243017d56c20ad6b75ec2edf8eabfaa998821a347099d5e63691748358a"
+  ]
+}
