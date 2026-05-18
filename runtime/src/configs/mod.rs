@@ -150,12 +150,6 @@ parameter_types! {
 	/// Target block time ms
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
-	/// Initial mining difficulty - low value for development
-	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
-	/// Maximum difficulty increase per block (5%)
-	pub const DifficultyIncreaseClamp: FixedU128 = FixedU128::from_rational(5, 100);
-	/// Maximum difficulty decrease per block (10%) - faster recovery
-	pub const DifficultyDecreaseClamp: FixedU128 = FixedU128::from_rational(10, 100);
 }
 
 impl pallet_qpow::Config for Runtime {
