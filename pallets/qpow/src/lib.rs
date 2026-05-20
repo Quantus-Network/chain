@@ -22,12 +22,11 @@ pub mod pallet {
 	use core::ops::Shr;
 	use frame_support::{
 		pallet_prelude::*,
-		sp_runtime::{traits::One, SaturatedConversion, Saturating},
+		sp_runtime::{traits::One, SaturatedConversion},
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
 	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
-	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
 	pub type NonceType = [u8; 64];
@@ -54,17 +53,46 @@ pub mod pallet {
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
-		/// Pallet's weight info
+		/// Genesis mining difficulty. Must satisfy
+		/// `InitialDifficulty >= DifficultyBoundDivisor` so the per-block step
+		/// `parent_difficulty / DifficultyBoundDivisor` is at least 1.
 		#[pallet::constant]
 		type InitialDifficulty: Get<U512>;
 
+		/// Ethereum's `DIFF_BOUND_DIVISOR` (EIP-2). The per-block unit step is
+		/// `parent_difficulty / DifficultyBoundDivisor`, applied additively in
+		/// both directions. Standard Ethereum value is `2048`.
 		#[pallet::constant]
-		type DifficultyAdjustPercentClamp: Get<FixedU128>;
+		type DifficultyBoundDivisor: Get<U512>;
+
+		/// Bucket size in milliseconds for computing the signed adjustment
+		/// factor (EIP-2's `// 10` divisor, generalised). The factor is
+		/// `MaxUpAdjFactor - (block_time_ms / BlockTimeBucketMs)`, then
+		/// clamped to `[MaxDownAdjFactor, MaxUpAdjFactor]`. With
+		/// `MaxUpAdjFactor = 1` the no-change band is `[bucket, 2*bucket)`;
+		/// pick `bucket ≈ 2 * target / 3` to centre the band on the target.
+		#[pallet::constant]
+		type BlockTimeBucketMs: Get<u64>;
+
+		/// Maximum upward adjustment factor (Ethereum Homestead = 1,
+		/// Byzantium = 2 when the parent has uncles; Quantus has no uncles,
+		/// so use 1).
+		#[pallet::constant]
+		type MaxUpAdjFactor: Get<i32>;
+
+		/// Minimum (most-negative) adjustment factor cap. Ethereum uses
+		/// `-99`, which triggers only when a single block takes
+		/// `(MaxUpAdjFactor - MaxDownAdjFactor) * BlockTimeBucketMs` or
+		/// longer (≈13 minutes for the standard `(1, -99, 8s)` set).
+		#[pallet::constant]
+		type MaxDownAdjFactor: Get<i32>;
 
 		#[pallet::constant]
 		type TargetBlockTime: Get<BlockDuration>;
 
-		/// EMA smoothing factor (0-1000, where 1000 = 1.0)
+		/// EMA smoothing factor used only for the observability runtime API
+		/// `get_block_time_ema`. **Does not** drive the difficulty
+		/// controller (see EIP-2 §Rationale). Scaled by 1000.
 		#[pallet::constant]
 		type EmaAlpha: Get<u32>;
 
@@ -183,118 +211,125 @@ pub mod pallet {
 		}
 
 		fn adjust_difficulty() {
-			// Get current time
 			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
 			let last_time = <LastBlockTime<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
-
-			// Only calculate block time if we're past the genesis block
-			if current_block_number > One::one() {
-				let block_time = now.saturating_sub(last_time);
-
-				log::debug!(target: "qpow",
-					"Time calculation: now={}, last_time={}, diff={}ms",
-					now,
-					last_time,
-					block_time
-				);
-
-				// Store the actual block duration
-				<LastBlockDuration<T>>::put(block_time);
-
-				Self::update_block_time_ema(block_time);
-			}
-
-			// Add last block time for the next calculations
-			<LastBlockTime<T>>::put(now);
-
-			let observed_block_time = <BlockTimeEma<T>>::get();
 			let target_time = T::TargetBlockTime::get();
 
-			let new_difficulty =
-				Self::calculate_difficulty(current_difficulty, observed_block_time, target_time);
+			// On the first non-genesis block we have no real previous timestamp,
+			// so feed the controller `target_time` (i.e. adj_factor = 0).
+			let block_time = if current_block_number > One::one() {
+				let bt = now.saturating_sub(last_time);
+				log::debug!(target: "qpow",
+					"Time calculation: now={}, last_time={}, diff={}ms",
+					now, last_time, bt
+				);
+				<LastBlockDuration<T>>::put(bt);
+				Self::update_block_time_ema(bt);
+				bt
+			} else {
+				target_time
+			};
 
-			// Save new difficulty
+			<LastBlockTime<T>>::put(now);
+
+			let new_difficulty =
+				Self::calculate_difficulty(current_difficulty, block_time, target_time);
+
 			<CurrentDifficulty<T>>::put(new_difficulty);
 
-			log::debug!(target: "qpow", "Stored new difficulty: {}",
-				new_difficulty.low_u128());
-
-			// Propagate new Event
 			Self::deposit_event(Event::DifficultyAdjusted {
 				old_difficulty: current_difficulty,
 				new_difficulty,
-				observed_block_time,
+				observed_block_time: block_time,
 			});
 
 			let (pct_change, is_positive) =
 				Self::percentage_change(current_difficulty, new_difficulty);
 
 			log::debug!(target: "qpow",
-				"🟢 Adjusted mining difficulty {}{}%: {:x} -> {:x} (observed block time: {}ms, target: {}ms) ",
+				"🟢 Adjusted mining difficulty {}{}%: {:x} -> {:x} (block_time={}ms target={}ms)",
 				if is_positive {"+"} else {"-"},
 				pct_change,
 				current_difficulty.low_u64(),
 				new_difficulty.low_u64(),
-				observed_block_time,
+				block_time,
 				target_time
 			);
 		}
 
+		/// Difficulty adjustment per Ethereum EIP-2 / EIP-100, in its additive form:
+		///
+		/// ```text
+		/// adj_factor      = clamp(MaxUpAdjFactor - block_time_ms / BlockTimeBucketMs,
+		///                         MaxDownAdjFactor, MaxUpAdjFactor)
+		/// step            = parent_difficulty / DifficultyBoundDivisor
+		/// new_difficulty  = clamp(parent_difficulty + step * adj_factor,
+		///                         min_difficulty, max_difficulty)
+		/// ```
+		///
+		/// Input is the **single block's** wall-clock time, not a moving average.
+		/// `target_block_time` is unused but kept in the signature for ABI
+		/// stability with callers that still pass it.
 		pub fn calculate_difficulty(
 			current_difficulty: U512,
 			observed_block_time: u64,
-			target_block_time: u64,
+			_target_block_time: u64,
 		) -> U512 {
-			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
-			let observed_block_time = observed_block_time.max(1);
-			let clamp = T::DifficultyAdjustPercentClamp::get(); // 10%
-			let one = FixedU128::one();
-			let ratio =
-				FixedU128::from_rational(target_block_time as u128, observed_block_time as u128)
-					.min(one.saturating_add(clamp))
-					.max(one.saturating_sub(clamp));
-			log::debug!(target: "qpow", "💧 Clamped block_time ratio as FixedU128: {} ", ratio);
+			let bucket = T::BlockTimeBucketMs::get().max(1);
+			let max_up = T::MaxUpAdjFactor::get();
+			let max_down = T::MaxDownAdjFactor::get();
+			let divisor = T::DifficultyBoundDivisor::get();
 
-			let ratio_512 = U512::from(ratio.into_inner());
-			let max_difficulty = Self::get_max_difficulty();
+			if divisor.is_zero() {
+				log::error!(
+					target: "qpow",
+					"DifficultyBoundDivisor is zero; controller is misconfigured. Returning current difficulty."
+				);
+				return current_difficulty;
+			}
+			if max_down > max_up {
+				log::error!(
+					target: "qpow",
+					"MaxDownAdjFactor ({}) > MaxUpAdjFactor ({}); controller is misconfigured. Returning current difficulty.",
+					max_down, max_up
+				);
+				return current_difficulty;
+			}
 
-			// For Bitcoin-style difficulty adjustment:
-			// If observed_time > target_time (slow blocks), difficulty should decrease
-			// If observed_time < target_time (fast blocks), difficulty should increase
-			// new_difficulty = current_difficulty * target_time / observed_time
-			let mut adjusted = match current_difficulty.checked_mul(ratio_512) {
-				Some(numerator) => {
-					// unchecked division, we know the denominator is not zero
-					let result = numerator / U512::from(one.into_inner());
-					log::debug!(target: "qpow",
-					    "Difficulty calculation: current={:x}, target_time={}, observed_time={}, new={:x}",
-						current_difficulty.low_u32() as u16, target_block_time, observed_block_time, result.low_u32() as u16);
-					result
-				},
-				None => {
-					log::error!("Multiplication overflow in difficulty calculation");
-					return max_difficulty;
-				},
+			let buckets_elapsed_u64 = observed_block_time / bucket;
+			let buckets_elapsed: i32 = if buckets_elapsed_u64 > i32::MAX as u64 {
+				i32::MAX
+			} else {
+				buckets_elapsed_u64 as i32
+			};
+			let adj_factor = max_up.saturating_sub(buckets_elapsed).max(max_down);
+
+			let step = current_difficulty / divisor;
+			let abs_adj = U512::from(adj_factor.unsigned_abs());
+			let delta = step.saturating_mul(abs_adj);
+
+			let raw_adjusted = if adj_factor >= 0 {
+				current_difficulty.saturating_add(delta)
+			} else {
+				current_difficulty.saturating_sub(delta)
 			};
 
 			let min_difficulty = Self::get_min_difficulty();
-			if adjusted < min_difficulty {
-				log::warn!("Min difficulty achieved, clipping to: {:x}", min_difficulty.low_u64());
-				adjusted = min_difficulty;
-			} else if adjusted > max_difficulty {
-				log::warn!("Max difficulty achieved, clipping to: {:x}", max_difficulty.low_u64());
-				adjusted = max_difficulty;
-			}
+			let max_difficulty = Self::get_max_difficulty();
+			let adjusted = raw_adjusted.max(min_difficulty).min(max_difficulty);
 
 			log::debug!(target: "qpow",
-				"🟢 Current Difficulty: {:x}",
-				current_difficulty.low_u64()
+				"📊 current={:x} block_time={}ms buckets={} adj={} step={:x} delta={:x} new={:x}",
+				current_difficulty.low_u64(),
+				observed_block_time,
+				buckets_elapsed,
+				adj_factor,
+				step.low_u64(),
+				delta.low_u64(),
+				adjusted.low_u64()
 			);
-			log::debug!(target: "qpow", "🟢 Next Difficulty:    {:x}", adjusted.low_u64());
-			log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
-			log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
 
 			adjusted
 		}
@@ -387,10 +422,13 @@ pub mod pallet {
 		}
 
 		pub fn get_min_difficulty() -> Difficulty {
-			// This value is related to clamp value,
-			// ie, if clamp is 10% this value must be at least 10
-			// 1000 is safe for clamp values >= 0.01%
-			U512::from(1000u64)
+			// Constraint: `min_difficulty >= DifficultyBoundDivisor`, otherwise the
+			// per-block step `min_difficulty / DifficultyBoundDivisor` floors to
+			// zero and the controller cannot ever lift difficulty off the floor.
+			// We additionally floor at Ethereum's `MinimumDifficulty` (2^17 =
+			// 131_072) so the smallest valid network still requires real work.
+			let divisor = T::DifficultyBoundDivisor::get();
+			U512::from(131_072u64).max(divisor)
 		}
 
 		pub fn get_max_difficulty() -> Difficulty {

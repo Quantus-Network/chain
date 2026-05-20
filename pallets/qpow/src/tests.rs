@@ -109,8 +109,10 @@ fn test_difficulty_bounds() {
 		let min_difficulty = QPow::get_min_difficulty();
 		let max_difficulty = QPow::get_max_difficulty();
 		let initial_difficulty = QPow::initial_difficulty();
+		let divisor = <Test as Config>::DifficultyBoundDivisor::get();
 
-		assert_eq!(min_difficulty, U512::from(1000u64));
+		assert!(min_difficulty >= divisor, "floor must allow non-zero step");
+		assert_eq!(min_difficulty, U512::from(131_072u64));
 		assert!(max_difficulty > initial_difficulty);
 		assert!(initial_difficulty > min_difficulty);
 	});
@@ -196,19 +198,114 @@ fn test_ema_block_time_tracking() {
 #[test]
 fn test_difficulty_calculation() {
 	new_test_ext().execute_with(|| {
-		let current_difficulty = U512::from(1000u64);
-		let observed_time = 2000u64; // 2x target
-		let target_time = 1000u64;
+		// Mid-difficulty value far from min/max so adjustments are visible.
+		let current_difficulty = U512::from(1_000_000u64);
 
-		// When blocks are slow, difficulty should decrease
-		let new_difficulty =
-			QPow::calculate_difficulty(current_difficulty, observed_time, target_time);
+		// Slow block (2x target). With bucket=750ms and target=1000ms,
+		// buckets_elapsed = 2000/750 = 2, adj_factor = 1 - 2 = -1.
+		// step = 1_000_000 / 2048 = 488. Δ = -488. New = 999_512.
+		let slower = QPow::calculate_difficulty(current_difficulty, 2000, 1000);
+		assert!(slower < current_difficulty);
 
-		// Should be bounded by min/max
+		// Fast block (sub-bucket). adj_factor = +1. Δ = +488. New = 1_000_488.
+		let faster = QPow::calculate_difficulty(current_difficulty, 100, 1000);
+		assert!(faster > current_difficulty);
+
+		// At-target block sits in the no-change band [750, 1500).
+		let unchanged = QPow::calculate_difficulty(current_difficulty, 1000, 1000);
+		assert_eq!(unchanged, current_difficulty);
+
 		let min_difficulty = QPow::get_min_difficulty();
 		let max_difficulty = QPow::get_max_difficulty();
-		assert!(new_difficulty >= min_difficulty);
-		assert!(new_difficulty <= max_difficulty);
+		assert!(slower >= min_difficulty && slower <= max_difficulty);
+		assert!(faster >= min_difficulty && faster <= max_difficulty);
+	});
+}
+
+#[test]
+fn test_adj_factor_table() {
+	new_test_ext().execute_with(|| {
+		// With bucket=750ms, max_up=+1, max_down=-99, divisor=2048:
+		// adj_factor = clamp(1 - block_time/750, -99, 1)
+		let d = U512::from(2_048_000_000u64); // step = 1_000_000
+
+		// block_time in [0, 750): buckets=0, adj=+1, Δ=+1_000_000
+		let r = QPow::calculate_difficulty(d, 0, 1000);
+		assert_eq!(r, d + U512::from(1_000_000u64));
+		let r = QPow::calculate_difficulty(d, 749, 1000);
+		assert_eq!(r, d + U512::from(1_000_000u64));
+
+		// block_time in [750, 1500): buckets=1, adj=0, no change
+		let r = QPow::calculate_difficulty(d, 750, 1000);
+		assert_eq!(r, d);
+		let r = QPow::calculate_difficulty(d, 1499, 1000);
+		assert_eq!(r, d);
+
+		// block_time in [1500, 2250): buckets=2, adj=-1
+		let r = QPow::calculate_difficulty(d, 1500, 1000);
+		assert_eq!(r, d - U512::from(1_000_000u64));
+
+		// block_time in [75_000, 75_750): buckets=100, adj=-99 (cap)
+		let r = QPow::calculate_difficulty(d, 75_000, 1000);
+		assert_eq!(r, d - U512::from(99_000_000u64));
+
+		// Far past the cap: still -99
+		let r = QPow::calculate_difficulty(d, 10_000_000, 1000);
+		assert_eq!(r, d - U512::from(99_000_000u64));
+
+		// Pathological u64::MAX block_time: still -99, saturates cleanly
+		let r = QPow::calculate_difficulty(d, u64::MAX, 1000);
+		assert_eq!(r, d - U512::from(99_000_000u64));
+	});
+}
+
+#[test]
+fn test_min_difficulty_escape_from_floor() {
+	// Critical regression: with the new additive form and a min derived from the
+	// divisor, the floor must be escapable in a single fast block. The
+	// pre-existing multiplicative-clamp implementation had a floor trap at
+	// min=1000 with up-clamp=1/2048 where 1000*(1+1/2048) truncated back to 1000.
+	new_test_ext().execute_with(|| {
+		let min_diff = QPow::get_min_difficulty();
+		assert!(min_diff >= U512::from(131_072u64), "min should be >= Ethereum's MinimumDifficulty");
+
+		let lifted = QPow::calculate_difficulty(min_diff, 0, 1000);
+		assert!(
+			lifted > min_diff,
+			"floor must be liftable: lifted={} min={}",
+			lifted.low_u64(),
+			min_diff.low_u64()
+		);
+
+		// Step at the floor should equal exactly +(min/divisor).
+		let divisor = <Test as Config>::DifficultyBoundDivisor::get();
+		let expected_step = min_diff / divisor;
+		assert_eq!(lifted, min_diff + expected_step);
+	});
+}
+
+#[test]
+fn test_overflow_saturation() {
+	new_test_ext().execute_with(|| {
+		// Max difficulty: fast block should saturate, not overflow.
+		let max = QPow::get_max_difficulty();
+		let r = QPow::calculate_difficulty(max, 0, 1000);
+		assert_eq!(r, max);
+
+		// Min difficulty: slow block should clip to min, not underflow.
+		let min = QPow::get_min_difficulty();
+		let r = QPow::calculate_difficulty(min, u64::MAX, 1000);
+		assert_eq!(r, min);
+	});
+}
+
+#[test]
+fn test_no_change_when_at_target() {
+	new_test_ext().execute_with(|| {
+		let d = U512::from(1_000_000u64);
+		// target=1000ms sits in the no-change band [750, 1500).
+		let r = QPow::calculate_difficulty(d, 1000, 1000);
+		assert_eq!(r, d);
 	});
 }
 
@@ -330,74 +427,36 @@ fn test_difficulty_recovers_after_sleep() {
 	new_test_ext().execute_with(|| {
 		let target = <Test as Config>::TargetBlockTime::get();
 
+		// Warm up at target — adj_factor = 0, no change.
 		for i in 1u64..=10 {
 			run_block(i, i * target);
 		}
-
 		let pre_sleep = QPow::get_difficulty();
 		assert_eq!(pre_sleep, U512::from(1_000_000u64));
 
-		// Simulate laptop sleep: 1-hour gap between blocks
+		// Simulate laptop sleep: 1-hour gap between blocks. With bucket=750ms,
+		// 3_600_000 / 750 = 4800 buckets → adj_factor = max(1-4800, -99) = -99.
+		// Step = 1_000_000 / 2048 = 488. Δ = -488*99 = -48_312. New = 951_688.
 		run_block(11, 10 * target + 3_600_000);
+		let post_sleep = QPow::get_difficulty();
+		assert!(post_sleep < pre_sleep);
+		assert!(post_sleep > pre_sleep * U512::from(95u64) / U512::from(100u64));
 
-		// 20 normal blocks after waking
+		// 20 normal blocks at target → adj_factor=0, difficulty stays put.
+		// (Single-block input means the slow patch does not keep echoing into
+		// future adjustments — exactly the property EIP-2 §Rationale calls out.)
 		for i in 12u64..=31 {
 			run_block(i, 10 * target + 3_600_000 + (i - 11) * target);
 		}
-
-		let recovered = QPow::get_difficulty();
-		// EMA smoothing limits the spike, but alpha=500 is aggressive so recovery
-		// takes many blocks. 20 normal blocks bring difficulty to ~18% of pre-sleep.
-		assert!(
-			recovered > pre_sleep / 10,
-			"Difficulty should stay above 10% after sleep. Pre: {}, Post: {}",
-			pre_sleep.low_u64(),
-			recovered.low_u64()
-		);
+		let after_normal = QPow::get_difficulty();
+		assert_eq!(after_normal, post_sleep, "no slow tail after one bad block");
 	});
 }
 
 #[test]
-fn test_zero_observed_block_time() {
+fn test_min_difficulty_matches_ethereum_floor() {
 	new_test_ext().execute_with(|| {
-		let difficulty = U512::from(1_000_000u64);
-		let result = QPow::calculate_difficulty(difficulty, 0, 1000);
-		let min = QPow::get_min_difficulty();
-		let max = QPow::get_max_difficulty();
-		assert!(result >= min);
-		assert!(result <= max);
-	});
-}
-
-#[test]
-fn test_min_difficulty_derived_from_clamp() {
-	new_test_ext().execute_with(|| {
-		assert_eq!(QPow::get_min_difficulty(), U512::from(1000u64));
-	});
-}
-
-#[test]
-fn test_min_difficulty_can_increase() {
-	new_test_ext().execute_with(|| {
-		let min_diff = QPow::get_min_difficulty();
-		// Fast blocks → ratio clamped to 1.1 → floor(1000 * 1.1) = 1100
-		let result = QPow::calculate_difficulty(min_diff, 1, 1000);
-		assert!(
-			result > min_diff,
-			"Min difficulty must be able to increase: {} should be > {}",
-			result.low_u64(),
-			min_diff.low_u64()
-		);
-	});
-}
-
-#[test]
-fn test_min_difficulty_floors_on_slow_blocks() {
-	new_test_ext().execute_with(|| {
-		let min_diff = QPow::get_min_difficulty();
-		// Slow blocks → ratio clamped to 0.9 → floor(1000 * 0.9) = 900, clips to 1000
-		let result = QPow::calculate_difficulty(min_diff, 100_000, 1000);
-		assert_eq!(result, min_diff);
+		assert_eq!(QPow::get_min_difficulty(), U512::from(131_072u64));
 	});
 }
 
@@ -405,7 +464,8 @@ fn test_min_difficulty_floors_on_slow_blocks() {
 fn test_difficulty_below_min_clips_up() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Starting at 1 (below min), any result clips to min_difficulty
+		// Starting at 1 (below min): step = 1/2048 = 0, but post-adjustment clip
+		// brings the value up to min_difficulty.
 		let result_fast = QPow::calculate_difficulty(U512::from(1u64), 1, 1000);
 		let result_slow = QPow::calculate_difficulty(U512::from(1u64), 100_000, 1000);
 		assert_eq!(result_fast, min_diff);
