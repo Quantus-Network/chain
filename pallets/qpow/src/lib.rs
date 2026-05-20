@@ -318,7 +318,23 @@ pub mod pallet {
 
 			let min_difficulty = Self::get_min_difficulty();
 			let max_difficulty = Self::get_max_difficulty();
-			let adjusted = raw_adjusted.max(min_difficulty).min(max_difficulty);
+			let adjusted = if raw_adjusted < min_difficulty {
+				log::warn!(
+					target: "qpow",
+					"difficulty clipped UP to floor: raw={:x} -> min={:x} (block_time={}ms, adj={})",
+					raw_adjusted.low_u64(), min_difficulty.low_u64(), observed_block_time, adj_factor
+				);
+				min_difficulty
+			} else if raw_adjusted > max_difficulty {
+				log::warn!(
+					target: "qpow",
+					"difficulty clipped DOWN to ceiling: raw_low={:x} -> max (block_time={}ms, adj={})",
+					raw_adjusted.low_u64(), observed_block_time, adj_factor
+				);
+				max_difficulty
+			} else {
+				raw_adjusted
+			};
 
 			log::debug!(target: "qpow",
 				"📊 current={:x} block_time={}ms buckets={} adj={} step={:x} delta={:x} new={:x}",

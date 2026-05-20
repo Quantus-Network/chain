@@ -472,3 +472,82 @@ fn test_difficulty_below_min_clips_up() {
 		assert_eq!(result_slow, min_diff);
 	});
 }
+
+#[cfg(test)]
+mod proptests {
+	use super::*;
+	use crate::mock::{new_test_ext, QPow, Test};
+	use proptest::prelude::*;
+
+	fn arb_difficulty() -> impl Strategy<Value = U512> {
+		prop_oneof![
+			Just(U512::from(131_072u64)),
+			Just(U512::MAX),
+			Just(U512::from(2_700_000u64)),
+			(1u128..=u128::MAX).prop_map(U512::from),
+		]
+	}
+
+	fn run<T>(f: impl FnOnce() -> T) -> T {
+		new_test_ext().execute_with(f)
+	}
+
+	proptest! {
+		#[test]
+		fn result_always_in_bounds(d in arb_difficulty(), bt in 0u64..=u64::MAX) {
+			let (r, min, max) = run(|| (
+				QPow::calculate_difficulty(d, bt, 1000),
+				QPow::get_min_difficulty(),
+				QPow::get_max_difficulty(),
+			));
+			prop_assert!(r >= min, "result {} < min {}", r.low_u64(), min.low_u64());
+			prop_assert!(r <= max);
+		}
+
+		#[test]
+		fn monotone_in_block_time(
+			d in arb_difficulty(),
+			bt1 in 0u64..1_000_000,
+			bt2 in 0u64..1_000_000,
+		) {
+			let (a, b) = if bt1 <= bt2 { (bt1, bt2) } else { (bt2, bt1) };
+			let (fast, slow) = run(|| (
+				QPow::calculate_difficulty(d, a, 1000),
+				QPow::calculate_difficulty(d, b, 1000),
+			));
+			prop_assert!(fast >= slow,
+				"monotonicity broken: bt={} -> {}, bt={} -> {}",
+				a, fast.low_u64(), b, slow.low_u64());
+		}
+
+		#[test]
+		fn no_change_band_is_flat(d in arb_difficulty(), offset in 0u64..750u64) {
+			let (r, expected) = run(|| {
+				let bucket = <Test as Config>::BlockTimeBucketMs::get();
+				let r = QPow::calculate_difficulty(d, bucket + offset, 1000);
+				let min = QPow::get_min_difficulty();
+				let max = QPow::get_max_difficulty();
+				(r, d.max(min).min(max))
+			});
+			prop_assert_eq!(r, expected);
+		}
+
+		#[test]
+		fn step_magnitude_bounded(d in arb_difficulty(), bt in 0u64..=u64::MAX) {
+			let (r, min, divisor) = run(|| (
+				QPow::calculate_difficulty(d, bt, 1000),
+				QPow::get_min_difficulty(),
+				<Test as Config>::DifficultyBoundDivisor::get(),
+			));
+			if d < min { return Ok(()); }
+			let max_factor = U512::from(
+				(<Test as Config>::MaxUpAdjFactor::get() as u32)
+					.max(<Test as Config>::MaxDownAdjFactor::get().unsigned_abs()),
+			);
+			let max_delta = (d / divisor).saturating_mul(max_factor);
+			let actual_delta = if r >= d { r - d } else { d - r };
+			prop_assert!(actual_delta <= max_delta,
+				"delta {} exceeds max step {}", actual_delta.low_u64(), max_delta.low_u64());
+		}
+	}
+}
