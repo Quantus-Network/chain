@@ -153,7 +153,7 @@ pub mod pallet {
 				);
 
 				<LastBlockDuration<T>>::put(duration);
-				
+
 				duration
 			} else {
 				T::TargetBlockTime::get()
@@ -162,7 +162,8 @@ pub mod pallet {
 			<LastBlockTime<T>>::put(now);
 
 			let target_time = T::TargetBlockTime::get();
-			let new_difficulty = Self::calculate_difficulty(current_difficulty, block_time, target_time);
+			let new_difficulty =
+				Self::calculate_difficulty(current_difficulty, block_time, target_time);
 
 			<CurrentDifficulty<T>>::put(new_difficulty);
 
@@ -192,7 +193,7 @@ pub mod pallet {
 		/// Calculate new difficulty based on block time.
 		/// Uses the same formula as Ethereum PoW:
 		/// diff = parent_diff + (parent_diff / 2048) * max(1 - block_time / divisor, -99)
-		/// 
+		///
 		/// The divisor is 10 seconds for a 12s target (scales proportionally).
 		/// This creates these zones:
 		/// - < divisor: difficulty increases by 1/2048 (~0.05%)
@@ -205,31 +206,32 @@ pub mod pallet {
 			target_time_ms: u64,
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
-			
+
 			// Divisor scales with target: 10s divisor for 12s target
 			// divisor = target * 10 / 12 = target * 5 / 6
 			let divisor_ms = (target_time_ms * 5 / 6).max(1);
 			let time_factor = (block_time_ms / divisor_ms) as i64;
 			let adjustment = core::cmp::max(1i64 - time_factor, -99i64);
-			
+
 			log::debug!(target: "qpow", "Block time: {}ms, divisor: {}ms, time_factor: {}, adjustment: {}", 
 				block_time_ms, divisor_ms, time_factor, adjustment);
-			
+
 			// Difficulty increment = parent_diff / 2048
 			let increment = parent_difficulty / U512::from(2048u64);
-			
+
 			// Calculate new difficulty
 			let new_difficulty = if adjustment >= 0 {
-				parent_difficulty.saturating_add(increment.saturating_mul(U512::from(adjustment as u64)))
+				parent_difficulty
+					.saturating_add(increment.saturating_mul(U512::from(adjustment as u64)))
 			} else {
 				let decrease = increment.saturating_mul(U512::from((-adjustment) as u64));
 				parent_difficulty.saturating_sub(decrease)
 			};
-			
+
 			// Apply min/max bounds
 			let min_difficulty = Self::get_min_difficulty();
 			let max_difficulty = Self::get_max_difficulty();
-			
+
 			let bounded = if new_difficulty < min_difficulty {
 				log::warn!("Min difficulty achieved, clipping to: {:x}", min_difficulty.low_u64());
 				min_difficulty
