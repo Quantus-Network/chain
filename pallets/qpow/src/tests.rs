@@ -267,7 +267,10 @@ fn test_min_difficulty_escape_from_floor() {
 	// min=1000 with up-clamp=1/2048 where 1000*(1+1/2048) truncated back to 1000.
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		assert!(min_diff >= U512::from(131_072u64), "min should be >= Ethereum's MinimumDifficulty");
+		assert!(
+			min_diff >= U512::from(131_072u64),
+			"min should be >= Ethereum's MinimumDifficulty"
+		);
 
 		let lifted = QPow::calculate_difficulty(min_diff, 0, 1000);
 		assert!(
