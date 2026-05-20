@@ -406,10 +406,8 @@ pub mod pallet {
 		}
 
 		pub fn get_min_difficulty() -> Difficulty {
-			// This value is related to clamp value,
-			// ie, if clamp is 10% this value must be at least 10
-			// 1000 is safe for clamp values >= 0.01%
-			U512::from(1000u64)
+			// Minimum difficulty floor - same as Ethereum's minimum (2^17 = 131072)
+			U512::from(131_072u64)
 		}
 
 		pub fn get_max_difficulty() -> Difficulty {

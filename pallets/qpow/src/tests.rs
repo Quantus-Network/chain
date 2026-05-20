@@ -110,7 +110,7 @@ fn test_difficulty_bounds() {
 		let max_difficulty = QPow::get_max_difficulty();
 		let initial_difficulty = QPow::initial_difficulty();
 
-		assert_eq!(min_difficulty, U512::from(1000u64));
+		assert_eq!(min_difficulty, U512::from(131_072u64));
 		assert!(max_difficulty > initial_difficulty);
 		assert!(initial_difficulty > min_difficulty);
 	});
@@ -372,7 +372,7 @@ fn test_zero_observed_block_time() {
 #[test]
 fn test_min_difficulty_derived_from_clamp() {
 	new_test_ext().execute_with(|| {
-		assert_eq!(QPow::get_min_difficulty(), U512::from(1000u64));
+		assert_eq!(QPow::get_min_difficulty(), U512::from(131_072u64));
 	});
 }
 
