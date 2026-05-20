@@ -32,9 +32,6 @@ mod benchmarks {
 		pallet_timestamp::Pallet::<T>::set_timestamp(now);
 		<LastBlockTime<T>>::put(now.saturating_sub(T::TargetBlockTime::get()));
 
-		// Initialize EMA
-		<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
-
 		#[block]
 		{
 			QPoW::<T>::on_finalize(block_number);
