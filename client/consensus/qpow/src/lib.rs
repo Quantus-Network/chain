@@ -46,8 +46,6 @@ pub enum Error<B: BlockT> {
 	InvalidSeal,
 	#[error("PoW validation error: preliminary verification failed")]
 	FailedPreliminaryVerify,
-	#[error("Rejecting block too far in future")]
-	TooFarInFuture,
 	#[error("Fetching best header failed: {0}")]
 	BestHeader(sp_blockchain::Error),
 	#[error("Best header does not exist")]

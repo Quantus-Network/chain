@@ -35,7 +35,8 @@ use crate::{
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{
-		AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, Get, NeverEnsureOrigin, VariantCountOf,
+		AsEnsureOriginWithArg, ConstI32, ConstU128, ConstU32, ConstU8, Get, NeverEnsureOrigin,
+		VariantCountOf,
 	},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -55,7 +56,7 @@ use smallvec::smallvec;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{BlakeTwo256, One},
-	AccountId32, FixedU128, Perbill, Permill,
+	AccountId32, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -150,21 +151,35 @@ parameter_types! {
 	/// Target block time ms
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
-	/// Initial mining difficulty - low value for development
-	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
-	/// Difficulty adjustment percent clamp
-	pub const DifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
+	/// Initial mining difficulty. Sized to give miners a meaningful warm-up window
+	/// above `MinimumDifficulty` (2^17) while remaining easy enough to bootstrap.
+	pub const QPoWInitialDifficulty: U512 = U512([2_700_000, 0, 0, 0, 0, 0, 0, 0]);
+	/// Ethereum EIP-2 `DIFF_BOUND_DIVISOR`. Per-block unit step is
+	/// `parent_difficulty / 2048`, applied additively in both directions.
+	pub const QPoWDifficultyBoundDivisor: U512 = U512([2048, 0, 0, 0, 0, 0, 0, 0]);
+	/// Bucket for the EIP-2 signed adjustment factor. With `MaxUpAdjFactor = 1`
+	/// the no-change band is `[bucket, 2*bucket)`; `2/3 * target` (8s for a 12s
+	/// target) centres that band on the target block time.
+	pub const QPoWBlockTimeBucketMs: u64 = (2 * TARGET_BLOCK_TIME_MS) / 3;
 }
 
 impl pallet_qpow::Config for Runtime {
-	// Starting difficulty - should be challenging enough to require some work but not too high
 	type InitialDifficulty = QPoWInitialDifficulty;
-	type DifficultyAdjustPercentClamp = DifficultyAdjustPercentClamp;
+	type DifficultyBoundDivisor = QPoWDifficultyBoundDivisor;
+	type BlockTimeBucketMs = QPoWBlockTimeBucketMs;
+	/// Homestead value (Byzantium uses 2 only when the parent has uncles; Quantus
+	/// has no uncles).
+	type MaxUpAdjFactor = ConstI32<1>;
+	/// Ethereum EIP-2 `-99` cap. Triggers only when a single block takes
+	/// `(MaxUp - MaxDown) * BlockTimeBucketMs = 100 * 8s = 800s` (≈13 minutes).
+	type MaxDownAdjFactor = ConstI32<-99>;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
-
 	type WeightInfo = ();
-	type EmaAlpha = ConstU32<100>; // out of 1000, last_block_time * alpha + (previous_ema * (1 - alpha)) on moving average
+	/// EMA is exposed via `get_block_time_ema` runtime API for Prometheus
+	/// telemetry only; it does **not** drive the controller (see EIP-2
+	/// §Rationale).
+	type EmaAlpha = ConstU32<100>;
 }
 
 parameter_types! {

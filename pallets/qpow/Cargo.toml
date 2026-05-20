@@ -35,6 +35,7 @@ sp-runtime.workspace = true
 
 [dev-dependencies]
 primitive-types.workspace = true
+proptest = "1"
 
 [features]
 default = ["std"]

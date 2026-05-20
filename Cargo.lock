@@ -6683,6 +6683,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
+ "proptest",
  "qp-poseidon-core",
  "qpow-math",
  "scale-info",
