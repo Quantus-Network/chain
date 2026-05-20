@@ -44,13 +44,6 @@ impl BusinessMetrics {
 		C: ProvideRuntimeApi<Block>,
 		C::Api: sp_consensus_qpow::QPoWApi<Block>,
 	{
-		// Get values via the runtime API - we'll handle potential errors gracefully
-		let block_time_ema =
-			client.runtime_api().get_block_time_ema(block_hash).unwrap_or_else(|e| {
-				log::warn!("Failed to get median_block_time: {:?}", e);
-				0
-			});
-
 		let difficulty = client.runtime_api().get_difficulty(block_hash).unwrap_or_else(|e| {
 			log::warn!("Failed to get difficulty: {:?}", e);
 			U512::zero()
@@ -73,9 +66,7 @@ impl BusinessMetrics {
 			0
 		});
 
-		// Update the metrics with the values we retrieved
 		gauge.with_label_values(&["chain_height"]).set(chain_height as f64);
-		gauge.with_label_values(&["block_time_ema"]).set(block_time_ema as f64);
 		gauge.with_label_values(&["difficulty"]).set(Self::pack_u512_to_f64(difficulty));
 		gauge.with_label_values(&["last_block_time"]).set(last_block_time as f64);
 		gauge

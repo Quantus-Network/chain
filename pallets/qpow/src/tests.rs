@@ -178,22 +178,6 @@ fn test_difficulty_storage_and_retrieval() {
 }
 
 #[test]
-fn test_ema_block_time_tracking() {
-	new_test_ext().execute_with(|| {
-		// Initial EMA should be target block time
-		let target_time = <Test as Config>::TargetBlockTime::get();
-		let initial_ema = QPow::get_block_time_ema();
-		assert_eq!(initial_ema, target_time);
-
-		// Run blocks and check EMA updates
-		run_to_block(2);
-		let updated_ema = QPow::get_block_time_ema();
-		// EMA should still exist (exact value depends on timing)
-		assert!(updated_ema > 0);
-	});
-}
-
-#[test]
 fn test_difficulty_calculation() {
 	new_test_ext().execute_with(|| {
 		let current_difficulty = U512::from(1000u64);

@@ -22,12 +22,11 @@ pub mod pallet {
 	use core::ops::Shr;
 	use frame_support::{
 		pallet_prelude::*,
-		sp_runtime::{traits::One, SaturatedConversion, Saturating},
+		sp_runtime::{traits::One, SaturatedConversion},
 		traits::{BuildGenesisConfig, Time},
 	};
 	use frame_system::pallet_prelude::BlockNumberFor;
 	use qpow_math::{achieved_difficulty_from_hash, get_nonce_hash, is_valid_nonce};
-	use sp_arithmetic::FixedU128;
 	use sp_core::U512;
 
 	pub type NonceType = [u8; 64];
@@ -48,32 +47,13 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type CurrentDifficulty<T: Config> = StorageValue<_, Difficulty, ValueQuery>;
 
-	// Exponential Moving Average of block times (in milliseconds)
-	#[pallet::storage]
-	pub type BlockTimeEma<T: Config> = StorageValue<_, BlockDuration, ValueQuery>;
-
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_timestamp::Config {
-		/// Pallet's weight info
 		#[pallet::constant]
 		type InitialDifficulty: Get<U512>;
 
-		/// Maximum percentage increase in difficulty per block (e.g., 3% = 3/100)
-		/// Used when blocks are faster than target (difficulty needs to increase)
-		#[pallet::constant]
-		type DifficultyIncreaseClamp: Get<FixedU128>;
-
-		/// Maximum percentage decrease in difficulty per block (e.g., 10% = 10/100)
-		/// Used when blocks are slower than target (difficulty needs to decrease)
-		#[pallet::constant]
-		type DifficultyDecreaseClamp: Get<FixedU128>;
-
 		#[pallet::constant]
 		type TargetBlockTime: Get<BlockDuration>;
-
-		/// EMA smoothing factor (0-1000, where 1000 = 1.0)
-		#[pallet::constant]
-		type EmaAlpha: Get<u32>;
 
 		#[pallet::constant]
 		type MaxReorgDepth: Get<u32>;
@@ -99,14 +79,10 @@ pub mod pallet {
 		fn build(&self) {
 			let initial_difficulty = T::InitialDifficulty::get();
 
-			// Set current difficulty for the genesis block
 			<CurrentDifficulty<T>>::put(initial_difficulty);
 
 			log::info!(target: "qpow", "Genesis: Set initial difficulty to {:x}",
 				initial_difficulty.low_u64());
-
-			// Initialize EMA with target block time
-			<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
 		}
 	}
 
@@ -146,36 +122,6 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		fn update_block_time_ema(block_time: u64) {
-			let current_ema = <BlockTimeEma<T>>::get();
-			let alpha = T::EmaAlpha::get();
-
-			// Initialize EMA with target block time if this is the first block
-			if current_ema == 0 {
-				<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
-				return;
-			}
-
-			// Calculate EMA: new_ema = alpha * block_time + (1 - alpha) * current_ema
-			// Alpha is scaled by 1000, so we divide by 1000
-			let alpha_scaled = alpha as u64;
-			let one_minus_alpha = 1000u64.saturating_sub(alpha_scaled);
-
-			let weighted_current = block_time.saturating_mul(alpha_scaled);
-			let weighted_ema = current_ema.saturating_mul(one_minus_alpha);
-			let new_ema = (weighted_current.saturating_add(weighted_ema)) / 1000;
-
-			<BlockTimeEma<T>>::put(new_ema);
-
-			log::debug!(target: "qpow",
-				"📊 Updated EMA: {}ms -> {}ms (new block: {}ms, alpha: {})",
-				current_ema,
-				new_ema,
-				block_time,
-				alpha_scaled
-			);
-		}
-
 		fn percentage_change(big_a: U512, big_b: U512) -> (U512, bool) {
 			let a = big_a.shr(10);
 			let b = big_b.shr(10);
@@ -190,132 +136,118 @@ pub mod pallet {
 		}
 
 		fn adjust_difficulty() {
-			// Get current time
 			let now = pallet_timestamp::Pallet::<T>::now().saturated_into::<u64>();
 			let last_time = <LastBlockTime<T>>::get();
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			let current_block_number = <frame_system::Pallet<T>>::block_number();
 
-			// Only calculate block time if we're past the genesis block
-			if current_block_number > One::one() {
-				let block_time = now.saturating_sub(last_time);
+			// Calculate block time (use target for genesis block)
+			let block_time = if current_block_number > One::one() {
+				let duration = now.saturating_sub(last_time);
 
 				log::debug!(target: "qpow",
 					"Time calculation: now={}, last_time={}, diff={}ms",
 					now,
 					last_time,
-					block_time
+					duration
 				);
 
-				// Store the actual block duration
-				<LastBlockDuration<T>>::put(block_time);
+				<LastBlockDuration<T>>::put(duration);
+				
+				duration
+			} else {
+				T::TargetBlockTime::get()
+			};
 
-				Self::update_block_time_ema(block_time);
-			}
-
-			// Add last block time for the next calculations
 			<LastBlockTime<T>>::put(now);
 
-			let observed_block_time = <BlockTimeEma<T>>::get();
 			let target_time = T::TargetBlockTime::get();
+			let new_difficulty = Self::calculate_difficulty(current_difficulty, block_time, target_time);
 
-			let new_difficulty =
-				Self::calculate_difficulty(current_difficulty, observed_block_time, target_time);
-
-			// Save new difficulty
 			<CurrentDifficulty<T>>::put(new_difficulty);
 
 			log::debug!(target: "qpow", "Stored new difficulty: {}",
 				new_difficulty.low_u128());
 
-			// Propagate new Event
 			Self::deposit_event(Event::DifficultyAdjusted {
 				old_difficulty: current_difficulty,
 				new_difficulty,
-				observed_block_time,
+				observed_block_time: block_time,
 			});
 
 			let (pct_change, is_positive) =
 				Self::percentage_change(current_difficulty, new_difficulty);
 
 			log::debug!(target: "qpow",
-				"🟢 Adjusted mining difficulty {}{}%: {:x} -> {:x} (observed block time: {}ms, target: {}ms) ",
+				"🟢 Adjusted mining difficulty {}{}%: {:x} -> {:x} (block time: {}ms, target: {}ms) ",
 				if is_positive {"+"} else {"-"},
 				pct_change,
 				current_difficulty.low_u64(),
 				new_difficulty.low_u64(),
-				observed_block_time,
+				block_time,
 				target_time
 			);
 		}
 
+		/// Calculate new difficulty based on block time.
+		/// Uses the same formula as Ethereum PoW:
+		/// diff = parent_diff + (parent_diff / 2048) * max(1 - block_time / divisor, -99)
+		/// 
+		/// The divisor is 10 seconds for a 12s target (scales proportionally).
+		/// This creates these zones:
+		/// - < divisor: difficulty increases by 1/2048 (~0.05%)
+		/// - divisor to 2*divisor: no change
+		/// - 2*divisor to 3*divisor: difficulty decreases by 1/2048
+		/// - etc, up to max decrease of 99/2048 (~4.8%)
 		pub fn calculate_difficulty(
-			current_difficulty: U512,
-			observed_block_time: u64,
-			target_block_time: u64,
+			parent_difficulty: U512,
+			block_time_ms: u64,
+			target_time_ms: u64,
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
-			let observed_block_time = observed_block_time.max(1);
-			let one = FixedU128::one();
 			
-			// Calculate raw ratio: target_time / observed_time
-			// If observed > target (slow blocks): ratio < 1 -> difficulty decreases
-			// If observed < target (fast blocks): ratio > 1 -> difficulty increases
-			let raw_ratio = FixedU128::from_rational(target_block_time as u128, observed_block_time as u128);
+			// Divisor scales with target: 10s divisor for 12s target
+			// divisor = target * 10 / 12 = target * 5 / 6
+			let divisor_ms = (target_time_ms * 5 / 6).max(1);
+			let time_factor = (block_time_ms / divisor_ms) as i64;
+			let adjustment = core::cmp::max(1i64 - time_factor, -99i64);
 			
-			// Apply asymmetric clamping based on direction
-			let ratio = if raw_ratio > one {
-				// Difficulty increasing (blocks too fast) - use smaller clamp
-				let increase_clamp = T::DifficultyIncreaseClamp::get();
-				raw_ratio.min(one.saturating_add(increase_clamp))
+			log::debug!(target: "qpow", "Block time: {}ms, divisor: {}ms, time_factor: {}, adjustment: {}", 
+				block_time_ms, divisor_ms, time_factor, adjustment);
+			
+			// Difficulty increment = parent_diff / 2048
+			let increment = parent_difficulty / U512::from(2048u64);
+			
+			// Calculate new difficulty
+			let new_difficulty = if adjustment >= 0 {
+				parent_difficulty.saturating_add(increment.saturating_mul(U512::from(adjustment as u64)))
 			} else {
-				// Difficulty decreasing (blocks too slow) - use larger clamp
-				let decrease_clamp = T::DifficultyDecreaseClamp::get();
-				raw_ratio.max(one.saturating_sub(decrease_clamp))
+				let decrease = increment.saturating_mul(U512::from((-adjustment) as u64));
+				parent_difficulty.saturating_sub(decrease)
 			};
 			
-			log::debug!(target: "qpow", "💧 Raw ratio: {}, Clamped ratio: {}", raw_ratio, ratio);
-
-			let ratio_512 = U512::from(ratio.into_inner());
-			let max_difficulty = Self::get_max_difficulty();
-
-			// For Bitcoin-style difficulty adjustment:
-			// If observed_time > target_time (slow blocks), difficulty should decrease
-			// If observed_time < target_time (fast blocks), difficulty should increase
-			// new_difficulty = current_difficulty * target_time / observed_time
-			let mut adjusted = match current_difficulty.checked_mul(ratio_512) {
-				Some(numerator) => {
-					// unchecked division, we know the denominator is not zero
-					let result = numerator / U512::from(one.into_inner());
-					log::debug!(target: "qpow",
-					    "Difficulty calculation: current={:x}, target_time={}, observed_time={}, new={:x}",
-						current_difficulty.low_u32() as u16, target_block_time, observed_block_time, result.low_u32() as u16);
-					result
-				},
-				None => {
-					log::error!("Multiplication overflow in difficulty calculation");
-					return max_difficulty;
-				},
-			};
-
+			// Apply min/max bounds
 			let min_difficulty = Self::get_min_difficulty();
-			if adjusted < min_difficulty {
+			let max_difficulty = Self::get_max_difficulty();
+			
+			let bounded = if new_difficulty < min_difficulty {
 				log::warn!("Min difficulty achieved, clipping to: {:x}", min_difficulty.low_u64());
-				adjusted = min_difficulty;
-			} else if adjusted > max_difficulty {
+				min_difficulty
+			} else if new_difficulty > max_difficulty {
 				log::warn!("Max difficulty achieved, clipping to: {:x}", max_difficulty.low_u64());
-				adjusted = max_difficulty;
-			}
+				max_difficulty
+			} else {
+				new_difficulty
+			};
 
 			log::debug!(target: "qpow",
 				"🟢 Current Difficulty: {:x}",
-				current_difficulty.low_u64()
+				parent_difficulty.low_u64()
 			);
-			log::debug!(target: "qpow", "🟢 Next Difficulty:    {:x}", adjusted.low_u64());
-			log::debug!(target: "qpow", "🕒 Observed Block Time Sum: {}ms", observed_block_time);
-			log::debug!(target: "qpow", "🎯 Target Block Time Sum:   {target_block_time}ms");
+			log::debug!(target: "qpow", "🟢 Next Difficulty:    {:x}", bounded.low_u64());
+			log::debug!(target: "qpow", "🕒 Block Time: {}ms", block_time_ms);
 
-			adjusted
+			bounded
 		}
 	}
 
@@ -412,10 +344,6 @@ pub mod pallet {
 
 		pub fn get_max_difficulty() -> Difficulty {
 			U512::MAX
-		}
-
-		pub fn get_block_time_ema() -> u64 {
-			<BlockTimeEma<T>>::get()
 		}
 
 		pub fn get_last_block_time() -> Timestamp {

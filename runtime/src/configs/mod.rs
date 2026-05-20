@@ -55,7 +55,7 @@ use smallvec::smallvec;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{BlakeTwo256, One},
-	AccountId32, FixedU128, Perbill, Permill,
+	AccountId32, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -150,25 +150,15 @@ parameter_types! {
 	/// Target block time ms
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
+	/// Initial mining difficulty
 	pub const QPoWInitialDifficulty: U512 = U512([2_700_000, 0, 0, 0, 0, 0, 0, 0]);
-	/// Maximum difficulty increase per block (~0.05%) - Ethereum-style slow increase
-	pub const DifficultyIncreaseClamp: FixedU128 = FixedU128::from_rational(1, 2048);
-	/// Maximum difficulty decrease per block (~5%) - Ethereum-style fast recovery
-	pub const DifficultyDecreaseClamp: FixedU128 = FixedU128::from_rational(5, 100);
 }
 
 impl pallet_qpow::Config for Runtime {
-	// Starting difficulty - should be challenging enough to require some work but not too high
 	type InitialDifficulty = QPoWInitialDifficulty;
-	type DifficultyIncreaseClamp = DifficultyIncreaseClamp;
-	type DifficultyDecreaseClamp = DifficultyDecreaseClamp;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
-
 	type WeightInfo = ();
-	// EMA smoothing factor: 10/1000 = 1% weight on new block, 99% on previous EMA
-	// This gives ~100 block effective window for very smooth difficulty curve
-	type EmaAlpha = ConstU32<10>;
 }
 
 parameter_types! {
