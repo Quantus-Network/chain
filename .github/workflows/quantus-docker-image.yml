@@ -103,7 +103,7 @@ jobs:
           path: source_code_for_build
 
       - name: Build and push Docker image from Dockerfile
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./source_code_for_build
           file: ./Dockerfile
