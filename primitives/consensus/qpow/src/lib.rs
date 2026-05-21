@@ -19,17 +19,18 @@ sp_api::decl_runtime_apis! {
 		/// Get the current difficulty (max_distance / distance_threshold)
 		fn get_difficulty() -> U512;
 
-		/// Get block ema
-		fn get_block_time_ema() -> u64;
-
 		/// Get last block timestamp
 		fn get_last_block_time() -> u64;
 
-		// Get last block mining time
+		/// Get last block mining time
 		fn get_last_block_duration() -> u64;
+
 		fn get_chain_height() -> u32;
+
 		fn verify_nonce_on_import_block(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
+
 		fn verify_nonce_local_mining(block_hash: [u8; 32], nonce: [u8; 64]) -> bool;
+
 		fn verify_and_get_achieved_difficulty(block_hash: [u8; 32], nonce: [u8; 64]) -> (bool, U512);
 	}
 }

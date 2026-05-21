@@ -110,7 +110,7 @@ fn test_difficulty_bounds() {
 		let max_difficulty = QPow::get_max_difficulty();
 		let initial_difficulty = QPow::initial_difficulty();
 
-		assert_eq!(min_difficulty, U512::from(1000u64));
+		assert_eq!(min_difficulty, U512::from(131_072u64));
 		assert!(max_difficulty > initial_difficulty);
 		assert!(initial_difficulty > min_difficulty);
 	});
@@ -174,22 +174,6 @@ fn test_difficulty_storage_and_retrieval() {
 
 		// 4. Simulate adjustment period
 		run_to_block(2);
-	});
-}
-
-#[test]
-fn test_ema_block_time_tracking() {
-	new_test_ext().execute_with(|| {
-		// Initial EMA should be target block time
-		let target_time = <Test as Config>::TargetBlockTime::get();
-		let initial_ema = QPow::get_block_time_ema();
-		assert_eq!(initial_ema, target_time);
-
-		// Run blocks and check EMA updates
-		run_to_block(2);
-		let updated_ema = QPow::get_block_time_ema();
-		// EMA should still exist (exact value depends on timing)
-		assert!(updated_ema > 0);
 	});
 }
 
@@ -346,8 +330,8 @@ fn test_difficulty_recovers_after_sleep() {
 		}
 
 		let recovered = QPow::get_difficulty();
-		// EMA smoothing limits the spike, but alpha=500 is aggressive so recovery
-		// takes many blocks. 20 normal blocks bring difficulty to ~18% of pre-sleep.
+		// Ethereum-style adjustment decreases difficulty by up to 99/2048 per block during sleep,
+		// then increases slowly during recovery. 20 normal blocks bring difficulty back partially.
 		assert!(
 			recovered > pre_sleep / 10,
 			"Difficulty should stay above 10% after sleep. Pre: {}, Post: {}",
@@ -372,7 +356,7 @@ fn test_zero_observed_block_time() {
 #[test]
 fn test_min_difficulty_derived_from_clamp() {
 	new_test_ext().execute_with(|| {
-		assert_eq!(QPow::get_min_difficulty(), U512::from(1000u64));
+		assert_eq!(QPow::get_min_difficulty(), U512::from(131_072u64));
 	});
 }
 
@@ -380,7 +364,7 @@ fn test_min_difficulty_derived_from_clamp() {
 fn test_min_difficulty_can_increase() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Fast blocks → ratio clamped to 1.1 → floor(1000 * 1.1) = 1100
+		// Fast blocks → positive adjustment → difficulty increases by 1/2048
 		let result = QPow::calculate_difficulty(min_diff, 1, 1000);
 		assert!(
 			result > min_diff,
@@ -395,7 +379,7 @@ fn test_min_difficulty_can_increase() {
 fn test_min_difficulty_floors_on_slow_blocks() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Slow blocks → ratio clamped to 0.9 → floor(1000 * 0.9) = 900, clips to 1000
+		// Slow blocks → negative adjustment, but clips to min difficulty
 		let result = QPow::calculate_difficulty(min_diff, 100_000, 1000);
 		assert_eq!(result, min_diff);
 	});

@@ -271,12 +271,12 @@
       },
       "targets": [
         {
-          "expr": "qpow_metrics{data_group=\"block_time_ema\"}",
+          "expr": "qpow_metrics{data_group=\"last_block_duration\"}",
           "legendFormat": "{{instance}}",
           "refId": "A"
         }
       ],
-      "title": "Block Time EMA",
+      "title": "Last Block Duration",
       "type": "timeseries"
     },
     {
