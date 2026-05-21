@@ -107,8 +107,7 @@ pub mod pallet {
 			<T as crate::Config>::WeightInfo::on_finalize()
 		}
 
-		/// Called at the end of each block to adjust mining difficulty based on
-		/// observed block times using Exponential Moving Average (EMA).
+		/// Called at the end of each block to adjust mining difficulty.
 		fn on_finalize(block_number: BlockNumberFor<T>) {
 			let current_difficulty = <CurrentDifficulty<T>>::get();
 			log::debug!(target: "qpow",
@@ -207,9 +206,9 @@ pub mod pallet {
 		) -> U512 {
 			log::debug!(target: "qpow", "📊 Calculating new difficulty ---------------------------------------------");
 
-			// Divisor scales with target: 10s divisor for 12s target
-			// divisor = target * 10 / 12 = target * 5 / 6
-			let divisor_ms = (target_time_ms * 5 / 6).max(1);
+			// Divisor scales with target: 8s divisor for 12s target
+			// divisor = target * 8 / 12 = target * 2 / 3
+			let divisor_ms = (target_time_ms * 2 / 3).max(1);
 			let time_factor = (block_time_ms / divisor_ms) as i64;
 			let adjustment = core::cmp::max(1i64 - time_factor, -99i64);
 

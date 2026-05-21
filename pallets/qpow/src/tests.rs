@@ -330,8 +330,8 @@ fn test_difficulty_recovers_after_sleep() {
 		}
 
 		let recovered = QPow::get_difficulty();
-		// EMA smoothing limits the spike, but alpha=500 is aggressive so recovery
-		// takes many blocks. 20 normal blocks bring difficulty to ~18% of pre-sleep.
+		// Ethereum-style adjustment decreases difficulty by up to 99/2048 per block during sleep,
+		// then increases slowly during recovery. 20 normal blocks bring difficulty back partially.
 		assert!(
 			recovered > pre_sleep / 10,
 			"Difficulty should stay above 10% after sleep. Pre: {}, Post: {}",
@@ -364,7 +364,7 @@ fn test_min_difficulty_derived_from_clamp() {
 fn test_min_difficulty_can_increase() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Fast blocks → ratio clamped to 1.1 → floor(1000 * 1.1) = 1100
+		// Fast blocks → positive adjustment → difficulty increases by 1/2048
 		let result = QPow::calculate_difficulty(min_diff, 1, 1000);
 		assert!(
 			result > min_diff,
@@ -379,7 +379,7 @@ fn test_min_difficulty_can_increase() {
 fn test_min_difficulty_floors_on_slow_blocks() {
 	new_test_ext().execute_with(|| {
 		let min_diff = QPow::get_min_difficulty();
-		// Slow blocks → ratio clamped to 0.9 → floor(1000 * 0.9) = 900, clips to 1000
+		// Slow blocks → negative adjustment, but clips to min difficulty
 		let result = QPow::calculate_difficulty(min_diff, 100_000, 1000);
 		assert_eq!(result, min_diff);
 	});

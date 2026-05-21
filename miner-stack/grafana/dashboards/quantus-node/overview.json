@@ -118,11 +118,11 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "qpow_metrics{data_group=\"block_time_ema\", job=\"quantus-node\"}",
+          "expr": "qpow_metrics{data_group=\"last_block_duration\", job=\"quantus-node\"}",
           "refId": "A"
         }
       ],
-      "title": "Block Time (EMA)",
+      "title": "Last Block Duration",
       "type": "stat"
     },
     {

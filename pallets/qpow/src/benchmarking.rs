@@ -15,7 +15,7 @@ use sp_runtime::traits::Get;
 mod benchmarks {
 	use super::*;
 
-	/// Benchmark for the on_finalize hook which performs EMA-based difficulty adjustment.
+	/// Benchmark for the on_finalize hook which performs difficulty adjustment.
 	#[benchmark]
 	fn on_finalize() {
 		// Setup state with typical block for difficulty adjustment
