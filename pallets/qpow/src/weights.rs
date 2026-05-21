@@ -63,8 +63,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockTime` (r:1 w:1)
 	/// Proof: `QPoW::LastBlockTime` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::BlockTimeEma` (r:1 w:1)
-	/// Proof: `QPoW::BlockTimeEma` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockDuration` (r:0 w:1)
 	/// Proof: `QPoW::LastBlockDuration` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn on_finalize() -> Weight {
@@ -73,8 +71,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `1549`
 		// Minimum execution time: 106_000_000 picoseconds.
 		Weight::from_parts(109_000_000, 1549)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_add(T::DbWeight::get().reads(4_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 }
 
@@ -86,8 +84,6 @@ impl WeightInfo for () {
 	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockTime` (r:1 w:1)
 	/// Proof: `QPoW::LastBlockTime` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
-	/// Storage: `QPoW::BlockTimeEma` (r:1 w:1)
-	/// Proof: `QPoW::BlockTimeEma` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `QPoW::LastBlockDuration` (r:0 w:1)
 	/// Proof: `QPoW::LastBlockDuration` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn on_finalize() -> Weight {
@@ -96,7 +92,7 @@ impl WeightInfo for () {
 		//  Estimated: `1549`
 		// Minimum execution time: 106_000_000 picoseconds.
 		Weight::from_parts(109_000_000, 1549)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(4_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 }

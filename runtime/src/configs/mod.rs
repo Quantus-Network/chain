@@ -55,7 +55,7 @@ use smallvec::smallvec;
 use qp_scheduler::BlockNumberOrTimestamp;
 use sp_runtime::{
 	traits::{BlakeTwo256, One},
-	AccountId32, FixedU128, Perbill, Permill,
+	AccountId32, Perbill, Permill,
 };
 use sp_version::RuntimeVersion;
 
@@ -150,21 +150,15 @@ parameter_types! {
 	/// Target block time ms
 	pub const TargetBlockTime: u64 = TARGET_BLOCK_TIME_MS;
 	pub const TimestampBucketSize: u64 = 2 * TARGET_BLOCK_TIME_MS; // Nyquist frequency
-	/// Initial mining difficulty - low value for development
-	pub const QPoWInitialDifficulty: U512 = U512([1189189, 0, 0, 0, 0, 0, 0, 0]);
-	/// Difficulty adjustment percent clamp
-	pub const DifficultyAdjustPercentClamp: FixedU128 = FixedU128::from_rational(10, 100);
+	/// Initial mining difficulty
+	pub const QPoWInitialDifficulty: U512 = U512([4_000_000, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 impl pallet_qpow::Config for Runtime {
-	// Starting difficulty - should be challenging enough to require some work but not too high
 	type InitialDifficulty = QPoWInitialDifficulty;
-	type DifficultyAdjustPercentClamp = DifficultyAdjustPercentClamp;
 	type TargetBlockTime = TargetBlockTime;
 	type MaxReorgDepth = ConstU32<180>;
-
 	type WeightInfo = ();
-	type EmaAlpha = ConstU32<100>; // out of 1000, last_block_time * alpha + (previous_ema * (1 - alpha)) on moving average
 }
 
 parameter_types! {

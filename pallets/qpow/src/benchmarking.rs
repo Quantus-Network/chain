@@ -15,7 +15,7 @@ use sp_runtime::traits::Get;
 mod benchmarks {
 	use super::*;
 
-	/// Benchmark for the on_finalize hook which performs EMA-based difficulty adjustment.
+	/// Benchmark for the on_finalize hook which performs difficulty adjustment.
 	#[benchmark]
 	fn on_finalize() {
 		// Setup state with typical block for difficulty adjustment
@@ -31,9 +31,6 @@ mod benchmarks {
 		let now = 100000u64;
 		pallet_timestamp::Pallet::<T>::set_timestamp(now);
 		<LastBlockTime<T>>::put(now.saturating_sub(T::TargetBlockTime::get()));
-
-		// Initialize EMA
-		<BlockTimeEma<T>>::put(T::TargetBlockTime::get());
 
 		#[block]
 		{

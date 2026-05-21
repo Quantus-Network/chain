@@ -146,10 +146,6 @@ impl_runtime_apis! {
 			pallet_qpow::Pallet::<Self>::get_difficulty()
 		}
 
-		fn get_block_time_ema() -> u64 {
-			pallet_qpow::Pallet::<Self>::get_block_time_ema()
-		}
-
 		fn get_last_block_time() -> u64 {
 			pallet_qpow::Pallet::<Self>::get_last_block_time()
 		}
