@@ -193,7 +193,7 @@ pub mod pallet {
 		/// Uses the same formula as Ethereum PoW:
 		/// diff = parent_diff + (parent_diff / 2048) * max(1 - block_time / divisor, -99)
 		///
-		/// The divisor is 10 seconds for a 12s target (scales proportionally).
+		/// The divisor is 8 seconds for a 12s target (scales proportionally).
 		/// This creates these zones:
 		/// - < divisor: difficulty increases by 1/2048 (~0.05%)
 		/// - divisor to 2*divisor: no change
