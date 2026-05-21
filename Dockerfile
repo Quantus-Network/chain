@@ -15,11 +15,17 @@ RUN apt-get update \
 
 # Download the specified pre-built binary from GitHub releases
 ARG VERSION_ARG # Expecting format like vX.Y.Z
-RUN ARCH="x86_64-unknown-linux-gnu" \
- && echo "Attempting to download version: ${VERSION_ARG} for architecture ${ARCH}" \
- && curl -fsSL "https://github.com/Quantus-Network/chain/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
-    | tar -xzC /usr/local/bin/ \
- && chmod +x /usr/local/bin/quantus-node
+RUN set -eux; \
+    DPKG_ARCH="$(dpkg --print-architecture)"; \
+    case "$DPKG_ARCH" in \
+        amd64)   ARCH="x86_64-unknown-linux-gnu" ;; \
+        arm64)   ARCH="aarch64-unknown-linux-gnu" ;; \
+        *) echo "Unsupported architecture: $DPKG_ARCH" && exit 1 ;; \
+    esac; \
+    echo "Downloading version: ${VERSION_ARG} for architecture: ${ARCH}"; \
+    curl -fsSL "https://github.com/Quantus-Network/chain/releases/download/${VERSION_ARG}/quantus-node-${VERSION_ARG}-${ARCH}.tar.gz" \
+        | tar -xzC /usr/local/bin/; \
+    chmod +x /usr/local/bin/quantus-node
 
 # Expose P2P and public WS/RPC ports
 EXPOSE 30333 9944
