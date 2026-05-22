@@ -13,6 +13,7 @@ runs:
           clang \
           protobuf-compiler \
           gcc-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu \
           libc6-dev-arm64-cross
         rustup update
         rustup target add wasm32-unknown-unknown
