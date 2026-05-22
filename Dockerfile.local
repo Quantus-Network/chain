@@ -4,12 +4,13 @@
 FROM rust:bookworm AS builder
 
 # Install dependencies needed for building
-# clang-sys requires libclang - libclang-dev provides libclang-14.so in /usr/lib/x86_64-linux-gnu/
 RUN apt-get update && \
     apt-get install -y cmake clang libclang-dev protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
 
-ENV LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu
+# In Debian Bookworm, libclang-dev places the required .so symlink in the llvm-14 folder.
+# This path is identical for BOTH Intel (x86_64) and Apple Silicon (ARM64) builds.
+ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
 
 # Add wasm target for runtime compilation
 RUN rustup target add wasm32-unknown-unknown
@@ -50,4 +51,3 @@ USER 10001:10001
 
 # Start the node
 ENTRYPOINT ["quantus-node"]
-
