@@ -32,6 +32,7 @@ sp-runtime.workspace = true
 [build-dependencies]
 hex.workspace = true
 qp-poseidon-core.workspace = true
+qp-wormhole-aggregator = { workspace = true, features = ["std"] }
 qp-wormhole-circuit-builder.workspace = true
 
 [dev-dependencies]

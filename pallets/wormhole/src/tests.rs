@@ -289,6 +289,10 @@ mod aggregated_proof_tests {
 	/// The D const parameter for plonky2 proofs (extension degree = 2)
 	const D: usize = 2;
 
+	/// `num_leaf_proofs` the bundled test proof was generated for.
+	/// Keep this in sync with whatever produced `test-data/aggregated.hex`.
+	const TEST_NUM_LEAF_PROOFS: u32 = 16;
+
 	/// Real aggregated proof for testing (hex-encoded).
 	/// Generated using: `quantus wormhole multi round`
 	const AGGREGATED_PROOF_HEX: &str = include_str!("../test-data/aggregated.hex");
@@ -301,7 +305,8 @@ mod aggregated_proof_tests {
 	/// Helper to deserialize the test proof
 	fn deserialize_test_proof() -> ProofWithPublicInputs<F, C, D> {
 		let proof_bytes = get_test_proof_bytes();
-		let verifier = crate::get_aggregated_verifier().expect("Verifier should be available");
+		let verifier = crate::get_aggregated_verifier(TEST_NUM_LEAF_PROOFS)
+			.expect("Verifier should be available");
 		ProofWithPublicInputs::<F, C, D>::from_bytes(proof_bytes, &verifier.circuit_data.common)
 			.expect("Proof should deserialize")
 	}
@@ -342,7 +347,8 @@ mod aggregated_proof_tests {
 			assert_noop!(
 				Wormhole::verify_aggregated_proof(
 					RawOrigin::Signed(account_id(1)).into(),
-					proof_bytes
+					proof_bytes,
+					TEST_NUM_LEAF_PROOFS,
 				),
 				sp_runtime::DispatchError::BadOrigin
 			);
@@ -355,7 +361,11 @@ mod aggregated_proof_tests {
 			// Random invalid bytes should fail deserialization
 			let invalid_bytes = vec![0u8; 100];
 
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), invalid_bytes);
+			let result = Wormhole::verify_aggregated_proof(
+				RawOrigin::None.into(),
+				invalid_bytes,
+				TEST_NUM_LEAF_PROOFS,
+			);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::AggregatedProofDeserializationFailed.into());
@@ -369,7 +379,11 @@ mod aggregated_proof_tests {
 
 			// The proof references a block that doesn't exist in our mock
 			// This should fail with BlockNotFound
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_aggregated_proof(
+				RawOrigin::None.into(),
+				proof_bytes,
+				TEST_NUM_LEAF_PROOFS,
+			);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::BlockNotFound.into());
@@ -399,7 +413,11 @@ mod aggregated_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_aggregated_proof(
+				RawOrigin::None.into(),
+				proof_bytes,
+				TEST_NUM_LEAF_PROOFS,
+			);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
@@ -420,7 +438,11 @@ mod aggregated_proof_tests {
 
 			let proof_bytes = get_test_proof_bytes();
 
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_aggregated_proof(
+				RawOrigin::None.into(),
+				proof_bytes,
+				TEST_NUM_LEAF_PROOFS,
+			);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::InvalidPublicInputs.into());
@@ -447,7 +469,11 @@ mod aggregated_proof_tests {
 			let proof_bytes = get_test_proof_bytes();
 
 			// This should succeed - proof is valid and state matches
-			assert_ok!(Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes));
+			assert_ok!(Wormhole::verify_aggregated_proof(
+				RawOrigin::None.into(),
+				proof_bytes,
+				TEST_NUM_LEAF_PROOFS,
+			));
 
 			// Verify nullifiers are now marked as used
 			for nullifier in &inputs.nullifiers {
@@ -503,11 +529,16 @@ mod aggregated_proof_tests {
 			// First submission should succeed
 			assert_ok!(Wormhole::verify_aggregated_proof(
 				RawOrigin::None.into(),
-				proof_bytes.clone()
+				proof_bytes.clone(),
+				TEST_NUM_LEAF_PROOFS,
 			));
 
 			// Second submission with same proof should fail (nullifiers already used)
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
+			let result = Wormhole::verify_aggregated_proof(
+				RawOrigin::None.into(),
+				proof_bytes,
+				TEST_NUM_LEAF_PROOFS,
+			);
 			assert!(result.is_err());
 			let err = result.unwrap_err();
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());

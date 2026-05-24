@@ -12,6 +12,10 @@ use qp_wormhole_verifier::{ProofWithPublicInputs, C, F};
 /// This proof is used to benchmark the actual deserialization and verification cost.
 const AGGREGATED_PROOF_HEX: &str = include_str!("../test-data/aggregated.hex");
 
+/// `num_leaf_proofs` the bundled benchmark proof was generated for. Worst case
+/// for the verifier (largest aggregation circuit currently shipped).
+const BENCH_NUM_LEAF_PROOFS: u32 = 16;
+
 /// Maximum number of nullifiers in an aggregated proof (default aggregation size)
 const MAX_NULLIFIERS: u32 = 32;
 
@@ -36,7 +40,8 @@ mod benchmarks {
 			hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("Invalid hex in test proof");
 
 		// Get verifier for deserialization
-		let verifier = crate::get_aggregated_verifier().expect("Aggregated verifier not available");
+		let verifier = crate::get_aggregated_verifier(BENCH_NUM_LEAF_PROOFS)
+			.expect("Aggregated verifier not available");
 
 		// Setup: Create nullifiers in storage to simulate worst-case reads
 		let nullifiers: Vec<[u8; 32]> = (0..MAX_NULLIFIERS)
@@ -88,7 +93,8 @@ mod benchmarks {
 			hex::decode(AGGREGATED_PROOF_HEX.trim()).expect("Invalid hex in test proof");
 
 		// Get verifier
-		let verifier = crate::get_aggregated_verifier().expect("Aggregated verifier not available");
+		let verifier = crate::get_aggregated_verifier(BENCH_NUM_LEAF_PROOFS)
+			.expect("Aggregated verifier not available");
 
 		// Deserialize proof (outside the measured block since pre_validate_proof covers this)
 		let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(

@@ -6904,6 +6904,7 @@ dependencies = [
  "qp-poseidon",
  "qp-poseidon-core",
  "qp-wormhole",
+ "qp-wormhole-aggregator",
  "qp-wormhole-circuit",
  "qp-wormhole-circuit-builder",
  "qp-wormhole-prover",

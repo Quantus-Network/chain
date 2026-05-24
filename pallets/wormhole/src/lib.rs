@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use lazy_static::lazy_static;
 pub use pallet::*;
 pub use qp_poseidon::ToFelts;
@@ -16,17 +17,25 @@ mod tests;
 pub mod weights;
 pub use weights::*;
 
-lazy_static! {
-	static ref AGGREGATED_VERIFIER: Option<WormholeVerifier> = {
-		let verifier_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_verifier.bin"));
-		let common_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/aggregated_common.bin"));
-		WormholeVerifier::new_from_bytes(verifier_bytes, common_bytes).ok()
-	};
+mod verifiers_manifest {
+	include!(concat!(env!("OUT_DIR"), "/verifiers_manifest.rs"));
 }
 
-/// Getter for the aggregated proof verifier
-pub fn get_aggregated_verifier() -> Result<&'static WormholeVerifier, &'static str> {
-	AGGREGATED_VERIFIER.as_ref().ok_or("Aggregated verifier not available")
+pub use verifiers_manifest::SUPPORTED_NUM_LEAF_PROOFS;
+
+lazy_static! {
+	static ref AGGREGATED_VERIFIERS: BTreeMap<u32, WormholeVerifier> =
+		verifiers_manifest::load_supported_verifiers().into_iter().collect();
+}
+
+/// Look up the aggregated proof verifier for a given `num_leaf_proofs`.
+///
+/// Returns `Err` if no verifier was baked in for that value at build time.
+/// The set of supported sizes is exposed in [`SUPPORTED_NUM_LEAF_PROOFS`].
+pub fn get_aggregated_verifier(num_leaf_proofs: u32) -> Result<&'static WormholeVerifier, &'static str> {
+	AGGREGATED_VERIFIERS
+		.get(&num_leaf_proofs)
+		.ok_or("No aggregated verifier baked in for the requested num_leaf_proofs")
 }
 
 /// Scale factor for quantizing amounts from 12 to 2 decimal places (10^10).
@@ -324,12 +333,13 @@ pub mod pallet {
 		pub fn verify_aggregated_proof(
 			origin: OriginFor<T>,
 			proof_bytes: Vec<u8>,
+			num_leaf_proofs: u32,
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
 			// Full validation including ZK verification (defense-in-depth, also done in
 			// validate_unsigned). Weight returned depends on which stage failed.
-			let (_proof, aggregated_inputs) = match Self::validate_proof(&proof_bytes) {
+			let (_proof, aggregated_inputs) = match Self::validate_proof(&proof_bytes, num_leaf_proofs) {
 				Ok(result) => result,
 				Err(e) => {
 					// Determine weight based on which stage failed
@@ -513,11 +523,12 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			match call {
-				Call::verify_aggregated_proof { proof_bytes } => {
+				Call::verify_aggregated_proof { proof_bytes, num_leaf_proofs } => {
 					// Full validation including ZK verification - prevents invalid proofs
 					// with high amounts from entering the pool and crowding out valid txs
 					let (_proof, inputs) =
-						Self::validate_proof(proof_bytes).map_err(|_| InvalidTransaction::Call)?;
+						Self::validate_proof(proof_bytes, *num_leaf_proofs)
+							.map_err(|_| InvalidTransaction::Call)?;
 
 					// Priority based on total transfer volume - higher value transfers get
 					// priority. This prevents DoS since attackers must transfer real value
@@ -555,8 +566,9 @@ pub mod pallet {
 		/// full ZK verification was attempted.
 		fn validate_proof(
 			proof_bytes: &[u8],
+			num_leaf_proofs: u32,
 		) -> Result<(ProofWithPublicInputs<F, C, D>, AggregatedPublicCircuitInputs), Error<T>> {
-			let verifier = crate::get_aggregated_verifier()
+			let verifier = crate::get_aggregated_verifier(num_leaf_proofs)
 				.map_err(|_| Error::<T>::AggregatedVerifierNotAvailable)?;
 			let proof = ProofWithPublicInputs::<F, C, D>::from_bytes(
 				proof_bytes.to_vec(),
@@ -565,6 +577,15 @@ pub mod pallet {
 			.map_err(|_| Error::<T>::AggregatedProofDeserializationFailed)?;
 			let inputs = parse_aggregated_public_inputs(&proof)
 				.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
+			// Defense-in-depth: the parsed PI layout must match the claimed N. This is
+			// already enforced by deserializing against the matching `common_data`, but
+			// double-checking is cheap and keeps callers honest.
+			let n_usize = num_leaf_proofs as usize;
+			ensure!(
+				inputs.account_data.len() == n_usize.saturating_mul(2)
+					&& inputs.nullifiers.len() == n_usize,
+				Error::<T>::InvalidAggregatedPublicInputs
+			);
 			ensure!(inputs.asset_id == 0, Error::<T>::NonNativeAssetNotSupported);
 			ensure!(
 				inputs.volume_fee_bps == T::VolumeFeeRateBps::get(),

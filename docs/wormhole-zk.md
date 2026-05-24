@@ -1,15 +1,16 @@
 # Wormhole ZK: Leaf, Layer‑0, Layer‑1
 
-> Wormhole ZK: each leaf proof spends 1 nullifier, pays up to 2 exits; layer‑0 aggregates 16 leaves (pads with dummies); layer‑1 batches L0 proofs server‑side. Chain currently verifies only L0.
+> Wormhole ZK: each leaf proof spends 1 nullifier, pays up to 2 exits; layer‑0 aggregates `N` leaves (pads with dummies); the chain accepts multiple aggregation sizes simultaneously (default: `N ∈ {2, 16}`); layer‑1 batches L0 proofs server‑side.
 
-The wormhole flow has three proof levels. Today the runtime only verifies L0;
-L1 is built in the external `qp-wormhole-aggregator` crate but is **not** wired
-into `pallet-wormhole` on the current `main`.
+The wormhole flow has three proof levels. The runtime verifies L0 against one
+of several baked‑in verifiers, picked at call time via a `num_leaf_proofs`
+argument on the extrinsic. L1 is built in the external `qp-wormhole-aggregator`
+crate but is **not** wired into `pallet-wormhole` on the current `main`.
 
 | Level | Produced by | Inputs | Outputs | Verified by chain? |
 |------:|-------------|--------|---------|--------------------|
 | Leaf  | Client (per transfer) | 1 nullifier (1 spend) | Up to 2 exit accounts (spend + change) | No |
-| L0    | Client (aggregator) | Up to `N = 16` leaves (rest = dummies) | `2·N = 32` exit slots, `N = 16` nullifiers | **Yes** |
+| L0    | Client (aggregator) | Up to `N` leaves (rest = dummies). `N` is one of `pallet_wormhole::SUPPORTED_NUM_LEAF_PROOFS`. | `2·N` exit slots, `N` nullifiers | **Yes** |
 | L1    | Server / delegated aggregator | `n_inner` full L0 proofs (no padding) | `n_inner · 2N` exit slots, `n_inner · N` nullifiers | **No** (not enabled) |
 
 ---
@@ -44,8 +45,17 @@ Source: `qp-wormhole-circuit/src/{circuit.rs,zk_merkle_proof.rs}` and
 
 `Layer0Aggregator` in `qp-wormhole-aggregator/src/aggregator.rs` and the
 monolithic circuit in `src/layer0/circuit/circuit_logic.rs`. Built into the
-pallet by `pallets/wormhole/build.rs`; `N = num_leaf_proofs = 16` by default
-(override with the `QP_NUM_LEAF_PROOFS` env var at build time).
+pallet by `pallets/wormhole/build.rs`. The pallet bakes in **one verifier per
+supported `N`** simultaneously. The set of supported sizes is read from the
+build environment:
+
+  - `QP_NUM_LEAF_PROOFS_LIST=2,16` — comma‑separated list (recommended)
+  - `QP_NUM_LEAF_PROOFS=N` — legacy single‑value fallback
+
+Default if neither is set: `2,16`. `N = 2` keeps the prover under ~1 GB of
+peak memory (mobile‑friendly); `N = 16` provides the strongest privacy
+(largest anonymity set per submitted batch). Clients pick which one to
+produce based on their device capabilities; the chain accepts both.
 
 What the L0 circuit does:
 
@@ -76,12 +86,17 @@ be zero).
 
 ### On‑chain verification
 
-`pallet_wormhole::verify_aggregated_proof` (`pallets/wormhole/src/lib.rs`):
+`pallet_wormhole::verify_aggregated_proof(origin, proof_bytes, num_leaf_proofs)`
+(`pallets/wormhole/src/lib.rs`):
 
-1. `validate_proof`: deserialize, parse PIs, check `asset_id == 0`,
-   `volume_fee_bps` matches `T::VolumeFeeRateBps::get()`, `block_hash` matches
-   the on‑chain header at `block_number`, no nullifier already in
-   `UsedNullifiers`, then run full plonky2 verification.
+1. `validate_proof`: look up the verifier for `num_leaf_proofs` (rejects with
+   `AggregatedVerifierNotAvailable` if no verifier was baked in for that `N`),
+   deserialize, parse PIs, check the parsed PI layout matches the claimed
+   `N` (defense‑in‑depth — the matching `common_data` already enforces this
+   via deserialization), check `asset_id == 0`, `volume_fee_bps` matches
+   `T::VolumeFeeRateBps::get()`, `block_hash` matches the on‑chain header
+   at `block_number`, no nullifier already in `UsedNullifiers`, then run
+   full plonky2 verification.
 2. Mark each L0 nullifier used.
 3. Walk the `2·N` exit slots, skipping any with `exit == [0;32]` or `sum == 0`
    (covers dummies + dedup'd slots).
@@ -140,7 +155,8 @@ embeds the L0 wrapper verifier. Enabling L1 would require:
 | Leaf PI length (21) | `qp-wormhole-inputs/src/lib.rs` (`PUBLIC_INPUTS_FELTS_LEN`) |
 | L0 wrapper PI layout | `qp-wormhole-aggregator/src/layer0/circuit/constants.rs` |
 | L1 wrapper PI layout | `qp-wormhole-aggregator/src/layer1/circuit/constants.rs` |
-| `N = num_leaf_proofs` (default 16) | `pallets/wormhole/build.rs` (`QP_NUM_LEAF_PROOFS`) |
+| Supported `N` set (default `{2, 16}`) | `pallets/wormhole/build.rs` (`QP_NUM_LEAF_PROOFS_LIST`) |
+| Runtime accessor for the supported set | `pallet_wormhole::SUPPORTED_NUM_LEAF_PROOFS` |
 | Embedded verifier bytes | `pallets/wormhole/src/lib.rs` (`AGGREGATED_VERIFIER`) |
 | On‑chain verify entrypoint | `pallet_wormhole::verify_aggregated_proof` |
 | Amount scale (10^10) | `pallets/wormhole/src/lib.rs` (`SCALE_DOWN_FACTOR`) |
