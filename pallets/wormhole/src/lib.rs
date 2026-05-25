@@ -348,7 +348,8 @@ pub mod pallet {
 			};
 
 			// Collect nullifier bytes (no state writes yet - defer until after all checks)
-			let mut nullifier_list = Vec::<[u8; 32]>::with_capacity(aggregated_inputs.nullifiers.len());
+			let mut nullifier_list =
+				Vec::<[u8; 32]>::with_capacity(aggregated_inputs.nullifiers.len());
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
 					.as_ref()

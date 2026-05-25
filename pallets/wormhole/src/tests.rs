@@ -315,8 +315,7 @@ mod aggregated_proof_tests {
 		let proof = deserialize_test_proof();
 		let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
 		let block_number = inputs.block_data.block_number as u64;
-		let block_hash_bytes: [u8; 32] =
-			inputs.block_data.block_hash.as_ref().try_into().unwrap();
+		let block_hash_bytes: [u8; 32] = inputs.block_data.block_hash.as_ref().try_into().unwrap();
 		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
 		System::set_block_number(block_number + 10);
 		(get_test_proof_bytes(), inputs)
