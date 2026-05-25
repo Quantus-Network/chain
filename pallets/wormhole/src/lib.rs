@@ -347,14 +347,13 @@ pub mod pallet {
 				},
 			};
 
-			// Mark nullifiers as used (validate_proof only checks existence)
-			let mut nullifier_list = Vec::<[u8; 32]>::new();
+			// Collect nullifier bytes (no state writes yet - defer until after all checks)
+			let mut nullifier_list = Vec::<[u8; 32]>::with_capacity(aggregated_inputs.nullifiers.len());
 			for nullifier in &aggregated_inputs.nullifiers {
 				let nullifier_bytes: [u8; 32] = (*nullifier)
 					.as_ref()
 					.try_into()
 					.map_err(|_| Error::<T>::InvalidAggregatedPublicInputs)?;
-				UsedNullifiers::<T>::insert(nullifier_bytes, true);
 				nullifier_list.push(nullifier_bytes);
 			}
 
@@ -404,6 +403,12 @@ pub mod pallet {
 				total_exit_amount >= T::MinimumTransferAmount::get(),
 				Error::<T>::TransferAmountBelowMinimum
 			);
+
+			// Cheap checks passed; #[pallet::call] auto-wraps this dispatchable in
+			// with_storage_layer so any later failure rolls these writes back.
+			for nullifier_bytes in &nullifier_list {
+				UsedNullifiers::<T>::insert(*nullifier_bytes, true);
+			}
 
 			// Emit event for each exit account
 			Self::deposit_event(Event::ProofVerified {

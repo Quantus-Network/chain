@@ -118,8 +118,8 @@ parameter_types! {
 	/// The "from" account used when recording transfer proofs for minted tokens.
 	/// Uses the shared MINTING_ACCOUNT constant from qp_wormhole.
 	pub const MintingAccount: AccountId = MINTING_ACCOUNT;
-	/// Minimum transfer amount (10 QUAN)
-	pub const MinimumTransferAmount: Balance = 10 * UNIT;
+	/// Minimum transfer amount (10 QUAN). Storage-backed so rollback tests can override it.
+	pub storage MinimumTransferAmount: Balance = 10 * UNIT;
 	/// Volume fee rate in basis points (10 bps = 0.1%)
 	pub const VolumeFeeRateBps: u32 = 10;
 	/// Proportion of volume fees to burn (50% burned, 50% to miner)

@@ -281,10 +281,14 @@ mod aggregated_proof_tests {
 		mock::*,
 		pallet::{Error, UsedNullifiers},
 	};
-	use frame_support::{assert_noop, assert_ok};
+	use codec::Decode;
+	use frame_support::{assert_noop, assert_ok, traits::fungible::Unbalanced};
 	use frame_system::RawOrigin;
-	use qp_wormhole_verifier::{parse_aggregated_public_inputs, ProofWithPublicInputs, C, F};
+	use qp_wormhole_verifier::{
+		parse_aggregated_public_inputs, AggregatedPublicCircuitInputs, ProofWithPublicInputs, C, F,
+	};
 	use sp_core::H256;
+	use sp_runtime::{ArithmeticError, DispatchError};
 
 	/// The D const parameter for plonky2 proofs (extension degree = 2)
 	const D: usize = 2;
@@ -304,6 +308,47 @@ mod aggregated_proof_tests {
 		let verifier = crate::get_aggregated_verifier().expect("Verifier should be available");
 		ProofWithPublicInputs::<F, C, D>::from_bytes(proof_bytes, &verifier.circuit_data.common)
 			.expect("Proof should deserialize")
+	}
+
+	/// Install the proof's expected block hash and advance past it so `validate_proof` passes.
+	fn setup_valid_proof_state() -> (Vec<u8>, AggregatedPublicCircuitInputs) {
+		let proof = deserialize_test_proof();
+		let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+		let block_number = inputs.block_data.block_number as u64;
+		let block_hash_bytes: [u8; 32] =
+			inputs.block_data.block_hash.as_ref().try_into().unwrap();
+		frame_system::BlockHash::<Test>::insert(block_number, H256::from(block_hash_bytes));
+		System::set_block_number(block_number + 10);
+		(get_test_proof_bytes(), inputs)
+	}
+
+	fn nullifier_bytes(inputs: &AggregatedPublicCircuitInputs) -> Vec<[u8; 32]> {
+		inputs.nullifiers.iter().map(|n| n.as_ref().try_into().unwrap()).collect()
+	}
+
+	/// Decode the real (non-dummy) exit accounts from a parsed proof, matching the
+	/// filter logic the dispatchable uses when iterating `account_data`.
+	fn exit_accounts(inputs: &AggregatedPublicCircuitInputs) -> Vec<AccountId> {
+		inputs
+			.account_data
+			.iter()
+			.filter_map(|a| {
+				let bytes: [u8; 32] = (*a.exit_account).as_ref().try_into().ok()?;
+				if bytes == [0u8; 32] || a.summed_output_amount == 0 {
+					return None;
+				}
+				AccountId::decode(&mut &bytes[..]).ok()
+			})
+			.collect()
+	}
+
+	fn assert_nullifiers_unused(inputs: &AggregatedPublicCircuitInputs, ctx: &str) {
+		for bytes in nullifier_bytes(inputs) {
+			assert!(
+				!UsedNullifiers::<Test>::contains_key(bytes),
+				"Nullifier must not be consumed ({ctx})"
+			);
+		}
 	}
 
 	#[test]
@@ -379,29 +424,13 @@ mod aggregated_proof_tests {
 	#[test]
 	fn test_verify_aggregated_proof_fails_with_nullifier_already_used() {
 		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let (proof_bytes, inputs) = setup_valid_proof_state();
 
-			// Set up block hash to match the proof
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
+			let pre_used = nullifier_bytes(&inputs).into_iter().next().expect("nullifier");
+			UsedNullifiers::<Test>::insert(pre_used, true);
 
-			// Insert a matching block hash
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-
-			// Mark one of the nullifiers as already used
-			if let Some(nullifier) = inputs.nullifiers.first() {
-				let nullifier_bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
-				UsedNullifiers::<Test>::insert(nullifier_bytes, true);
-			}
-
-			let proof_bytes = get_test_proof_bytes();
-
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
+			let err = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes)
+				.expect_err("Expected NullifierAlreadyUsed");
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
@@ -430,86 +459,83 @@ mod aggregated_proof_tests {
 	#[test]
 	fn test_verify_aggregated_proof_succeeds_with_valid_state() {
 		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let (proof_bytes, inputs) = setup_valid_proof_state();
 
-			// Set up block hash to match the proof
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
-
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-
-			// Set current block number higher than the proof's block
-			System::set_block_number(block_number + 10);
-
-			let proof_bytes = get_test_proof_bytes();
-
-			// This should succeed - proof is valid and state matches
 			assert_ok!(Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes));
 
-			// Verify nullifiers are now marked as used
-			for nullifier in &inputs.nullifiers {
-				let nullifier_bytes: [u8; 32] = nullifier.as_ref().try_into().unwrap();
+			for bytes in nullifier_bytes(&inputs) {
 				assert!(
-					UsedNullifiers::<Test>::contains_key(nullifier_bytes),
+					UsedNullifiers::<Test>::contains_key(bytes),
 					"Nullifier should be marked as used"
 				);
 			}
 
-			// Verify event was emitted
+			let exit_amount: u128 = inputs
+				.account_data
+				.iter()
+				.filter(|a| a.summed_output_amount > 0)
+				.map(|a| (a.summed_output_amount as u128) * crate::SCALE_DOWN_FACTOR)
+				.sum();
 			System::assert_has_event(
 				crate::Event::<Test>::ProofVerified {
-					exit_amount: {
-						// Calculate expected exit amount from public inputs
-						let mut total = 0u128;
-						for account_data in &inputs.account_data {
-							if account_data.summed_output_amount > 0 {
-								total += (account_data.summed_output_amount as u128) *
-									crate::SCALE_DOWN_FACTOR;
-							}
-						}
-						total
-					},
-					nullifiers: inputs
-						.nullifiers
-						.iter()
-						.map(|n| n.as_ref().try_into().unwrap())
-						.collect(),
+					exit_amount,
+					nullifiers: nullifier_bytes(&inputs),
 				}
 				.into(),
 			);
 		});
 	}
 
+	/// Regression: cheap settlement check (TransferAmountBelowMinimum) trips after ZK
+	/// verification. The reorder in the dispatchable means we never even reach the
+	/// nullifier write — so a legitimate user whose proof became under-minimum can retry.
+	#[test]
+	fn test_verify_aggregated_proof_below_minimum_does_not_consume_nullifiers() {
+		new_test_ext().execute_with(|| {
+			let (proof_bytes, inputs) = setup_valid_proof_state();
+			MinimumTransferAmount::set(&Balance::MAX);
+
+			let err = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes)
+				.expect_err("Expected TransferAmountBelowMinimum");
+			assert_eq!(err.error, Error::<Test>::TransferAmountBelowMinimum.into());
+
+			assert_nullifiers_unused(&inputs, "below-minimum failure");
+		});
+	}
+
+	/// Regression: an attacker (or chain state) leaves an exit account at `Balance::MAX`
+	/// so the dispatchable's settlement mint overflows AFTER nullifiers are written.
+	/// Without `#[transactional]` the nullifiers would persist, permanently locking the
+	/// legitimate withdrawal. With the wrapper, storage is fully rolled back.
+	#[test]
+	fn test_verify_aggregated_proof_settlement_overflow_rolls_back_nullifiers() {
+		new_test_ext().execute_with(|| {
+			let (proof_bytes, inputs) = setup_valid_proof_state();
+
+			let target = exit_accounts(&inputs).into_iter().next().expect("exit account");
+			<Balances as Unbalanced<AccountId>>::write_balance(&target, Balance::MAX)
+				.expect("write_balance to MAX should succeed");
+
+			let err = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes)
+				.expect_err("Settlement mint must overflow");
+			assert_eq!(err.error, DispatchError::Arithmetic(ArithmeticError::Overflow));
+
+			assert_nullifiers_unused(&inputs, "settlement-mint overflow");
+		});
+	}
+
 	#[test]
 	fn test_verify_aggregated_proof_cannot_replay() {
 		new_test_ext().execute_with(|| {
-			let proof = deserialize_test_proof();
-			let inputs = parse_aggregated_public_inputs(&proof).expect("Should parse");
+			let (proof_bytes, _inputs) = setup_valid_proof_state();
 
-			// Set up block hash to match the proof
-			let block_number = inputs.block_data.block_number as u64;
-			let block_hash_bytes: [u8; 32] =
-				inputs.block_data.block_hash.as_ref().try_into().unwrap();
-			let block_hash = H256::from(block_hash_bytes);
-
-			frame_system::BlockHash::<Test>::insert(block_number, block_hash);
-			System::set_block_number(block_number + 10);
-
-			let proof_bytes = get_test_proof_bytes();
-
-			// First submission should succeed
 			assert_ok!(Wormhole::verify_aggregated_proof(
 				RawOrigin::None.into(),
 				proof_bytes.clone()
 			));
 
-			// Second submission with same proof should fail (nullifiers already used)
-			let result = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes);
-			assert!(result.is_err());
-			let err = result.unwrap_err();
+			let err = Wormhole::verify_aggregated_proof(RawOrigin::None.into(), proof_bytes)
+				.expect_err("Replay must fail");
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
