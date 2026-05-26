@@ -30,8 +30,10 @@ fn print_bin_hash(dir: &Path, filename: &str) {
 
 fn main() {
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+	// Default to 7 leaves: fits in degree_bits=15 (~1.5 GB peak memory for mobile).
+	// 8+ leaves require degree_bits=16 (~2.5 GB peak), limiting to 6GB+ devices.
 	let num_leaf_proofs: usize = env::var("QP_NUM_LEAF_PROOFS")
-		.unwrap_or_else(|_| "16".to_string())
+		.unwrap_or_else(|_| "7".to_string())
 		.parse()
 		.expect("QP_NUM_LEAF_PROOFS must be a valid usize");
 
