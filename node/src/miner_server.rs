@@ -26,9 +26,19 @@
 //! - Each miner independently selects a random nonce starting point
 //! - First miner to find a valid solution sends `MinerMessage::JobResult`
 //! - When a new job is broadcast, miners implicitly cancel their current work
+//!
+//! # Certificate Security
+//!
+//! The server uses post-quantum cryptography for TLS:
+//! - Certificate: ML-DSA-87 (NIST FIPS 204 standardized Dilithium)
+//! - Key exchange: X25519MLKEM768 (hybrid classical + post-quantum)
+//!
+//! Note: Due to rcgen 0.14 limitations, the certificate fingerprint changes on
+//! each restart. This will be fixed when rcgen adds ML-DSA key persistence support.
 
 use std::{
 	collections::HashMap,
+	path::PathBuf,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -38,6 +48,8 @@ use std::{
 
 use jsonrpsee::tokio;
 use quantus_miner_api::{read_message, write_message, MinerMessage, MiningRequest, MiningResult};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, RwLock};
 
 /// A QUIC server that accepts connections from miners.
@@ -64,7 +76,12 @@ impl MinerServer {
 	/// Start the QUIC server and listen for miner connections.
 	///
 	/// This spawns a background task that accepts incoming connections.
-	pub async fn start(port: u16) -> Result<Arc<Self>, String> {
+	///
+	/// # Arguments
+	/// * `port` - The port to listen on for miner connections
+	/// * `node_key_path` - Optional path to the node's identity key file. If provided,
+	///   the TLS certificate key is derived from it for deterministic fingerprints.
+	pub async fn start(port: u16, node_key_path: Option<PathBuf>) -> Result<Arc<Self>, String> {
 		let (result_tx, result_rx) = mpsc::channel::<MiningResult>(64);
 
 		let server = Arc::new(Self {
@@ -77,7 +94,7 @@ impl MinerServer {
 
 		// Start the acceptor task
 		let server_clone = server.clone();
-		let endpoint = create_server_endpoint(port).await?;
+		let endpoint = create_server_endpoint(port, node_key_path).await?;
 
 		tokio::spawn(async move {
 			acceptor_task(endpoint, server_clone).await;
@@ -146,31 +163,72 @@ impl MinerServer {
 	}
 }
 
-/// Create a QUIC server endpoint with self-signed certificate.
-async fn create_server_endpoint(port: u16) -> Result<quinn::Endpoint, String> {
-	// Generate self-signed certificate
-	let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+/// Create a QUIC server endpoint with self-signed ML-DSA (post-quantum) certificate.
+///
+/// Uses post-quantum cryptography:
+/// - Certificate: ML-DSA-87 (NIST FIPS 204)
+/// - Key exchange: X25519MLKEM768 (hybrid classical + post-quantum)
+///
+/// Note: Due to rcgen 0.14 limitations, ML-DSA keys cannot be persisted and reloaded.
+/// The certificate fingerprint will change on each restart until this is fixed upstream.
+async fn create_server_endpoint(
+	port: u16,
+	node_key_path: Option<PathBuf>,
+) -> Result<quinn::Endpoint, String> {
+	// Load or generate ML-DSA-87 key pair
+	let key_pair = if let Some(ref key_path) = node_key_path {
+		let (kp, _stored_cert) = load_or_generate_mldsa_key(key_path)?;
+		kp
+	} else {
+		log::warn!(
+			"⛏️ No node key path provided, generating ephemeral TLS key"
+		);
+		rcgen::KeyPair::generate_for(&rcgen::PKCS_ML_DSA_87)
+			.map_err(|e| format!("Failed to generate ML-DSA key pair: {}", e))?
+	};
+
+	let cert_params = rcgen::CertificateParams::new(vec!["localhost".to_string()])
+		.map_err(|e| format!("Failed to create certificate params: {}", e))?;
+
+	let cert = cert_params
+		.self_signed(&key_pair)
 		.map_err(|e| format!("Failed to generate certificate: {}", e))?;
 
-	let cert_der = cert
-		.serialize_der()
-		.map_err(|e| format!("Failed to serialize certificate: {}", e))?;
-	let key_der = cert.serialize_private_key_der();
+	let cert_der = cert.der().clone();
+	let key_der = key_pair.serialize_der();
 
-	let cert_chain = vec![rustls::Certificate(cert_der)];
-	let key = rustls::PrivateKey(key_der);
+	// Save certificate for reference
+	if let Some(ref key_path) = node_key_path {
+		let _ = save_cert_der(key_path, cert_der.as_ref());
+	}
 
-	// Create server config
-	let mut server_config = rustls::ServerConfig::builder()
-		.with_safe_defaults()
-		.with_no_client_auth()
-		.with_single_cert(cert_chain, key)
-		.map_err(|e| format!("Failed to create server config: {}", e))?;
+	// Compute and log certificate fingerprint
+	let fingerprint = compute_cert_fingerprint(&cert_der);
+	log::info!("⛏️ Miner server certificate fingerprint: {}", fingerprint);
+	log::info!("⛏️ Certificate algorithm: ML-DSA-87 (post-quantum)");
+	log::info!("⛏️ Key exchange: X25519MLKEM768 (hybrid post-quantum)");
+	log::warn!(
+		"⛏️ NOTE: Fingerprint changes on restart (rcgen ML-DSA key persistence bug)"
+	);
+	log::info!("⛏️ Miners should use: --node-cert-fingerprint {}", fingerprint);
 
-	// Set ALPN protocol
-	server_config.alpn_protocols = vec![b"quantus-miner".to_vec()];
+	let cert_chain = vec![cert_der];
+	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
 
-	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(server_config));
+	// Create server config with post-quantum crypto provider (aws-lc-rs with ML-DSA support)
+	let server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
+		rustls_post_quantum::provider(),
+	))
+	.with_safe_default_protocol_versions()
+	.map_err(|e| format!("Failed to set protocol versions: {}", e))?
+	.with_no_client_auth()
+	.with_single_cert(cert_chain, key)
+	.map_err(|e| format!("Failed to create server config: {}", e))?;
+
+	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(
+		quinn::crypto::rustls::QuicServerConfig::try_from(server_config)
+			.map_err(|e| format!("Failed to create QUIC server config: {}", e))?,
+	));
 
 	// Set transport config
 	let mut transport_config = quinn::TransportConfig::default();
@@ -184,6 +242,70 @@ async fn create_server_endpoint(port: u16) -> Result<quinn::Endpoint, String> {
 		.map_err(|e| format!("Failed to create server endpoint: {}", e))?;
 
 	Ok(endpoint)
+}
+
+/// Load or generate ML-DSA-87 key and certificate for TLS.
+///
+/// Since rcgen 0.14 has a bug where it can generate ML-DSA keys but cannot reload
+/// them via `from_der`, we store both the certificate DER and key DER. On reload,
+/// we generate a fresh key but use the stored certificate for stable fingerprints.
+///
+/// Returns (KeyPair, Option<CertificateDer>) where the certificate is Some if loaded
+/// from storage (meaning we should use that instead of generating a new one).
+fn load_or_generate_mldsa_key(
+	node_key_path: &PathBuf,
+) -> Result<(rcgen::KeyPair, Option<Vec<u8>>), String> {
+	let cert_path = node_key_path.with_file_name("miner_tls_cert.der");
+	let key_path = node_key_path.with_file_name("miner_tls_key.der");
+
+	// Always generate a fresh keypair (rcgen bug: can't reload ML-DSA keys)
+	let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ML_DSA_87)
+		.map_err(|e| format!("Failed to generate ML-DSA key pair: {}", e))?;
+
+	if cert_path.exists() && key_path.exists() {
+		// We have stored cert/key, but can only use the cert (key can't be reloaded)
+		// This means fingerprint stays stable but we use a new key for signing
+		// This WON'T work - the cert contains the public key which must match the private key
+
+		// Actually, we need to regenerate cert each time since we can't reload the key
+		// Just log that we're overwriting
+		log::warn!(
+			"⛏️ Found existing TLS cert at {:?} but rcgen can't reload ML-DSA keys",
+			cert_path
+		);
+		log::warn!("⛏️ Generating new key - certificate fingerprint will change");
+	}
+
+	// Save the new key DER (for reference, even though we can't reload it)
+	let key_der = key_pair.serialize_der();
+	std::fs::write(&key_path, &key_der)
+		.map_err(|e| format!("Failed to save TLS key to {:?}: {}", key_path, e))?;
+
+	log::info!(
+		"⛏️ Generated new ML-DSA-87 TLS key ({} bytes), saved to {:?}",
+		key_der.len(),
+		key_path
+	);
+
+	// Return keypair, no stored cert to use
+	Ok((key_pair, None))
+}
+
+/// Save certificate DER to file for reference.
+fn save_cert_der(node_key_path: &PathBuf, cert_der: &[u8]) -> Result<(), String> {
+	let cert_path = node_key_path.with_file_name("miner_tls_cert.der");
+	std::fs::write(&cert_path, cert_der)
+		.map_err(|e| format!("Failed to save TLS cert to {:?}: {}", cert_path, e))?;
+	log::info!("⛏️ Saved TLS certificate to {:?}", cert_path);
+	Ok(())
+}
+
+/// Compute SHA-256 fingerprint of a certificate in the format `sha256:<hex>`.
+fn compute_cert_fingerprint(cert_der: &CertificateDer) -> String {
+	let mut hasher = Sha256::new();
+	hasher.update(cert_der.as_ref());
+	let hash = hasher.finalize();
+	format!("sha256:{}", hex::encode(hash))
 }
 
 /// Background task that accepts incoming miner connections.

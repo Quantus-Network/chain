@@ -6,6 +6,8 @@
 //! - Mining infrastructure (local and external miner support)
 //! - RPC endpoint configuration
 
+use std::path::PathBuf;
+
 use futures::FutureExt;
 #[cfg(feature = "tx-logging")]
 use futures::StreamExt;
@@ -459,6 +461,7 @@ fn spawn_authority_tasks(
 	prometheus_registry: Option<prometheus::Registry>,
 	rewards_address: AccountId32,
 	miner_listen_port: Option<u16>,
+	node_key_path: Option<PathBuf>,
 	tx_stream_for_worker: impl futures::Stream<Item = sp_core::H256> + Send + Unpin + 'static,
 	#[cfg(feature = "tx-logging")] tx_stream_for_logger: impl futures::Stream<Item = sp_core::H256>
 		+ Send
@@ -523,7 +526,7 @@ fn spawn_authority_tasks(
 	task_manager.spawn_essential_handle().spawn("qpow-mining", None, async move {
 		// Start miner server if port is specified
 		let miner_server: Option<Arc<MinerServer>> = if let Some(port) = miner_listen_port {
-			match MinerServer::start(port).await {
+			match MinerServer::start(port, node_key_path).await {
 				Ok(server) => Some(server),
 				Err(e) => {
 					log::error!("⛏️ Failed to start miner server on port {}: {}", port, e);
@@ -781,6 +784,13 @@ pub fn new_full<
 	log::info!("🧹 Blocks pruning mode: {:?}", config.blocks_pruning);
 	log::info!("📦 State pruning mode: {:?}", config.state_pruning);
 
+	// Extract node key path for miner server TLS certificate
+	let node_key_path = config
+		.network
+		.net_config_path
+		.as_ref()
+		.map(|p| p.join("secret_dilithium"));
+
 	let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
 		network: network.clone(),
 		client: client.clone(),
@@ -808,6 +818,7 @@ pub fn new_full<
 			prometheus_registry,
 			rewards_address,
 			miner_listen_port,
+			node_key_path.clone(),
 			tx_stream_for_worker,
 			tx_stream_for_logger,
 			allow_mining_without_peers,
@@ -822,6 +833,7 @@ pub fn new_full<
 			prometheus_registry,
 			rewards_address,
 			miner_listen_port,
+			node_key_path,
 			tx_stream_for_worker,
 			allow_mining_without_peers,
 		);
