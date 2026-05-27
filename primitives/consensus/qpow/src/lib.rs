@@ -16,7 +16,7 @@ sp_api::decl_runtime_apis! {
 		/// Get the max possible difficulty for work calculation
 		fn get_max_difficulty() -> U512;
 
-		/// Get the current difficulty (max_distance / distance_threshold)
+		/// Get the current mining difficulty
 		fn get_difficulty() -> U512;
 
 		/// Get last block timestamp

@@ -178,7 +178,7 @@ async fn handle_external_mining(
 	let job = MiningRequest {
 		job_id: job_id.clone(),
 		mining_hash,
-		distance_threshold: difficulty.to_string(),
+		difficulty: difficulty.to_string(),
 	};
 
 	server.broadcast_job(job).await;
