@@ -908,10 +908,13 @@ impl<T: Config> Pallet<T> {
 		(when, index): TaskAddressOf<T>,
 	) -> Result<(), DispatchError> {
 		let agenda = Agenda::<T>::get(when);
+		// Use defensive check: callers are privileged (ScheduleOrigin) and for cancel_retry_named
+		// the address comes from Lookup, so a miss here indicates either stale input or
+		// Lookup/Agenda desync.
 		let scheduled = agenda
 			.get(index as usize)
 			.and_then(Option::as_ref)
-			.ok_or(Error::<T>::NotFound)?;
+			.defensive_ok_or(Error::<T>::NotFound)?;
 		Self::ensure_privilege(origin, &scheduled.origin)?;
 		Retries::<T>::remove((when, index));
 		Ok(())

@@ -5,11 +5,11 @@ use codec::Encode;
 use frame_support::{
 	assert_noop, assert_ok,
 	dispatch::GetDispatchInfo,
-	traits::{fungible::Mutate, Currency},
+	traits::{fungible::Mutate, Currency, Get},
 };
 use qp_high_security::HighSecurityInspector;
 use sp_core::crypto::AccountId32;
-use sp_runtime::DispatchError;
+use sp_runtime::{DispatchError, Weight};
 use std::{cell::RefCell, collections::BTreeSet};
 
 // Thread-local storage for dynamically toggling high-security status in tests
@@ -2299,7 +2299,7 @@ fn propose_rejects_call_exceeding_max_inner_weight() {
 		assert!(too_heavy_call
 			.get_dispatch_info()
 			.call_weight
-			.any_gt(MaxInnerCallWeightParam::get()));
+			.any_gt(DynamicMaxInnerCallWeight::get()));
 
 		let free_before_propose = Balances::free_balance(alice());
 		assert_err_ignore_postinfo(
@@ -2411,5 +2411,63 @@ fn execute_allows_whitelisted_call_after_hs_enabled() {
 
 		// Proposal should be removed
 		assert!(!Proposals::<Test>::contains_key(&multisig_address, 0));
+	});
+}
+
+/// Test that execute rejects a proposal if MaxInnerCallWeight was lowered after propose
+/// (simulates runtime upgrade scenario)
+#[test]
+fn execute_rejects_call_when_max_weight_lowered_after_propose() {
+	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
+
+		// Reset to default weight limit
+		reset_max_inner_call_weight();
+
+		let signers = vec![alice(), bob()];
+		assert_ok!(Multisig::create_multisig(
+			RuntimeOrigin::signed(alice()),
+			signers.clone(),
+			2,
+			0,
+		));
+		let multisig_address = Multisig::derive_multisig_address(&signers, 2, 0);
+
+		// Create a call with weight that's currently under the limit
+		// System::remark has very low weight, so it passes propose
+		let call = RuntimeCall::System(frame_system::Call::remark { remark: b"test".to_vec() });
+		let call_weight = call.get_dispatch_info().call_weight;
+
+		// Verify the call is under the current limit
+		assert!(!call_weight.any_gt(DynamicMaxInnerCallWeight::get()));
+
+		// Propose succeeds
+		assert_ok!(Multisig::propose(
+			RuntimeOrigin::signed(alice()),
+			multisig_address.clone(),
+			call.encode().try_into().unwrap(),
+			100,
+		));
+
+		// Bob approves - proposal is now ready for execution
+		assert_ok!(Multisig::approve(RuntimeOrigin::signed(bob()), multisig_address.clone(), 0,));
+
+		// Simulate runtime upgrade that lowers MaxInnerCallWeight to zero
+		set_max_inner_call_weight(Weight::zero());
+
+		// Now the call weight exceeds the (lowered) limit
+		assert!(call_weight.any_gt(DynamicMaxInnerCallWeight::get()));
+
+		// Execute should fail with CallWeightExceedsLimit
+		assert_err_ignore_postinfo(
+			Multisig::execute(RuntimeOrigin::signed(alice()), multisig_address.clone(), 0),
+			Error::<Test>::CallWeightExceedsLimit.into(),
+		);
+
+		// Proposal should still exist (execute failed early)
+		assert!(Proposals::<Test>::contains_key(&multisig_address, 0));
+
+		// Reset for other tests
+		reset_max_inner_call_weight();
 	});
 }

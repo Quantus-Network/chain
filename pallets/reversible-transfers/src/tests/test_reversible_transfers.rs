@@ -513,7 +513,7 @@ fn schedule_transfer_fails_not_reversible() {
 #[test]
 fn schedule_multiple_transfer_works() {
 	new_test_ext().execute_with(|| {
-		let user = alice(); // User 1 is reversible from genesis with guardian=2, recoverer=3
+		let user = alice(); // User 1 is high-security from genesis with guardian=2
 		let dest_user = bob();
 		let amount = 100;
 
