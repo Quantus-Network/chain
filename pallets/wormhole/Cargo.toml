@@ -18,7 +18,6 @@ log.workspace = true
 pallet-balances.workspace = true
 pallet-zk-tree.workspace = true
 qp-header = { workspace = true, features = ["serde"] }
-qp-poseidon.workspace = true
 qp-wormhole.workspace = true
 qp-wormhole-verifier = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false, features = [
@@ -68,7 +67,6 @@ std = [
 	"pallet-balances/std",
 	"pallet-zk-tree/std",
 	"qp-header/std",
-	"qp-poseidon/std",
 	"qp-wormhole-verifier/std",
 	"qp-wormhole/std",
 	"scale-info/std",

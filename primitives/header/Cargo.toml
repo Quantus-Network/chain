@@ -14,7 +14,6 @@ codec = { features = ["derive"], workspace = true }
 log.workspace = true
 p3-field = { workspace = true }
 p3-goldilocks = { workspace = true }
-qp-poseidon = { workspace = true, features = ["serde"] }
 qp-poseidon-core = { workspace = true }
 scale-info = { features = ["derive", "serde"], workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }
@@ -33,7 +32,7 @@ serde_json = { workspace = true, default-features = false, features = [
 default = ["serde", "std"]
 std = [
 	"codec/std",
-	"qp-poseidon/std",
+	"qp-poseidon-core/std",
 	"scale-info/std",
 	"sp-core/std",
 	"sp-runtime/std",

@@ -32,31 +32,26 @@ pub mod genesis_config_presets;
 pub mod governance;
 pub mod transaction_extensions;
 
-use qp_poseidon::PoseidonHasher;
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
 /// to even the core data structures.
 pub mod opaque {
 	use super::*;
-	use sp_runtime::{generic, traits::Hash as HashT};
+	use sp_runtime::generic;
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
-	// For whatever reason, changing this causes the block hash and
-	// the storage root to be computed with poseidon, but not the extrinsics root.
-	// Block header with separate hashers:
-	// - PoseidonHasher: for block hash (ZK circuit compatible)
-	// - BlakeTwo256: for state trie / extrinsics root (efficient native execution)
-	pub type Header = qp_header::Header<BlockNumber, PoseidonHasher, BlakeTwo256>;
+	// Block header with Poseidon block hash and BlakeTwo256 for state trie
+	pub type Header = qp_header::Header<BlockNumber, BlakeTwo256>;
 
 	// Opaque block type.
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 	// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
 
-	// Opaque block hash type.
-	pub type Hash = <PoseidonHasher as HashT>::Output;
+	// Opaque block hash type (H256).
+	pub type Hash = sp_core::H256;
 }
 
 impl_opaque_keys! {
@@ -130,9 +125,8 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-/// - PoseidonHasher: for block hash (ZK circuit compatible)
-/// - BlakeTwo256: for state trie / extrinsics root (efficient native execution)
-pub type Header = qp_header::Header<BlockNumber, PoseidonHasher, BlakeTwo256>;
+/// Uses Poseidon for block hash and BlakeTwo256 for state trie / extrinsics root.
+pub type Header = qp_header::Header<BlockNumber, BlakeTwo256>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;

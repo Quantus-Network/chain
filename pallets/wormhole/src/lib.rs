@@ -4,7 +4,6 @@ extern crate alloc;
 
 use lazy_static::lazy_static;
 pub use pallet::*;
-pub use qp_poseidon::ToFelts;
 use qp_wormhole_verifier::WormholeVerifier;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -37,7 +36,7 @@ pub const SCALE_DOWN_FACTOR: u128 = 10_000_000_000;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::{ToFelts, WeightInfo};
+	use crate::WeightInfo;
 	use alloc::vec::Vec;
 	use codec::Decode;
 	use frame_support::{
@@ -119,12 +118,11 @@ pub mod pallet {
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
-		/// Native balance type with ToFelts bound for Poseidon hashing in transfer proofs.
+		/// Native balance type for transfer proofs.
 		type NativeBalance: Parameter
 			+ Member
 			+ Default
 			+ Copy
-			+ ToFelts
 			+ MaxEncodedLen
 			+ sp_runtime::traits::AtLeast32BitUnsigned
 			+ sp_runtime::traits::CheckedAdd
@@ -146,8 +144,8 @@ pub mod pallet {
 			> + fungibles::Mutate<<Self as frame_system::Config>::AccountId>
 			+ fungibles::Create<<Self as frame_system::Config>::AccountId>;
 
-		/// Asset ID type with bounds needed for Poseidon hashing in transfer proofs.
-		type AssetId: Parameter + Member + Default + From<u32> + Clone + ToFelts + MaxEncodedLen;
+		/// Asset ID type for transfer proofs.
+		type AssetId: Parameter + Member + Default + From<u32> + Clone + MaxEncodedLen;
 
 		/// Asset balance type that can convert to/from native balance.
 		type AssetBalance: Parameter
@@ -163,8 +161,7 @@ pub mod pallet {
 			+ Saturating
 			+ Copy
 			+ sp_runtime::traits::One
-			+ Into<u64>
-			+ ToFelts;
+			+ Into<u64>;
 
 		/// Account ID used as the "from" account when creating transfer proofs for minted tokens
 		#[pallet::constant]
@@ -188,7 +185,7 @@ pub mod pallet {
 		/// Weight information for pallet operations.
 		type WeightInfo: WeightInfo;
 
-		/// Override system AccountId to make it felts encodable
+		/// Override system AccountId for wormhole operations
 		type WormholeAccountId: Parameter
 			+ Member
 			+ MaybeSerializeDeserialize
@@ -196,7 +193,6 @@ pub mod pallet {
 			+ MaybeDisplay
 			+ Ord
 			+ MaxEncodedLen
-			+ ToFelts
 			+ Into<<Self as frame_system::Config>::AccountId>
 			+ From<<Self as frame_system::Config>::AccountId>;
 
