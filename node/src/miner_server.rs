@@ -79,8 +79,8 @@ impl MinerServer {
 	///
 	/// # Arguments
 	/// * `port` - The port to listen on for miner connections
-	/// * `node_key_path` - Optional path to the node's identity key file. If provided,
-	///   the TLS certificate key is derived from it for deterministic fingerprints.
+	/// * `node_key_path` - Optional path to the node's identity key file. If provided, the TLS
+	///   certificate key is derived from it for deterministic fingerprints.
 	pub async fn start(port: u16, node_key_path: Option<PathBuf>) -> Result<Arc<Self>, String> {
 		let (result_tx, result_rx) = mpsc::channel::<MiningResult>(64);
 
@@ -180,9 +180,7 @@ async fn create_server_endpoint(
 		let (kp, _stored_cert) = load_or_generate_mldsa_key(key_path)?;
 		kp
 	} else {
-		log::warn!(
-			"⛏️ No node key path provided, generating ephemeral TLS key"
-		);
+		log::warn!("⛏️ No node key path provided, generating ephemeral TLS key");
 		rcgen::KeyPair::generate_for(&rcgen::PKCS_ML_DSA_87)
 			.map_err(|e| format!("Failed to generate ML-DSA key pair: {}", e))?
 	};
@@ -207,23 +205,20 @@ async fn create_server_endpoint(
 	log::info!("⛏️ Miner server certificate fingerprint: {}", fingerprint);
 	log::info!("⛏️ Certificate algorithm: ML-DSA-87 (post-quantum)");
 	log::info!("⛏️ Key exchange: X25519MLKEM768 (hybrid post-quantum)");
-	log::warn!(
-		"⛏️ NOTE: Fingerprint changes on restart (rcgen ML-DSA key persistence bug)"
-	);
+	log::warn!("⛏️ NOTE: Fingerprint changes on restart (rcgen ML-DSA key persistence bug)");
 	log::info!("⛏️ Miners should use: --node-cert-fingerprint {}", fingerprint);
 
 	let cert_chain = vec![cert_der];
 	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
 
 	// Create server config with post-quantum crypto provider (aws-lc-rs with ML-DSA support)
-	let server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
-		rustls_post_quantum::provider(),
-	))
-	.with_safe_default_protocol_versions()
-	.map_err(|e| format!("Failed to set protocol versions: {}", e))?
-	.with_no_client_auth()
-	.with_single_cert(cert_chain, key)
-	.map_err(|e| format!("Failed to create server config: {}", e))?;
+	let server_config =
+		rustls::ServerConfig::builder_with_provider(Arc::new(rustls_post_quantum::provider()))
+			.with_safe_default_protocol_versions()
+			.map_err(|e| format!("Failed to set protocol versions: {}", e))?
+			.with_no_client_auth()
+			.with_single_cert(cert_chain, key)
+			.map_err(|e| format!("Failed to create server config: {}", e))?;
 
 	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(
 		quinn::crypto::rustls::QuicServerConfig::try_from(server_config)

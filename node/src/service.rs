@@ -177,11 +177,8 @@ async fn handle_external_mining(
 		mining_hash,
 		difficulty
 	);
-	let job = MiningRequest {
-		job_id: job_id.clone(),
-		mining_hash,
-		difficulty: difficulty.to_string(),
-	};
+	let job =
+		MiningRequest { job_id: job_id.clone(), mining_hash, difficulty: difficulty.to_string() };
 
 	server.broadcast_job(job).await;
 
@@ -785,11 +782,7 @@ pub fn new_full<
 	log::info!("📦 State pruning mode: {:?}", config.state_pruning);
 
 	// Extract node key path for miner server TLS certificate
-	let node_key_path = config
-		.network
-		.net_config_path
-		.as_ref()
-		.map(|p| p.join("secret_dilithium"));
+	let node_key_path = config.network.net_config_path.as_ref().map(|p| p.join("secret_dilithium"));
 
 	let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
 		network: network.clone(),
