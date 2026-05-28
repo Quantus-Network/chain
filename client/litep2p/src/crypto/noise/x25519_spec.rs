@@ -99,12 +99,13 @@ impl snow::types::Dh for Keypair<X25519Spec> {
         secret.zeroize();
     }
 
-    fn generate(&mut self, rng: &mut dyn snow::types::Random) {
+    fn generate(&mut self, rng: &mut dyn snow::types::Random) -> Result<(), snow::Error> {
         let mut secret = [0u8; 32];
-        rng.fill_bytes(&mut secret);
+        rng.try_fill_bytes(&mut secret)?;
         self.secret = SecretKey(X25519Spec(secret));
         self.public = PublicKey(X25519Spec(x25519(secret, X25519_BASEPOINT_BYTES)));
         secret.zeroize();
+        Ok(())
     }
 
     fn dh(&self, pk: &[u8], shared_secret: &mut [u8]) -> Result<(), snow::Error> {

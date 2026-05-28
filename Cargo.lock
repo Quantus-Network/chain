@@ -5656,7 +5656,7 @@ dependencies = [
  "sha2 0.10.9",
  "simple-dns",
  "smallvec",
- "snow",
+ "snow 0.9.6",
  "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio 1.47.1",
@@ -8337,7 +8337,7 @@ dependencies = [
  "sha2 0.10.9",
  "simple-dns",
  "smallvec",
- "snow",
+ "snow 0.10.0",
  "socket2 0.5.10",
  "str0m",
  "thiserror 2.0.18",
@@ -11422,6 +11422,25 @@ dependencies = [
  "rand_core 0.6.4",
  "ring 0.17.14",
  "rustc_version",
+ "subtle 2.6.1",
+]
+
+[[package]]
+name = "snow"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
+dependencies = [
+ "aes-gcm",
+ "blake2 0.10.6",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "getrandom 0.3.3",
+ "pqcrypto-kyber",
+ "pqcrypto-traits",
+ "ring 0.17.14",
+ "rustc_version",
+ "sha2 0.10.9",
  "subtle 2.6.1",
 ]
 
