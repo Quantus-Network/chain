@@ -26,7 +26,7 @@ use crate::{
 
 use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt, Stream, StreamExt};
 use multiaddr::{Multiaddr, Protocol};
-use quinn::{Connecting, Endpoint, ServerConfig};
+use quinn::{Connecting, Endpoint, ServerConfig, crypto::rustls::QuicServerConfig};
 
 use std::{
     net::{IpAddr, SocketAddr},
@@ -61,14 +61,16 @@ impl QuicListener {
 
         for address in addresses.into_iter() {
             let (listen_address, _) = Self::get_socket_address(&address)?;
-            let crypto_config = Arc::new(make_server_config(keypair).expect("to succeed"));
-            let server_config = ServerConfig::with_crypto(crypto_config);
+            let rustls_config = make_server_config(keypair).expect("to succeed");
+            // Convert rustls config to quinn's QuicServerConfig
+            let quic_server_config = QuicServerConfig::try_from(rustls_config)
+                .expect("valid rustls config");
+            let server_config = ServerConfig::with_crypto(Arc::new(quic_server_config));
             let listener = Endpoint::server(server_config, listen_address).unwrap();
 
             let listen_address = listener.local_addr()?;
             listen_addresses.push(listen_address);
             listeners.push(listener);
-            // );
         }
 
         let listen_multi_addresses = listen_addresses
@@ -89,8 +91,14 @@ impl QuicListener {
                     .enumerate()
                     .map(|(i, listener)| {
                         let inner = listener.clone();
-                        async move { inner.accept().await.map(|connecting| (i, connecting)) }
-                            .boxed()
+                        async move {
+                            // Quinn 0.11: accept() returns Incoming, which we need to
+                            // convert to Connecting by calling accept()
+                            let incoming = inner.accept().await?;
+                            let connecting = incoming.accept().ok()?;
+                            Some((i, connecting))
+                        }
+                        .boxed()
                     })
                     .collect(),
                 listeners,
@@ -173,8 +181,12 @@ impl Stream for QuicListener {
             Some(Some((listener, future))) => {
                 let inner = self.listeners[listener].clone();
                 self.incoming.push(
-                    async move { inner.accept().await.map(|connecting| (listener, connecting)) }
-                        .boxed(),
+                    async move {
+                        let incoming = inner.accept().await?;
+                        let connecting = incoming.accept().ok()?;
+                        Some((listener, connecting))
+                    }
+                    .boxed(),
                 );
 
                 Poll::Ready(Some(future))
@@ -188,7 +200,7 @@ mod tests {
     use crate::crypto::tls::make_client_config;
 
     use super::*;
-    use quinn::ClientConfig;
+    use quinn::{ClientConfig, crypto::rustls::QuicClientConfig};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
     #[test]
@@ -266,9 +278,9 @@ mod tests {
             panic!("invalid address");
         };
 
-        let crypto_config =
-            Arc::new(make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed"));
-        let client_config = ClientConfig::new(crypto_config);
+        let crypto_config = make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed");
+        let quic_client_config = QuicClientConfig::try_from(crypto_config).expect("valid config");
+        let client_config = ClientConfig::new(Arc::new(quic_client_config));
         let client =
             Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)).unwrap();
         let connection = client
@@ -313,9 +325,9 @@ mod tests {
             panic!("invalid address");
         };
 
-        let crypto_config1 =
-            Arc::new(make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed"));
-        let client_config1 = ClientConfig::new(crypto_config1);
+        let crypto_config1 = make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed");
+        let quic_client_config1 = QuicClientConfig::try_from(crypto_config1).expect("valid config");
+        let client_config1 = ClientConfig::new(Arc::new(quic_client_config1));
         let client1 =
             Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)).unwrap();
         let connection1 = client1
@@ -326,9 +338,9 @@ mod tests {
             )
             .unwrap();
 
-        let crypto_config2 =
-            Arc::new(make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed"));
-        let client_config2 = ClientConfig::new(crypto_config2);
+        let crypto_config2 = make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed");
+        let quic_client_config2 = QuicClientConfig::try_from(crypto_config2).expect("valid config");
+        let client_config2 = ClientConfig::new(Arc::new(quic_client_config2));
         let client2 =
             Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)).unwrap();
         let connection2 = client2
@@ -381,9 +393,9 @@ mod tests {
             panic!("invalid address");
         };
 
-        let crypto_config1 =
-            Arc::new(make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed"));
-        let client_config1 = ClientConfig::new(crypto_config1);
+        let crypto_config1 = make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed");
+        let quic_client_config1 = QuicClientConfig::try_from(crypto_config1).expect("valid config");
+        let client_config1 = ClientConfig::new(Arc::new(quic_client_config1));
         let client1 =
             Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)).unwrap();
         let connection1 = client1
@@ -394,9 +406,9 @@ mod tests {
             )
             .unwrap();
 
-        let crypto_config2 =
-            Arc::new(make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed"));
-        let client_config2 = ClientConfig::new(crypto_config2);
+        let crypto_config2 = make_client_config(&Keypair::generate(), Some(peer)).expect("to succeed");
+        let quic_client_config2 = QuicClientConfig::try_from(crypto_config2).expect("valid config");
+        let client_config2 = ClientConfig::new(Arc::new(quic_client_config2));
         let client2 =
             Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)).unwrap();
         let connection2 = client2

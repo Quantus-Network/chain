@@ -41,7 +41,7 @@ use futures::{
 };
 use hickory_resolver::TokioResolver;
 use multiaddr::{Multiaddr, Protocol};
-use quinn::{ClientConfig, Connecting, Connection, Endpoint, IdleTimeout};
+use quinn::{ClientConfig, Connecting, Connection, Endpoint, IdleTimeout, crypto::rustls::QuicClientConfig};
 
 use std::{
     collections::HashMap,
@@ -131,7 +131,7 @@ pub(crate) struct QuicTransport {
 impl QuicTransport {
     /// Attempt to extract `PeerId` from connection certificates.
     fn extract_peer_id(connection: &Connection) -> Option<PeerId> {
-        let certificates: Box<Vec<rustls::Certificate>> =
+        let certificates: Box<Vec<rustls::pki_types::CertificateDer<'static>>> =
             connection.peer_identity()?.downcast().ok()?;
         let p2p_cert = crate::crypto::tls::certificate::parse(certificates.first()?)
             .expect("the certificate was validated during TLS handshake; qed");
@@ -257,13 +257,14 @@ impl Transport for QuicTransport {
             return Err(Error::AddressError(AddressError::PeerIdMissing));
         };
 
-        let crypto_config =
-            Arc::new(make_client_config(&self.context.keypair, Some(peer)).expect("to succeed"));
+        let crypto_config = make_client_config(&self.context.keypair, Some(peer)).expect("to succeed");
+        let quic_client_config = QuicClientConfig::try_from(crypto_config)
+            .map_err(|e| Error::Other(format!("invalid crypto config: {e}")))?;
         let mut transport_config = quinn::TransportConfig::default();
         let timeout =
             IdleTimeout::try_from(self.config.connection_open_timeout).expect("to succeed");
         transport_config.max_idle_timeout(Some(timeout));
-        let mut client_config = ClientConfig::new(crypto_config);
+        let mut client_config = ClientConfig::new(Arc::new(quic_client_config));
         client_config.transport_config(Arc::new(transport_config));
 
         let client_listen_address = match address.iter().next() {
@@ -393,13 +394,14 @@ impl Transport for QuicTransport {
                     let peer =
                         peer.ok_or_else(|| DialError::AddressError(AddressError::PeerIdMissing))?;
 
-                    let crypto_config =
-                        Arc::new(make_client_config(&keypair, Some(peer)).expect("to succeed"));
+                    let crypto_config = make_client_config(&keypair, Some(peer)).expect("to succeed");
+                    let quic_client_config = QuicClientConfig::try_from(crypto_config)
+                        .expect("valid crypto config");
                     let mut transport_config = quinn::TransportConfig::default();
                     let timeout =
                         IdleTimeout::try_from(connection_open_timeout).expect("to succeed");
                     transport_config.max_idle_timeout(Some(timeout));
-                    let mut client_config = ClientConfig::new(crypto_config);
+                    let mut client_config = ClientConfig::new(Arc::new(quic_client_config));
                     client_config.transport_config(Arc::new(transport_config));
 
                     let client_listen_address = match address.iter().next() {
