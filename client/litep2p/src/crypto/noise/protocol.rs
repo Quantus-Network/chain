@@ -96,6 +96,14 @@ impl snow::resolvers::CryptoResolver for Resolver {
     ) -> Option<Box<dyn snow::types::Cipher>> {
         snow::resolvers::RingResolver.resolve_cipher(choice)
     }
+
+    fn resolve_kem(
+        &self,
+        choice: &snow::params::KemChoice,
+    ) -> Option<Box<dyn snow::types::Kem>> {
+        // Delegate Kyber1024 to the default resolver
+        snow::resolvers::DefaultResolver.resolve_kem(choice)
+    }
 }
 
 /// Wrapper around a CSPRNG to implement `snow::Random` trait for.
@@ -121,4 +129,9 @@ impl rand::RngCore for Rng {
 
 impl rand::CryptoRng for Rng {}
 
-impl snow::types::Random for Rng {}
+impl snow::types::Random for Rng {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), snow::Error> {
+        rand::RngCore::try_fill_bytes(self, dest)
+            .map_err(|_| snow::Error::Rng)
+    }
+}

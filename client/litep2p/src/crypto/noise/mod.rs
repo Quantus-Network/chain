@@ -46,8 +46,9 @@ mod handshake_schema {
     include!(concat!(env!("OUT_DIR"), "/noise.rs"));
 }
 
-/// Noise parameters.
-const NOISE_PARAMETERS: &str = "Noise_XX_25519_ChaChaPoly_SHA256";
+/// Noise parameters with post-quantum Hybrid Forward Secrecy (HFS).
+/// Uses XX pattern with X25519 + Kyber1024 for quantum-resistant key exchange.
+const NOISE_PARAMETERS: &str = "Noise_XXhfs_25519+Kyber1024_ChaChaPoly_SHA256";
 
 /// Prefix of static key signatures for domain separation.
 pub(crate) const STATIC_KEY_DOMAIN: &str = "noise-libp2p-static-key:";
@@ -136,8 +137,8 @@ impl NoiseContext {
         let static_key = &dh_keypair.private;
 
         let noise = match role {
-            Role::Dialer => builder.local_private_key(static_key).build_initiator()?,
-            Role::Listener => builder.local_private_key(static_key).build_responder()?,
+            Role::Dialer => builder.local_private_key(static_key)?.build_initiator()?,
+            Role::Listener => builder.local_private_key(static_key)?.build_responder()?,
         };
 
         Self::assemble(noise, dh_keypair, keypair, role)
@@ -154,7 +155,7 @@ impl NoiseContext {
         let keypair = noise.generate_keypair()?;
 
         let noise = noise
-            .local_private_key(&keypair.private)
+            .local_private_key(&keypair.private)?
             .prologue(&prologue)
             .build_initiator()?;
 
@@ -208,7 +209,11 @@ impl NoiseContext {
                     return Err(NegotiationError::StateMismatch);
                 };
 
-                let mut buffer = vec![0u8; 256];
+                // HFS with Kyber1024 requires larger buffers:
+                // - X25519 public key: 32 bytes
+                // - Kyber1024 public key: 1568 bytes
+                // - Plus Noise overhead
+                let mut buffer = vec![0u8; 4096];
                 let nwritten = noise.write_message(&[], &mut buffer)?;
                 buffer.truncate(nwritten);
 
@@ -226,7 +231,7 @@ impl NoiseContext {
     ///
     /// Only the dialer sends the second message.
     pub fn second_message(&mut self) -> Result<Vec<u8>, NegotiationError> {
-        tracing::trace!(target: LOG_TARGET, "get noise paylod message");
+        tracing::trace!(target: LOG_TARGET, role = ?self.role, "get noise payload message");
 
         let NoiseState::Handshake(ref mut noise) = self.noise else {
             tracing::error!(target: LOG_TARGET, "invalid state to read the first handshake message");
@@ -234,7 +239,15 @@ impl NoiseContext {
             return Err(NegotiationError::StateMismatch);
         };
 
-        let mut buffer = vec![0u8; 2048];
+        // HFS with Kyber1024 + Dilithium identity requires larger buffers:
+        // - e (X25519): 32 bytes
+        // - e1 (Kyber1024 pubkey): 1568 bytes  
+        // - ekem1 (Kyber1024 ciphertext): 1568 bytes
+        // - s (encrypted X25519): 48 bytes
+        // - payload (Dilithium pubkey + signature): ~7230 bytes
+        // - encryption overhead: 16 bytes
+        // Total: ~10500 bytes, use 16384 for safety
+        let mut buffer = vec![0u8; 16384];
         let nwritten = noise.write_message(&self.payload, &mut buffer)?;
         buffer.truncate(nwritten);
 
@@ -258,8 +271,9 @@ impl NoiseContext {
         io.read_exact(&mut message).await?;
 
         // TODO: https://github.com/paritytech/litep2p/issues/332 use correct overhead.
+        // HFS with Kyber1024 requires larger buffers
         let mut out = BytesMut::new();
-        out.resize(message.len() + 200, 0u8);
+        out.resize(message.len() + 4096, 0u8);
 
         let NoiseState::Handshake(ref mut noise) = self.noise else {
             tracing::error!(target: LOG_TARGET, "invalid state to read handshake message");
@@ -850,12 +864,12 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
         let mut noise = NoiseContext::new(keypair, role)?;
         let payload = match role {
             Role::Dialer => {
-                // write initial message
+                // write initial message (-> e, e1)
                 let first_message = noise.first_message(Role::Dialer)?;
                 io.write_all(&first_message).await?;
                 io.flush().await?;
 
-                // read back response which contains the remote peer id
+                // read back response which contains the remote peer id (<- e, ee, ekem1, s, es)
                 let message = noise.read_handshake_message(&mut io).await?;
                 // Decode the remote identity message.
                 let payload = handshake_schema::NoiseHandshakePayload::decode(message)
@@ -865,7 +879,7 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
                     err
                 })?;
 
-                // send the final message which contains local peer id
+                // send the final message which contains local peer id (-> s, se)
                 let second_message = noise.second_message()?;
                 io.write_all(&second_message).await?;
                 io.flush().await?;
@@ -873,15 +887,15 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
                 payload
             }
             Role::Listener => {
-                // read remote's first message
+                // read remote's first message (-> e, e1)
                 let _ = noise.read_handshake_message(&mut io).await?;
 
-                // send local peer id.
+                // send local peer id (<- e, ee, ekem1, s, es)
                 let second_message = noise.second_message()?;
                 io.write_all(&second_message).await?;
                 io.flush().await?;
 
-                // read remote's second message which contains their peer id
+                // read remote's second message which contains their peer id (-> s, se)
                 let message = noise.read_handshake_message(&mut io).await?;
                 // Decode the remote identity message.
                 handshake_schema::NoiseHandshakePayload::decode(message)

@@ -32,7 +32,8 @@ serde = "1.0.158"
 sha2 = "0.10.9"
 simple-dns = "0.11.0"
 smallvec = "1.15.0"
-snow = { version = "0.9.3", features = ["ring-resolver"], default-features = false }
+# Noise protocol with post-quantum HFS (Hybrid Forward Secrecy)
+snow = { version = "0.10.0", features = ["default-resolver", "ring-resolver", "hfs", "use-pqcrypto-kyber1024"] }
 socket2 = { version = "0.5.9", features = ["all"] }
 thiserror = "2.0.12"
 tokio-stream = "0.1.17"
