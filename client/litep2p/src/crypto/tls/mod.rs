@@ -25,7 +25,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-use crate::{crypto::ed25519::Keypair, PeerId};
+use crate::{crypto::dilithium::Keypair, PeerId};
 
 use std::sync::Arc;
 

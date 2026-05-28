@@ -3,12 +3,8 @@ syntax = "proto2";
 package keys_proto;
 
 enum KeyType {
-  RSA = 0;
-  Ed25519 = 1;
-  Secp256k1 = 2;
-  ECDSA = 3;
-  // 4 is reserved
-  Dilithium = 5;  // ML-DSA-87 post-quantum signature scheme
+  // Post-quantum only - all classical ECC/RSA removed for security
+  Dilithium = 0;  // ML-DSA-87 post-quantum signature scheme
 }
 
 message PublicKey {

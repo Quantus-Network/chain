@@ -1,5 +1,6 @@
 // Copyright 2023 Protocol Labs.
 // Copyright 2023 litep2p developers
+// Copyright 2024 Quantus Network Developers
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
 // copy of this software and associated documentation files (the "Software"),
@@ -20,13 +21,12 @@
 // DEALINGS IN THE SOFTWARE.
 
 //! Crypto-related code.
+//!
+//! This module provides post-quantum cryptography using Dilithium ML-DSA-87.
 
 use crate::{error::ParseError, peer_id::*};
 
 pub mod dilithium;
-pub mod ed25519;
-#[cfg(feature = "rsa")]
-pub mod rsa;
 
 pub(crate) mod noise;
 #[cfg(feature = "quic")]
@@ -35,14 +35,12 @@ pub(crate) mod keys_proto {
     include!(concat!(env!("OUT_DIR"), "/keys_proto.rs"));
 }
 
+// Re-export Keypair for convenience
+pub use dilithium::Keypair;
+
 /// The public key of a node's identity keypair.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PublicKey {
-    /// A public Ed25519 key.
-    Ed25519(ed25519::PublicKey),
-    /// A public Dilithium ML-DSA-87 key (post-quantum).
-    Dilithium(dilithium::PublicKey),
-}
+pub struct PublicKey(pub(crate) dilithium::PublicKey);
 
 impl PublicKey {
     /// Encode the public key into a protobuf structure for storage or
@@ -61,19 +59,29 @@ impl PublicKey {
     pub fn to_peer_id(&self) -> PeerId {
         self.into()
     }
+
+    /// Verify a signature for a message using this public key.
+    #[must_use]
+    pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
+        self.0.verify(msg, sig)
+    }
+
+    /// Convert the public key to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes()
+    }
+
+    /// Get the public key as a byte slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
 }
 
 impl From<&PublicKey> for keys_proto::PublicKey {
     fn from(key: &PublicKey) -> Self {
-        match key {
-            PublicKey::Ed25519(key) => keys_proto::PublicKey {
-                r#type: keys_proto::KeyType::Ed25519 as i32,
-                data: key.to_bytes().to_vec(),
-            },
-            PublicKey::Dilithium(key) => keys_proto::PublicKey {
-                r#type: keys_proto::KeyType::Dilithium as i32,
-                data: key.to_bytes(),
-            },
+        keys_proto::PublicKey {
+            r#type: keys_proto::KeyType::Dilithium as i32,
+            data: key.0.to_bytes(),
         }
     }
 }
@@ -85,58 +93,26 @@ impl TryFrom<keys_proto::PublicKey> for PublicKey {
         let key_type = keys_proto::KeyType::try_from(pubkey.r#type)
             .map_err(|_| ParseError::UnknownKeyType(pubkey.r#type))?;
 
-        match key_type {
-            keys_proto::KeyType::Ed25519 => {
-                ed25519::PublicKey::try_from_bytes(&pubkey.data).map(PublicKey::Ed25519)
-            }
-            keys_proto::KeyType::Dilithium => {
-                dilithium::PublicKey::try_from_bytes(&pubkey.data).map(PublicKey::Dilithium)
-            }
-            _ => Err(ParseError::UnknownKeyType(key_type as i32)),
+        if key_type != keys_proto::KeyType::Dilithium {
+            return Err(ParseError::UnknownKeyType(key_type as i32));
         }
-    }
-}
 
-impl From<ed25519::PublicKey> for PublicKey {
-    fn from(public_key: ed25519::PublicKey) -> Self {
-        PublicKey::Ed25519(public_key)
+        dilithium::PublicKey::try_from_bytes(&pubkey.data).map(PublicKey)
     }
 }
 
 impl From<dilithium::PublicKey> for PublicKey {
     fn from(public_key: dilithium::PublicKey) -> Self {
-        PublicKey::Dilithium(public_key)
+        PublicKey(public_key)
     }
 }
 
-/// The public key of a remote node's identity keypair. Supports RSA keys additionally to ed25519.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RemotePublicKey {
-    /// A public Ed25519 key.
-    Ed25519(ed25519::PublicKey),
-    /// A public Dilithium ML-DSA-87 key (post-quantum).
-    Dilithium(dilithium::PublicKey),
-    /// A public RSA key.
-    #[cfg(feature = "rsa")]
-    Rsa(rsa::PublicKey),
-}
+/// The public key of a remote node's identity keypair.
+///
+/// This is used when verifying signatures from remote peers.
+pub type RemotePublicKey = PublicKey;
 
 impl RemotePublicKey {
-    /// Verify a signature for a message using this public key, i.e. check
-    /// that the signature has been produced by the corresponding
-    /// private key (authenticity), and that the message has not been
-    /// tampered with (integrity).
-    #[must_use]
-    pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
-        use RemotePublicKey::*;
-        match self {
-            Ed25519(pk) => pk.verify(msg, sig),
-            Dilithium(pk) => pk.verify(msg, sig),
-            #[cfg(feature = "rsa")]
-            Rsa(pk) => pk.verify(msg, sig),
-        }
-    }
-
     /// Decode a public key from a protobuf structure, e.g. read from storage
     /// or received from another node.
     pub fn from_protobuf_encoding(bytes: &[u8]) -> Result<RemotePublicKey, ParseError> {
@@ -145,25 +121,5 @@ impl RemotePublicKey {
         let pubkey = keys_proto::PublicKey::decode(bytes)?;
 
         pubkey.try_into()
-    }
-}
-
-impl TryFrom<keys_proto::PublicKey> for RemotePublicKey {
-    type Error = ParseError;
-
-    fn try_from(pubkey: keys_proto::PublicKey) -> Result<Self, Self::Error> {
-        let key_type = keys_proto::KeyType::try_from(pubkey.r#type)
-            .map_err(|_| ParseError::UnknownKeyType(pubkey.r#type))?;
-
-        match key_type {
-            keys_proto::KeyType::Ed25519 =>
-                ed25519::PublicKey::try_from_bytes(&pubkey.data).map(RemotePublicKey::Ed25519),
-            keys_proto::KeyType::Dilithium =>
-                dilithium::PublicKey::try_from_bytes(&pubkey.data).map(RemotePublicKey::Dilithium),
-            #[cfg(feature = "rsa")]
-            keys_proto::KeyType::Rsa =>
-                rsa::PublicKey::try_decode_x509(&pubkey.data).map(RemotePublicKey::Rsa),
-            _ => Err(ParseError::UnknownKeyType(key_type as i32)),
-        }
     }
 }

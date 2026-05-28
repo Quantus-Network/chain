@@ -379,7 +379,7 @@ mod tests {
     use super::*;
     use crate::{
         crypto::{
-            ed25519::Keypair,
+            dilithium::Keypair,
             tls::{certificate::generate, TlsProvider},
             PublicKey,
         },
@@ -405,7 +405,7 @@ mod tests {
         let keypair = Keypair::generate();
         let (certificate, key) = generate(&keypair).unwrap();
         let (tx, rx) = channel(1);
-        let peer = PeerId::from_public_key(&PublicKey::Ed25519(keypair.public()));
+        let peer = PeerId::from_public_key(&PublicKey::from(keypair.public()));
 
         let provider = TlsProvider::new(key, certificate, None, Some(tx.clone()));
         let server = Server::builder()

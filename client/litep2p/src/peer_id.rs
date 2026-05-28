@@ -257,7 +257,7 @@ impl FromStr for PeerId {
 
 #[cfg(test)]
 mod tests {
-    use crate::{crypto::ed25519::Keypair, PeerId};
+    use crate::{crypto::dilithium::Keypair, PeerId};
     use multiaddr::{Multiaddr, Protocol};
     use multihash::Multihash;
 

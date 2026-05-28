@@ -21,7 +21,7 @@
 use crate::{
     addresses::PublicAddresses,
     codec::ProtocolCodec,
-    crypto::ed25519::Keypair,
+    crypto::dilithium::Keypair,
     error::{AddressError, DialError, Error},
     executor::Executor,
     protocol::{InnerTransportEvent, TransportService},
@@ -1472,7 +1472,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        crypto::ed25519::Keypair,
+        crypto::dilithium::Keypair,
         executor::DefaultExecutor,
         transport::{dummy::DummyTransport, KEEP_ALIVE_TIMEOUT},
     };

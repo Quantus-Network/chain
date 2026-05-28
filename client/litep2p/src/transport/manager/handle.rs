@@ -20,7 +20,7 @@
 
 use crate::{
     addresses::PublicAddresses,
-    crypto::ed25519::Keypair,
+    crypto::dilithium::Keypair,
     error::ImmediateDialError,
     executor::Executor,
     protocol::ProtocolSet,

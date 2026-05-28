@@ -365,7 +365,7 @@ mod tests {
     use super::*;
     use crate::{
         codec::ProtocolCodec,
-        crypto::{ed25519::Keypair, PublicKey},
+        crypto::{dilithium::Keypair, PublicKey},
         transport::manager::{
             ProtocolContext, SupportedTransport, TransportHandle, TransportManager,
             TransportManagerCommand, TransportManagerEvent,
@@ -407,7 +407,7 @@ mod tests {
 
         let transport1 = QuicTransport::new(handle1, transport_config1).await.unwrap();
 
-        let _peer1: PeerId = PeerId::from_public_key(&PublicKey::Ed25519(keypair1.public()));
+        let _peer1: PeerId = PeerId::from_public_key(&PublicKey::from(keypair1.public()));
         let listen_address = Transport::listen_address(&transport1).to_string();
         let listen_address: Multiaddr =
             format!("{}/p2p/{}", listen_address, _peer1.to_string()).parse().unwrap();

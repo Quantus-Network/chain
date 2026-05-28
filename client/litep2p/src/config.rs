@@ -21,7 +21,7 @@
 //! [`Litep2p`](`crate::Litep2p`) configuration.
 
 use crate::{
-    crypto::ed25519::Keypair,
+    crypto::dilithium::Keypair,
     executor::{DefaultExecutor, Executor},
     protocol::{
         libp2p::{bitswap, identify, kademlia, ping},
