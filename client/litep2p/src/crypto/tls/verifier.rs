@@ -26,14 +26,10 @@
 use crate::{crypto::tls::certificate, PeerId};
 
 use rustls::{
-    cipher_suite::{
-        TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384, TLS13_CHACHA20_POLY1305_SHA256,
-    },
-    client::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    internal::msgs::handshake::DigitallySignedStruct,
-    server::{ClientCertVerified, ClientCertVerifier},
-    Certificate, DistinguishedNames, SignatureScheme, SupportedCipherSuite,
-    SupportedProtocolVersion,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    server::danger::{ClientCertVerified, ClientCertVerifier},
+    pki_types::{CertificateDer, ServerName, UnixTime},
+    DigitallySignedStruct, DistinguishedName, SignatureScheme,
 };
 
 /// The protocol versions supported by this verifier.
@@ -42,21 +38,12 @@ use rustls::{
 ///
 /// > The libp2p handshake uses TLS 1.3 (and higher).
 /// > Endpoints MUST NOT negotiate lower TLS versions.
-pub static PROTOCOL_VERSIONS: &[&SupportedProtocolVersion] = &[&rustls::version::TLS13];
-
-/// A list of the TLS 1.3 cipher suites supported by rustls.
-// By default rustls creates client/server configs with both
-// TLS 1.3 __and__ 1.2 cipher suites. But we don't need 1.2.
-pub static CIPHERSUITES: &[SupportedCipherSuite] = &[
-    // TLS1.3 suites
-    TLS13_CHACHA20_POLY1305_SHA256,
-    TLS13_AES_256_GCM_SHA384,
-    TLS13_AES_128_GCM_SHA256,
-];
+pub static PROTOCOL_VERSIONS: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
 
 /// Implementation of the `rustls` certificate verification traits for libp2p.
 ///
 /// Only TLS 1.3 is supported. TLS 1.2 should be disabled in the configuration of `rustls`.
+#[derive(Debug)]
 pub struct Libp2pCertificateVerifier {
     /// The peer ID we intend to connect to
     remote_peer_id: Option<PeerId>,
@@ -105,12 +92,11 @@ impl Libp2pCertificateVerifier {
 impl ServerCertVerifier for Libp2pCertificateVerifier {
     fn verify_server_cert(
         &self,
-        end_entity: &Certificate,
-        intermediates: &[Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
-        _now: std::time::SystemTime,
+        _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         let peer_id = verify_presented_certs(end_entity, intermediates)?;
 
@@ -120,8 +106,8 @@ impl ServerCertVerifier for Libp2pCertificateVerifier {
             // the certificate matches the peer ID they intended to connect to,
             // and MUST abort the connection if there is a mismatch.
             if remote_peer_id != peer_id {
-                return Err(rustls::Error::PeerMisbehavedError(
-                    "Wrong peer ID in p2p extension".to_string(),
+                return Err(rustls::Error::PeerMisbehaved(
+                    rustls::PeerMisbehaved::SignedKxWithWrongAlgorithm,
                 ));
             }
         }
@@ -132,7 +118,7 @@ impl ServerCertVerifier for Libp2pCertificateVerifier {
     fn verify_tls12_signature(
         &self,
         _message: &[u8],
-        _cert: &Certificate,
+        _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
         unreachable!("`PROTOCOL_VERSIONS` only allows TLS 1.3")
@@ -141,7 +127,7 @@ impl ServerCertVerifier for Libp2pCertificateVerifier {
     fn verify_tls13_signature(
         &self,
         message: &[u8],
-        cert: &Certificate,
+        cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
         verify_tls13_signature(cert, dss.scheme, message, dss.signature())
@@ -164,15 +150,15 @@ impl ClientCertVerifier for Libp2pCertificateVerifier {
         true
     }
 
-    fn client_auth_root_subjects(&self) -> Option<DistinguishedNames> {
-        Some(vec![])
+    fn root_hint_subjects(&self) -> &[DistinguishedName] {
+        &[]
     }
 
     fn verify_client_cert(
         &self,
-        end_entity: &Certificate,
-        intermediates: &[Certificate],
-        _now: std::time::SystemTime,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        _now: UnixTime,
     ) -> Result<ClientCertVerified, rustls::Error> {
         let _: PeerId = verify_presented_certs(end_entity, intermediates)?;
 
@@ -182,7 +168,7 @@ impl ClientCertVerifier for Libp2pCertificateVerifier {
     fn verify_tls12_signature(
         &self,
         _message: &[u8],
-        _cert: &Certificate,
+        _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
         unreachable!("`PROTOCOL_VERSIONS` only allows TLS 1.3")
@@ -191,7 +177,7 @@ impl ClientCertVerifier for Libp2pCertificateVerifier {
     fn verify_tls13_signature(
         &self,
         message: &[u8],
-        cert: &Certificate,
+        cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
         verify_tls13_signature(cert, dss.scheme, message, dss.signature())
@@ -207,10 +193,10 @@ impl ClientCertVerifier for Libp2pCertificateVerifier {
 /// (a) the presented certificate is not yet valid, OR
 /// (b) if it is expired.
 /// Endpoints MUST abort the connection attempt if more than one certificate is received,
-/// or if the certificate’s self-signature is not valid.
+/// or if the certificate's self-signature is not valid.
 fn verify_presented_certs(
-    end_entity: &Certificate,
-    intermediates: &[Certificate],
+    end_entity: &CertificateDer<'_>,
+    intermediates: &[CertificateDer<'_>],
 ) -> Result<PeerId, rustls::Error> {
     if !intermediates.is_empty() {
         return Err(rustls::Error::General(
@@ -224,7 +210,7 @@ fn verify_presented_certs(
 }
 
 fn verify_tls13_signature(
-    cert: &Certificate,
+    cert: &CertificateDer<'_>,
     signature_scheme: SignatureScheme,
     message: &[u8],
     signature: &[u8],
@@ -238,19 +224,23 @@ impl From<certificate::ParseError> for rustls::Error {
     fn from(certificate::ParseError(e): certificate::ParseError) -> Self {
         use webpki::Error::*;
         match e {
-            BadDer => rustls::Error::InvalidCertificateEncoding,
-            e => rustls::Error::InvalidCertificateData(format!("invalid peer certificate: {e}")),
+            BadDer => rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding),
+            e => rustls::Error::General(format!("invalid peer certificate: {e}")),
         }
     }
 }
+
 impl From<certificate::VerificationError> for rustls::Error {
     fn from(certificate::VerificationError(e): certificate::VerificationError) -> Self {
         use webpki::Error::*;
         match e {
-            InvalidSignatureForPublicKey => rustls::Error::InvalidCertificateSignature,
-            UnsupportedSignatureAlgorithm | UnsupportedSignatureAlgorithmForPublicKey =>
-                rustls::Error::InvalidCertificateSignatureType,
-            e => rustls::Error::InvalidCertificateData(format!("invalid peer certificate: {e}")),
+            InvalidSignatureForPublicKey => {
+                rustls::Error::InvalidCertificate(rustls::CertificateError::BadSignature)
+            }
+            UnsupportedSignatureAlgorithm | UnsupportedSignatureAlgorithmForPublicKey => {
+                rustls::Error::General("unsupported signature algorithm".into())
+            }
+            e => rustls::Error::General(format!("invalid peer certificate: {e}")),
         }
     }
 }

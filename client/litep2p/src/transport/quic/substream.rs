@@ -101,7 +101,7 @@ impl TokioAsyncWrite for Substream {
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
         match futures::ready!(Pin::new(&mut self.send_stream).poll_write(cx, buf)) {
-            Err(error) => Poll::Ready(Err(error)),
+            Err(error) => Poll::Ready(Err(error.into())),
             Ok(nwritten) => {
                 self.bandwidth_sink.increase_outbound(nwritten);
                 Poll::Ready(Ok(nwritten))
@@ -110,14 +110,14 @@ impl TokioAsyncWrite for Substream {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Pin::new(&mut self.send_stream).poll_flush(cx)
+        Pin::new(&mut self.send_stream).poll_flush(cx).map_err(Into::into)
     }
 
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        Pin::new(&mut self.send_stream).poll_shutdown(cx)
+        Pin::new(&mut self.send_stream).poll_shutdown(cx).map_err(Into::into)
     }
 }
 
