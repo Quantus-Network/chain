@@ -23,7 +23,7 @@
 
 use crate::{
     config::Role,
-    crypto::{ed25519::Keypair, PublicKey, RemotePublicKey},
+    crypto::{dilithium::Keypair, PublicKey, RemotePublicKey},
     error::{NegotiationError, ParseError},
     PeerId,
 };
@@ -106,7 +106,7 @@ impl NoiseContext {
         role: Role,
     ) -> Result<Self, NegotiationError> {
         let noise_payload = handshake_schema::NoiseHandshakePayload {
-            identity_key: Some(PublicKey::Ed25519(id_keys.public()).to_protobuf_encoding()),
+            identity_key: Some(PublicKey::from(id_keys.public()).to_protobuf_encoding()),
             identity_sig: Some(
                 id_keys.sign(&[STATIC_KEY_DOMAIN.as_bytes(), keypair.public.as_ref()].concat()),
             ),

@@ -21,7 +21,7 @@
 use crate::{
     config::Role,
     crypto::{
-        ed25519::Keypair,
+        dilithium::Keypair,
         noise::{self, NoiseSocket},
     },
     error::{Error, NegotiationError, SubstreamError},

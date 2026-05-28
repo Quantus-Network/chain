@@ -211,7 +211,7 @@ impl PublicKey {
 
     /// Convert public key to `PeerId`.
     pub fn to_peer_id(&self) -> PeerId {
-        crate::crypto::PublicKey::Dilithium(self.clone()).into()
+        crate::crypto::PublicKey::from(self.clone()).into()
     }
 }
 

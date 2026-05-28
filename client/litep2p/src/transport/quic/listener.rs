@@ -19,7 +19,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use crate::{
-    crypto::{ed25519::Keypair, tls::make_server_config},
+    crypto::{dilithium::Keypair, tls::make_server_config},
     error::AddressError,
     PeerId,
 };

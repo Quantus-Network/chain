@@ -22,7 +22,7 @@
 
 use crate::{
     config::Role,
-    crypto::{ed25519::Keypair, noise::NoiseContext},
+    crypto::{dilithium::Keypair, noise::NoiseContext},
     transport::{webrtc::util::WebRtcMessage, Endpoint},
     types::ConnectionId,
     Error, PeerId,

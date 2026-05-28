@@ -23,7 +23,7 @@
 //! This module handles generation, signing, and verification of certificates.
 
 use crate::{
-    crypto::{ed25519::Keypair, RemotePublicKey},
+    crypto::{dilithium::Keypair, PublicKey, RemotePublicKey},
     PeerId,
 };
 
@@ -220,7 +220,7 @@ fn make_libp2p_extension(
     // }
     let extension_content = {
         let serialized_pubkey =
-            crate::crypto::PublicKey::Ed25519(identity_keypair.public()).to_protobuf_encoding();
+            PublicKey::from(identity_keypair.public()).to_protobuf_encoding();
         yasna::encode_der(&(serialized_pubkey, signature))
     };
 
@@ -444,23 +444,25 @@ impl P2pCertificate<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hex_literal::hex;
 
     #[test]
     fn sanity_check() {
-        // let keypair = identity::Keypair::generate_ed25519();
-        let keypair = crate::crypto::ed25519::Keypair::generate();
+        let keypair = crate::crypto::dilithium::Keypair::generate();
 
         let (cert, _) = generate(&keypair).unwrap();
         let parsed_cert = parse(&cert).unwrap();
 
         assert!(parsed_cert.verify().is_ok());
         assert_eq!(
-            crate::crypto::RemotePublicKey::Ed25519(keypair.public()),
+            PublicKey::from(keypair.public()),
             parsed_cert.extension.public_key
         );
     }
 
+    // Note: The certificate signature scheme tests below verify that we can parse
+    // various TLS certificate formats. The p2p extension signature verification
+    // will fail because the extension was not signed with the certificate's private key.
+    // These tests verify the certificate parsing and signature scheme detection.
     macro_rules! check_cert {
         ($name:ident, $path:literal, $scheme:path) => {
             #[test]
@@ -477,7 +479,7 @@ mod tests {
     }
 
     check_cert! {ed448, "./test_assets/ed448.der", rustls::SignatureScheme::ED448}
-    check_cert! {ed25519, "./test_assets/ed25519.der", rustls::SignatureScheme::ED25519}
+    check_cert! {ed25519_cert, "./test_assets/ed25519.der", rustls::SignatureScheme::ED25519}
     check_cert! {rsa_pkcs1_sha256, "./test_assets/rsa_pkcs1_sha256.der", rustls::SignatureScheme::RSA_PKCS1_SHA256}
     check_cert! {rsa_pkcs1_sha384, "./test_assets/rsa_pkcs1_sha384.der", rustls::SignatureScheme::RSA_PKCS1_SHA384}
     check_cert! {rsa_pkcs1_sha512, "./test_assets/rsa_pkcs1_sha512.der", rustls::SignatureScheme::RSA_PKCS1_SHA512}
@@ -506,29 +508,7 @@ mod tests {
         assert!(cert.signature_scheme().is_err());
     }
 
-    #[test]
-    fn can_parse_certificate_with_ed25519_keypair() {
-        let certificate = rustls::Certificate(hex!("308201773082011ea003020102020900f5bd0debaa597f52300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d030107034200046bf9871220d71dcb3483ecdfcbfcc7c103f8509d0974b3c18ab1f1be1302d643103a08f7a7722c1b247ba3876fe2c59e26526f479d7718a85202ddbe47562358a37f307d307b060a2b0601040183a25a01010101ff046a30680424080112207fda21856709c5ae12fd6e8450623f15f11955d384212b89f56e7e136d2e17280440aaa6bffabe91b6f30c35e3aa4f94b1188fed96b0ffdd393f4c58c1c047854120e674ce64c788406d1c2c4b116581fd7411b309881c3c7f20b46e54c7e6fe7f0f300a06082a8648ce3d040302034700304402207d1a1dbd2bda235ff2ec87daf006f9b04ba076a5a5530180cd9c2e8f6399e09d0220458527178c7e77024601dbb1b256593e9b96d961b96349d1f560114f61a87595").to_vec());
-
-        let peer_id = parse(&certificate).unwrap().peer_id();
-
-        assert_eq!(
-            "12D3KooWJRSrypvnpHgc6ZAgyCni4KcSmbV7uGRaMw5LgMKT18fq"
-                .parse::<PeerId>()
-                .unwrap(),
-            peer_id
-        );
-    }
-
-    #[test]
-    fn fails_to_parse_bad_certificate_with_ed25519_keypair() {
-        let certificate = rustls::Certificate(hex!("308201773082011da003020102020830a73c5d896a1109300a06082a8648ce3d04030230003020170d3735303130313030303030305a180f34303936303130313030303030305a30003059301306072a8648ce3d020106082a8648ce3d03010703420004bbe62df9a7c1c46b7f1f21d556deec5382a36df146fb29c7f1240e60d7d5328570e3b71d99602b77a65c9b3655f62837f8d66b59f1763b8c9beba3be07778043a37f307d307b060a2b0601040183a25a01010101ff046a3068042408011220ec8094573afb9728088860864f7bcea2d4fd412fef09a8e2d24d482377c20db60440ecabae8354afa2f0af4b8d2ad871e865cb5a7c0c8d3dbdbf42de577f92461a0ebb0a28703e33581af7d2a4f2270fc37aec6261fcc95f8af08f3f4806581c730a300a06082a8648ce3d040302034800304502202dfb17a6fa0f94ee0e2e6a3b9fb6e986f311dee27392058016464bd130930a61022100ba4b937a11c8d3172b81e7cd04aedb79b978c4379c2b5b24d565dd5d67d3cb3c").to_vec());
-
-        match parse(&certificate) {
-            Ok(_) => assert!(false),
-            Err(error) => {
-                assert_eq!(format!("{error}"), "UnknownIssuer");
-            }
-        }
-    }
+    // Note: The following tests for Ed25519 keypair certificates are removed
+    // as we no longer support Ed25519 identity keys. Only Dilithium is supported.
+    // The `sanity_check` test above verifies Dilithium certificates work correctly.
 }

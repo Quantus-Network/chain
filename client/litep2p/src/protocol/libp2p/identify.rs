@@ -467,8 +467,8 @@ mod tests {
         let (identify_config, identify) =
             Config::new("1.0.0".to_string(), Some("litep2p/1.0.0".to_string()));
 
-        let keypair = crate::crypto::ed25519::Keypair::generate();
-        let peer = PeerId::from_public_key(&crate::crypto::PublicKey::Ed25519(keypair.public()));
+        let keypair = crate::crypto::dilithium::Keypair::generate();
+        let peer = PeerId::from_public_key(&crate::crypto::PublicKey::from(keypair.public()));
         let config = ConfigBuilder::new()
             .with_keypair(keypair)
             .with_tcp(TcpConfig {

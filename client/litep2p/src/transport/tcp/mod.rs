@@ -728,7 +728,7 @@ mod tests {
     use super::*;
     use crate::{
         codec::ProtocolCodec,
-        crypto::ed25519::Keypair,
+        crypto::dilithium::Keypair,
         executor::DefaultExecutor,
         protocol::SubstreamKeepAlive,
         transport::manager::{ProtocolContext, SupportedTransport, TransportManagerBuilder},
