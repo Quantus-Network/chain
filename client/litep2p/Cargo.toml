@@ -50,6 +50,9 @@ zeroize = "1.8.1"
 yamux = "0.13.9"
 enum-display = "0.1.4"
 
+# Post-quantum cryptography
+qp-rusty-crystals-dilithium = { version = "2.4.0" }
+
 # Websocket
 tokio-tungstenite = { version = "0.27.0", features = ["rustls-tls-native-roots", "url"], optional = true }
 

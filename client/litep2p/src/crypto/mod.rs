@@ -23,6 +23,7 @@
 
 use crate::{error::ParseError, peer_id::*};
 
+pub mod dilithium;
 pub mod ed25519;
 #[cfg(feature = "rsa")]
 pub mod rsa;
@@ -39,6 +40,8 @@ pub(crate) mod keys_proto {
 pub enum PublicKey {
     /// A public Ed25519 key.
     Ed25519(ed25519::PublicKey),
+    /// A public Dilithium ML-DSA-87 key (post-quantum).
+    Dilithium(dilithium::PublicKey),
 }
 
 impl PublicKey {
@@ -67,6 +70,10 @@ impl From<&PublicKey> for keys_proto::PublicKey {
                 r#type: keys_proto::KeyType::Ed25519 as i32,
                 data: key.to_bytes().to_vec(),
             },
+            PublicKey::Dilithium(key) => keys_proto::PublicKey {
+                r#type: keys_proto::KeyType::Dilithium as i32,
+                data: key.to_bytes(),
+            },
         }
     }
 }
@@ -78,10 +85,14 @@ impl TryFrom<keys_proto::PublicKey> for PublicKey {
         let key_type = keys_proto::KeyType::try_from(pubkey.r#type)
             .map_err(|_| ParseError::UnknownKeyType(pubkey.r#type))?;
 
-        if key_type == keys_proto::KeyType::Ed25519 {
-            Ok(ed25519::PublicKey::try_from_bytes(&pubkey.data).map(PublicKey::Ed25519)?)
-        } else {
-            Err(ParseError::UnknownKeyType(key_type as i32))
+        match key_type {
+            keys_proto::KeyType::Ed25519 => {
+                ed25519::PublicKey::try_from_bytes(&pubkey.data).map(PublicKey::Ed25519)
+            }
+            keys_proto::KeyType::Dilithium => {
+                dilithium::PublicKey::try_from_bytes(&pubkey.data).map(PublicKey::Dilithium)
+            }
+            _ => Err(ParseError::UnknownKeyType(key_type as i32)),
         }
     }
 }
@@ -92,11 +103,19 @@ impl From<ed25519::PublicKey> for PublicKey {
     }
 }
 
+impl From<dilithium::PublicKey> for PublicKey {
+    fn from(public_key: dilithium::PublicKey) -> Self {
+        PublicKey::Dilithium(public_key)
+    }
+}
+
 /// The public key of a remote node's identity keypair. Supports RSA keys additionally to ed25519.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemotePublicKey {
     /// A public Ed25519 key.
     Ed25519(ed25519::PublicKey),
+    /// A public Dilithium ML-DSA-87 key (post-quantum).
+    Dilithium(dilithium::PublicKey),
     /// A public RSA key.
     #[cfg(feature = "rsa")]
     Rsa(rsa::PublicKey),
@@ -112,6 +131,7 @@ impl RemotePublicKey {
         use RemotePublicKey::*;
         match self {
             Ed25519(pk) => pk.verify(msg, sig),
+            Dilithium(pk) => pk.verify(msg, sig),
             #[cfg(feature = "rsa")]
             Rsa(pk) => pk.verify(msg, sig),
         }
@@ -138,6 +158,8 @@ impl TryFrom<keys_proto::PublicKey> for RemotePublicKey {
         match key_type {
             keys_proto::KeyType::Ed25519 =>
                 ed25519::PublicKey::try_from_bytes(&pubkey.data).map(RemotePublicKey::Ed25519),
+            keys_proto::KeyType::Dilithium =>
+                dilithium::PublicKey::try_from_bytes(&pubkey.data).map(RemotePublicKey::Dilithium),
             #[cfg(feature = "rsa")]
             keys_proto::KeyType::Rsa =>
                 rsa::PublicKey::try_decode_x509(&pubkey.data).map(RemotePublicKey::Rsa),
