@@ -53,10 +53,9 @@ rand = { workspace = true, default-features = false, features = [
 	"getrandom",
 ] }
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "aws_lc_rs_unstable"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "aws_lc_rs", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "logging", "std", "tls12"] }
 rustls-pki-types = "1"
 rustls-post-quantum = { version = "0.2", features = ["aws-lc-rs-unstable"] }
-sha2 = { workspace = true, default-features = true }
 sc-basic-authorship.default-features = true
 sc-basic-authorship.workspace = true
 sc-cli.default-features = true
@@ -84,6 +83,7 @@ sc-transaction-pool-api.default-features = true
 sc-transaction-pool-api.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["alloc"] }
+sha2 = { workspace = true, default-features = true }
 sp-api.default-features = true
 sp-api.workspace = true
 sp-block-builder.default-features = true
