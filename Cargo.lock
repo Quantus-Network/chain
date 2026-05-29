@@ -2896,7 +2896,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5627,20 +5627,20 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "litep2p"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c68ba359d7f1a80d18821b46575d5ddb9a9a6672fe0669f5fc9e83cab9abd760"
+version = "0.13.3"
 dependencies = [
  "async-trait",
  "bs58",
  "bytes 1.11.1",
  "cid 0.11.1",
- "ed25519-dalek",
  "enum-display",
  "futures 0.3.31",
  "futures-timer",
+ "futures_ringbuf",
+ "hex-literal 1.1.0",
  "hickory-resolver 0.25.2",
  "indexmap",
+ "ip_network",
  "libc",
  "mockall",
  "multiaddr 0.17.1",
@@ -5650,23 +5650,35 @@ dependencies = [
  "pin-project",
  "prost 0.13.5",
  "prost-build 0.14.3",
+ "qp-rusty-crystals-dilithium",
+ "quickcheck",
+ "quinn",
  "rand 0.8.5",
+ "rcgen 0.14.8",
  "ring 0.17.14",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-post-quantum",
  "serde",
+ "serde_json",
+ "serde_millis",
  "sha2 0.10.9",
  "simple-dns",
  "smallvec",
- "snow 0.9.6",
+ "snow",
  "socket2 0.5.10",
+ "str0m",
  "thiserror 2.0.18",
  "tokio 1.47.1",
  "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "uint 0.10.0",
  "unsigned-varint 0.8.0",
  "url",
+ "webpki",
  "x25519-dalek",
  "x509-parser 0.17.0",
  "yamux 0.13.10",
@@ -6309,7 +6321,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8146,8 +8158,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
+ "heck 0.4.1",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -8166,8 +8178,8 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
+ "heck 0.4.1",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph 0.8.3",
@@ -8199,7 +8211,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -8212,7 +8224,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -8298,67 +8310,6 @@ dependencies = [
 [[package]]
 name = "qp-high-security"
 version = "0.1.0"
-
-[[package]]
-name = "qp-litep2p"
-version = "0.13.2"
-dependencies = [
- "async-trait",
- "bs58",
- "bytes 1.11.1",
- "cid 0.11.1",
- "enum-display",
- "futures 0.3.31",
- "futures-timer",
- "futures_ringbuf",
- "hex-literal 1.1.0",
- "hickory-resolver 0.25.2",
- "indexmap",
- "ip_network",
- "libc",
- "mockall",
- "multiaddr 0.17.1",
- "multihash 0.17.0",
- "network-interface",
- "parking_lot 0.12.4",
- "pin-project",
- "prost 0.13.5",
- "prost-build 0.14.3",
- "qp-rusty-crystals-dilithium",
- "quickcheck",
- "quinn",
- "rand 0.8.5",
- "rcgen 0.14.8",
- "ring 0.17.14",
- "rustls",
- "rustls-pki-types",
- "rustls-post-quantum",
- "serde",
- "serde_json",
- "serde_millis",
- "sha2 0.10.9",
- "simple-dns",
- "smallvec",
- "snow 0.10.0",
- "socket2 0.5.10",
- "str0m",
- "thiserror 2.0.18",
- "tokio 1.47.1",
- "tokio-stream",
- "tokio-tungstenite",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uint 0.10.0",
- "unsigned-varint 0.8.0",
- "url",
- "webpki",
- "x25519-dalek",
- "x509-parser 0.17.0",
- "yamux 0.13.10",
- "yasna 0.5.2",
- "zeroize",
-]
 
 [[package]]
 name = "qp-plonky2"
@@ -9387,7 +9338,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -9467,7 +9418,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.2",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -10196,19 +10147,18 @@ dependencies = [
 
 [[package]]
 name = "sc-network-types"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11103f2e35999989326ed5be87f0a7d335269bef6d6a1c0ddd543a7d9aed7788"
+version = "0.20.3"
 dependencies = [
  "bs58",
  "bytes 1.11.1",
- "ed25519-dalek",
  "libp2p-identity",
  "libp2p-kad",
  "litep2p",
  "log",
  "multiaddr 0.18.2",
  "multihash 0.19.3",
+ "qp-rusty-crystals-dilithium",
+ "quickcheck",
  "rand 0.8.5",
  "serde",
  "serde_with",
@@ -11343,18 +11293,6 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
-
-[[package]]
-name = "snow"
-version = "0.9.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "850948bee068e713b8ab860fe1adc4d109676ab4c3b621fd8147f06b261f2f85"
-dependencies = [
- "rand_core 0.6.4",
- "ring 0.17.14",
- "rustc_version",
- "subtle 2.6.1",
-]
 
 [[package]]
 name = "snow"
@@ -12760,7 +12698,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -14287,7 +14225,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
