@@ -212,13 +212,16 @@ async fn create_server_endpoint(
 	let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
 
 	// Create server config with post-quantum crypto provider (aws-lc-rs with ML-DSA support)
-	let server_config =
+	let mut server_config =
 		rustls::ServerConfig::builder_with_provider(Arc::new(rustls_post_quantum::provider()))
 			.with_safe_default_protocol_versions()
 			.map_err(|e| format!("Failed to set protocol versions: {}", e))?
 			.with_no_client_auth()
 			.with_single_cert(cert_chain, key)
 			.map_err(|e| format!("Failed to create server config: {}", e))?;
+
+	// Set ALPN protocol (required by QUIC RFC 9001)
+	server_config.alpn_protocols = vec![b"quantus-miner".to_vec()];
 
 	let mut quinn_config = quinn::ServerConfig::with_crypto(Arc::new(
 		quinn::crypto::rustls::QuicServerConfig::try_from(server_config)
