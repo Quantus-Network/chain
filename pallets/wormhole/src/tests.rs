@@ -513,4 +513,166 @@ mod aggregated_proof_tests {
 			assert_eq!(err.error, Error::<Test>::NullifierAlreadyUsed.into());
 		});
 	}
+
+	/// Regenerate the test fixture when circuit parameters change (e.g., num_leaf_proofs).
+	///
+	/// Run with: cargo test -p pallet-wormhole --lib -- regenerate_test_fixture --nocapture --ignored
+	///
+	/// This generates a valid aggregated proof with proper block header validation.
+	/// The proof uses well-known test inputs that match the test-helpers constants.
+	#[test]
+	#[ignore]
+	fn regenerate_test_fixture() {
+		use qp_wormhole_aggregator::aggregator::{AggregationBackend, Layer0Aggregator};
+		use qp_wormhole_circuit::block_header::header::HeaderInputs;
+		use qp_wormhole_circuit::inputs::{CircuitInputs, PrivateCircuitInputs};
+		use qp_wormhole_circuit::nullifier::Nullifier;
+		use qp_wormhole_circuit::unspendable_account::UnspendableAccount;
+		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs};
+		use qp_wormhole_prover::WormholeProver;
+		use qp_zk_circuits_common::utils::digest_to_bytes;
+		use std::path::Path;
+
+		// Use a temp directory for circuit binaries
+		let tmp_dir = std::env::temp_dir().join("pallet-wormhole-fixture-gen");
+		std::fs::create_dir_all(&tmp_dir).expect("Failed to create temp dir");
+
+		// Generate circuit binaries with num_leaf_proofs=7 (matching DEFAULT)
+		let num_leaf_proofs = 7usize;
+		println!("Generating circuit binaries with num_leaf_proofs={}...", num_leaf_proofs);
+		qp_wormhole_circuit_builder::generate_all_circuit_binaries(&tmp_dir, true, num_leaf_proofs, None)
+			.expect("Failed to generate circuit binaries");
+
+		// Create test inputs with real block header validation
+		let secret: BytesDigest = BytesDigest::new_unchecked([42u8; 32]); // Well-known test secret
+		let transfer_count = 1u64;
+		// Use amounts above minimum (10 UNIT = 1000 quantized)
+		// input_amount = 2000 quantized = 20 UNIT
+		// output after 10 bps fee: 2000 - (2000 * 10 / 10000) = 2000 - 2 = 1998
+		let input_amount = 2000u32;
+		let output_amount = 1998u32;
+
+		let nullifier = digest_to_bytes(Nullifier::from_preimage(secret, transfer_count).hash);
+		let unspendable_account_digest = UnspendableAccount::from_secret(secret).account_id;
+		let unspendable_account = digest_to_bytes(unspendable_account_digest);
+		let exit_account = BytesDigest::new_unchecked([4u8; 32]);
+
+		// For single-leaf tree: ZK tree root = leaf hash
+		let zk_tree_root = compute_zk_leaf_hash(&unspendable_account, transfer_count, 0, input_amount);
+
+		// Block header constants (from test-helpers)
+		let block_number = 1u32;
+		let parent_hash: [u8; 32] = [0u8; 32];
+		let state_root: [u8; 32] = [
+			0x7d, 0x5f, 0x04, 0x3e, 0x06, 0x8b, 0xe9, 0x69, 0x1e, 0xfb, 0xc3, 0xc1, 0xd4, 0x98,
+			0x78, 0x8b, 0x5d, 0xc5, 0xc7, 0xd6, 0x5f, 0x41, 0xc0, 0xe2, 0x4e, 0x22, 0x11, 0xc3,
+			0x99, 0x7c, 0x08, 0x11,
+		];
+		let extrinsics_root: [u8; 32] = [0u8; 32];
+		let digest: [u8; 110] = [
+			8, 6, 112, 111, 119, 95, 128, 233, 182, 183, 107, 158, 1, 115, 19, 219, 126, 253, 86,
+			30, 208, 176, 70, 21, 45, 180, 229, 9, 62, 91, 4, 6, 53, 245, 52, 48, 38, 123, 225, 5,
+			112, 111, 119, 95, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 79, 226,
+		];
+
+		// Compute block hash from header fields
+		let header_inputs = HeaderInputs::new(
+			BytesDigest::new_unchecked(parent_hash),
+			block_number,
+			BytesDigest::new_unchecked(state_root),
+			BytesDigest::new_unchecked(extrinsics_root),
+			BytesDigest::new_unchecked(zk_tree_root),
+			&digest,
+		).expect("Failed to create header inputs");
+		let block_hash = header_inputs.block_hash();
+		println!("Computed block_hash: {:?}", block_hash.as_ref());
+
+		let inputs = CircuitInputs {
+			public: PublicCircuitInputs {
+				asset_id: 0u32,
+				output_amount_1: output_amount,
+				output_amount_2: 0u32,
+				volume_fee_bps: 10,
+				nullifier,
+				exit_account_1: exit_account,
+				exit_account_2: BytesDigest::default(),
+				block_hash,
+				block_number,
+			},
+			private: PrivateCircuitInputs {
+				secret,
+				transfer_count,
+				unspendable_account,
+				parent_hash: BytesDigest::new_unchecked(parent_hash),
+				state_root: BytesDigest::new_unchecked(state_root),
+				extrinsics_root: BytesDigest::new_unchecked(extrinsics_root),
+				digest,
+				input_amount,
+				zk_tree_root,
+				zk_merkle_siblings: vec![],
+				zk_merkle_positions: vec![],
+			},
+		};
+
+		// Generate leaf proof
+		println!("Generating leaf proof...");
+		let prover_path = tmp_dir.join("prover.bin");
+		let common_path = tmp_dir.join("common.bin");
+		let prover = WormholeProver::new_from_files(&prover_path, &common_path)
+			.expect("Failed to create prover");
+		let leaf_proof = prover.commit(&inputs).unwrap().prove().unwrap();
+
+		// Aggregate (with padding to fill batch)
+		println!("Aggregating proof...");
+		let mut aggregator = Layer0Aggregator::new(&tmp_dir).expect("Failed to create aggregator");
+		aggregator.push_proof(leaf_proof).expect("Failed to push proof");
+		let aggregated_proof = aggregator.aggregate().expect("Failed to aggregate");
+
+		// Verify locally
+		println!("Verifying aggregated proof...");
+		aggregator.verify(aggregated_proof.clone()).expect("Aggregated proof should verify");
+
+		// Serialize to hex
+		let proof_bytes = aggregated_proof.to_bytes();
+		let proof_hex = hex::encode(&proof_bytes);
+
+		// Write to test-data
+		let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/aggregated.hex");
+		std::fs::write(&fixture_path, &proof_hex).expect("Failed to write fixture");
+
+		println!("Fixture written to: {}", fixture_path.display());
+		println!("Proof size: {} bytes ({} hex chars)", proof_bytes.len(), proof_hex.len());
+
+		// Cleanup temp dir
+		let _ = std::fs::remove_dir_all(&tmp_dir);
+	}
+
+	/// Helper to compute ZK leaf hash (must match circuit computation)
+	fn compute_zk_leaf_hash(
+		to_account: &[u8; 32],
+		transfer_count: u64,
+		asset_id: u32,
+		input_amount: u32,
+	) -> [u8; 32] {
+		use plonky2::field::types::Field;
+		use plonky2::hash::poseidon2::Poseidon2Hash;
+		use plonky2::plonk::config::Hasher;
+		use qp_zk_circuits_common::circuit::F;
+		use qp_zk_circuits_common::serialization::{bytes_to_digest, digest_to_bytes};
+		use qp_zk_circuits_common::utils::u64_to_felts;
+
+		let to_account_felts = bytes_to_digest(to_account);
+		let transfer_count_felts = u64_to_felts(transfer_count);
+
+		let mut preimage = Vec::new();
+		preimage.extend(to_account_felts);
+		preimage.extend(transfer_count_felts);
+		preimage.push(F::from_canonical_u32(asset_id));
+		preimage.push(F::from_canonical_u32(input_amount));
+
+		let hash = Poseidon2Hash::hash_no_pad(&preimage);
+		digest_to_bytes(&hash.elements)
+	}
 }
