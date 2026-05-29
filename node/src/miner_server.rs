@@ -38,7 +38,6 @@
 
 use std::{
 	collections::HashMap,
-	path::{Path, PathBuf},
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -79,13 +78,11 @@ impl MinerServer {
 	///
 	/// # Arguments
 	/// * `port` - The port to listen on for miner connections
-	/// * `node_key_path` - Optional path to the node's identity key file. If provided,
-	///   the TLS certificate and key are saved alongside it for debugging.
 	///
 	/// # Note
 	/// Due to rcgen 0.14 limitations, the certificate fingerprint changes on each restart.
 	/// This will be fixed when rcgen adds ML-DSA key persistence support.
-	pub async fn start(port: u16, node_key_path: Option<PathBuf>) -> Result<Arc<Self>, String> {
+	pub async fn start(port: u16) -> Result<Arc<Self>, String> {
 		let (result_tx, result_rx) = mpsc::channel::<MiningResult>(64);
 
 		let server = Arc::new(Self {
@@ -98,13 +95,13 @@ impl MinerServer {
 
 		// Start the acceptor task
 		let server_clone = server.clone();
-		let endpoint = create_server_endpoint(port, node_key_path).await?;
+		let endpoint = create_server_endpoint(port).await?;
 
 		tokio::spawn(async move {
 			acceptor_task(endpoint, server_clone).await;
 		});
 
-		log::info!("⛏️ Miner server listening on port {}", port);
+		log::info!("Miner server listening on port {port}");
 
 		Ok(server)
 	}
@@ -175,11 +172,9 @@ impl MinerServer {
 ///
 /// Note: Due to rcgen 0.14 limitations, ML-DSA keys cannot be persisted and reloaded.
 /// The certificate fingerprint will change on each restart until this is fixed upstream.
-async fn create_server_endpoint(
-	port: u16,
-	node_key_path: Option<PathBuf>,
-) -> Result<quinn::Endpoint, String> {
+async fn create_server_endpoint(port: u16) -> Result<quinn::Endpoint, String> {
 	// Generate ML-DSA-87 key pair
+	// TODO: Implement deterministic key derivation when rcgen adds ML-DSA key persistence support
 	let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ML_DSA_87)
 		.map_err(|e| format!("Failed to generate ML-DSA key pair: {e}"))?;
 
@@ -193,12 +188,7 @@ async fn create_server_endpoint(
 	let cert_der = cert.der().clone();
 	let key_der = key_pair.serialize_der();
 
-	// Save certificate and key for debugging/inspection
-	if let Some(ref key_path) = node_key_path {
-		save_tls_files(key_path, cert_der.as_ref(), &key_der);
-	}
-
-	// Compute and log certificate fingerprint
+	// Log certificate fingerprint for miners to use with --node-cert-fingerprint
 	let fingerprint = compute_cert_fingerprint(&cert_der);
 	log::info!("⛏️ Miner server certificate fingerprint: {}", fingerprint);
 	log::info!("⛏️ Certificate algorithm: ML-DSA-87 (post-quantum)");
@@ -238,28 +228,6 @@ async fn create_server_endpoint(
 		.map_err(|e| format!("Failed to create server endpoint: {e}"))?;
 
 	Ok(endpoint)
-}
-
-/// Save TLS certificate and key to files for debugging/inspection.
-///
-/// Files are saved alongside the node key:
-/// - `miner_tls_cert.der` - The certificate in DER format
-/// - `miner_tls_key.der` - The private key in DER format (PKCS#8)
-fn save_tls_files(node_key_path: &Path, cert_der: &[u8], key_der: &[u8]) {
-	let cert_path = node_key_path.with_file_name("miner_tls_cert.der");
-	let key_path = node_key_path.with_file_name("miner_tls_key.der");
-
-	if let Err(e) = std::fs::write(&cert_path, cert_der) {
-		log::warn!("Failed to save TLS cert to {cert_path:?}: {e}");
-	} else {
-		log::debug!("Saved TLS certificate to {cert_path:?}");
-	}
-
-	if let Err(e) = std::fs::write(&key_path, key_der) {
-		log::warn!("Failed to save TLS key to {key_path:?}: {e}");
-	} else {
-		log::debug!("Saved TLS key to {key_path:?}");
-	}
 }
 
 /// Compute SHA-256 fingerprint of a certificate in the format `sha256:<hex>`.
