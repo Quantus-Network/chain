@@ -283,9 +283,9 @@ pub enum NegotiationError {
     /// Error occurred during the multistream-select phase of the negotiation.
     #[error("multistream-select error: `{0:?}`")]
     MultistreamSelectError(#[from] crate::multistream_select::NegotiationError),
-    /// Error occurred during the Noise handshake negotiation.
-    #[error("multistream-select error: `{0:?}`")]
-    SnowError(#[from] snow::Error),
+    /// Error occurred during the Noise handshake negotiation (Clatter/pqXX).
+    #[error("clatter error: `{0}`")]
+    Clatter(String),
     /// The peer ID was not provided by the noise handshake.
     #[error("`PeerId` missing from Noise handshake")]
     PeerIdMissing,
@@ -322,7 +322,7 @@ impl PartialEq for NegotiationError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::MultistreamSelectError(lhs), Self::MultistreamSelectError(rhs)) => lhs == rhs,
-            (Self::SnowError(lhs), Self::SnowError(rhs)) => lhs == rhs,
+            (Self::Clatter(lhs), Self::Clatter(rhs)) => lhs == rhs,
             (Self::ParseError(lhs), Self::ParseError(rhs)) => lhs == rhs,
             (Self::IoError(lhs), Self::IoError(rhs)) => lhs == rhs,
             (Self::PeerIdMismatch(lhs, lhs_1), Self::PeerIdMismatch(rhs, rhs_1)) =>
@@ -453,12 +453,6 @@ impl From<io::Error> for DialError {
 impl From<crate::multistream_select::NegotiationError> for Error {
     fn from(error: crate::multistream_select::NegotiationError) -> Error {
         Error::NegotiationError(NegotiationError::MultistreamSelectError(error))
-    }
-}
-
-impl From<snow::Error> for Error {
-    fn from(error: snow::Error) -> Self {
-        Error::NegotiationError(NegotiationError::SnowError(error))
     }
 }
 

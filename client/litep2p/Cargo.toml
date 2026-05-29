@@ -33,8 +33,8 @@ serde = { workspace = true }
 sha2 = { workspace = true }
 simple-dns = "0.11.0"
 smallvec = { workspace = true }
-# Noise protocol with post-quantum HFS (Hybrid Forward Secrecy)
-snow = { workspace = true, features = ["default-resolver", "ring-resolver", "hfs", "use-pqcrypto-kyber1024"] }
+# Noise protocol with post-quantum pqxx pattern (ML-KEM 768 / FIPS 203)
+clatter = { workspace = true }
 socket2 = { version = "0.5.9", features = ["all"] }
 thiserror = "2.0.12"
 tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "macros", "sync", "parking_lot"] }

@@ -5633,6 +5633,7 @@ dependencies = [
  "bs58",
  "bytes 1.11.1",
  "cid 0.11.1",
+ "clatter",
  "enum-display",
  "futures 0.3.31",
  "futures-timer",
@@ -5665,7 +5666,6 @@ dependencies = [
  "sha2 0.10.9",
  "simple-dns",
  "smallvec",
- "snow",
  "socket2 0.5.10",
  "str0m",
  "thiserror 2.0.18",
@@ -11294,25 +11294,6 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
-
-[[package]]
-name = "snow"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
-dependencies = [
- "aes-gcm",
- "blake2 0.10.6",
- "chacha20poly1305",
- "curve25519-dalek",
- "getrandom 0.3.3",
- "pqcrypto-kyber",
- "pqcrypto-traits",
- "ring 0.17.14",
- "rustc_version",
- "sha2 0.10.9",
- "subtle 2.6.1",
-]
 
 [[package]]
 name = "socket2"
