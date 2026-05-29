@@ -32,7 +32,7 @@ use crate::{
 	bitswap::BitswapRequestHandler,
 	config::{
 		parse_addr, FullNetworkConfiguration, IncomingRequest, MultiaddrWithPeerId,
-		NetworkBackendType, NonDefaultSetConfig, NotificationHandshake, Params, SetConfig,
+		NonDefaultSetConfig, NotificationHandshake, Params, SetConfig,
 		TransportConfig,
 	},
 	discovery::DiscoveryConfig,
@@ -274,13 +274,9 @@ where
 			..
 		} = params.network_config;
 
-		// This fork only implements the Libp2p backend (with Dilithium). Reject Litep2p explicitly.
-		if !matches!(network_config.network_backend, NetworkBackendType::Libp2p) {
-			return Err(Error::Io(std::io::Error::new(
-				std::io::ErrorKind::Unsupported,
-				"This build only supports the Libp2p network backend. Litep2p is not implemented.",
-			)))
-		}
+		// Note: This NetworkWorker is specifically for the Libp2p backend.
+		// The Litep2p backend uses Litep2pNetworkBackend instead.
+		// Both backends now support Dilithium (post-quantum).
 
 		// Store before network_config is moved.
 		let disable_peer_address_filtering = network_config.disable_peer_address_filtering;
@@ -290,13 +286,15 @@ where
 		let local_public = local_identity.public();
 		let local_peer_id: PeerId = local_public.to_peer_id().into();
 
-		// For transport and behaviour we need libp2p::identity types (this fork only has Libp2p
-		// variant).
+		// For transport and behaviour we need libp2p::identity types.
+		// Note: This NetworkWorker is the libp2p backend implementation.
+		// The litep2p backend uses Litep2pNetworkBackend in client/network/src/litep2p/.
 		let local_identity_for_transport = match &local_identity {
 			Keypair::Libp2p(kp) => kp.clone(),
 		};
 		let local_public_libp2p = match &local_identity.public() {
 			PublicKey::Libp2p(p) => p.clone(),
+			PublicKey::Litep2p(_) => unreachable!("NetworkWorker (libp2p backend) only uses libp2p keys"),
 		};
 
 		network_config.boot_nodes = network_config

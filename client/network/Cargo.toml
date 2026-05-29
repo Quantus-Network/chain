@@ -39,6 +39,7 @@ futures-timer = { workspace = true }
 ip_network = { workspace = true }
 libp2p = { features = ["dns", "identify", "kad", "macros", "mdns", "noise", "ping", "request-response", "tcp", "tokio", "websocket", "yamux"], workspace = true }
 libp2p-identity = { workspace = true, features = ["dilithium"] }
+litep2p = { path = "../litep2p", features = ["quic", "websocket"] }
 linked_hash_set = { workspace = true }
 log = { workspace = true, default-features = true }
 mockall = { workspace = true }

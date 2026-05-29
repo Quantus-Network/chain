@@ -375,6 +375,39 @@ impl NodeKeyConfig {
 		NodeKeyConfig::Dilithium(Secret::New)
 	}
 
+	/// Evaluate a `NodeKeyConfig` to obtain a litep2p `Keypair`.
+	///
+	/// This is used by the litep2p network backend.
+	pub fn into_litep2p_keypair(self) -> io::Result<litep2p::crypto::dilithium::Keypair> {
+		use NodeKeyConfig::*;
+		match self {
+			Dilithium(Secret::New) => Ok(litep2p::crypto::dilithium::Keypair::generate()),
+
+			Dilithium(Secret::Input(mut k)) => {
+				litep2p::crypto::dilithium::Keypair::try_from_bytes(&mut k)
+					.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))
+			}
+
+			Dilithium(Secret::File(f)) => get_secret(
+				f,
+				|b| {
+					let mut bytes = if is_hex_data(b) {
+						array_bytes::hex2bytes(std::str::from_utf8(b).map_err(|_| {
+							io::Error::new(io::ErrorKind::InvalidData, "Failed to decode hex data")
+						})?)
+						.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid hex"))?
+					} else {
+						b.to_vec()
+					};
+					litep2p::crypto::dilithium::Keypair::try_from_bytes(&mut bytes)
+						.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))
+				},
+				|| litep2p::crypto::dilithium::Keypair::generate(),
+				|kp| kp.to_bytes(),
+			),
+		}
+	}
+
 	/// Evaluate a `NodeKeyConfig` to obtain an identity `Keypair` (libp2p-identity, supports
 	/// Dilithium).
 	pub fn into_keypair(self) -> io::Result<Keypair> {

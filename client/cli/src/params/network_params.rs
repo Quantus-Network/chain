@@ -173,13 +173,14 @@ pub struct NetworkParams {
 
 	/// Network backend used for P2P networking.
 	///
-	/// This build only supports Libp2p (with Dilithium for node identity). Litep2p is not
-	/// implemented in this fork.
+	/// Both backends use Dilithium (post-quantum) for node identity.
+	/// - litep2p: Default, lighter-weight networking stack
+	/// - libp2p: Battle-tested alternative
 	#[arg(
 		long,
 		value_enum,
 		value_name = "NETWORK_BACKEND",
-		default_value_t = NetworkBackendType::Libp2p,
+		default_value_t = NetworkBackendType::Litep2p,
 		ignore_case = true,
 		verbatim_doc_comment
 	)]
