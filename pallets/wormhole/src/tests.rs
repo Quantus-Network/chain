@@ -516,7 +516,8 @@ mod aggregated_proof_tests {
 
 	/// Regenerate the test fixture when circuit parameters change (e.g., num_leaf_proofs).
 	///
-	/// Run with: cargo test -p pallet-wormhole --lib -- regenerate_test_fixture --nocapture --ignored
+	/// Run with: cargo test -p pallet-wormhole --lib -- regenerate_test_fixture --nocapture
+	/// --ignored
 	///
 	/// This generates a valid aggregated proof with proper block header validation.
 	/// The proof uses well-known test inputs that match the test-helpers constants.
@@ -524,10 +525,12 @@ mod aggregated_proof_tests {
 	#[ignore]
 	fn regenerate_test_fixture() {
 		use qp_wormhole_aggregator::aggregator::{AggregationBackend, Layer0Aggregator};
-		use qp_wormhole_circuit::block_header::header::HeaderInputs;
-		use qp_wormhole_circuit::inputs::{CircuitInputs, PrivateCircuitInputs};
-		use qp_wormhole_circuit::nullifier::Nullifier;
-		use qp_wormhole_circuit::unspendable_account::UnspendableAccount;
+		use qp_wormhole_circuit::{
+			block_header::header::HeaderInputs,
+			inputs::{CircuitInputs, PrivateCircuitInputs},
+			nullifier::Nullifier,
+			unspendable_account::UnspendableAccount,
+		};
 		use qp_wormhole_inputs::{BytesDigest, PublicCircuitInputs};
 		use qp_wormhole_prover::WormholeProver;
 		use qp_zk_circuits_common::utils::digest_to_bytes;
@@ -540,8 +543,13 @@ mod aggregated_proof_tests {
 		// Generate circuit binaries with num_leaf_proofs=7 (matching DEFAULT)
 		let num_leaf_proofs = 7usize;
 		println!("Generating circuit binaries with num_leaf_proofs={}...", num_leaf_proofs);
-		qp_wormhole_circuit_builder::generate_all_circuit_binaries(&tmp_dir, true, num_leaf_proofs, None)
-			.expect("Failed to generate circuit binaries");
+		qp_wormhole_circuit_builder::generate_all_circuit_binaries(
+			&tmp_dir,
+			true,
+			num_leaf_proofs,
+			None,
+		)
+		.expect("Failed to generate circuit binaries");
 
 		// Create test inputs with real block header validation
 		let secret: BytesDigest = BytesDigest::new_unchecked([42u8; 32]); // Well-known test secret
@@ -558,7 +566,8 @@ mod aggregated_proof_tests {
 		let exit_account = BytesDigest::new_unchecked([4u8; 32]);
 
 		// For single-leaf tree: ZK tree root = leaf hash
-		let zk_tree_root = compute_zk_leaf_hash(&unspendable_account, transfer_count, 0, input_amount);
+		let zk_tree_root =
+			compute_zk_leaf_hash(&unspendable_account, transfer_count, 0, input_amount);
 
 		// Block header constants (from test-helpers)
 		let block_number = 1u32;
@@ -585,7 +594,8 @@ mod aggregated_proof_tests {
 			BytesDigest::new_unchecked(extrinsics_root),
 			BytesDigest::new_unchecked(zk_tree_root),
 			&digest,
-		).expect("Failed to create header inputs");
+		)
+		.expect("Failed to create header inputs");
 		let block_hash = header_inputs.block_hash();
 		println!("Computed block_hash: {:?}", block_hash.as_ref());
 
@@ -632,7 +642,9 @@ mod aggregated_proof_tests {
 
 		// Verify locally
 		println!("Verifying aggregated proof...");
-		aggregator.verify(aggregated_proof.clone()).expect("Aggregated proof should verify");
+		aggregator
+			.verify(aggregated_proof.clone())
+			.expect("Aggregated proof should verify");
 
 		// Serialize to hex
 		let proof_bytes = aggregated_proof.to_bytes();
@@ -656,12 +668,12 @@ mod aggregated_proof_tests {
 		asset_id: u32,
 		input_amount: u32,
 	) -> [u8; 32] {
-		use plonky2::field::types::Field;
-		use plonky2::hash::poseidon2::Poseidon2Hash;
-		use plonky2::plonk::config::Hasher;
-		use qp_zk_circuits_common::circuit::F;
-		use qp_zk_circuits_common::serialization::{bytes_to_digest, digest_to_bytes};
-		use qp_zk_circuits_common::utils::u64_to_felts;
+		use plonky2::{field::types::Field, hash::poseidon2::Poseidon2Hash, plonk::config::Hasher};
+		use qp_zk_circuits_common::{
+			circuit::F,
+			serialization::{bytes_to_digest, digest_to_bytes},
+			utils::u64_to_felts,
+		};
 
 		let to_account_felts = bytes_to_digest(to_account);
 		let transfer_count_felts = u64_to_felts(transfer_count);
