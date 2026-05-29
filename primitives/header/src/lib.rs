@@ -341,8 +341,7 @@ mod tests {
 		};
 
 		let header_encoded = header.encode();
-		let header_decoded =
-			Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
+		let header_decoded = Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
 		assert_eq!(header_decoded, header);
 
 		let header = Header::<u32, BlakeTwo256> {
@@ -356,8 +355,7 @@ mod tests {
 		};
 
 		let header_encoded = header.encode();
-		let header_decoded =
-			Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
+		let header_decoded = Header::<u32, BlakeTwo256>::decode(&mut &header_encoded[..]).unwrap();
 		assert_eq!(header_decoded, header);
 	}
 
