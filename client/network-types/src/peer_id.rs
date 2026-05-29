@@ -129,6 +129,24 @@ impl PeerId {
 
 		Some(peer_id.into())
 	}
+
+	/// Stub for Ed25519 compatibility - always returns `None`.
+	///
+	/// This network uses Dilithium (post-quantum) instead of Ed25519.
+	/// This method exists only for API compatibility with crates like `sc-mixnet`.
+	#[deprecated(note = "This network uses Dilithium, not Ed25519. Use into_dilithium() instead.")]
+	pub fn into_ed25519(&self) -> Option<[u8; 32]> {
+		None
+	}
+
+	/// Stub for Ed25519 compatibility - always returns `None`.
+	///
+	/// This network uses Dilithium (post-quantum) instead of Ed25519.
+	/// This method exists only for API compatibility with crates like `sc-mixnet`.
+	#[deprecated(note = "This network uses Dilithium, not Ed25519. Use from_dilithium() instead.")]
+	pub fn from_ed25519(_bytes: &[u8; 32]) -> Option<PeerId> {
+		None
+	}
 }
 
 impl AsRef<Multihash> for PeerId {
