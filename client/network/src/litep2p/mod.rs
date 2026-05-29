@@ -1186,7 +1186,7 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkBackend<B, H> for Litep2pNetworkBac
 									NegotiationError::StateMismatch => "state-mismatch",
 									NegotiationError::PeerIdMismatch(_,_) => "peer-id-missmatch",
 									NegotiationError::MultistreamSelectError(_) => "multistream-select-error",
-									NegotiationError::SnowError(_) => "noise-error",
+									NegotiationError::Clatter(_) => "noise-error",
 									NegotiationError::ParseError(_) => "parse-error",
 									NegotiationError::IoError(_) => "io-error",
 									NegotiationError::WebSocket(_) => "webscoket-error",

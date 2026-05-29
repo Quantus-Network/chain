@@ -113,7 +113,8 @@ serde_json = { version = "1.0.132", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 smallvec = { version = "1.11.0", default-features = false }
-snow = { version = "0.10.0" }
+# Noise protocol - clatter for pqxx pattern with ML-KEM 768 (FIPS 203)
+clatter = { version = "1.1.0" }
 sp-keystore = { version = "0.45.0", default-features = true }
 sp-state-machine = { version = "0.49.0", default-features = false }
 tempfile = { version = "3.8.1" }
