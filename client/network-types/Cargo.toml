@@ -1,13 +1,13 @@
 [package]
-name = "sc-network-types"
-version = "0.20.3"
 authors = ["Parity Technologies <admin@parity.io>"]
-edition = "2021"
 description = "Substrate network types"
-homepage = "https://paritytech.github.io/polkadot-sdk/"
 documentation = "https://docs.rs/sc-network-types"
+edition = "2021"
+homepage = "https://paritytech.github.io/polkadot-sdk/"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-network-types"
 repository = "https://github.com/paritytech/polkadot-sdk.git"
+version = "0.20.3"
 
 [lib]
 name = "sc_network_types"
