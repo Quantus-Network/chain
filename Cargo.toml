@@ -12,6 +12,7 @@ members = [
 	"client/litep2p",
 	"client/network",
 	"client/network-sync",
+	"client/network-types",
 	"miner-api",
 	"node",
 	"pallets/frame-system",
@@ -212,7 +213,7 @@ sc-executor = { version = "0.47.0", default-features = false }
 sc-network = { version = "0.55.1", default-features = false }
 sc-network-common = { version = "0.52.0", default-features = false }
 sc-network-sync = { version = "0.54.0", default-features = false }
-sc-network-types = { version = "0.20.1", default-features = false }
+sc-network-types = { version = "0.20.3", default-features = false }
 sc-offchain = { version = "50.0.0", default-features = false }
 sc-service = { version = "0.56.0", default-features = false }
 sc-telemetry = { version = "30.0.0", default-features = false }
@@ -256,6 +257,7 @@ libp2p-noise = { git = "https://github.com/Quantus-Network/qp-libp2p-noise", tag
 sc-cli = { path = "./client/cli" }
 sc-network = { path = "client/network" }
 sc-network-sync = { path = "client/network-sync" }
+sc-network-types = { path = "client/network-types" }
 
 [profile.release]
 opt-level = 3
