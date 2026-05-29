@@ -246,6 +246,7 @@
 
 mod behaviour;
 mod bitswap;
+pub mod litep2p;
 mod protocol;
 
 #[cfg(test)]

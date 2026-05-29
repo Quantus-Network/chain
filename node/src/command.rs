@@ -511,7 +511,8 @@ pub fn run() -> sc_cli::Result<()> {
 
 				config.network.node_key = NodeKeyConfig::Dilithium(Secret::File(key_path));
 
-				config.network.network_backend = NetworkBackendType::Libp2p;
+				// Network backend is set via --network-backend flag (handled by sc_cli)
+				// Both libp2p and litep2p backends use Dilithium for node identity
 
 				let rewards_account = match cli.rewards_inner_hash {
 					Some(ref inner_hash) => {
@@ -585,22 +586,43 @@ pub fn run() -> sc_cli::Result<()> {
 				// Allow mining without peers if --dev or --force-authoring is set
 				let allow_mining_without_peers = config.force_authoring;
 
-				service::new_full::<
-					sc_network::NetworkWorker<
-						quantus_runtime::opaque::Block,
-						<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
-					>,
-				>(
-					config,
-					rewards_account,
-					cli.miner_listen_port,
-					cli.enable_peer_sharing,
-					cli.sync_max_timeouts_before_drop,
-					cli.sync_disable_major_sync_gating,
-					cli.sync_block_request_timeout,
-					allow_mining_without_peers,
-				)
-				.map_err(sc_cli::Error::Service)
+				match config.network.network_backend {
+					NetworkBackendType::Libp2p => {
+						log::info!("Using libp2p network backend (with Dilithium)");
+						service::new_full::<
+							sc_network::NetworkWorker<
+								quantus_runtime::opaque::Block,
+								<quantus_runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
+							>,
+						>(
+							config,
+							rewards_account,
+							cli.miner_listen_port,
+							cli.enable_peer_sharing,
+							cli.sync_max_timeouts_before_drop,
+							cli.sync_disable_major_sync_gating,
+							cli.sync_block_request_timeout,
+							allow_mining_without_peers,
+						)
+						.map_err(sc_cli::Error::Service)
+					}
+					NetworkBackendType::Litep2p => {
+						log::info!("Using litep2p network backend (with Dilithium)");
+						service::new_full::<
+							sc_network::litep2p::Litep2pNetworkBackend,
+						>(
+							config,
+							rewards_account,
+							cli.miner_listen_port,
+							cli.enable_peer_sharing,
+							cli.sync_max_timeouts_before_drop,
+							cli.sync_disable_major_sync_gating,
+							cli.sync_block_request_timeout,
+							allow_mining_without_peers,
+						)
+						.map_err(sc_cli::Error::Service)
+					}
+				}
 			})
 		},
 	}

@@ -10023,6 +10023,7 @@ dependencies = [
  "libp2p",
  "libp2p-identity",
  "linked_hash_set",
+ "litep2p",
  "log",
  "mockall",
  "multistream-select",

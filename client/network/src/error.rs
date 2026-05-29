@@ -77,6 +77,9 @@ pub enum Error {
 	/// Connection closed.
 	#[error("Connection closed")]
 	ConnectionClosed,
+	/// Litep2p error.
+	#[error("Litep2p: {0}")]
+	Litep2p(litep2p::error::Error),
 }
 
 // Make `Debug` use the `Display` implementation.

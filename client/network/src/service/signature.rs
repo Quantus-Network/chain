@@ -26,6 +26,8 @@ pub use libp2p::identity::{DecodingError, SigningError};
 pub enum PublicKey {
 	/// Libp2p public key (ed25519 or Dilithium from libp2p-identity).
 	Libp2p(libp2p::identity::PublicKey),
+	/// Litep2p public key (Dilithium only in this fork).
+	Litep2p(litep2p::crypto::PublicKey),
 }
 
 impl PublicKey {
@@ -33,6 +35,7 @@ impl PublicKey {
 	pub fn encode_protobuf(&self) -> Vec<u8> {
 		match self {
 			Self::Libp2p(public) => public.encode_protobuf(),
+			Self::Litep2p(public) => public.to_protobuf_encoding(),
 		}
 	}
 
@@ -40,6 +43,10 @@ impl PublicKey {
 	pub fn to_peer_id(&self) -> sc_network_types::PeerId {
 		match self {
 			Self::Libp2p(public) => public.to_peer_id().into(),
+			Self::Litep2p(public) => {
+				let litep2p_peer_id: litep2p::PeerId = public.to_peer_id();
+				litep2p_peer_id.into()
+			},
 		}
 	}
 
@@ -52,6 +59,7 @@ impl PublicKey {
 	pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
 		match self {
 			Self::Libp2p(public) => public.verify(msg, sig),
+			Self::Litep2p(public) => public.verify(msg, sig),
 		}
 	}
 }

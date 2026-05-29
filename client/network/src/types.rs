@@ -96,6 +96,22 @@ impl AsRef<str> for ProtocolName {
 	}
 }
 
+impl From<ProtocolName> for litep2p::ProtocolName {
+	fn from(name: ProtocolName) -> Self {
+		match name {
+			ProtocolName::Static(s) => litep2p::ProtocolName::from(s),
+			ProtocolName::OnHeap(s) => litep2p::ProtocolName::from(s),
+		}
+	}
+}
+
+impl From<litep2p::ProtocolName> for ProtocolName {
+	fn from(name: litep2p::ProtocolName) -> Self {
+		// litep2p::ProtocolName derefs to str, so we can get the string content
+		ProtocolName::OnHeap(Arc::from(&*name))
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::ProtocolName;
