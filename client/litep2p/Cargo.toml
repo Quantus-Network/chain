@@ -44,7 +44,6 @@ tracing = { workspace = true, features = ["log"] }
 uint = "0.10.0"
 unsigned-varint = { version = "0.8.0", features = ["codec"] }
 url = "2.5.4"
-x25519-dalek = { workspace = true }
 x509-parser = { workspace = true }
 yamux = { workspace = true }
 yasna = { workspace = true }
@@ -62,7 +61,6 @@ quinn = { workspace = true, features = ["rustls-aws-lc-rs", "runtime-tokio"], op
 rcgen = { workspace = true, features = ["aws_lc_rs"], optional = true }
 ring = { workspace = true, optional = true }
 rustls = { workspace = true, features = ["std", "aws-lc-rs"], optional = true }
-rustls-pki-types = { workspace = true, optional = true }
 rustls-post-quantum = { workspace = true, optional = true }
 webpki = { workspace = true, optional = true }
 
@@ -82,7 +80,7 @@ hex-literal = "1.0.0"
 [features]
 default = ["websocket", "quic"]
 websocket = ["dep:tokio-tungstenite"]
-quic = ["dep:webpki", "dep:quinn", "dep:rustls", "dep:rustls-pki-types", "dep:rustls-post-quantum", "dep:ring", "dep:rcgen"]
+quic = ["dep:webpki", "dep:quinn", "dep:rustls", "dep:rustls-post-quantum", "dep:ring", "dep:rcgen"]
 webrtc = ["dep:str0m"]
 fuzz = ["serde/derive", "serde/rc", "bytes/serde", "dep:serde_millis", "cid/serde", "multihash/serde"]
 # Compatibility feature - RSA support removed in favor of post-quantum Dilithium
