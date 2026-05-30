@@ -132,7 +132,6 @@ uuid = { version = "1.7.0", features = ["serde", "v4"] }
 void = { version = "1.0.2" }
 wasm-timer = { version = "0.2.5" }
 webpki = { version = "0.22.4" }
-x25519-dalek = { version = "2.0.1" }
 x509-parser = { version = "0.17.0" }
 yamux = { version = "0.13.9" }
 yasna = { version = "0.5.0" }
@@ -202,7 +201,6 @@ quinn = { version = "0.11.9", default-features = false }
 rcgen = { version = "0.14.5", default-features = false }
 ring = { version = "0.17.14" }
 rustls = { version = "0.23.32", default-features = false }
-rustls-pki-types = { version = "1.12" }
 rustls-post-quantum = { version = "0.2.4" }
 sc-basic-authorship = { version = "0.53.0", default-features = false }
 sc-block-builder = { version = "0.48.0", default-features = true }
