@@ -244,31 +244,46 @@
 //!
 //! More precise usage details are still being worked on and will likely change in the future.
 
-mod behaviour;
-mod bitswap;
+// NOTE: libp2p backend modules have been removed. Only litep2p backend is supported.
+// The following modules were removed as they depend on libp2p:
+// - behaviour (libp2p swarm behaviour)
+// - bitswap (libp2p bitswap - litep2p has its own in litep2p/shim/bitswap.rs)
+// - discovery (libp2p Kademlia - litep2p has its own in litep2p/discovery.rs)
+// - protocol (libp2p notifications - litep2p has its own in litep2p/shim/notification/)
+// - transport (libp2p transport - litep2p has its own transport)
+// - request_responses (libp2p request-response - litep2p has its own in litep2p/shim/request_response/)
+
 pub mod litep2p;
-mod protocol;
 
 #[cfg(test)]
 mod mock;
 
 pub mod config;
-pub mod discovery;
 pub mod error;
 pub mod event;
 pub mod network_state;
-pub mod peer_info;
+// NOTE: peer_info.rs is libp2p NetworkBehaviour - litep2p handles peer info differently
+// pub mod peer_info;
 pub mod peer_store;
 pub mod protocol_controller;
-pub mod request_responses;
 pub mod service;
-pub mod transport;
 pub mod types;
 pub mod utils;
 
+// Re-export request-response types from litep2p shim - this provides the `request_responses` module
+pub mod request_responses {
+	pub use crate::litep2p::shim::request_response::{
+		IncomingRequest, OutboundRequest, OutgoingResponse, RequestResponseConfig,
+		RequestResponseProtocol,
+	};
+	pub use crate::service::traits::{IfDisconnected, RequestFailure, OutboundFailure};
+	
+	/// Type alias for compatibility with sc-service which expects this name.
+	pub type ProtocolConfig = RequestResponseConfig;
+}
+
 pub use event::{DhtEvent, Event};
-#[doc(inline)]
-pub use request_responses::{Config, IfDisconnected, RequestFailure};
+pub use request_responses::{IfDisconnected, RequestFailure};
 pub use sc_network_common::{
 	role::{ObservedRole, Roles},
 	types::ReputationChange,
@@ -279,7 +294,7 @@ pub use sc_network_types::{
 };
 pub use service::{
 	metrics::NotificationMetrics,
-	signature::Signature,
+	signature::{DecodingError, Keypair, PublicKey, Signature},
 	traits::{
 		KademliaKey, MessageSink, NetworkBackend, NetworkBlock, NetworkDHTProvider,
 		NetworkEventStream, NetworkPeers, NetworkRequest, NetworkSigner, NetworkStateInfo,
@@ -287,8 +302,6 @@ pub use service::{
 		NotificationSender as NotificationSenderT, NotificationSenderError,
 		NotificationSenderReady, NotificationService,
 	},
-	DecodingError, Keypair, NetworkService, NetworkWorker, NotificationSender, OutboundFailure,
-	PublicKey,
 };
 pub use types::ProtocolName;
 

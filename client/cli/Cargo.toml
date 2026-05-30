@@ -22,7 +22,6 @@ fdlimit = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 itertools = { workspace = true }
-libp2p-identity = { features = ["dilithium", "peerid"], workspace = true }
 log = { workspace = true, default-features = true }
 names = { workspace = true }
 qp-dilithium-crypto = { workspace = true, features = ["full_crypto", "serde", "std"] }
@@ -40,6 +39,8 @@ sc-mixnet.default-features = true
 sc-mixnet.workspace = true
 sc-network.default-features = true
 sc-network.workspace = true
+litep2p.default-features = true
+litep2p.workspace = true
 sc-service.default-features = false
 sc-service.workspace = true
 sc-telemetry.default-features = true

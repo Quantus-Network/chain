@@ -22,9 +22,8 @@
 use crate::{
 	litep2p::shim::request_response::metrics::RequestResponseMetrics,
 	peer_store::PeerStoreProvider,
-	request_responses::{IncomingRequest, OutgoingResponse},
-	service::{metrics::Metrics, traits::RequestResponseConfig as RequestResponseConfigT},
-	IfDisconnected, OutboundFailure, ProtocolName, RequestFailure,
+	service::{metrics::Metrics, traits::{IfDisconnected, OutboundFailure, RequestFailure, RequestResponseConfig as RequestResponseConfigT}},
+	ProtocolName,
 };
 
 use futures::{channel::oneshot, future::BoxFuture, stream::FuturesUnordered, StreamExt};
@@ -53,6 +52,28 @@ mod tests;
 
 /// Logging target for the file.
 const LOG_TARGET: &str = "sub-libp2p::request-response";
+
+/// Incoming request - represents a request received from a peer.
+#[derive(Debug)]
+pub struct IncomingRequest {
+	/// Peer that sent the request.
+	pub peer: PeerId,
+	/// Request data.
+	pub payload: Vec<u8>,
+	/// Channel for sending the response.
+	pub pending_response: oneshot::Sender<OutgoingResponse>,
+}
+
+/// Outgoing response - represents a response to send to a peer.
+#[derive(Debug)]
+pub struct OutgoingResponse {
+	/// Response data.
+	pub result: Result<Vec<u8>, ()>,
+	/// Reputation changes for the peer.
+	pub reputation_changes: Vec<crate::ReputationChange>,
+	/// Sent feedback.
+	pub sent_feedback: Option<oneshot::Sender<()>>,
+}
 
 /// Type containing information related to an outbound request.
 #[derive(Debug)]

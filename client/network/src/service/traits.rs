@@ -21,11 +21,11 @@
 //! Traits defined by `sc-network`.
 
 use crate::{
-	config::{IncomingRequest, MultiaddrWithPeerId, NotificationHandshake, Params, SetConfig},
+	config::{MultiaddrWithPeerId, NotificationHandshake, Params, SetConfig},
 	error::{self, Error},
 	event::Event,
+	litep2p::shim::request_response::IncomingRequest,
 	network_state::NetworkState,
-	request_responses::{IfDisconnected, RequestFailure},
 	service::{metrics::NotificationMetrics, signature::Signature, PeerStoreProvider},
 	types::ProtocolName,
 	ReputationChange,
@@ -52,7 +52,61 @@ use std::{
 	time::{Duration, Instant},
 };
 
-pub use libp2p::identity::SigningError;
+pub use crate::service::signature::SigningError;
+
+/// Possible failures occurring in the context of sending an outbound request.
+#[derive(Debug, Clone)]
+pub enum OutboundFailure {
+	/// The request could not be sent because a dialing attempt failed.
+	DialFailure,
+	/// The request timed out before a response was received.
+	Timeout,
+	/// The connection closed before a response was received.
+	ConnectionClosed,
+	/// The remote supports none of the requested protocols.
+	UnsupportedProtocols,
+	/// An IO failure happened on an outbound stream.
+	Io(Arc<std::io::Error>),
+}
+
+impl PartialEq for OutboundFailure {
+	fn eq(&self, other: &Self) -> bool {
+		match (self, other) {
+			(Self::DialFailure, Self::DialFailure) => true,
+			(Self::Timeout, Self::Timeout) => true,
+			(Self::ConnectionClosed, Self::ConnectionClosed) => true,
+			(Self::UnsupportedProtocols, Self::UnsupportedProtocols) => true,
+			(Self::Io(_), Self::Io(_)) => true, // Compare by variant only for Io
+			_ => false,
+		}
+	}
+}
+
+impl Eq for OutboundFailure {}
+
+/// Request failure type - represents why a request failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestFailure {
+	/// The peer is not connected.
+	NotConnected,
+	/// The protocol is not registered.
+	UnknownProtocol,
+	/// The remote refused the request.
+	Refused,
+	/// The response is no longer needed.
+	Obsolete,
+	/// Network-level failure.
+	Network(OutboundFailure),
+}
+
+/// If disconnected - describes what happens when trying to send to a disconnected peer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum IfDisconnected {
+	/// Try to connect before sending.
+	TryConnect,
+	/// Don't try to connect, just fail immediately.
+	ImmediateError,
+}
 
 /// Supertrait defining the services provided by [`NetworkBackend`] service handle.
 pub trait NetworkService:
