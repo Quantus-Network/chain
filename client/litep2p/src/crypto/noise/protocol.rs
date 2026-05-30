@@ -38,15 +38,6 @@ use zeroize::Zeroize;
 
 use crate::error::NegotiationError;
 
-/// ML-KEM 768 public key size (FIPS 203)
-pub const ML_KEM_768_PUBLIC_KEY_SIZE: usize = 1184;
-
-/// ML-KEM 768 secret key size (FIPS 203)
-pub const ML_KEM_768_SECRET_KEY_SIZE: usize = 2400;
-
-/// ML-KEM 768 ciphertext size
-pub const ML_KEM_768_CIPHERTEXT_SIZE: usize = 1088;
-
 /// Clatter session that manages the pqXX handshake state with ML-KEM 768.
 pub struct ClatterSession {
     rng: Box<rand::rngs::StdRng>,
@@ -168,28 +159,12 @@ impl ClatterSession {
             .map_err(|e| NegotiationError::Clatter(format!("pqXX read failed: {:?}", e)))
     }
 
-    /// Check if this is an initiator.
-    pub fn is_initiator(&self) -> bool {
-        if let Some(handshake) = &self.handshake {
-            handshake.is_initiator()
-        } else {
-            self.is_initiator
-        }
-    }
-
     /// Get the remote's static public key.
     pub fn get_remote_static(&self) -> Option<Vec<u8>> {
         self.handshake
             .as_ref()?
             .get_remote_static()
             .map(|k| k.as_slice().to_vec())
-    }
-
-    /// Check if the handshake is finished.
-    pub fn is_finished(&self) -> bool {
-        self.handshake
-            .as_ref()
-            .map_or(false, |h| h.is_finished())
     }
 
     /// Convert to transport state after handshake completion.
@@ -293,20 +268,6 @@ impl AsRef<[u8]> for SecretKey {
 #[derive(Clone, PartialEq)]
 pub struct PublicKey(Vec<u8>);
 
-impl PublicKey {
-    /// Create a public key from a slice.
-    pub fn from_slice(slice: &[u8]) -> Result<Self, NegotiationError> {
-        if slice.len() != ML_KEM_768_PUBLIC_KEY_SIZE {
-            return Err(NegotiationError::Clatter(format!(
-                "Invalid ML-KEM 768 public key size: expected {}, got {}",
-                ML_KEM_768_PUBLIC_KEY_SIZE,
-                slice.len()
-            )));
-        }
-        Ok(PublicKey(slice.to_vec()))
-    }
-}
-
 impl AsRef<[u8]> for PublicKey {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -316,6 +277,29 @@ impl AsRef<[u8]> for PublicKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ML-KEM 768 public key size (FIPS 203)
+    const ML_KEM_768_PUBLIC_KEY_SIZE: usize = 1184;
+
+    /// ML-KEM 768 secret key size (FIPS 203)
+    const ML_KEM_768_SECRET_KEY_SIZE: usize = 2400;
+
+    /// Test helpers for ClatterSession
+    impl ClatterSession {
+        fn is_initiator(&self) -> bool {
+            if let Some(handshake) = &self.handshake {
+                handshake.is_initiator()
+            } else {
+                self.is_initiator
+            }
+        }
+
+        fn is_finished(&self) -> bool {
+            self.handshake
+                .as_ref()
+                .map_or(false, |h| h.is_finished())
+        }
+    }
 
     #[test]
     fn keypair_generation_works() {

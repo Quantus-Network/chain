@@ -52,10 +52,6 @@ use std::{
 
 mod protocol;
 
-pub use protocol::{
-    Keypair as NoiseKeypair, PublicKey as NoisePublicKey, SecretKey as NoiseSecretKey,
-    ML_KEM_768_CIPHERTEXT_SIZE, ML_KEM_768_PUBLIC_KEY_SIZE, ML_KEM_768_SECRET_KEY_SIZE,
-};
 use protocol::{ClatterSession, ClatterTransport};
 
 mod handshake_schema {

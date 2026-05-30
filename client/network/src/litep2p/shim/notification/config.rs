@@ -18,6 +18,8 @@
 
 //! `litep2p` notification protocol configuration.
 
+#![allow(missing_docs)]
+
 use crate::{
 	config::{MultiaddrWithPeerId, NonReservedPeerMode, NotificationHandshake, SetConfig},
 	litep2p::shim::notification::{

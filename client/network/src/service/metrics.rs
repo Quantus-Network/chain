@@ -16,6 +16,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+//! Network service metrics.
+
+#![allow(missing_docs)]
+
 use crate::{service::traits::BandwidthSink, ProtocolName};
 
 use prometheus_endpoint::{
